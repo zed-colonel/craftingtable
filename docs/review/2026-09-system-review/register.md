@@ -1766,7 +1766,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - supervised Claude runs load no operator skills, plugins, MCP servers or memory (increment 2's live check); Codex runs load none of the operator's (increment 3's live check).
 - **Follow-ups the operator decided after the batch report (2026-09-28).**
   - **crates.io in Claude's sandbox: done.**
-    - The sandbox allows `crates.io`, `index.crates.io` and `static.crates.io`, still under a strict allowlist, so the brief's `cargo fetch` can download dependencies.
+    - The sandbox allows `index.crates.io` and `static.crates.io` (the apex `crates.io` was dropped after the review), still under a strict allowlist, so the brief's `cargo fetch` can download dependencies.
     - It may write Cargo's `registry` and `git` caches: the same two directories the check units write, and nothing else of the home directory.
     - The daemon names the run's `CARGO_HOME`, as the check units have it, so the agent and its sandbox agree on the location. The adapter creates the two caches before launch, because the sandbox can make only an existing directory writable.
     - Live check: a sandboxed Claude run downloaded a crate into a fresh Cargo home. Its write to the home's root and a request to another host were refused.
@@ -1789,6 +1789,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - `server-execution-runs.test.ts`: two runs each move main. Acknowledging the first leaves the second open, and acknowledging the rest resolves the item as the operator's. A repeat acknowledgement is refused; the database refuses an edit and a delete.
       - `AcknowledgeMoves.test.tsx`: the control sends exactly the listed ids, reports a refusal, and is disabled for viewers.
     - **Rollback:** a release before this cannot open a schema-35 database.
+  - **Independent review of the follow-ups (2026-09-28, d6823bf..c9b3d78, isolated worktree).** No HIGH findings. The reviewer re-ran the LIVE-15 and effort mutations (all fail as claimed) and emulated the sandbox's write set with bwrap (the fetch succeeds).
+    - *MEDIUM, fixed:* the `crates.io` apex is the write API (publish, yank), not needed for a sparse fetch, and so a way to carry data out. Cargo's credential files were readable. The sandbox now allows only `index.crates.io` and `static.crates.io`, and denies reading `credentials.toml` and `credentials` in the Cargo home (test: `arguments.test.ts`).
+    - *LOW, fixed:* creating the caches could fail every sandboxed launch (an unwritable Cargo home), created `~/.cargo` on hosts without Rust, and an empty `CARGO_HOME` became a relative path. Now the caches are made only inside an existing Cargo home, failures never stop the launch, and an empty value counts as unset (test: `backend.test.ts`, a missing and a read-only home).
 
 ### R-G6
 

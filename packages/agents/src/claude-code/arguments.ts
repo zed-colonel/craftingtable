@@ -67,7 +67,7 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
  * Claude Code's seccomp helper is absent), system Docker sockets, and the operator's
  * credentials. Claude itself still reads its own login; only the agent's commands are denied.
  */
-function sandboxDeniedReads(): string[] {
+function sandboxDeniedReads(request: AgentLaunchRequest): string[] {
   const uid = process.getuid?.();
   return [
     ...(uid === undefined ? [] : [`/run/user/${uid}`]),
@@ -81,15 +81,20 @@ function sandboxDeniedReads(): string[] {
     '~/.git-credentials',
     '~/.codex',
     '~/.claude/.credentials.json',
+    // Cargo's registry tokens, which would let a command publish or yank as the operator.
+    join(cargoHome(request), 'credentials.toml'),
+    join(cargoHome(request), 'credentials'),
   ];
 }
 
 /**
  * The one outside source sandboxed commands may reach: the crates.io registry, so that
  * `cargo fetch` can download dependencies before the daemon's offline builds (operator
- * decision 2026-09-28). A place to configure such sources is a follow-up (R-G14).
+ * decision 2026-09-28). Only its sparse index and download hosts: the `crates.io` apex is the
+ * write API (publish, yank), which would carry data out (R-G5 follow-up review). A place to
+ * configure such sources is a follow-up (R-G14).
  */
-const SANDBOX_ALLOWED_DOMAINS = ['crates.io', 'index.crates.io', 'static.crates.io'];
+const SANDBOX_ALLOWED_DOMAINS = ['index.crates.io', 'static.crates.io'];
 
 /**
  * Where a fetch writes outside the worktree: Cargo's registry and Git caches, the same two
@@ -97,8 +102,13 @@ const SANDBOX_ALLOWED_DOMAINS = ['crates.io', 'index.crates.io', 'static.crates.
  * sandbox can make only an existing directory writable, so the adapter creates them first.
  */
 export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
-  const cargoHome = request.environment?.CARGO_HOME ?? join(homedir(), '.cargo');
-  return [join(cargoHome, 'registry'), join(cargoHome, 'git')];
+  const home = cargoHome(request);
+  return [join(home, 'registry'), join(home, 'git')];
+}
+
+/** The Cargo home the daemon named for the run, else Cargo's default; an empty value is unset. */
+function cargoHome(request: AgentLaunchRequest): string {
+  return request.environment?.CARGO_HOME || join(homedir(), '.cargo');
 }
 
 /**
@@ -127,7 +137,7 @@ function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown>
             allowUnsandboxedCommands: false,
             autoAllowBashIfSandboxed: request.permissionMode === 'auto' && !request.readOnly,
             filesystem: {
-              denyRead: sandboxDeniedReads(),
+              denyRead: sandboxDeniedReads(request),
               allowWrite: sandboxAllowedWrites(request),
             },
             network: {

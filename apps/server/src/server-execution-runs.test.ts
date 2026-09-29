@@ -942,8 +942,8 @@ describe('agent runs', () => {
     // It names Cargo's home, the one the check units use, so a sandboxed fetch writes where
     // the sandbox allows (R-G5, operator decision 2026-09-28).
     expect(state.backend.launches.map((launch) => launch.environment?.CARGO_HOME)).toEqual([
-      process.env.CARGO_HOME ?? join(homedir(), '.cargo'),
-      process.env.CARGO_HOME ?? join(homedir(), '.cargo'),
+      process.env.CARGO_HOME || join(homedir(), '.cargo'),
+      process.env.CARGO_HOME || join(homedir(), '.cargo'),
     ]);
     // A sandboxed agent (Codex workspace-write) may write only to the listed directories.
     for (const launch of state.backend.launches)

@@ -1,6 +1,7 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -256,6 +257,7 @@ setInterval(() => out(limited), 50);
   it("creates the sandbox's Cargo caches before launch, so a fetch can write them (R-G5)", async () => {
     const fake = fakeClaude();
     const cargoHome = join(fake.cwd, 'cargo-home');
+    mkdirSync(cargoHome);
     const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
       cwd: fake.cwd,
       prompt: 'ENV-NAMES',
@@ -270,6 +272,32 @@ setInterval(() => out(limited), 50);
     expect(readdirSync(cargoHome).sort()).toEqual(['git', 'registry']);
     session.end();
     for await (const _ of session.items);
+  });
+
+  it('never fails a launch over the Cargo caches, nor creates a Cargo home (R-G5 follow-up review)', async () => {
+    const fake = fakeClaude();
+    // No Rust here: nothing is created.
+    const absent = join(fake.cwd, 'no-cargo');
+    // A Cargo home the daemon cannot write, as in a container image.
+    const locked = join(fake.cwd, 'locked-cargo');
+    mkdirSync(locked);
+    chmodSync(locked, 0o500);
+    try {
+      for (const home of [absent, locked]) {
+        const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+          cwd: fake.cwd,
+          prompt: 'ENV-NAMES',
+          permissionMode: 'auto',
+          environment: { CARGO_HOME: home },
+        });
+        session.end();
+        for await (const _ of session.items);
+      }
+      expect(existsSync(absent)).toBe(false);
+      expect(readdirSync(locked)).toEqual([]);
+    } finally {
+      chmodSync(locked, 0o700);
+    }
   });
 
   it('rejects an invalid launch request without spawning', async () => {

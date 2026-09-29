@@ -1,6 +1,6 @@
-import { accessSync, constants, mkdirSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, isAbsolute, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import {
   type AgentBackend,
   type AgentBackendDescriptor,
@@ -105,9 +105,7 @@ export class ClaudeCodeBackend implements AgentBackend {
     });
     let child: ReturnType<typeof spawnSupervisedProcess>;
     try {
-      if (claudeSandboxed(request))
-        for (const directory of sandboxAllowedWrites(request))
-          mkdirSync(directory, { recursive: true });
+      if (claudeSandboxed(request)) prepareCargoCaches(sandboxAllowedWrites(request));
       child = spawnSupervisedProcess({
         executable: this.options.executable,
         args: claudeCodeArguments(request),
@@ -246,3 +244,19 @@ export class ClaudeCodeBackend implements AgentBackend {
 }
 
 export { RAW_LINE_LIMIT_BYTES };
+
+/**
+ * Creates the Cargo caches the sandbox lets a fetch write, which it can make writable only if
+ * they exist. Only inside an existing Cargo home, so a host without Rust gets none, and never at
+ * the cost of the launch: a cache that cannot be created leaves fetches failing, nothing else.
+ */
+function prepareCargoCaches(directories: readonly string[]): void {
+  for (const directory of directories) {
+    if (!existsSync(dirname(directory))) continue;
+    try {
+      mkdirSync(directory);
+    } catch {
+      // Already there, or not ours to create.
+    }
+  }
+}

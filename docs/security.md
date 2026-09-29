@@ -109,8 +109,9 @@ program and filters. A sandboxed agent cannot write it: Codex runs use Codex's s
 R-G5 Claude runs' Bash runs in Claude Code's OS sandbox (every posture but unrestricted), writing
 only the worktree, the run's directories, its scratch space and Cargo's `registry` and `git`
 caches under the Cargo home the daemon names, reaching nothing but loopback and the crates.io
-registry (`crates.io`, `index.crates.io`, `static.crates.io`, a strict allowlist, so that
-`cargo fetch` can download dependencies; operator decision 2026-09-28), unable to read the user's runtime directory (the rootless Docker socket
+registry's index and downloads (`index.crates.io`, `static.crates.io`, a strict allowlist, so
+that `cargo fetch` can download dependencies; operator decision 2026-09-28; not the `crates.io`
+API, which publishes), unable to read Cargo's registry tokens, the user's runtime directory (the rootless Docker socket
 and session bus), system Docker sockets or the operator's credentials, and with no way to leave
 it. Claude loads no settings file from any scope, not even the repository's, so a worktree cannot
 widen its sandbox or add hooks. Claude's Edit and Write tools stay under the permission posture. Checks the daemon runs on a worktree use the git

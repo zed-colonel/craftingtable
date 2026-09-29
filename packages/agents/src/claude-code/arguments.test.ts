@@ -64,8 +64,17 @@ it("keeps the sandbox off the network, the Docker socket and the operator's cred
   expect(sandbox.network).toEqual({
     allowLocalBinding: true,
     strictAllowlist: true,
-    allowedDomains: ['crates.io', 'index.crates.io', 'static.crates.io'],
+    // Only what a sparse fetch reads: the index and the downloads. The apex is the write API
+    // (publish, yank), a way out for data (R-G5 follow-up review).
+    allowedDomains: ['index.crates.io', 'static.crates.io'],
   });
+  // Cargo's registry tokens stay unreadable.
+  expect(sandbox.filesystem.denyRead).toEqual(
+    expect.arrayContaining([
+      join(homedir(), '.cargo', 'credentials.toml'),
+      join(homedir(), '.cargo', 'credentials'),
+    ]),
+  );
   // What a fetch writes: Cargo's registry and Git caches, nothing else of the home directory.
   // The daemon names the run's Cargo home; without one it is Cargo's default.
   expect(sandbox.filesystem.allowWrite).toEqual([

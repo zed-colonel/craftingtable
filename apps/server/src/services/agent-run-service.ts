@@ -1431,7 +1431,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           CARGO_TARGET_DIR: buildCacheDirectory ?? join(temporaryDirectory, 'target'),
           // Cargo's home, as the check units have it: a sandboxed `cargo fetch` may write only
           // its registry and Git caches, so the agent and its sandbox must agree on where.
-          CARGO_HOME: process.env.CARGO_HOME ?? join(homedir(), '.cargo'),
+          CARGO_HOME: process.env.CARGO_HOME || join(homedir(), '.cargo'),
           ...(pinned ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
         },
         ...(pinned ? { pathPrefix: [pinned.binDirectory] } : {}),

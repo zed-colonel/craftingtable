@@ -629,18 +629,28 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - **First-boot checks** (details on R-G4 and R-G5):
     - Schema 35 migrated at 06:48:52.
     - `<data>/cargo-home` was seeded (490 MB, no credentials), and `git-identity.gitconfig` holds name and email only.
-    - 463 check units ran, with 790 daemon receipts, and the daemon logged no warnings or errors.
+    - 749 check units started, with 790 daemon receipts, and the daemon logged no warnings or errors.
     - The Codex probe passed for all 57 runs.
     - The Claude sandbox launch is unverified: no live profile uses Claude, and this session's permission policy refused a live probe. It needs one operator-run Claude step.
   - **LIVE-16: verified.** Both stale worktrees were removed on the first pass, and WI-03/integration and WI-04/integration started a second later.
-  - **R-C3b: done-when met on the first day.** The grant prepared 36 decisions in 80 minutes, and the operator approved nine in one batch. 1 of 3 started slices had a design stop, against 10 of 11 before, and that stop was for a decision whose brief was ready. The sample is small, so measure it again.
+  - **R-C3b: preparation works; the done-when is not met yet.** The grant prepared 35 decisions in 84 minutes, and the operator approved nine in one batch. But the one slice that started with an undecided decision (WI-05/domain, WI-ADR-009) still stopped at design: its brief was ready five hours before, and was approved four hours after. The other two started slices needed no new decision. Closing it needs decisions approved before their slices start, or a scheduler that holds such a slice (an operator decision).
   - **R-F7: done.** WI-02/domain's verification passed every check as `current-upstream-build` under the wi→aq record, and WI-02 was accepted.
-  - **LIVE-17: not seen.** 99 local CI runs, with overlapping runs of one workflow taking turns, and no Docker collision. Closed by R-G4, to be reopened if one appears.
+  - **LIVE-17: not seen.** 99 local CI runs, with overlapping runs of one workflow taking turns, and no collision message anywhere readable; two job failures stay unclassified because job logs were not read. Closed by R-G4, to be reopened if one appears.
   - **R-C5: not fired.** WI-03's parent review needed recovery, and automatic recovery held it for an ambiguous owner, as designed.
   - **New stops recorded, not fixed (rule 7):**
     - LIVE-20: the ambiguous-owner hold's reason reaches neither the inbox nor the status list.
-    - LIVE-21: LIVE-15's typed stop missed the delegated checkpoint's acceptance, so EXO-04's mergeable review ran three times into the same `controller-error`.
+    - LIVE-21: LIVE-15's typed stop missed the delegated checkpoint's acceptance, so EXO-04's mergeable checkpoint review ended at the same `controller-error` after the fix too (the fourth time).
     - LIVE-18 recurred: EXO-18 was resumed at 06:50 and stopped at the same gate at 07:13.
+  - **Independent review of these records (2026-09-29, isolated worktree, 69ce1e1).** The reviewer re-queried a copy of the snapshot, re-ran the replays and read the journals. Every finding is fixed in the records:
+    - *HIGH, fixed:* R-C3b's "done-when met" compared unlike cases. The two slices without a stop started before the grant and needed no undecided decision; the one that did stopped. R-C3's status is restored to "done-when not yet met", with what would close it.
+    - *MEDIUM, fixed:* 35 preparations, not 36 (7 WI and 28 EXO; two older records date from 09-24), 06:50:57 to 08:14.
+    - *MEDIUM, fixed:* LIVE-21 blamed three stops on a fix that was live for only one, and missed a fourth (082948fb, 09-28 21:13). It now says four mergeable reviews ended there, one after the fix.
+    - *LOW-MEDIUM, fixed:* LIVE-21 named the later submission check; the conflict comes earlier, from the checkpoint candidate's own issues. A fix at the later statement would miss again.
+    - *LOW-MEDIUM, fixed:* R-G4's unit count was the units that logged resource use (463); 749 started. Four checks exited 127, cause unverified.
+    - *LOW, fixed:* LIVE-20 now names the mechanism (a cycle's item replaces the roadmap's hold item; only `recovery-not-converging` passes the hold's reason on) and the replay's two variants.
+    - *LOW, fixed:* LIVE-17 no longer claims receipts show no collision; two job failures are unclassified.
+    - *LOW, fixed:* LIVE-18's review list and its preparation IDs (worktree IDs had been given).
+    - *NIT, fixed:* R-F7's CI rerun count and the date of its evidence; the operator's pause, grant and resume sequence at 06:49 to 06:50.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

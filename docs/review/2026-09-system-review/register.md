@@ -30,7 +30,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
-| [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | done (R-C3a; R-C3b measured live 2026-09-29, see entry) | Design stage: continue automatically and batch real decisions ahead of time |
+| [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b preparation works live, done-when not yet met (2026-09-29, see entry) | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | done (2026-09-28, see entry) | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
@@ -561,7 +561,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C3
 
-**Design stage: continue automatically and batch real decisions ahead of time** · Phase P2 · Effort M (larger: split into R-C3a, S, and R-C3b, M-L) · Status: done (R-C3a 2026-09-25; R-C3b measured live 2026-09-29)
+**Design stage: continue automatically and batch real decisions ahead of time** · Phase P2 · Effort M (larger: split into R-C3a, S, and R-C3b, M-L) · Status: R-C3a done; R-C3b code done and preparing live since 2026-09-29, done-when not yet met
 
 - **Resolves:** [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes), [HIST-19](findings/HIST-history-and-live-usage.md#hist-19-real-cross-project-workload-is-10-the-scale-the-uis-lists-were-designed-for-progress-and-dependencies-are-hard-to-see)
 - **Change:** When a design investigation finishes and every question has a cited answer with no operator-classified decision left, continue without a stop. Build the per-roadmap decision queue before dependent slices start (extend ADR-065 decision preparation) so shared architecture decisions are answered once, in a batch, in the inbox.
@@ -663,14 +663,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - EXO-03/integration's status now names that limit too, as the first binding limit.
     - The replay harness leaves the cleanup out (`scheduler-replay.ts`). Its Git call would otherwise be charged to the first entry of the pass, which showed as a false `replay-stopped-at-git` on EXO-01/domain in four snapshots.
     - New scheduler goldens at the fix: `scheduler-golden-<fix>.json` for 2026-09-27 and 2026-09-28c.
-- **Live measurement (2026-09-29 snapshot, 10.5 hours after the fccce06 deploy): done-when met on the first day.**
-  - **Grant and preparation.** The operator set the standing grant at 06:50:33 UTC (30 minutes, one at a time). The scheduler prepared 36 decisions between 06:50 and 08:11, most slices first: 7 WI and 29 EXO, including all four of EXO-18's merge decisions (LIVE-18). Every one ended with a recommendation; 26 are open for the operator.
+- **Live measurement (2026-09-29 snapshot, 10.5 hours after the fccce06 deploy): preparation works; the done-when is not met yet.** Corrected after the independent review the same day. The first version called the done-when met, from 1 design stop in 3 started slices, but that compared unlike cases.
+  - **Grant and preparation.** The roadmap was already running at boot. The operator paused it at 06:49:55, set the standing grant at 06:50:33 (30 minutes, one at a time) and resumed at 06:50:55. The scheduler then prepared 35 decisions between 06:50:57 and 08:14 (7 WI, 28 EXO), most slices first, including all four of EXO-18's merge decisions (LIVE-18). Each ended with a recommendation. 26 of the 35 preparation items are open for the operator.
   - **Batch approval.** With the roadmap paused, the operator approved nine prepared decisions in full between 16:04 and 17:16: WI-ADR-009, 011, 014, 015, 018, 019 and 020, and EXO-ADR-009 and 010.
-  - **Design stops per started slice: 1 of 3**, against 10 of 11 before.
-    - WI-03/integration (started 06:48:53) and WI-04/integration (06:48:54) went from design to implementation with no stop. WI-03/integration was merged and verified by 12:30.
-    - WI-05/domain (12:09) stopped at `design-decision-required` for WI-ADR-009. Its brief had been ready since 06:53, five hours earlier; the operator approved it at 16:04, in the batch. The stop is the operator's decision, reached through a prepared brief.
-    - The sample is small. Measure again after a few more days of slices.
-  - **LIVE-16's cleanup** removed both stale worktrees on the first pass (06:48:52). Accepted preparations' worktrees are removed on the next running pass; the roadmap was paused at the snapshot, so the nine accepted today are still there, holding no capacity.
+  - **Design stops.**
+    - WI-03/integration and WI-04/integration started at 06:48:53, before the grant was set, with no design stop. Every decision they need was accepted on 2026-09-20 or 09-21, so neither tests the grant. WI-03/integration was merged and verified by 12:30.
+    - WI-05/domain is the one started slice whose decision was still undecided: WI-ADR-009, the kind of case behind the 10-of-11 baseline. Its brief had been ready since 06:53, but the slice started at 12:09 and stopped at `design-decision-required` at 12:15. The operator approved WI-ADR-009 at 16:04, in the batch.
+    - So the grant turned 0 of 1 decision-dependent starts into a design without a stop. It moved the stop's work earlier (a recommendation ready when asked), not the stop itself.
+  - **What would close it.** Either the operator approves prepared decisions before their slices start, which the batch now makes practical, or the scheduler holds a slice whose start needs a decision that has a brief but no approval, rather than starting its design into a stop. The second is a scheduling change for the operator to decide. Measure again after more slices start with decisions approved ahead.
+- **LIVE-16's cleanup** removed both stale worktrees on the first pass (06:48:52). Accepted preparations' worktrees are removed on the next running pass; the roadmap was paused at the snapshot, so the nine accepted today are still there, holding no capacity.
 
 ### R-C4
 
@@ -726,7 +727,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Mutations:** without the resume guard, the resume is accepted (200); without the typed throw, the error is a plain conflict. Both fail the test.
   - **Follow-up, for automation (open):** start the refresh preview automatically on this stop, leaving only the decision to the operator. The refs carry what that needs.
   - **Rollback:** a release before this cannot read cycles carrying the new code or refs.
-  - **Missed path, found live 2026-09-29 ([LIVE-21](findings/LIVE-live-run-2026-09-25.md#live-21-live-15s-typed-stop-misses-a-delegated-checkpoints-acceptance-so-exo-04s-review-ran-three-times-into-the-same-untyped-stop), open).** LIVE-15's own cycle, b0de849a, stopped as `controller-error` again after the deploy. Its stop comes from `acceptWorkflowCheckpoint` after a mergeable delegated checkpoint review, which raises a plain conflict; the typed throw is only in `freshnessConflict`. Its exit is the refresh preview. Recorded under rule 7, not fixed.
+  - **Missed path, found live 2026-09-29 ([LIVE-21](findings/LIVE-live-run-2026-09-25.md#live-21-live-15s-typed-stop-misses-a-delegated-checkpoints-acceptance-so-exo-04s-review-ran-into-the-same-untyped-stop-after-the-fix), open).** LIVE-15's own cycle, b0de849a, stopped as `controller-error` again after the fccce06 deploy. After a mergeable delegated checkpoint review, `acceptWorkflowCheckpoint` builds the checkpoint candidate (`checkpointRecovery(…, true)`), and the candidate's own freshness issue raises a plain conflict before anything else; the typed throw is only in `freshnessConflict`. Its exit is the refresh preview. Recorded under rule 7, not fixed.
 
 ### R-C5
 
@@ -815,7 +816,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *NIT, disposition:* source reports are read as each source run's last turn, not by the pinned sequence. The source runs are finished, so the two agree.
   - *NIT, fixed:* the fixture's time field held each run's start, so it is renamed `startedAt`.
 - **Live behaviour after the c547ede deploy (2026-09-28c snapshot, three hours in):** no automatic recovery round started and no `recovery-not-converging` hold was raised, so the escalation has not fired live yet. Cycle 2c9ead5d reached its review remediation limit, one major finding from the source-required security review with an allowance of 3, and the operator authorized 4 more attempts. That is the review allowance, which stays with the operator, not a recovery round.
-- **Live behaviour after the fccce06 deploy (2026-09-29 snapshot):** still no automatic round and no `recovery-not-converging` hold. One parent review needed recovery: WI-03's (254ad81c, 12:46 UTC, one major finding). WI-03 has two required slices, so automatic recovery declined to choose an owner and held the entry as `entry-preparation-failed`, "Finding ownership is ambiguous", as designed. Nothing shows that reason to the operator: the inbox and the status list show the review's own item. Recorded as [LIVE-20](findings/LIVE-live-run-2026-09-25.md#live-20-automatic-recovery-holds-a-parent-review-whose-finding-it-cannot-assign-and-nothing-says-why), with a replay case.
+- **Live behaviour after the fccce06 deploy (2026-09-29 snapshot):** still no automatic round and no `recovery-not-converging` hold. One parent review needed recovery: WI-03's (254ad81c, 12:46 UTC, one major finding). WI-03 has two required slices, so automatic recovery declined to choose an owner and held the entry as `entry-preparation-failed`, "Finding ownership is ambiguous", as designed. Nothing shows that reason to the operator: the projector lets a cycle's own item replace the roadmap's hold item for the same entry, and passes the hold's reason on only for `recovery-not-converging`, so the inbox and the status list show the review's own item. Recorded as [LIVE-20](findings/LIVE-live-run-2026-09-25.md#live-20-automatic-recovery-holds-a-parent-review-whose-finding-it-cannot-assign-and-nothing-says-why), with a replay case.
 
 ### R-C6
 
@@ -1550,9 +1551,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - the pinned Cargo clippy, build and test;
     - all three local CI jobs.
     
-    Its first run of each check, at 03:00, failed and passed on rerun.
+    Its first runs failed and passed on rerun: each scoped check once at 03:00, and the domain CI job three times (03:00 to 03:03) before passing at 03:06.
   - Its receipt fe8c2aea was recorded at 07:14, and WI-02 was accepted at 07:30 (06ee33b0).
-  - Since the fccce06 deploy, every WI slice run reports `current-upstream-build`.
+  - This evidence is from 2026-09-26, not from the fccce06 deploy. Since the deploy, WI-05/domain's design run (11febd2f) also carries `current-upstream-build` from its moved link; integration slices always run in that mode.
 
 ## Workstream G — Agent execution integrity and security
 
@@ -1693,7 +1694,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Toolchains with HOME read-only: in a unit confined as the checks are, with the live daemon's PATH, `cargo`, `rustc`, `node`, `pnpm` and `git` all run.
     - Mutation checks were run for every fix above.
 - **Status (2026-09-28): done.** Increments 0 to 6 and the review fixes. For runs prepared after the cutover, no gating receipt is read from an agent-writable path. Records frozen earlier stay valid and are labelled agent-reported. Two gaps are left open: `ct-check -- true` still counts as a scoped check (the declared-checks follow-up, [R-G13](#r-g13), AGT-08), and Claude runs have no OS sandbox (R-G5).
-- **First live day (2026-09-29 snapshot, fccce06).** 463 `craftingtable-check-*` units ran in 10.5 hours, and 790 daemon-recorded receipts were stored. The daemon journal has no warnings or errors since the boot. Failed units are check results (exit 1 or Cargo's 101), not confinement faults, apart from one pattern: two agent-chosen pinned Cargo commands needed a registry index update, which the no-network unit refuses ("Could not connect to index.crates.io"). The crate (`fs2`) was in the daemon's Cargo home; the lock resolution was not. No gate or stop depended on either. Local CI ran 99 times without a collision (LIVE-17).
+- **First live day (2026-09-29 snapshot, fccce06).** 749 `craftingtable-check-*` units started in 10.5 hours (plus 493 `-metadata` units), and 790 daemon-recorded receipts were stored. The daemon journal has no warnings or errors since the boot. Failed units are check results (exit 1 or Cargo's 101) with two other patterns:
+  - Two agent-chosen pinned Cargo commands needed a registry index update, which the no-network unit refuses ("Could not connect to index.crates.io"). The crate (`fs2`) was in the daemon's Cargo home; the lock resolution was not.
+  - Four checks exited 127 (`env … scripts/check-wi-{integration,contract}.sh`, 06:59, 09:44, 11:28, 12:38). The cause is unverified: the check logs were not read.
+  
+  No gate or stop depended on any of these. Local CI ran 99 times with no Docker collision seen (LIVE-17).
 
 ### R-G5
 

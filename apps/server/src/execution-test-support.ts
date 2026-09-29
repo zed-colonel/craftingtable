@@ -89,6 +89,9 @@ export function fixtureRepository(): string {
   const root = mkdtempSync(join(tmpdir(), 'craftingtable-exec-repo-'));
   directories.push(root);
   git(['init', '--initial-branch=main', '.'], root);
+  // The daemon's Git reads no operator configuration (R-G5); the repository names its committer.
+  git(['config', 'user.name', 'T'], root);
+  git(['config', 'user.email', 't@example.invalid'], root);
   writeFileSync(join(root, 'README.md'), '# fixture\n');
   git(['add', '--all'], root);
   git(['commit', '--no-gpg-sign', '-m', 'initial'], root);

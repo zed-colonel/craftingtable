@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -428,30 +428,48 @@ describe('git operations', () => {
 });
 
 describe('interrupted merges (GIT-01)', () => {
-  /** A primary checkout on main, a reviewed branch, and a merge hook that sleeps past the timeout. */
-  function slowMergeFixture(hook: string) {
+  /**
+   * A primary checkout on main and a reviewed branch whose merge sleeps past the timeout. Hooks
+   * never run for daemon Git (R-G5), so the delay comes from the repository's own configuration:
+   * a signing program (after MERGE_HEAD is written) or a merge driver (before it exists).
+   */
+  function slowMergeFixture(slow: 'signing' | 'driver' | 'none') {
     const repo = fixture();
     const identity = ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid'];
+    const sleeper = join(repo.root, 'sleep');
+    writeFileSync(sleeper, '#!/bin/sh\nsleep 30\n', { mode: 0o755 });
+    if (slow === 'driver') {
+      writeFileSync(join(repo.repository, 'shared.txt'), 'base\n');
+      writeFileSync(join(repo.repository, '.gitattributes'), 'shared.txt merge=slow\n');
+      runFixtureGit(['add', '.'], { cwd: repo.repository });
+      runFixtureGit([...identity, 'commit', '-q', '--no-gpg-sign', '-m', 'shared'], {
+        cwd: repo.repository,
+      });
+    }
     runFixtureGit(['checkout', '-q', '-b', 'ct/slow'], { cwd: repo.repository });
     writeFileSync(join(repo.repository, 'feature.txt'), 'feature\n');
+    if (slow === 'driver') writeFileSync(join(repo.repository, 'shared.txt'), 'feature\n');
     runFixtureGit(['add', '.'], { cwd: repo.repository });
     runFixtureGit([...identity, 'commit', '-q', '--no-gpg-sign', '-m', 'feature'], {
       cwd: repo.repository,
     });
     runFixtureGit(['checkout', '-q', 'main'], { cwd: repo.repository });
     writeFileSync(join(repo.repository, 'main.txt'), 'main\n');
+    if (slow === 'driver') writeFileSync(join(repo.repository, 'shared.txt'), 'main\n');
     runFixtureGit(['add', '.'], { cwd: repo.repository });
     runFixtureGit([...identity, 'commit', '-q', '--no-gpg-sign', '-m', 'main'], {
       cwd: repo.repository,
     });
-    const hooks = join(repo.root, 'hooks');
-    mkdirSync(hooks);
-    writeFileSync(join(hooks, hook), '#!/bin/sh\nsleep 30\n', { mode: 0o755 });
-    runFixtureGit(['config', 'core.hooksPath', hooks], { cwd: repo.repository });
     for (const [key, value] of [
       ['user.name', 'T'],
       ['user.email', 't@example.invalid'],
-      ['commit.gpgSign', 'false'],
+      ...(slow === 'signing'
+        ? [
+            ['commit.gpgSign', 'true'],
+            ['gpg.program', sleeper],
+          ]
+        : [['commit.gpgSign', 'false']]),
+      ...(slow === 'driver' ? [['merge.slow.driver', `${sleeper} %O %A %B`]] : []),
     ])
       runFixtureGit(['config', key as string, value as string], { cwd: repo.repository });
     const head = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
@@ -467,11 +485,10 @@ describe('interrupted merges (GIT-01)', () => {
     }
   };
 
-  // prepare-commit-msg runs after MERGE_HEAD is written; pre-merge-commit runs
-  // after the merge result is staged but before MERGE_HEAD exists.
-  for (const hook of ['prepare-commit-msg', 'pre-merge-commit']) {
-    it(`undoes a merge whose git process timed out in ${hook}`, async () => {
-      const { repo, head } = slowMergeFixture(hook);
+  // Signing runs after MERGE_HEAD is written; a merge driver runs before it exists.
+  for (const delay of ['signing', 'driver'] as const) {
+    it(`undoes a merge whose git process timed out in ${delay}`, async () => {
+      const { repo, head } = slowMergeFixture(delay);
       const slow = createGitOperations({ gitExecutable: GIT_EXECUTABLE, commandTimeoutMs: 1500 });
       const merged = await slow.mergeBranch({
         repositoryPath: repo.repository,
@@ -485,15 +502,17 @@ describe('interrupted merges (GIT-01)', () => {
       expect(runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim()).toBe(
         head,
       );
-      expect(runFixtureGit(['status', '--porcelain'], { cwd: repo.repository }).toString()).toBe(
-        '',
-      );
+      // A driver killed mid-merge leaves its own temporary files; recovery keeps unknown files.
+      expect(
+        runFixtureGit(['status', '--porcelain', '--untracked-files=no'], {
+          cwd: repo.repository,
+        }).toString(),
+      ).toBe('');
     }, 15_000);
   }
 
   it('refuses a primary checkout with a pending merge distinctly from a dirty one', async () => {
-    const { repo } = slowMergeFixture('prepare-commit-msg');
-    runFixtureGit(['config', '--unset', 'core.hooksPath'], { cwd: repo.repository });
+    const { repo } = slowMergeFixture('none');
     runFixtureGit(['merge', '--no-ff', '--no-commit', 'ct/slow'], { cwd: repo.repository });
     const refused = await operations.mergeBranch({
       repositoryPath: repo.repository,
@@ -920,4 +939,80 @@ it('fast-forwards a clean review snapshot to integration without inventing a mer
     ).ok,
   ).toBe(false);
   expect(runFixtureGit(['rev-parse', 'HEAD'], { cwd: path }).toString().trim()).toBe(changed);
+});
+
+describe('daemon Git runs no repository hooks, fsmonitor or operator configuration (R-G5, SEC-03, GIT-08)', () => {
+  it('commits and merges without running hooks or fsmonitor, and without global configuration', async () => {
+    const repo = fixture();
+    const marker = join(repo.root, 'ran');
+    const hooks = join(repo.root, 'hooks');
+    mkdirSync(hooks);
+    for (const hook of [
+      'pre-commit',
+      'prepare-commit-msg',
+      'commit-msg',
+      'post-commit',
+      'pre-merge-commit',
+      'post-merge',
+      'post-checkout',
+    ])
+      writeFileSync(join(hooks, hook), `#!/bin/sh\necho ${hook} >> ${marker}\n`, { mode: 0o755 });
+    const monitor = join(repo.root, 'monitor');
+    writeFileSync(monitor, `#!/bin/sh\necho fsmonitor >> ${marker}\n`, { mode: 0o755 });
+    runFixtureGit(['config', 'core.hooksPath', hooks], { cwd: repo.repository });
+    runFixtureGit(['config', 'core.fsmonitor', monitor], { cwd: repo.repository });
+    // Like the live repositories, this one names its own committer.
+    runFixtureGit(['config', 'user.name', 'Repository'], { cwd: repo.repository });
+    runFixtureGit(['config', 'user.email', 'repository@example.invalid'], { cwd: repo.repository });
+    // A global configuration the daemon must not read.
+    const global = join(repo.root, 'global.gitconfig');
+    writeFileSync(
+      global,
+      `[core]\n\tfsmonitor = ${monitor}\n[alias]\n\tstatus = !echo global >> ${marker}\n`,
+    );
+    const previous = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = global;
+    try {
+      writeFileSync(join(repo.repository, 'README.md'), 'checkpointed');
+      const before = await operations.inspectWorktreeChanges(repo.repository);
+      if (!before.ok) throw new Error(before.failure.message);
+      const checkpoint = await operations.checkpointWorktree({
+        worktreePath: repo.repository,
+        branchName: 'main',
+        expectedHeadSha: before.value.headSha,
+        fingerprint: before.value.fingerprint,
+        paths: before.value.paths,
+        sourceRunId: 'run-hooks',
+      });
+      expect(checkpoint.ok, JSON.stringify(checkpoint)).toBe(true);
+      const worktreePath = join(repo.root, 'hooked-worktree');
+      const created = await operations.createWorktree({
+        repositoryPath: repo.repository,
+        worktreePath,
+        branchName: 'ct/hooked',
+        baseRef: runFixtureGit(['rev-parse', 'main'], { cwd: repo.repository }).toString().trim(),
+      });
+      expect(created.ok, JSON.stringify(created)).toBe(true);
+      writeFileSync(join(worktreePath, 'feature.txt'), 'feature');
+      // The test's own Git must not trip the repository's fsmonitor or hooks either.
+      const quiet = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
+      runFixtureGit([...quiet, 'add', '.'], { cwd: worktreePath });
+      runFixtureGit([...quiet, 'commit', '-q', '--no-gpg-sign', '-m', 'feature'], {
+        cwd: worktreePath,
+      });
+      const merged = await operations.mergeBranch({
+        repositoryPath: repo.repository,
+        branchName: 'ct/hooked',
+        targetBranch: 'main',
+        scratchPath: join(repo.root, 'scratch'),
+        message: 'merge',
+      });
+      expect(merged.ok, JSON.stringify(merged)).toBe(true);
+      expect((await operations.inspectRepository(repo.repository)).ok).toBe(true);
+      expect(existsSync(marker) ? readFileSync(marker, 'utf8') : '').toBe('');
+    } finally {
+      if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+      else process.env.GIT_CONFIG_GLOBAL = previous;
+    }
+  });
 });

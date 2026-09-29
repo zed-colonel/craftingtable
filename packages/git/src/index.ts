@@ -19,4 +19,4 @@ export type {
   WorktreeDiff,
   WorktreeChanges,
 } from './operations.js';
-export { createGitOperations } from './operations.js';
+export { createGitOperations, writeDaemonGitIdentity } from './operations.js';

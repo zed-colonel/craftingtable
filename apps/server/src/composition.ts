@@ -9,7 +9,11 @@ import {
   parseModelList,
 } from '@craftingtable/agents';
 import { AGENT_BACKEND_LABELS, AGENT_BACKENDS, type AgentBackendKind } from '@craftingtable/domain';
-import { createGitOperations, type GitOperations } from '@craftingtable/git';
+import {
+  createGitOperations,
+  type GitOperations,
+  writeDaemonGitIdentity,
+} from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
@@ -142,7 +146,14 @@ export async function createServices(
     overrides.gitOperations === undefined
       ? gitExecutable === undefined
         ? undefined
-        : createGitOperations({ gitExecutable })
+        : createGitOperations({
+            gitExecutable,
+            // The operator's identity, and nothing else of their global Git configuration (R-G5).
+            identityConfigPath: writeDaemonGitIdentity(
+              gitExecutable,
+              join(config.dataDir, 'git-identity.gitconfig'),
+            ),
+          })
       : (overrides.gitOperations ?? undefined);
   const backends = new Map<AgentBackendKind, AgentBackend>(overrides.agentBackends);
   if (overrides.agentBackends === undefined) {

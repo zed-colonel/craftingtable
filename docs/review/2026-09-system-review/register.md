@@ -1664,6 +1664,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Tests.** `codex/backend.test.ts`:
     - the fake app-server adds an operator skill and MCP server unless switched off; the run's app-server is started with both switches, and its `session-started` lists only the repository skill;
     - a configuration that cannot be read stops the launch.
+- **Increment 4 (2026-09-28): daemon Git runs no repository hooks, fsmonitor or operator configuration** (SEC-03, GIT-08; the hardening SEC-03 cites was deleted in c0ccf3b, so this rebuilds it in `operations.ts`).
+  - Every command passes `-c core.fsmonitor=false -c core.hooksPath=/dev/null`, and every diff passes `--no-ext-diff --no-textconv`.
+  - It runs with PATH, HOME and a C locale only, no system configuration, and as global configuration only a daemon-written file holding the operator's `user.name` and `user.email` (`writeDaemonGitIdentity`, `<data>/git-identity.gitconfig`).
+  - The operator's `rerere`, `diff.algorithm` and `diff.mnemonicprefix` therefore no longer apply to daemon merges and diffs. All four live repositories name their own committer, so their merge authorship is unchanged.
+  - A repository's own configuration (merge drivers, signing program, filters) still applies (`docs/security.md`, "Daemon Git").
+  - **Tests.** `packages/git`, "daemon Git runs no repository hooks…": with hooks and fsmonitor configured in the repository, and a global configuration naming an fsmonitor, a checkpoint commit, worktree creation, a merge and an inspection run none of them. It fails without the change.
+    - The GIT-01 timeout tests relied on hooks. They now slow the merge with a signing program (after `MERGE_HEAD`) or a merge driver (before it). For the driver case the check is on tracked state, because a killed driver leaves temporary files and recovery keeps unknown files.
+    - Test fixture repositories name their own committer, as the live ones do.
 
 ### R-G6
 

@@ -96,6 +96,19 @@ to stay there, and the diff makes deviations visible, but an unrestricted run ha
 operator's full local authority. Treat `unrestricted` as you would running the agent by
 hand.
 
+## Daemon Git
+
+Every Git command the daemon runs (R-G5, SEC-03, GIT-08) passes `core.fsmonitor=false` and
+`core.hooksPath=/dev/null`, so repository hooks and fsmonitor commands never run in the daemon's
+context, and every diff passes `--no-ext-diff --no-textconv`. It starts from named variables only
+(PATH, HOME, a C locale), reads no system configuration, and as global configuration reads only a
+daemon-written file holding the operator's `user.name` and `user.email`
+(`<data>/git-identity.gitconfig`): the operator's aliases, rerere and diff settings do not apply.
+A repository's own configuration still does, including its identity, merge drivers, signing
+program and filters. A sandboxed Codex agent cannot write it; an agent without an OS sandbox can,
+which the Claude sandbox increment addresses. Checks the daemon runs on a worktree use the git
+directory it resolved before the agent started, never the worktree's `.git` pointer (R-G4).
+
 ## Untrusted input
 
 Plan bundles, agent output, and Git output are untrusted. Plan bundles are parsed with a
@@ -134,7 +147,7 @@ delegation; protected destinations always require explicit approval.
 Automated finalization may commit tracked edits and explicitly staged new files on the
 managed item branch after the implementation session ends. It cannot stage arbitrary
 untracked files or merge. A reserved content fingerprint, parent commit and explicit path
-list bind each checkpoint; hooks run normally and unexpected drift stops advancement.
+list bind each checkpoint; repository hooks do not run for it (R-G5) and unexpected drift stops advancement.
 Repository and worktree guards serialize it with other daemon mutations. External Git
 processes remain outside these guards. Negative review findings can request remediation on
 a dirty tree without granting merge approval. Scratch directories live under private run
@@ -231,9 +244,9 @@ files before completing a reserved two-parent commit. Normal source/target revie
 and the configured integration merge authority still apply. While a resolution owns the worktree, unrelated
 launches and branch mutations are rejected even while paused. Browser guidance addresses
 only the existing owned run. Abandonment requires an explicit UI confirmation, aborts only
-the recorded pending merge and never deletes arbitrary untracked files. Git hooks and
-external tools still execute with the existing workstation trust model; these guards do
-not sandbox an agent or external Git process. See ADR-032.
+the recorded pending merge and never deletes arbitrary untracked files. External tools
+still execute with the existing workstation trust model; these guards do not sandbox an
+agent or external Git process. See ADR-032.
 
 
 ## Final promotion authority

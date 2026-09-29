@@ -76,6 +76,10 @@ export function createRepositoryFixture(name = 'repository'): RepositoryFixture 
   const repository = join(sourceRoot, name);
   mkdirSync(sourceRoot);
   runFixtureGit(['init', '--initial-branch=main', repository]);
+  // Daemon Git reads no operator configuration (R-G5), so, like the live repositories, the
+  // fixture names its own committer.
+  runFixtureGit(['-C', repository, 'config', 'user.name', 'CraftingTable']);
+  runFixtureGit(['-C', repository, 'config', 'user.email', 'craftingtable@example.invalid']);
   writeFileSync(join(repository, 'README.md'), '# fixture\n');
   runFixtureGit([
     '-C',

@@ -1,5 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { mkdir, realpath, stat } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 
@@ -19,6 +20,11 @@ export interface GitOperationsOptions {
   readonly commandTimeoutMs?: number;
   /** Per-stream output ceiling for a single command. */
   readonly outputLimitBytes?: number;
+  /**
+   * The only global Git configuration the daemon reads (R-G5): a file holding the operator's
+   * identity, from `writeDaemonGitIdentity`. Without it no global configuration is read.
+   */
+  readonly identityConfigPath?: string;
 }
 
 export type GitFailureKind =
@@ -285,20 +291,56 @@ function fail<T>(
   return { ok: false, failure: failure(kind, message, extra) };
 }
 
-function childEnvironment(): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_CEILING_DIRECTORIES']) {
-    delete environment[key];
-  }
+/**
+ * The daemon's Git environment (R-G5, SEC-03): named variables only, no system configuration,
+ * and as global configuration only the daemon's identity file. A repository cannot reach it
+ * through the operator's aliases, rerere or diff settings.
+ */
+function childEnvironment(identityConfigPath?: string): NodeJS.ProcessEnv {
   return {
-    ...environment,
+    ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+    ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
     LC_ALL: 'C',
     LANG: 'C',
     GIT_TERMINAL_PROMPT: '0',
     GIT_PAGER: 'cat',
     PAGER: 'cat',
     GIT_OPTIONAL_LOCKS: '0',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_SYSTEM: '/dev/null',
+    GIT_CONFIG_GLOBAL: identityConfigPath ?? '/dev/null',
+    GIT_ATTR_NOSYSTEM: '1',
   };
+}
+
+/**
+ * Options before every daemon Git command (R-G5, SEC-03, GIT-08): repository hooks and an
+ * fsmonitor command never run in the daemon's context.
+ */
+const DAEMON_GIT_OPTIONS = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
+
+/**
+ * Writes the daemon's identity file from the operator's global `user.name` and `user.email`,
+ * and nothing else of that configuration. A repository's own identity still takes precedence.
+ */
+export function writeDaemonGitIdentity(gitExecutable: string, path: string): string {
+  const read = (key: string) =>
+    spawnSync(gitExecutable, ['config', '--global', '--get', key], {
+      encoding: 'utf8',
+      timeout: 10000,
+    }).stdout?.trim() ?? '';
+  const value = (text: string) => JSON.stringify(text.replace(/[\r\n]/g, ' '));
+  const name = read('user.name');
+  const email = read('user.email');
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    name || email
+      ? `[user]\n${name ? `\tname = ${value(name)}\n` : ''}${email ? `\temail = ${value(email)}\n` : ''}`
+      : '',
+    { mode: 0o600 },
+  );
+  return path;
 }
 
 function splitNul(buffer: Buffer): string[] {
@@ -351,9 +393,9 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
 
       let child: ReturnType<typeof spawn>;
       try {
-        child = spawn(options.gitExecutable, [...args], {
+        child = spawn(options.gitExecutable, [...DAEMON_GIT_OPTIONS, ...args], {
           cwd,
-          env: childEnvironment(),
+          env: childEnvironment(options.identityConfigPath),
           shell: false,
           detached: true,
           stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
@@ -664,12 +706,30 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       });
 
     const nameStatus = await runOk(
-      ['diff', '--name-status', '-z', '--find-renames', input.baseSha, '--'],
+      [
+        'diff',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--name-status',
+        '-z',
+        '--find-renames',
+        input.baseSha,
+        '--',
+      ],
       cwd,
     );
     if (!nameStatus.ok) return nameStatus;
     const numstat = await runOk(
-      ['diff', '--numstat', '-z', '--find-renames', input.baseSha, '--'],
+      [
+        'diff',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--numstat',
+        '-z',
+        '--find-renames',
+        input.baseSha,
+        '--',
+      ],
       cwd,
     );
     if (!numstat.ok) return numstat;
@@ -739,13 +799,25 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       patchBytes += bytes;
     };
 
-    const tracked = await runOk(['diff', '--find-renames', input.baseSha, '--'], cwd);
+    const tracked = await runOk(
+      ['diff', '--no-ext-diff', '--no-textconv', '--find-renames', input.baseSha, '--'],
+      cwd,
+    );
     if (!tracked.ok) return tracked;
     appendPatch(tracked.value.stdout.toString('utf8'));
 
     for (const [position, path] of untrackedPaths.entries()) {
       const fileNumstat = await runOk(
-        ['diff', '--no-index', '--numstat', '--', '/dev/null', path],
+        [
+          'diff',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--no-index',
+          '--numstat',
+          '--',
+          '/dev/null',
+          path,
+        ],
         cwd,
         [0, 1],
       );
@@ -758,7 +830,11 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       }
       files.push({ path, status: 'untracked', additions, deletions: 0, binary });
       if (position < MAX_UNTRACKED_PATCH_FILES && !patchTruncated) {
-        const filePatch = await runOk(['diff', '--no-index', '--', '/dev/null', path], cwd, [0, 1]);
+        const filePatch = await runOk(
+          ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', path],
+          cwd,
+          [0, 1],
+        );
         if (filePatch.ok) {
           appendPatch(filePatch.value.stdout.toString('utf8'));
         }
@@ -862,7 +938,10 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       const aborted = await run(['merge', '--abort'], cwd);
       return aborted.ok && aborted.value.exitCode === 0 && !(await mergeInProgress(cwd));
     }
-    const staged = await run(['diff', '--cached', '--quiet', 'HEAD', '--'], cwd);
+    const staged = await run(
+      ['diff', '--no-ext-diff', '--no-textconv', '--cached', '--quiet', 'HEAD', '--'],
+      cwd,
+    );
     if (!staged.ok) return false;
     if (staged.value.exitCode === 0) return true;
     const reset = await run(['reset', '-q', '--merge', 'HEAD'], cwd);
@@ -917,7 +996,10 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (merged.value.exitCode !== 0) {
       const stderr = merged.value.stderr.toString('utf8');
       const stdout = merged.value.stdout.toString('utf8');
-      const unmerged = await runOk(['diff', '--name-only', '--diff-filter=U', '-z'], cwd);
+      const unmerged = await runOk(
+        ['diff', '--no-ext-diff', '--no-textconv', '--name-only', '--diff-filter=U', '-z'],
+        cwd,
+      );
       const aborted = await run(['merge', '--abort'], cwd);
       if (!aborted.ok || aborted.value.exitCode !== 0)
         return fail(
@@ -1301,7 +1383,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     );
     if (!diff.ok) return diff;
     const names = await runOk(
-      ['diff', '--no-ext-diff', '--no-renames', '--name-only', '-z', 'HEAD', '--'],
+      ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', 'HEAD', '--'],
       path,
     );
     if (!names.ok) return names;
@@ -1475,7 +1557,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     const mergeHead = await run(['rev-parse', '--verify', 'MERGE_HEAD'], input.worktreePath);
     if (!mergeHead.ok) return mergeHead;
     const conflicts = await runOk(
-      ['diff', '--name-only', '--diff-filter=U', '-z'],
+      ['diff', '--no-ext-diff', '--no-textconv', '--name-only', '--diff-filter=U', '-z'],
       input.worktreePath,
     );
     if (!conflicts.ok) return conflicts;
@@ -1484,7 +1566,11 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       input.worktreePath,
     );
     if (!untracked.ok) return untracked;
-    const unstaged = await runOk(['diff', '--quiet', '--no-ext-diff'], input.worktreePath, [0, 1]);
+    const unstaged = await runOk(
+      ['diff', '--quiet', '--no-ext-diff', '--no-textconv'],
+      input.worktreePath,
+      [0, 1],
+    );
     if (!unstaged.ok) return unstaged;
     const paths = splitNul(conflicts.value.stdout);
     const tree = paths.length === 0 ? await runOk(['write-tree'], input.worktreePath) : undefined;
@@ -1617,7 +1703,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         'Resolve and stage every conflict and intended change; leave no untracked files before completion',
       );
     const checked = await runOk(
-      ['diff', '--cached', '--check', input.headSha, '--'],
+      ['diff', '--no-ext-diff', '--no-textconv', '--cached', '--check', input.headSha, '--'],
       input.worktreePath,
     );
     if (!checked.ok)

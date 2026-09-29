@@ -610,10 +610,15 @@ itNeedsCargo(
   },
 );
 
-itNeedsCargo(
-  'a delegated checkpoint whose upstream pin moved stops as upstream-pin-moved, and Resume is refused while it is stale (LIVE-21)',
+const OTHER_ISSUE = 'Checkpoint LOCAL-REVIEW requires separately qualified external evidence.';
+itNeedsCargo.each([
+  { name: 'only the moved pin', extra: [] as string[], pinIssue: true, typed: true },
+  { name: 'a moved pin and another issue', extra: [OTHER_ISSUE], pinIssue: true, typed: false },
+  { name: 'another issue while a pin moved', extra: [OTHER_ISSUE], pinIssue: false, typed: false },
+])(
+  'a delegated checkpoint stale for $name stops as upstream-pin-moved only when the refresh is its exit (LIVE-21)',
   { timeout: 20000 },
-  async () => {
+  async ({ extra, pinIssue, typed }) => {
     const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
       ...source,
       checkpoints: [
@@ -691,7 +696,10 @@ itNeedsCargo(
       if (!reviewed) return found;
       return {
         ...found,
-        candidates: found.candidates.map((c) => ({ ...c, issues: [...c.issues, issue] })),
+        candidates: found.candidates.map((c) => ({
+          ...c,
+          issues: [...c.issues, ...(pinIssue ? [issue] : []), ...extra],
+        })),
       };
     });
     const pins = svc as never as {
@@ -724,6 +732,12 @@ itNeedsCargo(
       );
     });
     const cycle = stopped()!;
+    if (!typed) {
+      // The refresh would not clear it, so it is not offered as the exit.
+      expect(cycle.attention?.code).toBe('controller-error');
+      expect(cycle.reason).toContain(pinIssue ? issue : OTHER_ISSUE);
+      return;
+    }
     // Typed, with the pins that moved, not controller-error.
     expect(cycle.attention).toMatchObject({
       code: 'upstream-pin-moved',
@@ -738,6 +752,7 @@ itNeedsCargo(
       payload: { action: 'resume', expectedVersion: cycle.version },
     });
     expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('wi still differs from its saved pin');
   },
 );
 

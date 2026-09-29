@@ -1306,13 +1306,15 @@ export class RuntimeEvidenceService {
     const preview = await this.checkpointRecovery(context, ws, id, cycle.worktreeId, true);
     const candidate = preview.candidates.find((c) => c.checkpointId === checkpoint.id);
     if (!candidate) conflict('Checkpoint candidate is unavailable.');
-    if (candidate.issues.length) {
-      // A moved upstream pin stops the delegated checkpoint as it stops the tree, typed, with
-      // its refresh as the exit, and Resume refused while it is stale (LIVE-21, LIVE-15).
-      const generation = this.current(ws, id);
-      if (generation) await this.freshnessConflict(ws, generation, candidate.issues, ' ');
-      conflict(candidate.issues.join(' '));
-    }
+    // A moved upstream pin stops the delegated checkpoint as it stops the tree, typed, with its
+    // refresh as the exit, and Resume refused while it is stale (LIVE-21, LIVE-15). The pins are
+    // read from the tree's own generation, as the Resume guard reads them.
+    const treeRuntime = activeRuntime(this.storage, ws, id, cycle.executionScope.bindingRevision);
+    const refuse = async (issues: readonly string[]): Promise<never> => {
+      if (treeRuntime) await this.freshnessConflict(ws, treeRuntime, issues, ' ');
+      conflict(issues.join(' '));
+    };
+    if (candidate.issues.length) await refuse(candidate.issues);
     const tree = this.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
     const run = this.storage.execution.runs.find(ws, cycle.currentRunId)!;
     if (candidate.runId !== run.id || active.sourceRunId === run.id)
@@ -1367,7 +1369,8 @@ export class RuntimeEvidenceService {
       ...submissionIssues(this.storage, d, runtime, submission),
       ...(await this.evidenceFreshness(d, runtime, submission)),
     ];
-    if (issues.length) conflict(issues.join(' '));
+    // A pin can also move while the candidate is being accepted (LIVE-21 review).
+    if (issues.length) await refuse(issues);
     check();
     this.storage.transaction((tx) => {
       check();
@@ -2849,21 +2852,21 @@ export class RuntimeEvidenceService {
     issues: readonly string[],
     separator: string,
   ): Promise<never> {
-    const moved = (await this.pinStatus(ws, runtime)).flatMap((p) =>
-      p.issue &&
-      issues.includes(p.issue) &&
-      p.currentCommitSha &&
-      p.currentCommitSha !== p.savedCommitSha
-        ? [
-            {
-              alias: p.alias,
-              pinnedCommitSha: p.savedCommitSha,
-              currentCommitSha: p.currentCommitSha,
-            },
-          ]
-        : [],
+    const status = (await this.pinStatus(ws, runtime)).filter(
+      (p) =>
+        p.issue &&
+        issues.includes(p.issue) &&
+        p.currentCommitSha &&
+        p.currentCommitSha !== p.savedCommitSha,
     );
-    if (moved.length)
+    const moved = status.map((p) => ({
+      alias: p.alias,
+      pinnedCommitSha: p.savedCommitSha,
+      currentCommitSha: p.currentCommitSha!,
+    }));
+    // Typed only when a moved pin is the whole story: another issue would still stop the work
+    // after the refresh, so the refresh is not the exit (LIVE-21 review).
+    if (moved.length && issues.every((issue) => status.some((p) => p.issue === issue)))
       throw new UpstreamPinMovedError(runtime.definitionId, moved, issues.join(separator));
     conflict(issues.join(separator));
   }

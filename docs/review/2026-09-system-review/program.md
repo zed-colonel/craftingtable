@@ -685,12 +685,25 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - an EXO-18-like shared-decision stop shows "Open shared decisions (N)" and its item opens the roadmap's setup at the decision cards;
     - `/roadmaps` lists roadmaps, and stored links (`/roadmaps?roadmap=…#…`) open the right page;
     - still open from the last deploy: one Claude step, to verify the Claude sandbox launch.
-  - **Decisions needed:**
-    1. **R-G13, the shared Cargo home (HIGH, open).** Agents can write `<data>/cargo-home`, and every Cargo build in a check unit, declared or pinned, compiles what is there. Recommended: a private `CARGO_HOME` per check, extracted fresh from the shared download cache (read-only to the unit). It changes the R-G5 follow-up decision, so it waits for you.
-    2. **R-C3b.** Hold a slice whose decision is prepared but unapproved, or keep approving decisions before their slices start.
-    3. **R-G13 adoptions for WI and EXO,** right after the deploy (above).
-    4. **LIVE-21** (a checkpoint candidate conflict reaches the operator as `controller-error`): fix next, or leave while it has an exit.
-  - **Next:** the Cargo-home decision (R-G13), then LIVE-21 and LIVE-20, R-G13 increments 2 to 5, R-E2's second increment with R-A6, R-D4 and R-D5, then R-G9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
+  - **Decisions taken the same day (operator, 2026-09-29), and built:**
+    1. **A fresh, private Cargo home per check** (R-G13; d141efe, then review fixes 4aaa344, d1c2fdc, e9ca92c, 38ac0cb, 5412b3e). A second decision chose where trusted checksums come from: **crates.io's own index over HTTPS** (the daemon's first outbound request of its own). Each Cargo-capable check now builds from a local registry the daemon writes (crates.io's index lines and only downloads matching them), offline, never seeing the shared home. Declared checks go further: their unit hides every root agents write, of any run, the operator's home, `/dev/shm` and the user's runtime directory, and binds back only the reviewed clone, its scratch, build outputs, Cargo home and the toolchain (read-only). Five review rounds found eight HIGH findings between them (planted crates vouched for by a lock or the index, a daemon freeze through a FIFO, the index copy as a route, the tree's own Cargo configuration reaching agent-written paths, the repositories' Git directories, `/dev/shm`, and, older than this batch, every check unit's reach to the user's service manager); all are fixed and shown by mutation.
+    2. **Adopt WI's and EXO's checks right after the deploy** (approved; nothing to build).
+    3. **Hold a slice whose decision is prepared but not approved** (R-C3b; 8eeda76, review fixes eda3b86, 38ac0cb, 5412b3e). A slice whose merge needs a shared decision with a brief that would settle it, on a card that can be approved, not rejected since, waits for the operator instead of starting a design that would stop to ask; the status list points at the decision's item. The review caught a starvation cycle on EXO-ADR-037 (a brief limited to another slice's clauses) before it shipped.
+    4. **Fix LIVE-21** (c2a0e1a, review fixes 8416e57). A delegated checkpoint whose upstream pin moved stops as `upstream-pin-moved` with Resume refused until the refresh; a stop with another cause stays plain.
+  - **Gate at 5412b3e:**
+    - format, lint, typecheck and build pass;
+    - 220 test files, 1,737 unit tests: in the full run under load, 38 tests in 14 files timed out waiting on the controller; all 14 files (241 tests) passed rerun serially;
+    - e2e: 21 tests and the walkthrough rehearsal pass;
+    - the scope check passes.
+  - **Replays at 5412b3e:** all 18 report 0 changed and 0 missing. The 2026-09-29 scheduler replay is checked against `scheduler-golden-eda3b86.json`, recorded after the hold: against the fccce06 golden it changes 32 records, each an entry already waiting on dependencies that also names its prepared, unapproved decisions (explained on R-C3).
+  - **Before the deploy, in addition:**
+    - The daemon reaches `https://index.crates.io/` to learn crates it has not seen (at most 500 requests in ten minutes), and keeps them under `<data>/crates-io/`. Offline, a crate it has never seen stays unverified and checks that need it fail.
+    - A tree without a committed `Cargo.lock` gets no registry crates in checks.
+    - Declared checks see nothing under the operator's home but the Rust toolchain and PATH directories; a declared check that needs other files there fails. With `CRAFTINGTABLE_CHECK_CONFINEMENT=none` nothing is hidden.
+    - No check unit can reach `/run/user/<uid>` or the Docker and D-Bus sockets; local CI keeps its Docker socket.
+  - **First-boot checks, in addition:** a scoped slice with adopted checks runs `ct-check --declared` to success (its unit's Cargo home is `check-logs/<run>/cargo-home-<n>`, emptied afterwards, and `<data>/crates-io/` gains index files); a slice whose merge needs a prepared, unapproved decision shows as waiting for you at that decision.
+  - **Decisions needed:** none open from this batch. Still open from before: one Claude step to verify the Claude sandbox launch (R-G5).
+  - **Next:** LIVE-20, then R-G13 increments 2 to 5 (increment 2 moves pinned Cargo builds onto declared checks, closing the live-worktree gap recorded on R-G13), R-E2's second increment with R-A6, R-D4 and R-D5, then R-G9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

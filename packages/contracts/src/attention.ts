@@ -22,6 +22,8 @@ const attentionRefsSchema = z
     cycleId: z.string().min(1).max(200).optional(),
     entryId: z.string().min(1).max(200).optional(),
     definitionId: z.string().min(1).max(200).optional(),
+    repositoryId: z.string().min(1).max(200).optional(),
+    checkId: z.string().min(1).max(200).optional(),
     pins: z
       .array(
         z.strictObject({

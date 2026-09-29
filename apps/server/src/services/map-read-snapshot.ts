@@ -80,6 +80,8 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
       'decisions',
       'nativeApprovals',
       'upstreamTransitions',
+      'checkDeclarations',
+      'checkDeclaration',
       'run',
       'build',
     ]),

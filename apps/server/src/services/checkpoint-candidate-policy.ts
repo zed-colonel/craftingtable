@@ -3,7 +3,11 @@ import { createHash } from 'node:crypto';
 import { asWorktreeId, type EvidenceSubmission, type ExecutionScope } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { assignedReviewMatches } from './agent-profile-policy.js';
-import { parseBuildReceipts, receiptKindEstablishes } from './build-receipt-policy.js';
+import {
+  declaredCheckGaps,
+  parseBuildReceipts,
+  receiptKindEstablishes,
+} from './build-receipt-policy.js';
 import { worktreePlan } from './repository-policy.js';
 
 export const checkpointDigest = (value: unknown) =>
@@ -87,7 +91,35 @@ export function candidateCheckpointIssues(
     );
   try {
     const receipts = parseBuildReceipts(build?.receipts ?? '');
-    if (
+    // A review held to declared checks (R-G13) meets its scoped gate only with them.
+    const declarationId = run && tx.runtimeEvidence.run(s.workspaceId, run.id)?.checkDeclarationId;
+    const declaration =
+      declarationId && tx.runtimeEvidence.checkDeclaration(s.workspaceId, declarationId);
+    if (declarationId && !declaration)
+      issues.push('The declared checks this review was held to are unavailable.');
+    if (declaration) {
+      const gaps = declaredCheckGaps(
+        declaration,
+        receipts,
+        (r) =>
+          r.kind === 'scoped-check' &&
+          r.verificationMode === 'scoped-checks' &&
+          r.success === true &&
+          r.clean === true &&
+          r.headSha === c.headSha &&
+          r.runId === c.runId &&
+          r.runtimeId === build?.runtimeId &&
+          r.manifestDigest === build?.manifestDigest,
+      );
+      for (const changed of gaps.changed)
+        issues.push(
+          `The declared check ${changed.checkId} ran with definitions that differ from the adopted ones (${changed.paths.join(', ')}).`,
+        );
+      if (gaps.missing.length)
+        issues.push(
+          `The checkpoint needs a successful run of each declared check on the exact clean candidate: ${gaps.missing.join(', ')}.`,
+        );
+    } else if (
       !receipts.some(
         (r) =>
           receiptKindEstablishes(

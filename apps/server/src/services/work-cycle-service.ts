@@ -63,6 +63,8 @@ import {
   ExecutionRequestError,
   NotFoundError,
   UpstreamPinMovedError,
+  RepositoryChecksUndeclaredError,
+  CheckDefinitionChangedError,
   UpstreamTransitionUndeclaredError,
   CheckpointAttestationError,
 } from './errors.js';
@@ -1816,7 +1818,11 @@ export class WorkCycleService {
                 ? 'upstream-pin-moved'
                 : error instanceof CheckpointAttestationError
                   ? 'checkpoint-attestation-failed'
-                  : 'controller-error',
+                  : error instanceof RepositoryChecksUndeclaredError
+                    ? 'repository-checks-undeclared'
+                    : error instanceof CheckDefinitionChangedError
+                      ? 'check-definition-changed'
+                      : 'controller-error',
             error instanceof ExecutionRequestError
               ? error.message
               : 'Controller could not advance this step. Inspect the run before resuming.',
@@ -1824,7 +1830,11 @@ export class WorkCycleService {
               ? { checkpointId: error.checkpointId }
               : error instanceof UpstreamPinMovedError
                 ? { definitionId: error.definitionId, pins: error.pins }
-                : undefined,
+                : error instanceof RepositoryChecksUndeclaredError
+                  ? { repositoryId: error.repositoryId }
+                  : error instanceof CheckDefinitionChangedError
+                    ? { repositoryId: error.repositoryId, checkId: error.checkId }
+                    : undefined,
           );
         }
       }

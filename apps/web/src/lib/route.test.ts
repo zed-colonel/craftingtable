@@ -18,6 +18,8 @@ const ROUTES: readonly Route[] = [
   { name: 'settings', workspaceId: WORKSPACE },
   { name: 'import', workspaceId: WORKSPACE },
   { name: 'repositories', workspaceId: WORKSPACE },
+  // A check stop opens one repository's checks (R-G13).
+  { name: 'repositories', workspaceId: WORKSPACE, focus: 'repository-checks-repo-1' },
   { name: 'runs', workspaceId: WORKSPACE },
   { name: 'agenda', workspaceId: WORKSPACE, filter: 'all' },
   { name: 'agenda', workspaceId: WORKSPACE, filter: 'completed' },

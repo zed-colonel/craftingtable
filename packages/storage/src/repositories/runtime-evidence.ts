@@ -6,6 +6,7 @@ import type {
   RunCheckReceipt,
   RunEnvironment,
   RuntimeGeneration,
+  RepositoryCheckDeclaration,
   UpstreamTransitionRecord,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
@@ -23,6 +24,10 @@ export interface RuntimeEvidenceRepository {
   /** Oldest first, so declarations keep their approval order (ADR-069). */
   upstreamTransitions(ws: string, definitionId: string): readonly UpstreamTransitionRecord[];
   addUpstreamTransitions(value: UpstreamTransitionRecord): void;
+  /** A repository's adopted check declarations (R-G13), newest version first. */
+  checkDeclarations(ws: string, repositoryId: string): readonly RepositoryCheckDeclaration[];
+  checkDeclaration(ws: string, id: string): RepositoryCheckDeclaration | undefined;
+  addCheckDeclaration(value: RepositoryCheckDeclaration): void;
   generations(
     ws: string,
     definitionId: string,
@@ -81,6 +86,32 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     this.db
       .prepare('INSERT INTO upstream_transition_records VALUES (?,?,?,?)')
       .run(v.id, v.workspaceId, v.definitionId, JSON.stringify(v));
+  }
+  checkDeclarations(ws: string, repositoryId: string): readonly RepositoryCheckDeclaration[] {
+    return decode(
+      'repository-check-declaration',
+      this.db
+        .prepare(
+          'SELECT record_json FROM repository_check_declarations WHERE workspace_id=? AND repository_id=? ORDER BY version DESC',
+        )
+        .all(ws, repositoryId),
+    );
+  }
+  checkDeclaration(ws: string, id: string): RepositoryCheckDeclaration | undefined {
+    return decode(
+      'repository-check-declaration',
+      this.db
+        .prepare(
+          'SELECT record_json FROM repository_check_declarations WHERE workspace_id=? AND id=?',
+        )
+        .all(ws, id),
+    )[0];
+  }
+  addCheckDeclaration(v: RepositoryCheckDeclaration): void {
+    this.guard('repository-check-declaration', v);
+    this.db
+      .prepare('INSERT INTO repository_check_declarations VALUES (?,?,?,?,?)')
+      .run(v.id, v.workspaceId, v.repositoryId, v.version, JSON.stringify(v));
   }
   generations(
     ws: string,

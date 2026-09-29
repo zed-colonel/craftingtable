@@ -90,6 +90,7 @@ export async function createTestContext(
       crossProjectService: services.crossProjectService,
       mapAmendmentService: services.mapAmendmentService,
       runtimeEvidenceService: services.runtimeEvidenceService,
+      repositoryChecksService: services.repositoryChecksService,
       packageImportService: services.packageImportService,
       storageService: services.storageService,
       hostSchedulingService: services.hostSchedulingService,

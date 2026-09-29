@@ -1,8 +1,11 @@
 import {
+  type AdoptCheckDeclarationRequest,
   type AgentRunCommandResponse,
   type AgentRunDetailResponse,
   agentRunCommandResponseSchema,
   agentRunDetailResponseSchema,
+  type CheckDeclarationPreview,
+  checkDeclarationPreviewSchema,
   type CreateWorktreeRequest,
   type CreateWorktreeResponse,
   createWorktreeResponseSchema,
@@ -15,12 +18,14 @@ import {
   type RemoveWorktreeRequest,
   type RemoveWorktreeResponse,
   type RepositoryBranchesResponse,
+  type RepositoryChecksView,
   type RetireSourceRepositoryResponse,
   type RunEventPageResponse,
   type RunProfilesResponse,
   registerSourceRepositoryResponseSchema,
   removeWorktreeResponseSchema,
   repositoryBranchesResponseSchema,
+  repositoryChecksViewSchema,
   retireSourceRepositoryResponseSchema,
   runEventPageResponseSchema,
   runProfilesResponseSchema,
@@ -253,6 +258,44 @@ export function saveRunProfiles(
   return request(
     `/api/workspaces/${encode(workspaceId)}/run-profiles`,
     runProfilesResponseSchema,
+    mutation(csrfToken, input),
+  );
+}
+
+/** A repository's adopted checks (R-G13). */
+export function loadRepositoryChecks(
+  workspaceId: WorkspaceId,
+  repositoryId: SourceRepositoryId,
+): Promise<RepositoryChecksView> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks`,
+    repositoryChecksViewSchema,
+  );
+}
+
+/** What adopting the repository's checks file at `ref` would record; it changes nothing. */
+export function previewRepositoryChecks(
+  workspaceId: WorkspaceId,
+  repositoryId: SourceRepositoryId,
+  ref: string,
+  csrfToken: string,
+): Promise<CheckDeclarationPreview> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks/preview`,
+    checkDeclarationPreviewSchema,
+    mutation(csrfToken, { ref }),
+  );
+}
+
+export function adoptRepositoryChecks(
+  workspaceId: WorkspaceId,
+  repositoryId: SourceRepositoryId,
+  input: AdoptCheckDeclarationRequest,
+  csrfToken: string,
+): Promise<RepositoryChecksView> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks/adopt`,
+    repositoryChecksViewSchema,
     mutation(csrfToken, input),
   );
 }

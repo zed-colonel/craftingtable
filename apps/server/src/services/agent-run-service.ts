@@ -1372,6 +1372,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             ...(pinned.spoolDirectory && this.checks
               ? { receiptAuthority: 'daemon' as const }
               : {}),
+            ...(pinned.checkDeclarationId ? { checkDeclarationId: pinned.checkDeclarationId } : {}),
           });
         return inserted;
       });

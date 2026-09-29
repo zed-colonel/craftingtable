@@ -1,0 +1,64 @@
+import {
+  adoptCheckDeclarationRequestSchema,
+  checkDeclarationPreviewRequestSchema,
+  checkDeclarationPreviewSchema,
+  repositoryChecksViewSchema,
+  sourceRepositoryIdSchema,
+  workspaceIdSchema,
+} from '@craftingtable/contracts';
+import type { FastifyInstance } from 'fastify';
+import type { ServerConfig } from '../config.js';
+import type { AuthService } from '../services/auth-service.js';
+import type { RepositoryChecksService } from '../services/repository-checks-service.js';
+import { noStore, sendApiError } from './http.js';
+import { authenticate, authorizeMutation } from './request-security.js';
+
+/** A repository's declared checks (R-G13): read them, preview a proposal, adopt it. */
+export function registerRepositoryChecksRoutes(
+  app: FastifyInstance,
+  auth: AuthService,
+  service: RepositoryChecksService,
+  config: ServerConfig,
+) {
+  const base = '/api/workspaces/:workspaceId/repositories/:repositoryId/checks';
+  type Params = { Params: { workspaceId: string; repositoryId: string } };
+  const ids = (params: Params['Params']) => {
+    const ws = workspaceIdSchema.safeParse(params.workspaceId);
+    const repository = sourceRepositoryIdSchema.safeParse(params.repositoryId);
+    return ws.success && repository.success
+      ? { ws: ws.data, repository: repository.data }
+      : undefined;
+  };
+  app.get<Params>(base, { config: { access: 'member' } }, async (request, reply) => {
+    const context = authenticate(request, auth);
+    const target = ids(request.params);
+    if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+    return noStore(reply).send(
+      repositoryChecksViewSchema.parse(service.view(context, target.ws, target.repository)),
+    );
+  });
+  app.post<Params>(`${base}/preview`, { config: { access: 'editor' } }, async (request, reply) => {
+    const context = authorizeMutation(request, auth, config);
+    const target = ids(request.params);
+    const input = checkDeclarationPreviewRequestSchema.safeParse(request.body);
+    if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+    if (!input.success) return sendApiError(reply, 400, 'invalid-request', 'Invalid preview');
+    return noStore(reply).send(
+      checkDeclarationPreviewSchema.parse(
+        await service.preview(context, target.ws, target.repository, input.data.ref),
+      ),
+    );
+  });
+  app.post<Params>(`${base}/adopt`, { config: { access: 'editor' } }, async (request, reply) => {
+    const context = authorizeMutation(request, auth, config);
+    const target = ids(request.params);
+    const input = adoptCheckDeclarationRequestSchema.safeParse(request.body);
+    if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+    if (!input.success) return sendApiError(reply, 400, 'invalid-request', 'Invalid adoption');
+    return noStore(reply).send(
+      repositoryChecksViewSchema.parse(
+        await service.adopt(context, target.ws, target.repository, input.data),
+      ),
+    );
+  });
+}

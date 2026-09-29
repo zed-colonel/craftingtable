@@ -14,10 +14,13 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, PinnedCargoManifest } from '@craftingtable/agents';
+import type { DeclaredCheck } from '@craftingtable/domain';
 import { afterEach, expect } from 'vitest';
 import {
   cleanupExecutionFixtures,
   commitFile,
+  currentCycle,
+  declareFixtureChecks,
   git,
   HOST_GIT,
   itNeedsCargo,
@@ -26,20 +29,30 @@ import {
   scopeReport,
   scopeTree,
   slicedFixture,
+  startCycle,
+  waitFor,
 } from './execution-test-support.js';
+import { CheckDefinitionChangedError } from './services/errors.js';
 
 afterEach(cleanupExecutionFixtures);
 
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 
-/** An independent implementation slice with a pinned environment, so its reviews are scoped. */
-async function scopedRuntimeFixture() {
+/**
+ * An independent implementation slice with a pinned environment, so its reviews are scoped,
+ * and adopted `checks` for its repository unless `checks` is null (R-G13).
+ */
+async function scopedRuntimeFixture(
+  checks?: DeclaredCheck[] | null,
+  definitionDigests?: Record<string, string>,
+) {
   const f = await slicedFixture((source) => ({
     ...source,
     slices: source.slices.map((s) => ({ ...s, mode: 'implementation' })),
     work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
   }));
   const svc = f.state.context.services.runtimeEvidenceService;
+  if (checks !== null) declareFixtureChecks(f.state, checks, definitionDigests);
   await svc.configure(f.auth, f.state.workspaceId, f.parentScope.definitionId, {
     bindingRevision: 1,
     expectedGeneration: 0,
@@ -114,14 +127,25 @@ itNeedsCargo(
       (JSON.parse(readFileSync(environment!.manifestPath, 'utf8')) as PinnedCargoManifest)
         .verification?.mode,
     ).toBe('scoped-checks');
-    expect(() => f.svc.assertRun(f.tree, ciOnly)).toThrow('successful scoped check');
+    expect(() => f.svc.assertRun(f.tree, ciOnly)).toThrow('ct-check --declared fixture');
   },
 );
 
 itNeedsCargo(
   'a receipt an agent writes to the launcher file satisfies no gate; the daemon runs and records the check (R-G4, SEC-01)',
   async () => {
-    const f = await scopedRuntimeFixture();
+    // The check reports where it ran; the launcher only relays the daemon's output.
+    const f = await scopedRuntimeFixture([
+      {
+        id: 'where',
+        argv: [
+          'node',
+          '-e',
+          'console.log("checked in", process.cwd(), "agent", process.env.CT_AGENT_ONLY ?? "absent", "cargo", process.env.CARGO_HOME)',
+        ],
+        definitionPaths: [],
+      },
+    ]);
     const storage = f.state.context.storage;
     f.backend.replyForRequest = (request) => {
       // Every kind the daemon runs, written by the agent instead.
@@ -134,19 +158,11 @@ itNeedsCargo(
       'daemon',
     );
     expect(storage.runtimeEvidence.build(f.state.workspaceId, forged)?.receipts).toBe('');
-    expect(() => f.svc.assertRun(f.tree, forged)).toThrow('successful scoped check');
+    expect(() => f.svc.assertRun(f.tree, forged)).toThrow('ct-check --declared where');
 
     let output = '';
     f.backend.replyForRequest = async (request) => {
-      // The check reports where it ran; the launcher only relays the daemon's output.
-      output = (
-        await runLauncher(request, 'ct-check', [
-          '--',
-          process.execPath,
-          '-e',
-          'console.log("checked in", process.cwd(), "agent", process.env.CT_AGENT_ONLY ?? "absent", "cargo", process.env.CARGO_HOME)',
-        ])
-      ).stdout;
+      output = (await runLauncher(request, 'ct-check', ['--declared', 'where'])).stdout;
       return { resultText: scopeReport(f.state, f.tree.executionScope!) };
     };
     process.env.CT_AGENT_ONLY = 'inherited';
@@ -167,6 +183,7 @@ itNeedsCargo(
       success: true,
       clean: true,
       headSha: git(['rev-parse', 'HEAD'], f.tree.path).trim(),
+      declaredCheck: { id: 'where' },
     });
     expect(() => f.svc.assertRun(f.tree, checked)).not.toThrow();
   },
@@ -289,7 +306,7 @@ itNeedsCargo(
       const manifest = join(request.buildEnvironment!.binDirectory, '../manifest.json');
       chmodSync(manifest, 0o600);
       writeFileSync(manifest, '{"workspacePath":"/","cargoExecutable":"/bin/false"}');
-      await runLauncher(request, 'ct-check', ['--', HOST_GIT, 'diff', '--check', 'HEAD']);
+      await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
       return { resultText: scopeReport(f.state, f.tree.executionScope!) };
     };
     const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
@@ -394,5 +411,146 @@ itNeedsCargo(
       else process.env.CRAFTINGTABLE_ACT_CONFIG = previous;
       rmSync(root, { recursive: true, force: true });
     }
+  },
+);
+
+itNeedsCargo(
+  'only the adopted check meets a scoped gate: a command the agent chooses is supplemental, even the same one, and the agent cannot change what the check runs (R-G13)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    const storage = f.state.context.storage;
+    const failures: string[] = [];
+    f.backend.replyForRequest = async (request) => {
+      // The adopted command, but chosen by the agent: it runs and is recorded, and counts for nothing.
+      await runLauncher(request, 'ct-check', ['--', 'git', 'diff', '--check', 'HEAD']);
+      await runLauncher(request, 'ct-check', ['--', 'true']);
+      for (const args of [
+        ['--declared', 'fixture', '--', 'true'],
+        ['--declared', 'other'],
+        ['--declared'],
+      ])
+        failures.push(
+          await runLauncher(request, 'ct-check', args).then(
+            () => 'ran',
+            (error: { stdout: string; stderr: string }) => error.stdout + error.stderr,
+          ),
+        );
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const chosen = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(failures[0]).toContain('Usage: ct-check --declared <check>');
+    expect(failures[1]).toContain('other is not a declared check of this repository');
+    expect(failures[1]).toContain('Declared: fixture');
+    expect(failures[2]).toContain('Usage: ct-check --declared <check>');
+    const receipts = storage.runtimeEvidence
+      .checkReceipts(f.state.workspaceId, chosen)
+      .map((r) => JSON.parse(r.receipt));
+    expect(receipts.filter((r) => r.success)).toHaveLength(2);
+    expect(receipts.some((r) => r.declaredCheck)).toBe(false);
+    expect(() => f.svc.assertRun(f.tree, chosen)).toThrow(
+      'The review needs a successful run of each declared check on its exact clean reviewed commit: ct-check --declared fixture.',
+    );
+
+    f.backend.replyForRequest = async (request) => {
+      await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const declared = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    const environment = storage.runtimeEvidence.run(f.state.workspaceId, declared)!;
+    const adopted = storage.runtimeEvidence.checkDeclarations(
+      f.state.workspaceId,
+      f.tree.repositoryId,
+    )[0]!;
+    // The run was held to the adoption current when it was prepared.
+    expect(environment.checkDeclarationId).toBe(adopted.id);
+    const [receipt] = storage.runtimeEvidence.checkReceipts(f.state.workspaceId, declared);
+    expect(JSON.parse(receipt!.receipt)).toMatchObject({
+      command: 'git',
+      args: ['--declared', 'fixture'],
+      success: true,
+      declaredCheck: { id: 'fixture', declarationId: adopted.id, definitionDigests: {} },
+    });
+    expect(() => f.svc.assertRun(f.tree, declared)).not.toThrow();
+  },
+);
+
+itNeedsCargo(
+  'a declared check whose definition the slice edited stops as check-definition-changed until the edit is adopted or reverted (R-G13)',
+  async () => {
+    const adopted = '#!/bin/sh\necho adopted check\n';
+    const f = await scopedRuntimeFixture(
+      [{ id: 'script', argv: ['scripts/check.sh'], definitionPaths: ['scripts/check.sh'] }],
+      { 'scripts/check.sh': sha(adopted) },
+    );
+    const commitScript = (content: string) => {
+      mkdirSync(join(f.tree.path, 'scripts'), { recursive: true });
+      writeFileSync(join(f.tree.path, 'scripts/check.sh'), content, { mode: 0o755 });
+      chmodSync(join(f.tree.path, 'scripts/check.sh'), 0o755);
+      git(['add', 'scripts/check.sh'], f.tree.path);
+      git(['commit', '-m', 'check script'], f.tree.path);
+    };
+    let output = '';
+    f.backend.replyForRequest = async (request) => {
+      output = (await runLauncher(request, 'ct-check', ['--declared', 'script'])).stdout;
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    commitScript(adopted);
+    const same = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    // The repository's own program runs from the worktree under review.
+    expect(output).toContain('adopted check');
+    const [receipt] = f.state.context.storage.runtimeEvidence.checkReceipts(
+      f.state.workspaceId,
+      same,
+    );
+    expect(JSON.parse(receipt!.receipt).command).toBe(join(f.tree.path, 'scripts/check.sh'));
+    expect(() => f.svc.assertRun(f.tree, same)).not.toThrow();
+
+    // The slice rewrites the check so it passes whatever it does.
+    commitScript('#!/bin/sh\necho weakened check\n');
+    const edited = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(output).toContain('weakened check');
+    expect(() => f.svc.assertRun(f.tree, edited)).toThrow(CheckDefinitionChangedError);
+    expect(() => f.svc.assertRun(f.tree, edited)).toThrow(
+      'The declared check script ran with definitions that differ from the adopted ones (scripts/check.sh).',
+    );
+    try {
+      f.svc.assertRun(f.tree, edited);
+    } catch (error) {
+      expect(error).toMatchObject({ repositoryId: f.tree.repositoryId, checkId: 'script' });
+    }
+
+    // A definition replaced by a link is not the adopted file either.
+    rmSync(join(f.tree.path, 'scripts/check.sh'));
+    writeFileSync(join(f.tree.path, 'scripts/real.sh'), adopted, { mode: 0o755 });
+    execFileSync('ln', ['-s', 'real.sh', join(f.tree.path, 'scripts/check.sh')]);
+    git(['add', '-A', 'scripts'], f.tree.path);
+    git(['commit', '-m', 'linked check'], f.tree.path);
+    const linked = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(output).toContain('adopted check');
+    expect(() => f.svc.assertRun(f.tree, linked)).toThrow(CheckDefinitionChangedError);
+  },
+);
+
+itNeedsCargo(
+  'a scoped slice in a repository with no adopted checks stops before any run as repository-checks-undeclared (R-G13, fail closed)',
+  async () => {
+    const f = await scopedRuntimeFixture(null);
+    const cycle = await startCycle(f.state, f.tree.id);
+    await waitFor(() => currentCycle(f.state, cycle).status === 'needs-attention', 'check stop');
+    expect(currentCycle(f.state, cycle).attention).toMatchObject({
+      code: 'repository-checks-undeclared',
+      owner: 'operator',
+      refs: { repositoryId: f.tree.repositoryId },
+    });
+    expect(currentCycle(f.state, cycle).reason).toContain('has no adopted checks');
+    expect(f.backend.launches).toHaveLength(0);
+    // Its item opens the repository's checks, where they are adopted.
+    const item = f.state.context.storage.attention
+      .open(f.state.workspaceId)
+      .find((i) => i.subjectKey === `cycle:${cycle.id}`);
+    expect(item).toMatchObject({
+      code: 'repository-checks-undeclared',
+      path: `/workspaces/${f.state.workspaceId}/repositories#repository-checks-${f.tree.repositoryId}`,
+    });
   },
 );

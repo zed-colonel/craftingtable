@@ -61,6 +61,11 @@ export interface PinnedCargoManifest {
   readonly configPath: string;
   readonly configDigest: string;
   readonly receiptPath: string;
+  /**
+   * The repository's adopted checks the run's scoped gate is held to (R-G13). `ct-check
+   * --declared <id>` runs one of them; the command comes from here, never from the request.
+   */
+  readonly declaredChecks?: import('@craftingtable/domain').ManifestDeclaredChecks;
 }
 export const cargoManifestDigest = (content: string | Uint8Array) =>
   createHash('sha256').update(content).digest('hex');

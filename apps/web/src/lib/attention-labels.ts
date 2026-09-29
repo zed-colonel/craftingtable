@@ -39,6 +39,8 @@ export const ATTENTION_CODE_LABELS: Readonly<Record<AttentionItemCode, string>> 
   'controller-error': 'Controller error',
   'upstream-transition-undeclared': 'Upstream transition undeclared',
   'upstream-pin-moved': 'Upstream pin moved',
+  'repository-checks-undeclared': 'Repository checks to adopt',
+  'check-definition-changed': 'Check definition changed',
   'reassessment-failed': 'Reassessment failed',
   'worktree-inactive': 'Worktree inactive',
   'authority-lost': 'Authority lost',

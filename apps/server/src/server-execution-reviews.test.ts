@@ -18,6 +18,7 @@ import {
   configureLocalRuntime,
   currentCycle,
   cycleFixture,
+  declareFixtureChecks,
   designDone,
   implementationDone,
   itNeedsCargo,
@@ -27,9 +28,9 @@ import {
   reviewScope,
   roadmapControl,
   roadmapInput,
-  saveRoadmapRequest,
   runScopedFixtureCheck,
   runToFinish,
+  saveRoadmapRequest,
   scopeReport,
   scopeTree,
   slicedFixture,
@@ -96,6 +97,7 @@ itNeedsCargo(
       decisionIds: ['CS-D01'],
       rationale: 'Adopt the exact fixture map.',
     });
+    declareFixtureChecks(f.state);
     await svc.configure(f.auth, ws, id, {
       bindingRevision: 1,
       expectedGeneration: 0,

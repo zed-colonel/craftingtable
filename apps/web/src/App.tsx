@@ -2009,6 +2009,11 @@ export function App() {
             {...(executionError === undefined ? {} : { error: executionError })}
             onRegister={handleRegisterRepository}
             onRetire={handleRetireRepository}
+            checks={{
+              workspaceId: route.workspaceId,
+              csrfToken: authenticated.csrfToken,
+              refreshToken,
+            }}
           />
         )}
 

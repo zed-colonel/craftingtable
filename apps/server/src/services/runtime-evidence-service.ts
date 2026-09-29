@@ -6,7 +6,11 @@ import { workflowContext, workflowDelegation } from './workflow-policy.js';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
 import { worktreePlan, repositoryPolicyEvidence } from './repository-policy.js';
-import { parseBuildReceipts, receiptKindEstablishes } from './build-receipt-policy.js';
+import {
+  declaredCheckGaps,
+  parseBuildReceipts,
+  receiptKindEstablishes,
+} from './build-receipt-policy.js';
 import { checkpointDigest, candidateCheckpointIssues } from './checkpoint-candidate-policy.js';
 import { resolveScope, scopeEvidenceIssues } from './execution-scope.js';
 import { finalizationHasNoQuestions } from './finalization-policy.js';
@@ -84,6 +88,8 @@ import {
   ExecutionRequestError,
   type MovedPin,
   NotFoundError,
+  CheckDefinitionChangedError,
+  RepositoryChecksUndeclaredError,
   UpstreamPinMovedError,
 } from './errors.js';
 import {
@@ -2421,6 +2427,27 @@ export class RuntimeEvidenceService {
       configDigest: hash(config),
       receiptPath: join(directory, 'build-receipts.jsonl'),
     };
+    // A scoped gate is met only by the repository's adopted checks (R-G13); without them the
+    // run does not start (fail closed, operator decision 2026-09-29).
+    const declaration =
+      verification.mode === 'scoped-checks' && !('finalization' in scope)
+        ? this.storage.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0]
+        : undefined;
+    if (verification.mode === 'scoped-checks' && !('finalization' in scope) && !declaration)
+      throw new RepositoryChecksUndeclaredError(tree.repositoryId, consumerRepository.displayName);
+    if (declaration)
+      Object.assign(manifest, {
+        declaredChecks: {
+          declarationId: declaration.id,
+          version: declaration.version,
+          checks: declaration.checks.map((c) => ({
+            ...c,
+            definitionDigests: Object.fromEntries(
+              c.definitionPaths.map((path) => [path, declaration.definitionDigests[path]!]),
+            ),
+          })),
+        },
+      });
     await this.assertFreshTree(tree);
     // The launchers only ask the daemon, which runs the check and records the receipt (R-G4).
     const spool = {
@@ -2455,6 +2482,7 @@ export class RuntimeEvidenceService {
       runtimeId: runtime.id,
       definitionId: scope.definitionId,
       bindingRevision: scope.bindingRevision,
+      checkDeclarationId: declaration?.id,
     };
   }
   assertPrepared(tree: Worktree, runtimeId: string, decisionDigest?: string) {
@@ -2570,7 +2598,40 @@ export class RuntimeEvidenceService {
         conflict(
           'Independent verification needs a successful ct-native check on the exact clean reviewed commit in the currently approved environment. Development/act receipts cannot substitute.',
         );
-      if (
+      // A run held to declared checks (R-G13) meets its scoped gate only with them.
+      const declaration =
+        verification.mode === 'scoped-checks' && env.checkDeclarationId
+          ? this.storage.runtimeEvidence.checkDeclaration(tree.workspaceId, env.checkDeclarationId)
+          : undefined;
+      if (verification.mode === 'scoped-checks' && env.checkDeclarationId && !declaration)
+        conflict('The declared checks this review was held to are unavailable.');
+      if (declaration) {
+        const gaps = declaredCheckGaps(
+          declaration,
+          receipts,
+          (r) =>
+            r.success &&
+            r.clean &&
+            r.kind === 'scoped-check' &&
+            r.headSha === run?.reviewBranchContext?.headSha &&
+            r.manifestDigest === env.manifestDigest &&
+            r.runId === runId &&
+            r.runtimeId === env.runtimeId &&
+            r.verificationMode === 'scoped-checks' &&
+            r.policyDigest === hash(JSON.stringify(verification)),
+        );
+        const changed = gaps.changed[0];
+        if (changed)
+          throw new CheckDefinitionChangedError(
+            declaration.repositoryId,
+            changed.checkId,
+            `The declared check ${changed.checkId} ran with definitions that differ from the adopted ones (${changed.paths.join(', ')}). Adopt the new definition on the Repositories page, or revert the change.`,
+          );
+        if (gaps.missing.length)
+          conflict(
+            `The review needs a successful run of each declared check on its exact clean reviewed commit: ${gaps.missing.map((id) => `ct-check --declared ${id}`).join(', ')}. Checks the agent chooses are supplemental.`,
+          );
+      } else if (
         !receipts.some(
           (r) =>
             r.success &&

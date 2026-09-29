@@ -27,6 +27,7 @@ import {
   asProjectId,
   asWorkItemDependencyId,
   asWorkItemId,
+  CHECK_DECLARATION_PATH,
   CYCLE_STEPS,
   type CompletionPolicy,
   type CycleProfiles,
@@ -1271,11 +1272,44 @@ export async function slicedFixture(
   return { ...fixture, auth, scopes, parentScope };
 }
 /** The local consumer's dependency environment: no upstream pins, one local test environment. */
+/**
+ * Gives every active fixture repository the declared check the scoped fixtures run (R-G13):
+ * `fixture`, a whitespace check of the reviewed commit. Written directly, as an adoption would
+ * record it; the adoption itself is tested on its own.
+ */
+/** Adopts checks for each fixture repository without one, as the operator would (R-G13). */
+export function declareFixtureChecks(
+  state: Ready,
+  checks: import('@craftingtable/domain').DeclaredCheck[] = [
+    { id: 'fixture', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: [] },
+  ],
+  definitionDigests: Record<string, string> = {},
+) {
+  const tx = state.context.storage;
+  for (const repository of tx.execution.sourceRepositories.list(state.workspaceId)) {
+    if (repository.status !== 'active') continue;
+    if (tx.runtimeEvidence.checkDeclarations(state.workspaceId, repository.id).length) continue;
+    tx.runtimeEvidence.addCheckDeclaration({
+      id: randomUUID(),
+      workspaceId: state.workspaceId,
+      repositoryId: repository.id,
+      version: 1,
+      sourceCommit: repository.registeredHeadSha,
+      sourcePath: CHECK_DECLARATION_PATH,
+      checks,
+      definitionDigests,
+      rationale: 'Fixture repository checks.',
+      adoptedByUserId: state.userId,
+      adoptedAt: new Date().toISOString(),
+    });
+  }
+}
 export function configureLocalRuntime(
   auth: ReturnType<TestContext['services']['authService']['authenticate']>,
   state: Ready,
   definitionId: string,
 ) {
+  declareFixtureChecks(state);
   return state.context.services.runtimeEvidenceService.configure(
     auth,
     state.workspaceId,
@@ -1415,7 +1449,7 @@ export async function runScopedFixtureCheck(
     readFileSync(join(request.buildEnvironment.binDirectory, '../manifest.json'), 'utf8'),
   );
   if (manifest.verification?.mode === 'scoped-checks')
-    await runLauncher(request, 'ct-check', ['--', HOST_GIT, 'diff', '--check', 'HEAD']);
+    await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
 }
 export async function reviewScope(
   f: Awaited<ReturnType<typeof slicedFixture>>,

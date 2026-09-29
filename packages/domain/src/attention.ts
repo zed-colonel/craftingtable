@@ -54,6 +54,12 @@ export const CYCLE_ATTENTION = {
   // A pinned upstream's integration moved past the saved dependency generation; the refresh
   // preview is the way on (LIVE-15, ADR-058). Refs name the definition and what moved.
   'upstream-pin-moved': 'operator',
+  // A scoped run's repository has no adopted check declaration, so the run does not start
+  // (R-G13, fail closed). Adopting one on the repository is the way on.
+  'repository-checks-undeclared': 'operator',
+  // A declared check's definition files differ on the gated commit from the ones adopted
+  // (R-G13); the operator adopts the new definition or the change is reverted.
+  'check-definition-changed': 'operator',
   'reassessment-failed': 'operator',
   'worktree-inactive': 'operator',
   'authority-lost': 'operator',
@@ -157,6 +163,10 @@ export interface AttentionRefs {
   readonly entryId?: string;
   /** The concurrency definition whose dependency environment an `upstream-pin-moved` names. */
   readonly definitionId?: string;
+  /** The repository whose declared checks a `repository-checks-*` or `check-definition-*` stop names. */
+  readonly repositoryId?: string;
+  /** The declared check whose definition changed. */
+  readonly checkId?: string;
   /** The pins that moved, for the operator and for automation that may refresh them later. */
   readonly pins?: readonly {
     readonly alias: string;

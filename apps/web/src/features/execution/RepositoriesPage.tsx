@@ -1,11 +1,12 @@
 import type { ExecutionStatusResponse, SourceRepositorySummary } from '@craftingtable/contracts';
-import type { SourceRepositoryId } from '@craftingtable/domain';
+import type { SourceRepositoryId, WorkspaceId } from '@craftingtable/domain';
 import { type FormEvent, useState } from 'react';
 import { About } from '../../components/About.js';
 import { PageHeader } from '../../components/PageHeader.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { shortSha } from '../../lib/execution-labels.js';
+import { RepositoryChecksPanel } from './RepositoryChecksPanel.js';
 
 export function RepositoriesPage({
   repositories,
@@ -15,6 +16,7 @@ export function RepositoriesPage({
   error,
   onRegister,
   onRetire,
+  checks,
 }: {
   repositories: readonly SourceRepositorySummary[];
   status?: ExecutionStatusResponse;
@@ -23,6 +25,8 @@ export function RepositoriesPage({
   error?: string;
   onRegister: (input: { rootPath: string; displayName?: string }) => void;
   onRetire: (repositoryId: SourceRepositoryId) => void;
+  /** Loads and adopts each repository's declared checks (R-G13). */
+  checks?: { workspaceId: WorkspaceId; csrfToken: string; refreshToken: number };
 }) {
   const [rootPath, setRootPath] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -110,6 +114,35 @@ export function RepositoriesPage({
           </p>
         )}
       </Section>
+
+      {checks !== undefined && active.length > 0 && (
+        <Section
+          id="repository-checks"
+          title="Checks"
+          summary="The checks each repository's scoped reviews must pass."
+        >
+          <About label="About checks">
+            <p>
+              A repository proposes its checks in <code>.craftingtable/checks.json</code>. You
+              review the file at a branch or commit, read by the daemon&rsquo;s own Git, and adopt
+              it; each adoption is a new version. A scoped review passes only when the daemon ran
+              every adopted check on the reviewed commit, with each check&rsquo;s definition files
+              as adopted. Checks an agent chooses still run and are recorded, as supplements. Agents
+              never adopt checks.
+            </p>
+          </About>
+          {active.map((repository) => (
+            <RepositoryChecksPanel
+              key={repository.id}
+              workspaceId={checks.workspaceId}
+              repository={repository}
+              csrfToken={checks.csrfToken}
+              editable={canMutate}
+              refreshToken={checks.refreshToken}
+            />
+          ))}
+        </Section>
+      )}
 
       <Section title="Register a repository">
         <form className="stack-form" onSubmit={submit}>

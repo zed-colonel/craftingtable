@@ -49,6 +49,7 @@ import { RoadmapService } from './services/roadmap-service.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { CheckRequestService } from './services/check-request-service.js';
 import { RefWatch } from './services/ref-watch.js';
+import { RepositoryChecksService } from './services/repository-checks-service.js';
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import { StorageService } from './services/storage-service.js';
 import { WorkCycleService } from './services/work-cycle-service.js';
@@ -65,6 +66,7 @@ export interface ServiceSet {
   readonly crossProjectService: CrossProjectService;
   readonly mapAmendmentService: MapAmendmentService;
   readonly runtimeEvidenceService: RuntimeEvidenceService;
+  readonly repositoryChecksService: RepositoryChecksService;
   readonly checkRequestService: CheckRequestService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
@@ -206,6 +208,12 @@ export async function createServices(
     gitOperations,
     now,
   );
+  const repositoryChecksService = new RepositoryChecksService(
+    storage,
+    workspaceService,
+    gitOperations,
+    now,
+  );
   const executionService = new ExecutionService(
     storage,
     workspaceService,
@@ -326,6 +334,7 @@ export async function createServices(
       notifier,
     ),
     runtimeEvidenceService,
+    repositoryChecksService,
     checkRequestService: checkRequests,
     storageService,
     hostSchedulingService: new HostSchedulingService(storage, workspaceService, notifier, now),
@@ -428,6 +437,7 @@ export async function createRuntime(
         crossProjectService: services.crossProjectService,
         mapAmendmentService: services.mapAmendmentService,
         runtimeEvidenceService: services.runtimeEvidenceService,
+        repositoryChecksService: services.repositoryChecksService,
         packageImportService: services.packageImportService,
         storageService: services.storageService,
         hostSchedulingService: services.hostSchedulingService,

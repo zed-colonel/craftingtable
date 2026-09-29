@@ -16,6 +16,7 @@ export * from './package-imports.js';
 export * from './persisted-records.js';
 export * from './planning.js';
 export * from './repository.js';
+export * from './repository-checks.js';
 export * from './repository-policy.js';
 export * from './review.js';
 export * from './roadmap.js';

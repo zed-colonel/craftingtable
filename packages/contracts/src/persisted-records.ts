@@ -127,6 +127,7 @@ export const runEnvironmentSchema = equivalentSchema<RunEnvironment>()(
     manifestDigest: digest,
     verificationMode: z.literal('current-upstream-build').optional(),
     receiptAuthority: z.literal('daemon').optional(),
+    checkDeclarationId: z.uuid().optional(),
   }),
 );
 

@@ -1033,6 +1033,24 @@ function actWorkflowName(workspacePath: string, args: readonly string[]): string
  * returned for the daemon to record in its database. For act, the wait for the workflow's host
  * lock counts against the check's time limit.
  */
+/**
+ * SHA-256 of each declared check's definition file in the worktree (R-G13); a missing or
+ * unreadable file is recorded as absent, which no adoption matches.
+ */
+function definitionDigestsAt(root: string, paths: readonly string[]): Record<string, string> {
+  const digests: Record<string, string> = {};
+  for (const path of paths) {
+    try {
+      const target = resolve(root, path);
+      if (relative(root, target).startsWith('..') || !lstatSync(target).isFile()) continue;
+      digests[path] = hash(readFileSync(target));
+    } catch {
+      // Absent.
+    }
+  }
+  return digests;
+}
+
 export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let success = false,
     diagnostic = '',
@@ -1048,6 +1066,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   const native = e.tool === 'ct-native';
   const cargo = e.tool === 'cargo';
   let cargoReceipt: Record<string, unknown> | undefined;
+  let declared: NonNullable<PinnedCargoManifest['declaredChecks']>['checks'][number] | undefined;
   let ownsNativeUnit = false;
   const started = Date.now();
   try {
@@ -1144,6 +1163,22 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       };
       command = m.cargoExecutable;
       actual = pinnedCargoArguments(m, e.args);
+    } else if (e.tool === 'ct-check' && e.args[0] === '--declared') {
+      // A declared check runs the adopted command from the verified manifest (R-G13): the
+      // request names the check and nothing else.
+      if (e.args.length !== 2) throw new Error('Usage: ct-check --declared <check>');
+      declared = m.declaredChecks?.checks.find((c) => c.id === e.args[1]);
+      if (!declared)
+        throw new Error(
+          `${e.args[1]} is not a declared check of this repository. Declared: ${
+            m.declaredChecks?.checks.map((c) => c.id).join(', ') || 'none'
+          }.`,
+        );
+      // A program with a path is the repository's own, run from the worktree under review.
+      command = declared.argv[0]!.includes('/')
+        ? join(m.workspacePath, declared.argv[0]!)
+        : declared.argv[0]!;
+      actual = declared.argv.slice(1);
     } else {
       const args = e.args[0] === '--' ? e.args.slice(1) : [...e.args];
       command = args[0] ?? '';
@@ -1310,6 +1345,16 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       clean: before.clean && after.clean && before.headSha === after.headSha,
       command,
       args: e.args,
+      ...(declared && m?.declaredChecks
+        ? {
+            declaredCheck: {
+              id: declared.id,
+              declarationId: m.declaredChecks.declarationId,
+              // What defined the check when it ran; the gate compares it with the adoption.
+              definitionDigests: definitionDigestsAt(m.workspacePath, declared.definitionPaths),
+            },
+          }
+        : {}),
       success,
       exitCode: code,
       diagnostic,

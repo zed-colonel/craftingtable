@@ -21,6 +21,7 @@ import {
   type RepositoryPolicy,
   type Roadmap,
   type RoadmapDefinition,
+  type RepositoryCheckDeclaration,
   type UpstreamTransitionRecord,
   type RunBuildRecord,
   type RunCheckReceipt,
@@ -77,6 +78,7 @@ export interface PersistedRecords {
   readonly 'protected-ref-move': ProtectedRefMove;
   readonly 'native-approval': NativeVerificationApproval;
   readonly 'upstream-transition-record': UpstreamTransitionRecord;
+  readonly 'repository-check-declaration': RepositoryCheckDeclaration;
   readonly 'scope-receipt': ScopeReceipt;
   readonly 'archive-import-attempt': ArchiveImportAttempt;
   readonly 'concurrency-definition': ConcurrencyDefinition;
@@ -192,6 +194,7 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
     'protected-ref-move': [],
     'native-approval': [],
     'upstream-transition-record': [],
+    'repository-check-declaration': [],
     'scope-receipt': [],
     'archive-import-attempt': [],
     'concurrency-definition': [],

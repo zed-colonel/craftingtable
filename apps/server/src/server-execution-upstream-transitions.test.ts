@@ -15,6 +15,7 @@ import {
   commitFile,
   controlCycle,
   currentCycle,
+  declareFixtureChecks,
   fixtureRepository,
   git,
   HOST_CARGO,
@@ -115,6 +116,7 @@ async function transitionFixture() {
     alias: 'provider',
     ref: 'main',
   });
+  declareFixtureChecks(f.state);
   await svc.configure(f.auth, ws, definitionId, {
     bindingRevision: 2,
     expectedGeneration: 0,

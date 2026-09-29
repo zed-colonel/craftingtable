@@ -36,5 +36,6 @@ export * from './attention-item.js';
 export * from './operator-wait.js';
 export * from './cycle-actions.js';
 export * from './bounded-text.js';
+export * from './repository-checks.js';
 export * from './upstream-transitions.js';
 export * from './protected-refs.js';

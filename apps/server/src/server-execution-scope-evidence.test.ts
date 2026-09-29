@@ -14,6 +14,7 @@ import { resolveScope, scopeCases, scopeRequirements } from './services/executio
 import {
   cleanupExecutionFixtures,
   commitFile,
+  declareFixtureChecks,
   expectedScopeEvidence,
   expectScopeCases,
   fixtureRepository,
@@ -107,6 +108,7 @@ async function checkpointCandidateFixture(
       },
     ],
   };
+  declareFixtureChecks(f.state);
   await svc.configure(f.auth, f.state.workspaceId, f.parentScope.definitionId, config);
   writeFileSync(
     join(f.root, 'Cargo.toml'),
@@ -346,6 +348,7 @@ async function evidenceFixture(checkpointOwner = 'local') {
       },
     ],
   };
+  declareFixtureChecks(f.state);
   const view = await svc.configure(f.auth, f.state.workspaceId, definitionId, input);
   const spec = view.subjects.find((s) => s.subject.sourceId === 'LOCAL-QUALIFIED')!;
   const head = execFileSync(HOST_GIT, ['rev-parse', 'HEAD'], {
@@ -540,6 +543,7 @@ it('previews exact dependency refreshes, rejects stale approval and retains unch
     alias: 'provider',
     ref: 'main',
   });
+  declareFixtureChecks(f.state);
   const configured = await svc.configure(f.auth, ws, id, {
     bindingRevision: 2,
     expectedGeneration: 0,
@@ -837,6 +841,17 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
         },
       ],
     };
+    declareFixtureChecks(f.state, [
+      {
+        id: 'fixture',
+        argv: [
+          'node',
+          '-e',
+          'if(!require("node:fs").readFileSync("lib.rs","utf8").includes("pin()"))process.exit(1)',
+        ],
+        definitionPaths: [],
+      },
+    ]);
     await svc.configure(f.auth, ws, definitionId, config);
     const scope = { ...f.scopes[0]!, bindingRevision: 2 },
       tree = await scopeTree(f, scope);
@@ -851,14 +866,7 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
       await runLauncher(
         request,
         mode === 'integration' ? 'cargo' : 'ct-check',
-        mode === 'integration'
-          ? ['test', '--offline']
-          : [
-              '--',
-              process.execPath,
-              '-e',
-              'if(!require("node:fs").readFileSync("lib.rs","utf8").includes("pin()"))process.exit(1)',
-            ],
+        mode === 'integration' ? ['test', '--offline'] : ['--declared', 'fixture'],
         { ...process.env, CARGO_NET_OFFLINE: 'true' },
       );
       return { resultText: scopeReport(f.state, scope) };

@@ -54,6 +54,12 @@ function decisionsPath(tx: StorageRepositories, ws: string, cycle: WorkCycle): s
   return `/workspaces/${ws}/roadmaps/maps/${encodeURIComponent(scope.definitionId)}#${encodeURIComponent(`runtime-evidence-${scope.definitionId}-decisions`)}`;
 }
 
+/** Stops resolved by adopting a repository's checks (R-G13). */
+const CHECK_CODES: ReadonlySet<string> = new Set([
+  'repository-checks-undeclared',
+  'check-definition-changed',
+]);
+
 function dependencyRefreshPath(ws: string, roadmapId: string | undefined): string | undefined {
   if (roadmapId === undefined) return undefined;
   return roadmapPath(ws, roadmapId, 'setup', `runtime-evidence-roadmap-${roadmapId}`);
@@ -721,7 +727,12 @@ export class AttentionProjector implements WriteObserver {
             : // A shared-decision stop opens the decision cards (LIVE-18).
               !escalated && attention.code === 'shared-decision-required'
               ? (decisionsPath(tx, ws, cycle) ?? path)
-              : path,
+              : // A check stop opens the repository's checks, where they are adopted (R-G13).
+                !escalated &&
+                  CHECK_CODES.has(attention.code) &&
+                  attention.refs?.repositoryId !== undefined
+                ? `/workspaces/${ws}/repositories#repository-checks-${encodeURIComponent(attention.refs.repositoryId)}`
+                : path,
         refs: { ...refs, cycleId: cycle.id, ...(cycle.owner ? ownerRefs(cycle.owner) : {}) },
       });
       return items;

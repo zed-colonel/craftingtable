@@ -51,6 +51,8 @@ import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
 import type { RoadmapService } from './services/roadmap-service.js';
 import type { RunEventStreamService } from './services/run-event-stream-service.js';
+import type { RepositoryChecksService } from './services/repository-checks-service.js';
+import { registerRepositoryChecksRoutes } from './routes/repository-checks.js';
 import type { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import type { StorageService } from './services/storage-service.js';
 import type { WorkCycleService } from './services/work-cycle-service.js';
@@ -62,6 +64,7 @@ export interface ServerDependencies {
   readonly crossProjectService: CrossProjectService;
   readonly mapAmendmentService: MapAmendmentService;
   readonly runtimeEvidenceService: RuntimeEvidenceService;
+  readonly repositoryChecksService: RepositoryChecksService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
   readonly hostSchedulingService: HostSchedulingService;
@@ -155,6 +158,7 @@ export function buildServer(
   registerCrossProjectRoutes(app, deps.authService, deps.crossProjectService, config);
   registerMapAmendmentRoutes(app, deps.authService, deps.mapAmendmentService, config);
   registerRuntimeEvidenceRoutes(app, deps.authService, deps.runtimeEvidenceService, config);
+  registerRepositoryChecksRoutes(app, deps.authService, deps.repositoryChecksService, config);
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerHostSchedulingRoutes(app, deps.authService, deps.hostSchedulingService, config);
   registerOperatorWaitRoutes(app, deps.authService, deps.operatorWaitService);

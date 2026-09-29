@@ -153,6 +153,7 @@ const SOURCES: readonly Source[] = [
   documents('protected-ref-move', 'protected_ref_moves', 'id'),
   documents('native-approval', 'native_verification_approvals', 'id'),
   documents('upstream-transition-record', 'upstream_transition_records', 'id'),
+  documents('repository-check-declaration', 'repository_check_declarations', 'id'),
   documents('scope-receipt', 'scope_receipts', 'id'),
   documents('archive-import-attempt', 'archive_import_attempts', 'id'),
   documents('concurrency-definition', 'concurrency_definitions', 'id'),

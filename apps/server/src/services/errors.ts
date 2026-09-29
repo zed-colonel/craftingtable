@@ -129,3 +129,35 @@ export class DaemonDrainingError extends ExecutionRequestError {
     this.name = 'DaemonDrainingError';
   }
 }
+
+/**
+ * A scoped run's repository has no adopted check declaration (R-G13, fail closed): the run does
+ * not start until the operator adopts one.
+ */
+export class RepositoryChecksUndeclaredError extends ExecutionRequestError {
+  constructor(
+    readonly repositoryId: string,
+    repositoryName: string,
+  ) {
+    super(
+      'conflict',
+      `${repositoryName} has no adopted checks. Adopt its .craftingtable/checks.json on the Repositories page, then resume.`,
+    );
+    this.name = 'RepositoryChecksUndeclaredError';
+  }
+}
+
+/**
+ * A declared check's definition files on the gated commit differ from the adopted ones
+ * (R-G13): adopt the new definition, or revert the change.
+ */
+export class CheckDefinitionChangedError extends ExecutionRequestError {
+  constructor(
+    readonly repositoryId: string,
+    readonly checkId: string,
+    message: string,
+  ) {
+    super('conflict', message);
+    this.name = 'CheckDefinitionChangedError';
+  }
+}

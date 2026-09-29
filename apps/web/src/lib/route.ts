@@ -87,7 +87,8 @@ export type Route =
       readonly focus?: string;
     }
   | { readonly name: 'import'; readonly workspaceId: WorkspaceId }
-  | { readonly name: 'repositories'; readonly workspaceId: WorkspaceId }
+  /** `/repositories[#repository-checks-<id>]`: a check stop opens that repository's checks. */
+  | { readonly name: 'repositories'; readonly workspaceId: WorkspaceId; readonly focus?: string }
   | { readonly name: 'runs'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'agenda'; readonly workspaceId: WorkspaceId; readonly filter: AgendaFilter }
   | { readonly name: 'project'; readonly workspaceId: WorkspaceId; readonly projectId: ProjectId }
@@ -156,6 +157,7 @@ export function parseRoute(pathname: string, search = '', hash = ''): Route {
         ...(focus === undefined ? {} : { focus }),
       };
     case 'work-item':
+    case 'repositories':
       return { ...route, ...(focus === undefined ? {} : { focus }) };
     default:
       return route;

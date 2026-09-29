@@ -164,6 +164,12 @@ export interface RunEnvironment {
    * Absent on runs prepared before that; their receipts are agent-reported.
    */
   readonly receiptAuthority?: 'daemon';
+  /**
+   * The adopted check declaration the run's scoped gate is held to (R-G13): only daemon
+   * receipts of those checks meet it. Absent on runs prepared before declared checks, which keep
+   * the earlier rule.
+   */
+  readonly checkDeclarationId?: string;
 }
 
 /** One check the daemon ran for a run and recorded as it finished (R-G4). Immutable. */

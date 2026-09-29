@@ -64,14 +64,14 @@ const built = existsSync(new URL('../packages/domain/dist/index.js', import.meta
 it.skipIf(!built)(
   'the e2e daemon leaves no data directory when Playwright stops it',
   async () => {
-    const daemon = config.webServer.find((server) => server.command.includes('e2e:start'));
+    const daemon = config.webServer.find((server) => server.command.includes('e2e-entry'));
     expect(daemon).toBeDefined();
     const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-shutdown-'));
     temporary.push(scratch);
     const port = await freePort();
     // Started as Playwright starts it: through a shell, in its own process group.
     const child = spawn(daemon.command, {
-      cwd: REPOSITORY_ROOT,
+      cwd: daemon.cwd ?? REPOSITORY_ROOT,
       shell: true,
       detached: true,
       stdio: 'ignore',

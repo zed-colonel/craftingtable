@@ -3,29 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRuntime } from './composition.js';
 import { configFromEnv } from './config.js';
+import { e2eEnvironment } from './e2e-environment.js';
 
 const E2E_USERNAME = 'e2e-admin';
 const E2E_PASSWORD = 'correct horse battery staple';
 const directory = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-'));
-const config = configFromEnv({
-  CRAFTINGTABLE_DATA_DIR: directory,
-  CRAFTINGTABLE_HOST: '127.0.0.1',
-  // Defaults match `playwright.config.ts`, away from the 4600/5173 an operator
-  // daemon or `pnpm dev` uses; Playwright passes both explicitly.
-  CRAFTINGTABLE_PORT: process.env.CRAFTINGTABLE_PORT ?? '4610',
-  CRAFTINGTABLE_PUBLIC_ORIGIN: process.env.CRAFTINGTABLE_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5183',
-  CRAFTINGTABLE_LOG_LEVEL: 'warn',
-  CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '0',
-  ...(process.env.CRAFTINGTABLE_CLAUDE_EXECUTABLE === undefined
-    ? {}
-    : { CRAFTINGTABLE_CLAUDE_EXECUTABLE: process.env.CRAFTINGTABLE_CLAUDE_EXECUTABLE }),
-  ...(process.env.CRAFTINGTABLE_CODEX_EXECUTABLE === undefined
-    ? {}
-    : { CRAFTINGTABLE_CODEX_EXECUTABLE: process.env.CRAFTINGTABLE_CODEX_EXECUTABLE }),
-  ...(process.env.CRAFTINGTABLE_GIT_EXECUTABLE === undefined
-    ? {}
-    : { CRAFTINGTABLE_GIT_EXECUTABLE: process.env.CRAFTINGTABLE_GIT_EXECUTABLE }),
-});
+const config = configFromEnv(e2eEnvironment(directory, process.env));
 const runtime = await createRuntime(config, {
   logger: true,
   overrides: { notificationTransport: { send: async () => ({ status: 'accepted' }) } },

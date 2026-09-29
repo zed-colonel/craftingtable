@@ -4,6 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 /** The daemon under test launches this scripted stand-in instead of Claude Code. */
 const FAKE_CODEX = fileURLToPath(new URL('./e2e/fake-codex.mjs', import.meta.url));
 const FAKE_CLAUDE = fileURLToPath(new URL('./e2e/fake-claude.mjs', import.meta.url));
+const SERVER_DIRECTORY = fileURLToPath(new URL('./apps/server/', import.meta.url));
 
 // The suite owns these ports so it runs alongside an operator daemon or `pnpm dev`
 // on the usual 4600/5173. They must stay in step with the defaults in
@@ -27,7 +28,7 @@ export default defineConfig({
   // specs and their tests run in parallel. They still share one daemon, whose workstation
   // capacity is raised below so parallel specs do not queue behind each other's cycles.
   fullyParallel: true,
-  workers: Number(process.env.CRAFTINGTABLE_E2E_WORKERS ?? 4),
+  workers: Math.max(1, Number.parseInt(process.env.CRAFTINGTABLE_E2E_WORKERS ?? '', 10) || 4),
   reporter: [['list']],
   use: {
     baseURL: WEB_URL,
@@ -49,11 +50,9 @@ export default defineConfig({
         '**/mobile.spec.ts',
         '**/notifications.spec.ts',
         '**/package-imports.spec.ts',
-        '**/storage.spec.ts',
         '**/roadmaps.spec.ts',
         '**/finalization.spec.ts',
       ],
-      testIgnore: INSTALLATION_SPECS,
       use: {
         ...devices['iPhone 13'],
         browserName: 'chromium',
@@ -91,7 +90,11 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'pnpm --filter @craftingtable/server e2e:start',
+      // `exec` makes the daemon the process Playwright waits for. Started through pnpm, pnpm
+      // left at the stop signal, Playwright took the command as finished and killed the group,
+      // and the daemon died partway through removing its data directory (R-I5, R-I9).
+      command: 'exec node --import tsx src/e2e-entry.ts',
+      cwd: SERVER_DIRECTORY,
       url: SERVER_HEALTH_URL,
       reuseExistingServer: false,
       timeout: 30_000,

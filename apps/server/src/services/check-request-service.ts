@@ -118,6 +118,27 @@ interface ServedRun {
 }
 
 /**
+ * Every root agents write, of any run (R-G13 review): the data directory, the run and worktree
+ * roots (which may lie elsewhere), and the shared Cargo home. A declared check's unit sees none of
+ * them; its own paths are bound back.
+ */
+export function checkHiddenRoots(config: {
+  readonly checkLogRoot: string;
+  readonly runsRoot: string;
+  readonly worktreeRoot: string;
+  readonly cargoHome: string;
+}): string[] {
+  return [
+    ...new Set([
+      dirname(config.checkLogRoot),
+      config.runsRoot,
+      config.worktreeRoot,
+      config.cargoHome,
+    ]),
+  ];
+}
+
+/**
  * Bounds on the checks the daemon runs for agents (R-G4 review): running at once per run and
  * in the daemon, waiting per run, and retained log per run and per check.
  */
@@ -151,8 +172,8 @@ export class CheckRequestService {
       readonly checkConfinement: CheckConfinement;
       readonly checkLogRoot: string;
       readonly cargoHome: string;
-      readonly runsRoot?: string;
-      readonly worktreeRoot?: string;
+      readonly runsRoot: string;
+      readonly worktreeRoot: string;
     },
     private readonly log: {
       warn(message: string, fields?: Record<string, unknown>): void;
@@ -403,13 +424,7 @@ export class CheckRequestService {
         declaredTargetDirectory: join(this.config.checkLogRoot, context.runId, 'declared-target'),
         ...(this.checksums ? { crateRegistry: this.checksums } : {}),
         cargoHomeDirectory: join(this.config.checkLogRoot, context.runId, `cargo-home-${slot}`),
-        // Every root agents write, of any run; the check's own paths are bound back.
-        hiddenRoots: [
-          dirname(this.config.checkLogRoot),
-          ...(this.config.runsRoot ? [this.config.runsRoot] : []),
-          ...(this.config.worktreeRoot ? [this.config.worktreeRoot] : []),
-          cargoHome,
-        ],
+        hiddenRoots: checkHiddenRoots(this.config),
       });
       served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);
       const recorded = this.record(context, outcome.receipt);

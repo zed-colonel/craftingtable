@@ -126,3 +126,30 @@ it('asks again about a crate it could not learn only after a while, and reads at
   );
   expect(await huge.checksum(CRATES_IO, 'itoa', '1.0.18')).toBeUndefined();
 });
+
+it('fetches at most its budget per window, and does not refetch a crate for a version it lacks (R-G13 review)', async () => {
+  let asked = 0;
+  let now = 0;
+  const index = new CratesIoChecksums(
+    cacheFile(),
+    async () => {
+      asked++;
+      return new Response(`${line('real', '1.0.0', 'a'.repeat(64))}\n`);
+    },
+    'https://index.crates.io/',
+    1000,
+    60_000,
+    () => now,
+    3,
+  );
+  // A published crate, then an unpublished version of it: one fetch.
+  expect(await index.checksum(CRATES_IO, 'real', '1.0.0')).toBe('a'.repeat(64));
+  expect(await index.checksum(CRATES_IO, 'real', '9.9.9')).toBeUndefined();
+  expect(asked).toBe(1);
+  // Many names: the budget ends the fetching.
+  for (let i = 0; i < 10; i++) await index.checksum(CRATES_IO, `name${i}`, '1.0.0');
+  expect(asked).toBe(3);
+  now = 60_001;
+  await index.checksum(CRATES_IO, 'real', '9.9.9');
+  expect(asked).toBe(4);
+});

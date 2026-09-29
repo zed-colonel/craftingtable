@@ -819,6 +819,7 @@ it("a declared check unit sees none of the run's writable roots or the shared Ca
     },
     sharedCargoHome: cargo,
     hiddenRoots: [join(root, 'data'), cargo],
+    homeDirectory: root,
     runWritablePaths: [worktree, run, join(cargo, 'registry'), join(cargo, 'git')],
     launcherDirectory: join(run, 'dependencies'),
     workspacePath: worktree,
@@ -858,8 +859,12 @@ it("a declared check unit sees none of the run's writable roots or the shared Ca
   expect(args).toContain(`InaccessiblePaths=-${run}`);
   expect(args).toContain(`InaccessiblePaths=-${worktree}`);
   expect(args).toContain(`InaccessiblePaths=-${cargo}`);
-  // Every root agents write is hidden, and only the check's own paths are bound back.
-  expect(unit.hidden).toEqual([join(root, 'data'), cargo]);
+  // Every root agents write is hidden, the home too, and only the check's own paths are bound
+  // back; the toolchain on its PATH under the home comes back read-only.
+  expect(unit.hidden).toEqual([join(root, 'data'), cargo, root]);
+  expect(unit.environment.HOME).toBe(join(scratch, 'tmp'));
+  expect(unit.environment.RUSTUP_HOME).toBe(join(root, '.rustup'));
+  expect(unit.readOnlyBinds).toEqual([join(root, '.rustup')]);
   expect(unit.binds).toEqual(unit.writable);
   const confined = confinedCheckArguments(
     'unit',
@@ -871,10 +876,12 @@ it("a declared check unit sees none of the run's writable roots or the shared Ca
     false,
     [],
     unit.inaccessible,
-    { roots: unit.hidden, binds: unit.binds },
+    { roots: unit.hidden, binds: unit.binds, readOnlyBinds: unit.readOnlyBinds },
   );
   expect(confined).toContain(`TemporaryFileSystem=${join(root, 'data')}:ro`);
   expect(confined).toContain(`BindPaths=${clone}`);
+  expect(confined).toContain('TemporaryFileSystem=/dev/shm');
+  expect(confined).toContain(`BindReadOnlyPaths=-${join(root, '.rustup')}`);
 });
 
 const sha256 = (content: string | Buffer) => createHash('sha256').update(content).digest('hex');
@@ -1142,6 +1149,21 @@ it('a lock that is a FIFO, or too many locks, never block or exhaust the daemon 
   expect(output).toContain('No Cargo.lock in the checked tree');
 }, 20_000);
 
+it('reads at most 64 locks and says how many it left out (R-G13 review)', async () => {
+  const f = fixture();
+  const shared = join(f.root, 'shared-cargo');
+  mkdirSync(join(shared, 'registry', 'index'), { recursive: true });
+  writeFileSync(join(f.m.workspacePath, 'Cargo.lock'), lockOf([]));
+  for (let i = 0; i < 65; i++) {
+    mkdirSync(join(f.m.workspacePath, `crates/c${i}`), { recursive: true });
+    writeFileSync(join(f.m.workspacePath, `crates/c${i}/Cargo.lock`), lockOf([]));
+  }
+  commitAll(f.m.workspacePath);
+  const { outcome, output } = await listCargoHome(f, shared, authority({}));
+  expect(outcome.exitCode, output).toBe(0);
+  expect(output).toContain('2 Cargo.lock files were not read');
+});
+
 it('says so when the checked tree has no lock, since no registry crate can then be verified (R-G13 review)', async () => {
   const f = fixture();
   const shared = join(f.root, 'shared-cargo');
@@ -1336,6 +1358,9 @@ itConfines(
     const secret = join(data, 'runs', 'other-run', 'planted.rs');
     mkdirSync(join(secret, '..'), { recursive: true });
     writeFileSync(secret, 'PLANTED');
+    // Shared memory and the repository's Git directory are writable by agents too.
+    const shm = `/dev/shm/ct-check-test-${process.pid}`;
+    writeFileSync(shm, 'PLANTED');
     const manifest: PinnedCargoManifest = {
       ...f.m,
       declaredChecks: {
@@ -1347,7 +1372,7 @@ itConfines(
             argv: [
               'sh',
               '-c',
-              `cat ${secret} 2>/dev/null || echo hidden; echo own > own.txt && echo wrote`,
+              `cat ${secret} 2>/dev/null || echo hidden; cat ${shm} 2>/dev/null || echo shm-hidden; cat ${join(f.m.gitCommonDirectory!, 'HEAD')} 2>/dev/null || echo git-hidden; echo own > own.txt && echo wrote`,
             ],
             definitionPaths: [],
             definitionDigests: {},
@@ -1376,7 +1401,10 @@ itConfines(
       hiddenRoots: [data],
     });
     expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+    rmSync(shm, { force: true });
     expect(output).toContain('hidden');
+    expect(output).toContain('shm-hidden');
+    expect(output).toContain('git-hidden');
     expect(output).not.toContain('PLANTED');
     expect(output).toContain('wrote');
   },

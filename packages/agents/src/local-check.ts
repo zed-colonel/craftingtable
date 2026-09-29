@@ -899,7 +899,11 @@ export function confinedCheckArguments(
   /** Paths the unit cannot see at all, such as the run's agent-writable roots. */
   inaccessible: readonly string[] = [],
   /** Roots replaced by empty read-only file systems, and paths bound back over them. */
-  hidden: { readonly roots: readonly string[]; readonly binds: readonly string[] } = {
+  hidden: {
+    readonly roots: readonly string[];
+    readonly binds: readonly string[];
+    readonly readOnlyBinds?: readonly string[];
+  } = {
     roots: [],
     binds: [],
   },
@@ -930,8 +934,12 @@ export function confinedCheckArguments(
     ...writable.flatMap((p) => ['-p', `ReadWritePaths=-${p}`]),
     ...readOnly.flatMap((p) => ['-p', `ReadOnlyPaths=-${p}`]),
     ...inaccessible.flatMap((p) => ['-p', `InaccessiblePaths=-${p}`]),
+    // The host's shared memory is writable from every unit, so no unit sees it (R-G13 review).
+    '-p',
+    'TemporaryFileSystem=/dev/shm',
     ...hidden.roots.flatMap((p) => ['-p', `TemporaryFileSystem=${p}:ro`]),
     ...hidden.binds.flatMap((p) => ['-p', `BindPaths=${p}`]),
+    ...(hidden.readOnlyBinds ?? []).flatMap((p) => ['-p', `BindReadOnlyPaths=-${p}`]),
     '--',
     '/usr/bin/env',
     '-i',
@@ -1396,7 +1404,10 @@ function lockIndexPath(name: string): string {
  * 64 locks and 64 MiB in all, each read without following links or blocking (R-G13 review); a
  * lock beyond that is left out, so its crates are too, and the build fails closed.
  */
-async function cargoLocks(m: PinnedCargoManifest, root: string): Promise<string[]> {
+async function cargoLocks(
+  m: PinnedCargoManifest,
+  root: string,
+): Promise<{ locks: string[]; skipped: number }> {
   let listed: string[] = [];
   try {
     listed = (
@@ -1414,15 +1425,21 @@ async function cargoLocks(m: PinnedCargoManifest, root: string): Promise<string[
     // Not a Git tree: the root's lock only.
   }
   const locks: string[] = [];
-  let total = 0;
-  for (const path of [...new Set(['Cargo.lock', ...listed])].slice(0, 64)) {
+  const paths = [...new Set(['Cargo.lock', ...listed])];
+  let total = 0,
+    read = 0;
+  for (const path of paths.slice(0, 64)) {
     const content = await readRegular(join(root, path), 16 * 1024 * 1024);
+    read++;
     if (!content) continue;
     total += content.byteLength;
-    if (total > 64 * 1024 * 1024) break;
+    if (total > 64 * 1024 * 1024) {
+      read--;
+      break;
+    }
     locks.push(content.toString('utf8'));
   }
-  return locks;
+  return { locks, skipped: paths.length - read };
 }
 
 export function trustedPath(path: string | undefined, writable: readonly string[]): string {
@@ -1468,6 +1485,11 @@ export function declaredUnitSettings(input: {
    * the shared Cargo home, the CI cache. The unit sees none of them, except its own paths.
    */
   readonly hiddenRoots?: readonly string[];
+  /**
+   * The operator's home, hidden whole (R-G13 review): repositories' shared Git directories and
+   * other files agents write live there. Only the toolchain comes back, read-only.
+   */
+  readonly homeDirectory?: string;
 }): {
   readonly environment: Record<string, string>;
   readonly writable: readonly string[];
@@ -1476,30 +1498,49 @@ export function declaredUnitSettings(input: {
   readonly hidden: readonly string[];
   /** The check's own paths, bound back into the unit over the hidden roots. */
   readonly binds: readonly string[];
+  /** The toolchain under a hidden root, bound back read-only. */
+  readonly readOnlyBinds: readonly string[];
 } {
   const tmp = join(input.privateDirectory, 'tmp');
   for (const p of [tmp, input.target]) mkdirSync(p, { recursive: true, mode: 0o700 });
   const cargoHome = input.environment.CARGO_HOME;
   const own = cargoHome && cargoHome !== input.sharedCargoHome ? [cargoHome] : [];
+  const home = input.homeDirectory;
+  const path = trustedPath(input.environment.PATH, [
+    input.launcherDirectory,
+    input.workspacePath,
+    ...input.runWritablePaths,
+    ...(input.sharedCargoHome ? [input.sharedCargoHome] : []),
+  ]);
+  const underHome = (p: string) => {
+    if (!home) return false;
+    const r = relative(home, p);
+    return r !== '' && !r.startsWith('..') && !isAbsolute(r);
+  };
+  const rustupHome = input.environment.RUSTUP_HOME ?? (home ? join(home, '.rustup') : undefined);
   return {
     environment: {
       ...input.environment,
-      PATH: trustedPath(input.environment.PATH, [
-        input.launcherDirectory,
-        input.workspacePath,
-        ...input.runWritablePaths,
-        ...(input.sharedCargoHome ? [input.sharedCargoHome] : []),
-      ]),
+      PATH: path,
       TMPDIR: tmp,
       CARGO_TARGET_DIR: input.target,
+      // The home is hidden: the check gets a scratch one, and the toolchain by its own path.
+      ...(home ? { HOME: tmp } : {}),
+      ...(rustupHome ? { RUSTUP_HOME: rustupHome } : {}),
     },
     // The check's own Cargo home, never the shared one (operator decision 2026-09-29).
     writable: [input.snapshot, tmp, input.target, ...own],
     // A committed configuration or link could otherwise name any path agents write, of this run
     // or another, and the check would build from it (R-G13 review): only the reviewed clone,
     // its scratch, its build outputs and its own Cargo home remain visible.
-    hidden: [...new Set(input.hiddenRoots ?? [])],
+    hidden: [...new Set([...(input.hiddenRoots ?? []), ...(home ? [home] : [])])],
     binds: [input.snapshot, tmp, input.target, ...own],
+    readOnlyBinds: [
+      ...new Set([
+        ...(rustupHome && underHome(rustupHome) ? [rustupHome] : []),
+        ...path.split(':').filter((entry) => entry && underHome(entry)),
+      ]),
+    ],
     inaccessible: [
       input.workspacePath,
       input.launcherDirectory,
@@ -1527,7 +1568,11 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let declared: NonNullable<PinnedCargoManifest['declaredChecks']>['checks'][number] | undefined;
   let snapshot: string | undefined;
   let inaccessible: readonly string[] = [];
-  let hidden: { roots: readonly string[]; binds: readonly string[] } = { roots: [], binds: [] };
+  let hidden: {
+    roots: readonly string[];
+    binds: readonly string[];
+    readOnlyBinds?: readonly string[];
+  } = { roots: [], binds: [] };
   let privateCargoHome: string | undefined;
   let declaredDigests: Record<string, string> = {};
   let ownsNativeUnit = false;
@@ -1554,11 +1599,12 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       // A stable path per concurrent check of a run keeps Cargo's fingerprints, which name the
       // sources' path, valid from one check to the next; the home itself is always fresh.
       privateCargoHome = e.cargoHomeDirectory ?? join(e.privateDirectory, 'cargo-home');
+      const lockFiles = await cargoLocks(manifest, root);
       const prepared = await preparePrivateCargoHome(
         manifest,
         sharedCargoHome,
         privateCargoHome,
-        await cargoLocks(manifest, root),
+        lockFiles.locks,
         e.crateRegistry,
         () => {
           if (e.signal.aborted) throw new Error('Interrupted.');
@@ -1568,6 +1614,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           return left;
         },
       );
+      if (lockFiles.skipped)
+        e.onOutput(
+          `${lockFiles.skipped} Cargo.lock files were not read: a check reads at most 64 of them, 64 MiB in all.\n`,
+        );
       if (!prepared.locked)
         e.onOutput(
           'No Cargo.lock in the checked tree, so no registry dependency is available to this offline check. Commit Cargo.lock.\n',
@@ -1718,7 +1768,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           ...(e.hiddenRoots ?? []),
           ...(sharedCargoHome ? [sharedCargoHome] : []),
           ...(m.localCi ? [m.localCi.cacheRoot] : []),
+          // The repository's shared Git directory, which agents write when they commit.
+          ...(m.gitCommonDirectory ? [m.gitCommonDirectory] : []),
         ],
+        homeDirectory: homedir(),
         // One per commit: a build script of another commit cannot leave outputs it reuses.
         target: join(
           e.declaredTargetDirectory ?? join(e.privateDirectory, 'target'),
@@ -1728,7 +1781,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       environment = unit.environment;
       writable = [...unit.writable];
       inaccessible = unit.inaccessible;
-      hidden = { roots: unit.hidden, binds: unit.binds };
+      hidden = { roots: unit.hidden, binds: unit.binds, readOnlyBinds: unit.readOnlyBinds };
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('The check time limit passed before it could start.');

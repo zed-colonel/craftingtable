@@ -850,3 +850,51 @@ it('does not hold a slice on a decision that cannot be approved until later work
   expect(card.blockers.length).toBeGreaterThan(0);
   await startsFirstSlice(fixture);
 });
+
+it('holds a slice on a brief limited to clauses that names it (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const own = fixture.f.scopes[0]!.sourceId;
+  answerWith(fixture, {
+    ...brief('LOCAL-ADR-01'),
+    coverage: 'clauses',
+    consumers: [{ sliceId: own, phase: 'merge', replacesFullCheckpoint: false }],
+  });
+  await prepared1(fixture);
+  await roadmapControl(fixture.f.state, 'start');
+  await fixture.f.state.context.services.roadmapService.tick();
+  await fixture.f.state.context.services.roadmapService.tick();
+  expect(startedSlices(fixture)).toEqual([]);
+});
+
+it('keeps holding when the operator rejected another proposal, not the one made from this brief (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { f, ws } = fixture;
+  const p = await prepared1(fixture);
+  // A proposal written by hand, not from the brief, is rejected.
+  const evidence = f.state.context.services.runtimeEvidenceService;
+  const proposed = await evidence.proposeArchitectureDecision(f.auth, ws, p.definitionId, {
+    bindingRevision: 1,
+    checkpointId: 'LOCAL-ADR-01',
+    coverage: 'full',
+    proposal: 'A different boundary, written by hand.',
+    sourceReferences: 'Exact imported plan LOCAL-ADR-01',
+    consumers: [],
+    retainedObligations: 'Implementation tests remain mandatory.',
+  });
+  const submission = proposed.submissions.find(
+    (x) => x.submission.subject.sourceId === 'LOCAL-ADR-01',
+  )!.submission;
+  await evidence.decide(f.auth, ws, p.definitionId, {
+    submissionId: submission.id,
+    outcome: 'rejected',
+    rationale: 'Not this one.',
+  });
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  await f.state.context.services.roadmapService.tick();
+  expect(startedSlices(fixture)).toEqual([]);
+});

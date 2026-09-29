@@ -41,6 +41,9 @@ export class CratesIoChecksums implements CrateChecksumAuthority {
   private readonly known = new Map<string, string>();
   private readonly pending = new Map<string, Promise<void>>();
   private readonly failed = new Map<string, number>();
+  /** When each crate was last fetched, and the fetches in the current window. */
+  private readonly fetched = new Map<string, number>();
+  private window = { start: 0, count: 0 };
 
   constructor(
     /** A directory under the data directory, outside every writable root of a run. */
@@ -53,6 +56,7 @@ export class CratesIoChecksums implements CrateChecksumAuthority {
     private readonly timeoutMs = 15_000,
     private readonly retryAfterMs = 10 * 60_000,
     private readonly now: () => number = Date.now,
+    private readonly fetchBudget = 500,
   ) {}
 
   async checksum(source: string, name: string, version: string): Promise<string | undefined> {
@@ -60,7 +64,10 @@ export class CratesIoChecksums implements CrateChecksumAuthority {
     const key = `${name.toLowerCase()}@${version}`;
     // What was learned before is on disk, one file per crate.
     if (!this.known.has(key)) this.remember(name, this.readIndex(name));
-    if (!this.known.has(key)) await this.learn(name);
+    // A version still missing after a recent fetch is not asked about again for a while.
+    const last = this.fetched.get(name.toLowerCase());
+    if (!this.known.has(key) && (last === undefined || this.now() - last >= this.retryAfterMs))
+      await this.learn(name);
     return this.known.get(key);
   }
 
@@ -118,6 +125,13 @@ export class CratesIoChecksums implements CrateChecksumAuthority {
     const failedAt = this.failed.get(n);
     if (failedAt !== undefined && this.now() - failedAt < this.retryAfterMs)
       return Promise.resolve();
+    // At most `fetchBudget` requests per retry window, whatever locks name: a lock that lists
+    // thousands of crates cannot make the daemon crawl the registry (R-G13 review).
+    if (this.now() - this.window.start >= this.retryAfterMs)
+      this.window = { start: this.now(), count: 0 };
+    if (this.window.count >= this.fetchBudget) return Promise.resolve();
+    this.window.count++;
+    this.fetched.set(n, this.now());
     const learning = (async () => {
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), this.timeoutMs);
@@ -154,6 +168,7 @@ export class CratesIoChecksums implements CrateChecksumAuthority {
         if (learned) this.failed.delete(n);
         else {
           // Bounded: the oldest failures are forgotten first.
+          this.failed.delete(n);
           if (this.failed.size >= 10_000) this.failed.delete(this.failed.keys().next().value!);
           this.failed.set(n, this.now());
         }

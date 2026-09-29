@@ -115,6 +115,13 @@ import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 
 class SupersededRoadmapOperation extends Error {}
+/** A definition's shared-decision inbox as the R-C3b hold reads it, and when it was built. */
+interface HoldInbox {
+  readonly generation: number;
+  readonly inbox: import('@craftingtable/contracts').ArchitectureDecisionInbox;
+  /** Each decision record's source run, to tie a rejection to the brief it answered. */
+  readonly sources: ReadonlyMap<string, string | undefined>;
+}
 /** Errors a pass leaves for the next one: a lost race, busy Git, or a gate that clears itself. */
 function retried(error: unknown): boolean {
   return (
@@ -3107,14 +3114,9 @@ export class RoadmapService {
         : tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status === 'completed';
   }
   /** Shared-decision inboxes built once per scheduler pass (R-C3b review). */
-  private passInboxes:
-    | Map<string, import('@craftingtable/contracts').ArchitectureDecisionInbox>
-    | undefined;
+  private passInboxes: Map<string, HoldInbox> | undefined;
   /** And once per read snapshot, for views. */
-  private readonly viewInboxes = new WeakMap<
-    object,
-    Map<string, import('@craftingtable/contracts').ArchitectureDecisionInbox>
-  >();
+  private readonly viewInboxes = new WeakMap<object, Map<string, HoldInbox>>();
 
   /**
    * The decisions a slice not yet started waits on (R-C3b, operator decision 2026-09-29): each
@@ -3145,23 +3147,33 @@ export class RoadmapService {
         inboxes = new Map();
         if (tx !== this.storage) this.viewInboxes.set(tx as object, inboxes);
       }
-      let inbox = inboxes.get(definition.id);
-      if (!inbox) {
-        inbox = architectureDecisionInbox(tx, definition);
-        inboxes.set(definition.id, inbox);
+      // Rebuilt whenever workflow state changed since, within a pass too (R-C3b review): a brief
+      // that finished or a decision settled meanwhile is seen at once.
+      const generation = this.notifier.workflowGeneration;
+      let cached = inboxes.get(definition.id);
+      if (!cached || cached.generation !== generation) {
+        cached = {
+          generation,
+          inbox: architectureDecisionInbox(tx, definition),
+          sources: new Map(
+            tx.runtimeEvidence
+              .submissions(roadmap.workspaceId, definition.id)
+              .map((submission) => [submission.id, submission.sourceRunId]),
+          ),
+        };
+        inboxes.set(definition.id, cached);
       }
+      const { inbox, sources } = cached;
       const ready = inbox.decisions.filter((d) => {
         const brief = d.recommendation?.brief;
         if (!merge.has(d.checkpointId) || !brief || d.blockers.length) return false;
         if (brief.coverage !== 'full' && !brief.consumers.some((c) => c.sliceId === slice.id))
           return false;
-        const written = tx.execution.runs.find(
-          roadmap.workspaceId,
-          d.recommendation!.sourceRunId as never,
-        )?.finishedAt;
+        // Released once the operator rejected the proposal made from this very brief.
         return !d.records.some(
           (r) =>
-            r.decision?.outcome === 'rejected' && (!written || r.decision.decidedAt >= written),
+            r.decision?.outcome === 'rejected' &&
+            sources.get(r.id) === d.recommendation!.sourceRunId,
         );
       });
       if (!ready.length) return [];

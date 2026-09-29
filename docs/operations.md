@@ -264,12 +264,12 @@ publishes, plus the Git dependencies whose locked commit a database holds, clone
 Its configuration replaces crates.io with that registry, and the check runs with
 `CARGO_NET_OFFLINE=true`, whatever the tree's own configuration says. Cargo extracts sources afresh.
 A crate that is missing, rewritten or unverifiable is left out and named in the check's output,
-and the build fails. The check cannot see the shared home, and its own is emptied when it ends. A declared check's unit sees none of the roots agents write, of any run (the data directory, run and worktree roots, the shared Cargo home, the CI cache), only its own clone, scratch, build outputs and Cargo home, so the tree's own Cargo configuration cannot point at agent-written files; pinned builds and supplemental checks still run in the agent's worktree. A Git dependency's locked commit is checked to be the bytes its name says, not to come from the dependency's own remote.
+and the build fails. The check cannot see the shared home, and its own is emptied when it ends. A declared check's unit sees none of the roots agents write, of any run (the data directory, run and worktree roots, the shared Cargo home, the CI cache, the repository's Git directory, the operator's whole home, `/dev/shm`), only its own clone, scratch, build outputs and Cargo home, and the Rust toolchain and trusted PATH directories under the home, read-only; its `HOME` is its scratch directory, so the tree's own Cargo configuration cannot point at agent-written files; pinned builds and supplemental checks still run in the agent's worktree. A Git dependency's locked commit is checked to be the bytes its name says, not to come from the dependency's own remote.
 
 The daemon learns published crates from crates.io's own index over HTTPS
 (`https://index.crates.io/`), once per crate, and keeps each crate's index file and every
 version's checksum under `<data>/crates-io/`, since a published version never changes; a crate it
-could not learn is asked about again after ten minutes. This is the daemon's only outbound request of its own.
+could not learn is asked about again after ten minutes, and it makes at most 500 requests in any ten minutes. This is the daemon's only outbound request of its own.
 Without it (offline, or the index unreachable) a crate it has not seen before stays unverified, so
 checks that need it fail until the index can be reached. Crates from other registries are never
 verified. A tree without a committed `Cargo.lock` (or with a format-1 lock) gets no registry

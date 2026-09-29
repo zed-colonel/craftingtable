@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { CheckRequestService, WorkflowQueue } from './check-request-service.js';
+import { CheckRequestService, checkHiddenRoots, WorkflowQueue } from './check-request-service.js';
 
 const never = new AbortController().signal;
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
@@ -68,7 +68,13 @@ it("at start, removes declared checks' clones and build outputs a stopped daemon
     writeFileSync(join(run, 'a1.log'), 'log');
     new CheckRequestService(
       undefined as never,
-      { checkConfinement: 'none', checkLogRoot: root, cargoHome: join(root, 'cargo') },
+      {
+        checkConfinement: 'none',
+        checkLogRoot: root,
+        cargoHome: join(root, 'cargo'),
+        runsRoot: join(root, 'runs'),
+        worktreeRoot: join(root, 'worktrees'),
+      },
       { warn: () => undefined },
     ).stopLeftoverUnits();
     expect(existsSync(join(run, 'declared-target'))).toBe(false);
@@ -78,4 +84,15 @@ it("at start, removes declared checks' clones and build outputs a stopped daemon
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+it("hides every root agents write from a declared check's unit, wherever the run and worktree roots are (R-G13 review)", () => {
+  expect(
+    checkHiddenRoots({
+      checkLogRoot: '/data/check-logs',
+      runsRoot: '/elsewhere/runs',
+      worktreeRoot: '/data/worktrees',
+      cargoHome: '/data/cargo-home',
+    }),
+  ).toEqual(['/data', '/elsewhere/runs', '/data/worktrees', '/data/cargo-home']);
 });

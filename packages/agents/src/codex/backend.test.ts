@@ -47,7 +47,9 @@ lines.on('line', line => {
   trace(msg);
   const reply = result => emit({id: msg.id, result});
   if (msg.method === 'initialize') {
-    if (mode === 'timeout') return;
+    // The configuration probe runs without the per-name switches; only the run's own
+    // app-server stalls in timeout mode.
+    if (mode === 'timeout' && process.argv.join(' ').includes('mcp_servers.operator_mcp')) return;
     reply({userAgent: 'fake'}); return;
   }
   if (msg.method === 'initialized') {initialized = true; return;}
@@ -61,6 +63,19 @@ lines.on('line', line => {
   if (msg.method === 'account/usage/read') {
     if (mode === 'usage-timeout') return;
     reply(mode === 'cost' ? {threadUsage: {threadId, estimatedUsageUsdMicros: 125000}} : {}); return;
+  }
+  // The operator's configuration adds one user skill and one MCP server unless switched off.
+  const args = process.argv.slice(2).join(' ');
+  if (msg.method === 'skills/list') {
+    if (mode === 'no-inventory') return;
+    reply({data: [{cwd: msg.params.cwds[0], skills: [
+      {name: 'operator-skill', scope: 'user', enabled: !args.includes('{name="operator-skill",enabled=false}')},
+      {name: 'repo-skill', scope: 'repo', enabled: true},
+    ]}]}); return;
+  }
+  if (msg.method === 'mcpServerStatus/list') {
+    const off = args.includes('mcp_servers.operator_mcp.enabled=false');
+    reply({data: [{name: 'operator_mcp', runtimeStatus: null, tools: off ? {} : {run: {}}}]}); return;
   }
   if (msg.method === 'thread/start' || msg.method === 'thread/resume') {
     threadId = msg.params.threadId || threadId;
@@ -160,7 +175,32 @@ it('keeps one process for multiple turns, uses resolved metadata and closes only
   expect(session.send('again\nsecond line')).toBe(true);
   await waitFor(() => turns(items).length === 2);
   expect(session.pid).toBe(pid);
-  expect(messages().filter((msg) => msg.args)).toEqual([{ args: ['app-server', '--stdio'], pid }]);
+  // A probe app-server reports the operator's configuration; the run's switches it off (R-G5).
+  const isolation = [
+    'app-server',
+    '--stdio',
+    '--disable',
+    'plugins',
+    '--disable',
+    'apps',
+    '--disable',
+    'hooks',
+    '--disable',
+    'memories',
+  ];
+  expect(messages().filter((msg) => msg.args)).toEqual([
+    { args: isolation, pid: expect.any(Number) },
+    {
+      args: [
+        ...isolation,
+        '-c',
+        'mcp_servers.operator_mcp.enabled=false',
+        '-c',
+        'skills.config=[{name="operator-skill",enabled=false}]',
+      ],
+      pid,
+    },
+  ]);
   expect(
     messages()
       .filter((msg) => msg.method === 'turn/start')
@@ -171,7 +211,12 @@ it('keeps one process for multiple turns, uses resolved metadata and closes only
   ).toMatchObject([
     {
       event: {
-        payload: { model: 'resolved', billing: 'subscription', backendSessionId: 'fake-thread' },
+        payload: {
+          model: 'resolved',
+          billing: 'subscription',
+          backendSessionId: 'fake-thread',
+          loaded: { skills: ['repo-skill'], plugins: [], mcpServers: [] },
+        },
       },
     },
   ]);
@@ -422,4 +467,11 @@ it('asks for a new sign-in when the local login is gone or uses an API key (R-C1
       },
     });
   }
+});
+
+it('does not start a run whose Codex configuration cannot be read (R-G5)', async () => {
+  await expect(launch('no-inventory')).rejects.toMatchObject({
+    name: 'AgentLaunchError',
+    message: expect.stringContaining('could not report its configuration'),
+  });
 });

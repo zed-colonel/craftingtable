@@ -10,9 +10,24 @@ import { AsyncQueue, type SupervisedProcess, spawnSupervisedProcess } from '../p
 import { codexThreadParams, codexTurnParams } from './arguments.js';
 import { agentEnvironment } from '../child-environment.js';
 import type { CodexBackendOptions } from './backend.js';
+import { CODEX_ISOLATION_FLAGS, readCodexLoaded } from './isolation.js';
 
 /** How Codex signs in when not through its own `auth.json`. */
 const CODEX_LOGIN_VARIABLES = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_HOME'];
+
+/** The app-server's environment: named variables only, plus the run's overlay (R-G5). */
+export function codexEnvironment(
+  options: Pick<CodexBackendOptions, 'env' | 'allowEnvironment'>,
+  request: Pick<AgentLaunchRequest, 'environment' | 'pathPrefix'>,
+): Record<string, string> {
+  return agentEnvironment(
+    options.env ?? process.env,
+    CODEX_LOGIN_VARIABLES,
+    options.allowEnvironment ?? [],
+    request.environment,
+    request.pathPrefix,
+  );
+}
 import { CodexStreamNormalizer } from './normalize.js';
 import { CodexRpc, CodexRpcError } from './rpc.js';
 
@@ -49,19 +64,15 @@ export class CodexSession implements AgentSession {
   constructor(
     private readonly options: CodexBackendOptions,
     private readonly request: AgentLaunchRequest,
+    /** Switches for what the operator's configuration would add (R-G5). */
+    isolation: readonly string[] = CODEX_ISOLATION_FLAGS,
   ) {
     this.normalizer = new CodexStreamNormalizer(request.resumeSessionId !== undefined);
     this.child = spawnSupervisedProcess({
       executable: options.executable,
-      args: ['app-server', '--stdio'],
+      args: ['app-server', '--stdio', ...isolation],
       cwd: request.cwd,
-      env: agentEnvironment(
-        options.env ?? process.env,
-        CODEX_LOGIN_VARIABLES,
-        options.allowEnvironment ?? [],
-        request.environment,
-        request.pathPrefix,
-      ),
+      env: codexEnvironment(options, request),
       ...(request.deadlineAt
         ? { backgroundWorkDeadlineMs: Date.parse(request.deadlineAt) }
         : { backgroundWorkTimeoutMs: 30 * 60_000 }),
@@ -124,6 +135,9 @@ export class CodexSession implements AgentSession {
     });
     if (this.killed || this.closed) return;
     if (!this.rpc.write({ method: 'initialized' })) throw new Error('Codex initialization failed');
+    // What this app-server actually loaded, recorded at session start (R-G5).
+    const loaded = await readCodexLoaded(this.rpc, this.request.cwd);
+    if (this.killed || this.closed) return;
     let billing: AgentBillingSource = 'unknown';
     // Read only the authentication mode. Never retain account identities or credentials.
     const account = await this.rpc.request('account/read', { refreshToken: false });
@@ -166,6 +180,11 @@ export class CodexSession implements AgentSession {
         billing,
         cwd: this.request.cwd,
         permissionMode: this.request.permissionMode,
+        loaded: {
+          skills: loaded.skills.map((skill) => skill.name),
+          plugins: [],
+          mcpServers: loaded.mcpServers.filter((server) => server.live).map((s) => s.name),
+        },
       },
     });
     if (this.request.sessionName) {

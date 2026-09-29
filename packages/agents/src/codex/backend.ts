@@ -8,7 +8,8 @@ import {
   type AgentSession,
 } from '../index.js';
 import { CODEX_MODELS } from './models.js';
-import { CodexSession } from './session.js';
+import { codexIsolationArguments, probeCodexInventory } from './isolation.js';
+import { CodexSession, codexEnvironment } from './session.js';
 
 export interface CodexBackendOptions {
   readonly executable: string;
@@ -37,6 +38,21 @@ export class CodexBackend implements AgentBackend {
         new AgentLaunchError('invalid-request', 'Launch requires an absolute cwd and a prompt'),
       );
     }
-    return Promise.resolve(new CodexSession(this.options, request));
+    // The operator's MCP servers and user skills are found fresh for every run and switched off
+    // for it (R-G5, AGT-14); a run whose configuration cannot be read does not start.
+    return probeCodexInventory({
+      executable: this.options.executable,
+      env: codexEnvironment(this.options, request),
+      cwd: request.cwd,
+      timeoutMs: this.options.requestTimeoutMs ?? 30000,
+    }).then(
+      (inventory) => new CodexSession(this.options, request, codexIsolationArguments(inventory)),
+      (error: unknown) => {
+        throw new AgentLaunchError(
+          'spawn-failed',
+          `Codex could not report its configuration, so the run was not started isolated: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
   }
 }

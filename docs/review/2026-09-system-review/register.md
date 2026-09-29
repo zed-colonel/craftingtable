@@ -1653,6 +1653,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - `session-started` records what the session loaded (`loaded`: skills, plugins, MCP servers), a new optional field on the run event, from the CLI's init message.
   - **Live check** (the real CLI through the adapter, a Haiku run at low effort): skills `[]`, MCP servers `[]`, plugins `agents-md` and `telemetry` (Claude Code built-ins). With the operator's settings, the same probe loaded 47 skills, superpowers and two claude.ai connectors.
   - **Tests.** `arguments.test.ts` (every posture, including read-only, carries the flags once; effort only when the profile sets it) and `normalize.test.ts` (the loaded names). Each fails without its change.
+- **Increment 3 (2026-09-28): Codex runs never load the operator's plugins, hooks, memories, MCP servers or skills** (AGT-14).
+  - Before each run, a short-lived app-server started with `--disable plugins --disable apps --disable hooks --disable memories` reports what the operator's configuration still adds: its MCP servers, and skills of `user` scope. `codex/isolation.ts` has the probe and the argument builder.
+  - The run's app-server gets the same flags, plus `-c mcp_servers.<name>.enabled=false` for each server and `-c skills.config=[{name,enabled=false},…]` for each user skill.
+  - The probe runs every time, so a configuration change applies to the next run.
+  - It fails closed: a run whose configuration cannot be read does not start (`AgentLaunchError`), and a name that a `-c` override cannot address is refused rather than left loaded.
+  - Repository and system skills stay, the repository's because the repository declares them.
+  - `session-started` records the enabled skills and the live MCP servers.
+  - **Live check** (the real Codex through the adapter): skills are only Codex's six system skills; MCP servers `[]`; plugins `[]`. Before, the same machine loaded `node_repl`, `cua_repl`, `codex_app` and two user skills.
+  - **Tests.** `codex/backend.test.ts`:
+    - the fake app-server adds an operator skill and MCP server unless switched off; the run's app-server is started with both switches, and its `session-started` lists only the repository skill;
+    - a configuration that cannot be read stops the launch.
 
 ### R-G6
 

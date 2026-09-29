@@ -1712,6 +1712,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW, fixed:* `autoAllowBashIfSandboxed` had changed edit-only's meaning, auto-approving any sandboxed command. It is now set only for the auto posture.
   - **Live check** (the real CLI through the adapter, auto): the Docker socket gets "Could not connect to server"; `ls ~/.ssh` shows nothing; `static.crates.io` gets "not on allow list"; a managed-worktree commit succeeds.
   - **Tests.** `arguments.test.ts`: no setting sources; the empty strict network; the denied reads; auto-approval only in auto. Each fails without its change.
+  - *MEDIUM, fixed:* the ref watch credited any later daemon operation on the repository with an agent's move: the agent moved main, an unrelated worktree was created, and nothing was flagged. Each daemon operation now records the refs that changed across it (their heads before and after), and a move counts as the daemon's only when one of its operations moved that ref to that commit.
+  - *LOW, fixed:*
+    - Observations were keyed by the operation's path, so a worktree-path operation (a checkpoint, a resolution) was filed under the worktree rather than the repository, which could produce false positives. `branchHeads` now reports the repository's common git directory, and everything is keyed by it.
+    - Tags were not watched. They are now: baseline tags live there, and `ensureBaselineTag` counts as a moving operation.
+    - A failed comparison skipped the run's other cleanup; it is now caught and logged.
+    - A snapshot never checked (a run that ended with a crash) is dropped after 48 hours.
+  - *LOW, disposition:* two daemon operations that overlap an agent's own move of the same ref could still credit it to the daemon. The window is the length of one Git operation.
+  - **Tests.** `ref-watch.test.ts`: the reviewer's case (an agent's move of main followed by an unrelated daemon operation is flagged), and a moved tag. The first passed against the old code, which confirmed the gap.
 - **Status (2026-09-28): code complete (increments 1 to 6), awaiting independent review.** Done-when evidence:
   - a run's environment holds only allowlisted variables (increment 1's test);
   - supervised Claude runs load no operator skills, plugins, MCP servers or memory (increment 2's live check); Codex runs load none of the operator's (increment 3's live check).

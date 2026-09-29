@@ -2261,6 +2261,10 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     if (changed) {
       const run = this.storage.execution.runs.find(workspaceId, runId);
       const cleanup = Promise.resolve(this.checkProtectedRefs(workspaceId, runId))
+        // A failed comparison must not skip the run's other cleanup (R-G5 review).
+        .catch((error) =>
+          this.log.warn('Protected-ref check failed', { runId, error: String(error) }),
+        )
         .then(() => this.runtimeEvidence?.cleanupRun(workspaceId, runId))
         .then(() =>
           run && status !== 'interrupted'

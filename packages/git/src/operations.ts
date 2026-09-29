@@ -208,8 +208,13 @@ export interface GitOperations {
   }): Promise<GitResult<WorktreeDiff>>;
   /** Local branches, and the one the primary checkout has checked out. */
   listBranches(repositoryPath: string): Promise<GitResult<BranchListing>>;
-  /** Every local branch and the commit it points at (R-G5: protected-ref snapshots). */
-  branchHeads(repositoryPath: string): Promise<GitResult<Record<string, string>>>;
+  /**
+   * The repository (its common git directory) and every branch and tag with the commit it
+   * points at, by full ref name (R-G5: protected-ref snapshots).
+   */
+  branchHeads(
+    repositoryPath: string,
+  ): Promise<GitResult<{ repository: string; heads: Record<string, string> }>>;
   /**
    * Merges `branchName` into `targetBranch` with a merge commit.
    *
@@ -922,12 +927,19 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     };
   }
 
-  async function branchHeads(repositoryPath: string): Promise<GitResult<Record<string, string>>> {
-    const repository = await canonicalDirectory(repositoryPath);
-    if (!repository.ok) return repository;
+  async function branchHeads(
+    repositoryPath: string,
+  ): Promise<GitResult<{ repository: string; heads: Record<string, string> }>> {
+    const directory = await canonicalDirectory(repositoryPath);
+    if (!directory.ok) return directory;
+    const common = await runOk(
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      directory.value,
+    );
+    if (!common.ok) return common;
     const listed = await runOk(
-      ['for-each-ref', '--format=%(refname:short)%00%(objectname)', 'refs/heads/'],
-      repository.value,
+      ['for-each-ref', '--format=%(refname)%00%(objectname)', 'refs/heads/', 'refs/tags/'],
+      directory.value,
     );
     if (!listed.ok) return listed;
     const heads: Record<string, string> = {};
@@ -935,7 +947,10 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       const [name, sha] = line.split('\0');
       if (name && sha) heads[name] = sha;
     }
-    return { ok: true, value: heads };
+    return {
+      ok: true,
+      value: { repository: common.value.stdout.toString('utf8').trim(), heads },
+    };
   }
 
   async function mergeInProgress(cwd: string): Promise<boolean> {

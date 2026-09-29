@@ -1,14 +1,14 @@
-import { realpathSync } from 'node:fs';
 import type { GitOperations } from '@craftingtable/git';
 
-/** A protected branch that moved during a run by something other than the daemon. */
+/** A protected ref that moved during a run by something other than the daemon. */
 export interface UnexplainedMove {
+  /** A branch by its short name; a tag as `refs/tags/<name>`. */
   readonly branch: string;
   readonly before: string | null;
   readonly after: string | null;
 }
 
-/** Git operations that can move a branch: the daemon records what each one left behind. */
+/** Git operations that can move a ref: the daemon records what each one changed. */
 const MOVING_OPERATIONS = new Set<keyof GitOperations>([
   'mergeBranch',
   'prepareIntegrationResolution',
@@ -20,37 +20,46 @@ const MOVING_OPERATIONS = new Set<keyof GitOperations>([
   'updateWorktree',
   'createWorktree',
   'removeWorktree',
+  'ensureBaselineTag',
 ]);
 
-interface Observation {
+/** A ref one daemon operation moved, and where it left it. */
+interface Change {
   readonly at: number;
-  readonly heads: Readonly<Record<string, string>>;
+  readonly ref: string;
+  readonly value: string | null;
 }
 
-const canonical = (path: string) => {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-};
+/** Snapshots older than this belong to runs that never ended in this daemon. */
+const SNAPSHOT_LIFETIME_MS = 48 * 60 * 60 * 1000;
+
+const display = (ref: string) =>
+  ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
 
 /**
- * Protected-ref snapshots (R-G5, SEC-02d). Before a run the daemon records a repository's
- * branch heads; when the run ends it compares. A branch no managed worktree owns (main, an
- * integration branch, the operator's own) that moved is flagged unless the daemon's own Git left
- * it at that commit during the run: every daemon operation that can move a branch records the
- * heads it left behind. Kept in memory: a restart ends the runs it watched.
+ * Protected-ref snapshots (R-G5, SEC-02d). Before a run the daemon records its repository's
+ * branches and tags; when the run ends it compares. A ref no managed worktree owns (main, an
+ * integration branch, a tag, the operator's own branches) that moved is flagged unless one of
+ * the daemon's own Git operations moved that ref to that commit during the run: each operation
+ * that can move a ref records the refs that changed across it, keyed by the repository's common
+ * git directory. Kept in memory: a restart ends the runs it watched.
  */
 export class RefWatch {
   private readonly snapshots = new Map<
     string,
-    { readonly repository: string; readonly at: number; readonly heads: Record<string, string> }
+    {
+      readonly repository: string;
+      readonly at: number;
+      readonly takenAt: number;
+      readonly heads: Readonly<Record<string, string>>;
+    }
   >();
-  private readonly observations = new Map<string, Observation[]>();
+  private readonly changes = new Map<string, Change[]>();
   private sequence = 0;
 
-  /** The daemon's Git, recording the branch heads each moving operation leaves behind. */
+  constructor(private readonly clock: () => number = Date.now) {}
+
+  /** The daemon's Git, recording the refs each moving operation changes. */
   wrap(git: GitOperations): GitOperations {
     return new Proxy(git, {
       get: (target, property, receiver) => {
@@ -58,7 +67,6 @@ export class RefWatch {
         if (typeof value !== 'function' || !MOVING_OPERATIONS.has(property as keyof GitOperations))
           return value;
         return async (...args: unknown[]) => {
-          const result = await value.apply(target, args);
           const input = args[0];
           const path =
             typeof input === 'string'
@@ -67,26 +75,35 @@ export class RefWatch {
                 ? ((input as { repositoryPath?: string }).repositoryPath ??
                   (input as { worktreePath?: string }).worktreePath)
                 : undefined;
-          if (path && this.snapshots.size > 0) await this.observe(target, path);
+          const watching = path !== undefined && this.snapshots.size > 0;
+          const before = watching ? await target.branchHeads(path) : undefined;
+          const result = await value.apply(target, args);
+          if (watching && before?.ok) {
+            const after = await target.branchHeads(path);
+            if (after.ok)
+              this.record(after.value.repository, before.value.heads, after.value.heads);
+          }
           return result;
         };
       },
     });
   }
 
-  /** Records the repository's branch heads as the run starts. */
+  /** Records the repository's refs as the run starts. */
   async snapshot(runId: string, git: GitOperations, repositoryPath: string): Promise<void> {
+    this.expire();
     const heads = await git.branchHeads(repositoryPath);
     if (!heads.ok) return;
     this.snapshots.set(runId, {
-      repository: canonical(repositoryPath),
+      repository: heads.value.repository,
       at: this.tick(),
-      heads: heads.value,
+      takenAt: this.clock(),
+      heads: heads.value.heads,
     });
   }
 
   /**
-   * The protected branches that moved since the run's snapshot and that no daemon operation
+   * The protected refs that moved since the run's snapshot and that no daemon operation
    * explains. `ownedBranches` are the managed worktrees' branches, which their runs move.
    */
   async unexplainedMoves(
@@ -97,42 +114,52 @@ export class RefWatch {
     const snapshot = this.snapshots.get(runId);
     if (!snapshot) return [];
     const now = await git.branchHeads(snapshot.repository);
-    const seen = (this.observations.get(snapshot.repository) ?? []).filter(
-      (o) => o.at > snapshot.at,
-    );
+    const changes = (this.changes.get(snapshot.repository) ?? []).filter((c) => c.at > snapshot.at);
     this.snapshots.delete(runId);
     this.prune();
     if (!now.ok) return [];
-    const owned = new Set(ownedBranches);
-    const branches = [...new Set([...Object.keys(snapshot.heads), ...Object.keys(now.value)])]
-      .filter((branch) => !owned.has(branch))
+    const owned = new Set(ownedBranches.map((branch) => `refs/heads/${branch}`));
+    const refs = [...new Set([...Object.keys(snapshot.heads), ...Object.keys(now.value.heads)])]
+      .filter((ref) => !owned.has(ref))
       .sort();
-    return branches.flatMap((branch) => {
-      const before = snapshot.heads[branch] ?? null;
-      const after = now.value[branch] ?? null;
+    return refs.flatMap((ref) => {
+      const before = snapshot.heads[ref] ?? null;
+      const after = now.value.heads[ref] ?? null;
       if (before === after) return [];
-      if (seen.some((o) => (o.heads[branch] ?? null) === after)) return [];
-      return [{ branch, before, after }];
+      if (changes.some((c) => c.ref === ref && c.value === after)) return [];
+      return [{ branch: display(ref), before, after }];
     });
   }
 
-  private async observe(git: GitOperations, path: string): Promise<void> {
-    const heads = await git.branchHeads(path);
-    if (!heads.ok) return;
-    const repository = canonical(path);
-    const list = this.observations.get(repository) ?? [];
-    list.push({ at: this.tick(), heads: heads.value });
-    this.observations.set(repository, list);
+  private record(
+    repository: string,
+    before: Readonly<Record<string, string>>,
+    after: Readonly<Record<string, string>>,
+  ): void {
+    const at = this.tick();
+    const list = this.changes.get(repository) ?? [];
+    for (const ref of new Set([...Object.keys(before), ...Object.keys(after)]))
+      if ((before[ref] ?? null) !== (after[ref] ?? null))
+        list.push({ at, ref, value: after[ref] ?? null });
+    if (list.length) this.changes.set(repository, list);
   }
 
-  /** Drops observations no live snapshot can need. */
+  /** Drops changes no live snapshot can need. */
   private prune(): void {
     const oldest = Math.min(...[...this.snapshots.values()].map((s) => s.at));
-    for (const [repository, list] of this.observations) {
-      const kept = list.filter((o) => o.at > oldest);
-      if (kept.length) this.observations.set(repository, kept);
-      else this.observations.delete(repository);
+    for (const [repository, list] of this.changes) {
+      const kept = list.filter((c) => c.at > oldest);
+      if (kept.length) this.changes.set(repository, kept);
+      else this.changes.delete(repository);
     }
+  }
+
+  /** Forgets snapshots of runs that never ended here, so their changes are not kept forever. */
+  private expire(): void {
+    const cutoff = this.clock() - SNAPSHOT_LIFETIME_MS;
+    for (const [runId, snapshot] of this.snapshots)
+      if (snapshot.takenAt < cutoff) this.snapshots.delete(runId);
+    this.prune();
   }
 
   private tick(): number {

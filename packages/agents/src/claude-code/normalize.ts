@@ -166,6 +166,18 @@ export interface ClaudeNormalizerOptions {
   readonly cwd: string;
 }
 
+/** Names from an init list whose entries are names or `{ name }` objects, bounded. */
+function loadedNames(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((entry) =>
+      typeof entry === 'string' ? entry : isRecord(entry) ? stringOf(entry.name) : '',
+    )
+    .filter((name) => name !== '')
+    .slice(0, 500)
+    .map((name) => name.slice(0, 200));
+}
+
 /**
  * Stateful per-session normalizer. Claude Code emits a fresh `system/init`
  * for every turn of a multi-turn session; only the first becomes
@@ -317,6 +329,17 @@ export class ClaudeStreamNormalizer {
               permissionMode: this.options.permissionMode,
               cwd: stringOf(message.cwd) || this.options.cwd,
               billing: billingOf(message.apiKeySource),
+              ...(Array.isArray(message.skills) ||
+              Array.isArray(message.plugins) ||
+              Array.isArray(message.mcp_servers)
+                ? {
+                    loaded: {
+                      skills: loadedNames(message.skills),
+                      plugins: loadedNames(message.plugins),
+                      mcpServers: loadedNames(message.mcp_servers),
+                    },
+                  }
+                : {}),
             },
           },
         ];

@@ -1647,6 +1647,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `claude-code/backend.test.ts`: an environment carrying DISPLAY, Wayland, D-Bus, `XDG_RUNTIME_DIR`, an SSH agent, Hyprland and an undeclared name reaches the agent as exactly the allowed names, the declared one and the overlay. It fails without the change.
     - The Codex adapter test passes the overlay.
     - `server-execution-runs.test.ts`: the daemon puts the worktree cache in `CARGO_TARGET_DIR`.
+- **Increment 2 (2026-09-28): Claude runs never load the operator's configuration** (AGT-14).
+  - Every posture passes `--setting-sources project,local --strict-mcp-config --disable-slash-commands --settings '{"autoMemoryEnabled":false}'`. The repository's own `.claude` settings and CLAUDE.md still apply, because the repository declares them.
+  - The profile's reasoning effort is passed as `--effort`, instead of the operator's `effortLevel` being inherited.
+  - `session-started` records what the session loaded (`loaded`: skills, plugins, MCP servers), a new optional field on the run event, from the CLI's init message.
+  - **Live check** (the real CLI through the adapter, a Haiku run at low effort): skills `[]`, MCP servers `[]`, plugins `agents-md` and `telemetry` (Claude Code built-ins). With the operator's settings, the same probe loaded 47 skills, superpowers and two claude.ai connectors.
+  - **Tests.** `arguments.test.ts` (every posture, including read-only, carries the flags once; effort only when the profile sets it) and `normalize.test.ts` (the loaded names). Each fails without its change.
 
 ### R-G6
 

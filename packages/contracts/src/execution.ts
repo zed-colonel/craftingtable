@@ -463,6 +463,13 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
       permissionMode: z.enum(AGENT_PERMISSION_MODES),
       cwd: sourceRepositoryPathSchema,
       billing: z.enum(AGENT_BILLING_SOURCES),
+      loaded: z
+        .strictObject({
+          skills: z.array(z.string().max(200)).max(500),
+          plugins: z.array(z.string().max(200)).max(500),
+          mcpServers: z.array(z.string().max(200)).max(500),
+        })
+        .optional(),
     }),
   }),
   runEventBaseSchema.extend({

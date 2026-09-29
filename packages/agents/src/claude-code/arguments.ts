@@ -19,19 +19,24 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
     '--verbose',
     '--permission-prompts',
     'none',
+    // Never the operator's own configuration (R-G5, AGT-14): only the repository's settings, no
+    // MCP servers, no skills or plugins, no auto-memory. The repository's own `.claude`
+    // settings and CLAUDE.md still apply; the repository declares them.
+    '--setting-sources',
+    'project,local',
+    '--strict-mcp-config',
+    '--disable-slash-commands',
+    '--settings',
+    JSON.stringify(claudeRunSettings()),
   ];
   args.push(
     ...(request.readOnly
-      ? [
-          '--restricted',
-          '--tools',
-          'Read,Glob,Grep',
-          '--strict-mcp-config',
-          '--permission-mode',
-          'dontAsk',
-        ]
+      ? ['--restricted', '--tools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk']
       : permissionArguments(request.permissionMode)),
   );
+  if (request.reasoningEffort !== undefined) {
+    args.push('--effort', request.reasoningEffort);
+  }
   if (request.model !== undefined) {
     args.push('--model', request.model);
   }
@@ -51,6 +56,11 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
     args.push('--name', request.sessionName);
   }
   return args;
+}
+
+/** Settings every supervised Claude run gets on top of the repository's own. */
+function claudeRunSettings(): Record<string, unknown> {
+  return { autoMemoryEnabled: false };
 }
 
 function permissionArguments(mode: AgentPermissionMode): readonly string[] {

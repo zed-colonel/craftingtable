@@ -33,6 +33,12 @@ describe('claudeCodeArguments', () => {
       '--verbose',
       '--permission-prompts',
       'none',
+      '--setting-sources',
+      'project,local',
+      '--strict-mcp-config',
+      '--disable-slash-commands',
+      '--settings',
+      '{"autoMemoryEnabled":false}',
       '--permission-mode',
       'auto',
       '--model',
@@ -126,6 +132,25 @@ describe('ClaudeStreamNormalizer', () => {
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1', model: 'm' });
     expect(subject.normalizeLine(init)).toHaveLength(1);
     expect(subject.normalizeLine(init)).toHaveLength(0);
+  });
+
+  it('records the skills, plugins and MCP servers the session loaded (R-G5)', () => {
+    const [started] = normalizer().normalizeLine(
+      JSON.stringify({
+        type: 'system',
+        subtype: 'init',
+        session_id: 's1',
+        model: 'm',
+        skills: ['review'],
+        plugins: [{ name: 'agents-md', path: '/x' }],
+        mcp_servers: [{ name: 'docs', status: 'connected' }],
+      }),
+    );
+    expect(started?.kind === 'session-started' && started.payload.loaded).toEqual({
+      skills: ['review'],
+      plugins: ['agents-md'],
+      mcpServers: ['docs'],
+    });
   });
 
   it('reports the billing source from the init message', () => {

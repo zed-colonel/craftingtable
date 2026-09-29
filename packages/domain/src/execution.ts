@@ -317,6 +317,15 @@ export interface AgentRunEventPayloads {
     readonly permissionMode: AgentPermissionMode;
     readonly cwd: string;
     readonly billing: AgentBillingSource;
+    /**
+     * What the agent loaded besides its built-in tools, as it reported at start (R-G5): skills,
+     * plugins and MCP servers. Absent on earlier runs and when the agent does not report it.
+     */
+    readonly loaded?: {
+      readonly skills: readonly string[];
+      readonly plugins: readonly string[];
+      readonly mcpServers: readonly string[];
+    };
   };
   readonly 'user-message': {
     readonly text: string;

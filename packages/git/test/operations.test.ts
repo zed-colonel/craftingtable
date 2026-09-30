@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { deflateSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -859,6 +868,52 @@ describe('pinned source export', () => {
     );
     expect((await operations.resolveCommit(repo.repository, '--help')).ok).toBe(false);
     expect((await operations.exportCommit(repo.repository, 'main')).ok).toBe(false);
+  });
+  it("reads pinned sources through a verified pack: a rewritten object fails, and the tree must be the pin's (R-G13 increment 2)", async () => {
+    const repo = fixture();
+    writeFileSync(join(repo.repository, 'lib.rs'), 'genuine\n');
+    runFixtureGit(['add', '.'], { cwd: repo.repository });
+    runFixtureGit(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'source'],
+      { cwd: repo.repository },
+    );
+    const commit = await operations.resolveCommit(repo.repository, 'main');
+    if (!commit.ok) throw new Error(commit.failure.message);
+    // Exported by exact commit, even once no branch names it any more.
+    runFixtureGit(['checkout', '-q', '--detach', 'HEAD~1'], { cwd: repo.repository });
+    runFixtureGit(['branch', '-f', 'main', 'HEAD'], { cwd: repo.repository });
+    const verified = await operations.exportCommit(
+      repo.repository,
+      commit.value.commitSha,
+      commit.value.treeSha,
+    );
+    if (!verified.ok) throw new Error(verified.failure.message);
+    expect(Buffer.from(verified.value.find((f) => f.path === 'lib.rs')!.content).toString()).toBe(
+      'genuine\n',
+    );
+    // Another tree than the pin's is refused.
+    const other = await operations.exportCommit(
+      repo.repository,
+      commit.value.commitSha,
+      '0'.repeat(40),
+    );
+    expect(other.ok).toBe(false);
+    // Git never re-hashes a loose object it reads; an agent that can write the store could
+    // rewrite one. A pack is hashed on receipt, so the rewrite fails the export.
+    const blob = runFixtureGit(['rev-parse', `${commit.value.commitSha}:lib.rs`], {
+      cwd: repo.repository,
+    })
+      .toString()
+      .trim();
+    const object = join(repo.repository, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
+    chmodSync(object, 0o644);
+    writeFileSync(object, deflateSync(Buffer.from('blob 7\0forged\n')));
+    const forged = await operations.exportCommit(
+      repo.repository,
+      commit.value.commitSha,
+      commit.value.treeSha,
+    );
+    expect(forged.ok).toBe(false);
   });
   it('rejects symlinks in a source tree instead of following them', async () => {
     const repo = fixture();

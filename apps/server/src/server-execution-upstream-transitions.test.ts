@@ -362,6 +362,17 @@ itNeedsCargo(
     expect(after.launch.movedToCurrentPins).toBe(true);
     expect(after.manifest.forbiddenPackages).toBeUndefined();
     expect(after.manifest.packages.map((p) => p.name)).toEqual(['ct_runtime_provider']);
+    // The daemon builds from its own verified checkout of the pin, not the run's copy (R-G13
+    // increment 2): the manifest names where the pin comes from.
+    expect(after.manifest.dependencySources).toEqual([
+      expect.objectContaining({
+        alias: 'provider',
+        commitSha: after.launch.dependencies[0]!.commitSha,
+        treeSha: expect.stringMatching(/^[a-f0-9]{40}$/),
+        gitDirectory: expect.stringMatching(/\.git$/),
+        packages: [expect.objectContaining({ name: 'ct_runtime_provider' })],
+      }),
+    ]);
 
     // The fresh verification builds against the current pin and is told why.
     f.backend.replyForRequest = async (request) => {

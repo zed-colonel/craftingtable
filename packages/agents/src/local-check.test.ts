@@ -1489,3 +1489,223 @@ it("a declared check's clone carries the repository's tags, which checks may com
   expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
   expect(output).toContain(head);
 });
+
+/**
+ * R-G13 increment 2: a pinned Cargo build compiles a daemon-private clone of the reviewed commit
+ * against daemon-private, verified checkouts of the pinned upstreams, into a target per commit.
+ */
+function pinnedBuildFixture() {
+  const f = fixture();
+  const git = (args: string[], cwd: string) => {
+    const r = spawnSync(hostGit(), args, { cwd, encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    return r.stdout.trim();
+  };
+  const commit = (cwd: string, message: string) =>
+    git(['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', message], cwd);
+  writeFileSync(join(f.m.workspacePath, 'marker.txt'), 'committed\n');
+  git(['add', '.'], f.m.workspacePath);
+  commit(f.m.workspacePath, 'marker');
+  const head = git(['rev-parse', 'HEAD'], f.m.workspacePath);
+  const upstream = join(f.root, 'upstream');
+  mkdirSync(join(upstream, 'crate', 'src'), { recursive: true });
+  writeFileSync(join(upstream, 'crate', 'Cargo.toml'), '[package]\nname = "up-crate"\n');
+  writeFileSync(join(upstream, 'crate', 'src', 'lib.rs'), 'genuine\n');
+  git(['init', '-q', '-b', 'main'], upstream);
+  git(['add', '.'], upstream);
+  commit(upstream, 'upstream');
+  const pinned = git(['rev-parse', 'HEAD'], upstream);
+  const tree = git(['rev-parse', 'HEAD^{tree}'], upstream);
+  // The run's own copy, which the agent can write; the daemon must not build from it.
+  const copy = join(f.root, 'run', 'scratch', 'dependencies', 'source-0', 'crate');
+  mkdirSync(join(copy, 'src'), { recursive: true });
+  writeFileSync(join(copy, 'src', 'lib.rs'), 'agent copy\n');
+  const cargo = join(f.root, 'fake-cargo.mjs');
+  // Resolves the supplied package from the configuration it is given; a build reports where it
+  // ran and what it read.
+  writeFileSync(
+    cargo,
+    `#!${process.execPath}
+import { readFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+const config = args.includes('--config') ? args[args.indexOf('--config') + 1] : undefined;
+const path = config && /path = "([^"]+)"/.exec(readFileSync(config, 'utf8'))?.[1];
+if (args[0] === '--version') console.log('cargo 1.0.0 (fixture)');
+else if (args[0] === 'metadata')
+  console.log(JSON.stringify({ packages: [{ id: 'up', name: 'up-crate', manifest_path: path + '/Cargo.toml', source: null }], resolve: { nodes: [{ id: 'up' }] } }));
+else {
+  console.log('cwd=' + process.cwd());
+  console.log('target=' + process.env.CARGO_TARGET_DIR);
+  console.log('marker=' + readFileSync('marker.txt', 'utf8').trim());
+  console.log('upstream=' + readFileSync(path + '/src/lib.rs', 'utf8').trim());
+}
+`,
+    { mode: 0o700 },
+  );
+  const pins = `[patch.crates-io]\n"up-crate" = { path = ${JSON.stringify(copy)} }\n`;
+  writeFileSync(f.m.configPath, pins);
+  const manifest = (treeSha = tree): PinnedCargoManifest => ({
+    ...f.m,
+    configDigest: hash(pins),
+    cargoExecutable: cargo,
+    verification: {
+      version: 1,
+      mode: 'current-upstream-build',
+      scope: { kind: 'slice', definitionId: 'd', bindingRevision: 1, sourceId: 'contracts' },
+      reason: 'Integration fixture',
+    },
+    packages: [{ name: 'up-crate', path: copy }],
+    dependencySources: [
+      {
+        alias: 'up',
+        commitSha: pinned,
+        treeSha,
+        gitDirectory: join(upstream, '.git'),
+        packages: [{ name: 'up-crate', path: 'crate' }],
+      },
+    ],
+  });
+  const build = async (m: PinnedCargoManifest) => {
+    const launcher = f.launch(m);
+    let output = '';
+    const outcome = await executeCheck({
+      tool: 'cargo',
+      manifestPath: launcher.manifestPath,
+      manifestDigest: launcher.manifestDigest,
+      manifest: launcher.manifest,
+      args: ['test', '--offline'],
+      logPath: join(f.root, 'daemon-logs', `${randomUUID()}.log`),
+      logReference: 'check-logs/run/cargo.log',
+      privateDirectory: join(f.root, 'check-logs', 'run', 'daemon.private'),
+      declaredTargetDirectory: join(f.root, 'check-logs', 'run', 'declared-target'),
+      confinement: 'none',
+      unitName: 'unused',
+      writablePaths: [f.m.workspacePath],
+      environment: { PATH: process.env.PATH ?? '/usr/bin' },
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+    });
+    return { outcome, output };
+  };
+  return { f, git, head, upstream, pinned, copy, manifest, build };
+}
+
+it('builds a pinned Cargo request from private clones of the reviewed commit and the pinned upstreams, into a target per commit (R-G13 increment 2)', async () => {
+  const p = pinnedBuildFixture();
+  // A change the agent hides from the clean check does not reach the build.
+  p.git(['update-index', '--skip-worktree', 'marker.txt'], p.f.m.workspacePath);
+  writeFileSync(join(p.f.m.workspacePath, 'marker.txt'), 'agent change\n');
+  const { outcome, output } = await p.build(p.manifest());
+  expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+  const privateDirectory = join(p.f.root, 'check-logs', 'run', 'daemon.private');
+  expect(output).toContain(`cwd=${join(privateDirectory, 'tree')}`);
+  expect(output).toContain(
+    `target=${join(p.f.root, 'check-logs', 'run', 'declared-target', p.head)}`,
+  );
+  expect(output).toContain('marker=committed');
+  expect(output).toContain('upstream=genuine');
+  expect(outcome.receipt).toMatchObject({
+    recordedBy: 'daemon',
+    success: true,
+    clean: true,
+    headSha: p.head,
+    // Named as the run's manifest names them.
+    packages: [{ name: 'up-crate', path: p.copy }],
+  });
+  expect(outcome.receipt).not.toHaveProperty('kind');
+  // Neither private clone is left once the check ends.
+  expect(existsSync(join(privateDirectory, 'tree'))).toBe(false);
+  expect(existsSync(join(privateDirectory, 'pinned'))).toBe(false);
+  // Uncommitted work, which no gate accepts, still builds in the worktree: the agent's own loop.
+  p.git(['update-index', '--no-skip-worktree', 'marker.txt'], p.f.m.workspacePath);
+  const dirty = await p.build(p.manifest());
+  expect(dirty.output).toContain(`cwd=${p.f.m.workspacePath}`);
+  expect(dirty.output).toContain('marker=agent change');
+  expect(dirty.output).toContain('upstream=agent copy');
+  expect(dirty.outcome.receipt).toMatchObject({ clean: false });
+});
+
+it('fails a pinned build whose upstream commit does not hold the pinned tree, or whose objects were rewritten (R-G13 increment 2)', async () => {
+  const p = pinnedBuildFixture();
+  const other = await p.build(p.manifest('0'.repeat(40)));
+  expect(other.outcome.exitCode).toBe(1);
+  expect(other.outcome.diagnostic).toContain('pinned');
+  // A package path that leaves its source is refused.
+  const base = p.manifest();
+  const escaping = await p.build({
+    ...base,
+    dependencySources: base.dependencySources!.map((s) => ({
+      ...s,
+      packages: [{ name: 'up-crate', path: '../../run' }],
+    })),
+  });
+  expect(escaping.outcome.diagnostic).toContain('outside its source');
+  const blob = p.git(['rev-parse', `${p.pinned}:crate/src/lib.rs`], p.upstream);
+  const object = join(p.upstream, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
+  chmodSync(object, 0o644);
+  writeFileSync(object, deflateSync(Buffer.from('blob 7\0forged\n')));
+  const forged = await p.build(p.manifest());
+  expect(forged.outcome.exitCode, forged.output).toBe(1);
+  expect(forged.output).not.toContain('upstream=forged');
+});
+
+itConfines(
+  "a pinned build's unit reads its private sources read-only and sees none of the roots agents write (R-G13 increment 2)",
+  async () => {
+    const p = pinnedBuildFixture();
+    const data = join(p.f.root, 'data');
+    const secret = join(data, 'runs', 'other-run', 'planted.rs');
+    mkdirSync(join(secret, '..'), { recursive: true });
+    writeFileSync(secret, 'PLANTED');
+    // A program the unit can run: a shell script in a directory of its own.
+    const bin = join(p.f.root, 'cargo-bin');
+    mkdirSync(bin);
+    const cargo = join(bin, 'cargo');
+    writeFileSync(
+      cargo,
+      `#!/bin/sh
+config=""; previous=""
+for argument in "$@"; do [ "$previous" = "--config" ] && config="$argument"; previous="$argument"; done
+path=""; [ -n "$config" ] && path=$(sed -n 's/.*path = "\\(.*\\)".*/\\1/p' "$config" | head -n 1)
+case "$1" in
+  --version) echo "cargo 1.0.0 (fixture)";;
+  metadata) printf '{"packages":[{"id":"up","name":"up-crate","manifest_path":"%s/Cargo.toml","source":null}],"resolve":{"nodes":[{"id":"up"}]}}\\n' "$path";;
+  *)
+    echo "upstream=$(cat "$path/src/lib.rs")"
+    cat ${secret} 2>/dev/null || echo data-hidden
+    cat ${join(p.f.m.workspacePath, 'marker.txt')} 2>/dev/null || echo worktree-hidden
+    cat ${join(p.copy, 'src', 'lib.rs')} 2>/dev/null || echo copy-hidden
+    (echo forged > "$path/src/lib.rs") 2>/dev/null && echo pinned-writable || echo pinned-read-only;;
+esac
+`,
+      { mode: 0o700 },
+    );
+    const launcher = p.f.launch({ ...p.manifest(), cargoExecutable: cargo });
+    let output = '';
+    const outcome = await executeCheck({
+      tool: 'cargo',
+      manifestPath: launcher.manifestPath,
+      manifestDigest: launcher.manifestDigest,
+      manifest: launcher.manifest,
+      args: ['test', '--offline'],
+      logPath: join(data, 'check-logs', 'run', 'pinned.log'),
+      logReference: 'check-logs/run/pinned.log',
+      privateDirectory: join(data, 'check-logs', 'run', 'x.private'),
+      declaredTargetDirectory: join(data, 'check-logs', 'run', 'declared-target'),
+      confinement: 'systemd',
+      unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
+      writablePaths: [p.f.m.workspacePath],
+      environment: { PATH: process.env.PATH ?? '/usr/bin', HOME: homedir() },
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+      hiddenRoots: [data, join(p.f.root, 'run')],
+    });
+    expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+    expect(output).toContain('upstream=genuine');
+    expect(output).toContain('data-hidden');
+    expect(output).toContain('worktree-hidden');
+    expect(output).toContain('copy-hidden');
+    expect(output).toContain('pinned-read-only');
+    expect(output).not.toContain('PLANTED');
+  },
+);

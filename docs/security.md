@@ -380,7 +380,9 @@ processes. Native/Kata profiles remain closed until their enforcing adapters exi
 
 Pinned dependency generations accept registered repository aliases and local refs, never a
 browser-supplied command or filesystem path. Git exports reject links, submodules, unsafe names
-and oversized trees. Cargo is an explicit adapter: argument arrays, no shell, same supervised
+and oversized trees, and read the exact commit through a pack fetched into a daemon-private
+repository, which Git hashes on receipt, so an object rewritten in a repository's store fails the
+export (R-G13); a pin's export must also hold the pin's tree. Cargo is an explicit adapter: argument arrays, no shell, same supervised
 process group, controller-supplied patches and source-path verification. It records clean source
 commits and toolchain observations. This detects accidental fallback under the existing trusted
 OS-user model; it cannot sandbox a malicious agent or prevent deliberate absolute-path bypass.
@@ -498,7 +500,11 @@ Docker. One act per workflow and Docker host runs at a time
 through an in-daemon queue; the wait counts against the check's time limit. `ct-native` is a request
 too: the daemon starts the approved native unit (ADR-054's limits, unchanged) with a HOME and TMPDIR it
 owns. Pinned Cargo's build commands are requests too: the daemon checks the resolved graph and runs the
-build in a confined unit, without network (fetch first), under the check time limit. Other Cargo commands
+build in a confined unit, without network (fetch first), under the check time limit. For a run prepared
+since R-G13's second increment, a build of a clean worktree compiles a daemon-private clone of the
+committed head against daemon-private, verified checkouts of the pinned upstream commits, into a target
+per commit, in a unit that sees no root agents write (as declared checks do); a build of uncommitted
+work, which no gate accepts, still runs in the worktree. Other Cargo commands
 still run in the agent's tree and record nothing. A daemon-recorded run's build record therefore reads
 no file the agent can write, and the daemon runs every check from the manifest text it verified at
 launch, never the published copy. Claude runs have no OS sandbox, so for them the database itself stays

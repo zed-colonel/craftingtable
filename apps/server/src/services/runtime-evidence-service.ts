@@ -2251,6 +2251,15 @@ export class RuntimeEvidenceService {
       files: { path: string; digest: string }[] = [],
       supplied: { name: string; path: string }[] = [],
       forbiddenPackages: string[] = [];
+    // Where each supplied upstream comes from, so the daemon builds from its own verified
+    // checkout rather than the run's copies (R-G13 increment 2).
+    const sources: {
+      alias: string;
+      commitSha: string;
+      treeSha?: string;
+      rootPath: string;
+      packages: { name: string; path: string }[];
+    }[] = [];
     const dependencyIdentities: {
       alias: string;
       commitSha: string;
@@ -2311,7 +2320,12 @@ export class RuntimeEvidenceService {
         pin.repositoryId,
       );
       if (repo?.status !== 'active') conflict('Pinned repository unavailable.');
-      const exported = await this.requireGit().exportCommit(repo.rootPath, pin.commitSha);
+      // Through a verified pack, and the pin's own tree when the pin names one (R-G13).
+      const exported = await this.requireGit().exportCommit(
+        repo.rootPath,
+        pin.commitSha,
+        'treeSha' in pin ? pin.treeSha : undefined,
+      );
       if (!exported.ok) conflict(exported.failure.message);
       const root = join(
         runDirectory,
@@ -2325,12 +2339,15 @@ export class RuntimeEvidenceService {
         writeFileSync(path, file.content, { mode: file.executable ? 0o500 : 0o400 });
         files.push({ path, digest: hash(file.content) });
       }
-      supplied.push(
-        ...(pin.packages ?? packages(exported.value)).map((p) => ({
-          name: p.name,
-          path: join(root, p.path),
-        })),
-      );
+      const sourcePackages = pin.packages ?? packages(exported.value);
+      supplied.push(...sourcePackages.map((p) => ({ name: p.name, path: join(root, p.path) })));
+      sources.push({
+        alias,
+        commitSha: pin.commitSha,
+        ...('treeSha' in pin ? { treeSha: pin.treeSha } : {}),
+        rootPath: repo.rootPath,
+        packages: sourcePackages.map((p) => ({ name: p.name, path: p.path })),
+      });
       dependencyIdentities.push({
         alias,
         commitSha: pin.commitSha,
@@ -2421,6 +2438,10 @@ export class RuntimeEvidenceService {
       localCi: loadLocalCiConfig(process.env.CRAFTINGTABLE_ACT_CONFIG),
       verification,
       dependencyIdentities,
+      dependencySources: sources.map(({ rootPath, ...source }) => ({
+        ...source,
+        gitDirectory: resolveGitDirectories(gitExecutable, rootPath).gitCommonDirectory,
+      })),
       ...(forbiddenPackages.length ? { forbiddenPackages } : {}),
       ...(historical && dependencyIdentities.some((d) => d.purpose === 'historical-development')
         ? { historicalPreparationId: historical.id }

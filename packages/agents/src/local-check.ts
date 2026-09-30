@@ -15,6 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   mkdir as fsMkdir,
   open as fsOpen,
@@ -1110,6 +1111,7 @@ function daemonGit(
   cwd: string,
   limit = 1024 * 1024,
   timeoutMs = 120_000,
+  environment: Readonly<Record<string, string>> = {},
 ): Promise<Buffer> {
   return new Promise((resolveResult, reject) =>
     execFile(
@@ -1120,7 +1122,7 @@ function daemonGit(
         encoding: 'buffer',
         timeout: Math.max(1, Math.min(120_000, timeoutMs)),
         maxBuffer: limit,
-        env: daemonGitEnvironment(),
+        env: { ...daemonGitEnvironment(), ...environment },
       },
       (error, stdout) => (error ? reject(error) : resolveResult(stdout)),
     ),
@@ -1156,6 +1158,84 @@ async function cloneReviewedCommit(m: PinnedCargoManifest, sha: string, into: st
   } catch {
     throw new Error('The reviewed commit could not be checked out for the declared check.');
   }
+}
+
+/**
+ * Daemon-private checkouts of the upstream commits a pinned build compiles against (R-G13
+ * increment 2), and a pins configuration naming them. Each commit is fetched by its exact id into
+ * a fresh repository, through a pack Git hashes on receipt, so an object an agent rewrote in the
+ * upstream's store fails the fetch; its tree must be the pin's. The run's own copies, which the
+ * agent can write, are never read.
+ */
+async function clonePinnedSources(
+  m: PinnedCargoManifest,
+  into: string,
+  within: () => number,
+): Promise<{ packages: { name: string; path: string }[]; configPath: string }> {
+  rmSync(into, { recursive: true, force: true });
+  mkdirSync(into, { recursive: true, mode: 0o700 });
+  const packages: { name: string; path: string }[] = [];
+  for (const [index, source] of (m.dependencySources ?? []).entries()) {
+    const root = join(into, `source-${index}`);
+    if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(source.commitSha))
+      throw new Error(`The pinned ${source.alias} commit could not be read.`);
+    try {
+      await daemonGit(m, ['init', '--quiet', root], into, undefined, within());
+      await daemonGit(
+        m,
+        [
+          'fetch',
+          '--quiet',
+          '--no-tags',
+          '--depth=1',
+          pathToFileURL(source.gitDirectory).href,
+          `${source.commitSha}:refs/pinned/source`,
+        ],
+        root,
+        undefined,
+        within(),
+        // By exact commit, reachable or not: the upstream's upload-pack reads this too.
+        {
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'uploadpack.allowAnySHA1InWant',
+          GIT_CONFIG_VALUE_0: 'true',
+        },
+      );
+      await daemonGit(
+        m,
+        ['-c', 'advice.detachedHead=false', 'checkout', '--quiet', '--detach', source.commitSha],
+        root,
+        undefined,
+        within(),
+      );
+    } catch {
+      throw new Error(
+        `The pinned ${source.alias} commit could not be read through a verified pack.`,
+      );
+    }
+    if (
+      source.treeSha !== undefined &&
+      (await daemonGit(m, ['rev-parse', 'HEAD^{tree}'], root)).toString('utf8').trim() !==
+        source.treeSha
+    )
+      throw new Error(`The pinned ${source.alias} commit does not hold the pinned tree.`);
+    for (const pkg of source.packages) {
+      const path = resolve(root, pkg.path);
+      const r = relative(root, path);
+      if (r.startsWith('..') || isAbsolute(r))
+        throw new Error(`The pinned ${source.alias} package path is outside its source.`);
+      packages.push({ name: pkg.name, path });
+    }
+  }
+  const configPath = join(into, 'pins.toml');
+  writeFileSync(
+    configPath,
+    `[patch.crates-io]\n${packages
+      .map((p) => `${JSON.stringify(p.name)} = { path = ${JSON.stringify(p.path)} }`)
+      .join('\n')}\n`,
+    { mode: 0o400 },
+  );
+  return { packages, configPath };
 }
 
 /**
@@ -1511,6 +1591,8 @@ export function declaredUnitSettings(input: {
    * other files agents write live there. Only the toolchain comes back, read-only.
    */
   readonly homeDirectory?: string;
+  /** Daemon-written paths the check reads and must not change, such as pinned sources. */
+  readonly readOnlyPaths?: readonly string[];
 }): {
   readonly environment: Record<string, string>;
   readonly writable: readonly string[];
@@ -1560,6 +1642,7 @@ export function declaredUnitSettings(input: {
     binds: [input.snapshot, tmp, input.target, ...own],
     readOnlyBinds: [
       ...new Set([
+        ...(input.readOnlyPaths ?? []),
         ...(rustupHome && underHome(rustupHome) ? [rustupHome] : []),
         ...path.split(':').filter((entry) => entry && underHome(entry)),
       ]),
@@ -1597,6 +1680,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     readOnlyBinds?: readonly string[];
   } = { roots: [], binds: [] };
   let privateCargoHome: string | undefined;
+  let pinnedSources: string | undefined;
+  let observed = false;
   let declaredDigests: Record<string, string> = {};
   let ownsNativeUnit = false;
   const started = Date.now();
@@ -1652,6 +1737,50 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       writable = [...writable.filter((p) => !within(sharedCargoHome, p)), privateCargoHome];
       inaccessible = [...inaccessible, sharedCargoHome];
     };
+    const manifest = m;
+    const remainingTime = () => {
+      if (e.signal.aborted) throw new Error('Interrupted.');
+      const left = deadline - Date.now();
+      if (left <= 0)
+        throw new Error('The check time limit passed while its sources were prepared.');
+      return left;
+    };
+    // A check on a daemon-private clone (R-G13): its unit sees none of the roots agents write,
+    // only the clone, its scratch, its build outputs, its Cargo home and what `readOnlyPaths` adds.
+    const confineToClone = (
+      tree: string,
+      readOnlyPaths: readonly string[] = [],
+      hiddenRoots: readonly string[] = [],
+    ) => {
+      const unit = declaredUnitSettings({
+        environment,
+        runWritablePaths: e.writablePaths,
+        launcherDirectory: dirname(e.manifestPath),
+        workspacePath: manifest.workspacePath,
+        snapshot: tree,
+        privateDirectory: e.privateDirectory,
+        ...(sharedCargoHome ? { sharedCargoHome } : {}),
+        hiddenRoots: [
+          ...(e.hiddenRoots ?? []),
+          ...(sharedCargoHome ? [sharedCargoHome] : []),
+          ...(manifest.localCi ? [manifest.localCi.cacheRoot] : []),
+          // The repository's shared Git directory, which agents write when they commit.
+          ...(manifest.gitCommonDirectory ? [manifest.gitCommonDirectory] : []),
+          ...hiddenRoots,
+        ],
+        homeDirectory: homedir(),
+        // One per commit: a build script of another commit cannot leave outputs it reuses.
+        target: join(
+          e.declaredTargetDirectory ?? join(e.privateDirectory, 'target'),
+          before.headSha,
+        ),
+        readOnlyPaths,
+      });
+      environment = unit.environment;
+      writable = [...unit.writable];
+      inaccessible = unit.inaccessible;
+      hidden = { roots: unit.hidden, binds: unit.binds, readOnlyBinds: unit.readOnlyBinds };
+    };
     if (act) {
       const ci = m.localCi;
       if (!ci) throw new Error('Local act is not configured by the operator.');
@@ -1695,11 +1824,40 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       const subcommand = assertPinnedCargoArguments(e.args);
       if (!PINNED_BUILD_COMMANDS.has(subcommand))
         throw new Error(`cargo ${subcommand} records nothing; run it directly.`);
-      await usePrivateCargoHome(m, m.workspacePath);
-      environment = { ...environment, CARGO_TARGET_DIR: m.targetDirectory };
+      // What the build resolves against: for a run whose manifest names its sources (R-G13
+      // increment 2), private clones of the committed head and of each pinned upstream, never
+      // the worktree or the run's copies, which the agent can change while the build runs. A
+      // build of uncommitted work, which no gate accepts, still runs in the worktree: that is the
+      // agent's own development loop.
+      let built: PinnedCargoManifest = m;
+      before = await observeGitState(m);
+      observed = true;
+      if (m.dependencySources && before.clean) {
+        snapshot = join(e.privateDirectory, 'tree');
+        await cloneReviewedCommit(m, before.headSha, snapshot);
+        pinnedSources = join(e.privateDirectory, 'pinned');
+        const sources = await clonePinnedSources(m, pinnedSources, remainingTime);
+        built = {
+          ...m,
+          workspacePath: snapshot,
+          packages: sources.packages,
+          configPath: sources.configPath,
+        };
+        cwd = snapshot;
+        await usePrivateCargoHome(m, snapshot);
+        confineToClone(
+          snapshot,
+          [pinnedSources, dirname(m.cargoExecutable)],
+          // The upstreams' Git directories, which agents write too.
+          m.dependencySources.map((source) => source.gitDirectory),
+        );
+      } else {
+        await usePrivateCargoHome(m, m.workspacePath);
+        environment = { ...environment, CARGO_TARGET_DIR: m.targetDirectory };
+      }
       const toolchain = (
         await captureCheck(m.cargoExecutable, ['--version', '--verbose'], {
-          cwd: m.workspacePath,
+          cwd,
           env: environment,
           timeoutMs: 30000,
         })
@@ -1710,18 +1868,19 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         e.confinement === 'systemd'
           ? confinedCheckArguments(
               `${e.unitName}-metadata`,
-              m.workspacePath,
+              cwd,
               330,
               writable,
               environment,
-              [m.cargoExecutable, ...pinnedMetadataArguments(m, e.args)],
+              [m.cargoExecutable, ...pinnedMetadataArguments(built, e.args)],
               false,
-              [join(m.workspacePath, '.git')],
+              snapshot ? [] : [join(m.workspacePath, '.git')],
               inaccessible,
+              hidden,
             )
-          : pinnedMetadataArguments(m, e.args),
+          : pinnedMetadataArguments(built, e.args),
         {
-          cwd: m.workspacePath,
+          cwd,
           env: e.confinement === 'systemd' ? userBusEnvironment() : environment,
           timeoutMs: Math.min(300000, Math.max(1, deadline - Date.now())),
         },
@@ -1730,7 +1889,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         throw new Error(
           `Pinned dependency resolution failed. Align Cargo version constraints with the pinned crates; registry fallback is not accepted.\n${metadata.stderr}`,
         );
-      const packages = pinnedResolvedPackages(m, metadata.stdout);
+      // Named as the run's manifest names them, wherever the build read them.
+      const packages = pinnedResolvedPackages(built, metadata.stdout).map(
+        (p) => m!.packages.find((q) => q.name === p.name) ?? p,
+      );
       cargoReceipt = {
         ...pinnedReceiptKind(m, packages),
         toolchain,
@@ -1738,7 +1900,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         packages,
       };
       command = m.cargoExecutable;
-      actual = pinnedCargoArguments(m, e.args);
+      actual = pinnedCargoArguments(built, e.args);
     } else if (e.tool === 'ct-check' && e.args[0] === '--declared') {
       // A declared check runs the adopted command from the verified manifest (R-G13): the
       // request names the check and nothing else.
@@ -1764,7 +1926,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       )
         throw new Error('A current approved native environment is required.');
     }
-    before = await observeGitState(m);
+    if (!observed) before = await observeGitState(m);
     if (e.tool === 'ct-check' && !declared) await usePrivateCargoHome(m, m.workspacePath);
     if (declared) {
       snapshot = join(e.privateDirectory, 'tree');
@@ -1779,32 +1941,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       if (command.includes('/')) command = join(snapshot, command);
       cwd = snapshot;
       await usePrivateCargoHome(m, snapshot);
-      const unit = declaredUnitSettings({
-        environment,
-        runWritablePaths: e.writablePaths,
-        launcherDirectory: dirname(e.manifestPath),
-        workspacePath: m.workspacePath,
-        snapshot,
-        privateDirectory: e.privateDirectory,
-        ...(sharedCargoHome ? { sharedCargoHome } : {}),
-        hiddenRoots: [
-          ...(e.hiddenRoots ?? []),
-          ...(sharedCargoHome ? [sharedCargoHome] : []),
-          ...(m.localCi ? [m.localCi.cacheRoot] : []),
-          // The repository's shared Git directory, which agents write when they commit.
-          ...(m.gitCommonDirectory ? [m.gitCommonDirectory] : []),
-        ],
-        homeDirectory: homedir(),
-        // One per commit: a build script of another commit cannot leave outputs it reuses.
-        target: join(
-          e.declaredTargetDirectory ?? join(e.privateDirectory, 'target'),
-          before.headSha,
-        ),
-      });
-      environment = unit.environment;
-      writable = [...unit.writable];
-      inaccessible = unit.inaccessible;
-      hidden = { roots: unit.hidden, binds: unit.binds, readOnlyBinds: unit.readOnlyBinds };
+      confineToClone(snapshot);
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('The check time limit passed before it could start.');
@@ -1853,7 +1990,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           // act fetches actions itself; its job containers reach Docker's network anyway.
           act,
           // The worktree's `.git` pointer stays as the daemon made it (R-G4 review).
-          declared ? [] : [join(m.workspacePath, '.git')],
+          snapshot ? [] : [join(m.workspacePath, '.git')],
           inaccessible,
           hidden,
         ),
@@ -1900,6 +2037,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     // Released after this run's containers are gone, so the next run starts clean.
     for (const release of releases.reverse()) release();
     if (snapshot) rmSync(snapshot, { recursive: true, force: true });
+    if (pinnedSources) rmSync(pinnedSources, { recursive: true, force: true });
     if (privateCargoHome) rmSync(privateCargoHome, { recursive: true, force: true });
   }
   const after = m ? await observeGitState(m) : { headSha: '', clean: false };

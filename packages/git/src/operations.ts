@@ -1,8 +1,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { mkdir, realpath, stat } from 'node:fs/promises';
-import { dirname, isAbsolute } from 'node:path';
+import { mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Mutating and inspecting Git operations for controlled worktrees.
@@ -143,9 +145,11 @@ export interface GitOperations {
     repositoryPath: string,
     ref: string,
   ): Promise<GitResult<{ commitSha: string; treeSha: string }>>;
+  /** An exact commit's files, read through a verified pack; with `treeSha`, it must be the pin's. */
   exportCommit(
     repositoryPath: string,
     commitSha: string,
+    treeSha?: string,
   ): Promise<GitResult<readonly { path: string; content: Uint8Array; executable: boolean }[]>>;
   /**
    * The commit a local branch names, by its exact ref `refs/heads/<name>`: never a tag or any
@@ -420,6 +424,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     cwd: string,
     input?: string,
     limit = outputLimitBytes,
+    environment: Readonly<Record<string, string>> = {},
   ): Promise<CommandResult> {
     return new Promise((resolve) => {
       let settled = false;
@@ -433,7 +438,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       try {
         child = spawn(options.gitExecutable, [...DAEMON_GIT_OPTIONS, ...args], {
           cwd,
-          env: childEnvironment(options.identityConfigPath),
+          env: { ...childEnvironment(options.identityConfigPath), ...environment },
           shell: false,
           detached: true,
           stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
@@ -1850,14 +1855,69 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       value: { commitSha: sha, treeSha: tree.value.stdout.toString('utf8').trim() },
     };
   }
+  /**
+   * The files of an exact commit, read through a pack (R-G13 increment 2, operator decision
+   * 2026-09-30). Git never re-hashes an object it reads from a store, and agents can write the
+   * repositories' stores, so the commit is fetched into a daemon-private repository first: a
+   * fetch receives a pack, whose objects Git hashes on receipt, and a rewritten object fails.
+   * With `treeSha`, the commit's tree must be the pin's.
+   */
   async function exportCommit(
     repositoryPath: string,
     commitSha: string,
+    treeSha?: string,
   ): Promise<GitResult<readonly { path: string; content: Uint8Array; executable: boolean }[]>> {
     if (!/^[a-f0-9]{40,64}$/.test(commitSha))
       return fail('invalid-path', 'Dependency export requires an exact commit.');
     const repo = await canonicalDirectory(repositoryPath);
     if (!repo.ok) return repo;
+    const common = await runOk(
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      repo.value,
+    );
+    if (!common.ok) return common;
+    const scratch = await mkdtemp(join(tmpdir(), 'ct-pinned-source-'));
+    try {
+      const init = await runOk(['init', '--quiet', '--bare', scratch], scratch);
+      if (!init.ok) return init;
+      // By exact commit, reachable or not: the source's upload-pack reads this variable too.
+      const fetched = await run(
+        [
+          'fetch',
+          '--quiet',
+          '--no-tags',
+          '--depth=1',
+          pathToFileURL(common.value.stdout.toString('utf8').trim()).href,
+          `${commitSha}:refs/pinned/source`,
+        ],
+        scratch,
+        undefined,
+        outputLimitBytes,
+        {
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'uploadpack.allowAnySHA1InWant',
+          GIT_CONFIG_VALUE_0: 'true',
+        },
+      );
+      if (!fetched.ok) return fetched;
+      if (fetched.value.exitCode !== 0)
+        return fail('git-failed', 'The pinned commit could not be read through a verified pack.');
+      if (treeSha !== undefined) {
+        const tree = await runOk(['rev-parse', '--verify', `${commitSha}^{tree}`], scratch);
+        if (!tree.ok) return tree;
+        if (tree.value.stdout.toString('utf8').trim() !== treeSha)
+          return fail('git-failed', 'The pinned commit does not hold the pinned tree.');
+      }
+      return await exportVerifiedCommit(scratch, commitSha);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  }
+  async function exportVerifiedCommit(
+    repository: string,
+    commitSha: string,
+  ): Promise<GitResult<readonly { path: string; content: Uint8Array; executable: boolean }[]>> {
+    const repo = { value: repository };
     const listing = await runOk(['ls-tree', '-rz', '--full-tree', commitSha], repo.value);
     if (!listing.ok) return listing;
     const entries = splitNul(listing.value.stdout)

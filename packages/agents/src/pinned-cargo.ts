@@ -41,6 +41,19 @@ export interface PinnedCargoManifest {
     /** The declared transition that decided this link's source (ADR-069). */
     transition?: { slice: string; recordId?: string };
   }[];
+  /**
+   * Where each supplied upstream comes from (R-G13 increment 2): the exact commit and tree, the
+   * upstream repository's Git directory, and its packages relative to the source's root. The
+   * daemon builds from its own verified checkout of these, never from the run's copies, which
+   * the agent can write. Runs prepared before this field keep building from the run's copies.
+   */
+  readonly dependencySources?: readonly {
+    readonly alias: string;
+    readonly commitSha: string;
+    readonly treeSha?: string;
+    readonly gitDirectory: string;
+    readonly packages: readonly { readonly name: string; readonly path: string }[];
+  }[];
   readonly historicalPreparationId?: string;
   readonly localCi?: import('./local-check.js').LocalCiConfig;
   readonly runtimeId: string;

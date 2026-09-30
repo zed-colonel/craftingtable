@@ -1442,3 +1442,50 @@ itConfines(
     expect(output).not.toContain('escaped');
   },
 );
+
+it("a declared check's clone carries the repository's tags, which checks may compare with fixed commits (R-G13)", async () => {
+  const f = fixture();
+  expect(spawnSync(hostGit(), ['tag', 'project/baseline'], { cwd: f.m.workspacePath }).status).toBe(
+    0,
+  );
+  const head = spawnSync(hostGit(), ['rev-parse', 'HEAD'], {
+    cwd: f.m.workspacePath,
+    encoding: 'utf8',
+  }).stdout.trim();
+  const manifest: PinnedCargoManifest = {
+    ...f.m,
+    declaredChecks: {
+      declarationId: randomUUID(),
+      version: 1,
+      checks: [
+        {
+          id: 'baseline',
+          argv: ['git', 'rev-parse', 'refs/tags/project/baseline^{commit}'],
+          definitionPaths: [],
+          definitionDigests: {},
+        },
+      ],
+    },
+  };
+  const launcher = f.launch(manifest);
+  let output = '';
+  const outcome = await executeCheck({
+    tool: 'ct-check',
+    privateDirectory: join(f.root, 'daemon-private'),
+    manifestPath: launcher.manifestPath,
+    manifestDigest: launcher.manifestDigest,
+    manifest: launcher.manifest,
+    args: ['--declared', 'baseline'],
+    logPath: join(f.root, 'daemon-logs', 'tag.log'),
+    logReference: 'check-logs/run/tag.log',
+    confinement: 'none',
+    unitName: 'unused',
+    writablePaths: [f.m.workspacePath],
+    environment: { PATH: process.env.PATH ?? '/usr/bin' },
+    onOutput: (text) => (output += text),
+    signal: new AbortController().signal,
+    declaredTargetDirectory: join(f.root, 'declared-target'),
+  });
+  expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+  expect(output).toContain(head);
+});

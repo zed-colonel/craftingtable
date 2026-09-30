@@ -1130,7 +1130,8 @@ function daemonGit(
 /**
  * A daemon-private clone of the commit under review, where a declared check runs (R-G13
  * review): the agent keeps running while its checks do, and could change its own worktree
- * mid-check. The commit must be on a branch; a detached commit fails closed.
+ * mid-check. The commit must be on a branch; a detached commit fails closed. Tags come along
+ * through the same verified pack: a repository's own checks may compare one with a fixed commit.
  */
 async function cloneReviewedCommit(m: PinnedCargoManifest, sha: string, into: string) {
   if (!m.gitCommonDirectory) throw new Error('The run has no daemon-resolved git directory.');
@@ -1144,7 +1145,7 @@ async function cloneReviewedCommit(m: PinnedCargoManifest, sha: string, into: st
       // `--no-local` copies through a pack, whose objects Git hashes on receipt: an object the
       // agent rewrote in the shared store no longer matches its name, and the clone fails. A
       // clone that borrows the store would read the rewritten bytes (R-G13 review).
-      ['clone', '--quiet', '--no-checkout', '--no-local', '--no-tags', m.gitCommonDirectory, into],
+      ['clone', '--quiet', '--no-checkout', '--no-local', m.gitCommonDirectory, into],
       dirname(into),
     );
     await daemonGit(

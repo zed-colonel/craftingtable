@@ -2149,6 +2149,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW, recorded:* the toolchain directories bound back (`~/.cargo/bin`, `~/.local/bin`) are safe only because agents cannot write them; Claude's Write and Edit tools are not sandboxed in `auto` posture, as R-G5 recorded.
   - *NIT, recorded:* the workflow generation rises on every run event, so the hold's cache is rebuilt more often than it needs to be; correct, not measured.
   - *Probes that found nothing:* `/proc` of processes outside the unit (a user namespace, so no access); `/tmp` and `/var/tmp`; abstract sockets; `RUSTUP_HOME`; a private `/dev/shm` breaks nothing; `sourceRunId` is stored and matched; the generation rises when a run finishes or a decision is made.
+- **Found while drafting WI's and EXO's checks files (2026-09-30):** the declared check's clone was made with `--no-tags`, but EXO's contract check (`scripts/check_exo_v3_contract.py`) reads the tag `exoskeleton/pre-exo-v3` and compares it with a fixed commit, so it would always have failed. Tags now come along through the same verified pack; a moved tag fails such a comparison closed. Test: a declared check reads a tag in its clone (it failed before the change).
 
 ### R-G14
 

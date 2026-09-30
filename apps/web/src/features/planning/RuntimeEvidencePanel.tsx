@@ -205,7 +205,7 @@ export function RuntimeEvidencePanel({
           onSaved={adopt}
         />
       </SetupStepPart>
-      <SetupStepPart step="dependency">
+      <SetupStepPart step="dependency" id={`${panelId}-dependency-step`}>
         <UpstreamTransitionsPanel
           base={base}
           view={view}
@@ -346,7 +346,7 @@ export function RuntimeEvidencePanel({
           </section>
         )}
       </SetupStepPart>
-      <SetupStepPart step="decisions">
+      <SetupStepPart step="decisions" id={`${panelId}-decisions-step`}>
         <div id={`${panelId}-decisions`}>
           {view.decisionInbox && (
             <SharedDecisionInbox
@@ -727,7 +727,7 @@ export function RuntimeEvidencePanel({
           </fieldset>
         </details>
       </SetupStepPart>
-      <SetupStepPart step="evidence">
+      <SetupStepPart step="evidence" id={`${panelId}-evidence-step`}>
         <details id={`${panelId}-evidence`}>
           <summary>Submit qualification or checkpoint evidence</summary>
           <fieldset disabled={busy || !canMutate || !view.current}>

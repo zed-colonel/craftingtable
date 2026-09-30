@@ -661,8 +661,10 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await map.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
     await expect(map.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
     const runtime = map.getByRole('region', { name: 'Dependency environments and evidence' });
-    // The step opens its section (R-E2).
     await setupStep(page, 'Dependency environment');
+    await runtime
+      .getByText('Configure pinned dependencies and environments', { exact: true })
+      .click();
     await runtime.getByLabel('aq · branch or commit', { exact: true }).fill('main');
     await runtime.getByRole('button', { name: 'Inspect aq', exact: true }).click();
     await expect(runtime.getByText(/Supplied crates: aq_walkthrough_pin/)).toBeVisible();
@@ -677,8 +679,10 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .fill('Disposable walkthrough fixtures only.');
     await runtime.getByRole('button', { name: 'Save dependency environment', exact: true }).click();
     await expect(runtime.getByText('Generation 1 · binding 1', { exact: true })).toBeVisible();
-    // The step's reveal opens its advanced preparation too, as a link to the decisions does.
     await setupStep(page, 'Shared architecture decisions');
+    await runtime
+      .getByText('Advanced manual decision preparation and clause staging', { exact: true })
+      .click();
     await runtime.getByText('Prepare a decision or stage early clauses', { exact: true }).click();
     await runtime
       .getByRole('combobox', { name: 'Architecture checkpoint', exact: true })

@@ -173,6 +173,9 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   const runtime = map.getByRole('region', { name: 'Dependency environments and evidence' });
   // The map's page creates a roadmap one checklist step at a time (R-E2).
   await setupStep(page, 'Dependency environment');
+  await runtime
+    .getByText('Configure pinned dependencies and environments', { exact: true })
+    .click();
   await runtime.getByLabel('aq · branch or commit', { exact: true }).fill('main');
   const inspected = page.waitForResponse(
     (r) => r.url().endsWith('/runtime/inspect') && r.request().method() === 'POST',
@@ -223,6 +226,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await apply.click();
   await expect(runtime.getByText('Generation 2 · binding 1', { exact: true })).toBeVisible();
   await expect(refresh.getByText(/No agents were started/)).toBeVisible();
+  // The evidence step opens its submission form.
   await setupStep(page, 'Submitted evidence and builds');
   await runtime
     .getByRole('combobox', { name: 'Evidence subject', exact: true })
@@ -236,6 +240,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
   await expect(runtime).toBeVisible();
 
+  await setupStep(page, 'Plan and repository bindings');
   await expect(map.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
   await expect(aq.getByText('Repository selection saved.', { exact: true })).toBeVisible();
   await expect(aq.getByText('Needs resolution', { exact: false })).toHaveCount(0);

@@ -2,6 +2,7 @@ import {
   mapSetupIds,
   SetupChecklist,
   type SetupStep,
+  SetupStepPart,
   SetupStepProvider,
   useSetupStep,
 } from './setup-steps.js';
@@ -196,12 +197,7 @@ export function ConcurrencyImports({
   // roadmaps for any target; each roadmap's setup holds that roadmap's. The page lists every
   // roadmap on the map, ended or not, so none is hidden behind the creator (R-E2 review).
   const supervision = detail && (
-    <SetupStepProvider value={shownStep}>
-      <SetupChecklist
-        ids={mapSetupIds(detail.summary.id)}
-        shown={shownStep}
-        onSelect={setShownStep}
-      />
+    <>
       {onMap.length > 0 && (
         <p role="status">
           Roadmaps on this map:{' '}
@@ -238,10 +234,10 @@ export function ConcurrencyImports({
         csrfToken={csrfToken}
         canMutate={canMutate}
       />
-    </SetupStepProvider>
+    </>
   );
   const detailBody = detail && (
-    <>
+    <SetupStepProvider value={shownStep}>
       <p>
         <strong>Imported definition · explicit delegation required</strong>
       </p>
@@ -272,169 +268,178 @@ export function ConcurrencyImports({
         </a>
       </details>
       <ImportIssues issues={detail.blockers} errorLabel="Before execution" />
-      <h3 id={`map-bindings-${detail.summary.id}`}>Exact project and plan bindings</h3>
-      <p>
-        Choose the revised plan versions explicitly. Saving records an immutable binding revision;
-        it does not adopt scheduling proposals or start work.
-      </p>
-      {detail.repositories.map((repo) => {
-        const option = repo.options.find((o) => o.planVersionId === selections[repo.alias]);
-        const recordedSelection =
-          repo.role === 'implemented_upstream'
-            ? repo.selectedRepositoryId
-            : repo.selectedPlanVersionId;
-        const selectionChanged = (selections[repo.alias] ?? '') !== (recordedSelection ?? '');
-        return (
-          <article className="import-binding" key={repo.alias}>
-            <h4>
-              {repo.alias.toUpperCase()} · {repo.name}
-            </h4>
-            <p>
-              {repo.role === 'implemented_upstream'
-                ? 'Implemented upstream · no runnable AQ work is created'
-                : `Planned application · suggested integration branch: ${repo.suggestedBranch}`}
-            </p>
-            <label className="field">
-              {repo.role === 'implemented_upstream'
-                ? `${repo.alias} upstream repository`
-                : `${repo.alias} plan version`}
-              <select
-                aria-label={
-                  repo.role === 'implemented_upstream'
-                    ? `${repo.alias} upstream repository`
-                    : `${repo.alias} plan version`
-                }
-                disabled={busy || !canMutate}
-                value={selections[repo.alias] ?? ''}
-                onChange={(e) => setSelections({ ...selections, [repo.alias]: e.target.value })}
-              >
-                <option value="">Unbound — select explicitly</option>
+      <SetupChecklist
+        ids={mapSetupIds(detail.summary.id)}
+        shown={shownStep}
+        onSelect={setShownStep}
+      />
+      <SetupStepPart step="bindings">
+        <h3 id={`map-bindings-${detail.summary.id}`}>Exact project and plan bindings</h3>
+        <p>
+          Choose the revised plan versions explicitly. Saving records an immutable binding revision;
+          it does not adopt scheduling proposals or start work.
+        </p>
+        {detail.repositories.map((repo) => {
+          const option = repo.options.find((o) => o.planVersionId === selections[repo.alias]);
+          const recordedSelection =
+            repo.role === 'implemented_upstream'
+              ? repo.selectedRepositoryId
+              : repo.selectedPlanVersionId;
+          const selectionChanged = (selections[repo.alias] ?? '') !== (recordedSelection ?? '');
+          return (
+            <article className="import-binding" key={repo.alias}>
+              <h4>
+                {repo.alias.toUpperCase()} · {repo.name}
+              </h4>
+              <p>
                 {repo.role === 'implemented_upstream'
-                  ? detail.sourceRepositories.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))
-                  : repo.options.map((o) => (
-                      <option key={o.planVersionId} value={o.planVersionId}>
-                        {o.projectName} · v{o.versionNumber} ·{' '}
-                        {o.exactSources ? 'exact source match' : 'source mismatch'}
-                      </option>
-                    ))}
-              </select>
-            </label>
-            {selectionChanged ? (
-              <p className="hint">Unsaved selection — use Save exact bindings below.</p>
-            ) : recordedSelection ? (
-              <p>
-                <strong>
+                  ? 'Implemented upstream · no runnable AQ work is created'
+                  : `Planned application · suggested integration branch: ${repo.suggestedBranch}`}
+              </p>
+              <label className="field">
+                {repo.role === 'implemented_upstream'
+                  ? `${repo.alias} upstream repository`
+                  : `${repo.alias} plan version`}
+                <select
+                  aria-label={
+                    repo.role === 'implemented_upstream'
+                      ? `${repo.alias} upstream repository`
+                      : `${repo.alias} plan version`
+                  }
+                  disabled={busy || !canMutate}
+                  value={selections[repo.alias] ?? ''}
+                  onChange={(e) => setSelections({ ...selections, [repo.alias]: e.target.value })}
+                >
+                  <option value="">Unbound — select explicitly</option>
                   {repo.role === 'implemented_upstream'
-                    ? 'Repository selection saved.'
-                    : 'Plan version selection saved.'}
-                </strong>
-              </p>
-            ) : null}
-            {option && (
-              <>
+                    ? detail.sourceRepositories.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))
+                    : repo.options.map((o) => (
+                        <option key={o.planVersionId} value={o.planVersionId}>
+                          {o.projectName} · v{o.versionNumber} ·{' '}
+                          {o.exactSources ? 'exact source match' : 'source mismatch'}
+                        </option>
+                      ))}
+                </select>
+              </label>
+              {selectionChanged ? (
+                <p className="hint">Unsaved selection — use Save exact bindings below.</p>
+              ) : recordedSelection ? (
                 <p>
-                  {option.exactSources
-                    ? 'All required source documents and work-item records match.'
-                    : 'This version cannot be bound to the map.'}{' '}
-                  {option.archiveMatched ? 'Declared ZIP provenance matches.' : ''}
+                  <strong>
+                    {repo.role === 'implemented_upstream'
+                      ? 'Repository selection saved.'
+                      : 'Plan version selection saved.'}
+                  </strong>
                 </p>
-                <ImportIssues issues={option.issues} />
+              ) : null}
+              {option && (
+                <>
+                  <p>
+                    {option.exactSources
+                      ? 'All required source documents and work-item records match.'
+                      : 'This version cannot be bound to the map.'}{' '}
+                    {option.archiveMatched ? 'Declared ZIP provenance matches.' : ''}
+                  </p>
+                  <ImportIssues issues={option.issues} />
+                  <p>
+                    <Link
+                      route={{
+                        name: 'plan-version',
+                        workspaceId,
+                        projectId: option.projectId,
+                        planVersionId: option.planVersionId,
+                      }}
+                    >
+                      Open version {option.versionNumber} / Repository &amp; branches
+                    </Link>
+                  </p>
+                  <p>
+                    Configured integration branch:{' '}
+                    <code>{option.integrationBranch ?? 'not configured'}</code>
+                  </p>
+                </>
+              )}
+              {repo.role === 'planned_application' && repo.options.length === 0 && (
                 <p>
-                  <Link
-                    route={{
-                      name: 'plan-version',
-                      workspaceId,
-                      projectId: option.projectId,
-                      planVersionId: option.planVersionId,
-                    }}
-                  >
-                    Open version {option.versionNumber} / Repository &amp; branches
-                  </Link>
+                  <Link route={{ name: 'import', workspaceId }}>
+                    Import the revised planning ZIP
+                  </Link>{' '}
+                  before choosing a version.
                 </p>
-                <p>
-                  Configured integration branch:{' '}
-                  <code>{option.integrationBranch ?? 'not configured'}</code>
-                </p>
-              </>
-            )}
-            {repo.role === 'planned_application' && repo.options.length === 0 && (
-              <p>
-                <Link route={{ name: 'import', workspaceId }}>Import the revised planning ZIP</Link>{' '}
-                before choosing a version.
-              </p>
-            )}
-            <ImportIssues issues={repo.issues} />
-            <details>
-              <summary>Required source package and {repo.sources.length} documents</summary>
-              <p>{repo.archiveFilename}</p>
-              <code className="import-digest">{repo.archiveDigest}</code>
-              <ul>
-                {repo.sources.map((s) => (
-                  <li key={s.id}>
-                    <code>{s.path}</code>
-                    <br />
-                    <code className="import-digest">{s.sha256}</code>
-                  </li>
-                ))}
-              </ul>
-            </details>
-            {repo.boundWorkItems.length > 0 && (
+              )}
+              <ImportIssues issues={repo.issues} />
               <details>
-                <summary>{repo.boundWorkItems.length} existing work items bound</summary>
+                <summary>Required source package and {repo.sources.length} documents</summary>
+                <p>{repo.archiveFilename}</p>
+                <code className="import-digest">{repo.archiveDigest}</code>
                 <ul>
-                  {repo.boundWorkItems.map((w) => (
-                    <li key={w.sourceId}>
-                      <Link
-                        route={{
-                          name: 'work-item',
-                          workspaceId,
-                          workItemId: w.workItemId,
-                        }}
-                      >
-                        {w.sourceId}
-                      </Link>
+                  {repo.sources.map((s) => (
+                    <li key={s.id}>
+                      <code>{s.path}</code>
+                      <br />
+                      <code className="import-digest">{s.sha256}</code>
                     </li>
                   ))}
                 </ul>
               </details>
-            )}
-          </article>
-        );
-      })}
-      <div className="button-row">
-        {canMutate && (
-          <button
-            type="button"
-            className="primary-button"
-            disabled={busy || !!invalidSelection || !Object.values(selections).some(Boolean)}
-            onClick={() => void save()}
-          >
-            Save exact bindings
+              {repo.boundWorkItems.length > 0 && (
+                <details>
+                  <summary>{repo.boundWorkItems.length} existing work items bound</summary>
+                  <ul>
+                    {repo.boundWorkItems.map((w) => (
+                      <li key={w.sourceId}>
+                        <Link
+                          route={{
+                            name: 'work-item',
+                            workspaceId,
+                            workItemId: w.workItemId,
+                          }}
+                        >
+                          {w.sourceId}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </article>
+          );
+        })}
+        <div className="button-row">
+          {canMutate && (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy || !!invalidSelection || !Object.values(selections).some(Boolean)}
+              onClick={() => void save()}
+            >
+              Save exact bindings
+            </button>
+          )}
+          <button type="button" disabled={busy} onClick={() => void open(detail.summary.id)}>
+            Refresh binding checks
           </button>
-        )}
-        <button type="button" disabled={busy} onClick={() => void open(detail.summary.id)}>
-          Refresh binding checks
-        </button>
-      </div>
-      <p className="hint">
-        Recorded binding revision: {detail.summary.bindingRevision}. Refresh after configuring
-        branches or importing another plan version; refresh replaces unsaved selections.
-      </p>
-      <details>
-        <summary>Binding history ({detail.history.length})</summary>
-        <ul>
-          {detail.history.map((h) => (
-            <li key={h.revision}>
-              Revision {h.revision} · {new Date(h.createdAt).toLocaleString()} ·{' '}
-              {h.aliases.join(', ') || 'no bindings'}
-            </li>
-          ))}
-        </ul>
-      </details>
+        </div>
+        <p className="hint">
+          Recorded binding revision: {detail.summary.bindingRevision}. Refresh after configuring
+          branches or importing another plan version; refresh replaces unsaved selections.
+        </p>
+        <details>
+          <summary>Binding history ({detail.history.length})</summary>
+          <ul>
+            {detail.history.map((h) => (
+              <li key={h.revision}>
+                Revision {h.revision} · {new Date(h.createdAt).toLocaleString()} ·{' '}
+                {h.aliases.join(', ') || 'no bindings'}
+              </li>
+            ))}
+          </ul>
+        </details>
+      </SetupStepPart>
       {supervision}
       <details>
         <summary>Planning targets ({detail.targets.length})</summary>
@@ -547,7 +552,7 @@ export function ConcurrencyImports({
           ))}
         </ul>
       </details>
-    </>
+    </SetupStepProvider>
   );
   const alerts = (
     <>

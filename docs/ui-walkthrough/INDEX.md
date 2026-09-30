@@ -93,3 +93,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-09-29-repository-checks-before | `0cf4fa5` | 2026-09-29 | 64 (1 phone only) | 1× |
 | 2026-09-29-repository-checks-after | `8d0482c` | 2026-09-29 | 64 (1 phone only) | 1× |
 | 2026-09-30-decisions-before | `34ca0e5` | 2026-09-30 | 64 (1 phone only) | 1× |
+| 2026-09-30-decisions-after | `ab78399` | 2026-09-30 | 66 (1 phone only) | 1× |

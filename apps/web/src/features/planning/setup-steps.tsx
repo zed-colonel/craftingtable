@@ -25,15 +25,22 @@ export const SetupStepProvider = SelectedStep.Provider;
 /** Hidden on the setup page unless one of its steps is selected. */
 export function SetupStepPart({
   step,
+  id,
   children,
 }: {
   step: SetupStep | readonly SetupStep[];
+  /** The part a step's checklist entry brings into view, where its first part is not a form. */
+  id?: string;
   children: ReactNode;
 }) {
   const selected = useContext(SelectedStep);
   const steps: readonly SetupStep[] = typeof step === 'string' ? [step] : step;
   return (
-    <div data-setup-step={steps[0]} hidden={selected !== undefined && !steps.includes(selected)}>
+    <div
+      id={id}
+      data-setup-step={steps[0]}
+      hidden={selected !== undefined && !steps.includes(selected)}
+    >
       {children}
     </div>
   );
@@ -60,14 +67,17 @@ export const mapSetupIds = (definitionId: string): SetupIds => ({
 /** The element each step's checklist entry brings into view. */
 export function stepAnchors(ids: SetupIds): Record<SetupStep, string> {
   return {
-    bindings: ids.roadmapId ? `roadmap-setup-${ids.roadmapId}-bindings` : `map-focus-${ids.panel}`,
-    dependency: `${ids.runtime}-setup`,
+    bindings: ids.roadmapId
+      ? `roadmap-setup-${ids.roadmapId}-bindings`
+      : `map-bindings-${ids.panel}`,
+    // A step's own part, not its form: choosing the step does not open the form.
+    dependency: `${ids.runtime}-dependency-step`,
     verification: `${ids.runtime}-native`,
     reviewers: `map-reviewers-${ids.panel}`,
     automation: `map-settings-${ids.panel}`,
     'plan-acceptance': `${ids.runtime}-plan-acceptance`,
-    decisions: `${ids.runtime}-decisions`,
-    evidence: `${ids.runtime}-evidence`,
+    decisions: `${ids.runtime}-decisions-step`,
+    evidence: `${ids.runtime}-evidence-step`,
   };
 }
 
@@ -77,12 +87,16 @@ export function stepAnchors(ids: SetupIds): Record<SetupStep, string> {
  */
 export function stepForFocus(focus: string, ids: SetupIds): SetupStep | undefined {
   const { runtime, panel, roadmapId } = ids;
-  if (focus === runtime || focus === `${runtime}-setup`) return 'dependency';
+  if ([runtime, `${runtime}-setup`, `${runtime}-dependency-step`].includes(focus))
+    return 'dependency';
   const sections: readonly (readonly [string, SetupStep])[] = [
     [`${runtime}-native`, 'verification'],
     [`${runtime}-plan-acceptance`, 'plan-acceptance'],
     [`${runtime}-decisions`, 'decisions'],
+    [`${runtime}-decisions-step`, 'decisions'],
     [`${runtime}-evidence`, 'evidence'],
+    [`${runtime}-evidence-step`, 'evidence'],
+    [`map-bindings-${panel}`, 'bindings'],
     [`map-adoption-${panel}`, 'bindings'],
     [`map-focus-${panel}`, 'bindings'],
     [`map-readiness-${panel}`, 'bindings'],

@@ -2255,6 +2255,16 @@ button:disabled {
   display: grid;
   gap: var(--space-1);
 }
+.setup-checklist [aria-current='step'] {
+  font-weight: 600;
+  text-decoration: underline;
+}
+/* A map's selected work and its focused dependency view scroll within the page (R-E2). */
+.cross-map-lanes,
+.cross-map-focus {
+  max-height: 36rem;
+  overflow-y: auto;
+}
 
 /* Action bars */
 .action-bar {

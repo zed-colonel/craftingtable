@@ -33,14 +33,15 @@ import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
-import { revealElement, SHOW_PART_EVENT, type ShowPart } from '../../lib/reveal-element.js';
+import { revealElement } from '../../lib/reveal-element.js';
 import {
-  SETUP_STEPS,
+  roadmapSetupIds,
+  SetupChecklist,
   type SetupStep,
   SetupStepPart,
   SetupStepProvider,
-  stepForFocus,
   stepForPath,
+  useSetupStep,
 } from './setup-steps.js';
 import {
   controlRoadmap,
@@ -837,19 +838,19 @@ export function RoadmapPage({
       alive = false;
     };
   }, [historyKey]);
-  // Setup shows one checklist step at a time (R-E2); a reveal of an element in another step,
-  // from a link, an inbox item or a notification, shows that step first.
-  const [setupStep, setSetupStep] = useState<SetupStep>();
-  useEffect(() => {
-    if (tab !== 'setup') return;
-    const show = (event: Event) => {
-      const { id, step } = (event as CustomEvent<ShowPart>).detail;
-      const next = SETUP_STEPS.find((s) => s.key === step)?.key ?? stepForFocus(id, roadmapId);
-      if (next) setSetupStep(next);
-    };
-    window.addEventListener(SHOW_PART_EVENT, show);
-    return () => window.removeEventListener(SHOW_PART_EVENT, show);
-  }, [tab, roadmapId]);
+  // Setup shows one checklist step at a time (R-E2): the one chosen, else the first an open
+  // attention item names, else the bindings.
+  const setupNeeds = new Set(
+    tab === 'setup'
+      ? attention.flatMap((item) =>
+          item.refs.roadmapId === roadmapId ? (stepForPath(item.path, roadmapId) ?? []) : [],
+        )
+      : [],
+  );
+  const [shownStep, setSetupStep] = useSetupStep(
+    tab === 'setup' ? roadmapSetupIds(roadmapId) : undefined,
+    setupNeeds,
+  );
   const focused = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (focus === undefined || focused.current === focus || !loaded) return;
@@ -1298,19 +1299,6 @@ export function RoadmapPage({
     </>
   );
 
-  // The setup checklist, in the order the work is done (R-E2). Setup shows one step at a time:
-  // the one chosen, else the first an open attention item names, else the bindings.
-  const anchors: Record<SetupStep, string> = {
-    bindings: `roadmap-setup-${roadmap.id}-bindings`,
-    dependency: `${runtimePanelId}-setup`,
-    verification: `${runtimePanelId}-native`,
-    reviewers: `map-reviewers-roadmap-${roadmap.id}`,
-    automation: `map-settings-roadmap-${roadmap.id}`,
-    'plan-acceptance': `${runtimePanelId}-plan-acceptance`,
-    decisions: `${runtimePanelId}-decisions`,
-    evidence: `${runtimePanelId}-evidence`,
-  };
-  const needed = new Set(items.flatMap((item) => stepForPath(item.path, roadmap.id) ?? []));
   const notNeeded = new Set<SetupStep>(
     runtimeView
       ? [
@@ -1319,35 +1307,16 @@ export function RoadmapPage({
         ]
       : [],
   );
-  const shownStep: SetupStep =
-    setupStep ?? SETUP_STEPS.find((step) => needed.has(step.key))?.key ?? 'bindings';
   const setup = crossProject ? (
     <SetupStepProvider value={embedded ? undefined : shownStep}>
       {!embedded && (
-        <nav aria-label="Setup checklist" className="setup-checklist">
-          <ol>
-            {SETUP_STEPS.map((step) => (
-              <li key={step.key}>
-                <button
-                  type="button"
-                  className="link-button"
-                  aria-current={step.key === shownStep ? 'step' : undefined}
-                  onClick={() => {
-                    setSetupStep(step.key);
-                    revealElement(anchors[step.key]);
-                  }}
-                >
-                  {step.label}
-                </button>
-                {needed.has(step.key) ? (
-                  <span className="attention-chip"> · Needs you</span>
-                ) : notNeeded.has(step.key) ? (
-                  <span className="subtle"> · Not needed</span>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        </nav>
+        <SetupChecklist
+          ids={roadmapSetupIds(roadmap.id)}
+          shown={shownStep}
+          onSelect={setSetupStep}
+          needed={setupNeeds}
+          notNeeded={notNeeded}
+        />
       )}
       <SetupStepPart step="bindings">
         <p id={`roadmap-setup-${roadmap.id}-bindings`}>

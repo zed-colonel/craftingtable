@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as base, expect } from '@playwright/test';
-import { expectSignedIn, submitSignIn } from './support';
+import { expectSignedIn, setupStep, submitSignIn } from './support';
 
 const test = base.extend<{ upstreamRepository: string }>({
   upstreamRepository: async ({ browserName }, use) => {
@@ -171,9 +171,8 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await map.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
   await expect(map.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
   const runtime = map.getByRole('region', { name: 'Dependency environments and evidence' });
-  await runtime
-    .getByText('Configure pinned dependencies and environments', { exact: true })
-    .click();
+  // The map's page creates a roadmap one checklist step at a time (R-E2).
+  await setupStep(page, 'Dependency environment');
   await runtime.getByLabel('aq · branch or commit', { exact: true }).fill('main');
   const inspected = page.waitForResponse(
     (r) => r.url().endsWith('/runtime/inspect') && r.request().method() === 'POST',
@@ -224,7 +223,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await apply.click();
   await expect(runtime.getByText('Generation 2 · binding 1', { exact: true })).toBeVisible();
   await expect(refresh.getByText(/No agents were started/)).toBeVisible();
-  await runtime.getByText('Submit qualification or checkpoint evidence', { exact: true }).click();
+  await setupStep(page, 'Submitted evidence and builds');
   await runtime
     .getByRole('combobox', { name: 'Evidence subject', exact: true })
     .selectOption('checkpoint:AQ-BASELINE-ACCEPTED');
@@ -246,9 +245,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     }),
   ).toBeVisible();
   await expect(map.getByRole('button', { name: /start|adopt/i })).toHaveCount(0);
+  await setupStep(page, 'Verification environments');
   await expect(
     map.getByRole('button', { name: 'Approve native verification', exact: true }),
   ).toBeDisabled();
+  await setupStep(page, 'Plan and repository bindings');
   const supervisor = map.getByRole('region', {
     name: 'Create cross-project roadmap',
     exact: true,
@@ -273,6 +274,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     ),
   ).toBeVisible();
 
+  await setupStep(page, 'Plan and repository bindings');
   const lanes = supervisor.locator('.cross-map-lanes');
   await expect(lanes.getByRole('heading', { name: 'WI', exact: true })).toBeVisible();
   await expect(lanes.getByRole('heading', { name: 'EXO', exact: true })).toHaveCount(0);
@@ -420,7 +422,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await supervisor
     .getByRole('combobox', { name: 'Selection mode', exact: true })
     .selectOption('prioritize-full');
-  await supervisor.getByText('Roadmap agent and automation settings', { exact: true }).click();
+  await setupStep(page, 'Automation and agents');
   await supervisor
     .getByRole('textbox', { name: 'Roadmap name', exact: true })
     .fill('Amendable stack roadmap');
@@ -438,6 +440,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     name: 'Save queued roadmap settings',
     exact: true,
   });
+  await setupStep(page, 'Automation and agents');
   await expect(saveQueued).toBeDisabled();
   await saved
     .getByRole('button', { name: 'Assign independent reviewer responsibilities', exact: true })
@@ -459,6 +462,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await saved
     .getByRole('button', { name: 'Save reviewer and queued settings', exact: true })
     .click();
+  await setupStep(page, 'Automation and agents');
   await expect(saveQueued).toBeDisabled();
   await expect(
     saved.getByText('Saved · revision 2. No settings save needed.', { exact: false }),

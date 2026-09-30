@@ -359,4 +359,9 @@ it("offers a map's supervisor once on its page, and links every roadmap on the m
     '/workspaces/workspace/roadmaps/r-stopped/setup',
   );
   expect(screen.queryByRole('link', { name: 'Old roadmap' })).toBeNull();
+  // The map's page creates a roadmap one step at a time too, starting with its scope (R-E2).
+  const checklist = screen.getByRole('navigation', { name: 'Setup checklist' });
+  expect(
+    within(checklist).getByRole('button', { name: 'Plan and repository bindings' }).ariaCurrent,
+  ).toBe('step');
 });

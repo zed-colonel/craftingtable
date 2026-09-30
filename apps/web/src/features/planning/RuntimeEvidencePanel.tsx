@@ -372,16 +372,10 @@ export function RuntimeEvidencePanel({
               busy={busy}
               disabled={!canMutate || unsavedDependencies}
               onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
-              onSaved={(next, input) => {
+              onSaved={(next) => {
                 adopt(next);
-                setNotice('Proposal saved. Review the packet and record your decision below.');
-                const saved = next.submissions.find(
-                  (s) =>
-                    s.submission.architectureDecision &&
-                    s.submission.subject.sourceId === input.checkpointId &&
-                    !s.decision,
-                );
-                if (saved) revealElement(`${panelId}-submission-${saved.submission.id}`);
+                // The proposal is approved on its decision card, in this step (R-E2).
+                setNotice('Proposal saved. Review and approve it on its decision card.');
               }}
             />
           </details>

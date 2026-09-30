@@ -108,3 +108,11 @@ export async function openRoadmap(
       .getByRole('link', { name: tab, exact: true })
       .click();
 }
+
+/** Opens one step of a roadmap's setup or a map's creation flow (R-E2). */
+export async function setupStep(page: Page, label: string): Promise<void> {
+  await page
+    .getByRole('navigation', { name: 'Setup checklist', exact: true })
+    .getByRole('button', { name: label, exact: true })
+    .click();
+}

@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Browser, devices, expect, type Page, test } from '@playwright/test';
-import { E2E_USERNAME, git, signIn } from './support';
+import { E2E_USERNAME, git, setupStep, signIn } from './support';
 
 /**
  * The UI walkthrough: seed one workspace with every kind of state the app can
@@ -661,9 +661,8 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await map.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
     await expect(map.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
     const runtime = map.getByRole('region', { name: 'Dependency environments and evidence' });
-    await runtime
-      .getByText('Configure pinned dependencies and environments', { exact: true })
-      .click();
+    // The step opens its section (R-E2).
+    await setupStep(page, 'Dependency environment');
     await runtime.getByLabel('aq · branch or commit', { exact: true }).fill('main');
     await runtime.getByRole('button', { name: 'Inspect aq', exact: true }).click();
     await expect(runtime.getByText(/Supplied crates: aq_walkthrough_pin/)).toBeVisible();
@@ -678,9 +677,8 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .fill('Disposable walkthrough fixtures only.');
     await runtime.getByRole('button', { name: 'Save dependency environment', exact: true }).click();
     await expect(runtime.getByText('Generation 1 · binding 1', { exact: true })).toBeVisible();
-    await runtime
-      .getByText('Advanced manual decision preparation and clause staging', { exact: true })
-      .click();
+    // The step's reveal opens its advanced preparation too, as a link to the decisions does.
+    await setupStep(page, 'Shared architecture decisions');
     await runtime.getByText('Prepare a decision or stage early clauses', { exact: true }).click();
     await runtime
       .getByRole('combobox', { name: 'Architecture checkpoint', exact: true })
@@ -699,6 +697,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     git(['commit', '--no-gpg-sign', '-m', 'Update provider fixture'], upstream);
     const selectTarget = async (p: Page) => {
       // The imported map has its own page (R-E2), so a fresh page opens on it.
+      await setupStep(p, 'Plan and repository bindings');
       const region = p.getByRole('region', { name: 'Create cross-project roadmap', exact: true });
       const target = region.getByRole('combobox', { name: 'Planning target', exact: true });
       if ((await target.inputValue()) === '')
@@ -711,6 +710,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       'Roadmaps · shared decision, automatic references and explicit approval',
       async (p: Page) => {
         await selectTarget(p);
+        await setupStep(p, 'Shared architecture decisions');
         const card = p.getByRole('region', { name: 'WI-ADR-012', exact: true });
         await card.getByRole('button', { name: 'Review saved proposal', exact: true }).click();
         await expect(card.getByText('Review the saved decision', { exact: true })).toBeVisible();
@@ -722,6 +722,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       'Roadmaps · explicit dependency refresh preview',
       async (p: Page) => {
         await selectTarget(p);
+        await setupStep(p, 'Dependency environment');
         const pins = p.getByRole('region', { name: 'Dependency pin refresh', exact: true });
         await pins.getByRole('button', { name: 'Preview dependency refresh' }).click();
         await expect(pins.getByText('Generation 1 → 2', { exact: true })).toBeVisible();
@@ -778,6 +779,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       'Roadmaps · when each application moves to current upstream pins',
       async (p: Page) => {
         await selectTarget(p);
+        await setupStep(p, 'Dependency environment');
         const transitions = p.getByRole('region', { name: 'Upstream transitions', exact: true });
         await transitions
           .getByLabel('WI → AQ transition slice')
@@ -815,7 +817,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .getByRole('button', { name: 'Create cross-project roadmap', exact: true })
       .click();
     await expect(
-      page.getByRole('region', { name: 'Independent review recovery', exact: true }),
+      page.getByRole('navigation', { name: 'Roadmap pages', exact: true }),
     ).toBeVisible();
     // The new roadmap opens on its setup page (R-E2).
     await page.reload();
@@ -855,6 +857,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       'roadmap-recovery-delegation',
       'Roadmaps · bounded independent review recovery',
       async (p: Page) => {
+        await setupStep(p, 'Reviewer responsibilities and delegation');
         const recovery = p.getByRole('region', {
           name: 'Independent review recovery',
           exact: true,

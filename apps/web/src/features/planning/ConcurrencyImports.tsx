@@ -1,3 +1,10 @@
+import {
+  mapSetupIds,
+  SetupChecklist,
+  type SetupStep,
+  SetupStepProvider,
+  useSetupStep,
+} from './setup-steps.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import type { ConcurrencyDetail, ConcurrencyList } from '@craftingtable/contracts';
 import type {
@@ -31,6 +38,8 @@ import { loadRoadmaps } from '../../lib/roadmap-api.js';
  * until a roadmap supervises the current binding revision, the supervisor that creates one;
  * after that the roadmap's setup holds the supervisor, so each map is rendered once.
  */
+const noSteps: ReadonlySet<SetupStep> = new Set();
+
 export function ConcurrencyImports({
   workspaceId,
   csrfToken,
@@ -54,6 +63,11 @@ export function ConcurrencyImports({
   const [filter, setFilter] = useState('');
   const [notice, setNotice] = useState('');
   const [roadmaps, setRoadmaps] = useState<readonly RoadmapView[]>();
+  // A map's page creates roadmaps one checklist step at a time, as setup does (R-E2).
+  const [shownStep, setShownStep] = useSetupStep(
+    definitionId === undefined ? undefined : mapSetupIds(definitionId),
+    noSteps,
+  );
   const refreshRoadmaps = useCallback(() => {
     if (!mapPage) return;
     void loadRoadmaps(workspaceId)
@@ -182,7 +196,12 @@ export function ConcurrencyImports({
   // roadmaps for any target; each roadmap's setup holds that roadmap's. The page lists every
   // roadmap on the map, ended or not, so none is hidden behind the creator (R-E2 review).
   const supervision = detail && (
-    <>
+    <SetupStepProvider value={shownStep}>
+      <SetupChecklist
+        ids={mapSetupIds(detail.summary.id)}
+        shown={shownStep}
+        onSelect={setShownStep}
+      />
       {onMap.length > 0 && (
         <p role="status">
           Roadmaps on this map:{' '}
@@ -219,7 +238,7 @@ export function ConcurrencyImports({
         csrfToken={csrfToken}
         canMutate={canMutate}
       />
-    </>
+    </SetupStepProvider>
   );
   const detailBody = detail && (
     <>

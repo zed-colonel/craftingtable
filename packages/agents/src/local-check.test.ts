@@ -1709,3 +1709,64 @@ esac
     expect(output).not.toContain('PLANTED');
   },
 );
+
+const overlayCases = [['none'], ['systemd']] as const;
+it.each(overlayCases)(
+  "a current-upstream gate's adopted check builds against private checkouts of the pins, patched in above its clone (R-G13 increment 2; confinement %s)",
+  async (confinement) => {
+    if (confinement === 'systemd' && !['running', 'degraded'].includes(userManager ?? '')) return;
+    const p = pinnedBuildFixture();
+    const manifest: PinnedCargoManifest = {
+      ...p.manifest(),
+      declaredChecks: {
+        declarationId: randomUUID(),
+        version: 1,
+        checks: [
+          {
+            id: 'peek',
+            argv: [
+              'sh',
+              '-c',
+              'path=$(sed -n \'s/.*path = "\\(.*\\)".*/\\1/p\' ../.cargo/config.toml); echo "patched=$path"; cat "$path/src/lib.rs"; (echo x > ../.cargo/config.toml) 2>/dev/null && echo overlay-writable || echo overlay-read-only',
+            ],
+            definitionPaths: [],
+            definitionDigests: {},
+          },
+        ],
+      },
+    };
+    const launcher = p.f.launch(manifest);
+    const privateDirectory = join(p.f.root, 'check-logs', 'run', 'peek.private');
+    let output = '';
+    const outcome = await executeCheck({
+      tool: 'ct-check',
+      manifestPath: launcher.manifestPath,
+      manifestDigest: launcher.manifestDigest,
+      manifest: launcher.manifest,
+      args: ['--declared', 'peek'],
+      logPath: join(p.f.root, 'daemon-logs', 'peek.log'),
+      logReference: 'check-logs/run/peek.log',
+      privateDirectory,
+      declaredTargetDirectory: join(p.f.root, 'check-logs', 'run', 'declared-target'),
+      confinement,
+      unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
+      writablePaths: [p.f.m.workspacePath],
+      environment: { PATH: process.env.PATH ?? '/usr/bin', HOME: homedir() },
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+      hiddenRoots: [join(p.f.root, 'check-logs'), join(p.f.root, 'run')],
+    });
+    expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+    expect(output).toContain(`patched=${join(privateDirectory, 'pinned', 'source-0', 'crate')}`);
+    expect(output).toContain('overlay-read-only');
+    expect(output).toContain('genuine');
+    expect(output).not.toContain('agent copy');
+    expect(outcome.receipt).toMatchObject({
+      kind: 'scoped-check',
+      verificationMode: 'current-upstream-build',
+      declaredCheck: { id: 'peek' },
+    });
+    expect(existsSync(join(privateDirectory, '.cargo'))).toBe(false);
+    expect(existsSync(join(privateDirectory, 'pinned'))).toBe(false);
+  },
+);

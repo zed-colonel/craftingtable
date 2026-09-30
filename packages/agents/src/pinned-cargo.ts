@@ -75,7 +75,7 @@ export interface PinnedCargoManifest {
   readonly configDigest: string;
   readonly receiptPath: string;
   /**
-   * The repository's adopted checks the run's scoped gate is held to (R-G13). `ct-check
+   * The repository's adopted checks the run's gates are held to (R-G13). `ct-check
    * --declared <id>` runs one of them; the command comes from here, never from the request.
    */
   readonly declaredChecks?: import('@craftingtable/domain').ManifestDeclaredChecks;

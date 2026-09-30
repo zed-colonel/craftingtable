@@ -165,9 +165,10 @@ export interface RunEnvironment {
    */
   readonly receiptAuthority?: 'daemon';
   /**
-   * The adopted check declaration the run's scoped gate is held to (R-G13): only daemon
-   * receipts of those checks meet it. Absent on runs prepared before declared checks, which keep
-   * the earlier rule.
+   * The adopted check declaration the run's gates are held to (R-G13): only daemon receipts of
+   * those checks meet a scoped gate, and a current-upstream gate needs them beside a pinned build
+   * (increment 2). Absent on runs prepared before declared checks, and on current-upstream runs
+   * prepared before increment 2, which keep the earlier rule.
    */
   readonly checkDeclarationId?: string;
 }

@@ -1681,6 +1681,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   } = { roots: [], binds: [] };
   let privateCargoHome: string | undefined;
   let pinnedSources: string | undefined;
+  let pinsOverlay: string | undefined;
   let observed = false;
   let declaredDigests: Record<string, string> = {};
   let ownsNativeUnit = false;
@@ -1941,7 +1942,24 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       if (command.includes('/')) command = join(snapshot, command);
       cwd = snapshot;
       await usePrivateCargoHome(m, snapshot);
-      confineToClone(snapshot);
+      if (m.verification?.mode === 'current-upstream-build' && m.dependencySources?.length) {
+        // A current-upstream gate's adopted checks build against the pins (R-G13 increment 2):
+        // private, verified checkouts of each pinned commit, patched in by a configuration in
+        // the directory above the clone, where Cargo looks after the tree's own. The command is
+        // the adopted one, so the patch cannot be passed on it.
+        pinnedSources = join(e.privateDirectory, 'pinned');
+        const sources = await clonePinnedSources(m, pinnedSources, remainingTime);
+        pinsOverlay = join(e.privateDirectory, '.cargo');
+        mkdirSync(pinsOverlay, { recursive: true, mode: 0o700 });
+        writeFileSync(join(pinsOverlay, 'config.toml'), readFileSync(sources.configPath), {
+          mode: 0o400,
+        });
+        confineToClone(
+          snapshot,
+          [pinnedSources, pinsOverlay],
+          m.dependencySources.map((source) => source.gitDirectory),
+        );
+      } else confineToClone(snapshot);
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('The check time limit passed before it could start.');
@@ -2038,6 +2056,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     for (const release of releases.reverse()) release();
     if (snapshot) rmSync(snapshot, { recursive: true, force: true });
     if (pinnedSources) rmSync(pinnedSources, { recursive: true, force: true });
+    if (pinsOverlay) rmSync(pinsOverlay, { recursive: true, force: true });
     if (privateCargoHome) rmSync(privateCargoHome, { recursive: true, force: true });
   }
   const after = m ? await observeGitState(m) : { headSha: '', clean: false };

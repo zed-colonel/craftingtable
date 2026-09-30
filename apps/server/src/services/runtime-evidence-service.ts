@@ -2457,13 +2457,15 @@ export class RuntimeEvidenceService {
       configDigest: hash(config),
       receiptPath: join(directory, 'build-receipts.jsonl'),
     };
-    // A scoped gate is met only by the repository's adopted checks (R-G13); without them the
-    // run does not start (fail closed, operator decision 2026-09-29).
+    // A scoped gate is met only by the repository's adopted checks (R-G13), and a
+    // current-upstream gate needs them too, run against the pins, beside a pinned build
+    // (increment 2, operator decision 2026-09-30). Without them the run does not start (fail
+    // closed, operator decision 2026-09-29).
     const declaration =
-      verification.mode === 'scoped-checks' && !('finalization' in scope)
-        ? this.storage.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0]
-        : undefined;
-    if (verification.mode === 'scoped-checks' && !('finalization' in scope) && !declaration)
+      'finalization' in scope
+        ? undefined
+        : this.storage.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0];
+    if (!('finalization' in scope) && !declaration)
       throw new RepositoryChecksUndeclaredError(tree.repositoryId, consumerRepository.displayName);
     if (declaration)
       Object.assign(manifest, {
@@ -2641,12 +2643,12 @@ export class RuntimeEvidenceService {
         conflict(
           'Independent verification needs a successful ct-native check on the exact clean reviewed commit in the currently approved environment. Development/act receipts cannot substitute.',
         );
-      // A run held to declared checks (R-G13) meets its scoped gate only with them.
-      const declaration =
-        verification.mode === 'scoped-checks' && env.checkDeclarationId
-          ? this.storage.runtimeEvidence.checkDeclaration(tree.workspaceId, env.checkDeclarationId)
-          : undefined;
-      if (verification.mode === 'scoped-checks' && env.checkDeclarationId && !declaration)
+      // A run held to declared checks (R-G13) meets its gate only with them: a scoped gate with
+      // them alone, a current-upstream gate with them and a pinned build (increment 2).
+      const declaration = env.checkDeclarationId
+        ? this.storage.runtimeEvidence.checkDeclaration(tree.workspaceId, env.checkDeclarationId)
+        : undefined;
+      if (env.checkDeclarationId && !declaration)
         conflict('The declared checks this review was held to are unavailable.');
       if (declaration) {
         const gaps = declaredCheckGaps(
@@ -2660,7 +2662,7 @@ export class RuntimeEvidenceService {
             r.manifestDigest === env.manifestDigest &&
             r.runId === runId &&
             r.runtimeId === env.runtimeId &&
-            r.verificationMode === 'scoped-checks' &&
+            r.verificationMode === verification.mode &&
             r.policyDigest === hash(JSON.stringify(verification)),
           this.storage.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0],
         );
@@ -2675,7 +2677,9 @@ export class RuntimeEvidenceService {
           conflict(
             `The review needs a successful run of each declared check on its exact clean reviewed commit: ${gaps.missing.map((id) => `ct-check --declared ${id}`).join(', ')}. Checks the agent chooses are supplemental.`,
           );
-      } else if (
+      }
+      if (
+        (!declaration || verification.mode !== 'scoped-checks') &&
         !receipts.some(
           (r) =>
             r.success &&

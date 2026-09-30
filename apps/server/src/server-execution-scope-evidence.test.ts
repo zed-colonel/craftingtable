@@ -14,6 +14,7 @@ import { resolveScope, scopeCases, scopeRequirements } from './services/executio
 import {
   cleanupExecutionFixtures,
   commitFile,
+  currentCycle,
   declareFixtureChecks,
   expectedScopeEvidence,
   expectScopeCases,
@@ -30,14 +31,23 @@ import {
   scopeReport,
   scopeTree,
   slicedFixture,
+  startCycle,
+  waitFor,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
 
 async function checkpointCandidateFixture(
-  // A current-upstream scope: only a pinned Cargo build establishes it (ADR-053).
-  check: (request: import('@craftingtable/agents').AgentLaunchRequest) => unknown = (request) =>
-    runLauncher(request, 'cargo', ['check', '--offline', '--locked']),
+  // A current-upstream scope: a pinned Cargo build establishes it (ADR-053), with every adopted
+  // check the daemon runs (R-G13 increment 2).
+  check: (request: import('@craftingtable/agents').AgentLaunchRequest) => unknown = async (
+    request,
+  ) => {
+    await runLauncher(request, 'cargo', ['check', '--offline', '--locked']);
+    await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
+  },
+  declare = true,
+  review = true,
 ) {
   const f = await slicedFixture((source) => ({
     ...source,
@@ -108,7 +118,7 @@ async function checkpointCandidateFixture(
       },
     ],
   };
-  declareFixtureChecks(f.state);
+  if (declare) declareFixtureChecks(f.state);
   await svc.configure(f.auth, f.state.workspaceId, f.parentScope.definitionId, config);
   writeFileSync(
     join(f.root, 'Cargo.toml'),
@@ -120,6 +130,8 @@ async function checkpointCandidateFixture(
   git(['commit', '-m', 'candidate crate'], f.root);
   const tree = await scopeTree(f, f.scopes[0]!);
   commitFile(tree.path, 'candidate.txt', 'reviewed core');
+  const base = `/api/workspaces/${f.state.workspaceId}/concurrency-definitions/${f.parentScope.definitionId}/runtime`;
+  if (!review) return { ...f, svc, tree, run: undefined, base, config };
   f.backend.replyForRequest = async (request) => {
     await check(request);
     return {
@@ -132,7 +144,6 @@ async function checkpointCandidateFixture(
   expect(
     f.state.context.storage.runtimeEvidence.build(f.state.workspaceId, run)?.error,
   ).toBeUndefined();
-  const base = `/api/workspaces/${f.state.workspaceId}/concurrency-definitions/${f.parentScope.definitionId}/runtime`;
   return { ...f, svc, tree, run, base, config };
 }
 itNeedsCargo(
@@ -242,6 +253,45 @@ itNeedsCargo(
     expect(checkpointRecoverySchema.parse(preview.json()).candidates[0]!.issues).toContain(
       'The checkpoint needs a successful controller receipt on the exact clean candidate.',
     );
+  },
+);
+itNeedsCargo.each([
+  ['a pinned build alone', 'cargo', 'The checkpoint needs a successful run of each declared check'],
+  [
+    'the adopted checks alone',
+    'declared',
+    'The checkpoint needs a successful controller receipt on the exact clean candidate.',
+  ],
+] as const)(
+  'a current-upstream candidate needs every adopted check and a pinned build: %s does not do (R-G13 increment 2)',
+  async (_label, only, issue) => {
+    const f = await checkpointCandidateFixture((request) =>
+      only === 'cargo'
+        ? runLauncher(request, 'cargo', ['check', '--offline', '--locked'])
+        : runLauncher(request, 'ct-check', ['--declared', 'fixture']),
+    );
+    const { checkpointRecoverySchema } = await import('@craftingtable/contracts');
+    const preview = await f.state.context.app.inject({
+      method: 'GET',
+      url: `${f.base}/checkpoint-recovery/${f.tree.id}`,
+      headers: { cookie: f.state.cookie },
+    });
+    expect(preview.statusCode, preview.body).toBe(200);
+    const issues = checkpointRecoverySchema.parse(preview.json()).candidates[0]!.issues;
+    expect(issues.some((i) => i.startsWith(issue))).toBe(true);
+  },
+);
+itNeedsCargo(
+  'a current-upstream slice in a repository with no adopted checks does not run (R-G13 increment 2, fail closed)',
+  async () => {
+    const f = await checkpointCandidateFixture(undefined, false, false);
+    const cycle = await startCycle(f.state, f.tree.id);
+    await waitFor(() => currentCycle(f.state, cycle).status === 'needs-attention', 'check stop');
+    expect(currentCycle(f.state, cycle).attention).toMatchObject({
+      code: 'repository-checks-undeclared',
+      refs: { repositoryId: f.tree.repositoryId },
+    });
+    expect(f.backend.launches).toHaveLength(0);
   },
 );
 itNeedsCargo.each(['candidate', 'integration', 'dirty', 'run', 'runtime'] as const)(
@@ -863,17 +913,20 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
     f.backend.replyForRequest = async (request) => {
       expect(request.buildEnvironment?.namespace).toBeTruthy();
       expect(request.prompt).toContain('Pinned dependency environment:');
-      await runLauncher(
-        request,
-        mode === 'integration' ? 'cargo' : 'ct-check',
-        mode === 'integration' ? ['test', '--offline'] : ['--declared', 'fixture'],
-        { ...process.env, CARGO_NET_OFFLINE: 'true' },
-      );
+      if (mode === 'integration')
+        await runLauncher(request, 'cargo', ['test', '--offline'], {
+          ...process.env,
+          CARGO_NET_OFFLINE: 'true',
+        });
+      // Every adopted check, in either mode (R-G13 increment 2).
+      await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
       return { resultText: scopeReport(f.state, scope) };
     };
     if (mode === 'integration') {
       const original = f.backend.replyForRequest;
+      // The adopted checks alone do not meet a current-upstream gate: it needs a pinned build.
       f.backend.replyForRequest = async (request) => {
+        await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
         await runLauncher(request, 'ct-check', [
           '--',
           process.execPath,
@@ -885,6 +938,7 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
       const scopedOnly = await runToFinish(f.state, tree.id, { role: 'review' });
       expect(() => svc.assertRun(tree, scopedOnly)).toThrow('successful pinned Cargo');
       f.backend.replyForRequest = async (request) => {
+        await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
         await runLauncher(request, 'cargo', [
           'test',
           '--offline',
@@ -899,6 +953,16 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
         'supplementary-check',
       );
       expect(() => svc.assertRun(tree, supplementaryOnly)).toThrow('successful pinned Cargo');
+      // Nor does a pinned build alone: every adopted check is needed too.
+      f.backend.replyForRequest = async (request) => {
+        await runLauncher(request, 'cargo', ['test', '--offline'], {
+          ...process.env,
+          CARGO_NET_OFFLINE: 'true',
+        });
+        return { resultText: scopeReport(f.state, scope) };
+      };
+      const pinnedOnly = await runToFinish(f.state, tree.id, { role: 'review' });
+      expect(() => svc.assertRun(tree, pinnedOnly)).toThrow('ct-check --declared fixture');
       f.backend.replyForRequest = original;
     }
     const run = await runToFinish(f.state, tree.id, { role: 'review' });

@@ -91,7 +91,9 @@ export function candidateCheckpointIssues(
     );
   try {
     const receipts = parseBuildReceipts(build?.receipts ?? '');
-    // A review held to declared checks (R-G13) meets its scoped gate only with them.
+    // A review held to declared checks (R-G13) meets its gate only with them, beside the
+    // controller receipt its mode needs: for a current-upstream candidate, a pinned build
+    // (increment 2). The receipts' manifest digest fixes the mode they ran under.
     const declarationId = run && tx.runtimeEvidence.run(s.workspaceId, run.id)?.checkDeclarationId;
     const declaration =
       declarationId && tx.runtimeEvidence.checkDeclaration(s.workspaceId, declarationId);
@@ -103,7 +105,6 @@ export function candidateCheckpointIssues(
         receipts,
         (r) =>
           r.kind === 'scoped-check' &&
-          r.verificationMode === 'scoped-checks' &&
           r.success === true &&
           r.clean === true &&
           r.headSha === c.headSha &&
@@ -120,7 +121,8 @@ export function candidateCheckpointIssues(
         issues.push(
           `The checkpoint needs a successful run of each declared check on the exact clean candidate: ${gaps.missing.join(', ')}.`,
         );
-    } else if (
+    }
+    if (
       !receipts.some(
         (r) =>
           receiptKindEstablishes(

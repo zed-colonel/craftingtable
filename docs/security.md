@@ -504,7 +504,8 @@ build in a confined unit, without network (fetch first), under the check time li
 since R-G13's second increment, a build of a clean worktree compiles a daemon-private clone of the
 committed head against daemon-private, verified checkouts of the pinned upstream commits, into a target
 per commit, in a unit that sees no root agents write (as declared checks do); a build of uncommitted
-work, which no gate accepts, still runs in the worktree. Other Cargo commands
+work, which no gate accepts, still runs in the worktree. Such a run's current-upstream gate also needs
+every adopted check, run the same way against the pins, so the agent cannot choose the whole gate. Other Cargo commands
 still run in the agent's tree and record nothing. A daemon-recorded run's build record therefore reads
 no file the agent can write, and the daemon runs every check from the manifest text it verified at
 launch, never the published copy. Claude runs have no OS sandbox, so for them the database itself stays

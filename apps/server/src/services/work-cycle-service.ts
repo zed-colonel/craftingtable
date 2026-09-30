@@ -3409,6 +3409,8 @@ export class WorkCycleService {
   }
 
   private readonly refreshing = new Set<string>();
+  /** Cycles and commits already sent back for their adopted checks (LIVE-24). */
+  private readonly declaredReviews = new Set<string>();
   /** `launching`: a review is about to start; see `refreshOwner`. */
   async refreshIntegration(
     cycle: WorkCycle,
@@ -3555,40 +3557,39 @@ export class WorkCycleService {
   /**
    * Sends a cycle awaiting its roadmap's merge back for a fresh review, when the merge was
    * refused because the review did not run every adopted check (LIVE-24). The review, not the
-   * code, was incomplete, and the new review's brief names each check (LIVE-23). Once only per
-   * reviewed commit: when a review of it held to adopted checks already ran again, the refusal
-   * stays with the operator. Returns whether a review was started.
+   * code, was incomplete, and the new review's brief names each check (LIVE-23). Once per cycle
+   * and reviewed commit in this daemon's life: other review runs of the commit (security or
+   * checkpoint reviews, continuations) do not use it up, and a second refusal of the same commit
+   * stays with the operator. `check` is the roadmap's own authority check, repeated before the
+   * review is reserved and again before it launches. Returns whether a review was started.
    */
-  async reviewForDeclaredChecks(cycle: WorkCycle): Promise<boolean> {
+  async reviewForDeclaredChecks(cycle: WorkCycle, check: () => void): Promise<boolean> {
     const ws = cycle.workspaceId;
     const review = this.storage.execution.runs.find(ws, cycle.currentRunId);
     const head = review?.reviewBranchContext?.headSha;
+    const key = `${cycle.id}:${head}`;
     if (
       cycle.status !== 'awaiting-merge' ||
       cycle.step !== 'review' ||
       !review ||
       !head ||
+      this.declaredReviews.has(key) ||
       this.abort.signal.aborted ||
       this.storage.execution.runs
         .listForWorktree(ws, cycle.worktreeId)
         .some((run) => !isTerminalAgentRunStatus(run.status))
     )
       return false;
-    const heldReviews = this.storage.execution.runs
-      .listForWorktree(ws, cycle.worktreeId)
-      .filter(
-        (run) =>
-          run.role === 'review' &&
-          run.reviewBranchContext?.headSha === head &&
-          !!this.storage.runtimeEvidence.run(ws, run.id)?.checkDeclarationId,
-      );
-    if (heldReviews.length !== 1) return false;
+    check();
+    const current = this.storage.execution.cycles.find(ws, cycle.id);
+    if (current?.version !== cycle.version) return false;
+    this.declaredReviews.add(key);
     const reserved = this.change(cycle, {
       status: 'running',
       reason: 'The last review did not run every adopted check; a fresh review runs them.',
     });
     try {
-      await this.next(reserved, 'review', review);
+      await this.next(reserved, 'review', review, undefined, {}, 'advance', { check });
     } catch (error) {
       const latest = this.storage.execution.cycles.find(ws, cycle.id);
       if (latest?.version === reserved.version && latest.status === 'running')

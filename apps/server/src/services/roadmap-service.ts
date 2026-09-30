@@ -2358,7 +2358,7 @@ export class RoadmapService {
             if (
               error instanceof DeclaredChecksMissingError &&
               pending?.status !== 'reserved' &&
-              (await this.cycles.reviewForDeclaredChecks(cycle))
+              (await this.cycles.reviewForDeclaredChecks(cycle, check))
             )
               return MOVED;
             throw error;

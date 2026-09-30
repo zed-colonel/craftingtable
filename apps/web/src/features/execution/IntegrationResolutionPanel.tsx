@@ -85,10 +85,12 @@ export function IntegrationResolutionPanel({
           {resolution.commitSha && (
             <p>
               Integration update committed: <code>{resolution.commitSha}</code>.{' '}
-              {/* The latest review started at this commit, so it has been reviewed (LIVE-25). */}
-              {cycle.reviewHeadSha === resolution.commitSha
+              {/* A review that passed is what reviewed them, not one that started (LIVE-25). */}
+              {['awaiting-merge', 'completed'].includes(cycle.status)
                 ? 'The combined changes were reviewed afresh.'
-                : 'Fresh review required.'}
+                : cycle.status === 'running' && cycle.step === 'review'
+                  ? 'A fresh review of the combined changes is running.'
+                  : 'Fresh review required.'}
             </p>
           )}
           {(resolution.runIds ?? [])

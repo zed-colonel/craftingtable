@@ -115,8 +115,14 @@ export function carriedHold(
   );
   const source = roadmap.attempts.find((a) => a.cycleId === cycle.id && a.recovery)?.recovery
     ?.sourceEntryId;
-  const hold = own && !inRound ? own : source ? roadmap.entryHolds?.[source] : undefined;
-  return hold?.status === 'needs-attention' ? hold : undefined;
+  const holds = [
+    own && !inRound ? own : undefined,
+    source ? roadmap.entryHolds?.[source] : undefined,
+  ].filter((hold): hold is RoadmapEntryHold => hold?.status === 'needs-attention');
+  // Both, when the repair's own entry is held too: neither has an item of its own.
+  return holds.length > 1
+    ? { ...holds[0]!, reason: holds.map((h) => h.reason).join(' ') }
+    : holds[0];
 }
 
 export class AttentionProjector implements WriteObserver {

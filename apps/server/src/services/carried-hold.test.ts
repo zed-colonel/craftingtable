@@ -48,6 +48,13 @@ it("a round's repair carries the hold on the round's source entry, where its ref
   expect(carriedHold(roadmap, { id: 'repair', owner: owner('slice') })?.reason).toContain(
     'declared check',
   );
+  // Held on its own entry too, the repair's item says both.
+  expect(
+    carriedHold(
+      { ...roadmap, entryHolds: { ...roadmap.entryHolds, slice: hold('own') } },
+      { id: 'repair', owner: owner('slice') },
+    )?.reason,
+  ).toBe('own The review needs a successful run of each declared check');
   // Another cycle of the slice is not the round's repair.
   expect(carriedHold(roadmap, { id: 'other', owner: owner('slice') })).toBeUndefined();
 });

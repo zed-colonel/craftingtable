@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
@@ -21,7 +21,10 @@ import {
 
 afterEach(cleanupExecutionFixtures);
 
-async function fixture(skips: number) {
+async function fixture(
+  skips: number,
+  beforeStart?: (f: Awaited<ReturnType<typeof supervisedMapFixture>>) => void,
+) {
   const f = await supervisedMapFixture();
   const { state } = f;
   const ws = state.workspaceId;
@@ -49,6 +52,7 @@ async function fixture(skips: number) {
   };
   f.service.save(f.auth, ws, f.input);
   await adoptSupervisedMap(f);
+  beforeStart?.(f);
   expect((await roadmapControl(state, 'start')).statusCode).toBe(200);
   return { f, state, ws, reviews };
 }
@@ -105,4 +109,33 @@ it('holds the entry with the refusal when the fresh review skips the adopted che
   // One fresh review, not a loop.
   const counts = [...reviews.entries()].filter(([k]) => k.startsWith('slice:')).map(([, n]) => n);
   expect(Math.max(...counts)).toBe(2);
+});
+
+it('does not start the fresh review once the operator has paused the roadmap during the merge (LIVE-24 review)', {
+  timeout: 45000,
+}, async () => {
+  let paused: Promise<unknown> | undefined;
+  const { state, ws, reviews } = await fixture(99, (f) => {
+    const execution = f.state.context.services.executionService;
+    const merge = execution.mergeWorktree.bind(execution);
+    vi.spyOn(execution, 'mergeWorktree').mockImplementation(async (...args) => {
+      // The operator pauses while the roadmap's merge is under way.
+      paused ??= roadmapControl(f.state, 'pause');
+      await paused;
+      return merge(...args);
+    });
+  });
+  await waitFor(
+    () => paused !== undefined && storedRoadmap(state).status === 'paused',
+    'paused',
+    35000,
+  );
+  await state.context.services.roadmapService.tick();
+  const counts = [...reviews.entries()].filter(([k]) => k.startsWith('slice:')).map(([, n]) => n);
+  expect(Math.max(...counts)).toBe(1);
+  expect(
+    state.context.storage.execution.cycles
+      .listForWorkspace(ws as never)
+      .some((c) => c.status === 'running' && c.step === 'review'),
+  ).toBe(false);
 });

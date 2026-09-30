@@ -55,17 +55,19 @@ it('asks for a fresh review only until one has run on the resolution commit (LIV
     attempts: 1,
     commitSha: 'c'.repeat(40),
   } as NonNullable<WorkCycle['integrationResolution']>;
-  panel({
-    status: 'awaiting-merge',
-    integrationResolution: resolution,
-    reviewHeadSha: 'a'.repeat(40),
-  });
+  panel({ status: 'needs-attention', step: 'review', integrationResolution: resolution });
   expect(screen.getByText(/Fresh review required/)).toBeDefined();
   cleanup();
+  // A review that has only started has not reviewed them.
+  panel({ status: 'running', step: 'review', integrationResolution: resolution });
+  expect(screen.queryByText(/reviewed afresh/)).toBeNull();
+  expect(screen.getByText(/fresh review of the combined changes is running/)).toBeDefined();
+  cleanup();
+  // Passed, even on a later head than the resolution's.
   panel({
     status: 'awaiting-merge',
     integrationResolution: resolution,
-    reviewHeadSha: 'c'.repeat(40),
+    reviewHeadSha: 'd'.repeat(40),
   });
   expect(screen.queryByText(/Fresh review required/)).toBeNull();
   expect(screen.getByText(/reviewed afresh/)).toBeDefined();

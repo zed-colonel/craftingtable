@@ -26,6 +26,7 @@ import {
 } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
+import { argvRunsCargo } from '@craftingtable/domain';
 import type { PinnedCargoManifest } from './pinned-cargo.js';
 
 // Generated launchers also run directly from TypeScript in adapter tests.
@@ -1299,7 +1300,7 @@ async function assertChecksResolvePins(
     ...[...token.matchAll(/--manifest-path[= ]+([^\s'"]+)/g)].map((match) => match[1]!),
     ...(token === '--manifest-path' && argv[index + 1] ? [argv[index + 1]!] : []),
   ]);
-  const cargo = argv.some((token) => /(^|[\s/])cargo(\s|$)/.test(token));
+  const cargo = argvRunsCargo(argv);
   const manifests = [
     ...new Set([
       ...named,

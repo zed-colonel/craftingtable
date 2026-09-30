@@ -383,3 +383,40 @@ it('reads a branch, never a tag of the same name, or an exact commit (R-G13 revi
   git(['replace', script, other], f.root);
   expect((await read('main')).definitionDigests['scripts/check.sh']).toBe(sha(SCRIPT));
 });
+
+it("refuses a Cargo check that does not name the commit's Cargo configuration and toolchain files as definition files (R-G13 posture, operator decision 2026-09-30)", async () => {
+  const f = await checksFixture();
+  mkdirSync(join(f.root, '.cargo'));
+  writeFileSync(join(f.root, '.cargo/config.toml'), '[build]\njobs = 8\n');
+  writeFileSync(join(f.root, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.89.0"\n');
+  const write = (checks: object[]) => {
+    writeFileSync(join(f.root, CHECK_DECLARATION_PATH), JSON.stringify({ version: 1, checks }));
+    git(['add', '--all'], f.root);
+    git(['commit', '-m', 'checks'], f.root);
+  };
+  const preview = async () => {
+    const response = await f.post('preview', { ref: 'main' });
+    expect(response.statusCode, response.body).toBe(200);
+    return checkDeclarationPreviewSchema.parse(response.json());
+  };
+  write([
+    { id: 'fmt', argv: ['cargo', 'fmt', '--check'], definitionPaths: ['rust-toolchain.toml'] },
+    { id: 'wrapped', argv: ['bash', '-c', 'cargo metadata --locked > m.json'] },
+    { id: 'python', argv: ['python3', '-B', 'check.py'], definitionPaths: [] },
+  ]);
+  const refused = await preview();
+  expect(refused.issues).toEqual([
+    'Check fmt runs Cargo but does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
+    'Check wrapped runs Cargo but does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
+    'Check wrapped runs Cargo but does not name rust-toolchain.toml as a definition file; the commit has it, and Cargo reads it.',
+  ]);
+  write([
+    {
+      id: 'fmt',
+      argv: ['cargo', 'fmt', '--check'],
+      definitionPaths: ['rust-toolchain.toml', '.cargo/config.toml'],
+    },
+    { id: 'python', argv: ['python3', '-B', 'check.py'], definitionPaths: [] },
+  ]);
+  expect((await preview()).issues).toEqual([]);
+});

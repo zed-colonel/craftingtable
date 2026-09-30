@@ -46,3 +46,20 @@ export interface ManifestDeclaredChecks {
     readonly definitionDigests: Readonly<Record<string, string>>;
   })[];
 }
+
+/**
+ * Files Cargo reads to choose a check's toolchain and configuration (R-G13, operator decision
+ * 2026-09-30): an adopted check that runs Cargo must name each one its commit has as a
+ * definition file, so an edit stops as `check-definition-changed`.
+ */
+export const CARGO_DEFINITION_FILES = [
+  '.cargo/config.toml',
+  '.cargo/config',
+  'rust-toolchain.toml',
+  'rust-toolchain',
+] as const;
+
+/** Whether an adopted argv runs Cargo: as its program, or named in a shell string it runs. */
+export function argvRunsCargo(argv: readonly string[]): boolean {
+  return argv.some((token) => /(^|[\s/;&|(])cargo(\s|$)/.test(token));
+}

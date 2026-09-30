@@ -5,6 +5,8 @@ import {
 } from '@craftingtable/contracts';
 import {
   asAuditEventId,
+  argvRunsCargo,
+  CARGO_DEFINITION_FILES,
   CHECK_DECLARATION_PATH,
   type DeclaredCheck,
   type RepositoryCheckDeclaration,
@@ -219,7 +221,7 @@ export class RepositoryChecksService {
     const definitionDigests: Record<string, string> = {};
     const definitions: CheckDefinitionFile[] = [];
     const paths = [...new Set(checks.flatMap((c) => c.definitionPaths))];
-    const files = await read(paths);
+    const files = await read([...new Set([...paths, ...CARGO_DEFINITION_FILES])]);
     if (!files.ok)
       throw new ExecutionRequestError(
         'unavailable',
@@ -237,6 +239,14 @@ export class RepositoryChecksService {
       definitions.push(definitionPreview(path, file.content));
     }
     for (const check of checks) {
+      // Cargo reads these to choose its toolchain, wrapper and aliases: a check that runs it is
+      // held to them (R-G13, operator decision 2026-09-30).
+      if (argvRunsCargo(check.argv))
+        for (const path of CARGO_DEFINITION_FILES)
+          if (files.value.has(path) && !check.definitionPaths.includes(path))
+            issues.push(
+              `Check ${check.id} runs Cargo but does not name ${path} as a definition file; the commit has it, and Cargo reads it.`,
+            );
       const program = check.argv[0]!;
       const file = program.includes('/') ? files.value.get(program) : undefined;
       if (file?.kind === 'file' && !file.executable)

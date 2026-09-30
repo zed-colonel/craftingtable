@@ -16,6 +16,7 @@ import {
 import type Database from 'better-sqlite3';
 import type {
   AgentRunEventRepository,
+  AgentRunHeader,
   AgentRunRepository,
   AppendAgentRunEventInput,
   CreateAgentRunInput,
@@ -543,6 +544,45 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         )
         .all() as AgentRunRow[]
     ).map(mapAgentRun);
+  }
+
+  listRecentHeaders(workspaceId: WorkspaceId, limit: number): readonly AgentRunHeader[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT id, workspace_id, worktree_id, repository_id, role, status, created_at,
+                  finished_at, review_branch_context_json
+           FROM agent_runs
+           WHERE workspace_id = ?
+           ORDER BY CASE WHEN status IN ('starting', 'running', 'waiting') THEN 0 ELSE 1 END,
+                    created_at DESC, rowid DESC
+           LIMIT ?`,
+        )
+        .all(workspaceId, limit) as Pick<
+        AgentRunRow,
+        | 'id'
+        | 'workspace_id'
+        | 'worktree_id'
+        | 'repository_id'
+        | 'role'
+        | 'status'
+        | 'created_at'
+        | 'finished_at'
+        | 'review_branch_context_json'
+      >[]
+    ).map((row) => ({
+      id: row.id as AgentRun['id'],
+      workspaceId: row.workspace_id as AgentRun['workspaceId'],
+      worktreeId: row.worktree_id as AgentRun['worktreeId'],
+      repositoryId: row.repository_id as AgentRun['repositoryId'],
+      role: row.role,
+      status: row.status,
+      createdAt: row.created_at,
+      ...(row.finished_at === null ? {} : { finishedAt: row.finished_at }),
+      ...(row.review_branch_context_json === null
+        ? {}
+        : { reviewBranchContext: JSON.parse(row.review_branch_context_json) }),
+    }));
   }
 
   listRecent(workspaceId: WorkspaceId, limit: number): readonly AgentRun[] {

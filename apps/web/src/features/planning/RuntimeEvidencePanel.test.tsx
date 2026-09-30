@@ -25,7 +25,7 @@ const current = {
     },
   ],
 };
-const submission = {
+const record = {
   id: 'evidence-1',
   subject: { kind: 'checkpoint', sourceId: 'QUALIFIED' },
   environmentId: 'kata-host',
@@ -35,6 +35,33 @@ const submission = {
   subjectCommit: 'd'.repeat(40),
   artifacts: [{ name: 'log', digest: 'e'.repeat(64), content: 'Actual Kata verification passed.' }],
 };
+/** The view lists a submission without its bodies (R-H4); the record is read on demand. */
+function summary<T extends { artifacts: { name: string; digest: string; content: string }[] }>(
+  full: T,
+) {
+  return {
+    ...full,
+    artifacts: full.artifacts.map(({ content, ...a }) => ({ ...a, bytes: content.length })),
+  };
+}
+const submission = summary(record);
+/** Answers each view read in turn (the last repeats), and each record read from `records`. */
+function respond(views: unknown[], records: Record<string, unknown> = { [record.id]: record }) {
+  vi.mocked(request).mockImplementation(async (url) => {
+    const id = /\/submissions\/([^/]+)$/.exec(String(url))?.[1];
+    if (id) return records[decodeURIComponent(id)];
+    return views.length > 1 ? views.shift() : views[0];
+  });
+}
+/** Opens a submission's review, as the operator's click does. */
+function openReview(id: string) {
+  const details = document.getElementById(`runtime-evidence-${runtimeId}-submission-${id}`);
+  if (!(details instanceof HTMLDetailsElement)) throw new Error(`No review for ${id}`);
+  details.open = true;
+  fireEvent(details, new Event('toggle'));
+}
+const calls = (pattern: RegExp) =>
+  vi.mocked(request).mock.calls.filter(([url]) => pattern.test(String(url)));
 function view(issues: string[] = []) {
   return {
     issues: [],
@@ -60,9 +87,9 @@ function view(issues: string[] = []) {
   };
 }
 it('renders readable artifacts and requires a rationale before accepting evidence', async () => {
-  vi.mocked(request)
-    .mockResolvedValueOnce(view())
-    .mockResolvedValueOnce({
+  respond([
+    view(),
+    {
       ...view(),
       submissions: [
         {
@@ -71,7 +98,8 @@ it('renders readable artifacts and requires a rationale before accepting evidenc
           decision: { outcome: 'accepted', rationale: 'Inspected independent logs.' },
         },
       ],
-    });
+    },
+  ]);
   render(
     <RuntimeEvidencePanel
       workspaceId={asWorkspaceId('workspace')}
@@ -81,15 +109,22 @@ it('renders readable artifacts and requires a rationale before accepting evidenc
       canMutate
     />,
   );
-  await screen.findByText('Actual Kata verification passed.');
+  await screen.findByText('log');
+  expect(screen.queryByText('Actual Kata verification passed.')).toBeNull();
   const accept = screen.getByRole('button', { name: 'Accept evidence', hidden: true });
-  expect(accept.hasAttribute('disabled')).toBe(true);
   fireEvent.change(screen.getByLabelText('Review decision rationale'), {
     target: { value: 'Inspected independent logs.' },
   });
+  // Accepting attests to the record, so it waits until the record has been shown.
+  expect(accept.hasAttribute('disabled')).toBe(true);
+  expect(calls(/submissions/)).toHaveLength(0);
+  openReview(record.id);
+  await screen.findByText('Actual Kata verification passed.');
+  expect(calls(/submissions/)[0]?.[0]).toMatch(/\/runtime\/submissions\/evidence-1$/);
+  expect(accept.hasAttribute('disabled')).toBe(false);
   fireEvent.click(accept);
-  await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
-  const init = vi.mocked(request).mock.calls[1]?.[2];
+  await waitFor(() => expect(calls(/decide$/)).toHaveLength(1));
+  const init = calls(/decide$/)[0]?.[2];
   expect(JSON.parse(String(init?.body))).toEqual({
     submissionId: 'evidence-1',
     outcome: 'accepted',
@@ -248,33 +283,37 @@ it('separates saved readiness, evidence generation and explicit independent plan
   };
   const pending = {
     ...ready,
-    submissions: [{ submission: facts, issues: [] }],
+    submissions: [{ submission: summary(facts), issues: [] }],
     planAcceptance: {
       ...ready.planAcceptance,
       roadmaps: [{ ...saved, state: 'awaiting-review', submissionId: facts.id }],
     },
   };
-  vi.mocked(request)
-    .mockResolvedValueOnce(ready)
-    .mockResolvedValueOnce(pending)
-    .mockResolvedValueOnce({
-      ...pending,
-      planAcceptance: {
-        ...ready.planAcceptance,
-        roadmaps: [{ ...saved, state: 'accepted', submissionId: facts.id }],
-      },
-      submissions: [
-        {
-          submission: facts,
-          issues: [],
-          decision: {
-            outcome: 'accepted',
-            decidedByUserId: 'operator',
-            rationale: 'Reviewed saved configuration.',
-          },
+  respond(
+    [
+      ready,
+      pending,
+      {
+        ...pending,
+        planAcceptance: {
+          ...ready.planAcceptance,
+          roadmaps: [{ ...saved, state: 'accepted', submissionId: facts.id }],
         },
-      ],
-    });
+        submissions: [
+          {
+            submission: summary(facts),
+            issues: [],
+            decision: {
+              outcome: 'accepted',
+              decidedByUserId: 'operator',
+              rationale: 'Reviewed saved configuration.',
+            },
+          },
+        ],
+      },
+    ],
+    { [facts.id]: facts },
+  );
   render(
     <RuntimeEvidencePanel
       workspaceId={asWorkspaceId('workspace')}
@@ -298,13 +337,18 @@ it('separates saved readiness, evidence generation and explicit independent plan
     target: { value: 'Reviewed saved configuration.' },
   });
   expect(accept.hasAttribute('disabled')).toBe(true);
-  fireEvent.click(
-    screen.getByRole('checkbox', { name: /I reviewed the saved plan/, hidden: true }),
-  );
+  const reviewed = screen.getByRole('checkbox', {
+    name: /I reviewed the saved plan/,
+    hidden: true,
+  });
+  // Generating reveals the new submission, which reads its record for review.
+  await screen.findByText('Exact saved bindings and review settings.');
+  expect(calls(/submissions/)[0]?.[0]).toMatch(/\/runtime\/submissions\/generated-plan$/);
+  fireEvent.click(reviewed);
   expect(accept.hasAttribute('disabled')).toBe(false);
   fireEvent.click(accept);
   await screen.findByText(/Plan evidence accepted. No further save or review/);
-  expect(vi.mocked(request).mock.calls[2]?.[0]).toMatch(/decide$/);
+  expect(calls(/decide$/)).toHaveLength(1);
 });
 
 it('explains missing saved setup and disables plan evidence generation', async () => {

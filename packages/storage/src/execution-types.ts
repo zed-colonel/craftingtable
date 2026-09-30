@@ -26,6 +26,19 @@ import type {
 /* Write inputs                                                                */
 /* -------------------------------------------------------------------------- */
 
+/** The fields of a run that lists of runs read, without its brief and summary (R-H4). */
+export type AgentRunHeader = Pick<
+  AgentRun,
+  | 'id'
+  | 'workspaceId'
+  | 'worktreeId'
+  | 'repositoryId'
+  | 'role'
+  | 'status'
+  | 'createdAt'
+  | 'finishedAt'
+  | 'reviewBranchContext'
+>;
 export interface CreateSourceRepositoryInput {
   readonly id: SourceRepositoryId;
   readonly workspaceId: WorkspaceId;
@@ -167,6 +180,8 @@ export interface AgentRunRepository {
   listLive(): readonly AgentRun[];
   /** Live runs first, then the most recent finished ones, for the workspace overview. */
   listRecent(workspaceId: WorkspaceId, limit: number): readonly AgentRun[];
+  /** `listRecent` without each run's brief and summary, for views that list runs (R-H4). */
+  listRecentHeaders(workspaceId: WorkspaceId, limit: number): readonly AgentRunHeader[];
   countLive(workspaceId: WorkspaceId): number;
   /** When each run that overlaps [from, to) was active; `endedAt` is absent while live (R-C1). */
   activityBetween(

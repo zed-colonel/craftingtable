@@ -7,8 +7,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { canonicalDefinition, type EvidenceSubmission } from '@craftingtable/domain';
 import { join, resolve } from 'node:path';
+import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
 import { openDaemonStorage } from './persisted-records.js';
+import { submissionSummary } from './services/runtime-evidence-service.js';
 import { replaySchedulerDecisions, type SchedulerReplay } from './scheduler-replay.js';
 import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
 
@@ -22,6 +25,8 @@ import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
  *       failed run as if it were current, not only each cycle's current run (R-C2)
  *   pnpm controller:replay <snapshot.sqlite> --scheduler [...]  record the decision one roadmap
  *       scheduler pass takes for every roadmap entry, and checkpoint readiness (R-I10)
+ *   pnpm controller:replay <snapshot.sqlite> --evidence-view [...]  render each map's evidence
+ *       view with Git stubbed, and print its size and CPU (R-H4)
  *
  * Take the snapshot with SQLite's backup API (for example the Storage page's backup) and
  * keep it and its golden file outside the repository: they hold real plans and agent
@@ -115,13 +120,100 @@ async function scheduler(snapshot: string, mode?: string, golden?: string): Prom
   }
 }
 
+/**
+ * Keys each evidence view's content by definition and field, and each submission's full record
+ * by its id, for `--check`. A golden recorded before R-H4 listed full records in the view; they
+ * compare as the summaries the view now sends, and as the records read on demand.
+ */
+function evidenceViewRecords(
+  views: readonly EvidenceViewReplay[],
+): { key: string; value: unknown }[] {
+  return views.flatMap(({ definitionId, view, records }) => {
+    const full = view.submissions.flatMap(({ submission }) =>
+      submission.artifacts.every((a) => 'content' in a)
+        ? [submission as unknown as EvidenceSubmission]
+        : [],
+    );
+    const summarized = {
+      ...view,
+      submissions: view.submissions.map((v) => ({
+        ...v,
+        submission: full.length
+          ? submissionSummary(v.submission as unknown as EvidenceSubmission)
+          : v.submission,
+      })),
+    };
+    return [
+      ...Object.entries(summarized).flatMap(([field, value]) =>
+        Array.isArray(value)
+          ? value.map((item: unknown, index) => ({
+              key: `${definitionId}/${field}/${index}`,
+              value: item,
+            }))
+          : [{ key: `${definitionId}/${field}`, value: value as unknown }],
+      ),
+      ...(records ?? full).map((record) => ({
+        key: `${definitionId}/record/${record.id}`,
+        value: record,
+      })),
+    ];
+  });
+}
+
+async function evidenceView(snapshot: string, mode?: string, golden?: string): Promise<number> {
+  const copy = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
+  try {
+    const path = join(copy, 'snapshot.sqlite');
+    copyFileSync(snapshot, path);
+    const { views, measures } = await replayEvidenceViews(path, copy, snapshotTime(path));
+    for (const m of measures)
+      process.stdout.write(
+        `view ${m.definitionId}: ${m.bytes} bytes, CPU ${m.cpuMs.join('/')} ms, ${m.gitCalls} Git calls\n  ${Object.entries(
+          m.fields,
+        )
+          .sort((a, b) => b[1] - a[1])
+          .map(([field, bytes]) => `${field} ${bytes}`)
+          .join(', ')}\n`,
+      );
+    if (mode === '--record' && golden) {
+      writeFileSync(golden, `${JSON.stringify(views, null, 2)}\n`, { mode: 0o600 });
+      process.stdout.write(`Recorded ${views.length} evidence views in ${golden}\n`);
+      return 0;
+    }
+    if (mode === '--check' && golden) {
+      const expected = evidenceViewRecords(
+        JSON.parse(readFileSync(golden, 'utf8')) as EvidenceViewReplay[],
+      );
+      const actual = evidenceViewRecords(views);
+      // Field order follows the schema that parsed a record, so compare canonically.
+      const canonical = (value: unknown) => canonicalDefinition(JSON.parse(JSON.stringify(value)));
+      const byKey = new Map(expected.map((r) => [r.key, canonical(r.value)]));
+      const changed = actual.filter((r) => byKey.get(r.key) !== canonical(r.value));
+      const missing = expected.filter((e) => !actual.some((r) => r.key === e.key));
+      for (const record of changed)
+        process.stdout.write(
+          `changed ${record.key}\n  was ${(byKey.get(record.key) ?? '(new)').slice(0, 400)}\n  now ${canonical(record.value).slice(0, 400)}\n`,
+        );
+      for (const record of missing) process.stdout.write(`missing ${record.key}\n`);
+      process.stdout.write(
+        `${actual.length} evidence view records replayed; ${changed.length} changed, ${missing.length} missing\n`,
+      );
+      return changed.length || missing.length ? 1 : 0;
+    }
+    return 0;
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
+}
+
 async function main(args: readonly string[]): Promise<number> {
   // pnpm runs the script in the server package; paths are relative to where it was invoked.
   const base = process.env.INIT_CWD ?? process.cwd();
   const everyRun = args.includes('--every-run');
   const schedulerMode = args.includes('--scheduler');
+  const viewMode = args.includes('--evidence-view');
   const [snapshotArg, mode, goldenArg] = args.filter(
-    (arg) => arg !== '--every-run' && arg !== '--scheduler',
+    (arg) => arg !== '--every-run' && arg !== '--scheduler' && arg !== '--evidence-view',
   );
   const snapshot = snapshotArg && resolve(base, snapshotArg);
   const golden = goldenArg && resolve(base, goldenArg);
@@ -129,14 +221,15 @@ async function main(args: readonly string[]): Promise<number> {
     !snapshot ||
     !existsSync(snapshot) ||
     (mode && (!['--record', '--check'].includes(mode) || !golden)) ||
-    (everyRun && schedulerMode)
+    [everyRun, schedulerMode, viewMode].filter(Boolean).length > 1
   ) {
     process.stderr.write(
-      'Usage: pnpm controller:replay <snapshot.sqlite> [--every-run | --scheduler] [--record <golden.json> | --check <golden.json>]\n',
+      'Usage: pnpm controller:replay <snapshot.sqlite> [--every-run | --scheduler | --evidence-view] [--record <golden.json> | --check <golden.json>]\n',
     );
     return 2;
   }
   if (schedulerMode) return scheduler(snapshot, mode, golden);
+  if (viewMode) return evidenceView(snapshot, mode, golden);
   const outcomes = replaySnapshot(snapshot, everyRun);
   const text = `${JSON.stringify(outcomes, null, 2)}\n`;
   if (mode === '--record' && golden) {

@@ -4,7 +4,7 @@ import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from '
 import { join } from 'node:path';
 import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts';
 import { openDatabase } from '@craftingtable/storage';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { resolveScope, scopeCases, scopeRequirements } from './services/execution-scope.js';
 
 /* -------------------------------------------------------------------------- */
@@ -504,6 +504,66 @@ it('requires independently reviewed exact case coverage and distinguishes native
       rationale: 'Retry stale record.',
     }),
   ).rejects.toThrow('Environment, fixture');
+});
+it('lists submissions without their bodies and reads a full record on demand (R-H4, LIVE-29)', async () => {
+  const f = await evidenceFixture(),
+    ws = f.state.workspaceId;
+  await f.svc.submit(f.auth, ws, f.definitionId, f.submission);
+  const [stored] = f.state.context.storage.runtimeEvidence.submissions(ws, f.definitionId);
+  const base = `/api/workspaces/${ws}/concurrency-definitions/${f.definitionId}/runtime`;
+  const get = (url: string) =>
+    f.state.context.app.inject({ method: 'GET', url, headers: { cookie: f.state.cookie } });
+  const view = await get(base);
+  expect(view.statusCode, view.body).toBe(200);
+  const listed = view.json().submissions[0].submission;
+  expect(listed.artifacts).toEqual(
+    stored!.artifacts.map((a) => ({
+      name: a.name,
+      digest: a.digest,
+      bytes: Buffer.byteLength(a.content),
+    })),
+  );
+  expect(view.body).not.toContain('actual host/VM observations');
+  const full = await get(`${base}/submissions/${stored!.id}`);
+  expect(full.statusCode, full.body).toBe(200);
+  expect(full.json()).toEqual(JSON.parse(JSON.stringify(stored)));
+  expect((await get(`${base}/submissions/${randomUUID()}`)).statusCode).toBe(404);
+  const elsewhere = `/api/workspaces/${ws}/concurrency-definitions/${randomUUID()}/runtime`;
+  expect((await get(`${elsewhere}/submissions/${stored!.id}`)).statusCode).toBe(404);
+  expect(
+    (
+      await f.state.context.app.inject({
+        method: 'GET',
+        url: `${base}/submissions/${stored!.id}`,
+      })
+    ).statusCode,
+  ).toBe(401);
+});
+it('reads storage once per evidence view, however many submissions it lists (R-H4, LIVE-29)', async () => {
+  const f = await evidenceFixture(),
+    ws = f.state.workspaceId,
+    storage = f.state.context.storage;
+  const reads = () => {
+    const spies = [
+      vi.spyOn(storage.imports, 'bindings'),
+      vi.spyOn(storage.imports, 'definition'),
+      vi.spyOn(storage.runtimeEvidence, 'submissions'),
+      vi.spyOn(storage.runtimeEvidence, 'generations'),
+      vi.spyOn(storage.execution.runs, 'listRecentHeaders'),
+    ];
+    return async () => {
+      await f.svc.view(f.auth, ws, f.definitionId);
+      const counts = spies.map((spy) => spy.mock.calls.length);
+      for (const spy of spies) spy.mockRestore();
+      return counts;
+    };
+  };
+  await f.svc.submit(f.auth, ws, f.definitionId, f.submission);
+  const one = await reads()();
+  for (const executedAt of ['2026-09-30T00:00:01.000Z', '2026-09-30T00:00:02.000Z'])
+    await f.svc.submit(f.auth, ws, f.definitionId, { ...f.submission, executedAt });
+  expect(storage.runtimeEvidence.submissions(ws, f.definitionId)).toHaveLength(3);
+  expect(await reads()()).toEqual(one);
 });
 it('checks actual Git freshness at evidence review and keeps decisions immutable', async () => {
   const f = await evidenceFixture(),

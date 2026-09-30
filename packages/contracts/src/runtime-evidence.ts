@@ -234,6 +234,20 @@ export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExte
   sourceRunCommit: name.optional(),
   sliceMergeSha: name.optional(),
 });
+/**
+ * A submission as the evidence view lists it (R-H4, LIVE-29): the record without its bodies,
+ * which are the artifact contents and an architecture decision's text. The full record is
+ * `GET …/runtime/submissions/:submissionId`.
+ */
+export const evidenceSubmissionSummarySchema = z.strictObject({
+  ...evidenceSubmissionSchema.shape,
+  artifacts: z.array(z.strictObject({ name, digest, bytes: z.number().int().nonnegative() })),
+  architectureDecision: architectureDecisionSchema
+    .pick({ kind: true, coverage: true, consumers: true, bindingDigest: true })
+    .optional(),
+});
+export type EvidenceSubmissionSummary = z.infer<typeof evidenceSubmissionSummarySchema>;
+export type EvidenceSubmissionRecord = z.infer<typeof evidenceSubmissionSchema>;
 export const evidenceDecisionSchema = z.strictObject({
   checkpointReviewRoles: z.array(name).readonly().optional(),
   id: z.uuid(),
@@ -524,7 +538,7 @@ export const runtimeEvidenceViewSchema = z.strictObject({
   ),
   submissions: z.array(
     z.strictObject({
-      submission: evidenceSubmissionSchema,
+      submission: evidenceSubmissionSummarySchema,
       decision: evidenceDecisionSchema.optional(),
       issues: z.array(z.string()),
     }),

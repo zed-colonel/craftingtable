@@ -40,6 +40,7 @@ const EXPECTED_ROUTES = [
   'GET /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/checkpoint-recovery/:worktreeId',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/prepare-checkpoint',
   'GET /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/runs/:runId/build-record',
+  'GET /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/submissions/:submissionId',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/configure',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/preview-refresh',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/refresh',

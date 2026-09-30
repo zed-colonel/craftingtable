@@ -5,6 +5,7 @@ import {
   discoverRuntimeRequestSchema,
   discoverRuntimeResponseSchema,
   evidenceDecisionRequestSchema,
+  evidenceSubmissionSchema,
   evidenceSubmissionRequestSchema,
   generatePlanEvidenceRequestSchema,
   inspectDependencyRequestSchema,
@@ -60,6 +61,20 @@ export function registerRuntimeEvidenceRoutes(
       if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
         runtimeEvidenceViewSchema.parse(await service.view(context, ws.data, request.params.id)),
+      );
+    },
+  );
+  app.get<{ Params: { workspaceId: string; id: string; submissionId: string } }>(
+    `${base}/submissions/:submissionId`,
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, auth),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        evidenceSubmissionSchema.parse(
+          service.submission(context, ws.data, request.params.id, request.params.submissionId),
+        ),
       );
     },
   );

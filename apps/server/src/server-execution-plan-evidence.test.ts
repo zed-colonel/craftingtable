@@ -204,6 +204,14 @@ it('generates saved plan facts without approval, guards HTTP authority and start
   );
   expect((await post()).statusCode).toBe(200);
   expect(context.storage.runtimeEvidence.submissions(ws, id)).toHaveLength(1);
+  // The view lists the submission without its bodies; the record is read on demand (R-H4).
+  const record = (
+    await context.app.inject({
+      method: 'GET',
+      url: `${base}/submissions/${evidence.id}`,
+      headers: { cookie: f.state.cookie },
+    })
+  ).json();
   const manualPackage = {
     runtimeId: evidence.runtimeId,
     subject: evidence.subject,
@@ -219,7 +227,7 @@ it('generates saved plan facts without approval, guards HTTP authority and start
     ],
     requirements: evidence.requirements,
     cases: evidence.cases,
-    artifacts: evidence.artifacts.map((a: { name: string; content: string }) => ({
+    artifacts: record.artifacts.map((a: { name: string; content: string }) => ({
       name: a.name,
       content: a.content,
     })),

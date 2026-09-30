@@ -11,9 +11,11 @@ import {
   configureRuntimeSchema,
   discoverRuntimeResponseSchema,
   evidenceSubmissionRequestSchema,
+  evidenceSubmissionSchema,
   inspectDependencyResponseSchema,
   runtimeEvidenceViewSchema,
   type ConfigureRuntime,
+  type EvidenceSubmissionRecord,
   type RuntimeEvidenceView,
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
@@ -67,6 +69,17 @@ export function RuntimeEvidencePanel({
     [evidence, setEvidence] = useState(''),
     [rationale, setRationale] = useState<Record<string, string>>({}),
     [planReviewed, setPlanReviewed] = useState<Record<string, boolean>>({});
+  /**
+   * Full records by submission id. The view lists each submission without its bodies (R-H4,
+   * LIVE-29); a record is read when its review is opened, and never changes once written.
+   */
+  const [records, setRecords] = useState<Record<string, EvidenceSubmissionRecord | 'failed'>>({});
+  const loadRecord = (id: string) => {
+    if (records[id] && records[id] !== 'failed') return;
+    void request(`${base}/submissions/${encodeURIComponent(id)}`, evidenceSubmissionSchema)
+      .then((record) => setRecords((known) => ({ ...known, [id]: record })))
+      .catch(() => setRecords((known) => ({ ...known, [id]: 'failed' })));
+  };
   const adopt = useCallback((v: RuntimeEvidenceView) => {
     setView(v);
     setRefs(Object.fromEntries(v.current?.pins.map((p) => [p.alias, p.ref]) ?? []));
@@ -895,206 +908,236 @@ export function RuntimeEvidencePanel({
       </details>
       <h4>Evidence review</h4>
       {!view.submissions.length && <p>No submissions yet.</p>}
-      {view.submissions.map(({ submission: s, decision, issues }) => (
-        <details key={s.id} id={`${panelId}-submission-${s.id}`}>
-          <summary>
-            {s.subject.sourceId} · {decision?.outcome ?? 'awaiting review'}
-            {issues.length ? ' · blocked or stale' : ''}
-          </summary>
-          <p>
-            {s.architectureDecision
-              ? 'Prepared decision packet'
-              : `Environment ${s.environmentId} · tested`}{' '}
-            {s.executedAt} · {s.executedBy}
-          </p>
-          <p>
-            {s.architectureDecision ? (
-              decision ? (
-                `Architecture decision recorded by ${decision.decidedByUserId} as repository-maintainer.`
+      {view.submissions.map(({ submission: s, decision, issues }) => {
+        const record = records[s.id];
+        const full = record === 'failed' ? undefined : record;
+        return (
+          <details
+            key={s.id}
+            id={`${panelId}-submission-${s.id}`}
+            onToggle={(event) => {
+              if (event.currentTarget.open) loadRecord(s.id);
+            }}
+          >
+            <summary>
+              {s.subject.sourceId} · {decision?.outcome ?? 'awaiting review'}
+              {issues.length ? ' · blocked or stale' : ''}
+            </summary>
+            <p>
+              {s.architectureDecision
+                ? 'Prepared decision packet'
+                : `Environment ${s.environmentId} · tested`}{' '}
+              {s.executedAt} · {s.executedBy}
+            </p>
+            <p>
+              {s.architectureDecision ? (
+                decision ? (
+                  `Architecture decision recorded by ${decision.decidedByUserId} as repository-maintainer.`
+                ) : (
+                  'Your authenticated acceptance records decision-owner review. The source design remains a proposal until you approve.'
+                )
+              ) : s.candidateCheckpoint ? (
+                s.candidateCheckpoint.delegatedReview ? (
+                  <>
+                    Independent agent checkpoint review recorded under saved roadmap
+                    responsibilities ({s.candidateCheckpoint.delegatedReview.roles.join(', ')}).{' '}
+                    <Link
+                      route={{
+                        name: 'run',
+                        workspaceId: workspaceId as WorkspaceId,
+                        runId: s.candidateCheckpoint.runId as AgentRunId,
+                      }}
+                    >
+                      Read the checkpoint review
+                    </Link>
+                    . This is delegated evidence, not a claim of personal operator review.
+                  </>
+                ) : decision ? (
+                  `Checkpoint review recorded by ${decision.decidedByUserId} (${decision.checkpointReviewRoles?.join(', ') ?? 'no roles recorded'}).`
+                ) : (
+                  'Candidate checkpoint review pending. Inspect the retained review and receipts; accepting records your explicit checkpoint attestation.'
+                )
+              ) : s.generatedPlan ? (
+                decision ? (
+                  `Plan review recorded by ${decision.decidedByUserId} as stack-integration-owner.`
+                ) : (
+                  'Independent plan review pending: accepting below records your authenticated review as stack-integration-owner. The daemon only collected setup facts.'
+                )
               ) : (
-                'Your authenticated acceptance records decision-owner review. The source design remains a proposal until you approve.'
-              )
-            ) : s.candidateCheckpoint ? (
-              s.candidateCheckpoint.delegatedReview ? (
                 <>
-                  Independent agent checkpoint review recorded under saved roadmap responsibilities
-                  ({s.candidateCheckpoint.delegatedReview.roles.join(', ')}).{' '}
-                  <Link
-                    route={{
-                      name: 'run',
-                      workspaceId: workspaceId as WorkspaceId,
-                      runId: s.candidateCheckpoint.runId as AgentRunId,
-                    }}
-                  >
-                    Read the checkpoint review
-                  </Link>
-                  . This is delegated evidence, not a claim of personal operator review.
+                  Independent reviewers:{' '}
+                  {s.reviewers.map((r) => `${r.identity} (${r.roles.join(', ')})`).join('; ')}
                 </>
-              ) : decision ? (
-                `Checkpoint review recorded by ${decision.decidedByUserId} (${decision.checkpointReviewRoles?.join(', ') ?? 'no roles recorded'}).`
-              ) : (
-                'Candidate checkpoint review pending. Inspect the retained review and receipts; accepting records your explicit checkpoint attestation.'
-              )
-            ) : s.generatedPlan ? (
-              decision ? (
-                `Plan review recorded by ${decision.decidedByUserId} as stack-integration-owner.`
-              ) : (
-                'Independent plan review pending: accepting below records your authenticated review as stack-integration-owner. The daemon only collected setup facts.'
-              )
-            ) : (
-              <>
-                Independent reviewers:{' '}
-                {s.reviewers.map((r) => `${r.identity} (${r.roles.join(', ')})`).join('; ')}
-              </>
+              )}
+            </p>
+            {s.architectureDecision && (
+              <section aria-label="Decision text for review">
+                <h4>
+                  {s.architectureDecision.coverage === 'clauses'
+                    ? 'Early clauses to approve'
+                    : 'Decision to approve'}
+                </h4>
+                {full?.architectureDecision && (
+                  <>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{full.architectureDecision.proposal}</p>
+                    <h4>Source references</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>
+                      {full.architectureDecision.sourceReferences}
+                    </p>
+                  </>
+                )}
+                {s.architectureDecision.consumers.length > 0 && (
+                  <ul>
+                    {s.architectureDecision.consumers.map((c) => (
+                      <li key={c.sliceId}>
+                        {c.sliceId}: required before {c.phase};{' '}
+                        {c.replacesFullCheckpoint
+                          ? 'replaces this slice’s full-checkpoint gate'
+                          : 'adds a definition prerequisite'}
+                        .
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {full?.architectureDecision?.retainedObligations && (
+                  <>
+                    <h4>Full obligations retained</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>
+                      {full.architectureDecision.retainedObligations}
+                    </p>
+                  </>
+                )}
+                <p>
+                  This packet records a proposed decision, not test execution or a passing
+                  verification result.
+                </p>
+              </section>
             )}
-          </p>
-          {s.architectureDecision && (
-            <section aria-label="Decision text for review">
-              <h4>
-                {s.architectureDecision.coverage === 'clauses'
-                  ? 'Early clauses to approve'
-                  : 'Decision to approve'}
-              </h4>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{s.architectureDecision.proposal}</p>
-              <h4>Source references</h4>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{s.architectureDecision.sourceReferences}</p>
-              {s.architectureDecision.consumers.length > 0 && (
-                <ul>
-                  {s.architectureDecision.consumers.map((c) => (
-                    <li key={c.sliceId}>
-                      {c.sliceId}: required before {c.phase};{' '}
-                      {c.replacesFullCheckpoint
-                        ? 'replaces this slice’s full-checkpoint gate'
-                        : 'adds a definition prerequisite'}
-                      .
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {s.architectureDecision.retainedObligations && (
-                <>
-                  <h4>Full obligations retained</h4>
-                  <p style={{ whiteSpace: 'pre-wrap' }}>
-                    {s.architectureDecision.retainedObligations}
-                  </p>
-                </>
-              )}
+            {!s.architectureDecision && (
               <p>
-                This packet records a proposed decision, not test execution or a passing
-                verification result.
+                Code:{' '}
+                <code className="import-digest">
+                  {s.subjectCommit ?? 'upstream pins in recorded generation'}
+                </code>
               </p>
-            </section>
-          )}
-          {!s.architectureDecision && (
-            <p>
-              Code:{' '}
-              <code className="import-digest">
-                {s.subjectCommit ?? 'upstream pins in recorded generation'}
-              </code>
-            </p>
-          )}
-          {s.testedCode?.map((c) => (
-            <p key={c.alias}>
-              Tested {c.alias}: <code className="import-digest">{c.commitSha}</code>
-            </p>
-          ))}
-          {issues.length > 0 && (
-            <ul>
-              {distinct(issues).map((i) => (
-                <li key={i}>{i}</li>
-              ))}
-            </ul>
-          )}
-          {s.artifacts.map((a) => (
-            <details key={a.name}>
-              <summary>{a.name}</summary>
-              <code className="import-digest">SHA-256 {a.digest}</code>
-              <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{a.content}</pre>
-            </details>
-          ))}
-          {decision ? (
-            <p>
-              {decision.outcome} · {decision.rationale}
-            </p>
-          ) : (
-            <fieldset disabled={busy || !canMutate}>
-              {(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint) && (
+            )}
+            {s.testedCode?.map((c) => (
+              <p key={c.alias}>
+                Tested {c.alias}: <code className="import-digest">{c.commitSha}</code>
+              </p>
+            ))}
+            {issues.length > 0 && (
+              <ul>
+                {distinct(issues).map((i) => (
+                  <li key={i}>{i}</li>
+                ))}
+              </ul>
+            )}
+            {!full && (
+              <p role="status">
+                {record === 'failed'
+                  ? 'Could not load the full record. Close and reopen this review to try again.'
+                  : 'Loading the full record…'}
+              </p>
+            )}
+            {s.artifacts.map((a) => (
+              <details key={a.name}>
+                <summary>{a.name}</summary>
+                <code className="import-digest">SHA-256 {a.digest}</code>
+                {full && (
+                  <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                    {full.artifacts.find((f) => f.name === a.name)?.content}
+                  </pre>
+                )}
+              </details>
+            ))}
+            {decision ? (
+              <p>
+                {decision.outcome} · {decision.rationale}
+              </p>
+            ) : (
+              <fieldset disabled={busy || !canMutate}>
+                {(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint) && (
+                  <label className="field">
+                    <span>
+                      <input
+                        type="checkbox"
+                        disabled={!full}
+                        checked={planReviewed[s.id] ?? false}
+                        onChange={(e) =>
+                          setPlanReviewed({ ...planReviewed, [s.id]: e.target.checked })
+                        }
+                      />{' '}
+                      {s.candidateCheckpoint
+                        ? `I reviewed the candidate evidence against every checkpoint requirement as ${view.subjects.find((v) => v.subject.kind === s.subject.kind && v.subject.sourceId === s.subject.sourceId)?.reviewerRoles.join(', ')}.`
+                        : s.architectureDecision
+                          ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
+                          : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.'}
+                    </span>
+                  </label>
+                )}
                 <label className="field">
-                  <span>
-                    <input
-                      type="checkbox"
-                      checked={planReviewed[s.id] ?? false}
-                      onChange={(e) =>
-                        setPlanReviewed({ ...planReviewed, [s.id]: e.target.checked })
-                      }
-                    />{' '}
-                    {s.candidateCheckpoint
-                      ? `I reviewed the candidate evidence against every checkpoint requirement as ${view.subjects.find((v) => v.subject.kind === s.subject.kind && v.subject.sourceId === s.subject.sourceId)?.reviewerRoles.join(', ')}.`
-                      : s.architectureDecision
-                        ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
-                        : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.'}
-                  </span>
+                  Review decision rationale
+                  <textarea
+                    value={rationale[s.id] ?? ''}
+                    onChange={(e) => setRationale({ ...rationale, [s.id]: e.target.value })}
+                  />
                 </label>
-              )}
-              <label className="field">
-                Review decision rationale
-                <textarea
-                  value={rationale[s.id] ?? ''}
-                  onChange={(e) => setRationale({ ...rationale, [s.id]: e.target.value })}
-                />
-              </label>
-              {(['accepted', 'rejected'] as const).map((outcome) => (
-                <button
-                  className="secondary-button"
-                  key={outcome}
-                  type="button"
-                  disabled={
-                    !rationale[s.id]?.trim() ||
-                    (outcome === 'accepted' &&
-                      (issues.length > 0 ||
-                        (!!(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint) &&
-                          (!planReviewed[s.id] || unsavedSetup))))
-                  }
-                  onClick={() =>
-                    void act(async () => {
-                      adopt(
-                        await post('decide', {
-                          submissionId: s.id,
-                          outcome,
-                          rationale: rationale[s.id],
-                          ...(s.candidateCheckpoint && outcome === 'accepted'
-                            ? {
-                                checkpointReviewRoles: view.subjects.find(
-                                  (v) =>
-                                    v.subject.kind === s.subject.kind &&
-                                    v.subject.sourceId === s.subject.sourceId,
-                                )?.reviewerRoles,
-                              }
-                            : {}),
-                        }),
-                      );
-                      setNotice(
-                        s.architectureDecision && outcome === 'accepted'
-                          ? s.architectureDecision.coverage === 'clauses'
-                            ? 'Early clauses approved. Generate and review updated saved-plan evidence, then continue affected designs with the new decision packet.'
-                            : 'Decision approved. Continue affected designs with the updated decision packet.'
-                          : s.generatedPlan && outcome === 'accepted'
-                            ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
-                            : `Evidence ${outcome}.`,
-                      );
-                      window.dispatchEvent(
-                        new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-                      );
-                    })
-                  }
-                >
-                  {outcome === 'accepted' ? 'Accept evidence' : 'Reject evidence'}
-                </button>
-              ))}
-            </fieldset>
-          )}
-        </details>
-      ))}
+                {(['accepted', 'rejected'] as const).map((outcome) => (
+                  <button
+                    className="secondary-button"
+                    key={outcome}
+                    type="button"
+                    disabled={
+                      !rationale[s.id]?.trim() ||
+                      (outcome === 'accepted' &&
+                        (issues.length > 0 ||
+                          // Accepting attests to the record: only once it has been shown.
+                          !full ||
+                          (!!(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint) &&
+                            (!planReviewed[s.id] || unsavedSetup))))
+                    }
+                    onClick={() =>
+                      void act(async () => {
+                        adopt(
+                          await post('decide', {
+                            submissionId: s.id,
+                            outcome,
+                            rationale: rationale[s.id],
+                            ...(s.candidateCheckpoint && outcome === 'accepted'
+                              ? {
+                                  checkpointReviewRoles: view.subjects.find(
+                                    (v) =>
+                                      v.subject.kind === s.subject.kind &&
+                                      v.subject.sourceId === s.subject.sourceId,
+                                  )?.reviewerRoles,
+                                }
+                              : {}),
+                          }),
+                        );
+                        setNotice(
+                          s.architectureDecision && outcome === 'accepted'
+                            ? s.architectureDecision.coverage === 'clauses'
+                              ? 'Early clauses approved. Generate and review updated saved-plan evidence, then continue affected designs with the new decision packet.'
+                              : 'Decision approved. Continue affected designs with the updated decision packet.'
+                            : s.generatedPlan && outcome === 'accepted'
+                              ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
+                              : `Evidence ${outcome}.`,
+                        );
+                        window.dispatchEvent(
+                          new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
+                        );
+                      })
+                    }
+                  >
+                    {outcome === 'accepted' ? 'Accept evidence' : 'Reject evidence'}
+                  </button>
+                ))}
+              </fieldset>
+            )}
+          </details>
+        );
+      })}
       {view.history.length > 1 && (
         <details>
           <summary>Environment history ({view.history.length} generations)</summary>

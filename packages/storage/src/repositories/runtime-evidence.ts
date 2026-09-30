@@ -35,6 +35,8 @@ export interface RuntimeEvidenceRepository {
   ): readonly RuntimeGeneration[];
   addGeneration(value: RuntimeGeneration): void;
   submissions(ws: string, definitionId: string): readonly EvidenceSubmission[];
+  /** One submission of a definition, decoding only it (R-H4). */
+  submission(ws: string, definitionId: string, id: string): EvidenceSubmission | undefined;
   addSubmission(value: EvidenceSubmission): void;
   decisions(ws: string): readonly EvidenceDecision[];
   addDecision(value: EvidenceDecision): void;
@@ -142,6 +144,16 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
         )
         .all(ws, definitionId),
     );
+  }
+  submission(ws: string, definitionId: string, id: string): EvidenceSubmission | undefined {
+    return decode(
+      'evidence-submission',
+      this.db
+        .prepare(
+          "SELECT record_json FROM evidence_submissions WHERE workspace_id=? AND id=? AND json_extract(record_json,'$.definitionId')=?",
+        )
+        .all(ws, id, definitionId),
+    )[0];
   }
   addSubmission(v: EvidenceSubmission): void {
     this.guard('evidence-submission', v);

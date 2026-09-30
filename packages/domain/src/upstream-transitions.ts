@@ -90,8 +90,19 @@ export function scopedBuildScope(
   );
 }
 
+/** Per map source, which is never mutated: computed once however often a view asks (R-H4). */
+const upstreamsBySource = new WeakMap<ConcurrencySource, Map<string, readonly string[]>>();
+const predecessorsBySource = new WeakMap<ConcurrencySource, (key: string) => ReadonlySet<string>>();
+
 /** The upstream repositories a consumer builds against. */
 export function consumerUpstreams(s: ConcurrencySource, consumer: string): string[] {
+  const known = upstreamsBySource.get(s) ?? new Map<string, readonly string[]>();
+  upstreamsBySource.set(s, known);
+  const cached = known.get(consumer) ?? evaluateConsumerUpstreams(s, consumer);
+  known.set(consumer, cached);
+  return [...cached];
+}
+function evaluateConsumerUpstreams(s: ConcurrencySource, consumer: string): string[] {
   const required = new Set(
     s.repositories
       .filter((r) => r.role === 'implemented_upstream' && r.id !== consumer)
@@ -115,9 +126,11 @@ export function consumerUpstreams(s: ConcurrencySource, consumer: string): strin
 
 /** Milestones that must hold before `key`, following every retained requirement transitively. */
 function predecessorsOf(s: ConcurrencySource) {
+  const known = predecessorsBySource.get(s);
+  if (known) return known;
   const byKey = new Map(concurrencyMilestones(s).map((n) => [n.key, n]));
   const memo = new Map<string, ReadonlySet<string>>();
-  return (key: string): ReadonlySet<string> => {
+  const predecessors = (key: string): ReadonlySet<string> => {
     const cached = memo.get(key);
     if (cached) return cached;
     const seen = new Set<string>();
@@ -131,6 +144,8 @@ function predecessorsOf(s: ConcurrencySource) {
     memo.set(key, seen);
     return seen;
   };
+  predecessorsBySource.set(s, predecessors);
+  return predecessors;
 }
 
 /** The declarations that apply to a definition: its map's own, then its operator records. */

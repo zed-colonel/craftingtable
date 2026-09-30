@@ -78,6 +78,7 @@ import {
   asAuditEventId,
   asEventId,
   canonicalDefinition,
+  type ConcurrencyBindingRevision,
   type ConcurrencyDefinition,
   type EvidenceSubmission,
   type EvidenceSubject,
@@ -140,6 +141,59 @@ export function upstreamGitDirectory(gitExecutable: string, rootPath: string): s
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
+/**
+ * A submission as the evidence view lists it: the record without its bodies, the artifact
+ * contents and a decision's text (R-H4, LIVE-29). The full record is read on demand.
+ */
+export function submissionSummary(s: EvidenceSubmission) {
+  const { artifacts, architectureDecision: decision, ...rest } = s;
+  return {
+    ...rest,
+    artifacts: artifacts.map((a) => ({
+      name: a.name,
+      digest: a.digest,
+      bytes: Buffer.byteLength(a.content),
+    })),
+    ...(decision
+      ? {
+          architectureDecision: {
+            kind: decision.kind,
+            coverage: decision.coverage,
+            consumers: decision.consumers,
+            bindingDigest: decision.bindingDigest,
+          },
+        }
+      : {}),
+  };
+}
+/** A submission's freshness reads, taken by the evidence view in one snapshot (R-H4). */
+interface FreshnessReads {
+  readonly decisionIssues?: readonly string[];
+  readonly binding?: ConcurrencyBindingRevision;
+  readonly candidateIssues?: readonly string[];
+  readonly runIssue?: string;
+}
+/** The Git reads the evidence view makes; within one view each distinct read is asked once. */
+const VIEW_GIT_READS = new Set<PropertyKey>([
+  'resolveBranch',
+  'resolveCommit',
+  'inspectRepository',
+  'isAncestor',
+]);
+export function viewGit(git: GitOperations): GitOperations {
+  const answers = new Map<string, unknown>();
+  return new Proxy(git, {
+    get(target, method, receiver) {
+      const value = Reflect.get(target, method, receiver);
+      if (typeof value !== 'function' || !VIEW_GIT_READS.has(method)) return value;
+      return (...args: unknown[]) => {
+        const key = JSON.stringify([method, args]);
+        if (!answers.has(key)) answers.set(key, Reflect.apply(value, target, args));
+        return answers.get(key);
+      };
+    },
+  });
+}
 const ATTESTATION_REQUIRED =
   'A complete, passing independent checkpoint attestation is required for every exact requirement and case.';
 function packages(files: readonly { path: string; content: Uint8Array }[]) {
@@ -182,13 +236,18 @@ export class RuntimeEvidenceService {
     private readonly git: GitOperations | undefined,
     private readonly now: () => Date = () => new Date(),
   ) {}
-  private definition(ws: WorkspaceId, id: string) {
-    const d = this.storage.imports.definition(ws, id);
+  private definition(ws: WorkspaceId, id: string, tx: StorageRepositories = this.storage) {
+    const d = tx.imports.definition(ws, id);
     if (!d) throw new NotFoundError();
     return d;
   }
-  private binding(ws: WorkspaceId, id: string, revision: number) {
-    const b = this.storage.imports.bindings(ws, id).find((b) => b.revision === revision);
+  private binding(
+    ws: WorkspaceId,
+    id: string,
+    revision: number,
+    tx: StorageRepositories = this.storage,
+  ) {
+    const b = tx.imports.bindings(ws, id).find((b) => b.revision === revision);
     if (!b) conflict('Bind the exact plans and repositories first.');
     return b;
   }
@@ -873,6 +932,7 @@ export class RuntimeEvidenceService {
     ws: WorkspaceId,
     runtime: RuntimeGeneration,
     aliases?: readonly string[],
+    git?: GitOperations,
   ): Promise<RuntimePinStatus[]> {
     const result: RuntimePinStatus[] = [];
     const binding = this.binding(ws, runtime.definitionId, runtime.bindingRevision);
@@ -885,7 +945,7 @@ export class RuntimeEvidenceService {
         result.push({ ...status, issue: `Pinned repository ${pin.alias} is unavailable.` });
         continue;
       }
-      const head = await this.requireGit().resolveCommit(repo.rootPath, ref);
+      const head = await (git ?? this.requireGit()).resolveCommit(repo.rootPath, ref);
       result.push({
         ...status,
         ...(head.ok ? { currentCommitSha: head.value.commitSha } : {}),
@@ -900,19 +960,53 @@ export class RuntimeEvidenceService {
     }
     return result;
   }
+  /**
+   * The costly storage reads of a submission's freshness: a decision's issues, and a
+   * candidate's own checks and frozen run. The evidence view takes them for every submission
+   * in one snapshot before its Git calls (R-H4); a command reads them itself, the candidate's
+   * again after its Git calls.
+   */
+  private freshnessReads(
+    tx: StorageRepositories,
+    d: ConcurrencyDefinition,
+    s: EvidenceSubmission,
+  ): FreshnessReads {
+    if (s.architectureDecision) return { decisionIssues: architectureDecisionIssues(tx, d, s) };
+    const binding = this.binding(d.workspaceId, d.id, s.bindingRevision, tx);
+    const c = s.candidateCheckpoint;
+    if (!c) return { binding };
+    const tree = tx.execution.worktrees.find(s.workspaceId, asWorktreeId(c.worktreeId));
+    const runIssue = tree && this.runIssue(tree, c.runId, tx);
+    return {
+      binding,
+      candidateIssues: candidateCheckpointIssues(tx, s),
+      ...(runIssue ? { runIssue } : {}),
+    };
+  }
+  private runIssue(tree: Worktree, runId: string, tx: StorageRepositories = this.storage) {
+    try {
+      this.assertRun(tree, runId, tx);
+      return undefined;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Candidate build evidence is stale.';
+    }
+  }
   private async evidenceFreshness(
     d: ConcurrencyDefinition,
     runtime: RuntimeGeneration,
     s: EvidenceSubmission,
     knownFreshness?: readonly RuntimePinStatus[],
+    git?: GitOperations,
+    reads?: FreshnessReads,
   ) {
-    if (s.architectureDecision) return architectureDecisionIssues(this.storage, d, s);
+    if (s.architectureDecision)
+      return [...(reads?.decisionIssues ?? architectureDecisionIssues(this.storage, d, s))];
     const aliases = relevantPinAliases(runtime, evidenceInputs(d, s.subject));
-    const issues = (knownFreshness ?? (await this.pinStatus(d.workspaceId, runtime, aliases)))
+    const issues = (knownFreshness ?? (await this.pinStatus(d.workspaceId, runtime, aliases, git)))
       .filter((p) => aliases.includes(p.alias))
       .flatMap((p) => (p.issue ? [p.issue] : []));
-    const binding = this.binding(d.workspaceId, d.id, s.bindingRevision);
-    if (s.candidateCheckpoint) issues.push(...(await this.candidateFreshness(s)));
+    const binding = reads?.binding ?? this.binding(d.workspaceId, d.id, s.bindingRevision);
+    if (s.candidateCheckpoint) issues.push(...(await this.candidateFreshness(s, git, reads)));
     for (const code of s.testedCode ?? []) {
       if (s.candidateCheckpoint) continue;
       const b = binding.bindings.find((b) => b.alias === code.alias);
@@ -921,7 +1015,7 @@ export class RuntimeEvidenceService {
         this.storage.execution.sourceRepositories.find(d.workspaceId, b.repositoryId);
       const head =
         repo && repo.status === 'active' && b && providerBranch(this.storage, d.workspaceId, b)
-          ? await this.requireGit().resolveBranch(
+          ? await (git ?? this.requireGit()).resolveBranch(
               repo.rootPath,
               providerBranch(this.storage, d.workspaceId, b)!,
             )
@@ -935,16 +1029,20 @@ export class RuntimeEvidenceService {
       issues.push('Identify the tested code with consumer commits or upstream pins.');
     return issues;
   }
-  private async candidateFreshness(s: EvidenceSubmission): Promise<string[]> {
+  private async candidateFreshness(
+    s: EvidenceSubmission,
+    view?: GitOperations,
+    reads?: FreshnessReads,
+  ): Promise<string[]> {
     const c = s.candidateCheckpoint;
     if (!c) return [];
-    const issues = candidateCheckpointIssues(this.storage, s);
+    const issues = [...(reads?.candidateIssues ?? candidateCheckpointIssues(this.storage, s))];
     const tree = this.storage.execution.worktrees.find(s.workspaceId, asWorktreeId(c.worktreeId));
     const repo =
       tree && this.storage.execution.sourceRepositories.find(s.workspaceId, tree.repositoryId);
     if (!tree || !repo || repo.status !== 'active' || !tree.integrationBranch)
       return [...issues, 'The candidate repository or integration branch is unavailable.'];
-    const git = this.requireGit();
+    const git = view ?? this.requireGit();
     const target = await git.resolveCommit(repo.rootPath, tree.integrationBranch);
     if (tree.mergeSha) {
       const changed =
@@ -986,13 +1084,11 @@ export class RuntimeEvidenceService {
           )
         ).issues,
       );
-    try {
-      this.assertRun(tree, c.runId);
-    } catch (error) {
-      issues.push(error instanceof Error ? error.message : 'Candidate build evidence is stale.');
-    }
-    // A launch/retarget during asynchronous inspection cannot retain the older approval.
-    issues.push(...candidateCheckpointIssues(this.storage, s));
+    const runIssue = reads ? reads.runIssue : this.runIssue(tree, c.runId);
+    if (runIssue) issues.push(runIssue);
+    // A launch/retarget during asynchronous inspection cannot retain the older approval. The
+    // view's reads were all taken in one snapshot, so it has nothing to re-read.
+    issues.push(...(reads?.candidateIssues ?? candidateCheckpointIssues(this.storage, s)));
     return [...new Set(issues)];
   }
 
@@ -1931,7 +2027,9 @@ export class RuntimeEvidenceService {
     const d = this.definition(ws, id),
       binding = this.storage.imports.bindings(ws, id)[0],
       runtime = this.current(ws, id),
-      decisions = this.storage.runtimeEvidence.decisions(ws);
+      decisions = this.storage.runtimeEvidence.decisions(ws),
+      // Newest first, without briefs; the view's shorter lists are its prefixes.
+      runs = this.storage.execution.runs.listRecentHeaders(ws, 5000);
     const subjects = [
       ...d.source.checkpoints.map((s) => ({ kind: 'checkpoint' as const, sourceId: s.id })),
       ...d.source.slices.map((s) => ({ kind: 'slice' as const, sourceId: s.id })),
@@ -1941,7 +2039,7 @@ export class RuntimeEvidenceService {
       ? this.storage.runtimeEvidence.generations(ws, id, binding.revision)
       : [];
     const upstreamHistory = runtime
-      ? this.storage.execution.runs.listRecent(ws, 5000).flatMap((run) => {
+      ? runs.flatMap((run) => {
           const pin = runtime.pins.find((p) => p.repositoryId === run.repositoryId);
           return pin &&
             run.status === 'finished' &&
@@ -1958,8 +2056,8 @@ export class RuntimeEvidenceService {
             : [];
         })
       : [];
-    const builds = this.storage.execution.runs
-      .listRecent(ws, 500)
+    const builds = runs
+      .slice(0, 500)
       .flatMap((run) => {
         const env = this.storage.runtimeEvidence.run(ws, run.id);
         if (!env || !history.some((g) => g.id === env.runtimeId)) return [];
@@ -1989,7 +2087,11 @@ export class RuntimeEvidenceService {
         ];
       })
       .slice(0, 30);
-    const pinStatus = runtime ? await this.pinStatus(ws, runtime) : [];
+    // Git first, each distinct read asked once. Everything after it up to the submissions'
+    // freshness is read in one snapshot, so accepted evidence and decision digests are computed
+    // once per request, not once per submission (R-H4, LIVE-29).
+    const git = this.git && viewGit(this.git);
+    const pinStatus = runtime ? await this.pinStatus(ws, runtime, undefined, git) : [];
     const freshness = pinStatus.flatMap((p) => (p.issue ? [p.issue] : []));
     const snapshot = mapReadSnapshot(this.storage);
     const planAcceptance = d.source.checkpoints.some((c) => c.id === PLAN_CHECKPOINT)
@@ -2056,12 +2158,13 @@ export class RuntimeEvidenceService {
         ...submissionIssues(snapshot, d, runtime, s),
         ...prerequisiteIssues(snapshot, d, s.bindingRevision, s.subject),
       ],
+      reads: runtime ? this.freshnessReads(snapshot, d, s) : undefined,
     }));
     const architectureCheckpoints = d.source.checkpoints.filter((c) =>
       supportsArchitectureDecision(d, c.id),
     );
-    const designRuns = snapshot.execution.runs
-      .listRecent(ws, 200)
+    const designRuns = runs
+      .slice(0, 200)
       .filter((run) => {
         if (run.status !== 'finished') return false;
         const tree = snapshot.execution.worktrees.find(ws, run.worktreeId);
@@ -2102,8 +2205,21 @@ export class RuntimeEvidenceService {
           },
         ];
       });
+    const decisionInbox = architectureDecisionInbox(snapshot, d),
+      upstreamTransitions = upstreamTransitionView(snapshot, ws, d),
+      nativeApprovalRecord = binding
+        ? snapshot.runtimeEvidence.nativeApprovals(ws, id, binding.revision)[0]
+        : undefined,
+      nativeCurrent =
+        !!binding &&
+        !!nativeApproval(snapshot, ws, {
+          kind: 'slice',
+          definitionId: id,
+          bindingRevision: binding.revision,
+          sourceId: '',
+        });
     return {
-      decisionInbox: architectureDecisionInbox(snapshot, d),
+      decisionInbox,
       architectureDecisions: {
         checkpoints: architectureCheckpoints.map((c) => ({
           id: c.id,
@@ -2124,19 +2240,10 @@ export class RuntimeEvidenceService {
         })),
         designRuns,
       },
-      upstreamTransitions: upstreamTransitionView(snapshot, ws, d),
+      upstreamTransitions,
       nativeVerification: {
-        approval: binding
-          ? snapshot.runtimeEvidence.nativeApprovals(ws, id, binding.revision)[0]
-          : undefined,
-        current:
-          !!binding &&
-          !!nativeApproval(snapshot, ws, {
-            kind: 'slice',
-            definitionId: id,
-            bindingRevision: binding.revision,
-            sourceId: '',
-          }),
+        approval: nativeApprovalRecord,
+        current: nativeCurrent,
         requirements: d.source.resource_profiles
           .filter((p) => p.fixture_authorization_required || p.requires_hardware_virtualization)
           .map((p) => ({
@@ -2176,17 +2283,29 @@ export class RuntimeEvidenceService {
         };
       }),
       subjects: subjectsView,
+      // The snapshot is not read past this point: freshness awaits Git.
       submissions: await Promise.all(
-        submissionsView.map(async (v) => ({
+        submissionsView.map(async ({ submission, reads, ...v }) => ({
           ...v,
+          submission: submissionSummary(submission),
           issues: [
             ...v.issues,
-            ...(runtime ? await this.evidenceFreshness(d, runtime, v.submission, pinStatus) : []),
+            ...(runtime
+              ? await this.evidenceFreshness(d, runtime, submission, pinStatus, git, reads)
+              : []),
           ],
         })),
       ),
       upstreamHistory,
     };
+  }
+  /** The full record of a submission the evidence view lists as a summary (R-H4). */
+  submission(context: AuthContext, ws: WorkspaceId, id: string, submissionId: string) {
+    this.workspaces.requireAuthorized(context, ws);
+    this.definition(ws, id);
+    const s = this.storage.runtimeEvidence.submission(ws, id, submissionId);
+    if (!s) throw new NotFoundError();
+    return s;
   }
   buildRecord(context: AuthContext, ws: WorkspaceId, id: string, runId: string) {
     this.workspaces.requireAuthorized(context, ws);
@@ -2198,14 +2317,12 @@ export class RuntimeEvidenceService {
     if (!record || !generations.some((g) => g.id === record.runtimeId)) throw new NotFoundError();
     return record;
   }
-  private treeContext(tree: Worktree) {
+  private treeContext(tree: Worktree, tx: StorageRepositories = this.storage) {
     const finalization = tree.planVersionId
-      ? this.storage.execution.finalizations
-          .list(tree.workspaceId)
-          .find((f) => f.worktreeId === tree.id)
+      ? tx.execution.finalizations.list(tree.workspaceId).find((f) => f.worktreeId === tree.id)
       : undefined;
     if (finalization?.mapContext) {
-      assertFinalizationMap(this.storage, finalization);
+      assertFinalizationMap(tx, finalization);
       return { ...finalization.mapContext, finalization: true as const };
     }
     return tree.executionScope;
@@ -2569,21 +2686,15 @@ export class RuntimeEvidenceService {
     }
   }
 
-  assertRun(tree: Worktree, runId: string) {
-    const scope = this.treeContext(tree);
+  assertRun(tree: Worktree, runId: string, tx: StorageRepositories = this.storage) {
+    const scope = this.treeContext(tree, tx);
     if (!scope) return;
-    const runtime = activeRuntime(
-      this.storage,
-      tree.workspaceId,
-      scope.definitionId,
-      scope.bindingRevision,
-    );
+    const runtime = activeRuntime(tx, tree.workspaceId, scope.definitionId, scope.bindingRevision);
     if (!runtime) return;
-    const env = this.storage.runtimeEvidence.run(tree.workspaceId, runId);
+    const env = tx.runtimeEvidence.run(tree.workspaceId, runId);
     if (
       !('finalization' in scope) &&
-      env?.architectureDecisionDigest !==
-        architectureDecisionDigest(this.storage, tree.workspaceId, scope)
+      env?.architectureDecisionDigest !== architectureDecisionDigest(tx, tree.workspaceId, scope)
     )
       conflict(
         'Approved architecture decisions changed. Run a fresh review using the current decision packet.',
@@ -2592,9 +2703,10 @@ export class RuntimeEvidenceService {
       tree.workspaceId,
       scope.definitionId,
       scope.bindingRevision,
+      tx,
     ).bindings.find((b) => b.repositoryId === tree.repositoryId)?.alias;
     const policy = buildVerificationPolicy(
-      this.definition(tree.workspaceId, scope.definitionId),
+      this.definition(tree.workspaceId, scope.definitionId, tx),
       'finalization' in scope ? undefined : scope,
     );
     // A run launched with every link moved was held to a current-upstream build (ADR-069). The
@@ -2604,9 +2716,9 @@ export class RuntimeEvidenceService {
     if (
       !('finalization' in scope) &&
       scope.kind === 'parent-acceptance' &&
-      needsNativeEvidence(this.definition(tree.workspaceId, scope.definitionId), scope)
+      needsNativeEvidence(this.definition(tree.workspaceId, scope.definitionId, tx), scope)
     ) {
-      const authority = nativeApproval(this.storage, tree.workspaceId, scope);
+      const authority = nativeApproval(tx, tree.workspaceId, scope);
       if (!authority || env?.nativeApprovalId !== authority.id)
         conflict(
           'Parent review native verification authority changed. Run a fresh acceptance review.',
@@ -2615,10 +2727,10 @@ export class RuntimeEvidenceService {
     const nativeRequired =
       !('finalization' in scope) &&
       scope.kind === 'slice-verification' &&
-      needsNativeVerification(this.definition(tree.workspaceId, scope.definitionId), scope);
+      needsNativeVerification(this.definition(tree.workspaceId, scope.definitionId, tx), scope);
     const approval =
       nativeRequired && !('finalization' in scope)
-        ? nativeApproval(this.storage, tree.workspaceId, scope)
+        ? nativeApproval(tx, tree.workspaceId, scope)
         : undefined;
     if (nativeRequired && !approval)
       conflict('Native verification approval is missing, revoked or stale.');
@@ -2633,12 +2745,11 @@ export class RuntimeEvidenceService {
       !env ||
       ('finalization' in scope
         ? env.runtimeId !== runtime.id
-        : scopeRuntimeChanges(this.storage, tree.workspaceId, scope, env.runtimeId, runtime)
-            .length > 0)
+        : scopeRuntimeChanges(tx, tree.workspaceId, scope, env.runtimeId, runtime).length > 0)
     )
       conflict('Review uses an obsolete dependency environment. Run a fresh review.');
     try {
-      const record = this.storage.runtimeEvidence.build(tree.workspaceId, runId);
+      const record = tx.runtimeEvidence.build(tree.workspaceId, runId);
       if (
         !record ||
         record.error ||
@@ -2646,7 +2757,7 @@ export class RuntimeEvidenceService {
         record.runtimeId !== env.runtimeId
       )
         conflict('The review has no valid frozen pinned build record.');
-      const run = this.storage.execution.runs.find(tree.workspaceId, asAgentRunId(runId));
+      const run = tx.execution.runs.find(tree.workspaceId, asAgentRunId(runId));
       const receipts = parseBuildReceipts(record.receipts);
       if (
         nativeRequired &&
@@ -2670,7 +2781,7 @@ export class RuntimeEvidenceService {
       // A run held to declared checks (R-G13) meets its gate only with them: a scoped gate with
       // them alone, a current-upstream gate with them and a pinned build (increment 2).
       const declaration = env.checkDeclarationId
-        ? this.storage.runtimeEvidence.checkDeclaration(tree.workspaceId, env.checkDeclarationId)
+        ? tx.runtimeEvidence.checkDeclaration(tree.workspaceId, env.checkDeclarationId)
         : undefined;
       if (env.checkDeclarationId && !declaration)
         conflict('The declared checks this review was held to are unavailable.');
@@ -2688,7 +2799,7 @@ export class RuntimeEvidenceService {
             r.runtimeId === env.runtimeId &&
             r.verificationMode === verification.mode &&
             r.policyDigest === hash(JSON.stringify(verification)),
-          this.storage.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0],
+          tx.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0],
         );
         const changed = gaps.changed[0];
         if (changed)

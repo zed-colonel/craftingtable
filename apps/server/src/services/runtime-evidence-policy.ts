@@ -211,6 +211,22 @@ export function submissionIssues(
   runtime: RuntimeGeneration | undefined,
   s: EvidenceSubmission,
 ): string[] {
+  // Records are immutable, so within a read snapshot a submission's issues are asked once
+  // (R-H4): the view and every accepted-evidence path share them.
+  return [
+    ...snapshotCalculation(
+      tx,
+      JSON.stringify(['submission-issues', d.id, d.digest, runtime?.id, s.id]),
+      () => evaluateSubmission(tx, d, runtime, s),
+    ),
+  ];
+}
+function evaluateSubmission(
+  tx: StorageRepositories,
+  d: ConcurrencyDefinition,
+  runtime: RuntimeGeneration | undefined,
+  s: EvidenceSubmission,
+): string[] {
   if (s.architectureDecision) return architectureDecisionIssues(tx, d, s);
   const issues: string[] = [];
   if (

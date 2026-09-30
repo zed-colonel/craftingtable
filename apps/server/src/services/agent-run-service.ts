@@ -160,10 +160,13 @@ function upstreamSourcesBrief(
 /**
  * The repository's adopted checks a run's gates are held to (R-G13), and the command that runs
  * each: the gate counts only the daemon's runs of them, so the agent must know to ask (LIVE-23).
+ * The review is the run whose gate needs them; a working run is told to use them early; a design
+ * or decision-preparation run changes nothing and is told nothing.
  */
 function declaredChecksBrief(
   storage: CraftingTableStorage,
   workspaceId: WorkspaceId,
+  role: string,
   pinned: {
     readonly checkDeclarationId?: string;
     readonly binDirectory: string;
@@ -171,16 +174,28 @@ function declaredChecksBrief(
   },
 ): string {
   const declaration =
+    role !== 'design' &&
     pinned.checkDeclarationId &&
     storage.runtimeEvidence.checkDeclaration(workspaceId, pinned.checkDeclarationId);
   if (!declaration) return '';
-  return `Adopted repository checks (version ${declaration.version}): this run's gate needs a successful run of EACH on the exact clean reviewed commit, run by CraftingTable from the adopted definition on a private clone of your committed head. Commit first, then run:
-${declaration.checks.map((check) => `- ${pinned.binDirectory}/ct-check --declared ${check.id}   (${check.argv.join(' ')})`).join('\n')}
-${
-  pinned.verification.mode === 'scoped-checks'
-    ? 'Other ct-check commands and Cargo builds are supplemental and never replace them.'
-    : 'They are needed beside the pinned Cargo build/test; other ct-check commands are supplemental.'
-} A check that fails on the committed head fails the gate: fix the code, not the check's definition files, which the operator adopts.
+  const commands = declaration.checks
+    .map((check) => {
+      const argv = JSON.stringify(check.argv);
+      return `- ${pinned.binDirectory}/ct-check --declared ${check.id}   (CraftingTable runs the adopted ${argv.length > 200 ? `${argv.slice(0, 200)}…` : argv}; running that yourself does not count)`;
+    })
+    .join('\n');
+  const beside =
+    pinned.verification.mode === 'scoped-checks'
+      ? 'Other ct-check commands and Cargo builds are supplemental and never replace them.'
+      : 'They are needed beside the pinned Cargo build/test; other ct-check commands are supplemental.';
+  return role === 'review'
+    ? `Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head, which CraftingTable runs from the adopted definition on a private clone of that commit. Run each, read-only; do not commit. Report a failing check as a finding:
+${commands}
+${beside}
+`
+    : `Adopted repository checks (version ${declaration.version}): the review of this work will need a successful run of EACH on the committed head, which CraftingTable runs from the adopted definition on a private clone of your committed head. After committing, run them to check your work early:
+${commands}
+${beside} If one fails, fix the code, not the check's definition files, which the operator adopts.
 `;
 }
 
@@ -1271,10 +1286,10 @@ Use the controller Cargo launcher ${pinned.binDirectory}/cargo for Cargo checks 
 The launcher also supports supplementary checks whose resolved graph contains no upstream packages, such as independent foundation/contract manifests within an integration run. Use the same launcher and ct-check normally; no explicit-config bypass or artificial upstream dependency is needed. Their supplementary-check receipts cannot satisfy the current-upstream build requirement. Earlier reports describing rejection of upstream-free checks refer to the previous launcher; verify with this run's supplied launcher and update stale instructions without waiving any checks.
 ${
   pinned.verification.mode === 'scoped-checks'
-    ? `Use ${pinned.binDirectory}/ct-check -- <executable> <arguments> to retain repository-owned contract, inventory, fixture or domain test evidence. Use ${pinned.binDirectory}/ct-act -W .github/workflows/<file>.yml -j <job> for local GitHub Actions execution; CI is supplemental and does not count as the scoped check. A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required, together with independent evidence for EVERY scope obligation. Any prepared historical dependency commits are development inputs only. Do not port upstream code or align the workspace to current pins beyond the upstream links supplied as current pins above merely to satisfy this slice. Document known baseline failures separately; new scope checks must pass.`
-    : `A successful Cargo build/test using current exact pins is required before merge/acceptance. ct-check and ct-act logs supplement but never replace that receipt. Align constraints only within the approved integration scope.`
+    ? `Use ${pinned.binDirectory}/ct-check -- <executable> <arguments> to retain repository-owned contract, inventory, fixture or domain test evidence. Use ${pinned.binDirectory}/ct-act -W .github/workflows/<file>.yml -j <job> for local GitHub Actions execution; CI is supplemental and does not count as the scoped check. ${pinned.checkDeclarationId ? 'The adopted checks below are required on the exact clean reviewed commit' : 'A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required'}, together with independent evidence for EVERY scope obligation. Any prepared historical dependency commits are development inputs only. Do not port upstream code or align the workspace to current pins beyond the upstream links supplied as current pins above merely to satisfy this slice. Document known baseline failures separately; new scope checks must pass.`
+    : `A successful Cargo build/test using current exact pins is required before merge/acceptance${pinned.checkDeclarationId ? ', with the adopted checks below' : ''}. Other ct-check and ct-act logs supplement but never replace that receipt. Align constraints only within the approved integration scope.`
 }
-${declaredChecksBrief(this.storage, workspaceId, pinned)}Local CI: ${pinned.localCi ? `configured with image ${pinned.localCi.image}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. The image includes Rust 1.89, rustfmt/clippy and native build tools. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native/Kata qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.
+${declaredChecksBrief(this.storage, workspaceId, input.role, pinned)}Local CI: ${pinned.localCi ? `configured with image ${pinned.localCi.image}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. The image includes Rust 1.89, rustfmt/clippy and native build tools. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native/Kata qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.
 `
           : '');
       const historicalBrief = historical

@@ -152,6 +152,18 @@ itNeedsCargo(
     expect(bin).toBeTruthy();
     expect(prompt).toContain(`${bin}/ct-check --declared fixture`);
     expect(prompt).toContain(`${bin}/ct-check --declared lint`);
+    // A reviewer runs them read-only on the reviewed head, and is not told to commit.
+    expect(prompt).toContain("this review's gate needs a successful run of EACH");
+    expect(prompt).not.toContain('After committing');
+    expect(prompt).toContain('The adopted checks below are required');
+    // An implementing run uses them early; a design run changes nothing and is told nothing.
+    for (const role of ['implement', 'design'] as const) {
+      await runToFinish(f.state, f.tree.id, { role });
+      if (role === 'implement') {
+        expect(prompt).toContain('After committing, run them to check your work early');
+        expect(prompt).not.toContain("this review's gate needs");
+      } else expect(prompt).not.toContain('ct-check --declared');
+    }
   },
 );
 

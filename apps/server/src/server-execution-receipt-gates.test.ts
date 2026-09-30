@@ -152,6 +152,10 @@ itNeedsCargo(
     expect(bin).toBeTruthy();
     expect(prompt).toContain(`${bin}/ct-check --declared fixture`);
     expect(prompt).toContain(`${bin}/ct-check --declared lint`);
+    // Daemon-run builds use their own build directory; CARGO_TARGET_DIR is the agent's (LIVE-26).
+    expect(prompt).toContain(
+      'Builds and checks CraftingTable runs for you (the Cargo launcher, ct-check, ct-native) use a build directory CraftingTable chooses',
+    );
     // A reviewer runs them read-only on the reviewed head, and is not told to commit.
     expect(prompt).toContain("this review's gate needs a successful run of EACH");
     expect(prompt).not.toContain('After committing');

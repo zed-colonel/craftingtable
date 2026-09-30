@@ -413,3 +413,10 @@ The operator deployed e0d33b8 at 00:31 UTC, after adopting WI's and EXO's checks
 - Category: UI ([R-A6](../register.md#r-a6))
 - Status: CONFIRMED 2026-09-30 by the operator and from the 2026-09-30 snapshot. FIXED 2026-09-30 on `remediation/p2`, not deployed: the text asks for a fresh review only until one has started at the resolution commit. See [R-C14](../register.md#r-c14).
 - Replay case: cycle b0de849a in the 2026-09-30 snapshot: its integration resolution committed 95f22b91, and its current review (27d0548c) ran on 95f22b91 and was mergeable, yet `IntegrationResolutionPanel` shows "Integration update committed … Fresh review required." whenever a resolution commit exists.
+
+### LIVE-26: The brief names a build directory the launchers do not use, so an agent stops to ask which is right
+- Severity: low (a question stop with a working exit: Continue with guidance)
+- Category: briefs ([R-G6](../register.md#r-g6))
+- Status: OBSERVED 2026-09-30 by the operator on WI-03 ("May native checks use the launcher-mandated scratch/target, or will the controller supply a manifest targeting the required worktree cache?"). FIXED 2026-09-30 on `remediation/p2`, not deployed: the brief says daemon-run builds choose their own build directory. See [R-G6](../register.md#r-g6).
+- Replay case: none in the snapshots (the question came after 2026-09-30 02:14). The brief text is the reproduction: `brief.ts` tells the agent CARGO_TARGET_DIR is the worktree's build cache and to keep build outputs there, while `ct-native` and the pinned Cargo launcher run in the daemon with the manifest's `targetDirectory` (the run's `scratch/target`) or a per-commit target.
+- Impact: a stopped work item and an operator question that nobody could act on as asked (no corrected manifest exists); the answer is that the launchers are used as supplied.

@@ -1647,6 +1647,18 @@ it('fails a pinned build whose upstream commit does not hold the pinned tree, or
     join(p.f.m.workspacePath, 'Cargo.toml'),
   ]);
   expect(live.outcome.diagnostic).toContain('outside the reviewed commit');
+  // Nor through a committed link to it.
+  symlinkSync(p.f.m.workspacePath, join(p.f.m.workspacePath, 'live'));
+  p.git(['add', 'live'], p.f.m.workspacePath);
+  p.git(
+    ['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'link'],
+    p.f.m.workspacePath,
+  );
+  const linked = await p.build(p.manifest(), ['test', '--manifest-path', 'live/Cargo.toml']);
+  expect(
+    linked.outcome.diagnostic,
+    linked.output + JSON.stringify(linked.outcome.receipt),
+  ).toContain('outside the reviewed commit');
   const blob = p.git(['rev-parse', `${p.pinned}:crate/src/lib.rs`], p.upstream);
   const object = join(p.upstream, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
   chmodSync(object, 0o644);
@@ -1781,6 +1793,8 @@ it.each(overlayCases)(
 it.skipIf(!hostCargo).each([
   ['a legacy .cargo/config', 'legacy'],
   ['a patch in the root .cargo/config.toml', 'root'],
+  ['a nested .cargo/config.toml', 'nested'],
+  ['a linked .cargo directory', 'linked'],
   ['no patch of its own', 'none'],
 ] as const)(
   "a current-upstream gate's adopted check that could build a vendored pin is refused: %s (R-G13 increment 2 review)",
@@ -1818,6 +1832,16 @@ it.skipIf(!hostCargo).each([
     const patch = '[patch.crates-io]\nup-crate = { path = "vendor/up-crate" }\n';
     writeFileSync(join(ws, '.cargo', 'config.toml'), planted === 'root' ? patch : '# adopted\n');
     if (planted === 'legacy') writeFileSync(join(ws, '.cargo', 'config'), patch);
+    if (planted === 'nested' || planted === 'linked') {
+      mkdirSync(join(ws, 'sub', 'cfg'), { recursive: true });
+      if (planted === 'nested') {
+        mkdirSync(join(ws, 'sub', '.cargo'));
+        writeFileSync(join(ws, 'sub', '.cargo', 'config.toml'), patch);
+      } else {
+        writeFileSync(join(ws, 'sub', 'cfg', 'config'), patch);
+        symlinkSync('cfg', join(ws, 'sub', '.cargo'));
+      }
+    }
     p.git(['add', '.'], ws);
     p.git(['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'consumer'], ws);
     const launcher = p.f.launch({
@@ -1869,7 +1893,7 @@ it.skipIf(!hostCargo).each([
     } else {
       expect(outcome.exitCode).toBe(1);
       expect(outcome.diagnostic).toMatch(
-        planted === 'legacy' ? /Cargo configuration other than/ : /Refusing unpinned up-crate/,
+        planted === 'root' ? /Refusing unpinned up-crate/ : /Cargo configuration other than/,
       );
     }
   },

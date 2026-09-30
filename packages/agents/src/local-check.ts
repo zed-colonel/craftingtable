@@ -1244,7 +1244,21 @@ function assertManifestWithin(root: string, args: readonly string[]): void {
         ? args[index + 1]
         : undefined;
     if (value === undefined) return;
-    const r = relative(root, resolve(root, value));
+    // Resolved through links: a committed link could name the live worktree (R-G13 review).
+    // The nearest existing ancestor decides: a missing file under a link is still under it.
+    let path = resolve(root, value);
+    let rest = '';
+    for (;;) {
+      try {
+        path = join(realpathSync(path), rest);
+        break;
+      } catch {
+        if (dirname(path) === path) break;
+        rest = join(basename(path), rest);
+        path = dirname(path);
+      }
+    }
+    const r = relative(realpathSync(root), path);
     if (r.startsWith('..') || isAbsolute(r))
       throw new Error(`The build names a manifest outside the reviewed commit: ${value}.`);
   });
@@ -1271,7 +1285,12 @@ async function assertChecksResolvePins(
   )
     .toString('utf8')
     .split('\0')
-    .filter((p) => /(^|\/)\.cargo\/config(\.toml)?$/.test(p) && p !== '.cargo/config.toml');
+    // A `.cargo` entry itself is a link (Git lists a directory's files, never the directory).
+    .filter(
+      (p) =>
+        (/(^|\/)\.cargo\/config(\.toml)?$/.test(p) && p !== '.cargo/config.toml') ||
+        /(^|\/)\.cargo$/.test(p),
+    );
   if (configs.length)
     throw new Error(
       `A current-upstream check cannot build with Cargo configuration other than the root .cargo/config.toml: ${configs.join(', ')}.`,

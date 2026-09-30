@@ -383,6 +383,8 @@ itNeedsCargo(
         ...process.env,
         CARGO_NET_OFFLINE: 'true',
       });
+      // A current-upstream gate needs every adopted check too (R-G13 increment 2).
+      await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
       return { resultText: scopeReport(f.state, verification.executionScope!) };
     };
     const svc = f.state.context.services.runtimeEvidenceService;
@@ -394,8 +396,9 @@ itNeedsCargo(
     expect(storage.runtimeEvidence.run(ws, run)?.verificationMode).toBe('current-upstream-build');
     expect(() => svc.assertRun(tree(), run)).not.toThrow();
 
-    // A scoped check alone no longer satisfies it.
+    // A scoped check alone no longer satisfies it, even beside the adopted checks.
     f.backend.replyForRequest = async (request) => {
+      await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
       await runLauncher(request, 'ct-check', [
         '--',
         process.execPath,

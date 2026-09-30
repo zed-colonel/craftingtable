@@ -136,6 +136,26 @@ itNeedsCargo(
 );
 
 itNeedsCargo(
+  'the brief names each adopted check and the command that runs it, which the gate needs (LIVE-23, R-G13)',
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'fixture', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: [] },
+      { id: 'lint', argv: ['git', 'status'], definitionPaths: [] },
+    ]);
+    let prompt = '';
+    f.backend.replyForRequest = (request) => {
+      prompt = request.prompt;
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    await runToFinish(f.state, f.tree.id, { role: 'review' });
+    const bin = /Use the controller Cargo launcher (\S+)\/cargo/.exec(prompt)?.[1];
+    expect(bin).toBeTruthy();
+    expect(prompt).toContain(`${bin}/ct-check --declared fixture`);
+    expect(prompt).toContain(`${bin}/ct-check --declared lint`);
+  },
+);
+
+itNeedsCargo(
   'a receipt an agent writes to the launcher file satisfies no gate; the daemon runs and records the check (R-G4, SEC-01)',
   async () => {
     // The check reports where it ran; the launcher only relays the daemon's output.

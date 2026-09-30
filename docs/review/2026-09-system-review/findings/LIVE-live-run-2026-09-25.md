@@ -380,3 +380,17 @@ The operator deployed fccce06 at 06:48 UTC; the roadmap came up running. The ope
   - That is correct: EXO-ADR-037 is a merge requirement of six slices (exo/EXO-03/domain, exo/EXO-03/integration, exo/EXO-18/domain, exo/EXO-18/instance-design, exo/EXO-18/instance-qualification, exo/EXO-18/integration; the last two also through EXO-ENV-G1). Clause approvals settle it only for exo/EXO-03/domain and exo/EXO-18/instance-design; the other four still need the full decision or clauses naming them.
   - The item's message is the generic "Ready for independent evidence review and your acceptance", and the card does not say which slices are settled and which still wait, so the item looks stale.
 - Proposed fix (next batch): the decision's inbox item and its card show "Settled for …" and "Still needed by …", from the rule the merge gate uses (`unsettledSliceDecisions` and the clause coverage `stagedDecision` applies). Nothing persisted changes.
+
+## After the e0d33b8 deploy (2026-09-30)
+
+The operator deployed e0d33b8 at 00:31 UTC, after adopting WI's and EXO's checks (00:34). The evidence below is a read-only `.backup` taken at 02:14 UTC (`replay/2026-09-30/`, SHA-256 `5f7527f4…`).
+
+### LIVE-23: No agent runs the adopted checks, because no brief names them, so every review held to them is refused at merge
+- Severity: medium (a stop with a costly exit; with R-G13 increment 2 it would reach every current-upstream review)
+- Category: declared checks ([R-G13](../register.md#r-g13)); briefs ([R-G6](../register.md#r-g6))
+- Status: CONFIRMED 2026-09-30 from the 2026-09-30 snapshot. FIXED 2026-09-30 on `remediation/p2`, not deployed: a run held to adopted checks is told each check's `ct-check --declared <id>` command and that only those count. See [R-G13](../register.md#r-g13).
+- Replay case: the 2026-09-30 snapshot. Runs 27d0548c (exo/EXO-04/domain review, cycle b0de849a) and bfd67980 (exo/EXO-18/instance-design review, cycle 2c9ead5d) are held to EXO's adoption (e5be5602, 7 checks); both cycles are `awaiting-merge` with an open merge-approval item. `declaredCheckGaps` over their frozen build records gives all seven checks missing, so the merge gate refuses both with "The review needs a successful run of each declared check …".
+- Evidence:
+  - Six runs since the deploy carry a check declaration (scoped mode). Their agents ran the adopted commands themselves (`ct-check -- python3 -B scripts/check_exo_v3_contract.py`, `cargo clippy --manifest-path v3/Cargo.toml --locked …`), which count for nothing; no receipt since the deploy names a declared check.
+  - No brief mentions `ct-check --declared`: the only place the command appears is the gate's refusal, which the agent never sees.
+- Impact: the operator's merge approval of both cycles is refused; the exit is a resume with guidance naming each command, then a fresh review. R-G13 increment 2 (not deployed) holds current-upstream reviews to the adopted checks too, so without the fix every review would stop this way.

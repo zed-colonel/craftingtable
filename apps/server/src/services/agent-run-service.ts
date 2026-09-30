@@ -157,6 +157,33 @@ function upstreamSourcesBrief(
   return `Upstream sources, chosen per link by the roadmap's declared transitions:\n${dependencies.map(line).join('\n')}\nBuild against exactly these sources. A link on its current pin already moved in this tree's history; do not revert it to a historical version.`;
 }
 
+/**
+ * The repository's adopted checks a run's gates are held to (R-G13), and the command that runs
+ * each: the gate counts only the daemon's runs of them, so the agent must know to ask (LIVE-23).
+ */
+function declaredChecksBrief(
+  storage: CraftingTableStorage,
+  workspaceId: WorkspaceId,
+  pinned: {
+    readonly checkDeclarationId?: string;
+    readonly binDirectory: string;
+    readonly verification: { readonly mode: string };
+  },
+): string {
+  const declaration =
+    pinned.checkDeclarationId &&
+    storage.runtimeEvidence.checkDeclaration(workspaceId, pinned.checkDeclarationId);
+  if (!declaration) return '';
+  return `Adopted repository checks (version ${declaration.version}): this run's gate needs a successful run of EACH on the exact clean reviewed commit, run by CraftingTable from the adopted definition on a private clone of your committed head. Commit first, then run:
+${declaration.checks.map((check) => `- ${pinned.binDirectory}/ct-check --declared ${check.id}   (${check.argv.join(' ')})`).join('\n')}
+${
+  pinned.verification.mode === 'scoped-checks'
+    ? 'Other ct-check commands and Cargo builds are supplemental and never replace them.'
+    : 'They are needed beside the pinned Cargo build/test; other ct-check commands are supplemental.'
+} A check that fails on the committed head fails the gate: fix the code, not the check's definition files, which the operator adopts.
+`;
+}
+
 export class AgentRunService {
   private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
@@ -1247,7 +1274,7 @@ ${
     ? `Use ${pinned.binDirectory}/ct-check -- <executable> <arguments> to retain repository-owned contract, inventory, fixture or domain test evidence. Use ${pinned.binDirectory}/ct-act -W .github/workflows/<file>.yml -j <job> for local GitHub Actions execution; CI is supplemental and does not count as the scoped check. A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required, together with independent evidence for EVERY scope obligation. Any prepared historical dependency commits are development inputs only. Do not port upstream code or align the workspace to current pins beyond the upstream links supplied as current pins above merely to satisfy this slice. Document known baseline failures separately; new scope checks must pass.`
     : `A successful Cargo build/test using current exact pins is required before merge/acceptance. ct-check and ct-act logs supplement but never replace that receipt. Align constraints only within the approved integration scope.`
 }
-Local CI: ${pinned.localCi ? `configured with image ${pinned.localCi.image}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. The image includes Rust 1.89, rustfmt/clippy and native build tools. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native/Kata qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.
+${declaredChecksBrief(this.storage, workspaceId, pinned)}Local CI: ${pinned.localCi ? `configured with image ${pinned.localCi.image}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. The image includes Rust 1.89, rustfmt/clippy and native build tools. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native/Kata qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.
 `
           : '');
       const historicalBrief = historical

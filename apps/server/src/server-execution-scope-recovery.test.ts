@@ -37,6 +37,8 @@ itNeedsCargo.each([
   'stalled',
   'exhausted',
   'ambiguous',
+  // The allowance counts only since the last passing parent review (LIVE-28).
+  'passing-after-exhausted',
 ] as const)('bounded roadmap scope recovery: %s', { timeout: 45000 }, async (outcome) => {
   const f = await supervisedMapFixture(false, 'automatic', false, false, outcome !== 'ambiguous');
   const { state } = f,
@@ -45,7 +47,12 @@ itNeedsCargo.each([
   const normal = f.backend.replyForRequest!;
   let parentReviews = 0;
   let repairs = 0;
-  const reportWith = (scope: ExecutionScope, findings: readonly unknown[], questions = 'none') =>
+  const reportWith = (
+    scope: ExecutionScope,
+    findings: readonly unknown[],
+    questions = 'none',
+    passing = false,
+  ) =>
     '## Open questions\n' +
     questions +
     '\n\n## Review report\n' +
@@ -53,7 +60,7 @@ itNeedsCargo.each([
       .replace('"findings":[]', `"findings":${JSON.stringify(findings)}`)
       .replaceAll(
         'mergeable',
-        findings.some((f) => (f as { status: string }).status === 'open')
+        !passing && findings.some((f) => (f as { status: string }).status === 'open')
           ? 'changes-requested'
           : 'mergeable',
       );
@@ -73,16 +80,21 @@ itNeedsCargo.each([
             ? 'The same missing behavior remains.'
             : `Prior corrections verified; missing family ${parentReviews}.`,
       };
-      const finished = outcome.startsWith('accepted') && parentReviews >= 3;
+      const finished =
+        (outcome.startsWith('accepted') || outcome === 'passing-after-exhausted') &&
+        parentReviews >= 3;
+      // The second parent review passes its exit gate with one minor finding left.
+      const passing = outcome === 'passing-after-exhausted' && parentReviews === 2;
       return {
         resultText: reportWith(
           scope,
           finished
             ? [{ ...defect, status: 'resolved', disposition: 'Verified all families.' }]
-            : [defect],
+            : [passing ? { ...defect, severity: 'minor' } : defect],
           outcome === 'questions' && parentReviews > 1
             ? 'Which authority should own this behavior?'
             : 'none',
+          passing,
         ),
       };
     }
@@ -134,7 +146,7 @@ itNeedsCargo.each([
   const input = {
     expectedVersion: prior.version,
     enabled: true,
-    maxRoundsPerParent: outcome === 'exhausted' ? 1 : 3,
+    maxRoundsPerParent: ['exhausted', 'passing-after-exhausted'].includes(outcome) ? 1 : 3,
   };
   expect(
     (
@@ -208,7 +220,7 @@ itNeedsCargo.each([
     expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toEqual([round]);
     await roadmapControl(state, 'resume');
   }
-  if (outcome.startsWith('accepted')) {
+  if (outcome.startsWith('accepted') || outcome === 'passing-after-exhausted') {
     await waitFor(
       () => tx.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
       'automatic recovered parent acceptance',

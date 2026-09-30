@@ -73,7 +73,7 @@ export const ATTENTION_CODE_LABELS: Readonly<Record<AttentionItemCode, string>> 
   'legacy-attention': 'Needs attention',
   'scheduler-error': 'Scheduler error',
   'entry-preparation-failed': 'Item preparation failed',
-  'recovery-not-converging': 'Recovery not converging',
+  'recovery-not-converging': 'Automatic recovery stopped',
   'entry-blocked': 'Item blocked',
   'evidence-not-current': 'Evidence no longer current',
   'cycle-needs-attention': 'Cycle needs attention',

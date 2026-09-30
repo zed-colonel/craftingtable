@@ -155,8 +155,28 @@ export function scopeRecoveryDecision(
     escalation: true as const,
     reason: `${why} Delegate source fixes with guidance to run a round yourself, or propose a split of the remaining work into a follow-up slice through a planning amendment. ${progress.summary || 'No round has run for this review yet.'}`,
   });
-  // Rounds the operator requested do not use the automatic allowance.
-  const automatic = rounds.filter((a) => !a.recovery!.requestedByUserId).length;
+  // Rounds the operator requested do not use the automatic allowance, and it counts only since
+  // the work item's last parent review that passed its exit gate with a mergeable verdict: a
+  // passing review ends one stretch of repair, and a finding after it starts another (LIVE-28,
+  // operator decision 2026-09-30).
+  const passed = (report: { verdict: string; exitGate: { met: boolean } } | undefined) =>
+    report?.verdict === 'mergeable' && report.exitGate.met;
+  const sourceReport = (runId: import('@craftingtable/domain').AgentRunId) => {
+    const event = tx.execution.runEvents.latestOfKind(ws, runId, 'turn-completed');
+    return event?.kind === 'turn-completed' && event.payload.reviewReport?.status === 'complete'
+      ? event.payload.reviewReport.report
+      : undefined;
+  };
+  const ordered = [...rounds].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const stretch = passed(turn.payload.reviewReport.report)
+    ? []
+    : ordered.slice(
+        Math.max(
+          0,
+          ordered.findLastIndex((a) => passed(sourceReport(a.recovery!.sourceRunId))),
+        ),
+      );
+  const automatic = stretch.filter((a) => !a.recovery!.requestedByUserId).length;
   if (automatic >= (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0))
     return escalate(
       `Automatic recovery allowance exhausted (${automatic} automatic round${automatic === 1 ? '' : 's'} for this parent). Pause the roadmap and raise the total allowance, or continue manually.`,

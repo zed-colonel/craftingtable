@@ -440,7 +440,7 @@ The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, se
 ### LIVE-28: Automatic recovery counts its allowance over a work item's life, so an old allowance stops a new, minor finding as "not converging"
 - Severity: medium (a passing parent review stopped; the operator raises limits by hand)
 - Category: automatic recovery ([R-C5](../register.md#r-c5))
-- Status: CONFIRMED 2026-09-30 from the 2026-09-30b snapshot and the code. Not fixed; design options put to the operator.
+- Status: CONFIRMED 2026-09-30 from the 2026-09-30b snapshot and the code. FIXED 2026-09-30 on `remediation/p2` (operator decision: reset after a passing review), not deployed. See [R-C5](../register.md#r-c5).
 - Replay case: the 2026-09-30b snapshot. EXO-01 parent acceptance (entry cbf93d54, cycle 10dbc912): review cfaa127d (07:31 UTC) is mergeable with its exit gate met and one open minor finding (F-006); `scope-review-recovery` at 07:47:02.189 became `recovery-not-converging` at 07:47:02.938.
 - Evidence:
   - `scopeRecoveryDecision` counts every automatic round of the work item on the roadmap (`maxRoundsPerParent`, 3). EXO-01's three were on 2026-09-18 and 09-19, before R-C5's escalation existed; the new finding could not start a round.

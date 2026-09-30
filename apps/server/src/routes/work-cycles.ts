@@ -56,11 +56,13 @@ export function registerWorkCycleRoutes(
         return sendApiError(reply, 400, 'invalid-request', 'Invalid scope repair request');
       return noStore(reply).send(
         workCycleResponseSchema.parse({
-          cycle: await roadmaps.delegateScopeRepair(
-            context,
-            workspace.data,
-            request.params.cycleId,
-            input.data,
+          cycle: cycles.present(
+            await roadmaps.delegateScopeRepair(
+              context,
+              workspace.data,
+              request.params.cycleId,
+              input.data,
+            ),
           ),
         }),
       );
@@ -106,7 +108,7 @@ export function registerWorkCycleRoutes(
         return sendApiError(reply, 400, 'invalid-request', 'Invalid cycle settings');
       return noStore(reply).send(
         workCycleResponseSchema.parse({
-          cycle: cycles.start(context, workspace.data, item.data, body.data),
+          cycle: cycles.present(cycles.start(context, workspace.data, item.data, body.data)),
         }),
       );
     },
@@ -165,11 +167,13 @@ export function registerWorkCycleRoutes(
         return sendApiError(reply, 400, 'invalid-request', 'Invalid baseline preparation');
       return noStore(reply).send(
         workCycleResponseSchema.parse({
-          cycle: await cycles.prepareBaseline(
-            context,
-            workspace.data,
-            request.params.cycleId,
-            input.data,
+          cycle: cycles.present(
+            await cycles.prepareBaseline(
+              context,
+              workspace.data,
+              request.params.cycleId,
+              input.data,
+            ),
           ),
         }),
       );
@@ -191,7 +195,7 @@ export function registerWorkCycleRoutes(
         request.params.cycleId,
         input.data,
       );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+      return noStore(reply).send(workCycleResponseSchema.parse({ cycle: cycles.present(cycle) }));
     },
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
@@ -228,7 +232,7 @@ export function registerWorkCycleRoutes(
                 body.data.expectedVersion,
                 body.data.action === 'resume' ? body.data.instructions : undefined,
               );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+      return noStore(reply).send(workCycleResponseSchema.parse({ cycle: cycles.present(cycle) }));
     },
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
@@ -252,7 +256,7 @@ export function registerWorkCycleRoutes(
         request.params.cycleId,
         body.data,
       );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+      return noStore(reply).send(workCycleResponseSchema.parse({ cycle: cycles.present(cycle) }));
     },
   );
 }

@@ -1,6 +1,7 @@
 import {
   AGENT_BACKENDS,
   AGENT_PERMISSION_MODES,
+  CYCLE_ACTIONS,
   CYCLE_ATTENTION_CODES,
   CYCLE_STATUSES,
   CYCLE_STEPS,
@@ -215,6 +216,8 @@ export const workCycleSchema = z
       .optional(),
     nextAgentSelections: agentSelectionsSchema.optional(),
     unsettledDecisions: z.array(z.string().min(1).max(200)).max(200).optional(),
+    /** The operator actions the daemon offers now (R-A6); computed per response, never stored. */
+    actions: z.array(z.enum(CYCLE_ACTIONS)).optional(),
     scopeReviewWait: z.string().optional(),
     mergeRequirementsWait: z.string().optional(),
     scopeRepair: z

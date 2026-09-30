@@ -129,6 +129,11 @@ export interface WorkCycle {
    * waits on. Computed when cycles are read, never persisted.
    */
   readonly unsettledDecisions?: readonly string[];
+  /**
+   * Read projection (R-A6): the operator actions the daemon offers now, from `cycleActions`.
+   * Computed when cycles are read, never persisted.
+   */
+  readonly actions?: readonly import('./cycle-actions.js').CycleAction[];
   readonly workflow?: import('./workflow.js').CycleWorkflow;
   readonly designDependencyContinuations?: number;
   readonly designWait?: {

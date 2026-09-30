@@ -83,6 +83,34 @@ describe('offer only actions that can make progress (R-A7)', () => {
     expect((await control(f, started.id, 'stop')).statusCode).toBe(200);
   });
 
+  it('returns each cycle with the actions the daemon offers, so the browser renders only those (R-A6)', async () => {
+    const f = await fixture();
+    const started = await startCycle(f);
+    await stepController(f.services);
+    for (let turn = 0; turn < 3; turn += 1) {
+      f.backend.latest.release(
+        'Design.\n\n```craftingtable-design\n{"version":1,"items":[{}]}\n```',
+      );
+      await stepController(f.services, 3);
+    }
+    const listed = async () =>
+      (
+        await f.context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${f.workspaceId}/cycles`,
+          headers: f.headers,
+        })
+      ).json().cycles as { id: string; actions?: string[] }[];
+    expect((await listed()).find((c) => c.id === started.id)?.actions).toEqual([
+      'resolve-design',
+      'stop',
+    ]);
+    const paused = await control(f, started.id, 'pause');
+    expect(paused.statusCode, paused.body).toBe(200);
+    expect(workCycleResponseSchema.parse(paused.json()).cycle.actions).toEqual(['resume', 'stop']);
+    expect((await listed()).find((c) => c.id === started.id)?.actions).toEqual(['resume', 'stop']);
+  });
+
   it('checks predecessor ancestry when a failed step is resumed, before accepting', async () => {
     const f = await fixture();
     const user = f.context.storage.users.findByNormalizedUsername('test-user');

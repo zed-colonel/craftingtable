@@ -14,6 +14,7 @@ import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
   type AgentRun,
   asAgentRunId,
+  cycleActions,
   asAuditEventId,
   asEventId,
   type CycleStep,
@@ -249,41 +250,56 @@ export class WorkCycleService {
             .filter((c) => !TERMINAL_CYCLE_STATUSES.has(c.status))
             .map(({ designRecovery: _omitted, ...c }): WorkCycle => c)
         : stored.filter((c) => c.workItemId === filter.workItemId);
-    return selected.map((c) => {
-      if (TERMINAL_CYCLE_STATUSES.has(c.status))
-        return {
-          ...c,
-          nextAgentSelections: agentSelections(effectiveCycleProfiles(tx, c)),
-          // A completed cycle can be reviewed again; its preparation still shows.
-          ...(this.isTransitioning(c.id) ? { scopeReviewWait: PREPARING_RECOVERY } : {}),
-        };
-      const wait = this.isTransitioning(c.id)
-        ? PREPARING_RECOVERY
-        : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
-      const mergeWait = scopeMergeWait(tx, c);
-      const unsettled = unsettledDecisionsAt(tx, c);
-      const currentRun = tx.execution.runs.find(workspaceId, c.currentRunId);
-      const turn =
-        currentRun &&
-        tx.execution.runEvents.latestOfKind(workspaceId, currentRun.id, 'turn-completed');
-      const routes =
-        c.status === 'needs-attention' &&
-        c.executionScope?.kind === 'slice' &&
-        turn?.kind === 'turn-completed'
-          ? operatorQuestionRoutes(tx, c, turn.payload.resultText)
-          : [];
+    return selected.map((c) => this.presented(tx, c));
+  }
 
+  /** A cycle as a response returns it, with its read projections (R-A6: its actions). */
+  present(cycle: WorkCycle): WorkCycle {
+    return this.presented(mapReadSnapshot(this.storage), cycle);
+  }
+
+  private presented(tx: StorageRepositories, c: WorkCycle): WorkCycle {
+    if (TERMINAL_CYCLE_STATUSES.has(c.status))
       return {
         ...c,
         nextAgentSelections: agentSelections(effectiveCycleProfiles(tx, c)),
-        ...(routes.length
-          ? { workflow: { ...(c.workflow ?? { reassessments: 0 }), questions: routes } }
-          : {}),
-        ...(wait ? { scopeReviewWait: wait } : {}),
-        ...(mergeWait ? { mergeRequirementsWait: mergeWait } : {}),
-        ...(unsettled.length ? { unsettledDecisions: unsettled } : {}),
+        // A completed cycle can be reviewed again; its preparation still shows.
+        ...(this.isTransitioning(c.id) ? { scopeReviewWait: PREPARING_RECOVERY } : {}),
+        actions: [],
       };
-    });
+    const wait = this.isTransitioning(c.id)
+      ? PREPARING_RECOVERY
+      : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
+    const mergeWait = scopeMergeWait(tx, c);
+    const unsettled = unsettledDecisionsAt(tx, c);
+    const currentRun = tx.execution.runs.find(c.workspaceId, c.currentRunId);
+    const turn =
+      currentRun &&
+      tx.execution.runEvents.latestOfKind(c.workspaceId, currentRun.id, 'turn-completed');
+    // The browser offers what the daemon would accept: the same rule, with the tree's
+    // newest run, which a resume adopts.
+    const actions = cycleActions(
+      { ...c, ...(unsettled.length ? { unsettledDecisions: unsettled } : {}) },
+      tx.execution.runs.listForWorktree(c.workspaceId, c.worktreeId)[0]?.id,
+    );
+    const routes =
+      c.status === 'needs-attention' &&
+      c.executionScope?.kind === 'slice' &&
+      turn?.kind === 'turn-completed'
+        ? operatorQuestionRoutes(tx, c, turn.payload.resultText)
+        : [];
+
+    return {
+      ...c,
+      nextAgentSelections: agentSelections(effectiveCycleProfiles(tx, c)),
+      ...(routes.length
+        ? { workflow: { ...(c.workflow ?? { reassessments: 0 }), questions: routes } }
+        : {}),
+      ...(wait ? { scopeReviewWait: wait } : {}),
+      ...(mergeWait ? { mergeRequirementsWait: mergeWait } : {}),
+      ...(unsettled.length ? { unsettledDecisions: unsettled } : {}),
+      actions,
+    };
   }
 
   previewScopeRepair(context: CommandContext, workspaceId: WorkspaceId, id: string) {

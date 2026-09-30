@@ -16,7 +16,6 @@ import {
   CYCLE_STEPS,
   type CycleProfiles,
   cycleProfilesFromDefaults,
-  cycleActions,
   DEFAULT_COMPLETION_POLICY,
   effectiveCycleAttention,
   remediationAllowance,
@@ -138,15 +137,6 @@ export function CyclePanel({
   const unavailable = CYCLE_STEPS.some(
     (step) => !backends.find((backend) => backend.kind === choices[step].backend)?.available,
   );
-  // The worktree's newest run: a manual run newer than the cycle's can be adopted by Resume.
-  const latestTreeRun = active
-    ? runs
-        .filter((run) => run.worktreeId === active.worktreeId)
-        .reduce<(typeof runs)[number] | undefined>(
-          (latest, run) => (!latest || run.createdAt > latest.createdAt ? run : latest),
-          undefined,
-        )
-    : undefined;
   const liveRun = runs.some(
     (run) => run.worktreeId === selected && ['starting', 'running', 'waiting'].includes(run.status),
   );
@@ -163,8 +153,7 @@ export function CyclePanel({
   const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
   // A stop that waits on shared decisions is answered there, not with guidance (LIVE-18).
   const openDecisions =
-    active !== undefined &&
-    cycleActions(active, latestTreeRun?.id).includes('open-shared-decisions');
+    active !== undefined && (active.actions ?? []).includes('open-shared-decisions');
   const guidedRecovery =
     active &&
     !readOnly &&
@@ -174,7 +163,7 @@ export function CyclePanel({
     ['paused', 'needs-attention'].includes(active.status) &&
     (!!active.workflow?.questions.length ||
       stop === 'remediation-stalled' ||
-      cycleActions(active, latestTreeRun?.id).includes('continue-with-guidance'));
+      (active.actions ?? []).includes('continue-with-guidance'));
   const attention =
     active !== undefined &&
     !active.scopeReviewWait &&
@@ -271,7 +260,7 @@ export function CyclePanel({
                 Open shared decisions ({active.unsettledDecisions?.length})
               </Link>
             )}
-            {cycleActions(active, latestTreeRun?.id).includes('pause') && (
+            {(active.actions ?? []).includes('pause') && (
               <button
                 type="button"
                 className="secondary-button"
@@ -281,7 +270,7 @@ export function CyclePanel({
                 Pause automation
               </button>
             )}
-            {cycleActions(active, latestTreeRun?.id).includes('resume') &&
+            {(active.actions ?? []).includes('resume') &&
               !exhaustedReview &&
               !guidedRecovery &&
               !(readOnly && renderReviewRecovery) &&
@@ -300,7 +289,7 @@ export function CyclePanel({
                   Resume automation
                 </button>
               )}
-            {cycleActions(active, latestTreeRun?.id).includes('stop') && (
+            {(active.actions ?? []).includes('stop') && (
               <button
                 type="button"
                 className="secondary-button danger"

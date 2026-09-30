@@ -1089,6 +1089,8 @@ describe('automated cycle controls', () => {
       stalledReviews: 0,
       reason: 'Operator approval required for EXO-ADR-022, EXO-ADR-030.',
       attention: { code: 'shared-decision-required', owner: 'operator' },
+      // The daemon's actions for a stop that waits on unsettled decisions (R-A6).
+      actions: ['open-shared-decisions', 'stop'],
       executionScope: {
         kind: 'slice',
         definitionId: 'd0000000-0000-4000-8000-000000000001',
@@ -1199,6 +1201,7 @@ describe('automated cycle controls', () => {
       remediationRounds: 1,
       stalledReviews: 0,
       reason: 'Operator merge approval required.',
+      actions: ['pause', 'stop'],
     };
     const view = render(
       <CyclePanel
@@ -1228,6 +1231,7 @@ describe('automated cycle controls', () => {
       remediationRounds: 4,
       additionalRemediationRounds: 1,
       reason: 'Remediation limit reached. One major finding remains.',
+      actions: ['resume', 'stop'] as const,
     };
     const recoveryProps = {
       cycles: [exhausted],
@@ -1278,6 +1282,7 @@ describe('automated cycle controls', () => {
             status: 'paused',
             reason:
               'Automation paused by operator. The current session remains available for manual work.',
+            actions: ['resume', 'stop'],
           },
         ]}
         runs={[run({ status: 'finished', role: 'review', verdict: 'mergeable' })]}
@@ -1293,6 +1298,7 @@ describe('automated cycle controls', () => {
     const stalled = {
       ...cycle,
       status: 'needs-attention' as const,
+      actions: ['resume', 'stop'] as const,
       remediationRounds: 5,
       additionalRemediationRounds: 4,
       reason:
@@ -1340,6 +1346,7 @@ describe('automated cycle controls', () => {
             step: 'implement' as const,
             reason: 'Workflow report needs correction.',
             attention: { code: 'workflow-report-invalid', owner: 'operator' },
+            actions: ['continue-with-guidance', 'stop'],
           },
         ]}
         runs={[run({ status: 'finished', role: 'implement' })]}
@@ -1381,10 +1388,11 @@ describe('automated cycle controls', () => {
         executionScope: scope,
         status: 'needs-attention' as const,
         reason: 'Review needs operator guidance.',
+        actions: ['resume', 'stop'] as const,
       };
       const reviewView = render(
         <CyclePanel
-          cycles={[{ ...cycle, status: 'completed' }, reviewCycle]}
+          cycles={[{ ...cycle, status: 'completed', actions: [] }, reviewCycle]}
           worktrees={[worktree, reviewTree]}
           runs={[]}
           backends={backends}
@@ -1408,7 +1416,7 @@ describe('automated cycle controls', () => {
       expect(onControl).toHaveBeenLastCalledWith(reviewCycle, 'stop');
       reviewView.rerender(
         <CyclePanel
-          cycles={[{ ...reviewCycle, status: 'completed' }]}
+          cycles={[{ ...reviewCycle, status: 'completed', actions: [] }]}
           worktrees={[reviewTree]}
           runs={[]}
           backends={backends}

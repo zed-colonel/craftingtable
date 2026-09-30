@@ -39,6 +39,8 @@ itNeedsCargo.each([
   'ambiguous',
   // The allowance counts only since the last passing parent review (LIVE-28).
   'passing-after-exhausted',
+  // A review that keeps passing with a fresh minor finding stops at the lifetime ceiling.
+  'passing-forever',
 ] as const)('bounded roadmap scope recovery: %s', { timeout: 45000 }, async (outcome) => {
   const f = await supervisedMapFixture(false, 'automatic', false, false, outcome !== 'ambiguous');
   const { state } = f,
@@ -84,7 +86,9 @@ itNeedsCargo.each([
         (outcome.startsWith('accepted') || outcome === 'passing-after-exhausted') &&
         parentReviews >= 3;
       // The second parent review passes its exit gate with one minor finding left.
-      const passing = outcome === 'passing-after-exhausted' && parentReviews === 2;
+      const passing =
+        (outcome === 'passing-after-exhausted' && parentReviews === 2) ||
+        (outcome === 'passing-forever' && parentReviews >= 2);
       return {
         resultText: reportWith(
           scope,
@@ -146,7 +150,11 @@ itNeedsCargo.each([
   const input = {
     expectedVersion: prior.version,
     enabled: true,
-    maxRoundsPerParent: ['exhausted', 'passing-after-exhausted'].includes(outcome) ? 1 : 3,
+    maxRoundsPerParent: ['exhausted', 'passing-after-exhausted', 'passing-forever'].includes(
+      outcome,
+    )
+      ? 1
+      : 3,
   };
   expect(
     (
@@ -247,19 +255,30 @@ itNeedsCargo.each([
                 ? 'same substantive findings'
                 : outcome === 'exhausted'
                   ? 'allowance exhausted'
-                  : outcome === 'stalled'
-                    ? 'without progress'
-                    : 'ambiguous',
+                  : outcome === 'passing-forever'
+                    ? 'lifetime ceiling'
+                    : outcome === 'stalled'
+                      ? 'without progress'
+                      : 'ambiguous',
           ),
         ),
       'bounded recovery stopping reason',
       outcome === 'stalled' ? 35000 : 22000,
     );
-    expect(repairs).toBe(outcome === 'ambiguous' ? 0 : outcome === 'stalled' ? 2 : 1);
+    expect(repairs).toBe(
+      outcome === 'ambiguous'
+        ? 0
+        : outcome === 'stalled'
+          ? 2
+          : outcome === 'passing-forever'
+            ? 3
+            : 1,
+    );
     // Automatic recovery that stops converging is one typed escalation with its progress
     // (R-C5 increment 4); other refusals keep their own stop.
     const [heldEntryId, hold] = Object.entries(storedRoadmap(state).entryHolds ?? {})[0]!;
-    if (['unchanged', 'stalled', 'exhausted'].includes(outcome)) {
+    if (outcome === 'passing-forever') expect(hold.attention?.code).toBe('recovery-not-converging');
+    else if (['unchanged', 'stalled', 'exhausted'].includes(outcome)) {
       expect(hold.attention?.code).toBe('recovery-not-converging');
       expect(hold.reason).toContain('F003 (major)');
       // One inbox item: the stopped review's own, saying why recovery stopped (increment 5).

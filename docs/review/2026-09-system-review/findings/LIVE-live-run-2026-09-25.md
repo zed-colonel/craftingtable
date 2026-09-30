@@ -344,7 +344,7 @@ The operator deployed fccce06 at 06:48 UTC; the roadmap came up running. The ope
 ### LIVE-20: Automatic recovery holds a parent review whose finding it cannot assign, and nothing says why
 - Severity: low
 - Category: automatic recovery ([R-C5](../register.md#r-c5)); one reason per stop ([R-C14](../register.md#r-c14))
-- Status: CONFIRMED 2026-09-29 from the 2026-09-29 snapshot. Not fixed. It has a working exit: Delegate source fixes on the review's inbox item, where the operator chooses the owning slice.
+- Status: CONFIRMED 2026-09-29 from the 2026-09-29 snapshot. FIXED 2026-09-30 on `remediation/p2`, not deployed: the stopped review's item, and so the status list, carries the hold's reason. It always had a working exit: Delegate source fixes on the review's inbox item, where the operator chooses the owning slice. See [R-C5](../register.md#r-c5).
 - Replay case: the 2026-09-29 snapshot, entry 1926f0d1 (wi/WI-03, parent acceptance), cycle a1f7972e. The snapshot's roadmap is paused, so the stored scheduler golden records `roadmap-paused`. On a copy with the roadmap set to running, one scheduler pass keeps the stored hold (`existing-hold`, `entry-preparation-failed`, "Finding ownership is ambiguous: more than one slice could own it."), and with the hold removed it derives the same hold again (`new-hold`). Either way the status list gives the entry's wait as the review's `scope-review-recovery` item.
 - Evidence:
   - WI-03's parent review 254ad81c (12:30 to 12:46 UTC) requested changes for one major finding, WI03P-F001: an expired pending delivery exhausted 100 AQ retries and then received a second retained signal.

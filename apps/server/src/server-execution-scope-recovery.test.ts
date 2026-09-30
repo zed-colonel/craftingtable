@@ -286,7 +286,19 @@ itNeedsCargo.each([
       expect((await entryControl('pause')).statusCode).toBe(200);
       const afterPause = await entryControl('resume');
       expect(afterPause.statusCode, afterPause.body).toBe(409);
-    } else expect(hold.attention?.code).not.toBe('recovery-not-converging');
+    } else {
+      expect(hold.attention?.code).not.toBe('recovery-not-converging');
+      // The stopped review's own item replaces the hold's in the inbox, so it carries the
+      // hold's reason, and the status list names it too (LIVE-20).
+      state.context.services.roadmapService.syncAttention(true);
+      const review = storedRoadmap(state).attempts.find((a) => a.entryId === heldEntryId)!;
+      const item = tx.attention.open(ws).find((i) => i.subjectKey === `cycle:${review.cycleId}`);
+      expect(item?.message).toContain(hold.reason);
+      const status = state.context.services.roadmapService
+        .statusOf(storedRoadmap(state))
+        .entries.find((e) => e.entryId === heldEntryId);
+      expect(status?.waitsOn?.reason).toContain(hold.reason);
+    }
     expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
   }
   const rounds = storedRoadmap(state).attempts.filter((a) => a.recovery);

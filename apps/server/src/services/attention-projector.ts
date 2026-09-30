@@ -703,6 +703,13 @@ export class AttentionProjector implements WriteObserver {
         hold?.status === 'needs-attention' && hold.attention?.code === 'recovery-not-converging'
           ? hold
           : undefined;
+      // Any other hold the roadmap records on this entry has no item of its own while this one
+      // is open (`projectUnit`), so this item says why the roadmap holds it (LIVE-20): an
+      // automatic recovery that declined, say, because no single slice owns the finding.
+      const held =
+        !escalated && hold?.status === 'needs-attention' && hold.reason !== cycle.reason
+          ? `\nThe roadmap holds this item: ${hold.reason}`
+          : '';
       const kind =
         cycle.status === 'awaiting-merge' &&
         !requirements &&
@@ -717,9 +724,9 @@ export class AttentionProjector implements WriteObserver {
         message: body(
           escalated
             ? escalated.reason
-            : requirements && attention.detail
-              ? attention.detail
-              : `${cycle.step}: ${cycle.reason}`,
+            : (requirements && attention.detail
+                ? attention.detail
+                : `${cycle.step}: ${cycle.reason}`) + held,
         ),
         path:
           !escalated && attention.code === 'upstream-pin-moved'

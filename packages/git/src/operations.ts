@@ -165,6 +165,8 @@ export interface GitOperations {
     commitSha: string,
     paths: readonly string[],
   ): Promise<GitResult<ReadonlyMap<string, CommitFile>>>;
+  /** Every path an exact commit tracks, names only. */
+  listCommitPaths(repositoryPath: string, commitSha: string): Promise<GitResult<readonly string[]>>;
   previewIntegration(
     input: IntegrationMergeContext,
   ): Promise<GitResult<{ paths: readonly string[]; diagnostics: string }>>;
@@ -1993,6 +1995,25 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: commit.value.stdout.toString('utf8').trim() };
   }
 
+  /** Every path an exact commit tracks (R-G13 posture review): names only, no contents. */
+  async function listCommitPaths(
+    repositoryPath: string,
+    commitSha: string,
+  ): Promise<GitResult<readonly string[]>> {
+    if (!/^[a-f0-9]{40,64}$/.test(commitSha))
+      return fail('invalid-path', 'Listing files requires an exact commit.');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const listing = await run(
+      ['ls-tree', '-rz', '--name-only', '--full-tree', commitSha],
+      repo.value,
+      undefined,
+      64 * 1024 * 1024,
+    );
+    if (!listing.ok) return listing;
+    if (listing.value.exitCode !== 0) return fail('git-failed', 'Could not list the commit.');
+    return { ok: true, value: splitNul(listing.value.stdout) };
+  }
   async function readCommitFiles(
     repositoryPath: string,
     commitSha: string,
@@ -2098,6 +2119,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     exportCommit,
     exactBranchCommit,
     readCommitFiles,
+    listCommitPaths,
     previewIntegration,
     prepareIntegrationResolution,
     inspectIntegrationResolution,

@@ -49,15 +49,11 @@ export interface ManifestDeclaredChecks {
 
 /**
  * Files Cargo reads to choose a check's toolchain and configuration (R-G13, operator decision
- * 2026-09-30): an adopted check that runs Cargo must name each one its commit has as a
- * definition file, so an edit stops as `check-definition-changed`.
+ * 2026-09-30, and its reviews): a Cargo configuration (legacy or not) or a toolchain file, at any
+ * depth, or a `.cargo` that is itself a file or link. Every adopted check must name each one its
+ * commit tracks as a definition file, and a check's tree may hold no other.
  */
-export const CARGO_DEFINITION_FILES = [
-  '.cargo/config.toml',
-  '.cargo/config',
-  'rust-toolchain.toml',
-  'rust-toolchain',
-] as const;
+export const CARGO_FILE_PATTERN = /(^|\/)(\.cargo(\/config(\.toml)?)?|rust-toolchain(\.toml)?)$/;
 
 /** Whether an adopted argv runs Cargo: as its program, or named in a shell string it runs. */
 export function argvRunsCargo(argv: readonly string[]): boolean {

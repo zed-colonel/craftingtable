@@ -26,7 +26,7 @@ import {
 } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
-import { argvRunsCargo } from '@craftingtable/domain';
+import { argvRunsCargo, CARGO_FILE_PATTERN } from '@craftingtable/domain';
 import type { PinnedCargoManifest } from './pinned-cargo.js';
 
 // Generated launchers also run directly from TypeScript in adapter tests.
@@ -1295,11 +1295,7 @@ async function assertCargoFilesAdopted(
   const unadopted = (await daemonGit(m, ['ls-files', '-z', '--cached'], tree, 64 * 1024 * 1024))
     .toString('utf8')
     .split('\0')
-    .filter(
-      (path) =>
-        /(^|\/)(\.cargo(\/config(\.toml)?)?|rust-toolchain(\.toml)?)$/.test(path) &&
-        !definitionPaths.includes(path),
-    );
+    .filter((path) => CARGO_FILE_PATTERN.test(path) && !definitionPaths.includes(path));
   if (unadopted.length)
     throw new Error(
       `${unadopted.map((path) => `${path} is not a definition file of this check`).join('; ')}. Cargo reads it to choose its toolchain and configuration; adopt the checks with it, or remove it.`,
@@ -2094,6 +2090,11 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         snapshot = join(e.privateDirectory, 'tree');
         await cloneReviewedCommit(m, before.headSha, snapshot);
         assertManifestWithin(snapshot, e.args);
+        // The host only: another target brings the tree's runner and linker for it.
+        if (e.args.some((arg) => arg === '--target' || arg.startsWith('--target=')))
+          throw new Error(
+            'A pinned build of the reviewed commit builds for the host; --target is refused.',
+          );
         pinnedSources = join(e.privateDirectory, 'pinned');
         const sources = await clonePinnedSources(m, pinnedSources, remainingTime);
         built = {

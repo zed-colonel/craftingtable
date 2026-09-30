@@ -389,6 +389,12 @@ it("refuses any check that does not name the commit's Cargo configuration and to
   mkdirSync(join(f.root, '.cargo'));
   writeFileSync(join(f.root, '.cargo/config.toml'), '[build]\njobs = 8\n');
   writeFileSync(join(f.root, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.89.0"\n');
+  // A nested one, as WorldInterface's fixtures track: the check runner reads every depth.
+  mkdirSync(join(f.root, 'fixtures/old'), { recursive: true });
+  writeFileSync(
+    join(f.root, 'fixtures/old/rust-toolchain.toml'),
+    '[toolchain]\nchannel = "1.86.0"\n',
+  );
   const write = (checks: object[]) => {
     writeFileSync(join(f.root, CHECK_DECLARATION_PATH), JSON.stringify({ version: 1, checks }));
     git(['add', '--all'], f.root);
@@ -406,23 +412,44 @@ it("refuses any check that does not name the commit's Cargo configuration and to
   ]);
   const refused = await preview();
   // Every check, whatever its command: Cargo may run beneath a script or an interpreter.
-  expect(refused.issues).toEqual([
-    'Check fmt does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
-    'Check wrapped does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
-    'Check wrapped does not name rust-toolchain.toml as a definition file; the commit has it, and Cargo reads it.',
-    'Check python does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
-    'Check python does not name rust-toolchain.toml as a definition file; the commit has it, and Cargo reads it.',
-  ]);
+  const missing = (id: string, paths: string[]) =>
+    paths.map(
+      (path) =>
+        `Check ${id} does not name ${path} as a definition file; the commit has it, and Cargo reads it.`,
+    );
+  expect(refused.issues.toSorted()).toEqual(
+    [
+      ...missing('fmt', ['.cargo/config.toml', 'fixtures/old/rust-toolchain.toml']),
+      ...missing('wrapped', [
+        '.cargo/config.toml',
+        'fixtures/old/rust-toolchain.toml',
+        'rust-toolchain.toml',
+      ]),
+      ...missing('python', [
+        '.cargo/config.toml',
+        'fixtures/old/rust-toolchain.toml',
+        'rust-toolchain.toml',
+      ]),
+    ].toSorted(),
+  );
   write([
     {
       id: 'fmt',
       argv: ['cargo', 'fmt', '--check'],
-      definitionPaths: ['rust-toolchain.toml', '.cargo/config.toml'],
+      definitionPaths: [
+        'rust-toolchain.toml',
+        '.cargo/config.toml',
+        'fixtures/old/rust-toolchain.toml',
+      ],
     },
     {
       id: 'python',
       argv: ['python3', '-B', 'check.py'],
-      definitionPaths: ['rust-toolchain.toml', '.cargo/config.toml'],
+      definitionPaths: [
+        'rust-toolchain.toml',
+        '.cargo/config.toml',
+        'fixtures/old/rust-toolchain.toml',
+      ],
     },
   ]);
   expect((await preview()).issues).toEqual([]);

@@ -5,7 +5,7 @@ import {
 } from '@craftingtable/contracts';
 import {
   asAuditEventId,
-  CARGO_DEFINITION_FILES,
+  CARGO_FILE_PATTERN,
   CHECK_DECLARATION_PATH,
   type DeclaredCheck,
   type RepositoryCheckDeclaration,
@@ -220,7 +220,16 @@ export class RepositoryChecksService {
     const definitionDigests: Record<string, string> = {};
     const definitions: CheckDefinitionFile[] = [];
     const paths = [...new Set(checks.flatMap((c) => c.definitionPaths))];
-    const files = await read([...new Set([...paths, ...CARGO_DEFINITION_FILES])]);
+    // Every Cargo configuration and toolchain file the commit tracks, at any depth: the check
+    // runner refuses a tree holding one its check was not adopted with (R-G13 posture review).
+    const listed = await this.git!.listCommitPaths(repository.rootPath, at);
+    if (!listed.ok)
+      throw new ExecutionRequestError(
+        'unavailable',
+        `${ref} could not be listed: ${listed.failure.message}`,
+      );
+    const cargoFiles = listed.value.filter((path) => CARGO_FILE_PATTERN.test(path));
+    const files = await read(paths);
     if (!files.ok)
       throw new ExecutionRequestError(
         'unavailable',
@@ -240,8 +249,8 @@ export class RepositoryChecksService {
     for (const check of checks) {
       // Cargo reads these to choose its toolchain, wrapper and aliases, and may run beneath any
       // command: every check is held to them (R-G13, operator decision 2026-09-30 and its review).
-      for (const path of CARGO_DEFINITION_FILES)
-        if (files.value.has(path) && !check.definitionPaths.includes(path))
+      for (const path of cargoFiles)
+        if (!check.definitionPaths.includes(path))
           issues.push(
             `Check ${check.id} does not name ${path} as a definition file; the commit has it, and Cargo reads it.`,
           );

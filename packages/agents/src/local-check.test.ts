@@ -1895,7 +1895,9 @@ it.skipIf(!hostCargo).each([
     } else {
       expect(outcome.exitCode).toBe(1);
       expect(outcome.diagnostic).toMatch(
-        planted === 'root' ? /Refusing unpinned up-crate/ : /is not a definition file of this check/,
+        planted === 'root'
+          ? /Refusing unpinned up-crate/
+          : /is not a definition file of this check/,
       );
     }
   },
@@ -2122,6 +2124,62 @@ it.skipIf(!rustupProxy)(
     expect(run.output).not.toContain('FAKE-RUNNER');
     expect(run.output).toContain('the genuine binary ran');
     expect(run.outcome.receipt).toMatchObject({ success: false });
+  },
+  240_000,
+);
+
+it.skipIf(!rustupProxy)(
+  'a pinned build builds for the host whatever target the tree or the agent names (R-G13 posture verification)',
+  async () => {
+    const p = pinnedBuildFixture();
+    writeFileSync(
+      join(p.upstream, 'crate', 'Cargo.toml'),
+      '[package]\nname = "up-crate"\nversion = "0.1.0"\nedition = "2021"\n',
+    );
+    writeFileSync(join(p.upstream, 'crate', 'src', 'lib.rs'), 'pub const WHO: &str = "genuine";\n');
+    p.git(['add', '.'], p.upstream);
+    p.git(
+      ['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'real'],
+      p.upstream,
+    );
+    const pinned = p.git(['rev-parse', 'HEAD'], p.upstream);
+    const ws = p.f.m.workspacePath;
+    writeFileSync(
+      join(ws, 'Cargo.toml'),
+      '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nup-crate = "0.1"\n',
+    );
+    mkdirSync(join(ws, 'src'), { recursive: true });
+    writeFileSync(join(ws, 'src', 'main.rs'), 'fn main() { panic!("the genuine binary ran"); }\n');
+    writeFileSync(join(ws, 'r.sh'), '#!/bin/sh\necho FAKE-RUNNER\n', { mode: 0o755 });
+    mkdirSync(join(ws, '.cargo'), { recursive: true });
+    writeFileSync(
+      join(ws, '.cargo', 'config.toml'),
+      `[build]\ntarget = "wasm32-unknown-unknown"\n[target.wasm32-unknown-unknown]\nrunner = "${join(ws, 'r.sh')}"\n`,
+    );
+    p.git(['add', '.'], ws);
+    p.git(['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'consumer'], ws);
+    const manifest = {
+      ...p.manifest(),
+      cargoExecutable: hostCargo!,
+      dependencySources: [
+        {
+          alias: 'up',
+          commitSha: pinned,
+          gitDirectory: join(p.upstream, '.git'),
+          packages: [{ name: 'up-crate', path: 'crate' }],
+        },
+      ],
+    };
+    const run = await p.build(manifest, ['run', '--offline']);
+    expect(run.output).not.toContain('FAKE-RUNNER');
+    expect(run.output).toContain('the genuine binary ran');
+    const target = await p.build(manifest, [
+      'run',
+      '--offline',
+      '--target',
+      'wasm32-unknown-unknown',
+    ]);
+    expect(target.outcome.diagnostic).toContain('--target is refused');
   },
   240_000,
 );

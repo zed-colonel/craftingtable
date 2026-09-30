@@ -424,7 +424,6 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     cwd: string,
     input?: string,
     limit = outputLimitBytes,
-    environment: Readonly<Record<string, string>> = {},
   ): Promise<CommandResult> {
     return new Promise((resolve) => {
       let settled = false;
@@ -438,7 +437,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       try {
         child = spawn(options.gitExecutable, [...DAEMON_GIT_OPTIONS, ...args], {
           cwd,
-          env: { ...childEnvironment(options.identityConfigPath), ...environment },
+          env: childEnvironment(options.identityConfigPath),
           shell: false,
           detached: true,
           stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
@@ -1880,9 +1879,12 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     try {
       const init = await runOk(['init', '--quiet', '--bare', scratch], scratch);
       if (!init.ok) return init;
-      // By exact commit, reachable or not: the source's upload-pack reads this variable too.
+      // By exact commit, reachable or not: protocol v2 serves any object id (a local
+      // upload-pack is given none of the daemon's configuration, so v0 could not).
       const fetched = await run(
         [
+          '-c',
+          'protocol.version=2',
           'fetch',
           '--quiet',
           '--no-tags',
@@ -1891,13 +1893,6 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
           `${commitSha}:refs/pinned/source`,
         ],
         scratch,
-        undefined,
-        outputLimitBytes,
-        {
-          GIT_CONFIG_COUNT: '1',
-          GIT_CONFIG_KEY_0: 'uploadpack.allowAnySHA1InWant',
-          GIT_CONFIG_VALUE_0: 'true',
-        },
       );
       if (!fetched.ok) return fetched;
       if (fetched.value.exitCode !== 0)

@@ -505,7 +505,10 @@ since R-G13's second increment, a build of a clean worktree compiles a daemon-pr
 committed head against daemon-private, verified checkouts of the pinned upstream commits, into a target
 per commit, in a unit that sees no root agents write (as declared checks do); a build of uncommitted
 work, which no gate accepts, still runs in the worktree. Such a run's current-upstream gate also needs
-every adopted check, run the same way against the pins, so the agent cannot choose the whole gate. Other Cargo commands
+every adopted check, run the same way against the pins, so the agent cannot choose the whole gate: a
+committed Cargo configuration other than the root `.cargo/config.toml` is refused, and each manifest
+the check names must take every pinned crate from the daemon's checkouts. Finalization runs are not
+held to adopted checks yet, so their current-upstream gate is still a pinned build the agent chooses. Other Cargo commands
 still run in the agent's tree and record nothing. A daemon-recorded run's build record therefore reads
 no file the agent can write, and the daemon runs every check from the manifest text it verified at
 launch, never the published copy. Claude runs have no OS sandbox, so for them the database itself stays

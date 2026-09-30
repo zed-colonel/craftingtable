@@ -1111,7 +1111,6 @@ function daemonGit(
   cwd: string,
   limit = 1024 * 1024,
   timeoutMs = 120_000,
-  environment: Readonly<Record<string, string>> = {},
 ): Promise<Buffer> {
   return new Promise((resolveResult, reject) =>
     execFile(
@@ -1122,7 +1121,7 @@ function daemonGit(
         encoding: 'buffer',
         timeout: Math.max(1, Math.min(120_000, timeoutMs)),
         maxBuffer: limit,
-        env: { ...daemonGitEnvironment(), ...environment },
+        env: daemonGitEnvironment(),
       },
       (error, stdout) => (error ? reject(error) : resolveResult(stdout)),
     ),
@@ -1181,9 +1180,13 @@ async function clonePinnedSources(
       throw new Error(`The pinned ${source.alias} commit could not be read.`);
     try {
       await daemonGit(m, ['init', '--quiet', root], into, undefined, within());
+      // By exact commit, reachable or not: protocol v2 serves any object id (a local
+      // upload-pack is given none of the daemon's configuration, so v0 could not).
       await daemonGit(
         m,
         [
+          '-c',
+          'protocol.version=2',
           'fetch',
           '--quiet',
           '--no-tags',
@@ -1194,12 +1197,6 @@ async function clonePinnedSources(
         root,
         undefined,
         within(),
-        // By exact commit, reachable or not: the upstream's upload-pack reads this too.
-        {
-          GIT_CONFIG_COUNT: '1',
-          GIT_CONFIG_KEY_0: 'uploadpack.allowAnySHA1InWant',
-          GIT_CONFIG_VALUE_0: 'true',
-        },
       );
       await daemonGit(
         m,
@@ -1236,6 +1233,74 @@ async function clonePinnedSources(
     { mode: 0o400 },
   );
   return { packages, configPath };
+}
+
+/** Refuses a pinned build whose `--manifest-path` leaves its private clone (R-G13 review). */
+function assertManifestWithin(root: string, args: readonly string[]): void {
+  args.forEach((arg, index) => {
+    const value = arg.startsWith('--manifest-path=')
+      ? arg.slice('--manifest-path='.length)
+      : arg === '--manifest-path'
+        ? args[index + 1]
+        : undefined;
+    if (value === undefined) return;
+    const r = relative(root, resolve(root, value));
+    if (r.startsWith('..') || isAbsolute(r))
+      throw new Error(`The build names a manifest outside the reviewed commit: ${value}.`);
+  });
+}
+
+/**
+ * Refuses an adopted check of a current-upstream run whose Cargo graph could resolve a pinned
+ * crate from anywhere but the daemon's private checkouts (R-G13 increment 2 review). The tree's
+ * own Cargo configuration outranks the daemon's overlay, so a committed legacy `.cargo/config`,
+ * or one below the root (which a check that changes directory would read), is refused outright;
+ * and each manifest the check names (its `--manifest-path`, or the root's when it runs Cargo)
+ * is resolved as Cargo will build it, overlay and tree configuration included, and must take
+ * every pinned crate it uses from the private checkouts.
+ */
+async function assertChecksResolvePins(
+  m: PinnedCargoManifest,
+  argv: readonly string[],
+  metadata: (
+    manifestPath: string,
+  ) => Promise<{ code: number | null; stdout: string; stderr: string }>,
+): Promise<void> {
+  const configs = (
+    await daemonGit(m, ['ls-files', '-z', '--cached'], m.workspacePath, 64 * 1024 * 1024)
+  )
+    .toString('utf8')
+    .split('\0')
+    .filter((p) => /(^|\/)\.cargo\/config(\.toml)?$/.test(p) && p !== '.cargo/config.toml');
+  if (configs.length)
+    throw new Error(
+      `A current-upstream check cannot build with Cargo configuration other than the root .cargo/config.toml: ${configs.join(', ')}.`,
+    );
+  const named = argv.flatMap((token, index) => [
+    ...[...token.matchAll(/--manifest-path[= ]+([^\s'"]+)/g)].map((match) => match[1]!),
+    ...(token === '--manifest-path' && argv[index + 1] ? [argv[index + 1]!] : []),
+  ]);
+  const cargo = argv.some((token) => /(^|[\s/])cargo(\s|$)/.test(token));
+  const manifests = [
+    ...new Set([
+      ...named,
+      ...(cargo && !named.length && existsSync(join(m.workspacePath, 'Cargo.toml'))
+        ? ['Cargo.toml']
+        : []),
+    ]),
+  ];
+  for (const manifest of manifests) {
+    const path = resolve(m.workspacePath, manifest);
+    const r = relative(m.workspacePath, path);
+    if (r.startsWith('..') || isAbsolute(r))
+      throw new Error(`The check names a manifest outside its clone: ${manifest}.`);
+    const graph = await metadata(path);
+    if (graph.code !== 0)
+      throw new Error(
+        `The check's Cargo graph for ${manifest} could not be resolved against the pins.\n${graph.stderr}`,
+      );
+    pinnedResolvedPackages(m, graph.stdout);
+  }
 }
 
 /**
@@ -1836,6 +1901,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       if (m.dependencySources && before.clean) {
         snapshot = join(e.privateDirectory, 'tree');
         await cloneReviewedCommit(m, before.headSha, snapshot);
+        assertManifestWithin(snapshot, e.args);
         pinnedSources = join(e.privateDirectory, 'pinned');
         const sources = await clonePinnedSources(m, pinnedSources, remainingTime);
         built = {
@@ -1958,6 +2024,43 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           snapshot,
           [pinnedSources, pinsOverlay],
           m.dependencySources.map((source) => source.gitDirectory),
+        );
+        // Resolved as the check will: locked when it is, so a stale lock is not rewritten first.
+        const locked = declared.argv.some((token) => /--(locked|frozen)\b/.test(token));
+        const metadataArguments = (manifestPath: string) => [
+          'metadata',
+          '--format-version',
+          '1',
+          ...(locked ? ['--locked'] : []),
+          '--manifest-path',
+          manifestPath,
+        ];
+        await assertChecksResolvePins(
+          { ...m, workspacePath: snapshot, packages: sources.packages },
+          declared.argv,
+          (manifestPath) =>
+            captureCheck(
+              e.confinement === 'systemd' ? 'systemd-run' : m!.cargoExecutable,
+              e.confinement === 'systemd'
+                ? confinedCheckArguments(
+                    `${e.unitName}-metadata`,
+                    snapshot!,
+                    330,
+                    writable,
+                    environment,
+                    [m!.cargoExecutable, ...metadataArguments(manifestPath)],
+                    false,
+                    [],
+                    inaccessible,
+                    hidden,
+                  )
+                : metadataArguments(manifestPath),
+              {
+                cwd: snapshot!,
+                env: e.confinement === 'systemd' ? userBusEnvironment() : environment,
+                timeoutMs: Math.min(300000, remainingTime()),
+              },
+            ),
         );
       } else confineToClone(snapshot);
     }

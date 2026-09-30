@@ -39,7 +39,14 @@ import { assertFinalizationMap, providerBranch } from './map-finalization-policy
 import { randomUUID } from 'node:crypto';
 import { homedir, hostname, platform, release, arch } from 'node:os';
 import { dirname, join } from 'node:path';
-import { mkdirSync, readFileSync, writeFileSync, statSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+  statSync,
+  existsSync,
+} from 'node:fs';
 import {
   auditNativeEnvironment,
   cargoManifestDigest as hash,
@@ -115,6 +122,20 @@ import {
 } from './runtime-evidence-policy.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
+/**
+ * The Git directory a pinned upstream is fetched from and hidden from check units: the
+ * repository's own `.git` when it is a directory, never where a `commondir` file in it points,
+ * which an agent that writes the store could set (R-G13 increment 2 review).
+ */
+export function upstreamGitDirectory(gitExecutable: string, rootPath: string): string {
+  const own = join(rootPath, '.git');
+  try {
+    if (statSync(own).isDirectory()) return realpathSync(own);
+  } catch {
+    // A linked worktree or a bare repository: Git's own answer.
+  }
+  return resolveGitDirectories(gitExecutable, rootPath).gitCommonDirectory;
+}
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
@@ -2440,7 +2461,7 @@ export class RuntimeEvidenceService {
       dependencyIdentities,
       dependencySources: sources.map(({ rootPath, ...source }) => ({
         ...source,
-        gitDirectory: resolveGitDirectories(gitExecutable, rootPath).gitCommonDirectory,
+        gitDirectory: upstreamGitDirectory(gitExecutable, rootPath),
       })),
       ...(forbiddenPackages.length ? { forbiddenPackages } : {}),
       ...(historical && dependencyIdentities.some((d) => d.purpose === 'historical-development')

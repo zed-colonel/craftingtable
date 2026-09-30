@@ -1565,7 +1565,7 @@ else {
       },
     ],
   });
-  const build = async (m: PinnedCargoManifest) => {
+  const build = async (m: PinnedCargoManifest, args = ['test', '--offline']) => {
     const launcher = f.launch(m);
     let output = '';
     const outcome = await executeCheck({
@@ -1573,7 +1573,7 @@ else {
       manifestPath: launcher.manifestPath,
       manifestDigest: launcher.manifestDigest,
       manifest: launcher.manifest,
-      args: ['test', '--offline'],
+      args,
       logPath: join(f.root, 'daemon-logs', `${randomUUID()}.log`),
       logReference: 'check-logs/run/cargo.log',
       privateDirectory: join(f.root, 'check-logs', 'run', 'daemon.private'),
@@ -1640,6 +1640,13 @@ it('fails a pinned build whose upstream commit does not hold the pinned tree, or
     })),
   });
   expect(escaping.outcome.diagnostic).toContain('outside its source');
+  // Nor may the build name a manifest outside the reviewed commit, such as the live worktree's.
+  const live = await p.build(p.manifest(), [
+    'test',
+    '--manifest-path',
+    join(p.f.m.workspacePath, 'Cargo.toml'),
+  ]);
+  expect(live.outcome.diagnostic).toContain('outside the reviewed commit');
   const blob = p.git(['rev-parse', `${p.pinned}:crate/src/lib.rs`], p.upstream);
   const object = join(p.upstream, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
   chmodSync(object, 0o644);
@@ -1769,4 +1776,102 @@ it.each(overlayCases)(
     expect(existsSync(join(privateDirectory, '.cargo'))).toBe(false);
     expect(existsSync(join(privateDirectory, 'pinned'))).toBe(false);
   },
+);
+
+it.skipIf(!hostCargo).each([
+  ['a legacy .cargo/config', 'legacy'],
+  ['a patch in the root .cargo/config.toml', 'root'],
+  ['no patch of its own', 'none'],
+] as const)(
+  "a current-upstream gate's adopted check that could build a vendored pin is refused: %s (R-G13 increment 2 review)",
+  async (_label, planted) => {
+    const p = pinnedBuildFixture();
+    // A real crate upstream and a consumer that prints which copy it built.
+    writeFileSync(
+      join(p.upstream, 'crate', 'Cargo.toml'),
+      '[package]\nname = "up-crate"\nversion = "0.1.0"\nedition = "2021"\n',
+    );
+    writeFileSync(join(p.upstream, 'crate', 'src', 'lib.rs'), 'pub const WHO: &str = "genuine";\n');
+    p.git(['add', '.'], p.upstream);
+    p.git(
+      ['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'real'],
+      p.upstream,
+    );
+    const pinned = p.git(['rev-parse', 'HEAD'], p.upstream);
+    const ws = p.f.m.workspacePath;
+    writeFileSync(
+      join(ws, 'Cargo.toml'),
+      '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nup-crate = "0.1"\n',
+    );
+    mkdirSync(join(ws, 'src'), { recursive: true });
+    writeFileSync(join(ws, 'src', 'main.rs'), 'fn main() { println!("WHO={}", up_crate::WHO); }\n');
+    mkdirSync(join(ws, 'vendor', 'up-crate', 'src'), { recursive: true });
+    writeFileSync(
+      join(ws, 'vendor', 'up-crate', 'Cargo.toml'),
+      '[package]\nname = "up-crate"\nversion = "0.1.0"\nedition = "2021"\n',
+    );
+    writeFileSync(
+      join(ws, 'vendor', 'up-crate', 'src', 'lib.rs'),
+      'pub const WHO: &str = "planted";\n',
+    );
+    mkdirSync(join(ws, '.cargo'), { recursive: true });
+    const patch = '[patch.crates-io]\nup-crate = { path = "vendor/up-crate" }\n';
+    writeFileSync(join(ws, '.cargo', 'config.toml'), planted === 'root' ? patch : '# adopted\n');
+    if (planted === 'legacy') writeFileSync(join(ws, '.cargo', 'config'), patch);
+    p.git(['add', '.'], ws);
+    p.git(['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'consumer'], ws);
+    const launcher = p.f.launch({
+      ...p.manifest(),
+      cargoExecutable: hostCargo!,
+      dependencySources: [
+        {
+          alias: 'up',
+          commitSha: pinned,
+          gitDirectory: join(p.upstream, '.git'),
+          packages: [{ name: 'up-crate', path: 'crate' }],
+        },
+      ],
+      declaredChecks: {
+        declarationId: randomUUID(),
+        version: 1,
+        checks: [
+          {
+            id: 'run',
+            argv: ['cargo', 'run', '--offline', '-q'],
+            definitionPaths: ['.cargo/config.toml'],
+            definitionDigests: {},
+          },
+        ],
+      },
+    });
+    let output = '';
+    const outcome = await executeCheck({
+      tool: 'ct-check',
+      manifestPath: launcher.manifestPath,
+      manifestDigest: launcher.manifestDigest,
+      manifest: launcher.manifest,
+      args: ['--declared', 'run'],
+      logPath: join(p.f.root, 'daemon-logs', 'vendored.log'),
+      logReference: 'check-logs/run/vendored.log',
+      privateDirectory: join(p.f.root, 'check-logs', 'run', 'vendored.private'),
+      declaredTargetDirectory: join(p.f.root, 'check-logs', 'run', 'declared-target'),
+      confinement: 'none',
+      unitName: 'unused',
+      writablePaths: [ws],
+      environment: { PATH: process.env.PATH ?? '/usr/bin', HOME: homedir() },
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+    });
+    expect(output).not.toContain('WHO=planted');
+    if (planted === 'none') {
+      expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+      expect(output).toContain('WHO=genuine');
+    } else {
+      expect(outcome.exitCode).toBe(1);
+      expect(outcome.diagnostic).toMatch(
+        planted === 'legacy' ? /Cargo configuration other than/ : /Refusing unpinned up-crate/,
+      );
+    }
+  },
+  120_000,
 );

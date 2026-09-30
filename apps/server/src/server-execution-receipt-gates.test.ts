@@ -154,8 +154,13 @@ itNeedsCargo(
     expect(prompt).toContain(`${bin}/ct-check --declared lint`);
     // Daemon-run builds use their own build directory; CARGO_TARGET_DIR is the agent's (LIVE-26).
     expect(prompt).toContain(
-      'Builds and checks CraftingTable runs for you (the Cargo launcher, ct-check, ct-native) use a build directory CraftingTable chooses',
+      "Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses, and the launcher's other Cargo commands use the manifest's (the run’s scratch/target)",
     );
+    // The earlier section says the same, so the two do not contradict each other.
+    if (prompt.includes('this worktree’s build cache'))
+      expect(prompt).toContain(
+        'The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead',
+      );
     // A reviewer runs them read-only on the reviewed head, and is not told to commit.
     expect(prompt).toContain("this review's gate needs a successful run of EACH");
     expect(prompt).not.toContain('After committing');

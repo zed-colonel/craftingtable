@@ -279,6 +279,9 @@ itNeedsCargo.each([
     expect(preview.statusCode, preview.body).toBe(200);
     const issues = checkpointRecoverySchema.parse(preview.json()).candidates[0]!.issues;
     expect(issues.some((i) => i.startsWith(issue))).toBe(true);
+    // The review gate holds a run to its adopted checks even with no pinned upstream to build.
+    if (only === 'cargo')
+      expect(() => f.svc.assertRun(f.tree, f.run!)).toThrow('ct-check --declared fixture');
   },
 );
 itNeedsCargo(

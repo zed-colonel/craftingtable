@@ -15,6 +15,7 @@ import {
   finalizationCycle,
   finalizationReply,
   git,
+  implementsFinalization,
   itNeedsCargo,
   mapCommand,
   merge,
@@ -23,6 +24,7 @@ import {
   roadmapControl,
   roadmapId,
   roadmapInput,
+  runLauncher,
   scopeReport,
   scopeTree,
   stagedInput,
@@ -455,7 +457,11 @@ itNeedsCargo(
     await roadmapControl(state, 'pause');
     expect(service.finalization(f.auth, ws, roadmapId).projects[0]?.status).toBe('ready');
     f.backend.onLaunch = undefined;
-    f.backend.replyForRequest = finalizationReply;
+    f.backend.replyForRequest = async (request) => {
+      if (request.buildEnvironment && !implementsFinalization(request))
+        await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
+      return finalizationReply(request);
+    };
     const before = git(['rev-parse', 'main'], f.root),
       started = await state.context.services.finalizationService.start(
         f.auth,
@@ -477,6 +483,8 @@ itNeedsCargo(
     const cycle = finalizationCycle(state, value),
       run = storage.execution.runs.find(ws, cycle.currentRunId)!;
     expect(storage.runtimeEvidence.run(ws, run.id)?.runtimeId).toBe(f.runtime.current!.id);
+    // Finalization is held to the repository's adopted checks too (operator decision 2026-09-30).
+    expect(storage.runtimeEvidence.run(ws, run.id)?.checkDeclarationId).toBeDefined();
     expect(git(['rev-parse', 'main'], f.root)).toBe(before);
     expect((await merge(state, value.worktreeId)).statusCode).toBe(409);
     const proposed = await service.propose(f.auth, ws, roadmapId, {

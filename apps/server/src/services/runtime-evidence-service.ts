@@ -2483,11 +2483,12 @@ export class RuntimeEvidenceService {
     // current-upstream gate needs them too, run against the pins, beside a pinned build
     // (increment 2, operator decision 2026-09-30). Without them the run does not start (fail
     // closed, operator decision 2026-09-29).
-    const declaration =
-      'finalization' in scope
-        ? undefined
-        : this.storage.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0];
-    if (!('finalization' in scope) && !declaration)
+    // Finalization is held to them too (operator decision 2026-09-30).
+    const declaration = this.storage.runtimeEvidence.checkDeclarations(
+      tree.workspaceId,
+      tree.repositoryId,
+    )[0];
+    if (!declaration)
       throw new RepositoryChecksUndeclaredError(tree.repositoryId, consumerRepository.displayName);
     if (declaration)
       Object.assign(manifest, {
@@ -2621,12 +2622,13 @@ export class RuntimeEvidenceService {
         : undefined;
     if (nativeRequired && !approval)
       conflict('Native verification approval is missing, revoked or stale.');
-    if (
-      !nativeRequired &&
-      verification.mode !== 'scoped-checks' &&
-      !runtime.consumers.find((c) => c.alias === alias)?.upstreams.length
-    )
-      return;
+    // A build is required for native, scoped and pinned-upstream reviews; a run held to adopted
+    // checks needs those whatever it builds (R-G13, operator decision 2026-09-30).
+    const buildGate =
+      nativeRequired ||
+      verification.mode === 'scoped-checks' ||
+      !!runtime.consumers.find((c) => c.alias === alias)?.upstreams.length;
+    if (!buildGate && !env?.checkDeclarationId) return;
     if (
       !env ||
       ('finalization' in scope
@@ -2702,6 +2704,7 @@ export class RuntimeEvidenceService {
           );
       }
       if (
+        buildGate &&
         (!declaration || verification.mode !== 'scoped-checks') &&
         !receipts.some(
           (r) =>

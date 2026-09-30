@@ -539,6 +539,25 @@ it('labels build records the agent reported, from before the daemon recorded rec
   expect(after.textContent).not.toContain('agent-reported');
 });
 
+it('says, on every step, that an unsaved dependency draft holds the decisions (R-A6 review)', async () => {
+  vi.mocked(request).mockResolvedValue(view());
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  const name = await screen.findByLabelText('Environment name');
+  expect(screen.queryByText(/Dependency changes are not saved/)).toBeNull();
+  fireEvent.change(name, { target: { value: 'renamed-host' } });
+  const warning = screen.getByText(/Dependency changes are not saved/);
+  // Setup hides every step but one; the warning sits outside them all.
+  expect(warning.closest('[data-setup-step]')).toBeNull();
+});
+
 it('leaves shared decisions open while roadmap settings are unsaved (UI-17, R-E2 review)', async () => {
   // Setup shows the settings form and the decisions together; an unsaved settings field must
   // not disable an unrelated approval. Plan evidence still waits for the save.

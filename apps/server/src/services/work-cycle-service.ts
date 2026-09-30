@@ -280,7 +280,7 @@ export class WorkCycleService {
     // newest run, which a resume adopts.
     const actions = cycleActions(
       { ...c, ...(unsettled.length ? { unsettledDecisions: unsettled } : {}) },
-      tx.execution.runs.listForWorktree(c.workspaceId, c.worktreeId)[0]?.id,
+      tx.execution.runs.latestIdForWorktree(c.workspaceId, c.worktreeId),
     );
     const routes =
       c.status === 'needs-attention' &&

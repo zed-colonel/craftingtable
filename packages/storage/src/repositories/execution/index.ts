@@ -534,6 +534,21 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     ).map(mapAgentRun);
   }
 
+  latestIdForWorktree(
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+  ): AgentRun['id'] | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT id FROM agent_runs
+         WHERE workspace_id = ? AND worktree_id = ?
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT 1`,
+      )
+      .get(workspaceId, worktreeId) as { id: string } | undefined;
+    return row?.id as AgentRun['id'] | undefined;
+  }
+
   listLive(): readonly AgentRun[] {
     return (
       this.database

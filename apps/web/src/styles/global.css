@@ -2265,6 +2265,14 @@ button:disabled {
   max-height: 36rem;
   overflow-y: auto;
 }
+/* A phone scrolls the page, never a region inside it (R-A6 review). */
+@media (max-width: 600px), (max-width: 900px) and (pointer: coarse) {
+  .cross-map-lanes,
+  .cross-map-focus {
+    max-height: none;
+    overflow-y: visible;
+  }
+}
 
 /* Action bars */
 .action-bar {

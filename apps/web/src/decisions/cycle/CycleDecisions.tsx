@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
-import { effectiveCycleAttention, type WorkCycle } from '@craftingtable/domain';
+import {
+  effectiveCycleAttention,
+  remediationAllowance,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
 import { CycleGuidanceRecovery } from './CycleGuidanceRecovery.js';
 import {
@@ -61,7 +65,16 @@ export function continuationOf(cycle: WorkCycle): Continuation | undefined {
     return ['paused', 'needs-attention', 'completed'].includes(cycle.status)
       ? 'scope-review'
       : undefined;
-  if (actions.includes('authorize-remediation')) return 'remediation';
+  // More rounds only where the daemon grants them: a review that used its allowance, with no
+  // integration resolution open (R-A6 review; the old form's rule).
+  if (
+    actions.includes('authorize-remediation') &&
+    cycle.step === 'review' &&
+    cycle.remediationRounds >= remediationAllowance(cycle) &&
+    (!cycle.integrationResolution ||
+      ['completed', 'abandoned'].includes(cycle.integrationResolution.status))
+  )
+    return 'remediation';
   if (
     cycle.step !== 'design' &&
     ['paused', 'needs-attention'].includes(cycle.status) &&

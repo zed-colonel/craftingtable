@@ -26,8 +26,6 @@ const COMMANDS: readonly {
     command: 'roadmaps/:id/prepare-decision',
     found: /\/prepare-decision[`'"]|['"`]prepare-decision['"`]/,
   },
-  // Roadmaps and finalizations have `control` routes of their own: match the cycle's path.
-  { kind: 'cycle', command: 'cycles/:id/control', found: /cycles\/\$\{[^`]*?\}\/control/ },
   {
     kind: 'preparation',
     command: 'roadmaps/:id/decision-preparation-grant',
@@ -52,4 +50,25 @@ it.each(COMMANDS)('posts $command only from decisions/$kind', ({ kind, found }) 
     .map((path) => relative(src, path));
   expect(posters.filter((path) => !join(src, path).startsWith(owner))).toEqual([]);
   expect(posters.length).toBeGreaterThan(0);
+});
+
+/**
+ * `cycles/:id/control` shares its last segment with the roadmap and finalization `control`
+ * routes, so a path built in pieces cannot be told apart by its text (R-A6 review). Every
+ * `/control` is instead confined to the cycle's module and the two helpers that post the
+ * roadmap's and a finalization's own commands.
+ */
+it('posts a control command only from the cycle module and the roadmap and finalization helpers', () => {
+  const allowed = [
+    join(src, 'decisions', 'cycle') + sep,
+    join(src, 'lib', 'roadmap-api.ts'),
+    join(src, 'lib', 'finalization-api.ts'),
+  ];
+  const posters = sources(src).filter((path) => /\/control\b/.test(readFileSync(path, 'utf8')));
+  expect(
+    posters
+      .filter((path) => !allowed.some((a) => path === a || path.startsWith(a)))
+      .map((path) => relative(src, path)),
+  ).toEqual([]);
+  expect(posters.some((path) => path.startsWith(allowed[0]!))).toBe(true);
 });

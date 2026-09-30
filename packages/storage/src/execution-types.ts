@@ -176,6 +176,8 @@ export interface AgentRunRepository {
   find(workspaceId: WorkspaceId, runId: AgentRunId): AgentRun | undefined;
   listForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): readonly AgentRun[];
   listForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): readonly AgentRun[];
+  /** The worktree's newest run, as `listForWorktree` orders them, without decoding it (R-A6). */
+  latestIdForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): AgentRun['id'] | undefined;
   /** Runs in a non-terminal status across every workspace; used at startup. */
   listLive(): readonly AgentRun[];
   /** Live runs first, then the most recent finished ones, for the workspace overview. */

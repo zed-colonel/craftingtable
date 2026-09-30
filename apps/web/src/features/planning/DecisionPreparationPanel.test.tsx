@@ -123,3 +123,40 @@ it('follows the saved grant when it changes, so a revoked grant is not re-enable
   );
   expect(box().checked).toBe(false);
 });
+
+it("follows the panel's refreshed status, so a finished preparation can be prepared again (R-A6 review)", async () => {
+  let latest = 'running';
+  vi.mocked(request).mockImplementation(async () => ({
+    version: 3,
+    status: 'paused',
+    decisions: [
+      {
+        id: 'LOCAL-ADR-01',
+        title: 'Boundary',
+        profile: { backend: 'claude-code' },
+        latest: { status: latest, runId: 'run-1', startedAt: '2026-09-30T00:00:00.000Z' },
+      },
+    ],
+  }));
+  render(
+    <DecisionPreparationPanel
+      roadmap={roadmap('paused')}
+      backends={[]}
+      csrfToken="t"
+      disabled={false}
+    />,
+  );
+  fireEvent.click(screen.getByText('Prepare architecture decision briefs'));
+  const select = await screen.findByLabelText('Decision to prepare');
+  await waitFor(() => expect(screen.getByRole('option', { name: /LOCAL-ADR-01/ })).toBeTruthy());
+  fireEvent.change(select, { target: { value: 'LOCAL-ADR-01' } });
+  const prepare = await screen.findByRole('button', { name: 'Prepare decision brief' });
+  await waitFor(() => expect(prepare.hasAttribute('disabled')).toBe(true));
+  latest = 'finished';
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh preparation status and decisions' }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Prepare decision brief' }).hasAttribute('disabled'),
+    ).toBe(false),
+  );
+});

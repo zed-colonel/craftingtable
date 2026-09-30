@@ -231,6 +231,7 @@ export function DecisionPreparationPanel({
             roadmapId={roadmap.id}
             csrfToken={csrfToken}
             checkpointId={checkpoint}
+            settings={data}
             profile={profile}
             minutes={minutes}
             instructions={guidance}

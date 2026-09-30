@@ -39,12 +39,18 @@ export function PrepareDecisionBrief({
   minutes = 30,
   instructions = '',
   disabled = false,
+  settings: shared,
   onStarted,
 }: {
   workspaceId: string;
   roadmapId: string;
   csrfToken: string;
   checkpointId: string;
+  /**
+   * The host's own copy of the preparation settings, which it refreshes; without one (a decision
+   * card) the brief reads its own (R-A6 review).
+   */
+  settings?: DecisionPreparationSettings | undefined;
   /** The agent to use; the decision's own profile when absent. */
   profile?: AgentSelection | undefined;
   minutes?: number;
@@ -52,19 +58,21 @@ export function PrepareDecisionBrief({
   disabled?: boolean;
   onStarted?: () => void | Promise<void>;
 }) {
-  const [settings, setSettings] = useState<DecisionPreparationSettings>();
+  const [own, setOwn] = useState<DecisionPreparationSettings>();
+  const settings = shared ?? own;
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const load = useCallback(
     () =>
       loadSettings(workspaceId, roadmapId)
-        .then(setSettings)
+        .then(setOwn)
         .catch((e) => setMessage(e instanceof Error ? e.message : 'Could not load preparation.')),
     [workspaceId, roadmapId],
   );
+  const hosted = shared !== undefined;
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!hosted) void load();
+  }, [load, hosted]);
   const decision = settings?.decisions.find((d) => d.id === checkpointId);
   const latest = decision?.latest;
   const inFlight =
@@ -94,7 +102,7 @@ export function PrepareDecisionBrief({
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Could not prepare the brief.');
     } finally {
-      await load();
+      if (!hosted) await load();
       setBusy(false);
     }
   };

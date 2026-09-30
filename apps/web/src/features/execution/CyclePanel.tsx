@@ -263,7 +263,11 @@ export function CyclePanel({
               csrfToken={csrfToken}
               disabled={disabled}
               // A paused cycle resumes here; a stopped one is continued below.
-              resumable={active.status === 'paused' && !continuation}
+              resumable={
+                active.status === 'paused' &&
+                !continuation &&
+                active.integrationResolution?.status !== 'detected'
+              }
               onChanged={onChanged}
             />
           </ActionBar>

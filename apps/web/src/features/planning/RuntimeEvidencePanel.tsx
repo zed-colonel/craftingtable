@@ -222,6 +222,13 @@ export function RuntimeEvidencePanel({
       </About>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
+      {/* Outside every setup step: the draft holds decisions shown on other steps (R-A6 review). */}
+      {unsavedDependencies && (
+        <p role="status" className="warning-state">
+          Dependency changes are not saved. Shared decisions and evidence acceptance wait until you
+          save or discard them under Dependency environment.
+        </p>
+      )}
       {view.issues.length > 0 && (
         <ul>
           {distinct(view.issues).map((i) => (

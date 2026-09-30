@@ -1334,7 +1334,21 @@ it('does not lose earlier cycle findings when an unrelated manual run is resumed
     policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
   });
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'policy stop');
+  // The daemon returns the actions it offers with the cycle (R-A6): a newer manual run in the
+  // worktree is new input that a resume adopts, so the offer follows the tree's newest run.
+  const listedActions = async () =>
+    (
+      await state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${state.workspaceId}/cycles`,
+        headers: { cookie: state.cookie },
+      })
+    )
+      .json()
+      .cycles.find((c: { id: string }) => c.id === cycle.id)?.actions;
+  expect(await listedActions()).toEqual(['authorize-remediation', 'stop']);
   await runToFinish(state, worktree.id, { role: 'implement' });
+  expect(await listedActions()).toEqual(['resume', 'stop']);
   const response = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,

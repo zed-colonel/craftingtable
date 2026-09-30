@@ -67,6 +67,7 @@ import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-pr
 import {
   ConcurrentModificationError,
   DaemonDrainingError,
+  DeclaredChecksMissingError,
   ExecutionRequestError,
   NotFoundError,
 } from './errors.js';
@@ -2342,14 +2343,26 @@ export class RoadmapService {
             ))
           )
             return MOVED;
-          await this.execution.mergeWorktree(
-            context,
-            roadmap.workspaceId,
-            attempt.worktreeId,
-            {},
-            undefined,
-            { roadmapId: roadmap.id, definitionRevision: attempt.definitionRevision, check },
-          );
+          try {
+            await this.execution.mergeWorktree(
+              context,
+              roadmap.workspaceId,
+              attempt.worktreeId,
+              {},
+              undefined,
+              { roadmapId: roadmap.id, definitionRevision: attempt.definitionRevision, check },
+            );
+          } catch (error) {
+            // The review skipped adopted checks: one fresh review runs them (LIVE-24). A second
+            // refusal of the same commit holds, with the refusal as its reason.
+            if (
+              error instanceof DeclaredChecksMissingError &&
+              pending?.status !== 'reserved' &&
+              (await this.cycles.reviewForDeclaredChecks(cycle))
+            )
+              return MOVED;
+            throw error;
+          }
           return MOVED;
         }
         // The roadmap leaves this cycle to its own controller or to the operator.

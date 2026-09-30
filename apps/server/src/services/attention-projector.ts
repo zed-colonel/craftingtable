@@ -13,6 +13,8 @@ import {
   nextReminderAt,
   notificationText,
   truncateUtf16,
+  type Roadmap,
+  type RoadmapEntryHold,
   type WorkCycle,
   type WorkspaceId,
   type WorktreeId,
@@ -95,6 +97,28 @@ const MESSAGE_LIMIT = 4000;
  * or the filesystem are synced by the component that evaluates them: the roadmap scheduler
  * (`roadmap-pass:<id>`) and the storage monitor (`storage`).
  */
+/**
+ * The roadmap hold a cycle's item carries, since the hold has no item of its own while the
+ * cycle's is open (`projectUnit`; LIVE-20): the hold on the cycle's own entry, unless a recovery
+ * round started from that entry is open (its repair's item carries the round's stops, R-C14);
+ * and for a round's repair, the hold on the round's source entry, where the roadmap records what
+ * stopped the round's merge (LIVE-24). An operator's own pause is not carried.
+ */
+export function carriedHold(
+  roadmap: Pick<Roadmap, 'attempts' | 'entryHolds'> | null | undefined,
+  cycle: Pick<WorkCycle, 'id' | 'owner'>,
+): RoadmapEntryHold | undefined {
+  if (!roadmap || !cycle.owner) return undefined;
+  const own = roadmap.entryHolds?.[cycle.owner.entryId];
+  const inRound = roadmap.attempts.some(
+    (a) => a.recovery?.sourceEntryId === cycle.owner?.entryId && a.recovery?.phase !== 'completed',
+  );
+  const source = roadmap.attempts.find((a) => a.cycleId === cycle.id && a.recovery)?.recovery
+    ?.sourceEntryId;
+  const hold = own && !inRound ? own : source ? roadmap.entryHolds?.[source] : undefined;
+  return hold?.status === 'needs-attention' ? hold : undefined;
+}
+
 export class AttentionProjector implements WriteObserver {
   private readonly pending = new Set<string>();
   private flushing: string[] = [];
@@ -702,20 +726,11 @@ export class AttentionProjector implements WriteObserver {
         hold?.status === 'needs-attention' && hold.attention?.code === 'recovery-not-converging'
           ? hold
           : undefined;
-      // Any other hold the roadmap records on this entry has no item of its own while this one
-      // is open (`projectUnit`), so this item says why the roadmap holds it (LIVE-20): an
-      // automatic recovery that declined, say, because no single slice owns the finding. Not
-      // while a recovery round started from this entry is open: its repair's item carries the
-      // round's stops (R-C14), and a hold from a stopped repair would repeat one here.
-      const inRound = roadmap?.attempts.some(
-        (a) =>
-          a.recovery?.sourceEntryId === cycle.owner?.entryId && a.recovery?.phase !== 'completed',
-      );
-      const held =
-        !escalated && !inRound && hold?.status === 'needs-attention'
-          ? `\nThe roadmap holds this item: ${hold.reason}`
-          : '';
+      const carried = escalated ? undefined : carriedHold(roadmap, cycle);
+      const held = carried ? `\nThe roadmap holds this item: ${carried.reason}` : '';
       const kind =
+        // A held merge is the roadmap's, and it did not happen: not a merge to approve (LIVE-24).
+        !carried &&
         cycle.status === 'awaiting-merge' &&
         !requirements &&
         (!tree.executionScope || tree.executionScope.kind === 'slice')

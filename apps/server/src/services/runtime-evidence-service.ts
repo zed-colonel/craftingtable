@@ -96,6 +96,7 @@ import {
   type MovedPin,
   NotFoundError,
   CheckDefinitionChangedError,
+  DeclaredChecksMissingError,
   RepositoryChecksUndeclaredError,
   UpstreamPinMovedError,
 } from './errors.js';
@@ -2695,7 +2696,8 @@ export class RuntimeEvidenceService {
             `The declared check ${changed.checkId} ran with definitions that differ from the adopted ones (${changed.paths.join(', ')}). Adopt the new definition on the Repositories page, then resume for a fresh review; to keep the adopted definition, stop this cycle and revert the change in a new attempt.`,
           );
         if (gaps.missing.length)
-          conflict(
+          throw new DeclaredChecksMissingError(
+            gaps.missing,
             `The review needs a successful run of each declared check on its exact clean reviewed commit: ${gaps.missing.map((id) => `ct-check --declared ${id}`).join(', ')}. Checks the agent chooses are supplemental.`,
           );
       }

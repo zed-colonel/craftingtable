@@ -161,3 +161,17 @@ export class CheckDefinitionChangedError extends ExecutionRequestError {
     this.name = 'CheckDefinitionChangedError';
   }
 }
+
+/**
+ * A review held to adopted checks lacks a daemon run of some of them (R-G13). The review, not
+ * its code, is incomplete: a fresh review that runs them can meet the gate (LIVE-24).
+ */
+export class DeclaredChecksMissingError extends ExecutionRequestError {
+  constructor(
+    readonly missing: readonly string[],
+    message: string,
+  ) {
+    super('conflict', message);
+    this.name = 'DeclaredChecksMissingError';
+  }
+}

@@ -3552,6 +3552,52 @@ export class WorkCycleService {
     return true;
   }
 
+  /**
+   * Sends a cycle awaiting its roadmap's merge back for a fresh review, when the merge was
+   * refused because the review did not run every adopted check (LIVE-24). The review, not the
+   * code, was incomplete, and the new review's brief names each check (LIVE-23). Once only per
+   * reviewed commit: when a review of it held to adopted checks already ran again, the refusal
+   * stays with the operator. Returns whether a review was started.
+   */
+  async reviewForDeclaredChecks(cycle: WorkCycle): Promise<boolean> {
+    const ws = cycle.workspaceId;
+    const review = this.storage.execution.runs.find(ws, cycle.currentRunId);
+    const head = review?.reviewBranchContext?.headSha;
+    if (
+      cycle.status !== 'awaiting-merge' ||
+      cycle.step !== 'review' ||
+      !review ||
+      !head ||
+      this.abort.signal.aborted ||
+      this.storage.execution.runs
+        .listForWorktree(ws, cycle.worktreeId)
+        .some((run) => !isTerminalAgentRunStatus(run.status))
+    )
+      return false;
+    const heldReviews = this.storage.execution.runs
+      .listForWorktree(ws, cycle.worktreeId)
+      .filter(
+        (run) =>
+          run.role === 'review' &&
+          run.reviewBranchContext?.headSha === head &&
+          !!this.storage.runtimeEvidence.run(ws, run.id)?.checkDeclarationId,
+      );
+    if (heldReviews.length !== 1) return false;
+    const reserved = this.change(cycle, {
+      status: 'running',
+      reason: 'The last review did not run every adopted check; a fresh review runs them.',
+    });
+    try {
+      await this.next(reserved, 'review', review);
+    } catch (error) {
+      const latest = this.storage.execution.cycles.find(ws, cycle.id);
+      if (latest?.version === reserved.version && latest.status === 'running')
+        this.change(latest, { ...restoredStatus(cycle), reason: cycle.reason });
+      throw error;
+    }
+    return true;
+  }
+
   private resolutionContext(cycle: WorkCycle) {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     const resolution = cycle.integrationResolution;

@@ -2226,6 +2226,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, fixed:* the adopted argv invited running it directly and was joined without quoting; it is shown as JSON, cut at 200 characters, labelled "running that yourself does not count".
     - *LOW, disposition:* a resumed session is pointed at the refreshed brief file, not re-sent it; a later adoption changes the list only for a new run's declaration, which the gate also uses.
     - *Probes that found nothing:* the brief and the gate use the same declaration; finalization gets no text; the mode matches the frozen record; the launcher path.
+- **LIVE-24, fixed 2026-09-30 (operator decision: re-review automatically).** The roadmap's automatic merges of EXO-18/instance-design and of EXO-04/domain's recovery repair were refused by LIVE-23's gate and held; the items said "merge approval", which the operator cannot give for a roadmap-owned merge, and EXO-04's hold (on the round's source entry) reached no item.
+  - **Re-review.** The gate's refusal for missing adopted checks is typed (`DeclaredChecksMissingError`). When the roadmap's merge meets it, the cycle goes back for one fresh review (`WorkCycleService.reviewForDeclaredChecks`), whose brief names the checks; the roadmap then merges as usual. Once per reviewed commit: if a review of that commit held to adopted checks already ran twice, the refusal holds the entry as before. Nothing persisted changes.
+  - **The item.** A cycle's item carries the hold on its own entry, and a round's repair the hold on the round's source entry (`carriedHold`); a carried hold makes it an attention item, not a merge to approve.
+  - **Tests:** `server-execution-declared-rereview.test.ts` (a slice whose first review skipped the adopted check is re-reviewed once and merged; one that skips it again is held with the refusal after two reviews, and its item is attention, naming the refusal); `carried-hold.test.ts`. Mutations R1 to R3 and H1 to H3, each killed: no re-review; unbounded re-review; an untyped refusal; the source hold ignored; the round suppression dropped; a held merge still shown as a merge.
 
 ### R-G14
 

@@ -394,3 +394,22 @@ The operator deployed e0d33b8 at 00:31 UTC, after adopting WI's and EXO's checks
   - Six runs since the deploy carry a check declaration (scoped mode). Their agents ran the adopted commands themselves (`ct-check -- python3 -B scripts/check_exo_v3_contract.py`, `cargo clippy --manifest-path v3/Cargo.toml --locked …`), which count for nothing; no receipt since the deploy names a declared check.
   - No brief mentions `ct-check --declared`: the only place the command appears is the gate's refusal, which the agent never sees.
 - Impact: the operator's merge approval of both cycles is refused; the exit is a resume with guidance naming each command, then a fresh review. R-G13 increment 2 (not deployed) holds current-upstream reviews to the adopted checks too, so without the fix every review would stop this way.
+
+### LIVE-24: The roadmap's refused merge shows as "merge approval", which the operator cannot give
+- Severity: medium (no working control in the inbox)
+- Category: attention ([R-C14](../register.md#r-c14)); declared checks ([R-G13](../register.md#r-g13))
+- Status: CONFIRMED 2026-09-30 by the operator and from the 2026-09-30 snapshot. FIXED 2026-09-30 on `remediation/p2` (operator decision: re-review automatically), not deployed. See [R-G13](../register.md#r-g13).
+- Replay case: the 2026-09-30 snapshot. The roadmap's automation is `integrationMerge: automatic`, `parentAcceptance: automatic`.
+  - exo/EXO-18/instance-design (entry 1801ae43, cycle 2c9ead5d): the scheduler record is `existing-hold`, `entry-preparation-failed`, with LIVE-23's refusal (all seven adopted checks missing); the cycle stays `awaiting-merge` with an open merge-approval item.
+  - exo/EXO-04/domain: the slice merged on 2026-09-25. Cycle b0de849a is an automatic-recovery repair (round attempt 6f84ef91, source entry 7b749337, EXO-04/domain's verification). Its merge was refused the same way and held on the source entry, which has no item; the repair's item says "Operator merge approval required".
+- Evidence:
+  - The operator found no control to merge either one: a roadmap-owned merge has none, and the item offered none of the hold's exits.
+  - The refusal is not the code's: the review simply had not run the adopted checks (LIVE-23), so a fresh review is the exit, and the roadmap could take it itself.
+  - For EXO-04 the hold's reason reached no item at all, even with LIVE-20's fix, because it sits on the round's source entry.
+- Impact: two slices stopped with no working control shown; the operator could not tell what to do.
+
+### LIVE-25: "Fresh review required" stays after the fresh review ran
+- Severity: low (misleading text)
+- Category: UI ([R-A6](../register.md#r-a6))
+- Status: CONFIRMED 2026-09-30 by the operator and from the 2026-09-30 snapshot. See [R-C14](../register.md#r-c14).
+- Replay case: cycle b0de849a in the 2026-09-30 snapshot: its integration resolution committed 95f22b91, and its current review (27d0548c) ran on 95f22b91 and was mergeable, yet `IntegrationResolutionPanel` shows "Integration update committed … Fresh review required." whenever a resolution commit exists.

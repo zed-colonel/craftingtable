@@ -2416,9 +2416,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 **Lighter evidence and definition storage** · Phase P2 · Effort M · Status: open
 
-- **Resolves:** [PERF-08](findings/PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview)
+- **Resolves:** [PERF-08](findings/PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview), [LIVE-29](findings/LIVE-live-run-2026-09-25.md#live-29-the-plans-evidence-view-grows-with-history-until-panels-across-the-app-stall-behind-it)
 - **Change:** Evidence submissions become a light index row plus a lazily decoded body; persist canonical digests at write time instead of canonicalizing whole definitions at read time.
 - **Done when:** roadmap view and cross-project preview no longer decode full submissions.
+- **Pulled forward 2026-09-30 (operator decision, LIVE-29).** The plan's evidence view reached 9.7 MB and 3 to 25 s on the live roadmap, and holds the daemon while it runs. A first increment comes next in P2, before R-A6 and R-E2's second increment: the view sends a summary of each submission and loads the full record on demand, and accepted-evidence and decision-digest results are computed once per request. Done when, for that increment: on the 2026-09-30b snapshot the view is at most about 1 MB and a few hundred milliseconds of CPU, and its content, other than the submission bodies, matches a golden recorded before the change. Storage changes (an index row, digests at write time) need the operator's approval first.
 
 ### R-H5
 

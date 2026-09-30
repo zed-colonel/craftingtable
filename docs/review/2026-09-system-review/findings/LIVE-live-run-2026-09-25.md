@@ -448,3 +448,16 @@ The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, se
   - F-006 asks that EXO's CONTRIBUTING.md list the seven adopted checks instead of generic `ct-check` commands: a consequence of the checks adopted that night, not of EXO-01's code.
   - The review also carries 20 withdrawn "alias" findings from earlier rounds renaming finding IDs, which each review re-checks.
 - Impact: a parent review that passed its exit gate waits for the operator; raising the allowance by hand becomes routine.
+
+### LIVE-29: The plan's evidence view grows with history until panels across the app stall behind it
+- Severity: medium (every page and the scheduler wait while it runs; no data loss, no stop)
+- Category: read performance ([R-H4](../register.md#r-h4), [PERF-08](PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview)); refresh volume ([R-D5](../register.md#r-d5))
+- Status: CONFIRMED 2026-09-30 from the daemon's request log (read-only) and a CPU profile on a copy of the 2026-09-30b snapshot. Operator decision 2026-09-30: take a first increment of R-H4 next.
+- Replay case: the 2026-09-30b snapshot, map definition `0ebcb7cf`, `GET …/concurrency-definitions/0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/runtime`. The scheduler replays do not read this view, so its fix needs its own golden of the view's content.
+- Evidence:
+  - The request log gives the view's median, worst time and size by day: 09-23 0.5 s, 1.8 s, 5.7 MB; 09-26 1.4 s, 6.8 s, 6.4 MB; 09-29 1.3 s, 16 s, 9.7 MB (589 requests); 09-30 3.4 s, 25 s, 9.7 MB. The operator noticed panels waiting for data after the 09-30 deploy.
+  - On the snapshot copy, with Git stubbed, the view takes about 1.9 s of CPU and returns 9.7 MB. `submissions` is 8.6 MB of it: all 86 evidence submissions of the definition in full, about 100 KB each. `decisionInbox` is 0.4 MB, `architectureDecisions` 0.3 MB and `subjects` (197) 0.3 MB.
+  - The profile: `prerequisiteIssues` and `acceptedEvidence` run for every subject and every submission, each re-decoding the submissions (`runtimeEvidence.submissions`, 0.7 s) and recomputing decision digests through `canonicalDefinition` (0.56 s self), as PERF-08 found on 2026-09-22 at a smaller size. Each request also makes 28 Git calls (freshness of pins and candidates).
+  - The view is fetched by the evidence panel on the Roadmaps and Plans pages, again on each roadmap revision, and returned by every shared-decision and evidence action. The daemon reads SQLite synchronously on one event loop, so each request holds every other request, and the scheduler's pass, for its duration.
+  - Lesser costs in the same log: `worktrees/:id/branch-status` up to 5.8 s (Git) and the Delegate source fixes preview (`cycles/:id/scope-repair`) occasionally 7 to 9 s.
+- Impact: the app feels slow everywhere while a roadmap runs, worse as evidence accumulates and as agent builds load the machine; automation waits with it.

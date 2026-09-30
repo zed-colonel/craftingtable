@@ -73,9 +73,12 @@ export function RuntimeEvidencePanel({
    * Full records by submission id. The view lists each submission without its bodies (R-H4,
    * LIVE-29); a record is read when its review is opened, and never changes once written.
    */
-  const [records, setRecords] = useState<Record<string, EvidenceSubmissionRecord | 'failed'>>({});
+  const [records, setRecords] = useState<
+    Record<string, EvidenceSubmissionRecord | 'loading' | 'failed'>
+  >({});
   const loadRecord = (id: string) => {
     if (records[id] && records[id] !== 'failed') return;
+    setRecords((known) => ({ ...known, [id]: 'loading' }));
     void request(`${base}/submissions/${encodeURIComponent(id)}`, evidenceSubmissionSchema)
       .then((record) => setRecords((known) => ({ ...known, [id]: record })))
       .catch(() => setRecords((known) => ({ ...known, [id]: 'failed' })));
@@ -910,7 +913,7 @@ export function RuntimeEvidencePanel({
       {!view.submissions.length && <p>No submissions yet.</p>}
       {view.submissions.map(({ submission: s, decision, issues }) => {
         const record = records[s.id];
-        const full = record === 'failed' ? undefined : record;
+        const full = typeof record === 'object' ? record : undefined;
         return (
           <details
             key={s.id}
@@ -1033,7 +1036,7 @@ export function RuntimeEvidencePanel({
                 ))}
               </ul>
             )}
-            {!full && (
+            {(record === 'loading' || record === 'failed') && (
               <p role="status">
                 {record === 'failed'
                   ? 'Could not load the full record. Close and reopen this review to try again.'

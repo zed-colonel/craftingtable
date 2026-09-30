@@ -118,6 +118,8 @@ it('renders readable artifacts and requires a rationale before accepting evidenc
   // Accepting attests to the record, so it waits until the record has been shown.
   expect(accept.hasAttribute('disabled')).toBe(true);
   expect(calls(/submissions/)).toHaveLength(0);
+  // Nothing loads, and nothing says so, until the review is opened.
+  expect(screen.queryByText(/Loading the full record/)).toBeNull();
   openReview(record.id);
   await screen.findByText('Actual Kata verification passed.');
   expect(calls(/submissions/)[0]?.[0]).toMatch(/\/runtime\/submissions\/evidence-1$/);

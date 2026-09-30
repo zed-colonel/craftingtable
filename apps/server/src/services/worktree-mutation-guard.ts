@@ -10,10 +10,16 @@ export class WorktreeMutationBusyError extends ExecutionRequestError {
 /** Keep daemon launches and cycle resumes out of an operator's in-flight merge/removal. */
 export class WorktreeMutationGuard {
   private readonly busy = new Set<WorktreeId>();
+  /** Worktrees a launch still holds after `during` returned: a review's checks (R-G13). */
+  private readonly held = new Map<WorktreeId, number>();
   /** Worktrees where an agent process that lost supervision has not yet exited. */
   private readonly terminating = new Map<WorktreeId, number>();
   requireAvailable(id: WorktreeId): void {
     if (this.busy.has(id)) throw new WorktreeMutationBusyError();
+    if (this.held.has(id))
+      throw new WorktreeMutationBusyError(
+        'A review is starting in this worktree; its adopted checks are running. Wait for the review to start.',
+      );
     this.requireNoTerminatingAgent(id);
   }
   /** Refuse while an agent process that lost supervision may still be editing the worktree. */
@@ -31,6 +37,19 @@ export class WorktreeMutationGuard {
     } finally {
       this.busy.delete(id);
     }
+  }
+  /**
+   * Keeps merges, removals and other launches out of the worktree until `until` settles: a
+   * launch that continues after `during` returned, such as a review whose adopted checks run
+   * before its agent starts (R-G13 increment 3).
+   */
+  hold(id: WorktreeId, until: Promise<unknown>): void {
+    this.held.set(id, (this.held.get(id) ?? 0) + 1);
+    void until.finally(() => {
+      const remaining = (this.held.get(id) ?? 1) - 1;
+      if (remaining > 0) this.held.set(id, remaining);
+      else this.held.delete(id);
+    });
   }
   /**
    * Hold the worktree until `exited` settles. Unlike `during`, this never

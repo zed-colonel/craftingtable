@@ -1,7 +1,15 @@
 import { decisionPreparationDocuments } from './decision-preparation-policy.js';
 import { moveRecords, unrecordedMoves } from './ref-watch.js';
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type {
   AgentBackend,
@@ -189,7 +197,7 @@ function declaredChecksBrief(
       ? 'Other ct-check commands and Cargo builds are supplemental and never replace them.'
       : 'They are needed beside the pinned Cargo build/test; other ct-check commands are supplemental.';
   return role === 'review'
-    ? `Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head, which CraftingTable runs from the adopted definition on a private clone of that commit. Run each, read-only; do not commit. Report a failing check as a finding:
+    ? `Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head. CraftingTable ran each from the adopted definition on a private clone of that commit before this review started; their results are at the end of this brief, and those runs count for the gate. Report a failing check as a finding. To run one again, read-only (do not commit):
 ${commands}
 ${beside}
 `
@@ -199,12 +207,59 @@ ${beside} If one fails, fix the code, not the check's definition files, which th
 `;
 }
 
+/**
+ * The adopted checks CraftingTable ran before a review started (R-G13 increment 3), for the
+ * reviewer: each check's outcome, and a failed one's output copied into the run directory, which
+ * the reviewer can read and the check logs are not.
+ */
+export function declaredCheckReport(
+  results: readonly import('./check-request-service.js').DeclaredCheckResult[],
+  runDirectory: string,
+): string {
+  if (!results.length) return '';
+  const directory = join(runDirectory, 'declared-checks');
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const lines = results.map((result) => {
+    if (result.exitCode === 0) return `- ${result.checkId}: passed.`;
+    let output = '';
+    try {
+      const log = readFileSync(result.logPath);
+      const copy = join(directory, `${result.checkId}.log`);
+      // The end of the log is where a check says why it failed.
+      writeFileSync(copy, log.subarray(Math.max(0, log.length - DECLARED_LOG_TAIL_BYTES)), {
+        mode: 0o600,
+      });
+      output = ` Output: ${copy}`;
+    } catch {
+      /* no log: the check did not start */
+    }
+    return `- ${result.checkId}: failed (exit ${result.exitCode}).${result.diagnostic ? ` ${result.diagnostic.trim()}` : ''}${output}`;
+  });
+  return `
+
+Adopted checks CraftingTable ran on the reviewed head before this review:
+${lines.join('\n')}
+A failed check fails this review's gate. Read its output, and report it as a finding when the change caused it.
+`;
+}
+/** How much of a failed check's log a reviewer is given. */
+const DECLARED_LOG_TAIL_BYTES = 64 * 1024;
+
 export class AgentRunService {
   private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
   /** Runs whose supervision failed; their killed sessions have not reported exit yet. */
   private readonly orphaned = new Set<LiveRun>();
   private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
+  /**
+   * Reviews whose adopted checks run before their agent starts (R-G13 increment 3): how to cancel
+   * each, and the launch that continues after them. A drain counts and cancels them like a
+   * launch; `quiesce` waits for the launches, as it waits for cleanups.
+   */
+  private readonly checkingLaunches = new Map<
+    string,
+    { readonly cancel: () => void; readonly done: Promise<void> }
+  >();
   /** A restart drain is in progress: no new run may start (R-B9). */
   private draining = false;
   /**
@@ -1448,141 +1503,187 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           manifestDigest: pinned.manifestDigest,
           manifest: pinned.manifest,
         });
-      const previousRunDirectory = resume && join(this.config.runsRoot, resume.run.id);
-      const prompt =
-        resume && cycle && previousRunDirectory
-          ? resume.kind === 'output-repair' && cycle.outputRepair
-            ? outputRepairPrompt({
-                issues: cycle.outputRepair.issues,
-                attempt: cycle.outputRepair.attempts,
-                limit: OUTPUT_REPAIR_LIMIT,
-                deadlineAt: cycle.runDeadlineAt,
-                previousRunDirectory,
-                runDirectory,
-              })
-            : restartResumePrompt({
-                deadlineAt: cycle.runDeadlineAt,
-                previousRunDirectory,
-                runDirectory,
-                ...(cycle.stepGuidance ? { stepGuidance: cycle.stepGuidance } : {}),
-              })
-          : brief;
-      const launch: AgentLaunchRequest = {
-        ...(pinned
-          ? { buildEnvironment: { binDirectory: pinned.binDirectory, namespace: runId } }
-          : {}),
-        cwd: prepared.worktree.path,
-        temporaryDirectory,
-        ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
-        // The run's own variables (R-G5, AGT-04): its scratch space, the worktree's build cache
-        // (R-G7) and, with a pinned environment, its launchers ahead of PATH. The adapter adds
-        // them to named variables only.
-        environment: {
-          TMPDIR: temporaryDirectory,
-          TMP: temporaryDirectory,
-          TEMP: temporaryDirectory,
-          CARGO_TARGET_DIR: buildCacheDirectory ?? join(temporaryDirectory, 'target'),
-          // The daemon's Cargo home, which the check units build from, never the operator's:
-          // a sandboxed `cargo fetch` may write its registry and Git caches, and what an agent
-          // plants there stays out of the operator's own builds (R-G5 review).
-          CARGO_HOME: this.config.cargoHome,
-          ...(pinned ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
-        },
-        ...(pinned ? { pathPrefix: [pinned.binDirectory] } : {}),
-        ...(cycle
-          ? { deadlineAt: cycle.runDeadlineAt }
-          : preparation
-            ? { deadlineAt: preparation.value.deadlineAt, readOnly: true }
+      /** Launches the agent, with the report of the adopted checks run for it, if any. */
+      const proceed = async (declared: string): Promise<AgentRun> => {
+        const previousRunDirectory = resume && join(this.config.runsRoot, resume.run.id);
+        const prompt =
+          (resume && cycle && previousRunDirectory
+            ? resume.kind === 'output-repair' && cycle.outputRepair
+              ? outputRepairPrompt({
+                  issues: cycle.outputRepair.issues,
+                  attempt: cycle.outputRepair.attempts,
+                  limit: OUTPUT_REPAIR_LIMIT,
+                  deadlineAt: cycle.runDeadlineAt,
+                  previousRunDirectory,
+                  runDirectory,
+                })
+              : restartResumePrompt({
+                  deadlineAt: cycle.runDeadlineAt,
+                  previousRunDirectory,
+                  runDirectory,
+                  ...(cycle.stepGuidance ? { stepGuidance: cycle.stepGuidance } : {}),
+                })
+            : brief) + declared;
+        const launch: AgentLaunchRequest = {
+          ...(pinned
+            ? { buildEnvironment: { binDirectory: pinned.binDirectory, namespace: runId } }
             : {}),
-        prompt,
-        ...(resume ? { resumeSessionId: resume.sessionId } : {}),
-        permissionMode: input.permissionMode,
-        ...(input.model === undefined ? {} : { model: input.model }),
-        ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
-        additionalDirectories: [
-          runDirectory,
-          ...(previousRunDirectory ? [previousRunDirectory] : []),
-          ...(historical ? [historical.cargoHome] : []),
-          ...(pinned?.localCi ? [pinned.localCi.cacheRoot] : []),
-          // The shared Cargo target (R-G7) sits outside the worktree, so a sandbox must allow it.
-          ...(buildCacheDirectory ? [buildCacheDirectory] : []),
-        ],
-        sessionName: `CraftingTable ${prepared.row.sourceId} ${input.role}`,
-      };
-      let session: AgentSession;
-      try {
-        session = cycle
-          ? await this.launchCycleSession(backend, launch, cycle)
-          : preparation
-            ? await this.launchCycleSession(backend, launch, {
-                currentRunId: preparation.value.runId,
-                runDeadlineAt: preparation.value.deadlineAt,
-              })
-            : await backend.launch(launch);
+          cwd: prepared.worktree.path,
+          temporaryDirectory,
+          ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
+          // The run's own variables (R-G5, AGT-04): its scratch space, the worktree's build cache
+          // (R-G7) and, with a pinned environment, its launchers ahead of PATH. The adapter adds
+          // them to named variables only.
+          environment: {
+            TMPDIR: temporaryDirectory,
+            TMP: temporaryDirectory,
+            TEMP: temporaryDirectory,
+            CARGO_TARGET_DIR: buildCacheDirectory ?? join(temporaryDirectory, 'target'),
+            // The daemon's Cargo home, which the check units build from, never the operator's:
+            // a sandboxed `cargo fetch` may write its registry and Git caches, and what an agent
+            // plants there stays out of the operator's own builds (R-G5 review).
+            CARGO_HOME: this.config.cargoHome,
+            ...(pinned ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
+          },
+          ...(pinned ? { pathPrefix: [pinned.binDirectory] } : {}),
+          ...(cycle
+            ? { deadlineAt: cycle.runDeadlineAt }
+            : preparation
+              ? { deadlineAt: preparation.value.deadlineAt, readOnly: true }
+              : {}),
+          prompt,
+          ...(resume ? { resumeSessionId: resume.sessionId } : {}),
+          permissionMode: input.permissionMode,
+          ...(input.model === undefined ? {} : { model: input.model }),
+          ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+          additionalDirectories: [
+            runDirectory,
+            ...(previousRunDirectory ? [previousRunDirectory] : []),
+            ...(historical ? [historical.cargoHome] : []),
+            ...(pinned?.localCi ? [pinned.localCi.cacheRoot] : []),
+            // The shared Cargo target (R-G7) sits outside the worktree, so a sandbox must allow it.
+            ...(buildCacheDirectory ? [buildCacheDirectory] : []),
+          ],
+          sessionName: `CraftingTable ${prepared.row.sourceId} ${input.role}`,
+        };
+        let session: AgentSession;
         try {
-          preparation?.check();
-        } catch (e) {
-          session.kill();
-          throw e;
+          session = cycle
+            ? await this.launchCycleSession(backend, launch, cycle)
+            : preparation
+              ? await this.launchCycleSession(backend, launch, {
+                  currentRunId: preparation.value.runId,
+                  runDeadlineAt: preparation.value.deadlineAt,
+                })
+              : await backend.launch(launch);
+          try {
+            preparation?.check();
+          } catch (e) {
+            session.kill();
+            throw e;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Agent could not be started';
+          if (error instanceof CycleLaunchCancelledError && this.draining)
+            this.finalize(workspaceId, runId, 'interrupted', {
+              reason: 'daemon-drain',
+              message: DRAIN_INTERRUPTED_MESSAGE,
+            });
+          else
+            this.finalize(
+              workspaceId,
+              runId,
+              error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
+              { message },
+            );
+          return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Agent could not be started';
-        if (error instanceof CycleLaunchCancelledError && this.draining)
-          this.finalize(workspaceId, runId, 'interrupted', {
+
+        this.appendEvent(workspaceId, runId, {
+          kind: 'user-message',
+          payload: {
+            text: prompt,
+            ...(handoff === undefined ? {} : { handoffSources: handoff.sources }),
+          },
+        });
+        this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
+          startedAt: this.now().toISOString(),
+        });
+
+        const liveRun: LiveRun = {
+          workspaceId,
+          runId,
+          session,
+          cancelRequested: false,
+          done: Promise.resolve(),
+        };
+        this.live.set(runId, liveRun);
+        if (preparation) {
+          const timer = setTimeout(
+            () => {
+              liveRun.cancelRequested = true;
+              session.kill();
+              this.finalize(workspaceId, runId, 'failed', {
+                message:
+                  'Decision preparation reached its time limit. Review partial results and explicitly start another preparation if needed.',
+              });
+            },
+            Math.max(1, Date.parse(preparation.value.deadlineAt) - this.now().getTime()),
+          );
+          this.preparationTimers.set(runId, timer);
+        }
+        if (cycle !== undefined) {
+          const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
+          if (latest?.status === 'stopped' || latest?.currentRunId !== runId) {
+            liveRun.cancelRequested = true;
+            session.kill();
+          }
+        }
+        liveRun.done = this.supervise(liveRun, input.worktreeId);
+        return this.storage.execution.runs.find(workspaceId, runId) ?? run;
+      };
+      const declaredIds =
+        input.role === 'review' && pinned?.spoolDirectory && pinned.checkDeclarationId
+          ? ((
+              JSON.parse(pinned.manifest) as {
+                declaredChecks?: { checks: readonly { id: string }[] };
+              }
+            ).declaredChecks?.checks.map((check) => check.id) ?? [])
+          : [];
+      const checks = this.checks;
+      if (!declaredIds.length || !checks) return proceed('');
+      // A review's adopted checks run before the reviewer starts, so its gate never waits on the
+      // reviewer running them, and the reviewer reads their results (R-G13 increment 3, LIVE-23).
+      // They run in the background: the controller's pass and the request that started the run
+      // do not wait for them. A drain waits for them or cancels them, as for any launch.
+      const cancel = () => void checks.close(runId);
+      const continuation = (async () => {
+        const results = await checks.runDeclared(runId, declaredIds);
+        const current = this.storage.execution.runs.find(workspaceId, runId);
+        if (!current || isTerminalAgentRunStatus(current.status)) return;
+        // Drained, stopped or replaced while the checks ran: start no agent.
+        if (this.draining)
+          return this.finalize(workspaceId, runId, 'interrupted', {
             reason: 'daemon-drain',
             message: DRAIN_INTERRUPTED_MESSAGE,
           });
-        else
-          this.finalize(
-            workspaceId,
-            runId,
-            error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
-            { message },
-          );
-        return this.storage.execution.runs.find(workspaceId, runId) ?? run;
-      }
-
-      this.appendEvent(workspaceId, runId, {
-        kind: 'user-message',
-        payload: {
-          text: prompt,
-          ...(handoff === undefined ? {} : { handoffSources: handoff.sources }),
-        },
-      });
-      this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
-        startedAt: this.now().toISOString(),
-      });
-
-      const liveRun: LiveRun = {
-        workspaceId,
-        runId,
-        session,
-        cancelRequested: false,
-        done: Promise.resolve(),
-      };
-      this.live.set(runId, liveRun);
-      if (preparation) {
-        const timer = setTimeout(
-          () => {
-            liveRun.cancelRequested = true;
-            session.kill();
+        const latest = cycle && this.storage.execution.cycles.find(workspaceId, cycle.id);
+        if (cycle && (latest?.status === 'stopped' || latest?.currentRunId !== runId))
+          return this.finalize(workspaceId, runId, 'cancelled', {
+            message: 'The cycle moved on before its review started.',
+          });
+        await proceed(declaredCheckReport(results, runDirectory));
+      })()
+        .catch((error) => {
+          const current = this.storage.execution.runs.find(workspaceId, runId);
+          if (current && !isTerminalAgentRunStatus(current.status))
             this.finalize(workspaceId, runId, 'failed', {
-              message:
-                'Decision preparation reached its time limit. Review partial results and explicitly start another preparation if needed.',
+              message: error instanceof Error ? error.message : 'The review could not start.',
             });
-          },
-          Math.max(1, Date.parse(preparation.value.deadlineAt) - this.now().getTime()),
-        );
-        this.preparationTimers.set(runId, timer);
-      }
-      if (cycle !== undefined) {
-        const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
-        if (latest?.status === 'stopped' || latest?.currentRunId !== runId) {
-          liveRun.cancelRequested = true;
-          session.kill();
-        }
-      }
-      liveRun.done = this.supervise(liveRun, input.worktreeId);
+        })
+        .finally(() => this.checkingLaunches.delete(runId));
+      this.checkingLaunches.set(runId, { cancel, done: continuation });
+      this.mutations.hold(input.worktreeId, continuation);
       return this.storage.execution.runs.find(workspaceId, runId) ?? run;
     });
   }
@@ -1830,13 +1931,14 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   }
 
   /**
-   * Resolves once every item a session has already produced is journaled: no launch or
-   * post-run cleanup is in flight and each live consumer waits on its session. It counts event-loop turns, not
+   * Resolves once every item a session has already produced is journaled: no launch (a review's
+   * adopted checks included) or post-run cleanup is in flight and each live consumer waits on its session. It counts event-loop turns, not
    * wall-clock time, so tests stepping the controller stay deterministic (R-B2).
    */
   async quiesce(maxTurns = 1000): Promise<void> {
     for (let turn = 0; turn < maxTurns; turn++) {
       await Promise.allSettled([...this.cleanups]);
+      await Promise.allSettled([...this.checkingLaunches.values()].map((c) => c.done));
       await new Promise((resolve) => setImmediate(resolve));
       if (
         this.pendingCycleLaunches.size === 0 &&
@@ -1849,11 +1951,11 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   }
 
   /**
-   * Live work a drain waits for: launches in preflight, turns in progress, and sessions
-   * still holding background work. A session waiting between turns is at a boundary.
+   * Live work a drain waits for: launches in preflight, reviews still running their adopted
+   * checks, turns in progress, and sessions still holding background work. A session waiting between turns is at a boundary.
    */
   busyRunCount(): number {
-    let busy = this.pendingCycleLaunches.size;
+    let busy = this.pendingCycleLaunches.size + this.checkingLaunches.size;
     for (const liveRun of this.live.values()) {
       const run = this.storage.execution.runs.find(liveRun.workspaceId, liveRun.runId);
       if (run?.status !== 'waiting' || liveRun.session.backgroundWorkPending) busy++;
@@ -1870,6 +1972,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   async interruptForRestart(): Promise<number> {
     this.draining = true;
     for (const cancel of this.pendingCycleLaunches.values()) cancel();
+    for (const checking of this.checkingLaunches.values()) checking.cancel();
     const pending = [...this.live.values(), ...this.orphaned];
     let interrupted = 0;
     for (const liveRun of this.live.values()) {

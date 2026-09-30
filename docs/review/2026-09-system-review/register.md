@@ -78,7 +78,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
-| [R-G13](#r-g13) | P2 | M | partial (increment 1: 8d0482c, review fixes 242bc20, 661282f and the private Cargo home; increments 2 to 5 open) | Declared per-repository checks |
+| [R-G13](#r-g13) | P2 | M | partial (increments 1 to 3; increment 3 on 2026-09-30: the daemon runs adopted checks before the reviewer; 4 and 5 open) | Declared per-repository checks |
 | [R-G14](#r-g14) | P3 | S-M | open | Operator-configured outside sources for agent sandboxes |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
@@ -2154,7 +2154,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G13
 
-**Declared per-repository checks** · Phase P2 · Effort M · Status: partial (increment 1: 8d0482c, 2026-09-29; increment 2 in progress, 2026-09-30)
+**Declared per-repository checks** · Phase P2 · Effort M · Status: partial (increments 1 to 3; 4 and 5 open)
 
 - **Added 2026-09-28** (operator decision, after the R-G4 batch), for what R-G4 left open.
 - **Resolves:** the rest of [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification), and R-G4's residual gap on [SEC-01](findings/AGT-GIT-SEC-agents-git-security.md#sec-01-agents-can-forge-the-buildcheckcinative-receipts-that-gate-integration).
@@ -2346,6 +2346,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *NIT, stated:* every adopted check now needs rustup to resolve a toolchain; a rustup with no default toolchain refuses even a non-Rust check, with "not installed".
     - *NIT, disposition:* the absolute `cc` and the Clippy refusal have no test (the first needs an old toolchain, the second one without Clippy).
   - *Residual, stated:* the tree's `[env]` table still sets variables for build scripts and the compiler, and build scripts and procedural macros are the tree's own code; a reviewer reads them.
+
+- **Increment 3, 2026-09-30: the daemon runs a review's adopted checks before the reviewer starts (LIVE-23).** Operator decisions the same day: before the reviewer (not alongside it or after its verdict), and receipts record who asked for a check (`origin`, a stored-format addition; a receipt without it was the agent's).
+  - **What changed.** A review run held to adopted checks records its run and opens its check spool as before; then `CheckRequestService.runDeclared` runs each adopted check itself, in the same confined units on a private clone of the reviewed commit, within the run's and the daemon's bounds, and records the receipts with `origin: 'daemon'`. The reviewer is launched afterwards with each check's outcome at the end of its brief, and a failed check's log tail copied into the run directory (`declared-checks/<id>.log`), which it can read. The brief now says the checks already ran and count for the gate, and that running one again is optional. Receipts of checks the agent asks for carry `origin: 'agent'`. The gate's rule is unchanged: every adopted check needs a successful, clean receipt on the reviewed commit, whoever asked.
+  - **In the background.** The checks can take minutes, so the launch returns once the run is recorded (status starting): neither the controller's pass, which reconciles cycles one after another, nor the request that started a manual review waits for them. While they run, the worktree guard keeps merges, removals and other launches out. A drain counts them as live work and cancels them; a run whose cycle stopped or moved on, or that a drain reached, starts no agent (interrupted by the drain, or cancelled). `quiesce` waits for the continuation, as it waits for cleanups.
+  - **Tests.** `server-execution-receipt-gates.test.ts`: both checks recorded before the reviewer starts, with `origin: 'daemon'`, results and a failed check's output in the brief, and the gate owing only the failed check; a review's start returns while its check runs, and a drain during the check starts no agent. Mutations killed: checks not awaited before the launch, `origin` not recorded, the launch waiting for the checks, the drain ignored. Tests of the agent's own requests and of gates they feed (R-G4 receipts, the LIVE-24 recovery, candidate checkpoints, provenance) now take the daemon's runs away with `withoutDaemonChecks`, and say why. Full server suite: 903 tests, one timing-bound test failed under parallel load and passed alone.
+  - **Left:** increments 4 (check-only manifests, AGT-08) and 5 (the Checks panel labelling receipts by origin).
 
 ### R-G14
 

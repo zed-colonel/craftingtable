@@ -33,6 +33,7 @@ import {
   slicedFixture,
   startCycle,
   waitFor,
+  withoutDaemonChecks,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -48,6 +49,8 @@ async function checkpointCandidateFixture(
   },
   declare = true,
   review = true,
+  /** Whether the daemon runs the adopted checks before the review (R-G13 increment 3). */
+  daemonChecks = true,
 ) {
   const f = await slicedFixture((source) => ({
     ...source,
@@ -131,6 +134,7 @@ async function checkpointCandidateFixture(
   const tree = await scopeTree(f, f.scopes[0]!);
   commitFile(tree.path, 'candidate.txt', 'reviewed core');
   const base = `/api/workspaces/${f.state.workspaceId}/concurrency-definitions/${f.parentScope.definitionId}/runtime`;
+  if (!daemonChecks) withoutDaemonChecks(f.state);
   if (!review) return { ...f, svc, tree, run: undefined, base, config };
   f.backend.replyForRequest = async (request) => {
     await check(request);
@@ -265,10 +269,15 @@ itNeedsCargo.each([
 ] as const)(
   'a current-upstream candidate needs every adopted check and a pinned build: %s does not do (R-G13 increment 2)',
   async (_label, only, issue) => {
-    const f = await checkpointCandidateFixture((request) =>
-      only === 'cargo'
-        ? runLauncher(request, 'cargo', ['check', '--offline', '--locked'])
-        : runLauncher(request, 'ct-check', ['--declared', 'fixture']),
+    // What the agent ran alone: the daemon's runs before a review are tested on their own.
+    const f = await checkpointCandidateFixture(
+      (request) =>
+        only === 'cargo'
+          ? runLauncher(request, 'cargo', ['check', '--offline', '--locked'])
+          : runLauncher(request, 'ct-check', ['--declared', 'fixture']),
+      true,
+      true,
+      false,
     );
     const { checkpointRecoverySchema } = await import('@craftingtable/contracts');
     const preview = await f.state.context.app.inject({
@@ -954,6 +963,9 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
         },
       ],
     };
+    // The builds and checks the agent supplies: the daemon's runs before a review are tested on
+    // their own.
+    withoutDaemonChecks(f.state);
     declareFixtureChecks(f.state, [
       {
         id: 'fixture',

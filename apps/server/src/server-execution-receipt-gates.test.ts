@@ -28,6 +28,7 @@ import {
   HOST_GIT,
   implementationDone,
   itNeedsCargo,
+  mutationHeaders,
   runLauncher,
   runToFinish,
   scopeReport,
@@ -35,6 +36,7 @@ import {
   slicedFixture,
   startCycle,
   waitFor,
+  withoutDaemonChecks,
 } from './execution-test-support.js';
 import { CheckDefinitionChangedError } from './services/errors.js';
 
@@ -118,6 +120,8 @@ itNeedsCargo(
   'a scoped review needs a scoped check; a local CI receipt alone does not satisfy it (R-G4)',
   async () => {
     const f = await scopedRuntimeFixture();
+    // The agent's own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
     const review = (kind: string) => {
       f.backend.replyForRequest = (request) => {
         appendReceipt(request, { kind });
@@ -177,6 +181,108 @@ itNeedsCargo(
 );
 
 itNeedsCargo(
+  "the daemon runs a review's adopted checks before the reviewer starts, and they meet the gate without the agent (R-G13 increment 3, LIVE-23)",
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'fixture', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: [] },
+      {
+        id: 'broken',
+        argv: ['git', 'rev-parse', '--verify', 'refs/heads/no-such-branch'],
+        definitionPaths: [],
+      },
+    ]);
+    const storage = f.state.context.storage;
+    let prompt = '';
+    let receiptsAtLaunch = -1;
+    f.backend.replyForRequest = (request) => {
+      prompt = request.prompt;
+      receiptsAtLaunch = storage.runtimeEvidence.checkReceipts(
+        f.state.workspaceId,
+        request.environment?.CRAFTINGTABLE_RUN_NAMESPACE ?? '',
+      ).length;
+      // The reviewer runs nothing itself.
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    // Both ran, and were recorded, before the reviewer started.
+    expect(receiptsAtLaunch).toBe(2);
+    const receipts = storage.runtimeEvidence
+      .checkReceipts(f.state.workspaceId, run)
+      .map((r) => JSON.parse(r.receipt));
+    expect(receipts.map((r) => [r.declaredCheck?.id, r.origin, r.success]).sort()).toEqual([
+      ['broken', 'daemon', false],
+      ['fixture', 'daemon', true],
+    ]);
+    expect(prompt).toContain(
+      'Adopted checks CraftingTable ran on the reviewed head before this review:',
+    );
+    expect(prompt).toContain('- fixture: passed.');
+    const failed = /- broken: failed \(exit \d+\)\..* Output: (\S+)/.exec(prompt);
+    expect(failed).toBeTruthy();
+    expect(existsSync(failed![1]!)).toBe(true);
+    // The failure is the gate's, not a missing run: only the broken check is still owed.
+    expect(() => f.svc.assertRun(f.tree, run)).toThrow('ct-check --declared broken.');
+  },
+);
+
+itNeedsCargo(
+  "a review's checks run in the background: its start returns at once, and a drain during them starts no agent (R-G13 increment 3)",
+  async () => {
+    const f = await scopedRuntimeFixture([
+      {
+        id: 'slow',
+        argv: ['node', '-e', 'setTimeout(() => {}, 1500)'],
+        definitionPaths: [],
+      },
+    ]);
+    const storage = f.state.context.storage;
+    const launched = () => f.backend.launches.length;
+    const before = launched();
+    const start = async () => {
+      const response = await f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+        headers: mutationHeaders(f.state),
+        payload: { worktreeId: f.tree.id, role: 'review' },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json().run.id as string;
+    };
+    // The request answers while the check still runs; the run is starting.
+    const first = await start();
+    expect(storage.execution.runs.find(f.state.workspaceId, first as never)?.status).toBe(
+      'starting',
+    );
+    expect(launched()).toBe(before);
+    await waitFor(
+      () => storage.execution.runs.find(f.state.workspaceId, first as never)?.status === 'waiting',
+      'the reviewer started after its check',
+    );
+    expect(launched()).toBe(before + 1);
+    expect(storage.runtimeEvidence.checkReceipts(f.state.workspaceId, first)).toHaveLength(1);
+    await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/runs/${first}/end`,
+      headers: mutationHeaders(f.state),
+      payload: {},
+    });
+    await waitFor(
+      () => storage.execution.runs.find(f.state.workspaceId, first as never)?.status === 'finished',
+      'finish',
+    );
+    // A restart drain during the checks cancels them and starts no reviewer.
+    const second = await start();
+    await f.state.context.services.agentRunService.interruptForRestart();
+    await waitFor(
+      () =>
+        storage.execution.runs.find(f.state.workspaceId, second as never)?.status === 'interrupted',
+      'the drain interrupted the starting review',
+    );
+    expect(launched()).toBe(before + 1);
+  },
+);
+
+itNeedsCargo(
   'a receipt an agent writes to the launcher file satisfies no gate; the daemon runs and records the check (R-G4, SEC-01)',
   async () => {
     // The check reports where it ran; the launcher only relays the daemon's output.
@@ -191,6 +297,8 @@ itNeedsCargo(
         definitionPaths: [],
       },
     ]);
+    // The agent's own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
     const storage = f.state.context.storage;
     f.backend.replyForRequest = (request) => {
       // Every kind the daemon runs, written by the agent instead.
@@ -257,6 +365,8 @@ itNeedsCargo(
   'a check still running when its run ends is stopped and records nothing (R-G4)',
   async () => {
     const f = await scopedRuntimeFixture();
+    // The agent's own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
     const storage = f.state.context.storage;
     let pending: Promise<unknown> | undefined;
     f.backend.replyForRequest = (request) => {
@@ -310,6 +420,8 @@ itNeedsCargo(
   'ct-act runs in the daemon; a local CI line an agent writes is dropped, and CI still running at the end invalidates the record (R-G4, LIVE-03)',
   async () => {
     const f = await scopedRuntimeFixture();
+    // The agent's own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
     const storage = f.state.context.storage;
     const root = mkdtempSync(join(tmpdir(), 'ct-receipt-gates-ci-'));
     mkdirSync(join(f.tree.path, '.github/workflows'), { recursive: true });
@@ -365,6 +477,8 @@ itNeedsCargo(
   'the daemon uses the manifest it verified at launch; a rewritten copy changes nothing (R-G4)',
   async () => {
     const f = await scopedRuntimeFixture();
+    // The agent's own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
     const storage = f.state.context.storage;
     f.backend.replyForRequest = async (request) => {
       const manifest = join(request.buildEnvironment!.binDirectory, '../manifest.json');
@@ -385,6 +499,8 @@ itNeedsCargo(
   'the daemon runs at most four checks of a run at once and refuses more than 32 waiting (R-G4 review)',
   async () => {
     const f = await scopedRuntimeFixture();
+    // The agent's own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
     const checks = f.state.context.services.checkRequestService;
     let peak = 0;
     let replies = '';
@@ -482,6 +598,8 @@ itNeedsCargo(
   'only the adopted check meets a scoped gate: a command the agent chooses is supplemental, even the same one, and the agent cannot change what the check runs (R-G13)',
   async () => {
     const f = await scopedRuntimeFixture();
+    // The agent's own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
     const storage = f.state.context.storage;
     const failures: string[] = [];
     f.backend.replyForRequest = async (request) => {
@@ -687,6 +805,8 @@ itNeedsCargo(
   'a declared check counts only when the worktree was clean and still at the reviewed commit (R-G13 review)',
   async () => {
     const f = await scopedRuntimeFixture();
+    // The agent's own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
     const review = (after: (cwd: string) => void, before?: (cwd: string) => void) => {
       f.backend.replyForRequest = async (request) => {
         before?.(request.cwd);

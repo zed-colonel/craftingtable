@@ -16,6 +16,11 @@ export interface BuildReceipt {
     readonly hostDigest: string;
     readonly auditDigest: string;
   };
+  /**
+   * Who asked for the check (R-G13 increment 3): the daemon before a review, or the agent.
+   * Receipts recorded before the field existed were all the agent's.
+   */
+  readonly origin?: 'daemon' | 'agent';
   /** A run of an adopted check (R-G13), with its definition files' digests at the time. */
   readonly declaredCheck?: {
     readonly id: string;

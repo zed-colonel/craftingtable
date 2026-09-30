@@ -91,17 +91,33 @@ export interface CheckRunContext {
   readonly manifest: string;
 }
 
+/** Where a check's answer goes: the run's spool, or the daemon itself for checks it starts. */
+type Reply = Pick<CheckReply, 'write' | 'finish' | 'cancelRequested'>;
+
+/** Who asked for a check, recorded on its receipt (R-G13 increment 3). */
+export type CheckOrigin = 'agent' | 'daemon';
+
+/** A check the daemon ran for a review before the reviewer started (R-G13 increment 3). */
+export interface DeclaredCheckResult {
+  readonly checkId: string;
+  readonly exitCode: number;
+  readonly diagnostic: string;
+  /** The check's log, where the daemon keeps it. */
+  readonly logPath: string;
+}
+
 interface InFlight {
   readonly tool: CheckRequest['tool'];
   readonly controller: AbortController;
-  readonly reply: CheckReply;
+  readonly reply: Reply;
   readonly done: Promise<void>;
 }
 
 interface Waiting {
   readonly id: string;
   readonly request: CheckRequest;
-  readonly reply: CheckReply;
+  readonly reply: Reply;
+  readonly origin: CheckOrigin;
 }
 
 interface ServedRun {
@@ -241,6 +257,39 @@ export class CheckRequestService {
     this.serve(context.runId);
   }
 
+  /**
+   * Runs each adopted check of a review itself, on the reviewed commit, before the reviewer
+   * starts (R-G13 increment 3, LIVE-23), within the run's and the daemon's bounds. Their
+   * receipts are the run's, marked `origin: 'daemon'`. Resolves when every check has finished.
+   */
+  async runDeclared(runId: string, checkIds: readonly string[]): Promise<DeclaredCheckResult[]> {
+    const served = this.runs.get(runId);
+    if (!served) return [];
+    const results = checkIds.map(
+      (checkId) =>
+        new Promise<DeclaredCheckResult>((resolveResult) => {
+          const id = `daemon-${randomUUID()}`;
+          const request: CheckRequest = {
+            version: 1,
+            tool: 'ct-check',
+            args: ['--declared', checkId],
+          };
+          const logPath = join(this.config.checkLogRoot, runId, `${id}.log`);
+          const reply: Reply = {
+            write: () => undefined,
+            cancelRequested: () => false,
+            finish: (exitCode: number, diagnostic: string) =>
+              resolveResult({ checkId, exitCode, diagnostic, logPath }),
+          };
+          const refusal = this.refusal(served, request);
+          if (refusal) reply.finish(2, refusal);
+          else served.waiting.push({ id, request, reply, origin: 'daemon' });
+        }),
+    );
+    this.pump();
+    return Promise.all(results);
+  }
+
   /** Checks still running for a run. */
   inFlight(runId: string): readonly CheckRequest['tool'][] {
     return [...(this.runs.get(runId)?.inFlight.values() ?? [])].map((c) => c.tool);
@@ -314,7 +363,7 @@ export class CheckRequestService {
         reply.finish(2, refusal);
         continue;
       }
-      run.waiting.push({ id, request: claimed.request, reply });
+      run.waiting.push({ id, request: claimed.request, reply, origin: 'agent' });
       // Start what may run now, so only checks that truly wait count against the bound.
       this.pump();
     }
@@ -329,9 +378,9 @@ export class CheckRequestService {
         run.inFlight.size < this.limits.runningPerRun &&
         running < this.limits.runningInDaemon
       ) {
-        const { id, request, reply } = run.waiting.shift()!;
+        const { id, request, reply, origin } = run.waiting.shift()!;
         const controller = new AbortController();
-        const done = this.run(run, id, request, reply, controller.signal).finally(() => {
+        const done = this.run(run, id, request, reply, controller.signal, origin).finally(() => {
           run.inFlight.delete(id);
           this.pump();
         });
@@ -370,8 +419,9 @@ export class CheckRequestService {
     served: ServedRun,
     id: string,
     request: CheckRequest,
-    reply: CheckReply,
+    reply: Reply,
     signal: AbortSignal,
+    origin: CheckOrigin,
   ): Promise<void> {
     const { context } = served;
     const manifest = JSON.parse(context.manifest) as PinnedCargoManifest;
@@ -427,7 +477,7 @@ export class CheckRequestService {
         hiddenRoots: checkHiddenRoots(this.config),
       });
       served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);
-      const recorded = this.record(context, outcome.receipt);
+      const recorded = this.record(context, { ...outcome.receipt, origin });
       reply.finish(
         recorded ? outcome.exitCode : 1,
         recorded

@@ -11,6 +11,7 @@ import {
   storedRoadmap,
   supervisedMapFixture,
   waitFor,
+  withoutDaemonChecks,
 } from './execution-test-support.js';
 
 /**
@@ -26,6 +27,9 @@ async function fixture(
   beforeStart?: (f: Awaited<ReturnType<typeof supervisedMapFixture>>) => void,
 ) {
   const f = await supervisedMapFixture();
+  // A review refused for a missing adopted check: since R-G13 increment 3 the daemon runs the
+  // checks before each review, so these tests take its runs away to reach that refusal.
+  withoutDaemonChecks(f.state);
   const { state } = f;
   const ws = state.workspaceId;
   const reviews = new Map<string, number>();

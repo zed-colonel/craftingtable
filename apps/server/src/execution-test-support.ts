@@ -41,7 +41,7 @@ import {
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { sourceRecordDigest } from '@craftingtable/planning';
 import type { LightMyRequestResponse } from 'fastify';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { resolveExecutable } from './services/executables.js';
 import { PLAN_CRITERIA, PLAN_REQUIREMENTS } from './services/plan-acceptance-policy.js';
@@ -1278,6 +1278,15 @@ export async function slicedFixture(
  * record it; the adoption itself is tested on its own.
  */
 /** Adopts checks for each fixture repository without one, as the operator would (R-G13). */
+/**
+ * Leaves a review's adopted checks to the agent, as before R-G13 increment 3, for tests of the
+ * agent's own check requests and of the gates they feed. The daemon's own runs before a review
+ * have their own test in `server-execution-receipt-gates.test.ts`.
+ */
+export function withoutDaemonChecks(state: Ready): void {
+  vi.spyOn(state.context.services.checkRequestService, 'runDeclared').mockResolvedValue([]);
+}
+
 export function declareFixtureChecks(
   state: Ready,
   checks: import('@craftingtable/domain').DeclaredCheck[] = [

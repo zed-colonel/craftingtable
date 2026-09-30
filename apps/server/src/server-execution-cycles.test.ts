@@ -19,6 +19,7 @@ import { openDaemonStorage } from './persisted-records.js';
 /* -------------------------------------------------------------------------- */
 
 import {
+  commitFile,
   admit,
   CycleBackend,
   cleanupExecutionFixtures,
@@ -44,6 +45,17 @@ import {
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
+
+/** Makes every remediation commit a change, as a remediation that fixes something does. */
+function commitRemediations(backend: {
+  onLaunch: ((request: AgentLaunchRequest) => void) | undefined;
+}) {
+  let n = 0;
+  backend.onLaunch = (request) => {
+    if (request.model === 'remediate-model')
+      commitFile(request.cwd, `remediation-${++n}.txt`, 'Remediated finding');
+  };
+}
 
 afterEach(cleanupExecutionFixtures);
 
@@ -710,6 +722,8 @@ describe('single work-item automation', () => {
         ]),
       },
     ]);
+    // Each remediation commits its fix: remediations that change nothing stop on their own (LIVE-27).
+    commitRemediations(backend);
     const cycle = await startCycle(state, worktree.id, {
       policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 1 },
       instructions: 'Keep the approved API.',
@@ -817,6 +831,54 @@ describe('single work-item automation', () => {
     },
   );
 
+  it('stops when two remediations in a row change nothing, before a third review of the same commit (LIVE-27)', async () => {
+    const review = { resultText: reviewText([structuredFinding]) };
+    const outOfScope = { resultText: 'No source change: this finding belongs to another slice.' };
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      review,
+      outOfScope,
+      review,
+      outOfScope,
+      review,
+    ]);
+    const cycle = await startCycle(state, worktree.id, {
+      policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 10 },
+    });
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'no-change stop');
+    expect(currentCycle(state, cycle).attention).toMatchObject({
+      code: 'remediation-no-change',
+      owner: 'operator',
+    });
+    // Design, implementation, two reviews and two remediations: no third review.
+    expect(backend.launches).toHaveLength(6);
+  });
+
+  it('reviews again after one remediation that changes nothing, so a rebuttal can be accepted (LIVE-27)', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      { resultText: reviewText([structuredFinding]) },
+      { resultText: 'No source change: the finding is already handled by the existing guard.' },
+      {
+        resultText: reviewText([
+          {
+            ...structuredFinding,
+            status: 'resolved',
+            disposition: 'The existing guard handles it.',
+          },
+        ]),
+      },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'awaiting-merge',
+      'rebuttal accepted',
+    );
+    expect(backend.launches).toHaveLength(5);
+  });
+
   it('stops after two unchanged remediation rounds even with remaining budget', async () => {
     const review = { resultText: reviewText([structuredFinding]) };
     const { state, backend, worktree } = await cycleFixture([
@@ -834,6 +896,8 @@ describe('single work-item automation', () => {
         ]),
       },
     ]);
+    // Each remediation commits its fix: remediations that change nothing stop on their own (LIVE-27).
+    commitRemediations(backend);
     const cycle = await startCycle(state, worktree.id, {
       policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 10 },
     });
@@ -966,6 +1030,8 @@ describe('single work-item automation', () => {
         ]),
       },
     ]);
+    // Each remediation commits its fix: remediations that change nothing stop on their own (LIVE-27).
+    commitRemediations(backend);
     const cycle = await startCycle(state, worktree.id, { instructions: 'Keep the approved API.' });
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review question');
     expect(currentCycle(state, cycle).step).toBe('review');

@@ -78,6 +78,7 @@ export const CYCLE_ATTENTION = {
   'stage-batch-selection': 'operator',
   'stage-review-changes-requested': 'operator',
   'remediation-exhausted': 'operator',
+  'remediation-no-change': 'operator',
   'remediation-stalled': 'operator',
   'implementation-commit-failed': 'operator',
   'integration-refresh-limit': 'operator',

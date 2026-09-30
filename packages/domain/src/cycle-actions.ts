@@ -62,6 +62,10 @@ const RESOLUTION: Partial<Record<CycleAttentionCode, readonly [CycleAction, stri
     'authorize-remediation',
     'The remediation limit is reached. Answer the questions when authorizing more remediation.',
   ],
+  'remediation-no-change': [
+    'continue-with-guidance',
+    'Two remediations in a row changed nothing, and Resume would review the same commit again. Use Continue with guidance.',
+  ],
   'remediation-exhausted': [
     'authorize-remediation',
     'The remediation limit is reached. Use Authorize more remediation.',

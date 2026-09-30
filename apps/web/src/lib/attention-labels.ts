@@ -58,6 +58,7 @@ export const ATTENTION_CODE_LABELS: Readonly<Record<AttentionItemCode, string>> 
   'stage-batch-selection': 'Stage batch selection',
   'stage-review-changes-requested': 'Stage review requested changes',
   'remediation-exhausted': 'Remediation rounds used up',
+  'remediation-no-change': 'Remediation changed nothing',
   'remediation-stalled': 'Remediation stalled',
   'implementation-commit-failed': 'Commit failed',
   'integration-refresh-limit': 'Integration refresh limit',

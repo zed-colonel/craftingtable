@@ -2297,6 +2297,34 @@ export class WorkCycleService {
         const finalized = await this.finalizeImplementation(cycle, run);
         if (!finalized) return;
         if (await this.refreshIntegration(finalized, run, true)) return;
+        // A remediation may leave the commit unchanged once, to argue that a finding is wrong or
+        // already fixed, and a fresh review may accept that. A second in a row gives the review
+        // nothing new: it stops for the operator with the implementer's reason (LIVE-27).
+        if (finalized.step === 'remediate' && finalized.reviewHeadSha) {
+          let head: string | undefined;
+          try {
+            head = await this.cleanHead(finalized);
+          } catch {
+            head = undefined;
+          }
+          const reviewedHeads = this.storage.execution.runs
+            .listForWorktree(finalized.workspaceId, finalized.worktreeId)
+            .filter((r) => r.role === 'review' && r.reviewBranchContext)
+            .map((r) => r.reviewBranchContext!.headSha);
+          if (
+            head === finalized.reviewHeadSha &&
+            reviewedHeads.length >= 2 &&
+            reviewedHeads[0] === head &&
+            reviewedHeads[1] === head
+          ) {
+            this.attention(
+              finalized,
+              'remediation-no-change',
+              "Two remediations in a row changed nothing, so the next review would judge the same commit again. Read the implementer's report. If it says a finding belongs to another slice, use Continue with guidance to have the review judge only the findings this slice may fix, so the repair can merge; the parent review then raises that finding again, and Delegate source fixes sends it to its owner. Otherwise, guide the remediation.",
+            );
+            return;
+          }
+        }
         await this.next(finalized, 'review', run);
         return;
       }

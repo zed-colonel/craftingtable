@@ -441,6 +441,12 @@ it('authorizes bounded extra finalization remediation, preserves stage counts, a
   const fixture = await finalizationFixture();
   const { state, backend, root } = fixture;
   const initialMain = git(['rev-parse', 'main'], root);
+  // Each remediation commits its fix: remediations that change nothing stop on their own (LIVE-27).
+  let remediations = 0;
+  backend.onLaunch = (request) => {
+    if (implementsFinalization(request))
+      commitFile(request.cwd, `remediation-${++remediations}.txt`, 'Remediated finding');
+  };
   let fixed = false;
   backend.replyForRequest = reviews(() => [
     {

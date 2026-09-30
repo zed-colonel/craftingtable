@@ -61,7 +61,7 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import { cycleAgentSelection, entryAgentSelections } from './agent-profile-policy.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { neededDecisions, slicesWaitingOn } from './decision-demand.js';
-import { decisionSettlement } from './decision-settlement.js';
+import { decisionSettlement, settlementLines } from './decision-settlement.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
 import {
@@ -168,9 +168,10 @@ function answeredHolds(roadmap: Roadmap, entryId: string): Roadmap['entryHolds']
   return hold?.status === 'needs-attention' ? others : roadmap.entryHolds;
 }
 /**
- * What a shared decision's item says of the slices it serves (LIVE-22): those an accepted
- * clause-level decision settles it for, and the selected ones that still need it. Nothing when
- * no selected slice needs it directly (it is needed through another checkpoint).
+ * What a shared decision's item says of the work it serves (LIVE-22): the roadmap's selected
+ * slices an accepted clause-level decision settles it for, and the selected slices and work
+ * items that still need it. Nothing to add when nothing is settled and nothing selected needs
+ * it directly (it is needed through another milestone): the plain line says it all.
  */
 function decisionNeeds(
   tx: StorageRepositories,
@@ -186,21 +187,14 @@ function decisionNeeds(
   const d = tx.imports.definition(ws, selection.definitionId);
   if (!d) return undefined;
   const selected = new Set(
-    nodes.filter((n) => n.kind === 'slice' && n.included).map((n) => n.sourceId),
+    nodes
+      .filter((n) => (n.kind === 'slice' || n.kind === 'work_item') && n.included)
+      .map((n) => n.sourceId),
   );
-  const { settledFor, stillNeededBy } = decisionSettlement(
-    tx,
-    ws,
-    d,
-    selection.bindingRevision,
-    checkpointId,
+  return settlementLines(
+    decisionSettlement(tx, ws, d, selection.bindingRevision, checkpointId),
+    selected,
   );
-  const needed = stillNeededBy.filter((slice) => selected.has(slice));
-  if (!needed.length) return undefined;
-  return [
-    ...(settledFor.length ? [`Settled for: ${settledFor.join(', ')}`] : []),
-    `Still needed by: ${needed.join(', ')}`,
-  ].join('\n');
 }
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);

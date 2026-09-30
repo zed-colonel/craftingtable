@@ -18,6 +18,7 @@ import { Link } from '../../lib/navigation.js';
 import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 
 type Card = ArchitectureDecisionInbox['decisions'][number];
+type Brief = NonNullable<Card['recommendation']>['brief'];
 type Record = Card['records'][number];
 /** The roadmap that prepares briefs for these decisions, when there is one. */
 type Preparation = { readonly workspaceId: WorkspaceId; readonly roadmapId: string };
@@ -93,6 +94,18 @@ function settles(card: Card, record: Card['records'][number]): boolean {
       card.stoppedSlices.every((slice) =>
         record.proposal.consumers.some((consumer) => consumer.sliceId === slice),
       ))
+  );
+}
+
+/**
+ * Whether a brief would settle the decision for these slices: in full, or by naming each. An
+ * accepted clause approval usually came from a brief limited to other slices (LIVE-22 review).
+ */
+function covers(brief: Brief | undefined, slices: readonly string[]): boolean {
+  return (
+    !!brief &&
+    (brief.coverage === 'full' ||
+      slices.every((slice) => brief.consumers.some((c) => c.sliceId === slice)))
   );
 }
 
@@ -313,11 +326,12 @@ function DecisionCard({
   const clarification = `Clarify ${card.checkpointId} for operator review. Provide a complete standalone decision brief with the proposed choice, rationale, alternatives and tradeoffs, consequences, exact source citations, and full or explicitly limited coverage. Explain what remains to implement or verify. Do not approve the decision or implement changes.`;
   // A clause approval settles the decision only for the slices it names (LIVE-22).
   const stillNeeded = fullApproval ? [] : (card.stillNeededBy ?? []);
+  const named = new Set(accepted?.proposal.consumers.map((c) => c.sliceId)).size;
   const status = accepted
     ? accepted.proposal.coverage === 'full'
       ? 'Accepted · full architectural decision'
-      : stillNeeded.length && card.settledFor?.length
-        ? `Accepted for ${card.settledFor.length} named slices · still needed by ${stillNeeded.length}`
+      : stillNeeded.length
+        ? `Accepted for ${named} named ${named === 1 ? 'slice' : 'slices'} · still needed by ${stillNeeded.length}`
         : 'Accepted · limited to named slices'
     : pending
       ? 'Proposal saved · awaiting your approval'
@@ -336,20 +350,22 @@ function DecisionCard({
       {!accepted && card.stoppedSlices?.length ? (
         <p role="status">Needed now by {card.stoppedSlices.join(', ')}.</p>
       ) : null}
-      {card.settledFor?.length && stillNeeded.length ? (
+      {accepted && stillNeeded.length ? (
         <>
-          <p>Settled for: {card.settledFor.join(', ')}.</p>
+          {card.settledFor?.length ? <p>Settled for: {card.settledFor.join(', ')}.</p> : null}
           <p role="status">Still needed by: {stillNeeded.join(', ')}.</p>
         </>
       ) : null}
-      {(!accepted || stillNeeded.length > 0) && !pending && !brief && preparation && (
-        <PrepareDecisionBrief
-          preparation={preparation}
-          checkpointId={card.checkpointId}
-          csrfToken={csrfToken}
-          disabled={disabled}
-        />
-      )}
+      {(accepted ? stillNeeded.length > 0 && !covers(brief, stillNeeded) : !brief) &&
+        !pending &&
+        preparation && (
+          <PrepareDecisionBrief
+            preparation={preparation}
+            checkpointId={card.checkpointId}
+            csrfToken={csrfToken}
+            disabled={disabled}
+          />
+        )}
       {accepted && (
         <>
           <p>

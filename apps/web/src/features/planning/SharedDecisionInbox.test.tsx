@@ -561,3 +561,58 @@ it('says which slices a clause approval settles a decision for and which still n
   // The remaining slices need a decision, so a brief can be prepared for them.
   expect(within(region).getByRole('button', { name: 'Prepare decision brief' })).toBeTruthy();
 });
+
+it('offers a new brief when the only brief was limited to the slices already settled, and nothing more once accepted in full (LIVE-22 review)', async () => {
+  preparations(() => 3);
+  const settled = ['exo/EXO-18/instance-design'];
+  const still = ['exo/EXO-18/domain'];
+  const limited = {
+    ...decisionRecord.proposal,
+    coverage: 'clauses' as const,
+    consumers: settled.map((sliceId) => ({
+      sliceId,
+      phase: 'merge' as const,
+      replacesFullCheckpoint: true,
+    })),
+  };
+  const data = stoppedCard([accepted({ ...decisionRecord, proposal: limited })], true);
+  const card = data.decisions[0]!;
+  delete (card as { stoppedSlices?: unknown }).stoppedSlices;
+  const recommendation = {
+    ...card.recommendation!,
+    brief: {
+      checkpointId: 'EXO-ADR-037',
+      decisionText: 'Limited to the instance design.',
+      why: 'Only that slice asked.',
+      alternatives: [],
+      consequences: 'None yet.',
+      coverage: 'clauses' as const,
+      consumers: limited.consumers,
+      retainedObligations: '',
+    },
+  };
+  const { unmount } = renderStopped({
+    ...data,
+    decisions: [{ ...card, recommendation, settledFor: settled, stillNeededBy: still }],
+  });
+  let region = screen.getByRole('region', { name: 'EXO-ADR-037' });
+  expect(within(region).getByText('Accepted for 1 named slice · still needed by 1')).toBeTruthy();
+  expect(within(region).getByRole('button', { name: 'Prepare decision brief' })).toBeTruthy();
+  unmount();
+  // Accepted in full: nothing is still needed, whatever the card carried.
+  renderStopped({
+    ...data,
+    decisions: [
+      {
+        ...card,
+        records: [accepted(decisionRecord)],
+        settledFor: settled,
+        stillNeededBy: still,
+      },
+    ],
+  });
+  region = screen.getByRole('region', { name: 'EXO-ADR-037' });
+  expect(within(region).getByText('Accepted · full architectural decision')).toBeTruthy();
+  expect(within(region).queryByText(/Still needed by/)).toBeNull();
+  expect(within(region).queryByRole('button', { name: 'Prepare decision brief' })).toBeNull();
+});

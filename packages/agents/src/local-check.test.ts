@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -1898,4 +1899,85 @@ it.skipIf(!hostCargo).each([
     }
   },
   120_000,
+);
+
+const rustupProxy = hostCargo && realpathSync(hostCargo).endsWith('/rustup');
+it.skipIf(!rustupProxy)(
+  "a check on a private clone runs the commit's rustup-managed toolchain and refuses a path toolchain (R-G13 posture, operator decision 2026-09-30)",
+  async () => {
+    const p = pinnedBuildFixture();
+    const ws = p.f.m.workspacePath;
+    // A fake cargo in the tree, chosen by a committed path toolchain.
+    mkdirSync(join(ws, 'tc', 'bin'), { recursive: true });
+    writeFileSync(join(ws, 'tc', 'bin', 'cargo'), '#!/bin/sh\necho FAKE-CARGO\n', { mode: 0o755 });
+    writeFileSync(join(ws, 'rust-toolchain.toml'), `[toolchain]\npath = "${join(ws, 'tc')}"\n`);
+    p.git(['add', '.'], ws);
+    p.git(['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'tc'], ws);
+    const refused = await p.build({ ...p.manifest(), cargoExecutable: hostCargo! });
+    expect(refused.output).not.toContain('FAKE-CARGO');
+    expect(refused.outcome.diagnostic).toContain('not a rustup-managed toolchain');
+  },
+  120_000,
+);
+
+it.skipIf(!rustupProxy)(
+  "a pinned build ignores the tree's wrapper, rustflags, runner and a clippy alias (R-G13 posture, operator decision 2026-09-30)",
+  async () => {
+    const p = pinnedBuildFixture();
+    writeFileSync(
+      join(p.upstream, 'crate', 'Cargo.toml'),
+      '[package]\nname = "up-crate"\nversion = "0.1.0"\nedition = "2021"\n',
+    );
+    writeFileSync(join(p.upstream, 'crate', 'src', 'lib.rs'), 'pub const WHO: &str = "genuine";\n');
+    p.git(['add', '.'], p.upstream);
+    p.git(
+      ['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'real'],
+      p.upstream,
+    );
+    const pinned = p.git(['rev-parse', 'HEAD'], p.upstream);
+    const ws = p.f.m.workspacePath;
+    writeFileSync(
+      join(ws, 'Cargo.toml'),
+      '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nup-crate = "0.1"\n',
+    );
+    mkdirSync(join(ws, 'src'), { recursive: true });
+    writeFileSync(
+      join(ws, 'src', 'main.rs'),
+      'fn main() { println!("WHO={}{}", up_crate::WHO, if cfg!(planted) { "+FLAGS" } else { "" }); }\n',
+    );
+    mkdirSync(join(ws, 'tools'), { recursive: true });
+    writeFileSync(join(ws, 'tools', 'wrap.sh'), '#!/bin/sh\necho WRAPPER-RAN >&2\nexec "$@"\n', {
+      mode: 0o755,
+    });
+    writeFileSync(join(ws, 'tools', 'run.sh'), '#!/bin/sh\necho RUNNER-RAN\n', { mode: 0o755 });
+    mkdirSync(join(ws, '.cargo'), { recursive: true });
+    writeFileSync(
+      join(ws, '.cargo', 'config.toml'),
+      '[build]\nrustc-wrapper = "tools/wrap.sh"\nrustflags = ["--cfg", "planted"]\n[target.x86_64-unknown-linux-gnu]\nrunner = "tools/run.sh"\n[alias]\nclippy = ["run", "--offline"]\n',
+    );
+    p.git(['add', '.'], ws);
+    p.git(['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'consumer'], ws);
+    const manifest = {
+      ...p.manifest(),
+      cargoExecutable: hostCargo!,
+      dependencySources: [
+        {
+          alias: 'up',
+          commitSha: pinned,
+          gitDirectory: join(p.upstream, '.git'),
+          packages: [{ name: 'up-crate', path: 'crate' }],
+        },
+      ],
+    };
+    const run = await p.build(manifest, ['run', '--offline']);
+    expect(run.outcome.exitCode, run.output + run.outcome.diagnostic).toBe(0);
+    expect(run.output).toMatch(/^WHO=genuine$/m);
+    expect(run.output).not.toContain('WRAPPER-RAN');
+    expect(run.output).not.toContain('RUNNER-RAN');
+    // `cargo clippy` is shadowed by the tree's alias; the daemon runs Clippy itself.
+    const clippy = await p.build(manifest, ['clippy', '--offline']);
+    expect(clippy.outcome.exitCode, clippy.output + clippy.outcome.diagnostic).toBe(0);
+    expect(clippy.output).not.toMatch(/^WHO=/m);
+  },
+  240_000,
 );

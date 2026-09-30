@@ -1236,6 +1236,105 @@ async function clonePinnedSources(
   return { packages, configPath };
 }
 
+/**
+ * The toolchain a check on a private clone runs (R-G13, operator decision 2026-09-30): the
+ * clone's rustup-managed toolchain, resolved by rustup from its `rust-toolchain.toml`, and never
+ * one the tree names by path. Its `bin` goes first on PATH and names the compiler, and the tree's
+ * wrappers are cleared, so the tree cannot put another program in Cargo's place. Without rustup
+ * (a directly installed Cargo) the daemon's Cargo is the toolchain.
+ */
+async function privateToolchain(
+  m: PinnedCargoManifest,
+  tree: string,
+  environment: Readonly<Record<string, string>>,
+  within: () => number,
+): Promise<{ bin: string; cargo: string; environment: Record<string, string> }> {
+  let proxy: string | undefined;
+  try {
+    proxy = realpathSync(m.cargoExecutable);
+  } catch {
+    throw new Error('Could not identify Cargo toolchain.');
+  }
+  let bin = dirname(m.cargoExecutable);
+  let cargo = m.cargoExecutable;
+  if (basename(proxy) === 'rustup') {
+    const rustupHome = environment.RUSTUP_HOME ?? join(homedir(), '.rustup');
+    const which = (tool: string) =>
+      new Promise<string>((resolveResult, reject) =>
+        execFile(
+          proxy!,
+          ['which', tool],
+          {
+            cwd: tree,
+            encoding: 'utf8',
+            timeout: Math.max(1, Math.min(30_000, within())),
+            env: {
+              PATH: process.env.PATH ?? '/usr/bin',
+              HOME: homedir(),
+              RUSTUP_HOME: rustupHome,
+              RUSTUP_AUTO_INSTALL: '0',
+            },
+          },
+          (error, stdout) => (error ? reject(error) : resolveResult(String(stdout).trim())),
+        ),
+      );
+    try {
+      cargo = realpathSync(await which('cargo'));
+    } catch {
+      throw new Error("The commit's Rust toolchain is not installed for CraftingTable.");
+    }
+    const managed = join(realpathSync(rustupHome), 'toolchains');
+    const r = relative(managed, cargo);
+    if (r.startsWith('..') || isAbsolute(r) || r.split('/').length !== 3)
+      throw new Error(
+        `The commit's Rust toolchain is not a rustup-managed toolchain (${cargo}); CraftingTable runs only toolchains under ${managed}.`,
+      );
+    bin = dirname(cargo);
+  }
+  const tool = (name: string) =>
+    existsSync(join(bin, name)) ? { [name.toUpperCase()]: join(bin, name) } : {};
+  return {
+    bin,
+    cargo,
+    environment: {
+      ...environment,
+      PATH: [bin, environment.PATH].filter(Boolean).join(':'),
+      ...tool('rustc'),
+      ...tool('rustdoc'),
+      RUSTC_WRAPPER: '',
+      RUSTC_WORKSPACE_WRAPPER: '',
+      CARGO_BUILD_RUSTC_WRAPPER: '',
+      CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER: '',
+    },
+  };
+}
+
+/**
+ * What a pinned build of a private clone also overrides in the tree's Cargo configuration
+ * (operator decision 2026-09-30): its compiler flags, and the host's linker and runner. Settings
+ * from the environment outrank every configuration file.
+ */
+async function pinnedBuildOverrides(bin: string): Promise<Record<string, string>> {
+  const version = await captureCheck(
+    existsSync(join(bin, 'rustc')) ? join(bin, 'rustc') : 'rustc',
+    ['-vV'],
+    {
+      cwd: bin,
+      env: { PATH: process.env.PATH ?? '/usr/bin' },
+      timeoutMs: 30000,
+    },
+  );
+  const host = /^host: (\S+)$/m.exec(version.stdout)?.[1];
+  if (!host) throw new Error('Could not identify the Rust host.');
+  const target = `CARGO_TARGET_${host.toUpperCase().replace(/[-.]/g, '_')}`;
+  return {
+    CARGO_ENCODED_RUSTFLAGS: '',
+    CARGO_ENCODED_RUSTDOCFLAGS: '',
+    [`${target}_LINKER`]: 'cc',
+    [`${target}_RUNNER`]: 'env',
+  };
+}
+
 /** Refuses a pinned build whose `--manifest-path` leaves its private clone (R-G13 review). */
 function assertManifestWithin(root: string, args: readonly string[]): void {
   args.forEach((arg, index) => {
@@ -1916,6 +2015,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       // build of uncommitted work, which no gate accepts, still runs in the worktree: that is the
       // agent's own development loop.
       let built: PinnedCargoManifest = m;
+      let cargoProgram = m.cargoExecutable;
+      let buildProgram: string | undefined;
       before = await observeGitState(m);
       observed = true;
       if (m.dependencySources && before.clean) {
@@ -1938,12 +2039,18 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           // The upstreams' Git directories, which agents write too.
           m.dependencySources.map((source) => source.gitDirectory),
         );
+        const toolchain = await privateToolchain(m, snapshot, environment, remainingTime);
+        environment = { ...toolchain.environment, ...(await pinnedBuildOverrides(toolchain.bin)) };
+        cargoProgram = toolchain.cargo;
+        // An alias in the tree can shadow `cargo clippy`; Clippy's own program cannot be.
+        if (subcommand === 'clippy' && existsSync(join(toolchain.bin, 'cargo-clippy')))
+          buildProgram = join(toolchain.bin, 'cargo-clippy');
       } else {
         await usePrivateCargoHome(m, m.workspacePath);
         environment = { ...environment, CARGO_TARGET_DIR: m.targetDirectory };
       }
       const toolchain = (
-        await captureCheck(m.cargoExecutable, ['--version', '--verbose'], {
+        await captureCheck(cargoProgram, ['--version', '--verbose'], {
           cwd,
           env: environment,
           timeoutMs: 30000,
@@ -1951,7 +2058,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       ).stdout.trim();
       if (!toolchain) throw new Error('Could not identify Cargo toolchain.');
       const metadata = await captureCheck(
-        e.confinement === 'systemd' ? 'systemd-run' : m.cargoExecutable,
+        e.confinement === 'systemd' ? 'systemd-run' : cargoProgram,
         e.confinement === 'systemd'
           ? confinedCheckArguments(
               `${e.unitName}-metadata`,
@@ -1959,7 +2066,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
               330,
               writable,
               environment,
-              [m.cargoExecutable, ...pinnedMetadataArguments(built, e.args)],
+              [cargoProgram, ...pinnedMetadataArguments(built, e.args)],
               false,
               snapshot ? [] : [join(m.workspacePath, '.git')],
               inaccessible,
@@ -1986,7 +2093,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         toolchainDigest: cargoManifestDigest(toolchain),
         packages,
       };
-      command = m.cargoExecutable;
+      command = buildProgram ?? cargoProgram;
       actual = pinnedCargoArguments(built, e.args);
     } else if (e.tool === 'ct-check' && e.args[0] === '--declared') {
       // A declared check runs the adopted command from the verified manifest (R-G13): the
@@ -2045,6 +2152,11 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           [pinnedSources, pinsOverlay],
           m.dependencySources.map((source) => source.gitDirectory),
         );
+        const tool = argvRunsCargo(declared.argv)
+          ? await privateToolchain(m, snapshot, environment, remainingTime)
+          : undefined;
+        if (tool) environment = tool.environment;
+        const metadataCargo = tool?.cargo ?? m.cargoExecutable;
         // Resolved as the check will: locked when it is, so a stale lock is not rewritten first.
         const locked = declared.argv.some((token) => /--(locked|frozen)\b/.test(token));
         const metadataArguments = (manifestPath: string) => [
@@ -2060,7 +2172,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           declared.argv,
           (manifestPath) =>
             captureCheck(
-              e.confinement === 'systemd' ? 'systemd-run' : m!.cargoExecutable,
+              e.confinement === 'systemd' ? 'systemd-run' : metadataCargo,
               e.confinement === 'systemd'
                 ? confinedCheckArguments(
                     `${e.unitName}-metadata`,
@@ -2068,7 +2180,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
                     330,
                     writable,
                     environment,
-                    [m!.cargoExecutable, ...metadataArguments(manifestPath)],
+                    [metadataCargo, ...metadataArguments(manifestPath)],
                     false,
                     [],
                     inaccessible,
@@ -2082,7 +2194,13 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
               },
             ),
         );
-      } else confineToClone(snapshot);
+      } else {
+        confineToClone(snapshot);
+        // A check that runs Cargo runs the commit's own rustup-managed toolchain (R-G13 posture).
+        if (argvRunsCargo(declared.argv))
+          environment = (await privateToolchain(m, snapshot, environment, remainingTime))
+            .environment;
+      }
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('The check time limit passed before it could start.');

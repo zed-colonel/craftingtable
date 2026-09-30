@@ -33,6 +33,12 @@ export interface BriefInput {
     readonly requirements: readonly string[];
     readonly cases: readonly string[];
     readonly context: string;
+    /** The parent's required slices, for a parent-acceptance review to name owners (LIVE-27). */
+    readonly owningSlices?: readonly {
+      readonly id: string;
+      readonly scope: string;
+      readonly excludes: readonly string[];
+    }[];
   };
   readonly reviewContinuationArtifacts?: readonly string[];
   readonly resolvingIntegration?: boolean;
@@ -214,6 +220,16 @@ export function composeBrief(input: BriefInput): string {
     if (input.role === 'review')
       sections.push(
         `In the structured craftingtable-review report add scopeEvidence with this exact scope identity, an evidence entry for each requirement actually verified, and caseIds for cases actually checked. Never claim missing verification or outside-scope obligations passed. Shape: ${JSON.stringify({ scopeEvidence: { scope: s.identity, requirements: s.requirements.map((requirement) => ({ requirement, evidence: 'Concise commands/results and durable evidence references' })), caseIds: s.cases } })}. A slice review approves integration of this scope; it never accepts its parent. Use the supplied craftingtable-scope-evidence.json artifact for recorded slice receipts and verification references. A parent-acceptance review must independently assess the full original exit gate and retained source-plan obligations. Do not modify source files during acceptance review.`,
+      );
+    if (input.role === 'review' && s.owningSlices?.length)
+      sections.push(
+        [
+          'For each open finding, set "owningSlice" in the craftingtable-review report to the required slice whose scope covers its fix, so the repair goes there without asking the operator. Omit it only when no single slice can own the fix. The required slices:',
+          ...s.owningSlices.map(
+            (slice) =>
+              `- ${slice.id}: ${slice.scope}${slice.excludes.length ? ` Excludes: ${slice.excludes.join(' ')}` : ''}`,
+          ),
+        ].join('\n'),
       );
   }
   sections.push(

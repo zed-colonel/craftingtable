@@ -641,6 +641,14 @@ export function scopeBrief(r: ResolvedScope) {
     excludes: r.slice?.excludes ?? [],
     requirements: scopeRequirements(r),
     cases: scopeCases(r),
+    // A parent review names the required slice that owns each finding (LIVE-27).
+    ...(r.scope.kind === 'parent-acceptance'
+      ? {
+          owningSlices: r.definition.source.slices
+            .filter((s) => r.parent.required_slices.includes(s.id))
+            .map((s) => ({ id: s.id, scope: s.scope, excludes: [...s.excludes] })),
+        }
+      : {}),
     context: JSON.stringify({
       definitionId: r.definition.id,
       digest: r.definition.digest,

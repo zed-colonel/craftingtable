@@ -20,6 +20,8 @@ export interface ReviewFinding {
   readonly recommendation: string;
   /** Reviewer evidence for resolution, or the reason for withdrawal. */
   readonly disposition?: string;
+  /** The parent's required slice that owns this finding's fix, as the reviewer names it. */
+  readonly owningSlice?: string;
 }
 
 /** A reviewer's consolidated assertions, not independently proven correctness. */

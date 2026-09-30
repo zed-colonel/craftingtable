@@ -755,7 +755,8 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - **Gate at ae113fb:** format, lint, typecheck and build pass; 224 test files, 1,781 unit tests: 2 files timed out under load and passed rerun serially (60 tests); e2e 21 tests and the walkthrough rehearsal pass; the scope check passes. All 27 replays (nine snapshots) report 0 changed and 0 missing: stored holds replay as they are, so neither fix changes a recorded decision.
   - **After the deploy:** resume EXO-01's parent entry (its hold is stored and stays until resumed); its passing review then gets a round for F-006. For WI-03/domain, Continue with guidance on its repair ("judge only the findings this slice may fix; R1.WI03P-F001 belongs to WI-03/integration") lets the repair merge, and the parent review's next round can be delegated to WI-03/integration.
   - **LIVE-28's bound (operator decision: a lifetime ceiling):** automatic rounds for a parent are capped over its life at three times the allowance.
-  - **Next:** R-G6/R-F5's structured owning slice in review reports (LIVE-27's second part), R-A6 with R-E2's second increment, R-G13 increments 3 to 5, R-D4 and R-D5, then R-G9, R-H4, R-I4, R-G6.
+  - **LIVE-27's second part (asked for in this session):** parent reviewers name each finding's `owningSlice`, and automatic recovery routes a round to the named slice instead of holding it as ambiguous. A release before this cannot read a stored report carrying the field.
+  - **Next:** R-A6 with R-E2's second increment, R-G13 increments 3 to 5, R-D4 and R-D5, then R-G9, R-H4, R-I4, R-G6.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

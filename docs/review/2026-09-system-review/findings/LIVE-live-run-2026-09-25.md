@@ -428,7 +428,7 @@ The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, se
 ### LIVE-27: A parent finding repaired in a slice whose scope excludes it burns every remediation round on no-ops
 - Severity: medium (operator time and agent time lost; the limit was raised by hand)
 - Category: automatic recovery ([R-C5](../register.md#r-c5)); remediation ([R-C14](../register.md#r-c14)); findings ownership ([R-G6](../register.md#r-g6))
-- Status: CONFIRMED 2026-09-30 from the 2026-09-30b snapshot. FIXED in part 2026-09-30 on `remediation/p2` (operator decision: stop no-op remediations now; findings name their owning slice next), not deployed. See [R-C5](../register.md#r-c5).
+- Status: CONFIRMED 2026-09-30 from the 2026-09-30b snapshot. FIXED 2026-09-30 on `remediation/p2` (operator decision: stop no-op remediations; findings name their owning slice), not deployed. See [R-C5](../register.md#r-c5).
 - Replay case: the 2026-09-30b snapshot. Roadmap round attempt for entry c4ae17de (wi/WI-03/domain), source entry 1926f0d1 (WI-03 parent acceptance), requested from the operator's account on 2026-09-29 22:59 UTC; its cycle ace289b2 is `remediation-exhausted` at 6 of 3 rounds.
 - Evidence:
   - WI-03's parent review found R1.WI03P-F001 (expired deliveries are not reconciled by runtime dispatch). The finding names no slice, so automatic recovery held it as ambiguous (LIVE-20), and the round that followed was owned by WI-03/domain.

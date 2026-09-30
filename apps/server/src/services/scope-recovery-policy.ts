@@ -76,15 +76,29 @@ export function scopeRecoveryDecision(
     return { waiting: true };
   const preview = collectScopeRepair(tx, cycle);
   const parent = resolveScope(tx, ws, entry.workItemId, cycle.executionScope!).parent;
+  // A parent review names the required slice that owns each open finding (LIVE-27): when they
+  // all name one, the round goes there; findings that name none or several stay the operator's.
+  const named = [
+    ...new Set(
+      turn.payload.reviewReport.report.findings
+        .filter((f) => f.status === 'open')
+        .map((f) => f.owningSlice),
+    ),
+  ];
+  const namedCandidate =
+    named.length === 1 && named[0] !== undefined && parent.required_slices.includes(named[0])
+      ? preview.candidates.find((c) => c.scope.sourceId === named[0])
+      : undefined;
   if (
-    preview.candidates.length !== 1 ||
-    (preview.sources.some((s) => s.scope.kind === 'parent-acceptance') &&
-      parent.required_slices.length !== 1)
+    !namedCandidate &&
+    (preview.candidates.length !== 1 ||
+      (preview.sources.some((s) => s.scope.kind === 'parent-acceptance') &&
+        parent.required_slices.length !== 1))
   )
     return {
       reason: 'Finding ownership is ambiguous: more than one slice could own it.',
     };
-  const candidate = preview.candidates[0]!;
+  const candidate = namedCandidate ?? preview.candidates[0]!;
   const owner = roadmap.definition.entries.find(
     (e) =>
       e.workItemId === entry.workItemId && sameExecutionScope(e.executionScope, candidate.scope),

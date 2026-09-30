@@ -21,6 +21,14 @@ export const reviewFindingSchema = z
     explanation: text(20000),
     recommendation: text(20000),
     disposition: text(20000).optional(),
+    /**
+     * The parent's required slice that owns this finding's fix, as a parent-acceptance reviewer
+     * names it (LIVE-27); automatic recovery routes a round there instead of asking the operator.
+     */
+    owningSlice: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/)
+      .optional(),
   })
   .refine((finding) => finding.status === 'open' || finding.disposition !== undefined, {
     message: 'Resolved and withdrawn findings require a disposition from the reviewer',

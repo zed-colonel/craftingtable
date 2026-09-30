@@ -41,12 +41,23 @@ itNeedsCargo.each([
   'passing-after-exhausted',
   // A review that keeps passing with a fresh minor finding stops at the lifetime ceiling.
   'passing-forever',
+  // Two required slices, and the parent review names the one that owns the finding (LIVE-27).
+  'accepted-named-owner',
+  // Open findings that name different slices stay the operator's to route.
+  'split-owners',
 ] as const)('bounded roadmap scope recovery: %s', { timeout: 45000 }, async (outcome) => {
-  const f = await supervisedMapFixture(false, 'automatic', false, false, outcome !== 'ambiguous');
+  const f = await supervisedMapFixture(
+    false,
+    'automatic',
+    false,
+    false,
+    !['ambiguous', 'accepted-named-owner', 'split-owners'].includes(outcome),
+  );
   const { state } = f,
     ws = state.workspaceId,
     tx = state.context.storage;
   const normal = f.backend.replyForRequest!;
+  let parentPrompt = '';
   let parentReviews = 0;
   let repairs = 0;
   const reportWith = (
@@ -71,9 +82,11 @@ itNeedsCargo.each([
     const scope = tree.executionScope!;
     if (scope.kind === 'parent-acceptance') {
       parentReviews++;
+      parentPrompt = request.prompt;
       await runScopedFixtureCheck(request);
       const defect = {
         ...structuredFinding,
+        ...(outcome === 'accepted-named-owner' ? { owningSlice: f.scopes[1]!.sourceId } : {}),
         id: 'F003',
         severity: 'major',
         title: 'Complete semantic coverage',
@@ -94,7 +107,17 @@ itNeedsCargo.each([
           scope,
           finished
             ? [{ ...defect, status: 'resolved', disposition: 'Verified all families.' }]
-            : [passing ? { ...defect, severity: 'minor' } : defect],
+            : outcome === 'split-owners'
+              ? [
+                  { ...defect, owningSlice: f.scopes[0]!.sourceId },
+                  {
+                    ...defect,
+                    id: 'F004',
+                    title: 'Other family',
+                    owningSlice: f.scopes[1]!.sourceId,
+                  },
+                ]
+              : [passing ? { ...defect, severity: 'minor' } : defect],
           outcome === 'questions' && parentReviews > 1
             ? 'Which authority should own this behavior?'
             : 'none',
@@ -244,6 +267,20 @@ itNeedsCargo.each([
     // One round that leaves F003 open with new evidence is not yet a stall (R-C5 increment 4).
     expect(repairs).toBe(2);
     expect(parentReviews).toBe(3);
+    if (outcome === 'accepted-named-owner') {
+      // Every round went to the slice the parent review named.
+      const owned = storedRoadmap(state)
+        .attempts.filter((a) => a.recovery)
+        .map(
+          (a) =>
+            storedRoadmap(state).definition.entries.find((e) => e.id === a.entryId)?.executionScope
+              ?.sourceId,
+        );
+      expect(owned).toEqual([f.scopes[1]!.sourceId, f.scopes[1]!.sourceId]);
+      // And the parent reviewer was asked to name it, among the parent's required slices.
+      expect(parentPrompt).toContain('set "owningSlice" in the craftingtable-review report');
+      expect(parentPrompt).toContain(f.scopes[1]!.sourceId);
+    }
   } else {
     await waitFor(
       () =>
@@ -266,7 +303,7 @@ itNeedsCargo.each([
       outcome === 'stalled' ? 35000 : 22000,
     );
     expect(repairs).toBe(
-      outcome === 'ambiguous'
+      outcome === 'ambiguous' || outcome === 'split-owners'
         ? 0
         : outcome === 'stalled'
           ? 2

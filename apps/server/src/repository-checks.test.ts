@@ -384,7 +384,7 @@ it('reads a branch, never a tag of the same name, or an exact commit (R-G13 revi
   expect((await read('main')).definitionDigests['scripts/check.sh']).toBe(sha(SCRIPT));
 });
 
-it("refuses a Cargo check that does not name the commit's Cargo configuration and toolchain files as definition files (R-G13 posture, operator decision 2026-09-30)", async () => {
+it("refuses any check that does not name the commit's Cargo configuration and toolchain files as definition files (R-G13 posture, operator decision 2026-09-30)", async () => {
   const f = await checksFixture();
   mkdirSync(join(f.root, '.cargo'));
   writeFileSync(join(f.root, '.cargo/config.toml'), '[build]\njobs = 8\n');
@@ -405,10 +405,13 @@ it("refuses a Cargo check that does not name the commit's Cargo configuration an
     { id: 'python', argv: ['python3', '-B', 'check.py'], definitionPaths: [] },
   ]);
   const refused = await preview();
+  // Every check, whatever its command: Cargo may run beneath a script or an interpreter.
   expect(refused.issues).toEqual([
-    'Check fmt runs Cargo but does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
-    'Check wrapped runs Cargo but does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
-    'Check wrapped runs Cargo but does not name rust-toolchain.toml as a definition file; the commit has it, and Cargo reads it.',
+    'Check fmt does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
+    'Check wrapped does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
+    'Check wrapped does not name rust-toolchain.toml as a definition file; the commit has it, and Cargo reads it.',
+    'Check python does not name .cargo/config.toml as a definition file; the commit has it, and Cargo reads it.',
+    'Check python does not name rust-toolchain.toml as a definition file; the commit has it, and Cargo reads it.',
   ]);
   write([
     {
@@ -416,7 +419,11 @@ it("refuses a Cargo check that does not name the commit's Cargo configuration an
       argv: ['cargo', 'fmt', '--check'],
       definitionPaths: ['rust-toolchain.toml', '.cargo/config.toml'],
     },
-    { id: 'python', argv: ['python3', '-B', 'check.py'], definitionPaths: [] },
+    {
+      id: 'python',
+      argv: ['python3', '-B', 'check.py'],
+      definitionPaths: ['rust-toolchain.toml', '.cargo/config.toml'],
+    },
   ]);
   expect((await preview()).issues).toEqual([]);
 });

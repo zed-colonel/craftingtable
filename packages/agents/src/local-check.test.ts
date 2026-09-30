@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -11,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { afterEach, expect, it } from 'vitest';
@@ -1894,7 +1895,7 @@ it.skipIf(!hostCargo).each([
     } else {
       expect(outcome.exitCode).toBe(1);
       expect(outcome.diagnostic).toMatch(
-        planted === 'root' ? /Refusing unpinned up-crate/ : /Cargo configuration other than/,
+        planted === 'root' ? /Refusing unpinned up-crate/ : /is not a definition file of this check/,
       );
     }
   },
@@ -1978,6 +1979,149 @@ it.skipIf(!rustupProxy)(
     const clippy = await p.build(manifest, ['clippy', '--offline']);
     expect(clippy.outcome.exitCode, clippy.output + clippy.outcome.diagnostic).toBe(0);
     expect(clippy.output).not.toMatch(/^WHO=/m);
+  },
+  240_000,
+);
+
+/** An adopted check held to `definitionPaths`, run on the fixture's committed head. */
+async function declaredRun(
+  p: ReturnType<typeof pinnedBuildFixture>,
+  argv: string[],
+  definitionPaths: string[],
+  cargoExecutable = hostCargo!,
+) {
+  const launcher = p.f.launch({
+    ...p.manifest(),
+    // A scoped check, with no pins to build against.
+    verification: p.f.m.verification,
+    dependencySources: undefined,
+    cargoExecutable,
+    declaredChecks: {
+      declarationId: randomUUID(),
+      version: 1,
+      checks: [{ id: 'c', argv, definitionPaths, definitionDigests: {} }],
+    },
+  });
+  let output = '';
+  const outcome = await executeCheck({
+    tool: 'ct-check',
+    manifestPath: launcher.manifestPath,
+    manifestDigest: launcher.manifestDigest,
+    manifest: launcher.manifest,
+    args: ['--declared', 'c'],
+    logPath: join(p.f.root, 'daemon-logs', `${randomUUID()}.log`),
+    logReference: 'check-logs/run/c.log',
+    privateDirectory: join(p.f.root, 'check-logs', 'run', `${randomUUID()}.private`),
+    declaredTargetDirectory: join(p.f.root, 'check-logs', 'run', 'declared-target'),
+    confinement: 'none',
+    unitName: 'unused',
+    writablePaths: [p.f.m.workspacePath],
+    environment: { PATH: process.env.PATH ?? '/usr/bin', HOME: homedir() },
+    onOutput: (text) => (output += text),
+    signal: new AbortController().signal,
+  });
+  return { outcome, output };
+}
+
+it.skipIf(!rustupProxy).each([
+  ['a configuration added after adoption', '.cargo/config.toml'],
+  ['a nested configuration', 'sub/.cargo/config.toml'],
+  ['a legacy configuration', '.cargo/config'],
+] as const)(
+  'refuses an adopted check whose tree has Cargo configuration it was not adopted with: %s (R-G13 posture review)',
+  async (_label, path) => {
+    const p = pinnedBuildFixture();
+    const ws = p.f.m.workspacePath;
+    mkdirSync(join(ws, path, '..'), { recursive: true });
+    writeFileSync(join(ws, path), '[target.x86_64-unknown-linux-gnu]\nrunner = "fakebin/r"\n');
+    p.git(['add', '.'], ws);
+    p.git(['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'cfg'], ws);
+    // Whatever the check's command looks like: a script that runs Cargo is still Cargo.
+    const refused = await declaredRun(p, ['sh', '-c', 'echo RAN'], []);
+    expect(refused.output).not.toContain('RAN');
+    expect(refused.outcome.diagnostic).toContain(`${path} is not a definition file`);
+    // Adopted with it, the check runs.
+    const adopted = await declaredRun(p, ['sh', '-c', 'echo RAN'], [path]);
+    expect(adopted.outcome.exitCode, adopted.output + adopted.outcome.diagnostic).toBe(0);
+  },
+  120_000,
+);
+
+it.skipIf(!rustupProxy)(
+  "runs any adopted check with the commit's managed toolchain, and recognizes a rustup that is not a link (R-G13 posture review)",
+  async () => {
+    const p = pinnedBuildFixture();
+    const ws = p.f.m.workspacePath;
+    mkdirSync(join(ws, 'tc', 'bin'), { recursive: true });
+    writeFileSync(join(ws, 'tc', 'bin', 'cargo'), '#!/bin/sh\necho FAKE-CARGO\n', { mode: 0o755 });
+    writeFileSync(join(ws, 'rust-toolchain.toml'), `[toolchain]\npath = "${join(ws, 'tc')}"\n`);
+    writeFileSync(join(ws, 'check.sh'), '#!/bin/sh\ncargo --version\n', { mode: 0o755 });
+    p.git(['add', '.'], ws);
+    p.git(['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'tc'], ws);
+    const script = await declaredRun(p, ['./check.sh'], ['check.sh', 'rust-toolchain.toml']);
+    expect(script.output).not.toContain('FAKE-CARGO');
+    expect(script.outcome.diagnostic).toContain('not a rustup-managed toolchain');
+    // A copy of rustup named cargo is still rustup.
+    const copy = join(p.f.root, 'copied-bin', 'cargo');
+    mkdirSync(dirname(copy), { recursive: true });
+    copyFileSync(realpathSync(hostCargo!), copy);
+    chmodSync(copy, 0o755);
+    const copied = await declaredRun(p, ['cargo', '--version'], ['rust-toolchain.toml'], copy);
+    expect(copied.output).not.toContain('FAKE-CARGO');
+    expect(copied.outcome.diagnostic).toContain('not a rustup-managed toolchain');
+  },
+  120_000,
+);
+
+it.skipIf(!rustupProxy)(
+  "a pinned build's runner and linker are the daemon's own programs, whatever PATH the tree's [env] sets (R-G13 posture review)",
+  async () => {
+    const p = pinnedBuildFixture();
+    writeFileSync(
+      join(p.upstream, 'crate', 'Cargo.toml'),
+      '[package]\nname = "up-crate"\nversion = "0.1.0"\nedition = "2021"\n',
+    );
+    writeFileSync(join(p.upstream, 'crate', 'src', 'lib.rs'), 'pub const WHO: &str = "genuine";\n');
+    p.git(['add', '.'], p.upstream);
+    p.git(
+      ['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'real'],
+      p.upstream,
+    );
+    const pinned = p.git(['rev-parse', 'HEAD'], p.upstream);
+    const ws = p.f.m.workspacePath;
+    writeFileSync(
+      join(ws, 'Cargo.toml'),
+      '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nup-crate = "0.1"\n',
+    );
+    mkdirSync(join(ws, 'src'), { recursive: true });
+    writeFileSync(join(ws, 'src', 'main.rs'), 'fn main() { panic!("the genuine binary ran"); }\n');
+    mkdirSync(join(ws, 'fakebin'), { recursive: true });
+    writeFileSync(join(ws, 'fakebin', 'env'), '#!/bin/sh\necho FAKE-RUNNER\n', { mode: 0o755 });
+    mkdirSync(join(ws, '.cargo'), { recursive: true });
+    writeFileSync(
+      join(ws, '.cargo', 'config.toml'),
+      '[env]\nPATH = { value = "fakebin:/usr/bin:/bin", force = true, relative = true }\n',
+    );
+    p.git(['add', '.'], ws);
+    p.git(['-c', 'user.name=T', '-c', 'user.email=t@e.invalid', 'commit', '-qm', 'consumer'], ws);
+    const run = await p.build(
+      {
+        ...p.manifest(),
+        cargoExecutable: hostCargo!,
+        dependencySources: [
+          {
+            alias: 'up',
+            commitSha: pinned,
+            gitDirectory: join(p.upstream, '.git'),
+            packages: [{ name: 'up-crate', path: 'crate' }],
+          },
+        ],
+      },
+      ['run', '--offline'],
+    );
+    expect(run.output).not.toContain('FAKE-RUNNER');
+    expect(run.output).toContain('the genuine binary ran');
+    expect(run.outcome.receipt).toMatchObject({ success: false });
   },
   240_000,
 );

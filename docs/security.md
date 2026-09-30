@@ -509,9 +509,11 @@ every adopted check, run the same way against the pins, so the agent cannot choo
 committed Cargo configuration other than the root `.cargo/config.toml` is refused, and each manifest
 the check names must take every pinned crate from the daemon's checkouts. Finalization runs are
 held to adopted checks too, and every run held to them needs them even where no build is required.
-The check's toolchain is the commit's rustup-managed one (a `path` toolchain is refused), with the
-tree's rustc wrappers cleared; a pinned build also clears its rustflags and uses the default linker
-and no runner, and runs Clippy directly, past any alias. Other Cargo commands
+Every adopted check runs the commit's rustup-managed toolchain (a `path` toolchain is refused), with
+the tree's rustc wrappers cleared, and is refused if the tree has a Cargo configuration or toolchain
+file, at any depth, that the check was not adopted with. A pinned build also clears its rustflags,
+builds for the host with the daemon's own `cc` and no runner, and runs Clippy directly, past any
+alias. The tree's `[env]`, build scripts and procedural macros remain its own code, for the reviewer. Other Cargo commands
 still run in the agent's tree and record nothing. A daemon-recorded run's build record therefore reads
 no file the agent can write, and the daemon runs every check from the manifest text it verified at
 launch, never the published copy. Claude runs have no OS sandbox, so for them the database itself stays

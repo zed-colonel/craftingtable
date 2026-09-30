@@ -1236,6 +1236,76 @@ async function clonePinnedSources(
   return { packages, configPath };
 }
 
+/** An executable on the daemon's own PATH, by absolute path. */
+function executableOnPath(name: string): string | undefined {
+  for (const directory of (process.env.PATH ?? '/usr/bin:/bin').split(':')) {
+    if (!isAbsolute(directory)) continue;
+    const candidate = join(directory, name);
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {
+      // Next directory.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The rustup binary a Cargo executable is, if it is one: a link to rustup, a hard link, or a
+ * copy (rustup acts as the proxy its name says; R-G13 posture review). Compared by content with
+ * the rustup beside it and on the daemon's PATH. Undefined for a directly installed Cargo.
+ */
+function rustupBinary(cargo: string): string | undefined {
+  let real: string;
+  try {
+    real = realpathSync(cargo);
+  } catch {
+    return undefined;
+  }
+  if (basename(real) === 'rustup') return real;
+  const candidates = [
+    join(dirname(cargo), 'rustup'),
+    executableOnPath('rustup'),
+    join(homedir(), '.cargo', 'bin', 'rustup'),
+  ].filter((c): c is string => !!c);
+  let digest: string | undefined;
+  for (const candidate of candidates) {
+    try {
+      const rustup = realpathSync(candidate);
+      if (statSync(rustup).size !== statSync(real).size) continue;
+      digest ??= hash(readFileSync(real));
+      if (hash(readFileSync(rustup)) === digest) return rustup;
+    } catch {
+      // Not there.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Refuses an adopted check whose reviewed tree has a Cargo configuration or toolchain file it
+ * was not adopted with (R-G13 posture review): at the root or nested, legacy, or a linked `.cargo`.
+ * Whatever the check's command, Cargo may run beneath it, and these choose what Cargo runs.
+ */
+async function assertCargoFilesAdopted(
+  m: PinnedCargoManifest,
+  tree: string,
+  definitionPaths: readonly string[],
+): Promise<void> {
+  const unadopted = (await daemonGit(m, ['ls-files', '-z', '--cached'], tree, 64 * 1024 * 1024))
+    .toString('utf8')
+    .split('\0')
+    .filter(
+      (path) =>
+        /(^|\/)(\.cargo(\/config(\.toml)?)?|rust-toolchain(\.toml)?)$/.test(path) &&
+        !definitionPaths.includes(path),
+    );
+  if (unadopted.length)
+    throw new Error(
+      `${unadopted.map((path) => `${path} is not a definition file of this check`).join('; ')}. Cargo reads it to choose its toolchain and configuration; adopt the checks with it, or remove it.`,
+    );
+}
+
 /**
  * The toolchain a check on a private clone runs (R-G13, operator decision 2026-09-30): the
  * clone's rustup-managed toolchain, resolved by rustup from its `rust-toolchain.toml`, and never
@@ -1249,15 +1319,10 @@ async function privateToolchain(
   environment: Readonly<Record<string, string>>,
   within: () => number,
 ): Promise<{ bin: string; cargo: string; environment: Record<string, string> }> {
-  let proxy: string | undefined;
-  try {
-    proxy = realpathSync(m.cargoExecutable);
-  } catch {
-    throw new Error('Could not identify Cargo toolchain.');
-  }
+  const proxy = rustupBinary(m.cargoExecutable);
   let bin = dirname(m.cargoExecutable);
   let cargo = m.cargoExecutable;
-  if (basename(proxy) === 'rustup') {
+  if (proxy) {
     const rustupHome = environment.RUSTUP_HOME ?? join(homedir(), '.rustup');
     const which = (tool: string) =>
       new Promise<string>((resolveResult, reject) =>
@@ -1327,11 +1392,17 @@ async function pinnedBuildOverrides(bin: string): Promise<Record<string, string>
   const host = /^host: (\S+)$/m.exec(version.stdout)?.[1];
   if (!host) throw new Error('Could not identify the Rust host.');
   const target = `CARGO_TARGET_${host.toUpperCase().replace(/[-.]/g, '_')}`;
+  // Absolute: the tree's `[env]` can set the PATH the compiler and the test process see.
+  const env = executableOnPath('env'),
+    cc = executableOnPath('cc');
+  if (!env || !cc) throw new Error('The daemon has no env or cc to build with.');
   return {
     CARGO_ENCODED_RUSTFLAGS: '',
     CARGO_ENCODED_RUSTDOCFLAGS: '',
-    [`${target}_LINKER`]: 'cc',
-    [`${target}_RUNNER`]: 'env',
+    // The host, so a target the tree names brings no linker or runner of its own.
+    CARGO_BUILD_TARGET: host,
+    [`${target}_LINKER`]: cc,
+    [`${target}_RUNNER`]: env,
   };
 }
 
@@ -2043,8 +2114,11 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         environment = { ...toolchain.environment, ...(await pinnedBuildOverrides(toolchain.bin)) };
         cargoProgram = toolchain.cargo;
         // An alias in the tree can shadow `cargo clippy`; Clippy's own program cannot be.
-        if (subcommand === 'clippy' && existsSync(join(toolchain.bin, 'cargo-clippy')))
+        if (subcommand === 'clippy') {
+          if (!existsSync(join(toolchain.bin, 'cargo-clippy')))
+            throw new Error("The commit's Rust toolchain has no Clippy.");
           buildProgram = join(toolchain.bin, 'cargo-clippy');
+        }
       } else {
         await usePrivateCargoHome(m, m.workspacePath);
         environment = { ...environment, CARGO_TARGET_DIR: m.targetDirectory };
@@ -2131,6 +2205,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         before.headSha,
         declared.definitionPaths,
       );
+      await assertCargoFilesAdopted(m, snapshot, declared.definitionPaths);
       // A program with a path is the repository's own, from the reviewed commit.
       if (command.includes('/')) command = join(snapshot, command);
       cwd = snapshot;
@@ -2152,11 +2227,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           [pinnedSources, pinsOverlay],
           m.dependencySources.map((source) => source.gitDirectory),
         );
-        const tool = argvRunsCargo(declared.argv)
-          ? await privateToolchain(m, snapshot, environment, remainingTime)
-          : undefined;
-        if (tool) environment = tool.environment;
-        const metadataCargo = tool?.cargo ?? m.cargoExecutable;
+        // Every adopted check runs the commit's toolchain: Cargo may run beneath any command.
+        const tool = await privateToolchain(m, snapshot, environment, remainingTime);
+        environment = tool.environment;
+        const metadataCargo = tool.cargo;
         // Resolved as the check will: locked when it is, so a stale lock is not rewritten first.
         const locked = declared.argv.some((token) => /--(locked|frozen)\b/.test(token));
         const metadataArguments = (manifestPath: string) => [
@@ -2196,10 +2270,9 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         );
       } else {
         confineToClone(snapshot);
-        // A check that runs Cargo runs the commit's own rustup-managed toolchain (R-G13 posture).
-        if (argvRunsCargo(declared.argv))
-          environment = (await privateToolchain(m, snapshot, environment, remainingTime))
-            .environment;
+        // Every adopted check runs the commit's own rustup-managed toolchain (R-G13 posture):
+        // Cargo may run beneath any command.
+        environment = (await privateToolchain(m, snapshot, environment, remainingTime)).environment;
       }
     }
     const remaining = deadline - Date.now();

@@ -129,11 +129,14 @@ function evidenceViewRecords(
   views: readonly EvidenceViewReplay[],
 ): { key: string; value: unknown }[] {
   return views.flatMap(({ definitionId, view, records }) => {
-    const full = view.submissions.flatMap(({ submission }) =>
-      submission.artifacts.every((a) => 'content' in a)
-        ? [submission as unknown as EvidenceSubmission]
-        : [],
+    // A golden from before R-H4 carries artifact contents; decide per view, not per submission,
+    // since a submission with no artifacts looks the same in both.
+    const legacy = view.submissions.some(({ submission }) =>
+      submission.artifacts.some((a) => 'content' in a),
     );
+    const full = legacy
+      ? view.submissions.map(({ submission }) => submission as unknown as EvidenceSubmission)
+      : [];
     const summarized = {
       ...view,
       submissions: view.submissions.map((v) => ({

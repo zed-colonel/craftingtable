@@ -1087,7 +1087,8 @@ export class RuntimeEvidenceService {
     const runIssue = reads ? reads.runIssue : this.runIssue(tree, c.runId);
     if (runIssue) issues.push(runIssue);
     // A launch/retarget during asynchronous inspection cannot retain the older approval. The
-    // view's reads were all taken in one snapshot, so it has nothing to re-read.
+    // view does not re-read: it took these reads before its Git calls, and only displays them;
+    // `decide` re-evaluates without them (R-H4 review).
     issues.push(...(reads?.candidateIssues ?? candidateCheckpointIssues(this.storage, s)));
     return [...new Set(issues)];
   }

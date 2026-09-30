@@ -134,6 +134,40 @@ it('renders readable artifacts and requires a rationale before accepting evidenc
   });
   expect(init?.headers).toEqual({ 'x-craftingtable-csrf': 'csrf' });
 });
+it('attests to a plan only after its record has been shown (R-H4)', async () => {
+  const plan = {
+    ...record,
+    id: 'plan-evidence',
+    reviewers: [],
+    generatedPlan: {
+      kind: 'saved-plan-v1',
+      roadmapId: runtimeId,
+      definitionRevision: 1,
+      snapshotDigest: 'a'.repeat(64),
+    },
+    artifacts: [{ name: 'saved-facts', digest: 'b'.repeat(64), content: 'Saved bindings.' }],
+  };
+  respond([{ ...view(), submissions: [{ submission: summary(plan), issues: [] }] }], {
+    [plan.id]: plan,
+  });
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  const reviewed = await screen.findByRole('checkbox', {
+    name: /I reviewed the saved plan/,
+    hidden: true,
+  });
+  expect(reviewed.hasAttribute('disabled')).toBe(true);
+  openReview(plan.id);
+  await screen.findByText('Saved bindings.');
+  expect(reviewed.hasAttribute('disabled')).toBe(false);
+});
 it('shows stale evidence as blocked and generates a case-specific actual-Kata template', async () => {
   vi.mocked(request).mockResolvedValue(view(['The upstream pin changed.']));
   render(

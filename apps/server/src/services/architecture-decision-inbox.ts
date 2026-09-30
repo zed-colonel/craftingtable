@@ -14,6 +14,7 @@ import {
   architectureDecisionIssues,
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
+import { decisionSettlement } from './decision-settlement.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { prerequisiteIssues } from './runtime-evidence-policy.js';
 import { worktreePlan } from './repository-policy.js';
@@ -231,6 +232,7 @@ export function architectureDecisionInbox(
     )
       return [];
     if (!records.length && !recommendation && !stopped.has(c.id)) return [];
+    const settlement = decisionSettlement(tx, ws, d, revision, c.id);
     const refs = [
       `Imported map ${d.mapId} ${d.revision}; exact plan binding ${revision}; checkpoint ${c.id}.`,
       ...c.source_refs.map((ref) => JSON.stringify(ref)),
@@ -256,6 +258,10 @@ export function architectureDecisionInbox(
           ),
         ),
         ...(stopped.has(c.id) ? { stoppedSlices: [...new Set(stopped.get(c.id))] } : {}),
+        ...(settlement.settledFor.length ? { settledFor: [...settlement.settledFor] } : {}),
+        ...(settlement.stillNeededBy.length
+          ? { stillNeededBy: [...settlement.stillNeededBy] }
+          : {}),
         ...(recommendation ? { recommendation } : {}),
         records,
       },

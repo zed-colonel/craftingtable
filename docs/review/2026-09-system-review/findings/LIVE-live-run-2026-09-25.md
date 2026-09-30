@@ -373,7 +373,7 @@ The operator deployed fccce06 at 06:48 UTC; the roadmap came up running. The ope
 ### LIVE-22: a decision item stays open after a clause approval without saying which slices it still waits for
 - Severity: low (no stop; a misleading item)
 - Category: operator clarity (inbox and decision cards; R-A5, R-C3b, LIVE-18)
-- Status: OBSERVED 2026-09-30 by the operator, after the e0d33b8 deploy. Recorded for the next batch (operator decision); not fixed.
+- Status: OBSERVED 2026-09-30 by the operator, after the e0d33b8 deploy. FIXED 2026-09-30 on `remediation/p2` (option A, operator decision), not deployed: the item and card say which slices the decision is settled for and which still need it. See [R-C3](../register.md#r-c3).
 - Replay case: the 2026-09-29b snapshot (00:06 UTC) holds the map and the earlier clause approval; the operator's clause approval for exo/EXO-18/instance-design came after it. Check against a later snapshot.
 - Evidence:
   - The operator recorded a clause-limited ("scoped") approval of EXO-ADR-037 for exo/EXO-18/instance-design, which then ran. The "Needs you" item for EXO-ADR-037 stayed open.

@@ -286,6 +286,10 @@ export const architectureDecisionInboxSchema = z.strictObject({
       ),
       /** Slices stopped now until this decision is settled (LIVE-18); computed, never stored. */
       stoppedSlices: z.array(name).optional(),
+      /** Slices an accepted clause-level decision settles it for (LIVE-22); computed. */
+      settledFor: z.array(name).optional(),
+      /** Consumer slices it is not settled for whose requiring phase is still ahead (LIVE-22). */
+      stillNeededBy: z.array(name).optional(),
       recommendation: z
         .strictObject({
           sourceRunId: z.string(),

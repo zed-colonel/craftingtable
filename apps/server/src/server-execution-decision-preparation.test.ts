@@ -934,3 +934,53 @@ it('keeps holding when the rejected proposal from this brief was limited to anot
   await f.state.context.services.roadmapService.tick();
   expect(startedSlices(fixture)).toEqual([]);
 });
+
+it('a decision approved for some slices says which it is settled for and which still need it (LIVE-22)', {
+  timeout: 45000,
+}, async () => {
+  // Both slices wait on LOCAL-ADR-01 at start. A clause-limited approval names only the first,
+  // so the decision stays open for the second, and its item and card say so.
+  const fixture = await decisionFixture();
+  const { f, ws, tx, saved } = fixture;
+  const [first, second] = f.scopes.map((s) => s.sourceId);
+  const p = await prepared1(fixture);
+  const definition = tx.imports.definition(ws, p.definitionId)!;
+  const card = () =>
+    architectureDecisionInbox(tx, definition).decisions.find(
+      (c) => c.checkpointId === 'LOCAL-ADR-01',
+    )!;
+  expect(card().settledFor).toBeUndefined();
+  expect(card().stillNeededBy).toEqual([first, second]);
+  const evidence = f.state.context.services.runtimeEvidenceService;
+  const proposed = await evidence.proposeArchitectureDecision(f.auth, ws, p.definitionId, {
+    bindingRevision: 1,
+    checkpointId: 'LOCAL-ADR-01',
+    sourceRunId: p.runId,
+    sourceReportDigest: card().recommendation!.sourceReportDigest,
+    coverage: 'clauses',
+    proposal: brief('LOCAL-ADR-01').decisionText,
+    sourceReferences: card().sourceReferences,
+    consumers: [{ sliceId: first!, phase: 'start', replacesFullCheckpoint: true }],
+    retainedObligations: brief('LOCAL-ADR-01').retainedObligations,
+  });
+  await evidence.decide(f.auth, ws, p.definitionId, {
+    submissionId: proposed.submissions.find(
+      (x) => x.submission.subject.sourceId === 'LOCAL-ADR-01',
+    )!.submission.id,
+    outcome: 'accepted',
+    rationale: 'Settled for the first slice only.',
+  });
+  expect(card().settledFor).toEqual([first]);
+  expect(card().stillNeededBy).toEqual([second]);
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  f.state.context.services.roadmapService.syncAttention(true);
+  const item = tx.attention
+    .open(ws)
+    .find((i) => i.subjectKey === `roadmap:${saved.id}:checkpoint:LOCAL-ADR-01`)!;
+  expect(item.message).toContain(`Settled for: ${first}`);
+  expect(item.message).toContain(`Still needed by: ${second}`);
+  expect(item.message).not.toContain('Ready for independent evidence review');
+  // Only the second slice still waits on it.
+  expect(item.blocks).toBe(1);
+});

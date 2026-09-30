@@ -311,10 +311,14 @@ function DecisionCard({
     }
   };
   const clarification = `Clarify ${card.checkpointId} for operator review. Provide a complete standalone decision brief with the proposed choice, rationale, alternatives and tradeoffs, consequences, exact source citations, and full or explicitly limited coverage. Explain what remains to implement or verify. Do not approve the decision or implement changes.`;
+  // A clause approval settles the decision only for the slices it names (LIVE-22).
+  const stillNeeded = fullApproval ? [] : (card.stillNeededBy ?? []);
   const status = accepted
     ? accepted.proposal.coverage === 'full'
       ? 'Accepted · full architectural decision'
-      : 'Accepted · limited to named slices'
+      : stillNeeded.length && card.settledFor?.length
+        ? `Accepted for ${card.settledFor.length} named slices · still needed by ${stillNeeded.length}`
+        : 'Accepted · limited to named slices'
     : pending
       ? 'Proposal saved · awaiting your approval'
       : card.records.some((r) => r.decision?.outcome === 'accepted')
@@ -332,7 +336,13 @@ function DecisionCard({
       {!accepted && card.stoppedSlices?.length ? (
         <p role="status">Needed now by {card.stoppedSlices.join(', ')}.</p>
       ) : null}
-      {!accepted && !pending && !brief && preparation && (
+      {card.settledFor?.length && stillNeeded.length ? (
+        <>
+          <p>Settled for: {card.settledFor.join(', ')}.</p>
+          <p role="status">Still needed by: {stillNeeded.join(', ')}.</p>
+        </>
+      ) : null}
+      {(!accepted || stillNeeded.length > 0) && !pending && !brief && preparation && (
         <PrepareDecisionBrief
           preparation={preparation}
           checkpointId={card.checkpointId}

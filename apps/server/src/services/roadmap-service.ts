@@ -61,6 +61,7 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import { cycleAgentSelection, entryAgentSelections } from './agent-profile-policy.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { neededDecisions, slicesWaitingOn } from './decision-demand.js';
+import { decisionSettlement } from './decision-settlement.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
 import {
@@ -165,6 +166,41 @@ interface PreparationTarget {
 function answeredHolds(roadmap: Roadmap, entryId: string): Roadmap['entryHolds'] {
   const { [entryId]: hold, ...others } = roadmap.entryHolds ?? {};
   return hold?.status === 'needs-attention' ? others : roadmap.entryHolds;
+}
+/**
+ * What a shared decision's item says of the slices it serves (LIVE-22): those an accepted
+ * clause-level decision settles it for, and the selected ones that still need it. Nothing when
+ * no selected slice needs it directly (it is needed through another checkpoint).
+ */
+function decisionNeeds(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  selection: { readonly definitionId: string; readonly bindingRevision: number },
+  nodes: readonly {
+    readonly kind: string;
+    readonly sourceId: string;
+    readonly included: boolean;
+  }[],
+  checkpointId: string,
+): string | undefined {
+  const d = tx.imports.definition(ws, selection.definitionId);
+  if (!d) return undefined;
+  const selected = new Set(
+    nodes.filter((n) => n.kind === 'slice' && n.included).map((n) => n.sourceId),
+  );
+  const { settledFor, stillNeededBy } = decisionSettlement(
+    tx,
+    ws,
+    d,
+    selection.bindingRevision,
+    checkpointId,
+  );
+  const needed = stillNeededBy.filter((slice) => selected.has(slice));
+  if (!needed.length) return undefined;
+  return [
+    ...(settledFor.length ? [`Settled for: ${settledFor.join(', ')}`] : []),
+    `Still needed by: ${needed.join(', ')}`,
+  ].join('\n');
 }
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -3739,7 +3775,11 @@ export class RoadmapService {
                 ? 'Plan to accept'
                 : 'Evidence to review'
           }`,
-          message: `${node.title}\nReady for independent evidence review and your acceptance.`,
+          message: `${node.title}\n${
+            (code === 'architecture-decision' &&
+              decisionNeeds(tx, workspaceId, selection, nodes, node.sourceId)) ||
+            'Ready for independent evidence review and your acceptance.'
+          }`,
           path: setupPath(
             code === 'architecture-decision'
               ? '-decisions'

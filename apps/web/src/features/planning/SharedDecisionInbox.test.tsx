@@ -528,3 +528,36 @@ it('prepares against the roadmap as it is when clicked, and waits while one is i
     (screen.getByRole('button', { name: 'Prepare decision brief' }) as HTMLButtonElement).disabled,
   ).toBe(true);
 });
+
+it('says which slices a clause approval settles a decision for and which still need it (LIVE-22)', async () => {
+  preparations(() => 3);
+  const settled = ['exo/EXO-03/domain', 'exo/EXO-18/instance-design'];
+  const still = [
+    'exo/EXO-03/integration',
+    'exo/EXO-18/domain',
+    'exo/EXO-18/instance-qualification',
+    'exo/EXO-18/integration',
+  ];
+  const clauses = accepted({
+    ...decisionRecord,
+    proposal: {
+      ...decisionRecord.proposal,
+      coverage: 'clauses',
+      consumers: settled.map((sliceId) => ({
+        sliceId,
+        phase: 'merge' as const,
+        replacesFullCheckpoint: true,
+      })),
+    },
+  });
+  const data = stoppedCard([clauses]);
+  const card = data.decisions[0]!;
+  delete (card as { stoppedSlices?: unknown }).stoppedSlices;
+  renderStopped({ ...data, decisions: [{ ...card, settledFor: settled, stillNeededBy: still }] });
+  const region = screen.getByRole('region', { name: 'EXO-ADR-037' });
+  expect(within(region).getByText('Accepted for 2 named slices · still needed by 4')).toBeTruthy();
+  expect(within(region).getByText(`Settled for: ${settled.join(', ')}.`)).toBeTruthy();
+  expect(within(region).getByText(`Still needed by: ${still.join(', ')}.`)).toBeTruthy();
+  // The remaining slices need a decision, so a brief can be prepared for them.
+  expect(within(region).getByRole('button', { name: 'Prepare decision brief' })).toBeTruthy();
+});

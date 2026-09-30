@@ -1384,6 +1384,8 @@ export class WorkCycleService {
       // Pausing a stop holds it: the stop is kept so Resume returns to it rather than
       // relaunching a step the controller would stop again (R-A7, cycle d148f0a4).
       const held = cycle.status === 'needs-attention' ? effectiveCycleAttention(cycle) : undefined;
+      // A review still in its adopted checks has no session to keep: its checks stop (R-G13).
+      this.runs.cancelStartingChecks(cycle.currentRunId);
       return this.change(
         cycle,
         {

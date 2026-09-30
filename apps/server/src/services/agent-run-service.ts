@@ -197,7 +197,7 @@ function declaredChecksBrief(
       ? 'Other ct-check commands and Cargo builds are supplemental and never replace them.'
       : 'They are needed beside the pinned Cargo build/test; other ct-check commands are supplemental.';
   return role === 'review'
-    ? `Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head. CraftingTable ran each from the adopted definition on a private clone of that commit before this review started; their results are at the end of this brief, and those runs count for the gate. Report a failing check as a finding. To run one again, read-only (do not commit):
+    ? `Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head. CraftingTable runs each from the adopted definition on a private clone of that commit before this review starts, and appends their results below these instructions; those runs count for the gate. Report a failing check as a finding. To run one again, read-only (do not commit):
 ${commands}
 ${beside}
 `
@@ -219,15 +219,20 @@ export function declaredCheckReport(
   if (!results.length) return '';
   const directory = join(runDirectory, 'declared-checks');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
+  // The run directory is the agent's once it starts: never write through a link in it.
+  const safe = lstatSync(directory).isDirectory();
   const lines = results.map((result) => {
-    if (result.exitCode === 0) return `- ${result.checkId}: passed.`;
+    if (result.exitCode === 0) return `- ${result.checkId}: exited 0.`;
     let output = '';
     try {
+      if (!safe) throw new Error('The declared-checks directory is not a directory.');
       const log = readFileSync(result.logPath);
       const copy = join(directory, `${result.checkId}.log`);
       // The end of the log is where a check says why it failed.
       writeFileSync(copy, log.subarray(Math.max(0, log.length - DECLARED_LOG_TAIL_BYTES)), {
         mode: 0o600,
+        // Created here, never through an existing file or link.
+        flag: 'wx',
       });
       output = ` Output: ${copy}`;
     } catch {
@@ -239,7 +244,7 @@ export function declaredCheckReport(
 
 Adopted checks CraftingTable ran on the reviewed head before this review:
 ${lines.join('\n')}
-A failed check fails this review's gate. Read its output, and report it as a finding when the change caused it.
+A check counts for the gate only when it succeeded on the clean reviewed head. Read a failed check's output, and report it as a finding when the change caused it.
 `;
 }
 /** How much of a failed check's log a reviewer is given. */
@@ -687,11 +692,56 @@ export class AgentRunService {
     );
   }
 
+  /**
+   * Why a launch that waited (a review's adopted checks) may no longer start its agent: its
+   * cycle moved on, was paused or stopped, lost its launch authority or its time; or the person
+   * who started a manual run lost the permission to.
+   */
+  private launchRefusal(
+    workspaceId: WorkspaceId,
+    runId: AgentRunId,
+    userId: UserId,
+    cycle: WorkCycle | undefined,
+  ): string | undefined {
+    if (cycle) {
+      const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
+      if (latest?.currentRunId !== runId || latest.status !== 'running')
+        return 'The cycle moved on before its review started.';
+      try {
+        // The stored cycle, not the one the launch began with: a change to its fields is not a
+        // change of authority.
+        this.requireCycleLaunchAuthority(latest);
+      } catch (error) {
+        return error instanceof Error ? error.message : 'The cycle lost its launch authority.';
+      }
+      return undefined;
+    }
+    const user = this.storage.users.findById(userId);
+    const access = this.storage.workspaces.findAuthorized(userId, workspaceId);
+    return user?.status !== 'active' ||
+      !access ||
+      !['owner', 'editor'].includes(access.membership.role)
+      ? 'Run launch permission changed while the review’s checks ran.'
+      : undefined;
+  }
+
+  /**
+   * Stops a review's adopted checks while its agent has not started (R-G13 increment 3): its
+   * cycle was paused. The launch then starts no agent; a live session is left alone.
+   */
+  cancelStartingChecks(runId: string): void {
+    this.checkingLaunches.get(runId)?.cancel();
+  }
+
   /** Only the controller can close/terminate its reserved session. No browser authority bypass. */
   finishCycleTurn(cycle: WorkCycle, cancel = false): boolean {
     const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     if (stored?.currentRunId !== cycle.currentRunId) return false;
-    if (cancel) this.pendingCycleLaunches.get(cycle.currentRunId)?.();
+    if (cancel) {
+      this.pendingCycleLaunches.get(cycle.currentRunId)?.();
+      // A review still running its adopted checks: stop them; its agent never starts (R-G13).
+      this.checkingLaunches.get(cycle.currentRunId)?.cancel();
+    }
     const live = this.liveRun(cycle.workspaceId, cycle.currentRunId);
     if (live === undefined) return false;
     if (!cancel && live.session.backgroundWorkPending) return false;
@@ -1667,19 +1717,22 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             reason: 'daemon-drain',
             message: DRAIN_INTERRUPTED_MESSAGE,
           });
-        const latest = cycle && this.storage.execution.cycles.find(workspaceId, cycle.id);
-        if (cycle && (latest?.status === 'stopped' || latest?.currentRunId !== runId))
-          return this.finalize(workspaceId, runId, 'cancelled', {
-            message: 'The cycle moved on before its review started.',
-          });
+        // The checks can take long: the launch's authority is checked again before the agent
+        // starts, as the preflight checked it (R-G13 increment 3 review).
+        const refused = this.launchRefusal(workspaceId, runId, actor.userId, cycle);
+        if (refused) return this.finalize(workspaceId, runId, 'cancelled', { message: refused });
         await proceed(declaredCheckReport(results, runDirectory));
       })()
         .catch((error) => {
-          const current = this.storage.execution.runs.find(workspaceId, runId);
-          if (current && !isTerminalAgentRunStatus(current.status))
-            this.finalize(workspaceId, runId, 'failed', {
-              message: error instanceof Error ? error.message : 'The review could not start.',
-            });
+          try {
+            const current = this.storage.execution.runs.find(workspaceId, runId);
+            if (current && !isTerminalAgentRunStatus(current.status))
+              this.finalize(workspaceId, runId, 'failed', {
+                message: error instanceof Error ? error.message : 'The review could not start.',
+              });
+          } catch {
+            /* storage closed with the daemon: the restart recovers the run */
+          }
         })
         .finally(() => this.checkingLaunches.delete(runId));
       this.checkingLaunches.set(runId, { cancel, done: continuation });
@@ -1972,7 +2025,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   async interruptForRestart(): Promise<number> {
     this.draining = true;
     for (const cancel of this.pendingCycleLaunches.values()) cancel();
-    for (const checking of this.checkingLaunches.values()) checking.cancel();
+    const checking = [...this.checkingLaunches.values()];
+    for (const launch of checking) launch.cancel();
     const pending = [...this.live.values(), ...this.orphaned];
     let interrupted = 0;
     for (const liveRun of this.live.values()) {
@@ -1994,8 +2048,15 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       const timer = setTimeout(resolve, SHUTDOWN_GRACE_MS);
       timer.unref();
     });
-    await Promise.race([Promise.allSettled(pending.map((liveRun) => liveRun.done)), timeout]);
-    return interrupted;
+    await Promise.race([
+      Promise.allSettled([
+        ...pending.map((liveRun) => liveRun.done),
+        // A review stopped in its checks records its interruption before storage closes.
+        ...checking.map((launch) => launch.done),
+      ]),
+      timeout,
+    ]);
+    return interrupted + checking.length;
   }
 
   async shutdown(): Promise<void> {

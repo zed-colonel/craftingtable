@@ -406,8 +406,11 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
       : attention(code, message);
   };
   if (run.status === 'starting' || run.status === 'running') return { kind: 'wait-for-run' };
+  // A run the drain stopped before its agent started (a review in its adopted checks, R-G13)
+  // left nothing to inspect: its step starts again after the restart.
   if (facts.drainInterrupted)
-    return run.backendSessionId === undefined || run.role !== cycleStepRole(cycle.step)
+    return run.role !== cycleStepRole(cycle.step) ||
+      (run.backendSessionId === undefined && run.startedAt !== undefined)
       ? attention(
           'restart-session-lost',
           'CraftingTable restarted during this step before its agent session could be resumed. Inspect the worktree and resume explicitly.',

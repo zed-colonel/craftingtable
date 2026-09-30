@@ -45,11 +45,13 @@ export class WorktreeMutationGuard {
    */
   hold(id: WorktreeId, until: Promise<unknown>): void {
     this.held.set(id, (this.held.get(id) ?? 0) + 1);
-    void until.finally(() => {
+    const release = () => {
       const remaining = (this.held.get(id) ?? 1) - 1;
       if (remaining > 0) this.held.set(id, remaining);
       else this.held.delete(id);
-    });
+    };
+    // Released either way; a rejection is the launch's to report, never an unhandled one here.
+    until.then(release, release);
   }
   /**
    * Hold the worktree until `exited` settles. Unlike `during`, this never

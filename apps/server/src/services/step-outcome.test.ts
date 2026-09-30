@@ -171,10 +171,23 @@ const rows: readonly Row[] = [
   {
     name: 'a drain-interrupted step without a session needs the operator',
     facts: {
-      run: runOf({ status: 'interrupted', backendSessionId: undefined }),
+      run: runOf({
+        status: 'interrupted',
+        backendSessionId: undefined,
+        startedAt: '2026-09-20T00:00:00.000Z',
+      }),
       drainInterrupted: true,
     },
     expected: { kind: 'attention', code: 'restart-session-lost' },
+  },
+  {
+    // A review the drain stopped in its adopted checks, before its agent (R-G13 increment 3).
+    name: 'a drain-interrupted step whose agent never started starts again',
+    facts: {
+      run: runOf({ status: 'interrupted', backendSessionId: undefined, startedAt: undefined }),
+      drainInterrupted: true,
+    },
+    expected: { kind: 'resume-after-restart' },
   },
   {
     name: 'a finished turn ends its session',

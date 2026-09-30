@@ -216,7 +216,7 @@ itNeedsCargo(
     expect(prompt).toContain(
       'Adopted checks CraftingTable ran on the reviewed head before this review:',
     );
-    expect(prompt).toContain('- fixture: passed.');
+    expect(prompt).toContain('- fixture: exited 0.');
     const failed = /- broken: failed \(exit \d+\)\..* Output: (\S+)/.exec(prompt);
     expect(failed).toBeTruthy();
     expect(existsSync(failed![1]!)).toBe(true);
@@ -231,7 +231,7 @@ itNeedsCargo(
     const f = await scopedRuntimeFixture([
       {
         id: 'slow',
-        argv: ['node', '-e', 'setTimeout(() => {}, 1500)'],
+        argv: ['node', '-e', 'setTimeout(() => {}, 4000)'],
         definitionPaths: [],
       },
     ]);
@@ -272,13 +272,76 @@ itNeedsCargo(
     );
     // A restart drain during the checks cancels them and starts no reviewer.
     const second = await start();
-    await f.state.context.services.agentRunService.interruptForRestart();
-    await waitFor(
-      () =>
-        storage.execution.runs.find(f.state.workspaceId, second as never)?.status === 'interrupted',
-      'the drain interrupted the starting review',
+    // A manual start in the same worktree waits for the review (the worktree is held).
+    const refused = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+      headers: mutationHeaders(f.state),
+      payload: { worktreeId: f.tree.id, role: 'review' },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('its adopted checks are running');
+    // The drain has recorded the interruption by the time it returns, before storage could
+    // close (R-G13 increment 3 review, H1).
+    const drainedAt = Date.now();
+    expect(await f.state.context.services.agentRunService.interruptForRestart()).toBe(1);
+    // The drain stopped the 4 s check rather than waiting for it.
+    expect(Date.now() - drainedAt).toBeLessThan(3000);
+    expect(storage.execution.runs.find(f.state.workspaceId, second as never)?.status).toBe(
+      'interrupted',
     );
     expect(launched()).toBe(before + 1);
+  },
+);
+
+itNeedsCargo(
+  "pausing a cycle during its review's checks stops them at once and starts no reviewer (R-G13 increment 3 review)",
+  { timeout: 40000 },
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'slow', argv: ['node', '-e', 'setTimeout(() => {}, 8000)'], definitionPaths: [] },
+    ]);
+    const storage = f.state.context.storage;
+    f.backend.replyForRequest = async (request) => {
+      if (request.model === 'design-model') return designDone;
+      if (request.model !== 'review-model') {
+        commitFile(request.cwd, 'more.txt', 'implemented');
+        return implementationDone;
+      }
+      return {
+        resultText: `## Open questions\nnone\n\n## Review report\n${scopeReport(f.state, f.tree.executionScope!)}`,
+      };
+    };
+    const reviewsLaunched = () =>
+      f.backend.launches.filter((l) => l.model === 'review-model').length;
+    const cycle = await startCycle(f.state, f.tree.id);
+    // Step without `quiesce`, which waits for the checks, to see the review while it starts.
+    const services = f.state.context.services;
+    const reviewRun = () => {
+      const current = currentCycle(f.state, cycle);
+      return current.step === 'review'
+        ? storage.execution.runs.find(f.state.workspaceId, current.currentRunId as never)
+        : undefined;
+    };
+    const deadline = Date.now() + 20000;
+    while (reviewRun()?.status !== 'starting') {
+      if (Date.now() > deadline) throw new Error('the review never started its checks');
+      await services.workCycleService.tick();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const starting = reviewRun()!;
+    const pausedAt = Date.now();
+    await controlCycle(f.state, currentCycle(f.state, cycle), 'pause');
+    const ended = () => storage.execution.runs.find(f.state.workspaceId, starting.id)?.status;
+    while (ended() === 'starting') {
+      if (Date.now() - pausedAt > 6000)
+        throw new Error('the paused review kept its checks running');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    // Stopped well before the 8 s check would have finished, and no reviewer started.
+    expect(ended()).toBe('cancelled');
+    expect(reviewsLaunched()).toBe(0);
+    expect(services.checkRequestService.inFlight(starting.id)).toEqual([]);
   },
 );
 

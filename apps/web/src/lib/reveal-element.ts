@@ -13,13 +13,31 @@ const USER_INPUT = ['wheel', 'keydown', 'pointerdown', 'touchstart'] as const;
  * and be pushed down (R-E1 review): until the page settles, or the operator scrolls or types,
  * it is kept at the top of the view. Returns a cancel for a reveal the page no longer wants.
  */
+/**
+ * Asks a page that shows one part at a time, a roadmap's setup (R-E2), to show the part that
+ * holds a target: by the target's id, or by the step of a hidden part it is already in.
+ */
+export const SHOW_PART_EVENT = 'craftingtable:show-part';
+export interface ShowPart {
+  readonly id: string;
+  readonly step?: string;
+}
+const showPart = (detail: ShowPart) =>
+  window.dispatchEvent(new CustomEvent<ShowPart>(SHOW_PART_EVENT, { detail }));
+
 export function revealElement(id: string): () => void {
   cancelPending?.();
   cancelPending = undefined;
   let revealed: HTMLElement | undefined;
+  showPart({ id });
   const reveal = () => {
     const element = document.getElementById(id);
     if (!element) return false;
+    const hidden = element.closest('[data-setup-step][hidden]');
+    if (hidden) {
+      showPart({ id, step: hidden.getAttribute('data-setup-step') ?? '' });
+      return false;
+    }
     for (let node: HTMLElement | null = element; node; node = node.parentElement)
       if (node instanceof HTMLDetailsElement) node.open = true;
     const disclosure = element.querySelector(':scope > details');
@@ -53,7 +71,13 @@ export function revealElement(id: string): () => void {
   };
   cancelPending = stop;
   for (const kind of USER_INPUT) window.addEventListener(kind, stop, { capture: true, once: true });
-  observer.observe(document.body, { childList: true, subtree: true });
+  // A part shown by removing `hidden` mounts nothing new: watch the attribute too.
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['hidden'],
+  });
   if (reveal()) settle();
   else timeout = window.setTimeout(stop, MOUNT_MS);
   return stop;

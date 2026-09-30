@@ -16,6 +16,7 @@ import {
 } from '@craftingtable/domain';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
+import { SetupStepPart } from './setup-steps.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
@@ -427,84 +428,94 @@ export function CrossProjectPanel({
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      {roadmap && view && (
-        <RoadmapDelegationPanel
-          roadmap={roadmap}
-          view={view}
-          backends={backends}
-          csrfToken={csrfToken}
-          disabled={!canMutate || busy || dirty || staleSettings}
-          onChanged={refresh}
-        />
-      )}
-      {roadmap && (
-        <DecisionPreparationPanel
-          roadmap={roadmap}
-          backends={backends}
-          csrfToken={csrfToken}
-          disabled={!canMutate || busy || dirty || staleSettings}
-          onChanged={refresh}
-        />
-      )}
-      <div className="cycle-settings-grid">
-        <label className="field">
-          Planning target
-          <select
-            value={target}
-            disabled={!!roadmap || busy || !bindingRevision}
-            onChange={(e) => {
-              setTarget(e.target.value);
-              setFocus('');
-            }}
-          >
-            <option value="">Select a target explicitly</option>
-            {targets.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.id}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Selection mode
-          <select
-            value={selection}
-            disabled={!!roadmap || busy}
-            onChange={(e) => setSelection(e.target.value as typeof selection)}
-          >
-            <option value="target-only">Only target prerequisites</option>
-            <option value="prioritize-full">Full roadmap; prioritize this target</option>
-          </select>
-        </label>
-      </div>
-      <p className="subtle">{targets.find((t) => t.id === target)?.scope}</p>
+      <SetupStepPart step="reviewers">
+        {roadmap && view && (
+          <RoadmapDelegationPanel
+            roadmap={roadmap}
+            view={view}
+            backends={backends}
+            csrfToken={csrfToken}
+            disabled={!canMutate || busy || dirty || staleSettings}
+            onChanged={refresh}
+          />
+        )}
+      </SetupStepPart>
+      <SetupStepPart step="decisions">
+        {roadmap && (
+          <DecisionPreparationPanel
+            roadmap={roadmap}
+            backends={backends}
+            csrfToken={csrfToken}
+            disabled={!canMutate || busy || dirty || staleSettings}
+            onChanged={refresh}
+          />
+        )}
+      </SetupStepPart>
+      <SetupStepPart step="bindings">
+        <div className="cycle-settings-grid">
+          <label className="field">
+            Planning target
+            <select
+              value={target}
+              disabled={!!roadmap || busy || !bindingRevision}
+              onChange={(e) => {
+                setTarget(e.target.value);
+                setFocus('');
+              }}
+            >
+              <option value="">Select a target explicitly</option>
+              {targets.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Selection mode
+            <select
+              value={selection}
+              disabled={!!roadmap || busy}
+              onChange={(e) => setSelection(e.target.value as typeof selection)}
+            >
+              <option value="target-only">Only target prerequisites</option>
+              <option value="prioritize-full">Full roadmap; prioritize this target</option>
+            </select>
+          </label>
+        </div>
+        <p className="subtle">{targets.find((t) => t.id === target)?.scope}</p>
+      </SetupStepPart>
       {view && (
         <>
-          <p className="hint">Priority changes scheduling order; it never waives a requirement.</p>
-          <StatusStrip
-            label="Roadmap progress"
-            facts={[
-              {
-                label: 'Target',
-                value: view.targetReached ? 'reached' : 'not reached',
-                accent: view.targetReached ? 'var(--color-ready)' : undefined,
-              },
-              {
-                label: 'Selected scope',
-                value: view.selectedScopeComplete ? 'complete' : 'incomplete',
-                accent: view.selectedScopeComplete ? 'var(--color-ready)' : undefined,
-              },
-              {
-                label: 'Original parents',
-                value: view.fullPlanAccepted ? 'all accepted' : 'not all accepted',
-              },
-              { label: 'Plans', value: view.finalized ? 'finalized' : 'not all finalized' },
-              {
-                label: 'Publication',
-                value: view.published ? 'evidence accepted' : 'not established',
-              },
-            ]}
-          />
+          <SetupStepPart step="bindings">
+            <p className="hint">
+              Priority changes scheduling order; it never waives a requirement.
+            </p>
+            <StatusStrip
+              label="Roadmap progress"
+              facts={[
+                {
+                  label: 'Target',
+                  value: view.targetReached ? 'reached' : 'not reached',
+                  accent: view.targetReached ? 'var(--color-ready)' : undefined,
+                },
+                {
+                  label: 'Selected scope',
+                  value: view.selectedScopeComplete ? 'complete' : 'incomplete',
+                  accent: view.selectedScopeComplete ? 'var(--color-ready)' : undefined,
+                },
+                {
+                  label: 'Original parents',
+                  value: view.fullPlanAccepted ? 'all accepted' : 'not all accepted',
+                },
+                { label: 'Plans', value: view.finalized ? 'finalized' : 'not all finalized' },
+                {
+                  label: 'Publication',
+                  value: view.published ? 'evidence accepted' : 'not established',
+                },
+              ]}
+            />
+          </SetupStepPart>
           {roadmap && (
             <section aria-label="Settings and plan review" className="roadmap-setup-status">
               <h4>Settings and plan review</h4>
@@ -714,510 +725,530 @@ export function CrossProjectPanel({
               )}
             </div>
           )}
-          <details id={`map-adoption-${panelKey}`}>
-            <summary>
-              Scheduling proposals · {view.decisions.filter((d) => d.adopted).length}/
-              {view.decisions.length} approved
-            </summary>
-            <p>
-              Adoption approves these scheduling proposals for binding {bindingRevision}. It does
-              not pass checkpoints, start agents or approve final promotion.
-            </p>
-            <About label="About proposal adoption">
+          <SetupStepPart step="bindings">
+            <details id={`map-adoption-${panelKey}`}>
+              <summary>
+                Scheduling proposals · {view.decisions.filter((d) => d.adopted).length}/
+                {view.decisions.length} approved
+              </summary>
               <p>
-                Adoption approves the preserved scheduling proposals and their named early-slice
-                exceptions for the exact binding. It does not pass technical or architecture
-                checkpoints, grant qualification access, start agents, or approve final promotion.
+                Adoption approves these scheduling proposals for binding {bindingRevision}. It does
+                not pass checkpoints, start agents or approve final promotion.
               </p>
-            </About>
-            {view.decisions.map((d) => (
-              <details key={d.id}>
-                <summary>
-                  {d.id}: {d.title} · {d.adopted ? 'adopted' : 'proposal'}
-                </summary>
-                <p>{d.proposal}</p>
-              </details>
-            ))}
-            {canMutate &&
-              (view.decisions.some((d) => !d.adopted) ||
-                !view.adoptions.some((a) => a.bindingRevision === bindingRevision)) && (
-                <>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={approved}
-                      disabled={busy}
-                      onChange={(e) => setApproved(e.target.checked)}
-                    />
-                    I approve all listed scheduling proposals for these exact bindings.
-                  </label>
-                  <label className="field">
-                    Adoption rationale
-                    <textarea
-                      value={rationale}
-                      onChange={(e) => setRationale(e.target.value)}
-                      maxLength={8000}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy || !approved || !rationale.trim()}
-                    onClick={() => void adopt()}
-                  >
-                    Adopt scheduling proposals
-                  </button>
-                </>
-              )}
-            {view.adoptions.map((a) => (
-              <p key={a.id}>
-                Binding {a.bindingRevision} · {new Date(a.createdAt).toLocaleString()} ·{' '}
-                {a.rationale}
-              </p>
-            ))}
-          </details>
-          <details id={`map-settings-${panelKey}`}>
-            <summary>
-              {roadmap ? 'Queued settings and overrides' : 'Roadmap agent and automation settings'}
-            </summary>
-            {!editing && (
-              <p>
-                Pause the roadmap to edit queued settings. Started attempts retain their saved
-                profiles and policy.
-              </p>
-            )}
-            <About label="About roadmap settings">
-              {roadmap && (
+              <About label="About proposal adoption">
                 <p>
-                  Changing models in Roadmap agent profiles preserves plan acceptance. Permissions,
-                  responsibilities and policy below remain plan settings.
+                  Adoption approves the preserved scheduling proposals and their named early-slice
+                  exceptions for the exact binding. It does not pass technical or architecture
+                  checkpoints, grant qualification access, start agents, or approve final promotion.
                 </p>
-              )}
-              <p>
-                Reviewer responsibilities are delegated to the review agent, not approvals of its
-                results. Check each responsibility you authorize. Overrides can replace these
-                defaults; started attempts keep their saved assignments. Save changed settings once,
-                then generate and review the updated plan. No native/Kata authority is granted here.
-              </p>
-              <p>
-                Verification uses the review agent. Independent review recovery can delegate source
-                findings through the owning slice; genuine questions still need you. Final promotion
-                remains your separate exact-commit decision.
-              </p>
-              <p>
-                Settings resolve in order: defaults → project → activity → individual. Each override
-                replaces the selected level's complete settings. Started attempts retain their
-                original settings.
-              </p>
-            </About>
-            {settings && (
-              <>
-                {roadmap && (
-                  <p>
-                    Models for future runs are managed in{' '}
-                    <Link
-                      route={{
-                        name: 'settings',
-                        workspaceId: workspaceId as WorkspaceId,
-                        roadmapId: roadmap.id,
-                        focus: 'roadmap-agent-profiles',
-                      }}
-                    >
-                      Roadmap agent profiles
-                    </Link>
-                    , which preserves plan acceptance.
-                  </p>
-                )}
-                <div id={`map-reviewers-${panelKey}`}>
-                  <ReviewerResponsibilities
-                    label="Independent reviewer responsibilities"
-                    roles={view.reviewerRoles}
-                    selected={settings.reviewerRoles ?? []}
-                    nodes={included}
-                    disabled={!editing || busy}
-                    onChange={(reviewerRoles) => setSettings({ ...settings, reviewerRoles })}
-                  />
-                  <p className="hint">
-                    Check each responsibility you authorize; these are not approvals of review
-                    results. Save changes once, then generate and review the updated plan.
-                  </p>
-                  {editing && roadmap && (
-                    <button
-                      type="button"
-                      className="primary-button"
-                      disabled={busy || staleSettings || !dirty || !name.trim()}
-                      onClick={() => void save()}
-                    >
-                      Save reviewer and queued settings
-                    </button>
-                  )}
-                </div>
-                <label className="field">
-                  Roadmap name
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    disabled={!editing || busy}
-                    maxLength={120}
-                  />
-                </label>
-                <p>
-                  In-flight limits: {limit} total · {repoLimit} per repository.{' '}
-                  {roadmap ? (
-                    <Link
-                      route={{
-                        name: 'settings',
-                        workspaceId: workspaceId as WorkspaceId,
-                        roadmapId: roadmap.id,
-                        focus: 'execution-capacity',
-                      }}
-                    >
-                      Manage capacity in Settings
-                    </Link>
-                  ) : (
-                    'Save this roadmap draft, then configure capacity in Workspace Settings before starting.'
-                  )}
-                </p>
-                <div className="cycle-settings-grid">
-                  {[
-                    {
-                      label: 'Integration refresh allowance',
-                      value: refreshLimit,
-                      set: setRefreshLimit,
-                      max: 20,
-                    },
-                  ].map((f) => (
-                    <label className="field" key={f.label}>
-                      {f.label}
+              </About>
+              {view.decisions.map((d) => (
+                <details key={d.id}>
+                  <summary>
+                    {d.id}: {d.title} · {d.adopted ? 'adopted' : 'proposal'}
+                  </summary>
+                  <p>{d.proposal}</p>
+                </details>
+              ))}
+              {canMutate &&
+                (view.decisions.some((d) => !d.adopted) ||
+                  !view.adoptions.some((a) => a.bindingRevision === bindingRevision)) && (
+                  <>
+                    <label className="checkbox-row">
                       <input
-                        type="number"
-                        min={1}
-                        max={f.max}
-                        value={f.value}
-                        onChange={(e) => f.set(Number(e.target.value))}
-                        disabled={!editing || busy}
+                        type="checkbox"
+                        checked={approved}
+                        disabled={busy}
+                        onChange={(e) => setApproved(e.target.checked)}
+                      />
+                      I approve all listed scheduling proposals for these exact bindings.
+                    </label>
+                    <label className="field">
+                      Adoption rationale
+                      <textarea
+                        value={rationale}
+                        onChange={(e) => setRationale(e.target.value)}
+                        maxLength={8000}
                       />
                     </label>
-                  ))}
-                </div>
-                <CycleSettingsFields
-                  profilesLocked={!!roadmap}
-                  policy={settings.policy}
-                  setPolicy={(policy) => setSettings({ ...settings, policy })}
-                  choices={settings.profiles}
-                  setChoices={(profiles) => setSettings({ ...settings, profiles })}
-                  instructions={settings.instructions}
-                  setInstructions={(instructions) => setSettings({ ...settings, instructions })}
-                  backends={backends}
-                  disabled={!editing || busy}
-                />
-                <RoadmapAutomationFields
-                  value={settings.automation}
-                  onChange={(automation) => setSettings({ ...settings, automation })}
-                  backends={backends}
-                  disabled={!editing || busy}
-                />
-                <label className="field">
-                  Parent acceptance after independent review
-                  <select
-                    value={parentAcceptance}
-                    disabled={!editing || busy}
-                    onChange={(e) => setParentAcceptance(e.target.value as typeof parentAcceptance)}
-                  >
-                    <option value="manual">Require my explicit acceptance</option>
-                    <option value="automatic">
-                      Automatically record acceptance when all gates pass
-                    </option>
-                  </select>
-                </label>
-                <p>
-                  Verification uses the review agent. Final promotion remains your separate
-                  exact-commit decision.
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={busy || !approved || !rationale.trim()}
+                      onClick={() => void adopt()}
+                    >
+                      Adopt scheduling proposals
+                    </button>
+                  </>
+                )}
+              {view.adoptions.map((a) => (
+                <p key={a.id}>
+                  Binding {a.bindingRevision} · {new Date(a.createdAt).toLocaleString()} ·{' '}
+                  {a.rationale}
                 </p>
-                <details>
-                  <summary>Project, activity and individual overrides ({overrides.length})</summary>
+              ))}
+            </details>
+          </SetupStepPart>
+          <SetupStepPart step={['reviewers', 'automation']}>
+            <details id={`map-settings-${panelKey}`}>
+              <summary>
+                {roadmap
+                  ? 'Queued settings and overrides'
+                  : 'Roadmap agent and automation settings'}
+              </summary>
+              {!editing && (
+                <p>
+                  Pause the roadmap to edit queued settings. Started attempts retain their saved
+                  profiles and policy.
+                </p>
+              )}
+              <About label="About roadmap settings">
+                {roadmap && (
                   <p>
-                    Each override replaces the selected level's complete settings. Started attempts
-                    retain their original settings.
+                    Changing models in Roadmap agent profiles preserves plan acceptance.
+                    Permissions, responsibilities and policy below remain plan settings.
                   </p>
-                  <label className="field">
-                    Override level
-                    <select
-                      value={overrideLevel}
-                      disabled={!editing || busy}
-                      onChange={(e) => {
-                        setOverrideLevel(e.target.value as typeof overrideLevel);
-                        setOverrideKey('');
-                      }}
-                    >
-                      <option value="project">Project</option>
-                      <option value="activity">Activity</option>
-                      <option value="individual">Individual scope</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    Override scope
-                    <select
-                      value={overrideKey}
-                      disabled={!editing || busy}
-                      onChange={(e) => setOverrideKey(e.target.value)}
-                    >
-                      <option value="">Select scope</option>
-                      {overrideOptions.map((k) => (
-                        <option value={k} key={k}>
-                          {k}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={
-                      !editing ||
-                      busy ||
-                      !overrideKey ||
-                      overrides.some((o) => o.level === overrideLevel && o.key === overrideKey)
-                    }
-                    onClick={() =>
-                      setOverrides([
-                        ...overrides,
-                        { level: overrideLevel, key: overrideKey, settings },
-                      ])
-                    }
-                  >
-                    Add settings override
-                  </button>
-                  {overrides.map((o, i) => {
-                    const update = (s: MapActivitySettings) =>
-                      setOverrides(
-                        overrides.map((old, j) => (i === j ? { ...old, settings: s } : old)),
-                      );
-                    return (
-                      <details key={`${o.level}:${o.key}`}>
-                        <summary>
-                          {o.level}: {o.key}
-                        </summary>
-                        <CycleSettingsFields
-                          profilesLocked={!!roadmap}
-                          policy={o.settings.policy}
-                          setPolicy={(policy) => update({ ...o.settings, policy })}
-                          choices={o.settings.profiles}
-                          setChoices={(profiles) => update({ ...o.settings, profiles })}
-                          instructions={o.settings.instructions}
-                          setInstructions={(instructions) =>
-                            update({ ...o.settings, instructions })
-                          }
-                          backends={backends}
-                          disabled={!editing || busy}
-                        />
-                        <ReviewerResponsibilities
-                          label={`Override reviewer responsibilities: ${o.level} ${o.key}`}
-                          roles={view.reviewerRoles}
-                          selected={o.settings.reviewerRoles ?? []}
-                          disabled={!editing || busy}
-                          onChange={(reviewerRoles) => update({ ...o.settings, reviewerRoles })}
-                        />
-                        <RoadmapAutomationFields
-                          value={o.settings.automation}
-                          onChange={(automation) => update({ ...o.settings, automation })}
-                          backends={backends}
-                          disabled={!editing || busy}
-                        />
+                )}
+                <p>
+                  Reviewer responsibilities are delegated to the review agent, not approvals of its
+                  results. Check each responsibility you authorize. Overrides can replace these
+                  defaults; started attempts keep their saved assignments. Save changed settings
+                  once, then generate and review the updated plan. No native/Kata authority is
+                  granted here.
+                </p>
+                <p>
+                  Verification uses the review agent. Independent review recovery can delegate
+                  source findings through the owning slice; genuine questions still need you. Final
+                  promotion remains your separate exact-commit decision.
+                </p>
+                <p>
+                  Settings resolve in order: defaults → project → activity → individual. Each
+                  override replaces the selected level's complete settings. Started attempts retain
+                  their original settings.
+                </p>
+              </About>
+              {settings && (
+                <>
+                  <SetupStepPart step="automation">
+                    {roadmap && (
+                      <p>
+                        Models for future runs are managed in{' '}
+                        <Link
+                          route={{
+                            name: 'settings',
+                            workspaceId: workspaceId as WorkspaceId,
+                            roadmapId: roadmap.id,
+                            focus: 'roadmap-agent-profiles',
+                          }}
+                        >
+                          Roadmap agent profiles
+                        </Link>
+                        , which preserves plan acceptance.
+                      </p>
+                    )}
+                  </SetupStepPart>
+                  <SetupStepPart step="reviewers">
+                    <div id={`map-reviewers-${panelKey}`}>
+                      <ReviewerResponsibilities
+                        label="Independent reviewer responsibilities"
+                        roles={view.reviewerRoles}
+                        selected={settings.reviewerRoles ?? []}
+                        nodes={included}
+                        disabled={!editing || busy}
+                        onChange={(reviewerRoles) => setSettings({ ...settings, reviewerRoles })}
+                      />
+                      <p className="hint">
+                        Check each responsibility you authorize; these are not approvals of review
+                        results. Save changes once, then generate and review the updated plan.
+                      </p>
+                      {editing && roadmap && (
                         <button
                           type="button"
-                          className="secondary-button"
-                          disabled={!editing || busy}
-                          onClick={() => setOverrides(overrides.filter((_, j) => i !== j))}
+                          className="primary-button"
+                          disabled={busy || staleSettings || !dirty || !name.trim()}
+                          onClick={() => void save()}
                         >
-                          Remove override
+                          Save reviewer and queued settings
                         </button>
-                      </details>
-                    );
-                  })}
-                </details>
-              </>
-            )}
-          </details>
-          <details open={!roadmap}>
-            <summary>Selected work by project</summary>
-            <p>
-              Grouped by ownership, not execution order. Projects can progress together; start,
-              merge, and verification requirements determine when each slice advances.
-            </p>
-            <div className="cross-map-lanes">
-              {[...new Set(included.map((n) => n.repository))].sort().map((repo) => (
-                <section key={repo} className="cross-map-lane">
-                  <h4>{repo.toUpperCase()}</h4>
-                  {[
-                    ...new Set(
-                      included
-                        .filter((n) => n.repository === repo && n.kind !== 'checkpoint')
-                        .map((n) => n.parentId ?? n.sourceId),
-                    ),
-                  ].map((parent) => (
-                    <details key={parent}>
-                      <summary>
-                        {parent} ·{' '}
-                        {included.some((n) => n.kind === 'work_item' && n.sourceId === parent)
-                          ? 'parent acceptance included'
-                          : 'partial slices only; parent acceptance excluded'}
-                      </summary>
-                      <PhaseRequirements
-                        nodes={view.nodes}
-                        roots={included.filter(
-                          (n) =>
-                            n.parentId === parent ||
-                            (n.kind === 'work_item' && n.sourceId === parent),
-                        )}
-                        onTrace={trace}
+                      )}
+                    </div>
+                  </SetupStepPart>
+                  <SetupStepPart step="automation">
+                    <label className="field">
+                      Roadmap name
+                      <input
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        disabled={!editing || busy}
+                        maxLength={120}
                       />
-                      {included
-                        .filter(
-                          (n) =>
-                            n.repository === repo &&
-                            (n.parentId === parent ||
-                              (n.kind === 'work_item' && n.sourceId === parent)),
+                    </label>
+                    <p>
+                      In-flight limits: {limit} total · {repoLimit} per repository.{' '}
+                      {roadmap ? (
+                        <Link
+                          route={{
+                            name: 'settings',
+                            workspaceId: workspaceId as WorkspaceId,
+                            roadmapId: roadmap.id,
+                            focus: 'execution-capacity',
+                          }}
+                        >
+                          Manage capacity in Settings
+                        </Link>
+                      ) : (
+                        'Save this roadmap draft, then configure capacity in Workspace Settings before starting.'
+                      )}
+                    </p>
+                    <div className="cycle-settings-grid">
+                      {[
+                        {
+                          label: 'Integration refresh allowance',
+                          value: refreshLimit,
+                          set: setRefreshLimit,
+                          max: 20,
+                        },
+                      ].map((f) => (
+                        <label className="field" key={f.label}>
+                          {f.label}
+                          <input
+                            type="number"
+                            min={1}
+                            max={f.max}
+                            value={f.value}
+                            onChange={(e) => f.set(Number(e.target.value))}
+                            disabled={!editing || busy}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <CycleSettingsFields
+                      profilesLocked={!!roadmap}
+                      policy={settings.policy}
+                      setPolicy={(policy) => setSettings({ ...settings, policy })}
+                      choices={settings.profiles}
+                      setChoices={(profiles) => setSettings({ ...settings, profiles })}
+                      instructions={settings.instructions}
+                      setInstructions={(instructions) => setSettings({ ...settings, instructions })}
+                      backends={backends}
+                      disabled={!editing || busy}
+                    />
+                    <RoadmapAutomationFields
+                      value={settings.automation}
+                      onChange={(automation) => setSettings({ ...settings, automation })}
+                      backends={backends}
+                      disabled={!editing || busy}
+                    />
+                    <label className="field">
+                      Parent acceptance after independent review
+                      <select
+                        value={parentAcceptance}
+                        disabled={!editing || busy}
+                        onChange={(e) =>
+                          setParentAcceptance(e.target.value as typeof parentAcceptance)
+                        }
+                      >
+                        <option value="manual">Require my explicit acceptance</option>
+                        <option value="automatic">
+                          Automatically record acceptance when all gates pass
+                        </option>
+                      </select>
+                    </label>
+                    <p>
+                      Verification uses the review agent. Final promotion remains your separate
+                      exact-commit decision.
+                    </p>
+                    <details>
+                      <summary>
+                        Project, activity and individual overrides ({overrides.length})
+                      </summary>
+                      <p>
+                        Each override replaces the selected level's complete settings. Started
+                        attempts retain their original settings.
+                      </p>
+                      <label className="field">
+                        Override level
+                        <select
+                          value={overrideLevel}
+                          disabled={!editing || busy}
+                          onChange={(e) => {
+                            setOverrideLevel(e.target.value as typeof overrideLevel);
+                            setOverrideKey('');
+                          }}
+                        >
+                          <option value="project">Project</option>
+                          <option value="activity">Activity</option>
+                          <option value="individual">Individual scope</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        Override scope
+                        <select
+                          value={overrideKey}
+                          disabled={!editing || busy}
+                          onChange={(e) => setOverrideKey(e.target.value)}
+                        >
+                          <option value="">Select scope</option>
+                          {overrideOptions.map((k) => (
+                            <option value={k} key={k}>
+                              {k}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={
+                          !editing ||
+                          busy ||
+                          !overrideKey ||
+                          overrides.some((o) => o.level === overrideLevel && o.key === overrideKey)
+                        }
+                        onClick={() =>
+                          setOverrides([
+                            ...overrides,
+                            { level: overrideLevel, key: overrideKey, settings },
+                          ])
+                        }
+                      >
+                        Add settings override
+                      </button>
+                      {overrides.map((o, i) => {
+                        const update = (s: MapActivitySettings) =>
+                          setOverrides(
+                            overrides.map((old, j) => (i === j ? { ...old, settings: s } : old)),
+                          );
+                        return (
+                          <details key={`${o.level}:${o.key}`}>
+                            <summary>
+                              {o.level}: {o.key}
+                            </summary>
+                            <CycleSettingsFields
+                              profilesLocked={!!roadmap}
+                              policy={o.settings.policy}
+                              setPolicy={(policy) => update({ ...o.settings, policy })}
+                              choices={o.settings.profiles}
+                              setChoices={(profiles) => update({ ...o.settings, profiles })}
+                              instructions={o.settings.instructions}
+                              setInstructions={(instructions) =>
+                                update({ ...o.settings, instructions })
+                              }
+                              backends={backends}
+                              disabled={!editing || busy}
+                            />
+                            <ReviewerResponsibilities
+                              label={`Override reviewer responsibilities: ${o.level} ${o.key}`}
+                              roles={view.reviewerRoles}
+                              selected={o.settings.reviewerRoles ?? []}
+                              disabled={!editing || busy}
+                              onChange={(reviewerRoles) => update({ ...o.settings, reviewerRoles })}
+                            />
+                            <RoadmapAutomationFields
+                              value={o.settings.automation}
+                              onChange={(automation) => update({ ...o.settings, automation })}
+                              backends={backends}
+                              disabled={!editing || busy}
+                            />
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={!editing || busy}
+                              onClick={() => setOverrides(overrides.filter((_, j) => i !== j))}
+                            >
+                              Remove override
+                            </button>
+                          </details>
+                        );
+                      })}
+                    </details>
+                  </SetupStepPart>
+                </>
+              )}
+            </details>
+          </SetupStepPart>
+          <SetupStepPart step="bindings">
+            <details open={!roadmap}>
+              <summary>Selected work by project</summary>
+              <p>
+                Grouped by ownership, not execution order. Projects can progress together; start,
+                merge, and verification requirements determine when each slice advances.
+              </p>
+              <div className="cross-map-lanes">
+                {[...new Set(included.map((n) => n.repository))].sort().map((repo) => (
+                  <section key={repo} className="cross-map-lane">
+                    <h4>{repo.toUpperCase()}</h4>
+                    {[
+                      ...new Set(
+                        included
+                          .filter((n) => n.repository === repo && n.kind !== 'checkpoint')
+                          .map((n) => n.parentId ?? n.sourceId),
+                      ),
+                    ].map((parent) => (
+                      <details key={parent}>
+                        <summary>
+                          {parent} ·{' '}
+                          {included.some((n) => n.kind === 'work_item' && n.sourceId === parent)
+                            ? 'parent acceptance included'
+                            : 'partial slices only; parent acceptance excluded'}
+                        </summary>
+                        <PhaseRequirements
+                          nodes={view.nodes}
+                          roots={included.filter(
+                            (n) =>
+                              n.parentId === parent ||
+                              (n.kind === 'work_item' && n.sourceId === parent),
+                          )}
+                          onTrace={trace}
+                        />
+                        {included
+                          .filter(
+                            (n) =>
+                              n.repository === repo &&
+                              (n.parentId === parent ||
+                                (n.kind === 'work_item' && n.sourceId === parent)),
+                          )
+                          .map((n) => (
+                            <div key={n.key} id={nodeId(n.key)}>
+                              {nodeCard(n)}
+                            </div>
+                          ))}
+                      </details>
+                    ))}
+                    <details>
+                      <summary>
+                        Checkpoints (
+                        {
+                          included.filter((n) => n.repository === repo && n.kind === 'checkpoint')
+                            .length
+                        }
                         )
+                      </summary>
+                      {included
+                        .filter((n) => n.repository === repo && n.kind === 'checkpoint')
                         .map((n) => (
                           <div key={n.key} id={nodeId(n.key)}>
                             {nodeCard(n)}
                           </div>
                         ))}
                     </details>
-                  ))}
-                  <details>
-                    <summary>
-                      Checkpoints (
-                      {
-                        included.filter((n) => n.repository === repo && n.kind === 'checkpoint')
-                          .length
-                      }
-                      )
-                    </summary>
-                    {included
-                      .filter((n) => n.repository === repo && n.kind === 'checkpoint')
-                      .map((n) => (
-                        <div key={n.key} id={nodeId(n.key)}>
-                          {nodeCard(n)}
-                        </div>
-                      ))}
-                  </details>
-                </section>
-              ))}
-            </div>
-          </details>
-          <details>
-            <summary>Excluded milestones ({excluded.length}) · obligations retained</summary>
-            <ul>
-              {excluded.map((n) => (
-                <li key={n.key}>
-                  {n.sourceId} · required state: {n.state}
-                </li>
-              ))}
-            </ul>
-          </details>
-          <details id={`map-readiness-${panelKey}`}>
-            <summary>
-              Launch readiness ·{' '}
-              {
-                included.filter(
-                  (n) =>
-                    n.kind === 'slice' &&
-                    n.state === 'started' &&
-                    !n.satisfied &&
-                    n.blockers.length === 0,
-                ).length
-              }{' '}
-              slices have clear phase gates
-            </summary>
-            <p>
-              Eligibility is a snapshot, not a launch promise. Before Start requirements,
-              concurrency, resources and earlier queued work still apply.
-            </p>
-            {included
-              .filter((n) => n.kind === 'slice' && n.state === 'started' && !n.satisfied)
-              .map((n) => (
-                <div key={n.key}>
-                  <button type="button" className="dependency-link" onClick={() => trace(n.key)}>
-                    {n.sourceId}
-                  </button>
-                  <p>
-                    {n.blockers.length
-                      ? `${n.blockers.length} waiting requirements`
-                      : 'Start phase gates clear'}
-                  </p>
-                  {n.blockers.length > 0 && (
-                    <details>
-                      <summary>Why this slice waits</summary>
-                      <ul>
-                        {n.blockers.map((b) => (
-                          <li key={b}>{view.nodes.find((v) => v.key === b)?.title ?? b}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-                </div>
-              ))}
-          </details>
-          <div className="cross-map-focus" id={`map-focus-${panelKey}`}>
-            <label className="field">
-              Focused dependency view
-              <select value={focus} onChange={(e) => setFocus(e.target.value)}>
-                <option value="">Choose a blocked milestone to trace</option>
-                {included.map((n) => (
-                  <option value={n.key} key={n.key}>
+                  </section>
+                ))}
+              </div>
+            </details>
+            <details>
+              <summary>Excluded milestones ({excluded.length}) · obligations retained</summary>
+              <ul>
+                {excluded.map((n) => (
+                  <li key={n.key}>
                     {n.sourceId} · required state: {n.state}
-                  </option>
+                  </li>
                 ))}
-              </select>
-            </label>
-            {selected && (
-              <>
-                <h4>
-                  {selected.sourceId} · required state: {selected.state}
-                </h4>
-                <p>{selected.status}</p>
-                {selected.decisionCoverage?.map((c) => (
-                  <p key={c.submissionId}>
-                    {c.checkpoint}: early clauses approved for this slice before {c.phase}; full ADR
-                    remains a later obligation.{' '}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        revealElement(`${runtimePanelId}-submission-${c.submissionId}`)
-                      }
-                    >
-                      Review clause approval
+              </ul>
+            </details>
+            <details id={`map-readiness-${panelKey}`}>
+              <summary>
+                Launch readiness ·{' '}
+                {
+                  included.filter(
+                    (n) =>
+                      n.kind === 'slice' &&
+                      n.state === 'started' &&
+                      !n.satisfied &&
+                      n.blockers.length === 0,
+                  ).length
+                }{' '}
+                slices have clear phase gates
+              </summary>
+              <p>
+                Eligibility is a snapshot, not a launch promise. Before Start requirements,
+                concurrency, resources and earlier queued work still apply.
+              </p>
+              {included
+                .filter((n) => n.kind === 'slice' && n.state === 'started' && !n.satisfied)
+                .map((n) => (
+                  <div key={n.key}>
+                    <button type="button" className="dependency-link" onClick={() => trace(n.key)}>
+                      {n.sourceId}
                     </button>
-                  </p>
+                    <p>
+                      {n.blockers.length
+                        ? `${n.blockers.length} waiting requirements`
+                        : 'Start phase gates clear'}
+                    </p>
+                    {n.blockers.length > 0 && (
+                      <details>
+                        <summary>Why this slice waits</summary>
+                        <ul>
+                          {n.blockers.map((b) => (
+                            <li key={b}>{view.nodes.find((v) => v.key === b)?.title ?? b}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
                 ))}
-                <h5>{phaseLabel(selected)}</h5>
-                <DependencyGraph
-                  nodes={view.nodes}
-                  selected={selected}
-                  onTrace={trace}
-                  onLocate={(key) => revealElement(nodeId(key))}
-                />
-                {selected.requirements.length === 0 && (
-                  <p>
-                    No graph prerequisites. Review its phase requirements and evidence obligations.
-                  </p>
-                )}
-                {selected.requirements.map((k) => {
-                  const n = view.nodes.find((n) => n.key === k);
-                  return n ? nodeCard(n) : <p key={k}>{k}</p>;
-                })}
-                {selected.blockers.length > 0 && (
-                  <ul>
-                    {distinct(selected.blockers).map((b) => (
-                      <li key={b}>{b}</li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </div>
+            </details>
+            <div className="cross-map-focus" id={`map-focus-${panelKey}`}>
+              <label className="field">
+                Focused dependency view
+                <select value={focus} onChange={(e) => setFocus(e.target.value)}>
+                  <option value="">Choose a blocked milestone to trace</option>
+                  {included.map((n) => (
+                    <option value={n.key} key={n.key}>
+                      {n.sourceId} · required state: {n.state}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selected && (
+                <>
+                  <h4>
+                    {selected.sourceId} · required state: {selected.state}
+                  </h4>
+                  <p>{selected.status}</p>
+                  {selected.decisionCoverage?.map((c) => (
+                    <p key={c.submissionId}>
+                      {c.checkpoint}: early clauses approved for this slice before {c.phase}; full
+                      ADR remains a later obligation.{' '}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          revealElement(`${runtimePanelId}-submission-${c.submissionId}`)
+                        }
+                      >
+                        Review clause approval
+                      </button>
+                    </p>
+                  ))}
+                  <h5>{phaseLabel(selected)}</h5>
+                  <DependencyGraph
+                    nodes={view.nodes}
+                    selected={selected}
+                    onTrace={trace}
+                    onLocate={(key) => revealElement(nodeId(key))}
+                  />
+                  {selected.requirements.length === 0 && (
+                    <p>
+                      No graph prerequisites. Review its phase requirements and evidence
+                      obligations.
+                    </p>
+                  )}
+                  {selected.requirements.map((k) => {
+                    const n = view.nodes.find((n) => n.key === k);
+                    return n ? nodeCard(n) : <p key={k}>{k}</p>;
+                  })}
+                  {selected.blockers.length > 0 && (
+                    <ul>
+                      {distinct(selected.blockers).map((b) => (
+                        <li key={b}>{b}</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          </SetupStepPart>
         </>
       )}
     </Section>

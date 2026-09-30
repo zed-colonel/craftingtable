@@ -1,6 +1,6 @@
-import type { ConcurrencyDetail } from '@craftingtable/contracts';
+import type { AttentionItemView, ConcurrencyDetail } from '@craftingtable/contracts';
 import { asWorkspaceId, type RoadmapView } from '@craftingtable/domain';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { loadConcurrencyDefinition, loadConcurrencyImports } from '../../lib/package-import-api.js';
 import { loadRoadmapHistory, loadRoadmaps } from '../../lib/roadmap-api.js';
@@ -9,6 +9,7 @@ import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { MapAmendmentPanel } from './MapAmendmentPanel.js';
 import { RoadmapPage, RoadmapsPage } from './RoadmapsPage.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
+import { SHOW_PART_EVENT } from '../../lib/reveal-element.js';
 
 // The panels are tested on their own; here only where each page puts them matters (R-E2).
 vi.mock('./CrossProjectPanel.js', () => ({
@@ -187,7 +188,12 @@ it('puts every setup panel on the setup page once, after an ordered checklist', 
     'Automation and agents',
     'Plan acceptance',
     'Shared architecture decisions',
+    'Submitted evidence and builds',
   ]);
+  // One step at a time (R-E2): with nothing needing the operator, the bindings.
+  expect(
+    within(checklist).getByRole('button', { name: 'Plan and repository bindings' }).ariaCurrent,
+  ).toBe('step');
   expect(screen.getAllByRole('region', { name: 'Cross-project supervision' })).toHaveLength(1);
   expect(
     screen.getAllByRole('region', { name: 'Dependency environments and evidence' }),
@@ -199,6 +205,44 @@ it('puts every setup panel on the setup page once, after an ordered checklist', 
   });
   expect(screen.queryByRole('button', { name: 'Resume roadmap' })).toBeNull();
   expect(MapAmendmentPanel).not.toHaveBeenCalled();
+});
+
+it('opens setup at the step an open item needs, marks it, and switches step when asked (R-E2)', async () => {
+  const item = {
+    id: 'item-native',
+    subjectKey: 'roadmap:r-active:verification',
+    code: 'verification-setup',
+    kind: 'attention',
+    title: 'Verification setup',
+    message: 'Approve native verification.',
+    path: '/workspaces/ws/roadmaps/r-active/setup#runtime-evidence-roadmap-r-active-native',
+    inboxPath: '/workspaces/ws/inbox/item-native',
+    refs: { roadmapId: 'r-active' },
+    blocks: 1,
+    openedAt: '2026-09-30T00:00:00.000Z',
+    pushedAt: null,
+  } as unknown as AttentionItemView;
+  render(<RoadmapPage {...common} roadmapId="r-active" tab="setup" attention={[item]} />);
+  const checklist = await screen.findByRole('navigation', { name: 'Setup checklist' });
+  const verification = within(checklist).getByRole('button', { name: 'Verification environments' });
+  expect(verification.ariaCurrent).toBe('step');
+  expect(verification.parentElement?.textContent).toContain('Needs you');
+  const decisions = within(checklist).getByRole('button', {
+    name: 'Shared architecture decisions',
+  });
+  fireEvent.click(decisions);
+  expect(decisions.ariaCurrent).toBe('step');
+  expect(verification.ariaCurrent).toBeNull();
+  // A reveal of an element in another step (a link, an item, a notification) shows that step.
+  act(() => {
+    window.dispatchEvent(
+      new CustomEvent(SHOW_PART_EVENT, { detail: { id: 'map-reviewers-roadmap-r-active' } }),
+    );
+  });
+  expect(
+    within(checklist).getByRole('button', { name: 'Reviewer responsibilities and delegation' })
+      .ariaCurrent,
+  ).toBe('step');
 });
 
 it("gives a single-project roadmap of one map's slices that map's decisions on its setup (LIVE-18 review)", async () => {

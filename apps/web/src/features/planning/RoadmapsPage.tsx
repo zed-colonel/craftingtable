@@ -33,7 +33,15 @@ import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
-import { revealElement } from '../../lib/reveal-element.js';
+import { revealElement, SHOW_PART_EVENT, type ShowPart } from '../../lib/reveal-element.js';
+import {
+  SETUP_STEPS,
+  type SetupStep,
+  SetupStepPart,
+  SetupStepProvider,
+  stepForFocus,
+  stepForPath,
+} from './setup-steps.js';
 import {
   controlRoadmap,
   loadRoadmapHistory,
@@ -829,6 +837,19 @@ export function RoadmapPage({
       alive = false;
     };
   }, [historyKey]);
+  // Setup shows one checklist step at a time (R-E2); a reveal of an element in another step,
+  // from a link, an inbox item or a notification, shows that step first.
+  const [setupStep, setSetupStep] = useState<SetupStep>();
+  useEffect(() => {
+    if (tab !== 'setup') return;
+    const show = (event: Event) => {
+      const { id, step } = (event as CustomEvent<ShowPart>).detail;
+      const next = SETUP_STEPS.find((s) => s.key === step)?.key ?? stepForFocus(id, roadmapId);
+      if (next) setSetupStep(next);
+    };
+    window.addEventListener(SHOW_PART_EVENT, show);
+    return () => window.removeEventListener(SHOW_PART_EVENT, show);
+  }, [tab, roadmapId]);
   const focused = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (focus === undefined || focused.current === focus || !loaded) return;
@@ -1277,54 +1298,77 @@ export function RoadmapPage({
     </>
   );
 
-  // The setup checklist, in the order the work is done (R-E2). Each step opens its section.
-  const steps: readonly { id: string; label: string }[] = crossProject
-    ? [
-        { id: `roadmap-setup-${roadmap.id}-bindings`, label: 'Plan and repository bindings' },
-        { id: `${runtimePanelId}-setup`, label: 'Dependency environment' },
-        { id: `${runtimePanelId}-native`, label: 'Verification environments' },
-        {
-          id: `map-reviewers-roadmap-${roadmap.id}`,
-          label: 'Reviewer responsibilities and delegation',
-        },
-        { id: `map-settings-roadmap-${roadmap.id}`, label: 'Automation and agents' },
-        { id: `${runtimePanelId}-plan-acceptance`, label: 'Plan acceptance' },
-        { id: `${runtimePanelId}-decisions`, label: 'Shared architecture decisions' },
-      ]
-    : [];
+  // The setup checklist, in the order the work is done (R-E2). Setup shows one step at a time:
+  // the one chosen, else the first an open attention item names, else the bindings.
+  const anchors: Record<SetupStep, string> = {
+    bindings: `roadmap-setup-${roadmap.id}-bindings`,
+    dependency: `${runtimePanelId}-setup`,
+    verification: `${runtimePanelId}-native`,
+    reviewers: `map-reviewers-roadmap-${roadmap.id}`,
+    automation: `map-settings-roadmap-${roadmap.id}`,
+    'plan-acceptance': `${runtimePanelId}-plan-acceptance`,
+    decisions: `${runtimePanelId}-decisions`,
+    evidence: `${runtimePanelId}-evidence`,
+  };
+  const needed = new Set(items.flatMap((item) => stepForPath(item.path, roadmap.id) ?? []));
+  const notNeeded = new Set<SetupStep>(
+    runtimeView
+      ? [
+          ...(runtimeView.nativeVerification?.requirements.length ? [] : ['verification' as const]),
+          ...(runtimeView.planAcceptance ? [] : ['plan-acceptance' as const]),
+        ]
+      : [],
+  );
+  const shownStep: SetupStep =
+    setupStep ?? SETUP_STEPS.find((step) => needed.has(step.key))?.key ?? 'bindings';
   const setup = crossProject ? (
-    <>
+    <SetupStepProvider value={embedded ? undefined : shownStep}>
       {!embedded && (
         <nav aria-label="Setup checklist" className="setup-checklist">
           <ol>
-            {steps.map((step) => (
-              <li key={step.id}>
+            {SETUP_STEPS.map((step) => (
+              <li key={step.key}>
                 <button
                   type="button"
                   className="link-button"
-                  onClick={() => revealElement(step.id)}
+                  aria-current={step.key === shownStep ? 'step' : undefined}
+                  onClick={() => {
+                    setSetupStep(step.key);
+                    revealElement(anchors[step.key]);
+                  }}
                 >
                   {step.label}
                 </button>
+                {needed.has(step.key) ? (
+                  <span className="attention-chip"> · Needs you</span>
+                ) : notNeeded.has(step.key) ? (
+                  <span className="subtle"> · Not needed</span>
+                ) : null}
               </li>
             ))}
           </ol>
         </nav>
       )}
-      <p id={`roadmap-setup-${roadmap.id}-bindings`}>
-        Map revision {crossProject.definitionId.slice(0, 8)} · binding revision{' '}
-        {crossProject.bindingRevision}.{' '}
-        <Link route={{ name: 'roadmap-map', workspaceId, definitionId: crossProject.definitionId }}>
-          Review the imported map and its bindings
-        </Link>
-      </p>
-      <ScopeRecoveryPanel
-        roadmap={roadmap}
-        csrfToken={csrfToken}
-        canMutate={canMutate}
-        onChange={apply}
-        onOpenWorkItem={onOpenWorkItem}
-      />
+      <SetupStepPart step="bindings">
+        <p id={`roadmap-setup-${roadmap.id}-bindings`}>
+          Map revision {crossProject.definitionId.slice(0, 8)} · binding revision{' '}
+          {crossProject.bindingRevision}.{' '}
+          <Link
+            route={{ name: 'roadmap-map', workspaceId, definitionId: crossProject.definitionId }}
+          >
+            Review the imported map and its bindings
+          </Link>
+        </p>
+      </SetupStepPart>
+      <SetupStepPart step="reviewers">
+        <ScopeRecoveryPanel
+          roadmap={roadmap}
+          csrfToken={csrfToken}
+          canMutate={canMutate}
+          onChange={apply}
+          onOpenWorkItem={onOpenWorkItem}
+        />
+      </SetupStepPart>
       <CrossProjectPanel
         workspaceId={workspaceId}
         definitionId={crossProject.definitionId}
@@ -1363,7 +1407,7 @@ export function RoadmapPage({
         csrfToken={csrfToken}
         canMutate={canMutate}
       />
-    </>
+    </SetupStepProvider>
   ) : (
     <>
       <p className="empty-state">

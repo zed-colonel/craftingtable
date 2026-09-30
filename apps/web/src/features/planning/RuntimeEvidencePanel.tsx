@@ -1,5 +1,6 @@
 import { ArchitectureDecisionPanel } from './ArchitectureDecisionPanel.js';
 import { EvidenceDecision } from '../../decisions/evidence/EvidenceDecision.js';
+import { SetupStepPart } from './setup-steps.js';
 import { SharedDecisionInbox } from './SharedDecisionInbox.js';
 import { NativeVerificationPanel } from './NativeVerificationPanel.js';
 import { UpstreamTransitionsPanel } from './UpstreamTransitionsPanel.js';
@@ -194,21 +195,25 @@ export function RuntimeEvidencePanel({
           : 'No dependency environment configured.'
       }
     >
-      <NativeVerificationPanel
-        panelId={`${panelId}-native`}
-        base={base}
-        view={view}
-        csrfToken={csrfToken}
-        canMutate={canMutate}
-        onSaved={adopt}
-      />
-      <UpstreamTransitionsPanel
-        base={base}
-        view={view}
-        csrfToken={csrfToken}
-        canMutate={canMutate}
-        onSaved={adopt}
-      />
+      <SetupStepPart step="verification">
+        <NativeVerificationPanel
+          panelId={`${panelId}-native`}
+          base={base}
+          view={view}
+          csrfToken={csrfToken}
+          canMutate={canMutate}
+          onSaved={adopt}
+        />
+      </SetupStepPart>
+      <SetupStepPart step="dependency">
+        <UpstreamTransitionsPanel
+          base={base}
+          view={view}
+          csrfToken={csrfToken}
+          canMutate={canMutate}
+          onSaved={adopt}
+        />
+      </SetupStepPart>
       <About label="About dependency environments">
         <p>
           Pin exact source commits for builds. Review qualification evidence separately. Saving here
@@ -224,902 +229,929 @@ export function RuntimeEvidencePanel({
           ))}
         </ul>
       )}
-      <DependencyRefreshPanel
-        base={base}
-        view={view}
-        csrfToken={csrfToken}
-        disabled={!canMutate || busy || unsavedSetup}
-        onSaved={(next) => {
-          adopt(next);
-          window.dispatchEvent(
-            new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-          );
-        }}
-      />
-      <ActionBar label="Dependency setup and evidence">
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => revealElement(`${panelId}-setup`)}
-        >
-          Set up dependencies
-        </button>
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => revealElement(`${panelId}-evidence`)}
-        >
-          Review checkpoint evidence
-        </button>
-      </ActionBar>
-      {view.planAcceptance && (
-        <section id={`${panelId}-plan-acceptance`} aria-label="Saved plan acceptance">
-          <h4>Saved plan acceptance · STACK-PLAN-ACCEPTED</h4>
-          {unsavedSetup && (
-            <p role="alert">
-              Unsaved roadmap or dependency settings: save them before generating or accepting plan
-              evidence. The current evidence describes only the last saved revision.
-            </p>
-          )}
-          <p>
-            Evidence comes from the saved roadmap and dependency setup, not unsaved edits.
-            Generation records facts; your separate review and acceptance approve the plan.
-          </p>
-          {!view.planAcceptance.roadmaps.length && (
-            <p>Save a cross-project roadmap first using Create cross-project roadmap above.</p>
-          )}
-          {view.planAcceptance.roadmaps
-            .filter((r) => !roadmapId || r.roadmapId === roadmapId)
-            .map((r) => (
-              <div key={r.roadmapId}>
-                <p>
-                  <strong>{r.name}</strong> · Saved revision {r.definitionRevision} · Binding{' '}
-                  {view.bindingRevision} · Environment generation{' '}
-                  {view.current?.generation ?? 'not saved'}
-                </p>
-                <p role="status">
-                  {r.state === 'accepted'
-                    ? 'Plan evidence accepted. No further save or review is needed unless configuration changes. Start or Resume remains your action.'
-                    : r.state === 'awaiting-review'
-                      ? 'Evidence generated — awaiting your plan review.'
-                      : r.state === 'ready-to-generate'
-                        ? 'Saved configuration is ready to generate plan evidence.'
-                        : 'Saved configuration needs attention before evidence can be generated.'}
-                </p>
-                {r.issues.length > 0 && (
-                  <ul>
-                    {distinct(r.issues).map((issue) => (
-                      <li key={issue}>{issue}</li>
-                    ))}
-                  </ul>
-                )}
-                <ActionBar label="Plan acceptance actions">
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={busy || !canMutate || unsavedSetup || r.state !== 'ready-to-generate'}
-                    onClick={() =>
-                      void act(async () => {
-                        const next = await post('generate-plan', {
-                          roadmapId: r.roadmapId,
-                          definitionRevision: r.definitionRevision,
-                          snapshotDigest: r.snapshotDigest,
-                        });
-                        adopt(next);
-                        const generated = next.planAcceptance?.roadmaps.find(
-                          (p) => p.roadmapId === r.roadmapId,
-                        );
-                        setNotice(
-                          'Plan evidence generated. Inspect the saved facts below, then record your independent plan review. No checkpoint has been accepted.',
-                        );
-                        if (generated?.submissionId)
-                          revealElement(`${panelId}-submission-${generated.submissionId}`);
-                      })
-                    }
-                  >
-                    Generate plan-acceptance evidence
-                  </button>
-                  {r.submissionId && (
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => revealElement(`${panelId}-submission-${r.submissionId}`)}
-                    >
-                      Review generated plan evidence
-                    </button>
-                  )}
-                </ActionBar>
-              </div>
-            ))}
-        </section>
-      )}
-      <div id={`${panelId}-decisions`}>
-        {view.decisionInbox && (
-          <SharedDecisionInbox
-            data={view.decisionInbox}
-            csrfToken={csrfToken}
-            {...(roadmapId ? { preparation: { workspaceId, roadmapId } } : {})}
-            disabled={busy || !canMutate || unsavedDependencies}
-            onChanged={(next) => {
-              adopt(next);
-              setNotice('Shared decision updated. Design continuation remains a separate action.');
-            }}
-          />
-        )}
-        <details>
-          <summary>Advanced manual decision preparation and clause staging</summary>
-          <ArchitectureDecisionPanel
-            workspaceId={workspaceId}
-            definitionId={definitionId}
-            csrfToken={csrfToken}
-            view={view}
-            busy={busy}
-            disabled={!canMutate || unsavedDependencies}
-            onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
-            onSaved={(next, input) => {
-              adopt(next);
-              setNotice('Proposal saved. Review the packet and record your decision below.');
-              const saved = next.submissions.find(
-                (s) =>
-                  s.submission.architectureDecision &&
-                  s.submission.subject.sourceId === input.checkpointId &&
-                  !s.decision,
-              );
-              if (saved) revealElement(`${panelId}-submission-${saved.submission.id}`);
-            }}
-          />
-        </details>
-      </div>
-      <details id={`${panelId}-setup`}>
-        <summary>Configure pinned dependencies and environments</summary>
-        <fieldset disabled={busy || !canMutate || !bindingRevision}>
-          <h4>Local development setup</h4>
-          <About label="About local setup">
-            <p>
-              Inspect the selected branches, discover required dependencies, and capture this
-              workstation’s environment and installed Rust toolchains. Review the draft before
-              saving.
-            </p>
-          </About>
-          <ul>
-            {view.repositories
-              .filter((r) => r.role === 'planned_application')
-              .map((r) => (
-                <li key={r.alias}>
-                  {r.alias.toUpperCase()} needs{' '}
-                  {r.requiredUpstreams.map((a) => a.toUpperCase()).join(' and ') ||
-                    'no upstream pins'}
-                  .
-                </li>
-              ))}
-          </ul>
+      <SetupStepPart step="dependency">
+        <DependencyRefreshPanel
+          base={base}
+          view={view}
+          csrfToken={csrfToken}
+          disabled={!canMutate || busy || unsavedSetup}
+          onSaved={(next) => {
+            adopt(next);
+            window.dispatchEvent(
+              new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
+            );
+          }}
+        />
+      </SetupStepPart>
+      <SetupStepPart step={[]}>
+        <ActionBar label="Dependency setup and evidence">
           <button
             type="button"
             className="secondary-button"
-            onClick={() =>
-              void act(async () => {
-                const result = await request(`${base}/discover`, discoverRuntimeResponseSchema, {
-                  method: 'POST',
-                  headers: { 'x-craftingtable-csrf': csrfToken },
-                  body: JSON.stringify({
-                    bindingRevision,
-                    refs: view.repositories.flatMap((r) => {
-                      const ref = refs[r.alias] ?? r.integrationBranch;
-                      return ref ? [{ alias: r.alias, ref }] : [];
-                    }),
-                  }),
-                });
-                setConfig(result.configuration);
-                setNotice(result.notes.join(' '));
-              })
-            }
+            onClick={() => revealElement(`${panelId}-setup`)}
           >
-            {busy ? 'Working…' : 'Discover local setup'}
+            Set up dependencies
           </button>
-          <p>
-            Discovery replaces the draft below. Nothing is saved until you choose Save dependency
-            environment.
-          </p>
-          <About label="About pins">
-            <p>
-              Inspect a ref in a bound repository to discover its Cargo package mappings. The saved
-              pin is an exact commit. Use Preview dependency refresh after integration advances to
-              see which evidence remains applicable and which reviews must run again. External
-              native/Kata qualification is configured separately when its gates need evidence.
-            </p>
-            <p>
-              After a save, changed environment inputs require native approval and changed
-              dependencies require affected reviews. Historical evidence is retained.
-            </p>
-          </About>
-          {view.repositories.map((repo) => (
-            <div key={repo.alias}>
-              <label className="field">
-                {repo.alias} · branch or commit
-                <input
-                  value={refs[repo.alias] ?? repo.integrationBranch ?? ''}
-                  onChange={(e) => setRefs({ ...refs, [repo.alias]: e.target.value })}
-                />
-              </label>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={!repo.configured}
-                onClick={() =>
-                  void act(async () => {
-                    const pin = await request(`${base}/inspect`, inspectDependencyResponseSchema, {
-                      method: 'POST',
-                      headers: { 'x-craftingtable-csrf': csrfToken },
-                      body: JSON.stringify({
-                        bindingRevision,
-                        alias: repo.alias,
-                        ref: refs[repo.alias] ?? repo.integrationBranch ?? '',
-                      }),
-                    });
-                    setConfig({
-                      ...config,
-                      pins: [
-                        ...config.pins.filter((p) => p.alias !== repo.alias),
-                        {
-                          alias: repo.alias,
-                          ref: refs[repo.alias] ?? repo.integrationBranch ?? '',
-                          expectedCommitSha: pin.commitSha,
-                          packages: pin.packages,
-                          conformanceRevision:
-                            config.pins.find((p) => p.alias === repo.alias)?.conformanceRevision ??
-                            repo.conformanceRevision ??
-                            '',
-                        },
-                      ],
-                    });
-                    setNotice(
-                      `Inspected ${repo.alias} at ${pin.commitSha}. Record its conformance revision; all discovered publishable crates will be supplied.`,
-                    );
-                  })
-                }
-              >
-                Inspect {repo.alias}
-              </button>
-            </div>
-          ))}
-          {config.pins.map((pin, index) => (
-            <div key={pin.alias}>
-              <h4>{pin.alias}</h4>
-              <p>
-                Ref {pin.ref}
-                <br />
-                <code className="import-digest">{pin.expectedCommitSha}</code>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => revealElement(`${panelId}-evidence`)}
+          >
+            Review checkpoint evidence
+          </button>
+        </ActionBar>
+      </SetupStepPart>
+      <SetupStepPart step="plan-acceptance">
+        {view.planAcceptance && (
+          <section id={`${panelId}-plan-acceptance`} aria-label="Saved plan acceptance">
+            <h4>Saved plan acceptance · STACK-PLAN-ACCEPTED</h4>
+            {unsavedSetup && (
+              <p role="alert">
+                Unsaved roadmap or dependency settings: save them before generating or accepting
+                plan evidence. The current evidence describes only the last saved revision.
               </p>
-              <label className="field">
-                Conformance revision
-                <input
-                  value={pin.conformanceRevision}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      pins: config.pins.map((p, i) =>
-                        i === index ? { ...p, conformanceRevision: e.target.value } : p,
-                      ),
-                    })
-                  }
-                />
-              </label>
-              <p>Supplied crates: {pin.packages.map((p) => p.name).join(', ')}</p>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() =>
-                  setConfig({
-                    ...config,
-                    pins: config.pins.filter((p) => p.alias !== pin.alias),
-                    consumers: config.consumers.map((c) => ({
-                      ...c,
-                      upstreams: c.upstreams.filter((u) => u !== pin.alias),
-                    })),
-                  })
-                }
-              >
-                Remove {pin.alias} pin
-              </button>
-            </div>
-          ))}
-          {config.consumers.map((consumer, index) => (
-            <fieldset key={consumer.alias}>
-              <legend>Dependencies supplied to {consumer.alias}</legend>
-              {config.pins
-                .filter((p) => p.alias !== consumer.alias)
-                .map((pin) => (
-                  <label className="checkbox-row" key={pin.alias}>
-                    <input
-                      type="checkbox"
-                      checked={consumer.upstreams.includes(pin.alias)}
-                      onChange={(e) =>
-                        setConfig({
-                          ...config,
-                          consumers: config.consumers.map((c, i) =>
-                            i === index
-                              ? {
-                                  ...c,
-                                  upstreams: e.target.checked
-                                    ? [...c.upstreams, pin.alias]
-                                    : c.upstreams.filter((u) => u !== pin.alias),
-                                }
-                              : c,
-                          ),
+            )}
+            <p>
+              Evidence comes from the saved roadmap and dependency setup, not unsaved edits.
+              Generation records facts; your separate review and acceptance approve the plan.
+            </p>
+            {!view.planAcceptance.roadmaps.length && (
+              <p>Save a cross-project roadmap first using Create cross-project roadmap above.</p>
+            )}
+            {view.planAcceptance.roadmaps
+              .filter((r) => !roadmapId || r.roadmapId === roadmapId)
+              .map((r) => (
+                <div key={r.roadmapId}>
+                  <p>
+                    <strong>{r.name}</strong> · Saved revision {r.definitionRevision} · Binding{' '}
+                    {view.bindingRevision} · Environment generation{' '}
+                    {view.current?.generation ?? 'not saved'}
+                  </p>
+                  <p role="status">
+                    {r.state === 'accepted'
+                      ? 'Plan evidence accepted. No further save or review is needed unless configuration changes. Start or Resume remains your action.'
+                      : r.state === 'awaiting-review'
+                        ? 'Evidence generated — awaiting your plan review.'
+                        : r.state === 'ready-to-generate'
+                          ? 'Saved configuration is ready to generate plan evidence.'
+                          : 'Saved configuration needs attention before evidence can be generated.'}
+                  </p>
+                  {r.issues.length > 0 && (
+                    <ul>
+                      {distinct(r.issues).map((issue) => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <ActionBar label="Plan acceptance actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={
+                        busy || !canMutate || unsavedSetup || r.state !== 'ready-to-generate'
+                      }
+                      onClick={() =>
+                        void act(async () => {
+                          const next = await post('generate-plan', {
+                            roadmapId: r.roadmapId,
+                            definitionRevision: r.definitionRevision,
+                            snapshotDigest: r.snapshotDigest,
+                          });
+                          adopt(next);
+                          const generated = next.planAcceptance?.roadmaps.find(
+                            (p) => p.roadmapId === r.roadmapId,
+                          );
+                          setNotice(
+                            'Plan evidence generated. Inspect the saved facts below, then record your independent plan review. No checkpoint has been accepted.',
+                          );
+                          if (generated?.submissionId)
+                            revealElement(`${panelId}-submission-${generated.submissionId}`);
                         })
                       }
-                    />
-                    {pin.alias}
-                  </label>
+                    >
+                      Generate plan-acceptance evidence
+                    </button>
+                    {r.submissionId && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => revealElement(`${panelId}-submission-${r.submissionId}`)}
+                      >
+                        Review generated plan evidence
+                      </button>
+                    )}
+                  </ActionBar>
+                </div>
+              ))}
+          </section>
+        )}
+      </SetupStepPart>
+      <SetupStepPart step="decisions">
+        <div id={`${panelId}-decisions`}>
+          {view.decisionInbox && (
+            <SharedDecisionInbox
+              data={view.decisionInbox}
+              csrfToken={csrfToken}
+              {...(roadmapId ? { preparation: { workspaceId, roadmapId } } : {})}
+              disabled={busy || !canMutate || unsavedDependencies}
+              onChanged={(next) => {
+                adopt(next);
+                setNotice(
+                  'Shared decision updated. Design continuation remains a separate action.',
+                );
+              }}
+            />
+          )}
+          <details>
+            <summary>Advanced manual decision preparation and clause staging</summary>
+            <ArchitectureDecisionPanel
+              workspaceId={workspaceId}
+              definitionId={definitionId}
+              csrfToken={csrfToken}
+              view={view}
+              busy={busy}
+              disabled={!canMutate || unsavedDependencies}
+              onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
+              onSaved={(next, input) => {
+                adopt(next);
+                setNotice('Proposal saved. Review the packet and record your decision below.');
+                const saved = next.submissions.find(
+                  (s) =>
+                    s.submission.architectureDecision &&
+                    s.submission.subject.sourceId === input.checkpointId &&
+                    !s.decision,
+                );
+                if (saved) revealElement(`${panelId}-submission-${saved.submission.id}`);
+              }}
+            />
+          </details>
+        </div>
+      </SetupStepPart>
+      <SetupStepPart step="dependency">
+        <details id={`${panelId}-setup`}>
+          <summary>Configure pinned dependencies and environments</summary>
+          <fieldset disabled={busy || !canMutate || !bindingRevision}>
+            <h4>Local development setup</h4>
+            <About label="About local setup">
+              <p>
+                Inspect the selected branches, discover required dependencies, and capture this
+                workstation’s environment and installed Rust toolchains. Review the draft before
+                saving.
+              </p>
+            </About>
+            <ul>
+              {view.repositories
+                .filter((r) => r.role === 'planned_application')
+                .map((r) => (
+                  <li key={r.alias}>
+                    {r.alias.toUpperCase()} needs{' '}
+                    {r.requiredUpstreams.map((a) => a.toUpperCase()).join(' and ') ||
+                      'no upstream pins'}
+                    .
+                  </li>
                 ))}
-            </fieldset>
-          ))}
-          <h4>Qualification environments</h4>
-          <About label="About qualification environments">
+            </ul>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                void act(async () => {
+                  const result = await request(`${base}/discover`, discoverRuntimeResponseSchema, {
+                    method: 'POST',
+                    headers: { 'x-craftingtable-csrf': csrfToken },
+                    body: JSON.stringify({
+                      bindingRevision,
+                      refs: view.repositories.flatMap((r) => {
+                        const ref = refs[r.alias] ?? r.integrationBranch;
+                        return ref ? [{ alias: r.alias, ref }] : [];
+                      }),
+                    }),
+                  });
+                  setConfig(result.configuration);
+                  setNotice(result.notes.join(' '));
+                })
+              }
+            >
+              {busy ? 'Working…' : 'Discover local setup'}
+            </button>
             <p>
-              Record SHA-256 identities for the host/environment, fixtures and toolchain. External
-              native and Kata checks are submitted as reviewed evidence; this does not provision a
-              host, grant credentials or launch remote checks.
+              Discovery replaces the draft below. Nothing is saved until you choose Save dependency
+              environment.
             </p>
-          </About>
-          {config.environments.map((env, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: Controlled inputs; editable names are not stable keys.
-            <fieldset key={index}>
-              <legend>Environment {index + 1}</legend>
-              {env.discovery && (
-                <details>
-                  <summary>Captured local fingerprint inputs</summary>
-                  <p>
-                    Observed configuration only. These fingerprints do not establish passing tests
-                    or native/Kata qualification.
-                  </p>
-                  <h5>Workstation</h5>
-                  <pre>{env.discovery.environment}</pre>
-                  <h5>Imported fixture sources</h5>
-                  <pre>{env.discovery.fixtures}</pre>
-                  <h5>Installed toolchains</h5>
-                  <pre>{env.discovery.toolchains}</pre>
-                </details>
-              )}
-              <label className="field">
-                Environment name
-                <input
-                  value={env.id}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      environments: config.environments.map((v, i) =>
-                        i === index ? { ...v, id: e.target.value } : v,
-                      ),
-                    })
-                  }
-                />
-              </label>
-              <label className="field">
-                Kind
-                <select
-                  disabled={!!env.discovery}
-                  value={env.kind}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      environments: config.environments.map((v, i) =>
-                        i === index ? { ...v, kind: e.target.value as typeof env.kind } : v,
-                      ),
+            <About label="About pins">
+              <p>
+                Inspect a ref in a bound repository to discover its Cargo package mappings. The
+                saved pin is an exact commit. Use Preview dependency refresh after integration
+                advances to see which evidence remains applicable and which reviews must run again.
+                External native/Kata qualification is configured separately when its gates need
+                evidence.
+              </p>
+              <p>
+                After a save, changed environment inputs require native approval and changed
+                dependencies require affected reviews. Historical evidence is retained.
+              </p>
+            </About>
+            {view.repositories.map((repo) => (
+              <div key={repo.alias}>
+                <label className="field">
+                  {repo.alias} · branch or commit
+                  <input
+                    value={refs[repo.alias] ?? repo.integrationBranch ?? ''}
+                    onChange={(e) => setRefs({ ...refs, [repo.alias]: e.target.value })}
+                  />
+                </label>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={!repo.configured}
+                  onClick={() =>
+                    void act(async () => {
+                      const pin = await request(
+                        `${base}/inspect`,
+                        inspectDependencyResponseSchema,
+                        {
+                          method: 'POST',
+                          headers: { 'x-craftingtable-csrf': csrfToken },
+                          body: JSON.stringify({
+                            bindingRevision,
+                            alias: repo.alias,
+                            ref: refs[repo.alias] ?? repo.integrationBranch ?? '',
+                          }),
+                        },
+                      );
+                      setConfig({
+                        ...config,
+                        pins: [
+                          ...config.pins.filter((p) => p.alias !== repo.alias),
+                          {
+                            alias: repo.alias,
+                            ref: refs[repo.alias] ?? repo.integrationBranch ?? '',
+                            expectedCommitSha: pin.commitSha,
+                            packages: pin.packages,
+                            conformanceRevision:
+                              config.pins.find((p) => p.alias === repo.alias)
+                                ?.conformanceRevision ??
+                              repo.conformanceRevision ??
+                              '',
+                          },
+                        ],
+                      });
+                      setNotice(
+                        `Inspected ${repo.alias} at ${pin.commitSha}. Record its conformance revision; all discovered publishable crates will be supplied.`,
+                      );
                     })
                   }
                 >
-                  <option value="local-development">Local development</option>
-                  <option value="external-native">External native qualification</option>
-                  <option value="external-kata">Actual Kata qualification</option>
-                </select>
-              </label>
-              {(
-                ['identityDigest', 'fixtureDigest', 'toolchainDigest', 'authorization'] as const
-              ).map((field) => (
-                <label className="field" key={field}>
-                  {
-                    {
-                      identityDigest: 'Environment SHA-256',
-                      fixtureDigest: 'Fixture SHA-256',
-                      toolchainDigest: 'Toolchain SHA-256',
-                      authorization: 'Authorization and scope',
-                    }[field]
-                  }
+                  Inspect {repo.alias}
+                </button>
+              </div>
+            ))}
+            {config.pins.map((pin, index) => (
+              <div key={pin.alias}>
+                <h4>{pin.alias}</h4>
+                <p>
+                  Ref {pin.ref}
+                  <br />
+                  <code className="import-digest">{pin.expectedCommitSha}</code>
+                </p>
+                <label className="field">
+                  Conformance revision
                   <input
-                    readOnly={!!env.discovery && field !== 'authorization'}
-                    value={env[field]}
+                    value={pin.conformanceRevision}
                     onChange={(e) =>
                       setConfig({
                         ...config,
-                        environments: config.environments.map((v, i) =>
-                          i === index ? { ...v, [field]: e.target.value } : v,
+                        pins: config.pins.map((p, i) =>
+                          i === index ? { ...p, conformanceRevision: e.target.value } : p,
                         ),
                       })
                     }
                   />
                 </label>
-              ))}
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() =>
-                  setConfig({
-                    ...config,
-                    environments: config.environments.filter((_, i) => i !== index),
-                  })
-                }
-              >
-                Remove environment
-              </button>
-            </fieldset>
-          ))}
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() =>
-              setConfig({
-                ...config,
-                environments: [
-                  ...config.environments,
-                  {
-                    id: '',
-                    kind: 'local-development',
-                    identityDigest: '',
-                    fixtureDigest: '',
-                    toolchainDigest: '',
-                    authorization: '',
-                  },
-                ],
-              })
-            }
-          >
-            Add environment
-          </button>
-
-          <p>
-            {configDirty || changedRefs
-              ? 'Unsaved dependency changes. Saving creates a new generation and requires plan acceptance.'
-              : view.current
-                ? `Dependency settings saved · generation ${view.current.generation}. No dependency save needed.`
-                : 'Discover or enter the dependency environment before saving.'}
-          </p>
-          {changedRefs && (
-            <p role="status">Inspect or rediscover the changed refs before saving.</p>
-          )}
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={changedRefs || (!configDirty && !!view.current)}
-            onClick={() =>
-              void act(async () => {
-                const input = configureRuntimeSchema.parse(config);
-                adopt(await post('configure', input));
-                window.dispatchEvent(
-                  new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-                );
-                setNotice(
-                  'New dependency environment recorded. Unchanged inputs retain their evidence; affected roadmap reviews are queued for Resume. Review plan acceptance.',
-                );
-              })
-            }
-          >
-            Save dependency environment
-          </button>
-        </fieldset>
-      </details>
-      <details id={`${panelId}-evidence`}>
-        <summary>Submit qualification or checkpoint evidence</summary>
-        <fieldset disabled={busy || !canMutate || !view.current}>
-          <label className="field">
-            Evidence subject
-            <select
-              value={subject}
-              onChange={(e) => {
-                setSubject(e.target.value);
-                setEvidence('');
-              }}
-            >
-              <option value="">Select a slice, parent or checkpoint</option>
-              {view.subjects.map((s) => (
-                <option
-                  key={`${s.subject.kind}:${s.subject.sourceId}`}
-                  value={`${s.subject.kind}:${s.subject.sourceId}`}
+                <p>Supplied crates: {pin.packages.map((p) => p.name).join(', ')}</p>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    setConfig({
+                      ...config,
+                      pins: config.pins.filter((p) => p.alias !== pin.alias),
+                      consumers: config.consumers.map((c) => ({
+                        ...c,
+                        upstreams: c.upstreams.filter((u) => u !== pin.alias),
+                      })),
+                    })
+                  }
                 >
-                  {s.subject.sourceId} · {s.subject.kind}
-                </option>
-              ))}
-            </select>
-          </label>
-          {selected && (
-            <>
-              <p>
-                {selected.title} · profile {selected.profile}
-              </p>
-              <p>Required independent roles: {selected.reviewerRoles.join(', ')}</p>
-              <ul>
-                {distinct(selected.requirements).map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-              <p>
-                Cases:{' '}
-                {selected.cases
-                  .map((c) => `${c.id}${c.requiresKata ? ' (Kata)' : ''}`)
-                  .join(', ') || 'No assigned cases.'}
-              </p>
-              {distinct(selected.issues).map((i) => (
-                <p key={i}>{i}</p>
-              ))}
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() =>
-                  setEvidence(
-                    JSON.stringify(
-                      {
-                        runtimeId: view.current!.id,
-                        subject: selected.subject,
-                        testedCode: selected.testedRepositories.map((alias) => ({
-                          alias,
-                          commitSha: 'REPLACE_WITH_TESTED_COMMIT',
-                        })),
-                        environmentId: view.current!.environments[0]?.id ?? '',
-                        executedBy: '',
-                        executedAt: new Date().toISOString(),
-                        reviewers: selected.reviewerRoles.map((role) => ({
-                          identity: '',
-                          roles: [role],
-                          artifact: 'independent-review',
-                        })),
-                        requirements: selected.requirements.map((requirement) => ({
-                          requirement,
-                          artifact: 'verification-log',
-                        })),
-                        cases: selected.cases.map((c) => ({
-                          id: c.id,
-                          sourceRecordDigest: c.sourceRecordDigest,
-                          result: 'passed',
-                          artifact: 'verification-log',
-                        })),
-                        artifacts: [
-                          { name: 'verification-log', content: '' },
-                          { name: 'independent-review', content: '' },
-                        ],
-                        ...(selected.cases.some((c) => c.requiresKata)
-                          ? {
-                              kata: {
-                                runtime: 'kata',
-                                hostIdentity: '',
-                                vmIdentity: '',
-                                imageDigest: '',
-                                configurationDigest: '',
-                                observationArtifact: 'verification-log',
-                                noNativeFallback: true,
-                              },
-                            }
-                          : {}),
-                      },
-                      null,
-                      2,
-                    ),
-                  )
-                }
-              >
-                Prepare evidence template
-              </button>
-            </>
-          )}
-          <p>Include actual logs and independent review text; case names alone do not pass.</p>
-          <About label="About evidence files">
-            <p>
-              Fill in the template or upload an evidence JSON file. Identities are external
-              attestations that you review. Use sourceRunId only to explicitly reuse a successful
-              historical review of the exact same source tree.
-            </p>
-          </About>
-          <label className="field">
-            Evidence JSON file
-            <input
-              type="file"
-              accept=".json,application/json"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f)
-                  void act(async () => {
-                    if (f.size > 5 * 1024 * 1024) throw new Error('Evidence file exceeds 5 MiB.');
-                    setEvidence(await f.text());
-                  });
-              }}
-            />
-          </label>
-          <label className="field">
-            Evidence package
-            <textarea rows={12} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
-          </label>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={!evidence}
-            onClick={() =>
-              void act(async () => {
-                adopt(
-                  await post('submit', evidenceSubmissionRequestSchema.parse(JSON.parse(evidence))),
-                );
-                setEvidence('');
-                setNotice(
-                  'Evidence recorded for independent operator review. No checkpoint has been accepted yet.',
-                );
-              })
-            }
-          >
-            Submit evidence for review
-          </button>
-        </fieldset>
-      </details>
-      {view.upstreamHistory.length > 0 && (
-        <details>
-          <summary>Existing upstream review history</summary>
-          <p>
-            These are candidate records for explicit reuse. A prior AQ finalization does not
-            automatically accept its baseline or publication checkpoint.
-          </p>
-          <ul>
-            {view.upstreamHistory.map((r) => (
-              <li key={r.runId}>
-                {r.alias} · {r.label}
-                <br />
-                Run <code>{r.runId}</code>
-                <br />
-                <code className="import-digest">{r.headSha}</code>
-              </li>
+                  Remove {pin.alias} pin
+                </button>
+              </div>
             ))}
-          </ul>
-        </details>
-      )}
-      <details>
-        <summary>Pinned build records ({view.builds.length} recent runs)</summary>
-        <p className="hint">
-          Records freeze when a run ends and survive cache cleanup. A passing build is development
-          evidence; qualification and publication still need independent review.
-        </p>
-        {view.builds.map((b) => (
-          <p key={b.runId}>
-            Run{' '}
-            <Link
-              route={{
-                name: 'run',
-                workspaceId: workspaceId as WorkspaceId,
-                runId: b.runId as AgentRunId,
-              }}
-            >
-              {b.runId}
-            </Link>{' '}
-            · {b.successfulBuilds} successful clean builds
-            {b.receiptAuthority === 'agent' && (
-              <span title="Recorded before CraftingTable ran checks itself: the agent wrote these receipts.">
-                {' '}
-                · agent-reported
-              </span>
-            )}{' '}
-            {b.error && `· ${b.error}`}
-            <br />
-            <a href={buildRecordDownload(b.runId)}>Download frozen build record</a>
-          </p>
-        ))}
-      </details>
-      <h4>Evidence review</h4>
-      {!view.submissions.length && <p>No submissions yet.</p>}
-      {view.submissions.map(({ submission: s, decision, issues }) => {
-        const record = records[s.id];
-        const full = typeof record === 'object' ? record : undefined;
-        const attests = !!(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint);
-        const reviewerRoles = view.subjects.find(
-          (v) => v.subject.kind === s.subject.kind && v.subject.sourceId === s.subject.sourceId,
-        )?.reviewerRoles;
-        return (
-          <details
-            key={s.id}
-            id={`${panelId}-submission-${s.id}`}
-            onToggle={(event) => {
-              if (event.currentTarget.open) loadRecord(s.id);
-            }}
-          >
-            <summary>
-              {s.subject.sourceId} · {decision?.outcome ?? 'awaiting review'}
-              {issues.length ? ' · blocked or stale' : ''}
-            </summary>
-            <p>
-              {s.architectureDecision
-                ? 'Prepared decision packet'
-                : `Environment ${s.environmentId} · tested`}{' '}
-              {s.executedAt} · {s.executedBy}
-            </p>
-            <p>
-              {s.architectureDecision ? (
-                decision ? (
-                  `Architecture decision recorded by ${decision.decidedByUserId} as repository-maintainer.`
-                ) : (
-                  'Your authenticated acceptance records decision-owner review. The source design remains a proposal until you approve.'
-                )
-              ) : s.candidateCheckpoint ? (
-                s.candidateCheckpoint.delegatedReview ? (
-                  <>
-                    Independent agent checkpoint review recorded under saved roadmap
-                    responsibilities ({s.candidateCheckpoint.delegatedReview.roles.join(', ')}).{' '}
-                    <Link
-                      route={{
-                        name: 'run',
-                        workspaceId: workspaceId as WorkspaceId,
-                        runId: s.candidateCheckpoint.runId as AgentRunId,
-                      }}
-                    >
-                      Read the checkpoint review
-                    </Link>
-                    . This is delegated evidence, not a claim of personal operator review.
-                  </>
-                ) : decision ? (
-                  `Checkpoint review recorded by ${decision.decidedByUserId} (${decision.checkpointReviewRoles?.join(', ') ?? 'no roles recorded'}).`
-                ) : (
-                  'Candidate checkpoint review pending. Inspect the retained review and receipts; accepting records your explicit checkpoint attestation.'
-                )
-              ) : s.generatedPlan ? (
-                decision ? (
-                  `Plan review recorded by ${decision.decidedByUserId} as stack-integration-owner.`
-                ) : (
-                  'Independent plan review pending: accepting below records your authenticated review as stack-integration-owner. The daemon only collected setup facts.'
-                )
-              ) : (
-                <>
-                  Independent reviewers:{' '}
-                  {s.reviewers.map((r) => `${r.identity} (${r.roles.join(', ')})`).join('; ')}
-                </>
-              )}
-            </p>
-            {s.architectureDecision && (
-              <section aria-label="Decision text for review">
-                <h4>
-                  {s.architectureDecision.coverage === 'clauses'
-                    ? 'Early clauses to approve'
-                    : 'Decision to approve'}
-                </h4>
-                {full?.architectureDecision && (
-                  <>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{full.architectureDecision.proposal}</p>
-                    <h4>Source references</h4>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>
-                      {full.architectureDecision.sourceReferences}
+            {config.consumers.map((consumer, index) => (
+              <fieldset key={consumer.alias}>
+                <legend>Dependencies supplied to {consumer.alias}</legend>
+                {config.pins
+                  .filter((p) => p.alias !== consumer.alias)
+                  .map((pin) => (
+                    <label className="checkbox-row" key={pin.alias}>
+                      <input
+                        type="checkbox"
+                        checked={consumer.upstreams.includes(pin.alias)}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            consumers: config.consumers.map((c, i) =>
+                              i === index
+                                ? {
+                                    ...c,
+                                    upstreams: e.target.checked
+                                      ? [...c.upstreams, pin.alias]
+                                      : c.upstreams.filter((u) => u !== pin.alias),
+                                  }
+                                : c,
+                            ),
+                          })
+                        }
+                      />
+                      {pin.alias}
+                    </label>
+                  ))}
+              </fieldset>
+            ))}
+            <h4>Qualification environments</h4>
+            <About label="About qualification environments">
+              <p>
+                Record SHA-256 identities for the host/environment, fixtures and toolchain. External
+                native and Kata checks are submitted as reviewed evidence; this does not provision a
+                host, grant credentials or launch remote checks.
+              </p>
+            </About>
+            {config.environments.map((env, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: Controlled inputs; editable names are not stable keys.
+              <fieldset key={index}>
+                <legend>Environment {index + 1}</legend>
+                {env.discovery && (
+                  <details>
+                    <summary>Captured local fingerprint inputs</summary>
+                    <p>
+                      Observed configuration only. These fingerprints do not establish passing tests
+                      or native/Kata qualification.
                     </p>
-                  </>
+                    <h5>Workstation</h5>
+                    <pre>{env.discovery.environment}</pre>
+                    <h5>Imported fixture sources</h5>
+                    <pre>{env.discovery.fixtures}</pre>
+                    <h5>Installed toolchains</h5>
+                    <pre>{env.discovery.toolchains}</pre>
+                  </details>
                 )}
-                {s.architectureDecision.consumers.length > 0 && (
-                  <ul>
-                    {s.architectureDecision.consumers.map((c) => (
-                      <li key={c.sliceId}>
-                        {c.sliceId}: required before {c.phase};{' '}
-                        {c.replacesFullCheckpoint
-                          ? 'replaces this slice’s full-checkpoint gate'
-                          : 'adds a definition prerequisite'}
-                        .
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {full?.architectureDecision?.retainedObligations && (
-                  <>
-                    <h4>Full obligations retained</h4>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>
-                      {full.architectureDecision.retainedObligations}
-                    </p>
-                  </>
-                )}
-                <p>
-                  This packet records a proposed decision, not test execution or a passing
-                  verification result.
-                </p>
-              </section>
-            )}
-            {!s.architectureDecision && (
-              <p>
-                Code:{' '}
-                <code className="import-digest">
-                  {s.subjectCommit ?? 'upstream pins in recorded generation'}
-                </code>
-              </p>
-            )}
-            {s.testedCode?.map((c) => (
-              <p key={c.alias}>
-                Tested {c.alias}: <code className="import-digest">{c.commitSha}</code>
-              </p>
-            ))}
-            {issues.length > 0 && (
-              <ul>
-                {distinct(issues).map((i) => (
-                  <li key={i}>{i}</li>
-                ))}
-              </ul>
-            )}
-            {(record === 'loading' || record === 'failed') && (
-              <p role="status">
-                {record === 'failed'
-                  ? 'Could not load the full record. Close and reopen this review to try again.'
-                  : 'Loading the full record…'}
-              </p>
-            )}
-            {s.artifacts.map((a) => (
-              <details key={a.name}>
-                <summary>{a.name}</summary>
-                <code className="import-digest">SHA-256 {a.digest}</code>
-                {full && (
-                  <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                    {full.artifacts.find((f) => f.name === a.name)?.content}
-                  </pre>
-                )}
-              </details>
-            ))}
-            {decision ? (
-              <p>
-                {decision.outcome} · {decision.rationale}
-              </p>
-            ) : (
-              <EvidenceDecision
-                key={s.id}
-                workspaceId={workspaceId}
-                definitionId={definitionId}
-                csrfToken={csrfToken}
-                submissionIds={[s.id]}
-                labels={{
-                  rationale: 'Review decision rationale',
-                  accepted: 'Accept evidence',
-                  rejected: 'Reject evidence',
-                }}
-                {...(attests
-                  ? {
-                      attestation: s.candidateCheckpoint
-                        ? `I reviewed the candidate evidence against every checkpoint requirement as ${reviewerRoles?.join(', ')}.`
-                        : s.architectureDecision
-                          ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
-                          : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.',
+                <label className="field">
+                  Environment name
+                  <input
+                    value={env.id}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        environments: config.environments.map((v, i) =>
+                          i === index ? { ...v, id: e.target.value } : v,
+                        ),
+                      })
                     }
-                  : {})}
-                {...(s.candidateCheckpoint && reviewerRoles
-                  ? { checkpointReviewRoles: reviewerRoles }
-                  : {})}
-                // Accepting attests to the record: only once it has been shown.
-                acceptBlocked={issues.length > 0 || !full || (attests && unsavedSetup)}
-                disabled={busy || !canMutate}
-                onDecided={(next, outcome) => {
-                  adopt(next);
-                  setNotice(
-                    s.architectureDecision && outcome === 'accepted'
-                      ? s.architectureDecision.coverage === 'clauses'
-                        ? 'Early clauses approved. Generate and review updated saved-plan evidence, then continue affected designs with the new decision packet.'
-                        : 'Decision approved. Continue affected designs with the updated decision packet.'
-                      : s.generatedPlan && outcome === 'accepted'
-                        ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
-                        : `Evidence ${outcome}.`,
-                  );
+                  />
+                </label>
+                <label className="field">
+                  Kind
+                  <select
+                    disabled={!!env.discovery}
+                    value={env.kind}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        environments: config.environments.map((v, i) =>
+                          i === index ? { ...v, kind: e.target.value as typeof env.kind } : v,
+                        ),
+                      })
+                    }
+                  >
+                    <option value="local-development">Local development</option>
+                    <option value="external-native">External native qualification</option>
+                    <option value="external-kata">Actual Kata qualification</option>
+                  </select>
+                </label>
+                {(
+                  ['identityDigest', 'fixtureDigest', 'toolchainDigest', 'authorization'] as const
+                ).map((field) => (
+                  <label className="field" key={field}>
+                    {
+                      {
+                        identityDigest: 'Environment SHA-256',
+                        fixtureDigest: 'Fixture SHA-256',
+                        toolchainDigest: 'Toolchain SHA-256',
+                        authorization: 'Authorization and scope',
+                      }[field]
+                    }
+                    <input
+                      readOnly={!!env.discovery && field !== 'authorization'}
+                      value={env[field]}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          environments: config.environments.map((v, i) =>
+                            i === index ? { ...v, [field]: e.target.value } : v,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    setConfig({
+                      ...config,
+                      environments: config.environments.filter((_, i) => i !== index),
+                    })
+                  }
+                >
+                  Remove environment
+                </button>
+              </fieldset>
+            ))}
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() =>
+                setConfig({
+                  ...config,
+                  environments: [
+                    ...config.environments,
+                    {
+                      id: '',
+                      kind: 'local-development',
+                      identityDigest: '',
+                      fixtureDigest: '',
+                      toolchainDigest: '',
+                      authorization: '',
+                    },
+                  ],
+                })
+              }
+            >
+              Add environment
+            </button>
+
+            <p>
+              {configDirty || changedRefs
+                ? 'Unsaved dependency changes. Saving creates a new generation and requires plan acceptance.'
+                : view.current
+                  ? `Dependency settings saved · generation ${view.current.generation}. No dependency save needed.`
+                  : 'Discover or enter the dependency environment before saving.'}
+            </p>
+            {changedRefs && (
+              <p role="status">Inspect or rediscover the changed refs before saving.</p>
+            )}
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={changedRefs || (!configDirty && !!view.current)}
+              onClick={() =>
+                void act(async () => {
+                  const input = configureRuntimeSchema.parse(config);
+                  adopt(await post('configure', input));
                   window.dispatchEvent(
                     new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
                   );
+                  setNotice(
+                    'New dependency environment recorded. Unchanged inputs retain their evidence; affected roadmap reviews are queued for Resume. Review plan acceptance.',
+                  );
+                })
+              }
+            >
+              Save dependency environment
+            </button>
+          </fieldset>
+        </details>
+      </SetupStepPart>
+      <SetupStepPart step="evidence">
+        <details id={`${panelId}-evidence`}>
+          <summary>Submit qualification or checkpoint evidence</summary>
+          <fieldset disabled={busy || !canMutate || !view.current}>
+            <label className="field">
+              Evidence subject
+              <select
+                value={subject}
+                onChange={(e) => {
+                  setSubject(e.target.value);
+                  setEvidence('');
+                }}
+              >
+                <option value="">Select a slice, parent or checkpoint</option>
+                {view.subjects.map((s) => (
+                  <option
+                    key={`${s.subject.kind}:${s.subject.sourceId}`}
+                    value={`${s.subject.kind}:${s.subject.sourceId}`}
+                  >
+                    {s.subject.sourceId} · {s.subject.kind}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selected && (
+              <>
+                <p>
+                  {selected.title} · profile {selected.profile}
+                </p>
+                <p>Required independent roles: {selected.reviewerRoles.join(', ')}</p>
+                <ul>
+                  {distinct(selected.requirements).map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+                <p>
+                  Cases:{' '}
+                  {selected.cases
+                    .map((c) => `${c.id}${c.requiresKata ? ' (Kata)' : ''}`)
+                    .join(', ') || 'No assigned cases.'}
+                </p>
+                {distinct(selected.issues).map((i) => (
+                  <p key={i}>{i}</p>
+                ))}
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    setEvidence(
+                      JSON.stringify(
+                        {
+                          runtimeId: view.current!.id,
+                          subject: selected.subject,
+                          testedCode: selected.testedRepositories.map((alias) => ({
+                            alias,
+                            commitSha: 'REPLACE_WITH_TESTED_COMMIT',
+                          })),
+                          environmentId: view.current!.environments[0]?.id ?? '',
+                          executedBy: '',
+                          executedAt: new Date().toISOString(),
+                          reviewers: selected.reviewerRoles.map((role) => ({
+                            identity: '',
+                            roles: [role],
+                            artifact: 'independent-review',
+                          })),
+                          requirements: selected.requirements.map((requirement) => ({
+                            requirement,
+                            artifact: 'verification-log',
+                          })),
+                          cases: selected.cases.map((c) => ({
+                            id: c.id,
+                            sourceRecordDigest: c.sourceRecordDigest,
+                            result: 'passed',
+                            artifact: 'verification-log',
+                          })),
+                          artifacts: [
+                            { name: 'verification-log', content: '' },
+                            { name: 'independent-review', content: '' },
+                          ],
+                          ...(selected.cases.some((c) => c.requiresKata)
+                            ? {
+                                kata: {
+                                  runtime: 'kata',
+                                  hostIdentity: '',
+                                  vmIdentity: '',
+                                  imageDigest: '',
+                                  configurationDigest: '',
+                                  observationArtifact: 'verification-log',
+                                  noNativeFallback: true,
+                                },
+                              }
+                            : {}),
+                        },
+                        null,
+                        2,
+                      ),
+                    )
+                  }
+                >
+                  Prepare evidence template
+                </button>
+              </>
+            )}
+            <p>Include actual logs and independent review text; case names alone do not pass.</p>
+            <About label="About evidence files">
+              <p>
+                Fill in the template or upload an evidence JSON file. Identities are external
+                attestations that you review. Use sourceRunId only to explicitly reuse a successful
+                historical review of the exact same source tree.
+              </p>
+            </About>
+            <label className="field">
+              Evidence JSON file
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f)
+                    void act(async () => {
+                      if (f.size > 5 * 1024 * 1024) throw new Error('Evidence file exceeds 5 MiB.');
+                      setEvidence(await f.text());
+                    });
                 }}
               />
-            )}
+            </label>
+            <label className="field">
+              Evidence package
+              <textarea rows={12} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+            </label>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={!evidence}
+              onClick={() =>
+                void act(async () => {
+                  adopt(
+                    await post(
+                      'submit',
+                      evidenceSubmissionRequestSchema.parse(JSON.parse(evidence)),
+                    ),
+                  );
+                  setEvidence('');
+                  setNotice(
+                    'Evidence recorded for independent operator review. No checkpoint has been accepted yet.',
+                  );
+                })
+              }
+            >
+              Submit evidence for review
+            </button>
+          </fieldset>
+        </details>
+        {view.upstreamHistory.length > 0 && (
+          <details>
+            <summary>Existing upstream review history</summary>
+            <p>
+              These are candidate records for explicit reuse. A prior AQ finalization does not
+              automatically accept its baseline or publication checkpoint.
+            </p>
+            <ul>
+              {view.upstreamHistory.map((r) => (
+                <li key={r.runId}>
+                  {r.alias} · {r.label}
+                  <br />
+                  Run <code>{r.runId}</code>
+                  <br />
+                  <code className="import-digest">{r.headSha}</code>
+                </li>
+              ))}
+            </ul>
           </details>
-        );
-      })}
-      {view.history.length > 1 && (
+        )}
         <details>
-          <summary>Environment history ({view.history.length} generations)</summary>
-          {view.history.map((g) => (
-            <p key={g.id}>
-              Generation {g.generation} · {g.createdAt}
+          <summary>Pinned build records ({view.builds.length} recent runs)</summary>
+          <p className="hint">
+            Records freeze when a run ends and survive cache cleanup. A passing build is development
+            evidence; qualification and publication still need independent review.
+          </p>
+          {view.builds.map((b) => (
+            <p key={b.runId}>
+              Run{' '}
+              <Link
+                route={{
+                  name: 'run',
+                  workspaceId: workspaceId as WorkspaceId,
+                  runId: b.runId as AgentRunId,
+                }}
+              >
+                {b.runId}
+              </Link>{' '}
+              · {b.successfulBuilds} successful clean builds
+              {b.receiptAuthority === 'agent' && (
+                <span title="Recorded before CraftingTable ran checks itself: the agent wrote these receipts.">
+                  {' '}
+                  · agent-reported
+                </span>
+              )}{' '}
+              {b.error && `· ${b.error}`}
               <br />
-              <code className="import-digest">{g.digest}</code>
+              <a href={buildRecordDownload(b.runId)}>Download frozen build record</a>
             </p>
           ))}
         </details>
-      )}
+        <h4>Evidence review</h4>
+        {!view.submissions.length && <p>No submissions yet.</p>}
+        {view.submissions.map(({ submission: s, decision, issues }) => {
+          const record = records[s.id];
+          const full = typeof record === 'object' ? record : undefined;
+          const attests = !!(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint);
+          const reviewerRoles = view.subjects.find(
+            (v) => v.subject.kind === s.subject.kind && v.subject.sourceId === s.subject.sourceId,
+          )?.reviewerRoles;
+          return (
+            <details
+              key={s.id}
+              id={`${panelId}-submission-${s.id}`}
+              onToggle={(event) => {
+                if (event.currentTarget.open) loadRecord(s.id);
+              }}
+            >
+              <summary>
+                {s.subject.sourceId} · {decision?.outcome ?? 'awaiting review'}
+                {issues.length ? ' · blocked or stale' : ''}
+              </summary>
+              <p>
+                {s.architectureDecision
+                  ? 'Prepared decision packet'
+                  : `Environment ${s.environmentId} · tested`}{' '}
+                {s.executedAt} · {s.executedBy}
+              </p>
+              <p>
+                {s.architectureDecision ? (
+                  decision ? (
+                    `Architecture decision recorded by ${decision.decidedByUserId} as repository-maintainer.`
+                  ) : (
+                    'Your authenticated acceptance records decision-owner review. The source design remains a proposal until you approve.'
+                  )
+                ) : s.candidateCheckpoint ? (
+                  s.candidateCheckpoint.delegatedReview ? (
+                    <>
+                      Independent agent checkpoint review recorded under saved roadmap
+                      responsibilities ({s.candidateCheckpoint.delegatedReview.roles.join(', ')}).{' '}
+                      <Link
+                        route={{
+                          name: 'run',
+                          workspaceId: workspaceId as WorkspaceId,
+                          runId: s.candidateCheckpoint.runId as AgentRunId,
+                        }}
+                      >
+                        Read the checkpoint review
+                      </Link>
+                      . This is delegated evidence, not a claim of personal operator review.
+                    </>
+                  ) : decision ? (
+                    `Checkpoint review recorded by ${decision.decidedByUserId} (${decision.checkpointReviewRoles?.join(', ') ?? 'no roles recorded'}).`
+                  ) : (
+                    'Candidate checkpoint review pending. Inspect the retained review and receipts; accepting records your explicit checkpoint attestation.'
+                  )
+                ) : s.generatedPlan ? (
+                  decision ? (
+                    `Plan review recorded by ${decision.decidedByUserId} as stack-integration-owner.`
+                  ) : (
+                    'Independent plan review pending: accepting below records your authenticated review as stack-integration-owner. The daemon only collected setup facts.'
+                  )
+                ) : (
+                  <>
+                    Independent reviewers:{' '}
+                    {s.reviewers.map((r) => `${r.identity} (${r.roles.join(', ')})`).join('; ')}
+                  </>
+                )}
+              </p>
+              {s.architectureDecision && (
+                <section aria-label="Decision text for review">
+                  <h4>
+                    {s.architectureDecision.coverage === 'clauses'
+                      ? 'Early clauses to approve'
+                      : 'Decision to approve'}
+                  </h4>
+                  {full?.architectureDecision && (
+                    <>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>{full.architectureDecision.proposal}</p>
+                      <h4>Source references</h4>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>
+                        {full.architectureDecision.sourceReferences}
+                      </p>
+                    </>
+                  )}
+                  {s.architectureDecision.consumers.length > 0 && (
+                    <ul>
+                      {s.architectureDecision.consumers.map((c) => (
+                        <li key={c.sliceId}>
+                          {c.sliceId}: required before {c.phase};{' '}
+                          {c.replacesFullCheckpoint
+                            ? 'replaces this slice’s full-checkpoint gate'
+                            : 'adds a definition prerequisite'}
+                          .
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {full?.architectureDecision?.retainedObligations && (
+                    <>
+                      <h4>Full obligations retained</h4>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>
+                        {full.architectureDecision.retainedObligations}
+                      </p>
+                    </>
+                  )}
+                  <p>
+                    This packet records a proposed decision, not test execution or a passing
+                    verification result.
+                  </p>
+                </section>
+              )}
+              {!s.architectureDecision && (
+                <p>
+                  Code:{' '}
+                  <code className="import-digest">
+                    {s.subjectCommit ?? 'upstream pins in recorded generation'}
+                  </code>
+                </p>
+              )}
+              {s.testedCode?.map((c) => (
+                <p key={c.alias}>
+                  Tested {c.alias}: <code className="import-digest">{c.commitSha}</code>
+                </p>
+              ))}
+              {issues.length > 0 && (
+                <ul>
+                  {distinct(issues).map((i) => (
+                    <li key={i}>{i}</li>
+                  ))}
+                </ul>
+              )}
+              {(record === 'loading' || record === 'failed') && (
+                <p role="status">
+                  {record === 'failed'
+                    ? 'Could not load the full record. Close and reopen this review to try again.'
+                    : 'Loading the full record…'}
+                </p>
+              )}
+              {s.artifacts.map((a) => (
+                <details key={a.name}>
+                  <summary>{a.name}</summary>
+                  <code className="import-digest">SHA-256 {a.digest}</code>
+                  {full && (
+                    <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                      {full.artifacts.find((f) => f.name === a.name)?.content}
+                    </pre>
+                  )}
+                </details>
+              ))}
+              {decision ? (
+                <p>
+                  {decision.outcome} · {decision.rationale}
+                </p>
+              ) : (
+                <EvidenceDecision
+                  key={s.id}
+                  workspaceId={workspaceId}
+                  definitionId={definitionId}
+                  csrfToken={csrfToken}
+                  submissionIds={[s.id]}
+                  labels={{
+                    rationale: 'Review decision rationale',
+                    accepted: 'Accept evidence',
+                    rejected: 'Reject evidence',
+                  }}
+                  {...(attests
+                    ? {
+                        attestation: s.candidateCheckpoint
+                          ? `I reviewed the candidate evidence against every checkpoint requirement as ${reviewerRoles?.join(', ')}.`
+                          : s.architectureDecision
+                            ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
+                            : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.',
+                      }
+                    : {})}
+                  {...(s.candidateCheckpoint && reviewerRoles
+                    ? { checkpointReviewRoles: reviewerRoles }
+                    : {})}
+                  // Accepting attests to the record: only once it has been shown.
+                  acceptBlocked={issues.length > 0 || !full || (attests && unsavedSetup)}
+                  disabled={busy || !canMutate}
+                  onDecided={(next, outcome) => {
+                    adopt(next);
+                    setNotice(
+                      s.architectureDecision && outcome === 'accepted'
+                        ? s.architectureDecision.coverage === 'clauses'
+                          ? 'Early clauses approved. Generate and review updated saved-plan evidence, then continue affected designs with the new decision packet.'
+                          : 'Decision approved. Continue affected designs with the updated decision packet.'
+                        : s.generatedPlan && outcome === 'accepted'
+                          ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
+                          : `Evidence ${outcome}.`,
+                    );
+                    window.dispatchEvent(
+                      new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
+                    );
+                  }}
+                />
+              )}
+            </details>
+          );
+        })}
+      </SetupStepPart>
+      <SetupStepPart step="dependency">
+        {view.history.length > 1 && (
+          <details>
+            <summary>Environment history ({view.history.length} generations)</summary>
+            {view.history.map((g) => (
+              <p key={g.id}>
+                Generation {g.generation} · {g.createdAt}
+                <br />
+                <code className="import-digest">{g.digest}</code>
+              </p>
+            ))}
+          </details>
+        )}
+      </SetupStepPart>
       <button
         className="secondary-button"
         type="button"

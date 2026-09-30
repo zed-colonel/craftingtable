@@ -127,8 +127,9 @@ itNeedsCargo(
       );
     const baseline = decide([]);
     expect(baseline.owner?.id, baseline.reason).toBe(ownerEntry.id);
-    // Two operator rounds with other findings: allowance 1 is still unused.
-    const operatorOnly = decide([round(true, 'a'.repeat(64)), round(true, 'b'.repeat(64))]);
+    // Three operator rounds with other findings: allowance 1 is still unused, and the lifetime
+    // ceiling of three is not reached (LIVE-28 review).
+    const operatorOnly = decide(['a', 'b', 'c'].map((c) => round(true, c.repeat(64))));
     expect(operatorOnly.owner?.id, operatorOnly.reason).toBe(ownerEntry.id);
     // One automatic round exhausts allowance 1 (boundary: >=).
     expect(decide([round(false, 'a'.repeat(64))]).reason).toContain('allowance exhausted');

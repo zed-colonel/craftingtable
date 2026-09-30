@@ -29,7 +29,10 @@ export interface ScopeRecoveryDecision {
   readonly sourceSequence?: number;
 }
 
-/** Conservative routing: review assertions never choose between multiple owning slices. */
+/**
+ * Conservative routing: among several owning slices, only a parent review's own `owningSlice`,
+ * the same for every open finding, chooses one (LIVE-27); otherwise the operator does.
+ */
 export function scopeRecoveryDecision(
   tx: StorageRepositories,
   roadmap: Roadmap,
@@ -82,7 +85,7 @@ export function scopeRecoveryDecision(
     ...new Set(
       turn.payload.reviewReport.report.findings
         .filter((f) => f.status === 'open')
-        .map((f) => f.owningSlice),
+        .map((f) => f.owningSlice ?? undefined),
     ),
   ];
   const namedCandidate =
@@ -199,14 +202,17 @@ export function scopeRecoveryDecision(
             ),
           ),
         );
-  const automatic = stretch.filter((a) => !a.recovery!.requestedByUserId).length;
+  // Operator rounds use no allowance; both counts share this rule (LIVE-28 review).
+  const automaticRounds = (among: readonly RoadmapAttempt[]) =>
+    among.filter((a) => !a.recovery!.requestedByUserId).length;
+  const automatic = automaticRounds(stretch);
   if (automatic >= (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0))
     return escalate(
       `Automatic recovery allowance exhausted (${automatic} automatic round${automatic === 1 ? '' : 's'} for this parent). Pause the roadmap and raise the total allowance, or continue manually.`,
     );
   // A lifetime ceiling, three stretches' worth: a review that keeps passing with a fresh finding
   // would otherwise start rounds without end (LIVE-28 review, operator decision 2026-09-30).
-  const lifetime = rounds.filter((a) => !a.recovery!.requestedByUserId).length;
+  const lifetime = automaticRounds(rounds);
   const ceiling = 3 * (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0);
   if (lifetime >= ceiling)
     return escalate(
@@ -223,14 +229,19 @@ export function scopeRecoveryDecision(
 
 /** Identifies a review's open findings apart from their per-review IDs. */
 export function findingFingerprint(
-  findings: readonly { readonly id: string; readonly status: string }[],
+  findings: readonly {
+    readonly id: string;
+    readonly status: string;
+    readonly owningSlice?: string | null;
+  }[],
 ): string {
   return createHash('sha256')
     .update(
       JSON.stringify(
         findings
           .filter((f) => f.status === 'open')
-          .map(({ id: _id, ...finding }) => finding)
+          // Its ID and named owner are routing, not substance (LIVE-27 review).
+          .map(({ id: _id, owningSlice: _owner, ...finding }) => finding)
           .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
       ),
     )

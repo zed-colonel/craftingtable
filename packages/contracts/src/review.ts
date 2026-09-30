@@ -25,9 +25,12 @@ export const reviewFindingSchema = z
      * The parent's required slice that owns this finding's fix, as a parent-acceptance reviewer
      * names it (LIVE-27); automatic recovery routes a round there instead of asking the operator.
      */
+    // The map's own slice-ID rule; null is read as not named (LIVE-27 review).
     owningSlice: z
       .string()
-      .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/)
+      .max(16000)
+      .regex(/^[a-z][a-z0-9_-]*\/[A-Z][A-Z0-9_-]*\/[a-z][a-z0-9-]*$/)
+      .nullable()
       .optional(),
   })
   .refine((finding) => finding.status === 'open' || finding.disposition !== undefined, {

@@ -45,13 +45,15 @@ itNeedsCargo.each([
   'accepted-named-owner',
   // Open findings that name different slices stay the operator's to route.
   'split-owners',
+  // One finding names its owner and another names none: still the operator's.
+  'partly-named',
 ] as const)('bounded roadmap scope recovery: %s', { timeout: 45000 }, async (outcome) => {
   const f = await supervisedMapFixture(
     false,
     'automatic',
     false,
     false,
-    !['ambiguous', 'accepted-named-owner', 'split-owners'].includes(outcome),
+    !['ambiguous', 'accepted-named-owner', 'split-owners', 'partly-named'].includes(outcome),
   );
   const { state } = f,
     ws = state.workspaceId,
@@ -107,14 +109,14 @@ itNeedsCargo.each([
           scope,
           finished
             ? [{ ...defect, status: 'resolved', disposition: 'Verified all families.' }]
-            : outcome === 'split-owners'
+            : outcome === 'split-owners' || outcome === 'partly-named'
               ? [
                   { ...defect, owningSlice: f.scopes[0]!.sourceId },
                   {
                     ...defect,
                     id: 'F004',
                     title: 'Other family',
-                    owningSlice: f.scopes[1]!.sourceId,
+                    owningSlice: outcome === 'split-owners' ? f.scopes[1]!.sourceId : null,
                   },
                 ]
               : [passing ? { ...defect, severity: 'minor' } : defect],
@@ -303,7 +305,7 @@ itNeedsCargo.each([
       outcome === 'stalled' ? 35000 : 22000,
     );
     expect(repairs).toBe(
-      outcome === 'ambiguous' || outcome === 'split-owners'
+      ['ambiguous', 'split-owners', 'partly-named'].includes(outcome)
         ? 0
         : outcome === 'stalled'
           ? 2

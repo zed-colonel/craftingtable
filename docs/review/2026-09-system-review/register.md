@@ -896,6 +896,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *NIT, disposition:* the item's message is bounded at 4,000 characters, which cuts the branch line first, then the hold's text.
     - *Probes that found nothing:* a changed message is refreshed in place with the same delivery, so nothing pages again; hold reasons are not rewritten per pass; a roadmap write refreshes the cycle item; the hold's own item and this one are never both open; paused and legacy holds; rule 1.
 - **After the e0d33b8 deploy (2026-09-30 snapshot):** no automatic round and no escalation; WI-03's ambiguous-owner hold is unchanged.
+- **LIVE-27 and LIVE-28 (2026-09-30, recorded; design put to the operator):** a parent finding repaired in a slice whose scope excludes it burned WI-03/domain's rounds on no-op remediations; and the automatic allowance, counted over a work item's life, stopped EXO-01's passing parent review with one minor finding as "not converging". See [LIVE-27](findings/LIVE-live-run-2026-09-25.md#live-27-a-parent-finding-repaired-in-a-slice-whose-scope-excludes-it-burns-every-remediation-round-on-no-ops) and [LIVE-28](findings/LIVE-live-run-2026-09-25.md#live-28-automatic-recovery-counts-its-allowance-over-a-work-items-life-so-an-old-allowance-stops-a-new-minor-finding-as-not-converging).
 
 ### R-C6
 

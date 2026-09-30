@@ -420,3 +420,31 @@ The operator deployed e0d33b8 at 00:31 UTC, after adopting WI's and EXO's checks
 - Status: OBSERVED 2026-09-30 by the operator on WI-03 ("May native checks use the launcher-mandated scratch/target, or will the controller supply a manifest targeting the required worktree cache?"). FIXED 2026-09-30 on `remediation/p2`, not deployed: the brief says daemon-run builds choose their own build directory. See [R-G6](../register.md#r-g6).
 - Replay case: none in the snapshots (the question came after 2026-09-30 02:14). The brief text is the reproduction: `brief.ts` tells the agent CARGO_TARGET_DIR is the worktree's build cache and to keep build outputs there, while `ct-native` and the pinned Cargo launcher run in the daemon with the manifest's `targetDirectory` (the run's `scratch/target`) or a per-commit target.
 - Impact: a stopped work item and an operator question that nobody could act on as asked (no corrected manifest exists); the answer is that the launchers are used as supplied.
+
+## After the b63df53 deploy (2026-09-30)
+
+The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, set Claude for design and some specialist roles, refreshed the WI pin and restarted the roadmap. The evidence below is a read-only `.backup` taken at 16:15 UTC (`replay/2026-09-30b/`, SHA-256 `b9e2788a…`); goldens at 9f4da08 (`golden.json` 68, `every-run-golden-9f4da08.json` 475, `scheduler-golden-9f4da08.json`).
+
+### LIVE-27: A parent finding repaired in a slice whose scope excludes it burns every remediation round on no-ops
+- Severity: medium (operator time and agent time lost; the limit was raised by hand)
+- Category: automatic recovery ([R-C5](../register.md#r-c5)); remediation ([R-C14](../register.md#r-c14)); findings ownership ([R-G6](../register.md#r-g6))
+- Status: CONFIRMED 2026-09-30 from the 2026-09-30b snapshot. Not fixed; design options put to the operator.
+- Replay case: the 2026-09-30b snapshot. Roadmap round attempt for entry c4ae17de (wi/WI-03/domain), source entry 1926f0d1 (WI-03 parent acceptance), requested from the operator's account on 2026-09-29 22:59 UTC; its cycle ace289b2 is `remediation-exhausted` at 6 of 3 rounds.
+- Evidence:
+  - WI-03's parent review found R1.WI03P-F001 (expired deliveries are not reconciled by runtime dispatch). The finding names no slice, so automatic recovery held it as ambiguous (LIVE-20), and the round that followed was owned by WI-03/domain.
+  - WI-03/domain's scope excludes "Production AQ/WI adapters, externally effective operations, live lifecycle activation"; WI-03/integration's scope is "the remaining production integration". Every run since agrees the fix belongs to WI-03/integration.
+  - Seven remediation runs (22:59 to 08:09); four say they made no source change (ff7e2783, 24f6d7a6, 70c27655, 9418cdd6); seven reviews each request changes for the same finding, "open for WI-03/integration". The limit was reached at 02:19 and again at 08:41 after being raised.
+  - Nothing in the controller noticed a remediation that left the head unchanged; "two unchanged remediation rounds" compares review findings, which shifted between reviews as other findings closed.
+- Impact: about ten hours of agent runs on work the slice may not do; the operator raised the limit without a way to see the round was misrouted.
+
+### LIVE-28: Automatic recovery counts its allowance over a work item's life, so an old allowance stops a new, minor finding as "not converging"
+- Severity: medium (a passing parent review stopped; the operator raises limits by hand)
+- Category: automatic recovery ([R-C5](../register.md#r-c5))
+- Status: CONFIRMED 2026-09-30 from the 2026-09-30b snapshot and the code. Not fixed; design options put to the operator.
+- Replay case: the 2026-09-30b snapshot. EXO-01 parent acceptance (entry cbf93d54, cycle 10dbc912): review cfaa127d (07:31 UTC) is mergeable with its exit gate met and one open minor finding (F-006); `scope-review-recovery` at 07:47:02.189 became `recovery-not-converging` at 07:47:02.938.
+- Evidence:
+  - `scopeRecoveryDecision` counts every automatic round of the work item on the roadmap (`maxRoundsPerParent`, 3). EXO-01's three were on 2026-09-18 and 09-19, before R-C5's escalation existed; the new finding could not start a round.
+  - The escalation's own summary says round 3 made progress; the inbox labels the code "Recovery not converging".
+  - F-006 asks that EXO's CONTRIBUTING.md list the seven adopted checks instead of generic `ct-check` commands: a consequence of the checks adopted that night, not of EXO-01's code.
+  - The review also carries 20 withdrawn "alias" findings from earlier rounds renaming finding IDs, which each review re-checks.
+- Impact: a parent review that passed its exit gate waits for the operator; raising the allowance by hand becomes routine.

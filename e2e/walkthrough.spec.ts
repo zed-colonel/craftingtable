@@ -443,29 +443,38 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .fill('I own the baseline decision. Use the pinned baseline.');
     await page.getByRole('combobox', { name: 'Next action', exact: true }).selectOption('continue');
     await page.getByRole('button', { name: 'Continue design with evidence', exact: true }).click();
-    await expect(cycle.getByRole('button', { name: 'Authorize more remediation' })).toBeVisible({
-      timeout: 30_000,
-    });
+    // A stop is decided in its inbox item; the work item links there (R-A6).
+    const decisionLink = cycle.getByRole('link', { name: 'Open the decision', exact: true });
+    await expect(decisionLink).toBeVisible({ timeout: 30_000 });
     await expect(cycle.getByRole('button', { name: 'Resume automation' })).toHaveCount(0);
     await walk.capture(
       'work-item-remediation-recovery',
-      'Work item · exhausted remediation allowance',
+      'Work item · exhausted remediation allowance, decided in Needs you',
     );
-    await cycle
+    const workItemPage = page.url();
+    const exhaustedItem = (await decisionLink.getAttribute('href')) ?? '';
+    await decisionLink.click();
+    const exhausted = page.getByRole('region', { name: 'Decision' });
+    await expect(
+      exhausted.getByRole('button', { name: 'Authorize more remediation' }),
+    ).toBeVisible();
+    await walk.capture('inbox-remediation-recovery', 'Needs you · authorize more remediation');
+    await exhausted
       .getByLabel('Guidance for the next run (optional)')
       .fill('E2E-AUTHORIZED-RECOVERY E2E-OPERATOR-QUESTION: Address the remaining regression.');
-    await cycle.getByRole('button', { name: 'Authorize more remediation' }).click();
-    await expect(cycle.getByLabel('Answers and recovery guidance')).toBeVisible({
-      timeout: 30_000,
-    });
+    await exhausted.getByRole('button', { name: 'Authorize more remediation' }).click();
+    await page.goto(workItemPage);
+    // The next stop, its questions, is a new item.
+    await expect(decisionLink).toHaveAttribute(
+      'href',
+      new RegExp(`^(?!${exhaustedItem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$)`),
+      { timeout: 30_000 },
+    );
     await walk.capture(
       'work-item-guided-recovery',
-      'Work item · answer implementation questions using the remaining allowance',
+      'Work item · implementation questions, decided in Needs you',
     );
-    // The questions are answered from the inbox item, whose host is the same cycle form (R-A5).
-    const guidedRecovery = page.url();
-    await navigate(page, 'Needs you');
-    await page.getByRole('region', { name: 'Open items' }).getByRole('link').first().click();
+    await decisionLink.click();
     const decision = page.getByRole('region', { name: 'Decision' });
     await decision
       .getByLabel('Answers and recovery guidance')
@@ -474,8 +483,9 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .fill(
         'E2E-AUTHORIZED-RECOVERY E2E-ANSWERED-QUESTION: Use the approved pinned baseline and retain every check.',
       );
+    await walk.capture('inbox-guided-recovery', 'Needs you · answer implementation questions');
     await decision.getByRole('button', { name: 'Continue with guidance', exact: true }).click();
-    await page.goto(guidedRecovery);
+    await page.goto(workItemPage);
 
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 30_000,

@@ -149,16 +149,20 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await cycle.getByLabel(/Instructions/).fill('MOBILE-FINDINGS CYCLE-EXTRA-REMEDIATION');
     await fitsPhone(page);
     await cycle.getByRole('button', { name: 'Start automated cycle' }).click();
-    await expect(cycle.getByRole('button', { name: 'Authorize more remediation' })).toBeVisible({
-      timeout: 30_000,
-    });
+    // The stop is decided in its inbox item; the work item links there (R-A6).
+    const decisionLink = cycle.getByRole('link', { name: 'Open the decision', exact: true });
+    await expect(decisionLink).toBeVisible({ timeout: 30_000 });
     await expect(cycle.getByRole('button', { name: 'Resume automation' })).toHaveCount(0);
     await fitsPhone(page);
-    await expect(cycle).toBeVisible();
-    await cycle
+    const workItemPage = page.url();
+    await decisionLink.click();
+    const decision = page.getByRole('region', { name: 'Decision' });
+    await decision
       .getByLabel('Guidance for the next run (optional)')
       .fill('E2E-AUTHORIZED-RECOVERY: Address the remaining regression.');
-    await cycle.getByRole('button', { name: 'Authorize more remediation' }).click();
+    await fitsPhone(page);
+    await decision.getByRole('button', { name: 'Authorize more remediation' }).click();
+    await page.goto(workItemPage);
 
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 15_000,

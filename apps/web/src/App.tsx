@@ -61,12 +61,11 @@ import { DiffView } from './features/execution/DiffView.js';
 import { ExecutionScopesPanel } from './features/execution/ExecutionScopesPanel.js';
 import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
 import { PlanBranchPanel } from './features/execution/PlanBranchPanel.js';
-import { ProviderRecovery } from './features/execution/ProviderRecovery.js';
+import { ProviderRetry } from './decisions/cycle/CycleDecisions.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
 import { RunPage } from './features/execution/RunPage.js';
 import { RunList, RunsPage } from './features/execution/RunsPage.js';
 import { ScopeRepairPanel } from './features/execution/ScopeRepairPanel.js';
-import { ScopeReviewRecovery } from './features/execution/ScopeReviewRecovery.js';
 import { WorktreeBranchPanel } from './features/execution/WorktreeBranchPanel.js';
 import {
   type WorktreeChangesRefused,
@@ -159,13 +158,7 @@ import { Link, NavigationProvider, useRevealRouteFocus } from './lib/navigation.
 import { useRoute } from './lib/use-route.js';
 import { useRunEventStream } from './lib/use-run-event-stream.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
-import {
-  authorizeWorkCycleRemediation,
-  controlWorkCycle,
-  loadWorkCycles,
-  resolveIntegration,
-  startWorkCycle,
-} from './lib/work-cycle-api.js';
+import { loadWorkCycles, resolveIntegration, startWorkCycle } from './lib/work-cycle-api.js';
 import {
   type ConnectionState,
   INITIAL_WORKSPACE_PROJECTION,
@@ -1315,6 +1308,8 @@ export function App() {
     workItemId: WorkItemId,
     /** The worktree whose cycle to show: an inbox item's own, else the page's selection. */
     worktreeId?: WorktreeId,
+    /** In the inbox the item's own decision renders; elsewhere a stop links to its item. */
+    inInbox = false,
   ): ReactElement | undefined => {
     if (
       workspaceId === undefined ||
@@ -1356,22 +1351,6 @@ export function App() {
                 }}
               />
             )}
-            <ScopeReviewRecovery
-              key={cycle.id}
-              cycle={cycle}
-              disabled={executionBusy || !canMutate || liveRun}
-              refreshToken={refreshToken}
-              onResume={(instructions) =>
-                executionCommand(async (csrfToken) => {
-                  await controlWorkCycle(
-                    cycle,
-                    cycle.status === 'completed' ? 'review-again' : 'resume',
-                    csrfToken,
-                    instructions,
-                  );
-                })
-              }
-            />
           </>
         )}
         cycles={itemCycles}
@@ -1387,16 +1366,15 @@ export function App() {
             await startWorkCycle(forWorkspace, workItem.workItem.id, input, csrfToken);
           })
         }
-        onAuthorizeRemediation={(cycle, input) =>
-          executionCommand(async (csrfToken) => {
-            await authorizeWorkCycleRemediation(cycle, input, csrfToken);
-          })
-        }
-        onControl={(cycle, action, instructions) =>
-          executionCommand(async (csrfToken) => {
-            await controlWorkCycle(cycle, action, csrfToken, instructions);
-          })
-        }
+        csrfToken={authenticated.csrfToken}
+        refreshToken={refreshToken}
+        onChanged={refreshNow}
+        {...(inInbox
+          ? {}
+          : {
+              decisionItemFor: (cycleId: string) =>
+                attentionItems.find((item) => item.subjectKey === `cycle:${cycleId}`)?.id,
+            })}
         onResolution={(cycle, input) =>
           executionCommand(async (csrfToken) => {
             await resolveIntegration(cycle, input, csrfToken);
@@ -1504,7 +1482,11 @@ export function App() {
     const host = inboxHost(item);
     const cycle =
       host.cycle && workItemId
-        ? cycleControls(workItemId as WorkItemId, item.refs.worktreeId as WorktreeId | undefined)
+        ? cycleControls(
+            workItemId as WorkItemId,
+            item.refs.worktreeId as WorktreeId | undefined,
+            true,
+          )
         : undefined;
     const delegation =
       host.delegation && workItemId ? delegationControls(workItemId as WorkItemId) : undefined;
@@ -2027,23 +2009,18 @@ export function App() {
                   c.currentRunId === run.run.id &&
                   c.providerRecovery,
               )
-              .map((cycle) => (
-                <ProviderRecovery
-                  key={cycle.id}
-                  cycle={cycle}
-                  disabled={!canMutate || executionBusy}
-                  onRetry={() =>
-                    void executionCommand(async (csrfToken) => {
-                      await controlWorkCycle(cycle, 'retry-provider', csrfToken);
-                    })
-                  }
-                  onPause={() =>
-                    void executionCommand(async (csrfToken) => {
-                      await controlWorkCycle(cycle, 'pause', csrfToken);
-                    })
-                  }
-                />
-              ))}
+              .map(
+                (cycle) =>
+                  authenticated !== undefined && (
+                    <ProviderRetry
+                      key={cycle.id}
+                      cycle={cycle}
+                      csrfToken={authenticated.csrfToken}
+                      disabled={!canMutate || executionBusy}
+                      onChanged={refreshNow}
+                    />
+                  ),
+              )}
             events={runEvents}
             connection={runConnection}
             {...(diff?.worktree.id === run.worktree.id ? { diff } : {})}

@@ -1,5 +1,4 @@
 import {
-  type AuthorizeWorkCycleRemediationRequest,
   type StartWorkCycleRequest,
   baselinePreviewSchema,
   baselineEvidenceSchema,
@@ -59,22 +58,6 @@ export function startWorkCycle(
     mutation(csrfToken, input),
   );
 }
-export function controlWorkCycle(
-  cycle: WorkCycle,
-  action: 'pause' | 'resume' | 'stop' | 'retry-provider' | 'review-again',
-  csrfToken: string,
-  instructions?: string,
-) {
-  return request(
-    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/control`,
-    workCycleResponseSchema,
-    mutation(csrfToken, {
-      action,
-      expectedVersion: cycle.version,
-      ...(instructions !== undefined ? { instructions } : {}),
-    }),
-  );
-}
 
 export function resolveIntegration(
   cycle: WorkCycle,
@@ -124,21 +107,5 @@ export function loadBaselineEvidence(cycle: WorkCycle) {
   return request(
     `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/baseline-evidence`,
     baselineEvidenceSchema,
-  );
-}
-
-export function authorizeWorkCycleRemediation(
-  cycle: WorkCycle,
-  input: Pick<AuthorizeWorkCycleRemediationRequest, 'additionalRounds' | 'instructions'>,
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/control`,
-    workCycleResponseSchema,
-    mutation(csrfToken, {
-      ...input,
-      action: 'authorize-remediation',
-      expectedVersion: cycle.version,
-    }),
   );
 }

@@ -1,4 +1,4 @@
-import { ProviderRecovery } from './ProviderRecovery.js';
+import { ProviderRetry } from '../../decisions/cycle/CycleDecisions.js';
 import type {
   AgentRunDetailResponse,
   ControlFinalizationRequest,
@@ -33,7 +33,7 @@ import {
   startFinalization,
 } from '../../lib/finalization-api.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
-import { controlWorkCycle, resolveIntegration } from '../../lib/work-cycle-api.js';
+import { resolveIntegration } from '../../lib/work-cycle-api.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
 import { DiffView } from './DiffView.js';
 import { FinalizationStageDecision } from './FinalizationStageDecision.js';
@@ -373,12 +373,11 @@ export function FinalizationPanel({
             )}
             <FinalizationStageProgress view={view} />
             {cycle && (
-              <ProviderRecovery
+              <ProviderRetry
                 cycle={cycle}
+                csrfToken={csrfToken}
                 disabled={busy || !canMutate}
-                onRetry={() =>
-                  void perform(() => controlWorkCycle(cycle, 'retry-provider', csrfToken))
-                }
+                onChanged={() => setReload((v) => v + 1)}
                 onPause={() => void command(view, 'pause')}
               />
             )}

@@ -26,6 +26,8 @@ const COMMANDS: readonly {
     command: 'roadmaps/:id/prepare-decision',
     found: /\/prepare-decision[`'"]|['"`]prepare-decision['"`]/,
   },
+  // Roadmaps and finalizations have `control` routes of their own: match the cycle's path.
+  { kind: 'cycle', command: 'cycles/:id/control', found: /cycles\/\$\{[^`]*?\}\/control/ },
   {
     kind: 'preparation',
     command: 'roadmaps/:id/decision-preparation-grant',

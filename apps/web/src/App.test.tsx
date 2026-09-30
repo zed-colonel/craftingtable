@@ -293,7 +293,6 @@ vi.mock('./lib/attention-api.js', () => ({
 vi.mock('./lib/work-cycle-api.js', () => ({
   loadWorkCycles: () => Promise.resolve({ cycles: [] }),
   startWorkCycle: () => new Promise(() => undefined),
-  controlWorkCycle: () => new Promise(() => undefined),
 }));
 
 vi.mock('./lib/execution-api.js', () => ({

@@ -17,7 +17,6 @@ import {
   type CycleProfiles,
   cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
-  effectiveCycleAttention,
   remediationAllowance,
   type WorkCycle,
   type WorktreeId,
@@ -28,16 +27,16 @@ import { ActionBar } from '../../components/ActionBar.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
-import { CycleGuidanceRecovery } from './CycleGuidanceRecovery.js';
 import {
-  type CycleRemediationGrant,
-  CycleRemediationRecovery,
-} from './CycleRemediationRecovery.js';
+  CycleContinuation,
+  CycleControlButtons,
+  continuationOf,
+  ProviderRetry,
+} from '../../decisions/cycle/CycleDecisions.js';
 import { CycleSettingsFields } from './CycleSettingsFields.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import type { ProfileEntry } from './handoff.js';
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
-import { ProviderRecovery } from './ProviderRecovery.js';
 import { defaultEffortLabel } from './ReasoningEffortField.js';
 import { WorkflowStatus } from './WorkflowStatus.js';
 import { Link } from '../../lib/navigation.js';
@@ -54,8 +53,10 @@ export function CyclePanel({
   busy,
   admitted,
   onStart,
-  onControl,
-  onAuthorizeRemediation,
+  csrfToken,
+  refreshToken = 0,
+  onChanged,
+  decisionItemFor,
   onOpenRun,
   onResolution,
   selectedWorktreeId,
@@ -76,13 +77,17 @@ export function CyclePanel({
   busy: boolean;
   admitted: boolean;
   onStart: (input: StartWorkCycleRequest) => void;
-  onControl: (
-    cycle: WorkCycle,
-    action: 'pause' | 'resume' | 'stop' | 'retry-provider',
-    instructions?: string,
-  ) => void;
+  csrfToken: string;
+  refreshToken?: number;
+  /** A cycle command was recorded: reload what depends on it. */
+  onChanged: () => void;
+  /**
+   * The open inbox item that decides this cycle's stop, on pages other than the inbox (R-A6):
+   * there the continuation is a banner linking to it. Without one it renders here, so a stop
+   * always has a way forward.
+   */
+  decisionItemFor?: (cycleId: string) => string | undefined;
   onOpenRun: (id: AgentRunId) => void;
-  onAuthorizeRemediation?: (cycle: WorkCycle, input: CycleRemediationGrant) => void;
   onResolution?: (
     cycle: WorkCycle,
     input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
@@ -140,30 +145,23 @@ export function CyclePanel({
   const liveRun = runs.some(
     (run) => run.worktreeId === selected && ['starting', 'running', 'waiting'].includes(run.status),
   );
-  const stop = active && effectiveCycleAttention(active)?.code;
-  const exhaustedReview =
-    active &&
-    onAuthorizeRemediation &&
-    active.step === 'review' &&
-    (stop === 'remediation-exhausted' || stop === 'review-open-questions-at-limit') &&
-    active.remediationRounds >= remediationAllowance(active) &&
-    (!active.executionScope || active.executionScope.kind === 'slice') &&
-    (!active.integrationResolution ||
-      ['completed', 'abandoned'].includes(active.integrationResolution.status));
   const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
   // A stop that waits on shared decisions is answered there, not with guidance (LIVE-18).
   const openDecisions =
     active !== undefined && (active.actions ?? []).includes('open-shared-decisions');
-  const guidedRecovery =
+  // Design recovery continues a design step it can read; integration conflicts are resolved.
+  const designRecovery =
+    !!renderDesignRecovery &&
+    recoverableDesign &&
+    !!active &&
+    runs.some((run) => run.id === active.currentRunId);
+  const continuation =
     active &&
-    !readOnly &&
-    !openDecisions &&
-    active.step !== 'design' &&
-    !exhaustedReview &&
-    ['paused', 'needs-attention'].includes(active.status) &&
-    (!!active.workflow?.questions.length ||
-      stop === 'remediation-stalled' ||
-      (active.actions ?? []).includes('continue-with-guidance'));
+    !(designRecovery && continuationOf(active) === 'resume') &&
+    active.integrationResolution?.status !== 'detected'
+      ? continuationOf(active)
+      : undefined;
+  const decisionItem = active && continuation ? decisionItemFor?.(active.id) : undefined;
   const attention =
     active !== undefined &&
     !active.scopeReviewWait &&
@@ -218,11 +216,11 @@ export function CyclePanel({
             <a href="#slices">Resolve checkpoint evidence for this slice</a>
           )}
           <WorkflowStatus cycle={active} />
-          <ProviderRecovery
+          <ProviderRetry
             cycle={active}
+            csrfToken={csrfToken}
             disabled={disabled}
-            onRetry={() => onControl(active, 'retry-provider')}
-            onPause={() => onControl(active, 'pause')}
+            onChanged={onChanged}
           />
           <StatusStrip
             label="Cycle status"
@@ -260,45 +258,14 @@ export function CyclePanel({
                 Open shared decisions ({active.unsettledDecisions?.length})
               </Link>
             )}
-            {(active.actions ?? []).includes('pause') && (
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={disabled}
-                onClick={() => onControl(active, 'pause')}
-              >
-                Pause automation
-              </button>
-            )}
-            {(active.actions ?? []).includes('resume') &&
-              !exhaustedReview &&
-              !guidedRecovery &&
-              !(readOnly && renderReviewRecovery) &&
-              active.integrationResolution?.status !== 'detected' &&
-              !(
-                renderDesignRecovery &&
-                recoverableDesign &&
-                runs.some((run) => run.id === active.currentRunId)
-              ) && (
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={disabled}
-                  onClick={() => onControl(active, 'resume')}
-                >
-                  Resume automation
-                </button>
-              )}
-            {(active.actions ?? []).includes('stop') && (
-              <button
-                type="button"
-                className="secondary-button danger"
-                disabled={disabled}
-                onClick={() => onControl(active, 'stop')}
-              >
-                Stop automation
-              </button>
-            )}
+            <CycleControlButtons
+              cycle={active}
+              csrfToken={csrfToken}
+              disabled={disabled}
+              // A paused cycle resumes here; a stopped one is continued below.
+              resumable={active.status === 'paused' && !continuation}
+              onChanged={onChanged}
+            />
           </ActionBar>
           {readOnly && (
             <p className="hint">
@@ -311,24 +278,29 @@ export function CyclePanel({
             renderReviewRecovery &&
             ['paused', 'needs-attention', 'completed'].includes(active.status) &&
             renderReviewRecovery(active, liveRun)}
-          {exhaustedReview && onAuthorizeRemediation && (
-            <div id={`cycle-guidance-${active.id}`}>
-              <CycleRemediationRecovery
-                key={`${active.id}:${active.version}`}
+          {continuation &&
+            (decisionItem ? (
+              <p className="attention-banner" role="status">
+                This stop is decided in Needs you.{' '}
+                <Link
+                  route={{
+                    name: 'inbox',
+                    workspaceId: active.workspaceId as WorkspaceId,
+                    itemId: decisionItem,
+                  }}
+                >
+                  Open the decision
+                </Link>
+              </p>
+            ) : (
+              <CycleContinuation
                 cycle={active}
+                csrfToken={csrfToken}
                 disabled={disabled || liveRun}
-                onAuthorize={(input) => onAuthorizeRemediation(active, input)}
+                refreshToken={refreshToken}
+                onChanged={onChanged}
               />
-            </div>
-          )}
-          {guidedRecovery && (
-            <CycleGuidanceRecovery
-              key={active.id}
-              cycle={active}
-              disabled={disabled || liveRun}
-              onContinue={(guidance) => onControl(active, 'resume', guidance)}
-            />
-          )}
+            ))}
           {renderDesignRecovery &&
             canMutate &&
             recoverableDesign &&

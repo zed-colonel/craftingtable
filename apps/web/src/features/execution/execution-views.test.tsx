@@ -10,11 +10,12 @@ import type {
 import {
   CYCLE_STEPS,
   type CycleProfiles,
+  cycleActions,
   DEFAULT_COMPLETION_POLICY,
   type WorkCycle,
 } from '@craftingtable/domain';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../lib/api-client.js';
 import { CyclePanel } from './CyclePanel.js';
 import { DelegationPanel } from './DelegationPanel.js';
@@ -992,7 +993,31 @@ describe('review handoff', () => {
   });
 });
 
+/** Cycles as the daemon sends them, with the actions it offers (R-A6). */
+const daemon = (cycles: readonly WorkCycle[]): WorkCycle[] =>
+  cycles.map((cycle) => ({ ...cycle, actions: cycleActions(cycle) }));
+/** The cycle commands posted, by the one module that posts them (R-A6). */
+const posted = () =>
+  vi
+    .mocked(fetch)
+    .mock.calls.filter(([, init]) => init?.method === 'POST')
+    .map(([url, init]) => ({ url: String(url), body: JSON.parse(String(init?.body)) }));
+const controlled = (cycle: WorkCycle, body: Record<string, unknown>) => ({
+  url: `/api/workspaces/${cycle.workspaceId}/cycles/${cycle.id}/control`,
+  body: { ...body, expectedVersion: cycle.version },
+});
+
 describe('automated cycle controls', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: 'x', message: 'x' } }), { status: 409 }),
+      ),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
   const backends = [
     {
       kind: 'claude-code' as const,
@@ -1042,10 +1067,10 @@ describe('automated cycle controls', () => {
     });
     render(
       <CyclePanel
-        cycles={[
+        cycles={daemon([
           stopped('a0000000-0000-4000-8000-000000000001', worktree, 'First slice needs guidance.'),
           stopped('a0000000-0000-4000-8000-000000000002', second, 'Second slice has questions.'),
-        ]}
+        ])}
         worktrees={[worktree, second]}
         runs={[]}
         backends={backends}
@@ -1056,12 +1081,65 @@ describe('automated cycle controls', () => {
         selectedWorktreeId={second.id}
         onSelectWorktree={vi.fn()}
         onStart={vi.fn()}
-        onControl={vi.fn()}
+        csrfToken="csrf"
+        onChanged={vi.fn()}
         onOpenRun={vi.fn()}
       />,
     );
     expect(screen.getByText('Second slice has questions.')).toBeTruthy();
     expect(screen.queryByText('First slice needs guidance.')).toBeNull();
+  });
+  it('links a stop to its inbox item, and continues it in place when it has none (R-A6)', () => {
+    const cycle = {
+      id: 'a0000000-0000-4000-8000-00000000000a',
+      workspaceId: worktree.workspaceId,
+      projectId: worktree.projectId,
+      workItemId: worktree.workItemId,
+      workItemSourceId: 'AQ-01',
+      workItemTitle: 'Queue',
+      worktreeId: worktree.id,
+      createdByUserId: worktree.createdByUserId,
+      createdAt: worktree.createdAt,
+      updatedAt: worktree.createdAt,
+      version: 2,
+      status: 'needs-attention',
+      step: 'implement',
+      policy: DEFAULT_COMPLETION_POLICY,
+      profiles: Object.fromEntries(
+        CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+      ) as unknown as CycleProfiles,
+      instructions: '',
+      currentRunId: run().id,
+      runDeadlineAt: worktree.createdAt,
+      remediationRounds: 0,
+      stalledReviews: 0,
+      reason: 'Workflow report needs correction.',
+      attention: { code: 'workflow-report-invalid', owner: 'operator' },
+    } as unknown as WorkCycle;
+    const props = {
+      cycles: daemon([cycle]),
+      worktrees: [worktree],
+      runs: [run({ status: 'finished', role: 'implement' })],
+      backends,
+      profiles,
+      canMutate: true,
+      busy: false,
+      admitted: true,
+      onStart: vi.fn(),
+      csrfToken: 'csrf',
+      onChanged: vi.fn(),
+      onOpenRun: vi.fn(),
+    };
+    const view = render(<CyclePanel {...props} decisionItemFor={() => 'item-1'} />);
+    expect(screen.getByText(/This stop is decided in Needs you/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open the decision' }).getAttribute('href')).toMatch(
+      /\/inbox\/item-1$/,
+    );
+    expect(screen.queryByRole('button', { name: 'Continue with guidance' })).toBeNull();
+    // No open item (not projected yet, or a page with no inbox): the stop is decided here.
+    view.rerender(<CyclePanel {...props} decisionItemFor={() => undefined} />);
+    expect(screen.queryByRole('link', { name: 'Open the decision' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Continue with guidance' })).toBeTruthy();
   });
   it('offers the shared decisions a stop waits on instead of Resume or guidance (LIVE-18)', () => {
     const cycle = {
@@ -1089,8 +1167,6 @@ describe('automated cycle controls', () => {
       stalledReviews: 0,
       reason: 'Operator approval required for EXO-ADR-022, EXO-ADR-030.',
       attention: { code: 'shared-decision-required', owner: 'operator' },
-      // The daemon's actions for a stop that waits on unsettled decisions (R-A6).
-      actions: ['open-shared-decisions', 'stop'],
       executionScope: {
         kind: 'slice',
         definitionId: 'd0000000-0000-4000-8000-000000000001',
@@ -1115,7 +1191,7 @@ describe('automated cycle controls', () => {
     } as unknown as WorkCycle;
     render(
       <CyclePanel
-        cycles={[cycle]}
+        cycles={daemon([cycle])}
         worktrees={[worktree]}
         runs={[]}
         backends={backends}
@@ -1124,7 +1200,8 @@ describe('automated cycle controls', () => {
         busy={false}
         admitted
         onStart={vi.fn()}
-        onControl={vi.fn()}
+        csrfToken="csrf"
+        onChanged={vi.fn()}
         onOpenRun={vi.fn()}
       />,
     );
@@ -1143,7 +1220,7 @@ describe('automated cycle controls', () => {
     const onStart = vi.fn();
     render(
       <CyclePanel
-        cycles={[]}
+        cycles={daemon([])}
         worktrees={[worktree]}
         runs={[]}
         backends={backends}
@@ -1152,7 +1229,8 @@ describe('automated cycle controls', () => {
         busy={false}
         admitted
         onStart={onStart}
-        onControl={vi.fn()}
+        csrfToken="csrf"
+        onChanged={vi.fn()}
         onOpenRun={vi.fn()}
       />,
     );
@@ -1175,8 +1253,7 @@ describe('automated cycle controls', () => {
     );
     expect(Object.keys(onStart.mock.calls[0]?.[0].profiles)).toEqual([...CYCLE_STEPS]);
   });
-  it('keeps merge approval with the operator and exposes explicit pause/stop controls', () => {
-    const onControl = vi.fn();
+  it('keeps merge approval with the operator and exposes explicit pause/stop controls', async () => {
     const cycle: WorkCycle = {
       id: 'aab388ca-d51a-41c9-9da6-e12a21c5fb25',
       workspaceId: worktree.workspaceId,
@@ -1201,11 +1278,10 @@ describe('automated cycle controls', () => {
       remediationRounds: 1,
       stalledReviews: 0,
       reason: 'Operator merge approval required.',
-      actions: ['pause', 'stop'],
     };
     const view = render(
       <CyclePanel
-        cycles={[cycle]}
+        cycles={daemon([cycle])}
         worktrees={[worktree]}
         runs={[run({ status: 'finished', role: 'review' })]}
         backends={backends}
@@ -1214,27 +1290,28 @@ describe('automated cycle controls', () => {
         busy={false}
         admitted
         onStart={vi.fn()}
-        onControl={onControl}
+        csrfToken="csrf"
+        onChanged={vi.fn()}
         onOpenRun={vi.fn()}
       />,
     );
     expect(screen.getByText('Awaiting merge approval')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Pause automation' }));
-    expect(onControl).toHaveBeenCalledWith(cycle, 'pause');
-    fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
-    expect(onControl).toHaveBeenCalledWith(cycle, 'stop');
-    const onAuthorizeRemediation = vi.fn();
+    await waitFor(() => expect(posted()).toEqual([controlled(cycle, { action: 'pause' })]));
+    const stopButton = screen.getByRole('button', { name: 'Stop automation' }) as HTMLButtonElement;
+    await waitFor(() => expect(stopButton.disabled).toBe(false));
+    fireEvent.click(stopButton);
+    await waitFor(() => expect(posted()).toContainEqual(controlled(cycle, { action: 'stop' })));
     const exhausted = {
       ...cycle,
       status: 'needs-attention' as const,
       remediationRounds: 4,
       additionalRemediationRounds: 1,
       reason: 'Remediation limit reached. One major finding remains.',
-      actions: ['resume', 'stop'] as const,
     };
     const recoveryProps = {
-      cycles: [exhausted],
+      cycles: daemon([exhausted]),
       worktrees: [worktree],
       backends,
       profiles,
@@ -1242,9 +1319,9 @@ describe('automated cycle controls', () => {
       busy: false,
       admitted: true,
       onStart: vi.fn(),
-      onControl,
+      csrfToken: 'csrf',
+      onChanged: vi.fn(),
       onOpenRun: vi.fn(),
-      onAuthorizeRemediation,
     };
     view.rerender(
       <CyclePanel {...recoveryProps} runs={[run({ status: 'finished', role: 'review' })]} />,
@@ -1259,10 +1336,15 @@ describe('automated cycle controls', () => {
     });
     expect(screen.getByText('New total allowance: 6 attempts.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Authorize more remediation' }));
-    expect(onAuthorizeRemediation).toHaveBeenCalledWith(exhausted, {
-      additionalRounds: 2,
-      instructions: 'Address the boundary regression.',
-    });
+    await waitFor(() =>
+      expect(posted()).toContainEqual(
+        controlled(exhausted, {
+          action: 'authorize-remediation',
+          additionalRounds: 2,
+          instructions: 'Address the boundary regression.',
+        }),
+      ),
+    );
     view.rerender(<CyclePanel {...recoveryProps} runs={[run({ status: 'running' })]} />);
     expect(
       (screen.getByRole('button', { name: 'Authorize more remediation' }) as HTMLButtonElement)
@@ -1276,15 +1358,14 @@ describe('automated cycle controls', () => {
     view.rerender(
       <CyclePanel
         {...recoveryProps}
-        cycles={[
+        cycles={daemon([
           {
             ...exhausted,
             status: 'paused',
             reason:
               'Automation paused by operator. The current session remains available for manual work.',
-            actions: ['resume', 'stop'],
           },
-        ]}
+        ])}
         runs={[run({ status: 'finished', role: 'review', verdict: 'mergeable' })]}
       />,
     );
@@ -1298,7 +1379,6 @@ describe('automated cycle controls', () => {
     const stalled = {
       ...cycle,
       status: 'needs-attention' as const,
-      actions: ['resume', 'stop'] as const,
       remediationRounds: 5,
       additionalRemediationRounds: 4,
       reason:
@@ -1307,7 +1387,7 @@ describe('automated cycle controls', () => {
     view.rerender(
       <CyclePanel
         {...recoveryProps}
-        cycles={[stalled]}
+        cycles={daemon([stalled])}
         runs={[run({ status: 'finished', role: 'review' })]}
       />,
     );
@@ -1324,31 +1404,36 @@ describe('automated cycle controls', () => {
     view.rerender(
       <CyclePanel
         {...recoveryProps}
-        cycles={[{ ...stalled, version: stalled.version + 1 }]}
+        cycles={daemon([{ ...stalled, version: stalled.version + 1 }])}
         runs={[run({ status: 'finished', role: 'review' })]}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Continue with guidance' }));
-    expect(onControl).toHaveBeenLastCalledWith(
-      expect.objectContaining({ id: stalled.id }),
-      'resume',
-      'Use the corrected controller launcher; retain the checks.',
+    await waitFor(() =>
+      expect(posted().at(-1)).toEqual(
+        controlled(
+          { ...stalled, version: stalled.version + 1 },
+          {
+            action: 'resume',
+            instructions: 'Use the corrected controller launcher; retain the checks.',
+          },
+        ),
+      ),
     );
     // An invalid workflow report can only be continued with guidance (R-A7): the panel
     // offers it even when the report raised no workflow questions.
     view.rerender(
       <CyclePanel
         {...recoveryProps}
-        cycles={[
+        cycles={daemon([
           {
             ...cycle,
             status: 'needs-attention' as const,
             step: 'implement' as const,
             reason: 'Workflow report needs correction.',
             attention: { code: 'workflow-report-invalid', owner: 'operator' },
-            actions: ['continue-with-guidance', 'stop'],
           },
-        ]}
+        ])}
         runs={[run({ status: 'finished', role: 'implement' })]}
       />,
     );
@@ -1362,7 +1447,7 @@ describe('automated cycle controls', () => {
     };
     view.rerender(
       <CyclePanel
-        cycles={[cycle, sibling]}
+        cycles={daemon([cycle, sibling])}
         worktrees={[worktree, siblingTree]}
         runs={[]}
         backends={backends}
@@ -1371,14 +1456,15 @@ describe('automated cycle controls', () => {
         busy={false}
         admitted
         onStart={vi.fn()}
-        onControl={onControl}
+        csrfToken="csrf"
+        onChanged={vi.fn()}
         onOpenRun={vi.fn()}
       />,
     );
     fireEvent.change(screen.getByLabelText('Cycle worktree'), { target: { value: 'wt-2' } });
     expect(screen.getByText(sibling.reason)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
-    expect(onControl).toHaveBeenLastCalledWith(sibling, 'stop');
+    await waitFor(() => expect(posted().at(-1)).toEqual(controlled(sibling, { action: 'stop' })));
     view.unmount();
     for (const kind of ['parent-acceptance', 'slice-verification'] as const) {
       const scope = { kind, definitionId: 'map', bindingRevision: 4, sourceId: 'wi/WI-01' };
@@ -1388,11 +1474,10 @@ describe('automated cycle controls', () => {
         executionScope: scope,
         status: 'needs-attention' as const,
         reason: 'Review needs operator guidance.',
-        actions: ['resume', 'stop'] as const,
       };
       const reviewView = render(
         <CyclePanel
-          cycles={[{ ...cycle, status: 'completed', actions: [] }, reviewCycle]}
+          cycles={daemon([{ ...cycle, status: 'completed' }, reviewCycle])}
           worktrees={[worktree, reviewTree]}
           runs={[]}
           backends={backends}
@@ -1401,7 +1486,8 @@ describe('automated cycle controls', () => {
           busy={false}
           admitted
           onStart={vi.fn()}
-          onControl={onControl}
+          csrfToken="csrf"
+          onChanged={vi.fn()}
           onOpenRun={vi.fn()}
           renderReviewRecovery={(c) => <p>Review recovery for {c.executionScope?.kind}</p>}
         />,
@@ -1413,10 +1499,12 @@ describe('automated cycle controls', () => {
       expect(screen.queryByText('Set up a cycle')).toBeNull();
       expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
-      expect(onControl).toHaveBeenLastCalledWith(reviewCycle, 'stop');
+      await waitFor(() =>
+        expect(posted().at(-1)).toEqual(controlled(reviewCycle, { action: 'stop' })),
+      );
       reviewView.rerender(
         <CyclePanel
-          cycles={[{ ...reviewCycle, status: 'completed', actions: [] }]}
+          cycles={daemon([{ ...reviewCycle, status: 'completed' }])}
           worktrees={[reviewTree]}
           runs={[]}
           backends={backends}
@@ -1425,7 +1513,8 @@ describe('automated cycle controls', () => {
           busy={false}
           admitted
           onStart={vi.fn()}
-          onControl={onControl}
+          csrfToken="csrf"
+          onChanged={vi.fn()}
           onOpenRun={vi.fn()}
           renderReviewRecovery={(c) => <p>Review again for {c.executionScope?.kind}</p>}
         />,

@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  decisionPreparationSettingsSchema,
-  roadmapViewSchema,
-  runtimeEvidenceViewSchema,
-  type ArchitectureDecisionInbox,
-  type DecisionPreparationSettings,
-  type ProposeArchitectureDecision,
-  type RuntimeEvidenceView,
+import { useState } from 'react';
+import type {
+  ArchitectureDecisionInbox,
+  ProposeArchitectureDecision,
+  RuntimeEvidenceView,
 } from '@craftingtable/contracts';
 import { SourceRunReport } from '../execution/SourceRunReport.js';
 import { Section } from '../../components/Section.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
-import { request } from '../../lib/api-client.js';
 import { EvidenceDecision } from '../../decisions/evidence/EvidenceDecision.js';
+import { PrepareDecisionBrief } from '../../decisions/preparation/PrepareDecisionBrief.js';
+import { SaveProposal } from '../../decisions/architecture/SaveProposal.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
@@ -204,7 +201,6 @@ function DecisionCard({
   preparation?: Preparation | undefined;
 }) {
   const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState<Record>();
   const [reviewing, setReviewing] = useState(false);
@@ -215,15 +211,8 @@ function DecisionCard({
   const fullApproval = accepted?.proposal.coverage === 'full';
   const pending = saved ?? card.records.find((r) => !r.decision && !r.issues.length);
   const [draft, setDraft] = useState<ProposeArchitectureDecision>();
-  const locked = disabled || busy;
+  const locked = disabled;
   const approvalBlocked = locked || !!data.blockers.length || !!card.blockers.length;
-  const base = `/api/workspaces/${encodeURIComponent(data.workspaceId)}/concurrency-definitions/${encodeURIComponent(data.definitionId)}/runtime`;
-  const post = (action: string, input: unknown) =>
-    request(`${base}/${action}`, runtimeEvidenceViewSchema, {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(input),
-    });
   const prepare = (limited = false) => {
     setDraft({
       checkpointId: card.checkpointId,
@@ -245,12 +234,11 @@ function DecisionCard({
     setReviewing(false);
     setError('');
   };
-  const save = async () => {
-    if (!draft || locked) return;
-    setBusy(true);
+  /** After the proposal is saved: open its exact recorded text for review. */
+  const afterSave = async (next: RuntimeEvidenceView) => {
+    if (!draft) return;
     setError('');
     try {
-      const next = await post('propose-decision', draft);
       const record = next.decisionInbox?.decisions
         .find((c) => c.checkpointId === card.checkpointId)
         ?.records.find(
@@ -267,8 +255,6 @@ function DecisionCard({
       await onChanged(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the decision.');
-    } finally {
-      setBusy(false);
     }
   };
   const clarification = `Clarify ${card.checkpointId} for operator review. Provide a complete standalone decision brief with the proposed choice, rationale, alternatives and tradeoffs, consequences, exact source citations, and full or explicitly limited coverage. Explain what remains to implement or verify. Do not approve the decision or implement changes.`;
@@ -308,7 +294,8 @@ function DecisionCard({
         !pending &&
         preparation && (
           <PrepareDecisionBrief
-            preparation={preparation}
+            workspaceId={preparation.workspaceId}
+            roadmapId={preparation.roadmapId}
             checkpointId={card.checkpointId}
             csrfToken={csrfToken}
             disabled={disabled}
@@ -477,10 +464,7 @@ function DecisionCard({
         <form
           className="stack-form"
           aria-label={`Prepare ${card.checkpointId}`}
-          onSubmit={(e) => {
-            e.preventDefault();
-            void save();
-          }}
+          onSubmit={(e) => e.preventDefault()}
         >
           <label className="field">
             Decision to approve
@@ -575,17 +559,20 @@ function DecisionCard({
           )}
           <p>Source references and the exact source run report are included automatically.</p>
           <ActionBar label="Prepare decision approval">
-            <button
-              type="submit"
+            <SaveProposal
+              workspaceId={data.workspaceId}
+              definitionId={data.definitionId}
+              csrfToken={csrfToken}
+              proposal={draft}
+              label="Save decision for approval"
               disabled={
                 locked ||
                 !draft.proposal.trim() ||
                 (draft.coverage === 'clauses' &&
                   (!draft.consumers.length || !draft.retainedObligations.trim()))
               }
-            >
-              Save decision for approval
-            </button>
+              onSaved={afterSave}
+            />
             <button type="button" disabled={locked} onClick={() => setEditing(false)}>
               Cancel
             </button>
@@ -686,74 +673,3 @@ function DecisionText({ record }: { record: Record }) {
  * Prepares a brief for a decision that has none yet (LIVE-18), with the roadmap's preparation
  * profile for it. The roadmap's own preparation panel chooses other agents and limits.
  */
-function PrepareDecisionBrief({
-  preparation,
-  checkpointId,
-  csrfToken,
-  disabled,
-}: {
-  preparation: Preparation;
-  checkpointId: string;
-  csrfToken: string;
-  disabled: boolean;
-}) {
-  const base = `/api/workspaces/${encodeURIComponent(preparation.workspaceId)}/roadmaps/${encodeURIComponent(preparation.roadmapId)}`;
-  const [settings, setSettings] = useState<DecisionPreparationSettings>();
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const load = useCallback(
-    () =>
-      request(`${base}/decision-preparations`, decisionPreparationSettingsSchema)
-        .then(setSettings)
-        .catch((e) => setMessage(e instanceof Error ? e.message : 'Could not load preparation.')),
-    [base],
-  );
-  useEffect(() => {
-    void load();
-  }, [load]);
-  const decision = settings?.decisions.find((d) => d.id === checkpointId);
-  const latest = decision?.latest;
-  const inFlight =
-    !!latest && ['preparing', 'starting', 'running', 'waiting'].includes(latest.status);
-  const prepare = async () => {
-    if (!decision) return;
-    setBusy(true);
-    setMessage('');
-    try {
-      // Another card's preparation moves the roadmap's version: read it as it is now.
-      const now = await request(`${base}/decision-preparations`, decisionPreparationSettingsSchema);
-      await request(`${base}/prepare-decision`, roadmapViewSchema, {
-        method: 'POST',
-        headers: { 'x-craftingtable-csrf': csrfToken },
-        body: JSON.stringify({
-          expectedVersion: now.version,
-          checkpointId,
-          profile: decision.profile,
-          minutes: 30,
-          instructions: '',
-        }),
-      });
-      setMessage('Preparation started. Its recommendation appears here when it finishes.');
-      await load();
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Could not prepare the brief.');
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="inline-actions">
-      <button
-        type="button"
-        className="secondary-button"
-        disabled={disabled || busy || !decision || inFlight}
-        onClick={() => void prepare()}
-      >
-        Prepare decision brief
-      </button>
-      {inFlight && <span role="status">Preparing · {latest?.status}</span>}
-      {message && <span role="status">{message}</span>}
-    </div>
-  );
-}

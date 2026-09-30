@@ -2,19 +2,26 @@ import { useState } from 'react';
 import type { RuntimeEvidenceView, ProposeArchitectureDecision } from '@craftingtable/contracts';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
+import { SaveProposal } from '../../decisions/architecture/SaveProposal.js';
 
 type Consumer = ProposeArchitectureDecision['consumers'][number];
 export function ArchitectureDecisionPanel({
+  workspaceId,
+  definitionId,
+  csrfToken,
   view,
   busy,
   disabled,
-  onSave,
+  onSaved,
   onReview,
 }: {
+  workspaceId: string;
+  definitionId: string;
+  csrfToken: string;
   view: RuntimeEvidenceView;
   busy: boolean;
   disabled: boolean;
-  onSave: (input: ProposeArchitectureDecision) => void;
+  onSaved: (next: RuntimeEvidenceView, input: ProposeArchitectureDecision) => void;
   onReview: (id: string) => void;
 }) {
   const data = view.architectureDecisions;
@@ -28,6 +35,16 @@ export function ArchitectureDecisionPanel({
   if (!data?.checkpoints.length) return null;
   const checkpoint = data.checkpoints.find((c) => c.id === checkpointId);
   const run = data.designRuns.find((r) => r.id === sourceRunId);
+  const input: ProposeArchitectureDecision = {
+    checkpointId,
+    bindingRevision: view.bindingRevision,
+    coverage,
+    proposal,
+    sourceReferences,
+    retainedObligations: coverage === 'clauses' ? retainedObligations : '',
+    consumers: coverage === 'clauses' ? consumers : [],
+    ...(sourceRunId ? { sourceRunId } : {}),
+  };
   const records = view.submissions.filter(
     (s) =>
       s.submission.architectureDecision &&
@@ -49,22 +66,7 @@ export function ArchitectureDecisionPanel({
       </About>
       <details>
         <summary>Prepare a decision or stage early clauses</summary>
-        <form
-          className="stack-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSave({
-              checkpointId,
-              bindingRevision: view.bindingRevision,
-              coverage,
-              proposal,
-              sourceReferences,
-              retainedObligations: coverage === 'clauses' ? retainedObligations : '',
-              consumers: coverage === 'clauses' ? consumers : [],
-              ...(sourceRunId ? { sourceRunId } : {}),
-            });
-          }}
-        >
+        <form className="stack-form" onSubmit={(event) => event.preventDefault()}>
           <fieldset disabled={disabled || busy}>
             <label className="field">
               Architecture checkpoint
@@ -229,18 +231,20 @@ export function ArchitectureDecisionPanel({
                 ))}
               </>
             )}
-            <button
-              type="submit"
-              className="primary-button"
+            <SaveProposal
+              workspaceId={workspaceId}
+              definitionId={definitionId}
+              csrfToken={csrfToken}
+              proposal={input}
+              label="Save proposal for review"
               disabled={
                 !checkpointId ||
                 !proposal.trim() ||
                 !sourceReferences.trim() ||
                 (coverage === 'clauses' && (!consumers.length || !retainedObligations.trim()))
               }
-            >
-              Save proposal for review
-            </button>
+              onSaved={(next) => onSaved(next, input)}
+            />
           </fieldset>
         </form>
       </details>

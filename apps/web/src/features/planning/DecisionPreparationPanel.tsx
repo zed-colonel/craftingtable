@@ -2,13 +2,15 @@ import { ActionBar } from '../../components/ActionBar.js';
 import { useCallback, useEffect, useState } from 'react';
 import {
   decisionPreparationSettingsSchema,
-  roadmapViewSchema,
   type DecisionPreparationSettings,
   type ExecutionStatusResponse,
 } from '@craftingtable/contracts';
 import { AGENT_BACKEND_LABELS, type AgentSelection, type Roadmap } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
-import { configureDecisionPreparation } from '../../lib/roadmap-api.js';
+import {
+  PrepareDecisionBrief,
+  SaveStandingPreparation,
+} from '../../decisions/preparation/PrepareDecisionBrief.js';
 import { ModelField } from '../execution/ModelField.js';
 import { ReasoningEffortField } from '../execution/ReasoningEffortField.js';
 import { About } from '../../components/About.js';
@@ -48,8 +50,7 @@ export function DecisionPreparationPanel({
   const [profile, setProfile] = useState<AgentSelection>(),
     [minutes, setMinutes] = useState(30),
     [guidance, setGuidance] = useState('');
-  const [busy, setBusy] = useState(false),
-    [message, setMessage] = useState('');
+  const [message, setMessage] = useState('');
   const base = `/api/workspaces/${roadmap.workspaceId}/roadmaps/${roadmap.id}`;
   const refresh = useCallback(async () => {
     setData(await request(`${base}/decision-preparations`, decisionPreparationSettingsSchema));
@@ -67,57 +68,8 @@ export function DecisionPreparationPanel({
   // Preparation proposes only, so it may run beside the roadmap (R-C3b, ADR-065).
   const locked =
     disabled ||
-    busy ||
     !data ||
     !['draft', 'paused', 'needs-attention', 'running'].includes(roadmap.status);
-  const prepare = async () => {
-    if (!data || !profile) return;
-    setBusy(true);
-    setMessage('');
-    try {
-      await request(`${base}/prepare-decision`, roadmapViewSchema, {
-        method: 'POST',
-        headers: { 'x-craftingtable-csrf': csrfToken },
-        body: JSON.stringify({
-          expectedVersion: data.version,
-          checkpointId: checkpoint,
-          profile,
-          minutes,
-          instructions: guidance,
-        }),
-      });
-      setMessage(
-        'Preparation started. When it finishes, refresh here to read its recommendation in Shared architecture decisions. No decision is approved automatically.',
-      );
-      await refresh();
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Could not prepare decision.');
-      await refresh();
-    } finally {
-      setBusy(false);
-    }
-  };
-  const saveGrant = async () => {
-    setBusy(true);
-    setMessage('');
-    try {
-      await configureDecisionPreparation(
-        roadmap,
-        {
-          expectedVersion: roadmap.version,
-          enabled: grantEnabled,
-          minutes: grantMinutes,
-          maxConcurrent: grantConcurrent,
-        },
-        csrfToken,
-      );
-      onChanged?.();
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Could not save standing preparation.');
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <details
       id={`decision-preparation-${roadmap.id}`}
@@ -150,7 +102,7 @@ export function DecisionPreparationPanel({
         <label>
           <input
             type="checkbox"
-            disabled={grantLocked || busy}
+            disabled={grantLocked}
             checked={grantEnabled}
             onChange={(e) => setGrantEnabled(e.target.checked)}
           />{' '}
@@ -160,7 +112,7 @@ export function DecisionPreparationPanel({
           Minutes per preparation
           <input
             type="number"
-            disabled={grantLocked || busy}
+            disabled={grantLocked}
             min={5}
             max={60}
             value={grantMinutes}
@@ -170,7 +122,7 @@ export function DecisionPreparationPanel({
         <label>
           Preparations at once
           <select
-            disabled={grantLocked || busy}
+            disabled={grantLocked}
             value={grantConcurrent}
             onChange={(e) => setGrantConcurrent(Number(e.target.value))}
           >
@@ -181,14 +133,19 @@ export function DecisionPreparationPanel({
             ))}
           </select>
         </label>
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={grantLocked || busy}
-          onClick={() => void saveGrant()}
-        >
-          Save standing preparation
-        </button>
+        <SaveStandingPreparation
+          workspaceId={roadmap.workspaceId}
+          roadmapId={roadmap.id}
+          csrfToken={csrfToken}
+          grant={{
+            expectedVersion: roadmap.version,
+            enabled: grantEnabled,
+            minutes: grantMinutes,
+            maxConcurrent: grantConcurrent,
+          }}
+          disabled={grantLocked}
+          {...(onChanged ? { onSaved: onChanged } : {})}
+        />
       </fieldset>
       <label className="field">
         Decision to prepare
@@ -267,26 +224,31 @@ export function DecisionPreparationPanel({
         />
       </label>
       <ActionBar label="Decision preparation actions">
-        <button
-          type="button"
-          className="primary-button"
-          disabled={
-            locked ||
-            !checkpoint ||
-            !profile ||
-            inFlight ||
-            minutes < 5 ||
-            minutes > 60 ||
-            !Number.isInteger(minutes)
-          }
-          onClick={() => void prepare()}
-        >
-          Prepare decision brief
-        </button>
+        {checkpoint && (
+          <PrepareDecisionBrief
+            key={checkpoint}
+            workspaceId={roadmap.workspaceId}
+            roadmapId={roadmap.id}
+            csrfToken={csrfToken}
+            checkpointId={checkpoint}
+            profile={profile}
+            minutes={minutes}
+            instructions={guidance}
+            disabled={
+              locked ||
+              !profile ||
+              inFlight ||
+              minutes < 5 ||
+              minutes > 60 ||
+              !Number.isInteger(minutes)
+            }
+            onStarted={refresh}
+          />
+        )}
         <button
           type="button"
           className="secondary-button"
-          disabled={busy}
+          disabled={disabled}
           onClick={() => {
             void refresh()
               .then(() =>

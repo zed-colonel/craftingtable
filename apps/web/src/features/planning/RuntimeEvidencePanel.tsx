@@ -349,24 +349,24 @@ export function RuntimeEvidencePanel({
         <details>
           <summary>Advanced manual decision preparation and clause staging</summary>
           <ArchitectureDecisionPanel
+            workspaceId={workspaceId}
+            definitionId={definitionId}
+            csrfToken={csrfToken}
             view={view}
             busy={busy}
             disabled={!canMutate || unsavedDependencies}
             onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
-            onSave={(input) =>
-              void act(async () => {
-                const next = await post('propose-decision', input);
-                adopt(next);
-                setNotice('Proposal saved. Review the packet and record your decision below.');
-                const saved = next.submissions.find(
-                  (s) =>
-                    s.submission.architectureDecision &&
-                    s.submission.subject.sourceId === input.checkpointId &&
-                    !s.decision,
-                );
-                if (saved) revealElement(`${panelId}-submission-${saved.submission.id}`);
-              })
-            }
+            onSaved={(next, input) => {
+              adopt(next);
+              setNotice('Proposal saved. Review the packet and record your decision below.');
+              const saved = next.submissions.find(
+                (s) =>
+                  s.submission.architectureDecision &&
+                  s.submission.subject.sourceId === input.checkpointId &&
+                  !s.decision,
+              );
+              if (saved) revealElement(`${panelId}-submission-${saved.submission.id}`);
+            }}
           />
         </details>
       </div>

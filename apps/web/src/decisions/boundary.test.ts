@@ -14,7 +14,24 @@ const COMMANDS: readonly {
   readonly kind: string;
   readonly command: string;
   readonly found: RegExp;
-}[] = [{ kind: 'evidence', command: 'runtime/decide', found: /\/decide[`'"]|['"`]decide['"`]/ }];
+}[] = [
+  { kind: 'evidence', command: 'runtime/decide', found: /\/decide[`'"]|['"`]decide['"`]/ },
+  {
+    kind: 'architecture',
+    command: 'runtime/propose-decision',
+    found: /\/propose-decision[`'"]|['"`]propose-decision['"`]/,
+  },
+  {
+    kind: 'preparation',
+    command: 'roadmaps/:id/prepare-decision',
+    found: /\/prepare-decision[`'"]|['"`]prepare-decision['"`]/,
+  },
+  {
+    kind: 'preparation',
+    command: 'roadmaps/:id/decision-preparation-grant',
+    found: /\/decision-preparation-grant[`'"]|['"`]decision-preparation-grant['"`]/,
+  },
+];
 
 const src = fileURLToPath(new URL('..', import.meta.url));
 

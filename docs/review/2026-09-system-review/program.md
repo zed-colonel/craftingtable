@@ -703,7 +703,8 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - No check unit can reach `/run/user/<uid>` or the Docker and D-Bus sockets; local CI keeps its Docker socket.
   - **First-boot checks, in addition:** a scoped slice with adopted checks runs `ct-check --declared` to success (its unit's Cargo home is `check-logs/<run>/cargo-home-<n>`, emptied afterwards, and `<data>/crates-io/` gains index files); a slice whose merge needs a prepared, unapproved decision shows as waiting for you at that decision.
   - **Decisions needed:** none open from this batch. Still open from before: one Claude step to verify the Claude sandbox launch (R-G5).
-  - **Next:** LIVE-20, then R-G13 increments 2 to 5 (increment 2 moves pinned Cargo builds onto declared checks, closing the live-worktree gap recorded on R-G13), R-E2's second increment with R-A6, R-D4 and R-D5, then R-G9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
+  - **Deployed:** e0d33b8 at 2026-09-30 00:31 UTC (release 20260930T003103Z-e0d33b8910d5), after the operator committed WI's and EXO's checks files on `craftingtable/checks` (drafted and dry-run here: all 11 checks pass offline) and adopted them. A read-only snapshot at 00:06 UTC is `replay/2026-09-29b/` (goldens at 79937d4: 66, 433, 181 entries and 5 cycles).
+  - **Next:** LIVE-22 (decision items say which slices a decision still waits for), LIVE-20, then R-G13 increments 2 to 5 (increment 2 moves pinned Cargo builds onto declared checks, closing the live-worktree gap recorded on R-G13), R-E2's second increment with R-A6, R-D4 and R-D5, then R-G9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

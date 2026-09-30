@@ -369,3 +369,14 @@ The operator deployed fccce06 at 06:48 UTC; the roadmap came up running. The ope
 - Impact:
   - About 90 minutes of review agent time across the four reviews, about 23 of them after the fix, on a candidate that was mergeable each time.
   - The status list and inbox still show a moved pin as a controller fault, and Resume is not refused while it would stop again (R-A7's rule).
+
+### LIVE-22: a decision item stays open after a clause approval without saying which slices it still waits for
+- Severity: low (no stop; a misleading item)
+- Category: operator clarity (inbox and decision cards; R-A5, R-C3b, LIVE-18)
+- Status: OBSERVED 2026-09-30 by the operator, after the e0d33b8 deploy. Recorded for the next batch (operator decision); not fixed.
+- Replay case: the 2026-09-29b snapshot (00:06 UTC) holds the map and the earlier clause approval; the operator's clause approval for exo/EXO-18/instance-design came after it. Check against a later snapshot.
+- Evidence:
+  - The operator recorded a clause-limited ("scoped") approval of EXO-ADR-037 for exo/EXO-18/instance-design, which then ran. The "Needs you" item for EXO-ADR-037 stayed open.
+  - That is correct: EXO-ADR-037 is a merge requirement of six slices (exo/EXO-03/domain, exo/EXO-03/integration, exo/EXO-18/domain, exo/EXO-18/instance-design, exo/EXO-18/instance-qualification, exo/EXO-18/integration; the last two also through EXO-ENV-G1). Clause approvals settle it only for exo/EXO-03/domain and exo/EXO-18/instance-design; the other four still need the full decision or clauses naming them.
+  - The item's message is the generic "Ready for independent evidence review and your acceptance", and the card does not say which slices are settled and which still wait, so the item looks stale.
+- Proposed fix (next batch): the decision's inbox item and its card show "Settled for …" and "Still needed by …", from the rule the merge gate uses (`unsettledSliceDecisions` and the clause coverage `stagedDecision` applies). Nothing persisted changes.

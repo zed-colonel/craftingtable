@@ -885,6 +885,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Test** (`server-execution-scope-recovery.test.ts`, the `ambiguous` and `questions` outcomes): the stopped review's item and the entry's status-list reason contain the hold's reason. Mutation: dropping the reason fails both outcomes. The mutation carrying a paused hold is equivalent in practice (see above).
   - **Replay case:** the 2026-09-29 snapshot's entry 1926f0d1 (WI-03 parent acceptance) holds with this reason; what the replays show is in the 2026-09-30 batch record in `program.md`.
 
+  - **Independent review of 6bf0e1c (2026-09-30, isolated worktree).** No HIGH. Every finding is fixed or dispositioned; the fixes are shown by mutation (R20-1 killed; removing the reason fails both outcomes).
+    - *MEDIUM, fixed:* `hold.reason !== cycle.reason` compared two human-readable reasons (rule 4), and no hold ever stores the cycle's reason, so it guarded nothing. Removed; the commit and this entry had said "no text read".
+    - *MEDIUM, fixed:* while a recovery round started from the review was open, a stopped repair became an `entry-preparation-failed` hold on the review's entry ("Owning-slice recovery needs your input: …"), and the review's item then repeated the repair's stop, which R-C14 forbids, and kept its old text while the repair ran. The review's item now adds no hold while such a round is open; the repair's item carries the round's stops. Test: the `ambiguous` outcome with an open round added to the stored roadmap.
+    - *LOW, disposition:* a hold stays until the entry is resumed, re-verified or answered, so if the entry's cycle stops again for another reason, the item still names the old hold. The hold is real (the scheduler skips a held entry), and the text says it is the roadmap's hold; resuming clears it.
+    - *LOW, disposition:* the review's item has no hold actions (the hold's own item offered re-verify). For the ambiguous-owner hold, Delegate source fixes on the item clears it; other holds are resumed on the roadmap page, as before.
+    - *LOW, recorded (older):* a hold on a round's source entry shows nowhere when the source review has no open item; `recovery-not-converging` has the same gap on a repair item.
+    - *NIT, disposition:* the item's message is bounded at 4,000 characters, which cuts the branch line first, then the hold's text.
+    - *Probes that found nothing:* a changed message is refreshed in place with the same delivery, so nothing pages again; hold reasons are not rewritten per pass; a roadmap write refreshes the cycle item; the hold's own item and this one are never both open; paused and legacy holds; rule 1.
+
 ### R-C6
 
 **Reduce the evidence-acceptance ceremony** · Phase P3 · Effort M · Status: open

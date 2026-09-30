@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { type ExecutionScope, roadmapAttention } from '@craftingtable/domain';
+import { asAgentRunId, type ExecutionScope, roadmapAttention } from '@craftingtable/domain';
 import { afterEach, expect } from 'vitest';
 import { openDaemonStorage } from './persisted-records.js';
 
@@ -298,6 +299,36 @@ itNeedsCargo.each([
         .statusOf(storedRoadmap(state))
         .entries.find((e) => e.entryId === heldEntryId);
       expect(status?.waitsOn?.reason).toContain(hold.reason);
+      // While a recovery round started from this review is open, its repair's item carries
+      // the round's stops, so this item does not repeat a hold (LIVE-20 review).
+      const current = storedRoadmap(state);
+      const round = {
+        ...review,
+        id: randomUUID(),
+        cycleId: randomUUID(),
+        recovery: {
+          sourceEntryId: heldEntryId,
+          sourceRunId: asAgentRunId('run'),
+          sourceSequence: 1,
+          findingFingerprint: 'f'.repeat(64),
+          phase: 'repair' as const,
+          reviewRunIds: {},
+        },
+      };
+      expect(
+        tx.roadmaps.save(
+          { ...current, version: current.version + 1, attempts: [...current.attempts, round] },
+          current.version,
+        ),
+      ).toBe(true);
+      state.context.services.roadmapService.syncAttention(true);
+      expect(
+        tx.attention.open(ws).find((i) => i.subjectKey === `cycle:${review.cycleId}`)?.message,
+      ).not.toContain('The roadmap holds this item');
+      // The later checks read the roadmap as the scheduler left it.
+      expect(
+        tx.roadmaps.save({ ...current, version: current.version + 2 }, current.version + 1),
+      ).toBe(true);
     }
     expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
   }

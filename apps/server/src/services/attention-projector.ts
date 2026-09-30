@@ -696,18 +696,23 @@ export class AttentionProjector implements WriteObserver {
       const requirements = attention.code === 'merge-requirements';
       // Automatic recovery for this review stopped converging: the review's own item, which
       // hosts its repair controls, carries that stop and the rounds' progress (R-C5).
-      const hold =
-        cycle.owner &&
-        tx.roadmaps.find(workspaceId, cycle.owner.roadmapId)?.entryHolds?.[cycle.owner.entryId];
+      const roadmap = cycle.owner && tx.roadmaps.find(workspaceId, cycle.owner.roadmapId);
+      const hold = cycle.owner && roadmap?.entryHolds?.[cycle.owner.entryId];
       const escalated =
         hold?.status === 'needs-attention' && hold.attention?.code === 'recovery-not-converging'
           ? hold
           : undefined;
       // Any other hold the roadmap records on this entry has no item of its own while this one
       // is open (`projectUnit`), so this item says why the roadmap holds it (LIVE-20): an
-      // automatic recovery that declined, say, because no single slice owns the finding.
+      // automatic recovery that declined, say, because no single slice owns the finding. Not
+      // while a recovery round started from this entry is open: its repair's item carries the
+      // round's stops (R-C14), and a hold from a stopped repair would repeat one here.
+      const inRound = roadmap?.attempts.some(
+        (a) =>
+          a.recovery?.sourceEntryId === cycle.owner?.entryId && a.recovery?.phase !== 'completed',
+      );
       const held =
-        !escalated && hold?.status === 'needs-attention' && hold.reason !== cycle.reason
+        !escalated && !inRound && hold?.status === 'needs-attention'
           ? `\nThe roadmap holds this item: ${hold.reason}`
           : '';
       const kind =

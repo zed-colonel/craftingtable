@@ -855,6 +855,47 @@ describe('single work-item automation', () => {
     expect(backend.launches).toHaveLength(6);
   });
 
+  it('sends Continue with guidance after a no-change stop to a fresh review of the same commit (LIVE-27 review)', async () => {
+    const review = { resultText: reviewText([structuredFinding]) };
+    const outOfScope = { resultText: 'No source change: this finding belongs to another slice.' };
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      review,
+      outOfScope,
+      review,
+      outOfScope,
+      {
+        resultText: reviewText([
+          {
+            ...structuredFinding,
+            status: 'resolved',
+            disposition: 'Owned by another slice; out of this repair.',
+          },
+        ]),
+      },
+    ]);
+    const cycle = await startCycle(state, worktree.id, {
+      policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 10 },
+    });
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'no-change stop');
+    const stopped = currentCycle(state, cycle);
+    expect(stopped.attention?.code).toBe('remediation-no-change');
+    const guidance = 'Judge only the findings this slice may fix.';
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: { action: 'resume', expectedVersion: stopped.version, instructions: guidance },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'guided review');
+    // The guidance went to a review, not another remediation.
+    expect(backend.launches).toHaveLength(7);
+    expect(backend.launches[6]?.model).toBe('review-model');
+    expect(backend.launches[6]?.prompt).toContain(guidance);
+  });
+
   it('reviews again after one remediation that changes nothing, so a rebuttal can be accepted (LIVE-27)', async () => {
     const { state, backend, worktree } = await cycleFixture([
       designDone,
@@ -1030,8 +1071,6 @@ describe('single work-item automation', () => {
         ]),
       },
     ]);
-    // Each remediation commits its fix: remediations that change nothing stop on their own (LIVE-27).
-    commitRemediations(backend);
     const cycle = await startCycle(state, worktree.id, { instructions: 'Keep the approved API.' });
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review question');
     expect(currentCycle(state, cycle).step).toBe('review');

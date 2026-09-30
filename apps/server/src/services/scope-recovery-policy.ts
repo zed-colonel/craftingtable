@@ -167,15 +167,24 @@ export function scopeRecoveryDecision(
       ? event.payload.reviewReport.report
       : undefined;
   };
+  // Only a parent review ends a stretch, not a passing slice verification (LIVE-28 review).
+  const parentReview = (entryId: string) =>
+    roadmap.definition.entries.find((e) => e.id === entryId)?.executionScope?.kind ===
+    'parent-acceptance';
   const ordered = [...rounds].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const stretch = passed(turn.payload.reviewReport.report)
-    ? []
-    : ordered.slice(
-        Math.max(
-          0,
-          ordered.findLastIndex((a) => passed(sourceReport(a.recovery!.sourceRunId))),
-        ),
-      );
+  const stretch =
+    parentReview(entry.id) && passed(turn.payload.reviewReport.report)
+      ? []
+      : ordered.slice(
+          Math.max(
+            0,
+            ordered.findLastIndex(
+              (a) =>
+                parentReview(a.recovery!.sourceEntryId) &&
+                passed(sourceReport(a.recovery!.sourceRunId)),
+            ),
+          ),
+        );
   const automatic = stretch.filter((a) => !a.recovery!.requestedByUserId).length;
   if (automatic >= (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0))
     return escalate(

@@ -64,7 +64,7 @@ const RESOLUTION: Partial<Record<CycleAttentionCode, readonly [CycleAction, stri
   ],
   'remediation-no-change': [
     'continue-with-guidance',
-    'Two remediations in a row changed nothing, and Resume would review the same commit again. Use Continue with guidance.',
+    'Two remediations in a row changed nothing, and Resume would review the same commit again. Use Continue with guidance: it starts a fresh review with your guidance.',
   ],
   'remediation-exhausted': [
     'authorize-remediation',

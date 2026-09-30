@@ -1542,16 +1542,20 @@ export class WorkCycleService {
             instructions: stepGuidance,
           });
       }
+      // After two remediations that changed nothing, the guidance is for a fresh review of the
+      // same commit: another remediation would change nothing again (LIVE-27 review).
+      const noChange = effectiveCycleAttention(cycle)?.code === 'remediation-no-change';
       return this.next(
         cycle,
-        cycle.step,
+        noChange ? 'review' : cycle.step,
         run,
         context,
         {
           stepGuidance,
           stalledReviews: 0,
-          reason:
-            'Continuing the current step with operator guidance; existing allowance retained.',
+          reason: noChange
+            ? 'A fresh review of the unchanged commit, with operator guidance; existing allowance retained.'
+            : 'Continuing the current step with operator guidance; existing allowance retained.',
         },
         'resume-with-guidance',
       );
@@ -2300,27 +2304,18 @@ export class WorkCycleService {
         // A remediation may leave the commit unchanged once, to argue that a finding is wrong or
         // already fixed, and a fresh review may accept that. A second in a row gives the review
         // nothing new: it stops for the operator with the implementer's reason (LIVE-27).
-        if (finalized.step === 'remediate' && finalized.reviewHeadSha) {
+        if (finalized.step === 'remediate') {
           let head: string | undefined;
           try {
             head = await this.cleanHead(finalized);
           } catch {
             head = undefined;
           }
-          const reviewedHeads = this.storage.execution.runs
-            .listForWorktree(finalized.workspaceId, finalized.worktreeId)
-            .filter((r) => r.role === 'review' && r.reviewBranchContext)
-            .map((r) => r.reviewBranchContext!.headSha);
-          if (
-            head === finalized.reviewHeadSha &&
-            reviewedHeads.length >= 2 &&
-            reviewedHeads[0] === head &&
-            reviewedHeads[1] === head
-          ) {
+          if (head && this.remediatedNothingTwice(finalized, run, head)) {
             this.attention(
               finalized,
               'remediation-no-change',
-              "Two remediations in a row changed nothing, so the next review would judge the same commit again. Read the implementer's report. If it says a finding belongs to another slice, use Continue with guidance to have the review judge only the findings this slice may fix, so the repair can merge; the parent review then raises that finding again, and Delegate source fixes sends it to its owner. Otherwise, guide the remediation.",
+              "Two remediations in a row changed nothing, so the next review would judge the same commit again. Read the implementer's report. Continue with guidance starts a fresh review of this commit with your guidance: if a finding belongs to another slice, tell the review to judge only the findings this slice may fix, so the repair can merge; the parent review then raises that finding again, and Delegate source fixes sends it to its owner.",
             );
             return;
           }
@@ -3222,6 +3217,30 @@ export class WorkCycleService {
     });
   }
 
+  /**
+   * Whether this remediation and the one before it both left the commit unchanged, each after a
+   * review of that commit whose findings sent the cycle to remediate: the cycle's own lineage (remediation, its
+   * review, the remediation before, its review), not every review run in the worktree, which
+   * includes retries, security and checkpoint reviews and other cycles' reviews (LIVE-27 review).
+   */
+  private remediatedNothingTwice(cycle: WorkCycle, remediation: AgentRun, head: string): boolean {
+    const find = (id: string | undefined) =>
+      id ? this.storage.execution.runs.find(cycle.workspaceId, asAgentRunId(id)) : undefined;
+    // A review of this commit that sent the cycle to remediate its findings: not a passing
+    // review followed by a cleanup remediation (LIVE-27 review).
+    const reviewedHere = (run: AgentRun | undefined) => {
+      if (run?.role !== 'review' || run.reviewBranchContext?.headSha !== head) return false;
+      const assessment = latestReviewReport(this.storage.execution, run);
+      return (
+        assessment?.status === 'complete' &&
+        evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
+      );
+    };
+    const latest = find(remediation.parentRunId);
+    if (!reviewedHere(latest)) return false;
+    const earlier = find(latest!.parentRunId);
+    return earlier?.role === 'implement' && reviewedHere(find(earlier.parentRunId));
+  }
   private async finalizeImplementation(
     cycle: WorkCycle,
     run: AgentRun,

@@ -411,5 +411,5 @@ The operator deployed e0d33b8 at 00:31 UTC, after adopting WI's and EXO's checks
 ### LIVE-25: "Fresh review required" stays after the fresh review ran
 - Severity: low (misleading text)
 - Category: UI ([R-A6](../register.md#r-a6))
-- Status: CONFIRMED 2026-09-30 by the operator and from the 2026-09-30 snapshot. See [R-C14](../register.md#r-c14).
+- Status: CONFIRMED 2026-09-30 by the operator and from the 2026-09-30 snapshot. FIXED 2026-09-30 on `remediation/p2`, not deployed: the text asks for a fresh review only until one has started at the resolution commit. See [R-C14](../register.md#r-c14).
 - Replay case: cycle b0de849a in the 2026-09-30 snapshot: its integration resolution committed 95f22b91, and its current review (27d0548c) ran on 95f22b91 and was mergeable, yet `IntegrationResolutionPanel` shows "Integration update committed … Fresh review required." whenever a resolution commit exists.

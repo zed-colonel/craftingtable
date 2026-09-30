@@ -41,3 +41,32 @@ it('offers inspection when an integration update stopped the cycle', () => {
   panel({ attention: { code: 'integration-update-failed', owner: 'operator' } });
   expect(screen.getByRole('button', { name: 'Inspect integration conflicts' })).toBeDefined();
 });
+
+it('asks for a fresh review only until one has run on the resolution commit (LIVE-25)', () => {
+  const resolution = {
+    id: 'r',
+    status: 'completed',
+    headSha: 'a'.repeat(40),
+    targetSha: 'b'.repeat(40),
+    targetBranch: 'exo-v3',
+    paths: ['docs/policy.json'],
+    diagnostics: '',
+    createdAt: '2026-09-28T20:10:32.553Z',
+    attempts: 1,
+    commitSha: 'c'.repeat(40),
+  } as NonNullable<WorkCycle['integrationResolution']>;
+  panel({
+    status: 'awaiting-merge',
+    integrationResolution: resolution,
+    reviewHeadSha: 'a'.repeat(40),
+  });
+  expect(screen.getByText(/Fresh review required/)).toBeDefined();
+  cleanup();
+  panel({
+    status: 'awaiting-merge',
+    integrationResolution: resolution,
+    reviewHeadSha: 'c'.repeat(40),
+  });
+  expect(screen.queryByText(/Fresh review required/)).toBeNull();
+  expect(screen.getByText(/reviewed afresh/)).toBeDefined();
+});

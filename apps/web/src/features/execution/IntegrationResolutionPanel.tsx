@@ -84,8 +84,11 @@ export function IntegrationResolutionPanel({
           </ul>
           {resolution.commitSha && (
             <p>
-              Integration update committed: <code>{resolution.commitSha}</code>. Fresh review
-              required.
+              Integration update committed: <code>{resolution.commitSha}</code>.{' '}
+              {/* The latest review started at this commit, so it has been reviewed (LIVE-25). */}
+              {cycle.reviewHeadSha === resolution.commitSha
+                ? 'The combined changes were reviewed afresh.'
+                : 'Fresh review required.'}
             </p>
           )}
           {(resolution.runIds ?? [])

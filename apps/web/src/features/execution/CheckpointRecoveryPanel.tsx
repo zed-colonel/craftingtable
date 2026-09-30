@@ -1,9 +1,6 @@
 import { useState } from 'react';
-import {
-  checkpointRecoverySchema,
-  runtimeEvidenceViewSchema,
-  type CheckpointRecovery,
-} from '@craftingtable/contracts';
+import { checkpointRecoverySchema, type CheckpointRecovery } from '@craftingtable/contracts';
+import { EvidenceDecision } from '../../decisions/evidence/EvidenceDecision.js';
 import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
@@ -28,8 +25,6 @@ export function CheckpointRecoveryPanel({
   const [view, setView] = useState<CheckpointRecovery>();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
-  const [reviewed, setReviewed] = useState<Record<string, boolean>>({});
-  const [rationale, setRationale] = useState<Record<string, string>>({});
   const act = async (fn: () => Promise<void>) => {
     setBusy(true);
     setError('');
@@ -80,7 +75,6 @@ export function CheckpointRecoveryPanel({
         </p>
       )}
       {view?.candidates.map((c) => {
-        const key = c.submission?.id ?? c.snapshotDigest;
         return (
           <article key={c.checkpointId}>
             <h4>
@@ -200,65 +194,35 @@ export function CheckpointRecoveryPanel({
                 Prepare checkpoint evidence
               </button>
             ) : (
-              <fieldset disabled={busy || !canMutate}>
-                <label className="field">
-                  <span>
-                    <input
-                      type="checkbox"
-                      checked={reviewed[key] ?? false}
-                      onChange={(e) => setReviewed({ ...reviewed, [key]: e.target.checked })}
-                    />{' '}
-                    I reviewed the retained evidence against every requirement above and accept the
-                    checkpoint review responsibilities: {c.reviewerRoles.join(', ')}.
-                  </span>
-                </label>
+              <>
                 <p className="hint">
                   The recorded agent review is supporting evidence. Your acceptance supplies the
                   checkpoint attestation; it does not claim that you personally ran the tests.
                 </p>
-                <label className="field">
-                  Checkpoint review rationale
-                  <textarea
-                    value={rationale[key] ?? ''}
-                    onChange={(e) => setRationale({ ...rationale, [key]: e.target.value })}
-                  />
-                </label>
-                {(['accepted', 'rejected'] as const).map((outcome) => (
-                  <button
-                    type="button"
-                    key={outcome}
-                    disabled={
-                      !rationale[key]?.trim() ||
-                      (outcome === 'accepted' && (!reviewed[key] || c.issues.length > 0))
-                    }
-                    onClick={() =>
-                      void act(async () => {
-                        await request(
-                          `${base}/decide`,
-                          runtimeEvidenceViewSchema,
-                          post({
-                            submissionId: c.submission!.id,
-                            outcome,
-                            rationale: rationale[key],
-                            ...(outcome === 'accepted'
-                              ? { checkpointReviewRoles: c.reviewerRoles }
-                              : {}),
-                          }),
-                        );
-                        await refresh();
-                        onChanged();
-                        window.dispatchEvent(
-                          new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-                        );
-                      })
-                    }
-                  >
-                    {outcome === 'accepted'
-                      ? 'Accept checkpoint evidence'
-                      : 'Reject checkpoint evidence'}
-                  </button>
-                ))}
-              </fieldset>
+                <EvidenceDecision
+                  key={c.submission.id}
+                  workspaceId={workspaceId}
+                  definitionId={definitionId}
+                  csrfToken={csrfToken}
+                  submissionIds={[c.submission.id]}
+                  labels={{
+                    rationale: 'Checkpoint review rationale',
+                    accepted: 'Accept checkpoint evidence',
+                    rejected: 'Reject checkpoint evidence',
+                  }}
+                  attestation={`I reviewed the retained evidence against every requirement above and accept the checkpoint review responsibilities: ${c.reviewerRoles.join(', ')}.`}
+                  checkpointReviewRoles={c.reviewerRoles}
+                  acceptBlocked={c.issues.length > 0}
+                  disabled={busy || !canMutate}
+                  onDecided={async () => {
+                    await refresh();
+                    onChanged();
+                    window.dispatchEvent(
+                      new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
+                    );
+                  }}
+                />
+              </>
             )}
           </article>
         );

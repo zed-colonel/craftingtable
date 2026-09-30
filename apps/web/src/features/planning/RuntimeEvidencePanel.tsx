@@ -1,4 +1,5 @@
 import { ArchitectureDecisionPanel } from './ArchitectureDecisionPanel.js';
+import { EvidenceDecision } from '../../decisions/evidence/EvidenceDecision.js';
 import { SharedDecisionInbox } from './SharedDecisionInbox.js';
 import { NativeVerificationPanel } from './NativeVerificationPanel.js';
 import { UpstreamTransitionsPanel } from './UpstreamTransitionsPanel.js';
@@ -66,9 +67,7 @@ export function RuntimeEvidencePanel({
   const setupDirty = useRef(false);
   const [refs, setRefs] = useState<Record<string, string>>({}),
     [subject, setSubject] = useState(''),
-    [evidence, setEvidence] = useState(''),
-    [rationale, setRationale] = useState<Record<string, string>>({}),
-    [planReviewed, setPlanReviewed] = useState<Record<string, boolean>>({});
+    [evidence, setEvidence] = useState('');
   /**
    * Full records by submission id. The view lists each submission without its bodies (R-H4,
    * LIVE-29); a record is read when its review is opened, and never changes once written.
@@ -914,6 +913,10 @@ export function RuntimeEvidencePanel({
       {view.submissions.map(({ submission: s, decision, issues }) => {
         const record = records[s.id];
         const full = typeof record === 'object' ? record : undefined;
+        const attests = !!(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint);
+        const reviewerRoles = view.subjects.find(
+          (v) => v.subject.kind === s.subject.kind && v.subject.sourceId === s.subject.sourceId,
+        )?.reviewerRoles;
         return (
           <details
             key={s.id}
@@ -1059,84 +1062,48 @@ export function RuntimeEvidencePanel({
                 {decision.outcome} · {decision.rationale}
               </p>
             ) : (
-              <fieldset disabled={busy || !canMutate}>
-                {(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint) && (
-                  <label className="field">
-                    <span>
-                      <input
-                        type="checkbox"
-                        disabled={!full}
-                        checked={planReviewed[s.id] ?? false}
-                        onChange={(e) =>
-                          setPlanReviewed({ ...planReviewed, [s.id]: e.target.checked })
-                        }
-                      />{' '}
-                      {s.candidateCheckpoint
-                        ? `I reviewed the candidate evidence against every checkpoint requirement as ${view.subjects.find((v) => v.subject.kind === s.subject.kind && v.subject.sourceId === s.subject.sourceId)?.reviewerRoles.join(', ')}.`
+              <EvidenceDecision
+                key={s.id}
+                workspaceId={workspaceId}
+                definitionId={definitionId}
+                csrfToken={csrfToken}
+                submissionIds={[s.id]}
+                labels={{
+                  rationale: 'Review decision rationale',
+                  accepted: 'Accept evidence',
+                  rejected: 'Reject evidence',
+                }}
+                {...(attests
+                  ? {
+                      attestation: s.candidateCheckpoint
+                        ? `I reviewed the candidate evidence against every checkpoint requirement as ${reviewerRoles?.join(', ')}.`
                         : s.architectureDecision
                           ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
-                          : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.'}
-                    </span>
-                  </label>
-                )}
-                <label className="field">
-                  Review decision rationale
-                  <textarea
-                    value={rationale[s.id] ?? ''}
-                    onChange={(e) => setRationale({ ...rationale, [s.id]: e.target.value })}
-                  />
-                </label>
-                {(['accepted', 'rejected'] as const).map((outcome) => (
-                  <button
-                    className="secondary-button"
-                    key={outcome}
-                    type="button"
-                    disabled={
-                      !rationale[s.id]?.trim() ||
-                      (outcome === 'accepted' &&
-                        (issues.length > 0 ||
-                          // Accepting attests to the record: only once it has been shown.
-                          !full ||
-                          (!!(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint) &&
-                            (!planReviewed[s.id] || unsavedSetup))))
+                          : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.',
                     }
-                    onClick={() =>
-                      void act(async () => {
-                        adopt(
-                          await post('decide', {
-                            submissionId: s.id,
-                            outcome,
-                            rationale: rationale[s.id],
-                            ...(s.candidateCheckpoint && outcome === 'accepted'
-                              ? {
-                                  checkpointReviewRoles: view.subjects.find(
-                                    (v) =>
-                                      v.subject.kind === s.subject.kind &&
-                                      v.subject.sourceId === s.subject.sourceId,
-                                  )?.reviewerRoles,
-                                }
-                              : {}),
-                          }),
-                        );
-                        setNotice(
-                          s.architectureDecision && outcome === 'accepted'
-                            ? s.architectureDecision.coverage === 'clauses'
-                              ? 'Early clauses approved. Generate and review updated saved-plan evidence, then continue affected designs with the new decision packet.'
-                              : 'Decision approved. Continue affected designs with the updated decision packet.'
-                            : s.generatedPlan && outcome === 'accepted'
-                              ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
-                              : `Evidence ${outcome}.`,
-                        );
-                        window.dispatchEvent(
-                          new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-                        );
-                      })
-                    }
-                  >
-                    {outcome === 'accepted' ? 'Accept evidence' : 'Reject evidence'}
-                  </button>
-                ))}
-              </fieldset>
+                  : {})}
+                {...(s.candidateCheckpoint && reviewerRoles
+                  ? { checkpointReviewRoles: reviewerRoles }
+                  : {})}
+                // Accepting attests to the record: only once it has been shown.
+                acceptBlocked={issues.length > 0 || !full || (attests && unsavedSetup)}
+                disabled={busy || !canMutate}
+                onDecided={(next, outcome) => {
+                  adopt(next);
+                  setNotice(
+                    s.architectureDecision && outcome === 'accepted'
+                      ? s.architectureDecision.coverage === 'clauses'
+                        ? 'Early clauses approved. Generate and review updated saved-plan evidence, then continue affected designs with the new decision packet.'
+                        : 'Decision approved. Continue affected designs with the updated decision packet.'
+                      : s.generatedPlan && outcome === 'accepted'
+                        ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
+                        : `Evidence ${outcome}.`,
+                  );
+                  window.dispatchEvent(
+                    new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
+                  );
+                }}
+              />
             )}
           </details>
         );

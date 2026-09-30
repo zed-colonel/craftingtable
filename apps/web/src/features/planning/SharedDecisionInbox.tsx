@@ -13,6 +13,7 @@ import { Section } from '../../components/Section.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
 import { request } from '../../lib/api-client.js';
+import { EvidenceDecision } from '../../decisions/evidence/EvidenceDecision.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
@@ -125,45 +126,14 @@ function BatchApproval({
   onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
 }) {
   const [reviewed, setReviewed] = useState<ReadonlySet<string>>(new Set());
-  const [rationale, setRationale] = useState('');
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const saved = data.decisions.flatMap((card) => {
     const record = card.records.find((r) => !r.decision && !r.issues.length && r.applicable);
     return record && !card.blockers.length ? [{ card, record }] : [];
   });
   if (saved.length < 2) return null;
-  const locked = disabled || busy || !!data.blockers.length;
+  const locked = disabled || !!data.blockers.length;
   const chosen = saved.filter(({ record }) => reviewed.has(record.id));
-  const approve = async () => {
-    if (locked || !chosen.length || !rationale.trim()) return;
-    setBusy(true);
-    setMessage('');
-    const approved: string[] = [];
-    try {
-      for (const { card, record } of chosen) {
-        const next = await request(
-          `/api/workspaces/${encodeURIComponent(data.workspaceId)}/concurrency-definitions/${encodeURIComponent(data.definitionId)}/runtime/decide`,
-          runtimeEvidenceViewSchema,
-          {
-            method: 'POST',
-            headers: { 'x-craftingtable-csrf': csrfToken },
-            body: JSON.stringify({ submissionId: record.id, outcome: 'accepted', rationale }),
-          },
-        );
-        approved.push(card.checkpointId);
-        await onChanged(next);
-      }
-      setReviewed(new Set());
-      setMessage(`Approved ${approved.join(', ')}.`);
-    } catch (e) {
-      setMessage(
-        `${approved.length ? `Approved ${approved.join(', ')}; ` : ''}stopped: ${e instanceof Error ? e.message : 'approval failed'}`,
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <section className="panel stack" aria-label="Approve saved decisions">
       <h3>Approve saved decisions</h3>
@@ -189,23 +159,28 @@ function BatchApproval({
           {`Reviewed ${card.checkpointId} (${record.proposal.coverage === 'full' ? 'full' : 'limited'}): ${record.proposal.proposal}`}
         </label>
       ))}
-      <label className="field">
-        Approval rationale for the batch
-        <textarea
-          value={rationale}
-          disabled={locked}
-          onChange={(e) => setRationale(e.target.value)}
-        />
-      </label>
-      <ActionBar label="Batch approval">
-        <button
-          type="button"
-          disabled={locked || !chosen.length || !rationale.trim()}
-          onClick={() => void approve()}
-        >
-          Approve reviewed decisions
-        </button>
-      </ActionBar>
+      <EvidenceDecision
+        workspaceId={data.workspaceId}
+        definitionId={data.definitionId}
+        csrfToken={csrfToken}
+        submissionIds={chosen.map(({ record }) => record.id)}
+        outcomes={['accepted']}
+        labels={{
+          rationale: 'Approval rationale for the batch',
+          accepted: 'Approve reviewed decisions',
+          actions: 'Batch approval',
+        }}
+        disabled={locked}
+        name={(id) => chosen.find(({ record }) => record.id === id)?.card.checkpointId ?? id}
+        onDecided={async (next, _outcome, submissionId) => {
+          const approved = chosen.find(({ record }) => record.id === submissionId);
+          await onChanged(next);
+          if (submissionId === chosen.at(-1)?.record.id) {
+            setReviewed(new Set());
+            setMessage(`Approved ${chosen.map(({ card }) => card.checkpointId).join(', ')}.`);
+          } else if (approved) setMessage(`Approved ${approved.card.checkpointId}…`);
+        }}
+      />
       {message && <p role="status">{message}</p>}
     </section>
   );
@@ -233,8 +208,6 @@ function DecisionCard({
   const [error, setError] = useState('');
   const [saved, setSaved] = useState<Record>();
   const [reviewing, setReviewing] = useState(false);
-  const [rationale, setRationale] = useState('');
-  const [reviewed, setReviewed] = useState(false);
   const recommendation = card.recommendation;
   const brief = recommendation?.brief;
   const current = card.records.filter((r) => settles(card, r));
@@ -291,34 +264,9 @@ function DecisionCard({
       setSaved(record);
       setEditing(false);
       setReviewing(true);
-      setReviewed(false);
       await onChanged(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the decision.');
-    } finally {
-      setBusy(false);
-    }
-  };
-  const approve = async () => {
-    if (!pending || approvalBlocked || !reviewed || !rationale.trim()) return;
-    setBusy(true);
-    setError('');
-    try {
-      const next = await post('decide', {
-        submissionId: pending.id,
-        outcome: 'accepted',
-        rationale,
-      });
-      await onChanged(next);
-      setSaved(undefined);
-      setReviewing(false);
-      setReviewed(false);
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : 'Approval failed. Refresh the decision before trying again.',
-      );
     } finally {
       setBusy(false);
     }
@@ -489,14 +437,7 @@ function DecisionCard({
       {!editing && !reviewing && (!fullApproval || pending) && (
         <ActionBar label={`Actions for ${card.checkpointId}`}>
           {pending ? (
-            <button
-              type="button"
-              disabled={locked}
-              onClick={() => {
-                setReviewing(true);
-                setReviewed(false);
-              }}
-            >
+            <button type="button" disabled={locked} onClick={() => setReviewing(true)}>
               Review saved proposal
             </button>
           ) : (
@@ -656,43 +597,31 @@ function DecisionCard({
           <h4>Review the saved decision</h4>
           <DecisionText record={pending} />
           {pending.issues.length > 0 && <p role="alert">{pending.issues.join(' ')}</p>}
-          <label>
-            <input
-              type="checkbox"
-              checked={reviewed}
-              disabled={locked}
-              onChange={(e) => setReviewed(e.target.checked)}
-            />{' '}
-            I reviewed this exact decision and its scope as repository maintainer.
-          </label>
-          <label className="field">
-            Approval rationale
-            <textarea
-              rows={2}
-              value={rationale}
-              disabled={locked}
-              maxLength={16000}
-              onChange={(e) => setRationale(e.target.value)}
-              placeholder="Why this choice fits your goals"
-            />
-          </label>
-          <ActionBar label="Approve saved decision">
-            <button
-              type="button"
-              className="primary-button"
-              disabled={
-                approvalBlocked || !!pending.issues.length || !reviewed || !rationale.trim()
-              }
-              onClick={() => void approve()}
-            >
-              {pending.proposal.coverage === 'clauses'
-                ? 'Approve limited scope'
-                : 'Approve decision'}
-            </button>
-            <button type="button" disabled={locked} onClick={() => setReviewing(false)}>
-              Close approval
-            </button>
-          </ActionBar>
+          <EvidenceDecision
+            key={pending.id}
+            workspaceId={data.workspaceId}
+            definitionId={data.definitionId}
+            csrfToken={csrfToken}
+            submissionIds={[pending.id]}
+            outcomes={['accepted']}
+            labels={{
+              rationale: 'Approval rationale',
+              accepted:
+                pending.proposal.coverage === 'clauses'
+                  ? 'Approve limited scope'
+                  : 'Approve decision',
+              actions: 'Approve saved decision',
+            }}
+            attestation="I reviewed this exact decision and its scope as repository maintainer."
+            acceptBlocked={approvalBlocked || !!pending.issues.length}
+            disabled={locked}
+            onCancel={{ label: 'Close approval', run: () => setReviewing(false) }}
+            onDecided={async (next) => {
+              await onChanged(next);
+              setSaved(undefined);
+              setReviewing(false);
+            }}
+          />
         </div>
       )}
       {card.records.length > 0 && (

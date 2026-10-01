@@ -1,3 +1,21 @@
+import {
+  type CheckDeclarationProposal,
+  type MergeAdoption,
+  definitionChangeReason,
+  proposalDigest,
+  type RepositoryChecksService,
+} from './repository-checks-service.js';
+
+/** A merge's adoption of changed check definitions, approved by the operator (R-G13). */
+interface CheckAdoptionAtMerge {
+  readonly merge: MergeAdoption & {
+    readonly proposal: CheckDeclarationProposal;
+    readonly proposalDigest: string;
+  };
+  readonly rationale: string;
+  readonly headSha: string;
+  readonly targetSha: string;
+}
 import { securityReviewCurrent } from './workflow-policy.js';
 import { asAgentRunId } from '@craftingtable/domain';
 import { needsNativeVerification } from './native-verification-policy.js';
@@ -28,6 +46,9 @@ import {
   asWorktreeId,
   evaluateCycleCompletion,
   isTerminalAgentRunStatus,
+  mergeAdoptsChecks,
+  type MergeOperation,
+  type RepositoryCheckDeclaration,
   type SourceRepository,
   type SourceRepositoryId,
   type WorkItemId,
@@ -36,11 +57,16 @@ import {
   type WorktreeId,
 } from '@craftingtable/domain';
 import type { GitOperations, WorktreeDiff } from '@craftingtable/git';
-import type { CraftingTableStorage } from '@craftingtable/storage';
+import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { BranchService } from './branch-service.js';
-import { ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  CheckAdoptionRequiredError,
+  CheckDefinitionChangedError,
+  ExecutionRequestError,
+  NotFoundError,
+} from './errors.js';
 import { stagedPromotionIssue } from './finalization-stage-policy.js';
 import { latestReviewReport } from './run-handoff.js';
 import type { WorkItemService } from './work-item-service.js';
@@ -60,7 +86,9 @@ export type MergeGateReason =
   | 'branch-review-required'
   | 'merge-recovery-required'
   | 'scope-blocked'
-  | 'scope-review-only';
+  | 'scope-review-only'
+  /** Mergeable by a person who approves the check definitions it adopts (R-G13). */
+  | 'check-adoption';
 
 export interface MergeGate {
   readonly mergeable: boolean;
@@ -141,6 +169,7 @@ const MERGE_GATE_MESSAGES: Readonly<Record<MergeGateReason, string>> = {
   'merge-recovery-required': 'Recover the reserved integration merge before continuing',
   'scope-blocked': 'Execution scope requirements or scoped review evidence are unresolved',
   'scope-review-only': 'This worktree records verification or parent acceptance; it does not merge',
+  'check-adoption': 'Approve the check definitions this merge adopts, with the merge',
   'branch-review-required': 'Adopt an integration branch if needed and run a fresh review',
   ready: 'Ready to merge',
   'no-review': 'Merging requires a review run with a mergeable verdict; launch a review first',
@@ -183,8 +212,167 @@ export class ExecutionService {
     private readonly now: () => Date = () => new Date(),
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
     private readonly runtimeEvidence?: RuntimeEvidenceService,
+    /** Declared checks (R-G13): what a merge adopts, and why a review's definitions stop it. */
+    readonly repositoryChecks?: RepositoryChecksService,
   ) {
     this.branches = new BranchService(storage, workspaceService, notifier, git, mutations, now);
+  }
+
+  /**
+   * What merging a slice adopts (R-G13 increment 5, operator decision 2026-09-30): nothing
+   * when the slice changes no check definition. Otherwise only a person's approval naming the
+   * proposal they were shown may merge it, never a roadmap's, and a merge whose result cannot
+   * be adopted is refused.
+   */
+  private async checkAdoption(
+    worktree: Worktree,
+    review: AgentRun,
+    approval: { readonly proposalDigest: string; readonly rationale: string } | undefined,
+    delegated: boolean,
+  ): Promise<CheckAdoptionAtMerge | undefined> {
+    const refuseUnneeded = () => {
+      if (approval)
+        throw new ExecutionRequestError(
+          'conflict',
+          'This merge changes no adopted check definition, so it has nothing to adopt. Reload and approve the merge alone.',
+        );
+      return undefined;
+    };
+    if (
+      worktree.executionScope?.kind !== 'slice' ||
+      !review.reviewBranchContext ||
+      !this.repositoryChecks ||
+      !this.storage.runtimeEvidence.run(worktree.workspaceId, review.id)?.checkDeclarationId
+    )
+      return refuseUnneeded();
+    const diagnosis = await this.repositoryChecks.diagnose(worktree, review.reviewBranchContext);
+    const merge = diagnosis?.merge;
+    if (!diagnosis || !merge || merge.unchanged) return refuseUnneeded();
+    if (merge.issues.length || !merge.proposal || !merge.proposalDigest)
+      throw new CheckDefinitionChangedError(
+        worktree.repositoryId,
+        merge.checks[0]?.id ?? diagnosis.declaration.id,
+        definitionChangeReason(diagnosis, true),
+      );
+    if (delegated)
+      throw new CheckAdoptionRequiredError(
+        worktree.repositoryId,
+        merge.proposalDigest,
+        'This merge changes adopted check definitions, so a person approves it and the definitions with it.',
+      );
+    if (approval?.proposalDigest !== merge.proposalDigest)
+      throw new CheckAdoptionRequiredError(
+        worktree.repositoryId,
+        merge.proposalDigest,
+        approval
+          ? 'The check definitions this merge adopts changed since they were shown. Review them again before approving.'
+          : 'This merge changes adopted check definitions. Review them and approve adopting them with the merge.',
+      );
+    return {
+      merge: { ...merge, proposal: merge.proposal, proposalDigest: merge.proposalDigest },
+      rationale: approval.rationale,
+      headSha: diagnosis.headSha,
+      targetSha: diagnosis.targetSha,
+    };
+  }
+
+  /**
+   * The checks a merge commit proposes, if they are exactly what the operator approved and can
+   * be adopted; otherwise why not. Read with the daemon's Git, after the merge.
+   */
+  private async mergeProposal(
+    repository: SourceRepository,
+    mergeSha: string,
+    approved: string,
+  ): Promise<{ proposal?: CheckDeclarationProposal; refused?: string }> {
+    if (!this.repositoryChecks)
+      return { refused: 'Declared checks are unavailable in this daemon.' };
+    try {
+      const proposal = await this.repositoryChecks.proposalAt(
+        repository,
+        mergeSha,
+        `merge ${mergeSha.slice(0, 12)}`,
+      );
+      if (proposal.issues.length) return { refused: proposal.issues.join(' ') };
+      if (proposalDigest(proposal) !== approved)
+        return { refused: 'The merge commit proposes other checks than the operator approved.' };
+      return { proposal };
+    } catch (error) {
+      return { refused: error instanceof Error ? error.message : 'The merge could not be read.' };
+    }
+  }
+
+  /**
+   * Records the adoption a merge approval carried, at the merge commit, in the merge's own
+   * transaction; or, if the merge commit did not propose what was approved, the refusal.
+   */
+  private recordMergeAdoption(
+    tx: StorageRepositories,
+    worktree: Worktree,
+    merge: MergeOperation & { readonly mergeSha: string },
+    adopting: { proposal?: CheckDeclarationProposal; refused?: string },
+    at: string,
+  ): void {
+    const declarations = tx.runtimeEvidence.checkDeclarations(
+      worktree.workspaceId,
+      worktree.repositoryId,
+    );
+    if (declarations.some((d) => d.adoptedAtMerge?.operationId === merge.id)) return;
+    const audit = {
+      id: asAuditEventId(randomUUID()),
+      occurredAt: at,
+      actorKind: 'user' as const,
+      actorUserId: merge.authorizedByUserId,
+      workspaceId: worktree.workspaceId,
+      action: 'repository-checks.adopted' as const,
+      targetType: 'source-repository',
+      targetId: worktree.repositoryId,
+    };
+    const proposal = adopting.proposal;
+    if (!proposal) {
+      tx.audit.append({
+        ...audit,
+        outcome: 'failed',
+        metadata: {
+          via: 'merge',
+          operationId: merge.id,
+          mergeSha: merge.mergeSha,
+          reason: (adopting.refused ?? 'Not adopted.').slice(0, 1000),
+        },
+      });
+      return;
+    }
+    const record: RepositoryCheckDeclaration = {
+      id: randomUUID(),
+      workspaceId: worktree.workspaceId,
+      repositoryId: worktree.repositoryId,
+      version: (declarations[0]?.version ?? 0) + 1,
+      sourceCommit: merge.mergeSha,
+      sourcePath: proposal.sourcePath,
+      checks: proposal.checks,
+      definitionDigests: proposal.definitionDigests,
+      rationale: merge.checkAdoption!.rationale,
+      adoptedByUserId: merge.authorizedByUserId,
+      adoptedAt: at,
+      adoptedAtMerge: {
+        operationId: merge.id,
+        worktreeId: worktree.id,
+        reviewRunId: merge.reviewRunId,
+      },
+    };
+    tx.runtimeEvidence.addCheckDeclaration(record);
+    tx.audit.append({
+      ...audit,
+      outcome: 'succeeded',
+      metadata: {
+        via: 'merge',
+        operationId: merge.id,
+        declarationId: record.id,
+        version: record.version,
+        sourceCommit: record.sourceCommit,
+        checks: record.checks.map((c) => c.id),
+      },
+    });
   }
 
   private requireGit(): GitOperations {
@@ -411,10 +599,19 @@ export class ExecutionService {
         continue;
       }
       if (worktree.executionScope && gate?.mergeable) {
+        // A slice whose merge adopts changed check definitions is a person's to merge with
+        // them (R-G13 increment 5); the merge itself reads the definitions again.
+        const adopts = mergeAdoptsChecks(
+          this.storage.execution.cycles.activeForWorktree(workspaceId, worktree.id)?.attention,
+        );
         try {
           requireTreeScope(this.storage, worktree, 'merge');
           const run = result.runs.find((r) => r.id === gate.reviewRunId);
-          if (run) this.runtimeEvidence?.assertRun(worktree, run.id);
+          try {
+            if (run) this.runtimeEvidence?.assertRun(worktree, run.id);
+          } catch (error) {
+            if (!adopts || !(error instanceof CheckDefinitionChangedError)) throw error;
+          }
           if (
             !run ||
             scopedReviewIssue(
@@ -428,6 +625,7 @@ export class ExecutionService {
           result.mergeGates[worktree.id] = { mergeable: false, reason: 'scope-blocked' };
           continue;
         }
+        if (adopts) result.mergeGates[worktree.id] = { ...gate, reason: 'check-adoption' };
       }
       if (!gate?.mergeable) continue;
       try {
@@ -1285,7 +1483,10 @@ export class ExecutionService {
     context: CommandContext,
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
-    input: { readonly targetBranch?: string } = {},
+    input: {
+      readonly targetBranch?: string;
+      readonly adoptChecks?: { readonly proposalDigest: string; readonly rationale: string };
+    } = {},
     requestId?: string,
     delegation?: { roadmapId: string; definitionRevision: number; check: () => void },
     finalApproval?: {
@@ -1332,11 +1533,19 @@ export class ExecutionService {
           : undefined;
       return withPhaseReservation(this.storage, resolved, worktree, 'merge', () =>
         this.branches.duringMerge(repository.rootPath, async () => {
+          // Check definitions this merge adopts, with the operator's approval (R-G13 increment 5).
+          let adoption: CheckAdoptionAtMerge | undefined;
           const check = () => {
             this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
             delegation?.check();
             const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
-            if (review) this.runtimeEvidence?.assertRun(worktree, review.id);
+            if (review)
+              this.runtimeEvidence?.assertRun(
+                worktree,
+                review.id,
+                this.storage,
+                adoption?.merge.proposal.definitionDigests,
+              );
             requireTreeScope(this.storage, worktree, 'merge');
             this.branches.requirePolicyMergeTarget(
               workspaceId,
@@ -1358,7 +1567,16 @@ export class ExecutionService {
           if (!recovering) {
             await this.runtimeEvidence?.assertFreshTree(worktree, 'merge');
             const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
-            if (review) this.runtimeEvidence?.assertRun(worktree, review.id);
+            adoption = review
+              ? await this.checkAdoption(worktree, review, input.adoptChecks, !!delegation)
+              : undefined;
+            if (review)
+              this.runtimeEvidence?.assertRun(
+                worktree,
+                review.id,
+                this.storage,
+                adoption?.merge.proposal.definitionDigests,
+              );
           }
           let operation = this.storage.execution.merges.latest(workspaceId, worktreeId);
           let mergeSha =
@@ -1382,6 +1600,16 @@ export class ExecutionService {
             }
           }
           if (!mergeSha) {
+            // A reservation that left no merge is a fresh attempt: read the definitions now.
+            if (recovering) {
+              const review = this.storage.execution.runs.listForWorktree(
+                workspaceId,
+                worktreeId,
+              )[0];
+              adoption = review
+                ? await this.checkAdoption(worktree, review, input.adoptChecks, !!delegation)
+                : undefined;
+            }
             check();
             if (worktree.planVersionId && (!finalApproval || !context.session || delegation))
               throw new ExecutionRequestError(
@@ -1500,6 +1728,14 @@ export class ExecutionService {
                 'Retarget the worktree explicitly and review again before merging elsewhere',
               );
             if (
+              adoption &&
+              (reviewed.headSha !== adoption.headSha || reviewed.targetSha !== adoption.targetSha)
+            )
+              throw new ExecutionRequestError(
+                'conflict',
+                'The reviewed commit or its integration branch changed since the check definitions were read. Review them again before approving.',
+              );
+            if (
               finalApproval &&
               (reviewed.headSha !== finalApproval.expectedHeadSha ||
                 reviewed.targetSha !== finalApproval.expectedTargetSha)
@@ -1521,6 +1757,14 @@ export class ExecutionService {
               createdAt: this.now().toISOString(),
               authorizedByUserId: context.user.id,
               ...(finalApproval?.removeIntegrationBranch ? { removeIntegrationBranch: true } : {}),
+              ...(adoption
+                ? {
+                    checkAdoption: {
+                      proposalDigest: adoption.merge.proposalDigest,
+                      rationale: adoption.rationale,
+                    },
+                  }
+                : {}),
               ...(delegation
                 ? {
                     roadmapId: delegation.roadmapId,
@@ -1565,6 +1809,10 @@ export class ExecutionService {
           const targetBranch = operation.targetBranch;
           const committed = { ...operation, status: 'merged' as const, mergeSha };
           const occurredAt = this.now().toISOString();
+          // The adoption the operator approved, if the merge commit proposes exactly it.
+          const adopting = committed.checkAdoption
+            ? await this.mergeProposal(repository, mergeSha, committed.checkAdoption.proposalDigest)
+            : undefined;
           const result = this.storage.transaction((tx) => {
             const existing = tx.execution.worktrees.find(workspaceId, worktreeId);
             if (!existing) throw new NotFoundError();
@@ -1630,6 +1878,8 @@ export class ExecutionService {
                   : {}),
               },
             });
+            if (committed.checkAdoption && adopting)
+              this.recordMergeAdoption(tx, worktree, committed, adopting, occurredAt);
             tx.workspaceEvents.appendEvent({
               id: asEventId(randomUUID()),
               occurredAt,

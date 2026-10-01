@@ -465,7 +465,7 @@ The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, se
 ### LIVE-30: An adoption from a branch behind the integration branch stops every slice as `check-definition-changed`, and the stop blames the slice
 - Severity: medium (every WI slice reviewed on the current integration branch stops until the checks are adopted again; no data loss; the exit is adopting, then Resume)
 - Category: declared checks ([R-G13](../register.md#r-g13) increment 5)
-- Status: CONFIRMED 2026-09-30 from the 2026-09-30d snapshot (read-only) and the WorldInterface repository's refs. Operator decision the same day: R-G13 increment 5 next, with this finding's diagnostics.
+- Status: CONFIRMED 2026-09-30 from the 2026-09-30d snapshot (read-only) and the WorldInterface repository's refs. Operator decision the same day: R-G13 increment 5 next, with this finding's diagnostics. Diagnostics built with R-G13 increment 5 (2026-09-30): the preview warns, the stop says which side changed the definition, and a slice's own change is adopted at its merge by the operator's approval.
 - Replay case: the 2026-09-30d snapshot, cycle `ace289b2` (wi/WI-03/domain), review `71727624`. The decision replays record the review's approval; the stop comes from the approval's check gate, which reads Git, so they do not show it.
 - Evidence:
   - WI's checks v2 was adopted at 07:12Z from `craftingtable/checks` at f5dce85. That branch was cut from `wi-fabric-2` at 6f71472 (09-29 12:09Z), before 96d073b (WI-05, 09-29 23:52Z) extended `scripts/check-wi-domain-isolation.py` with WI-05's receipt coverage. Of the four checks' definition files, only that one differs between the adopted commit and `wi-fabric-2`.

@@ -518,6 +518,19 @@ still run in the agent's tree and record nothing. A daemon-recorded run's build 
 no file the agent can write, and the daemon runs every check from the manifest text it verified at
 launch, never the published copy. Claude runs have no OS sandbox, so for them the database itself stays
 writable by the agent until R-G5's sandbox increment.
+Declared checks are adopted only by a person (R-G13). An owner or editor adopts a repository's
+`.craftingtable/checks.json` on the Repositories page, read by the daemon's Git at a branch or exact
+commit; the preview warns when that commit is not on an integration branch of the repository, or its
+definition files differ from that branch's head. Since increment 5 (operator decision 2026-09-30) a
+slice that changes a definition file or the checks file is merged only by a person: the merge
+approval shows the definitions the merge would adopt, and its request must name that proposal's
+digest. Before any ref moves, the daemon predicts the merge's tree (`git merge-tree`) and applies every
+adoption rule to it; after the merge it reads the merge commit again and records the adoption, at the
+merge commit and in the merge's own transaction, only if the commit proposes exactly what was approved
+(otherwise the merge stands and the refused adoption is audited). A roadmap never merges such a slice,
+whatever its merge policy, and an agent never adopts. A change the operator already adopted leaves the
+merge nothing to adopt. Who asked for a check (`origin`) is shown only for runs whose receipts the
+daemon recorded; a run that wrote its own receipt file could claim either.
 `ct-act` restricts its input to one ordinary repository workflow and optional job; host configuration
 selects the local socket, image digest and storage. Rootless Docker retains ordinary user authority.
 Job containers have no mounted daemon socket or implicit host credential files. These are cooperative

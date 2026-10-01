@@ -229,6 +229,20 @@ export function cycleAttention(
   };
 }
 
+/**
+ * A merge approval whose merge adopts the repository's checks (R-G13 increment 5, operator
+ * decision 2026-09-30): the slice changes a check definition, so a person approves its merge,
+ * whatever the roadmap's merge policy, and sees the definitions with it.
+ */
+export function mergeAdoptsChecks(
+  attention: Pick<CycleAttention, 'code' | 'refs'> | undefined,
+): boolean {
+  return (
+    (attention?.code === 'merge-approval' || attention?.code === 'merge-requirements') &&
+    attention.refs?.repositoryId !== undefined
+  );
+}
+
 export function roadmapAttention(
   code: RoadmapAttentionCode,
   refs?: AttentionRefs,

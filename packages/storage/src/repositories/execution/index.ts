@@ -522,6 +522,23 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     ).map(mapAgentRun);
   }
 
+  listRecentForRepository(
+    workspaceId: WorkspaceId,
+    repositoryId: SourceRepositoryId,
+    limit: number,
+  ): readonly AgentRun[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT r.* FROM agent_runs r JOIN worktrees w ON w.id = r.worktree_id
+           WHERE r.workspace_id = ? AND w.repository_id = ?
+           ORDER BY r.created_at DESC, r.rowid DESC
+           LIMIT ?`,
+        )
+        .all(workspaceId, repositoryId, limit) as AgentRunRow[]
+    ).map(mapAgentRun);
+  }
+
   listForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): readonly AgentRun[] {
     return (
       this.database

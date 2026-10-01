@@ -33,6 +33,15 @@ export interface RepositoryCheckDeclaration {
   readonly rationale: string;
   readonly adoptedByUserId: UserId;
   readonly adoptedAt: string;
+  /**
+   * Set when the operator's approval of a merge adopted the checks at the merge commit
+   * (R-G13 increment 5): which merge, of which worktree, reviewed by which run.
+   */
+  readonly adoptedAtMerge?: {
+    readonly operationId: string;
+    readonly worktreeId: string;
+    readonly reviewRunId: string;
+  };
 }
 
 /**

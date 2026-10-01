@@ -1093,9 +1093,18 @@ export function App() {
       }
       setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
     });
-  const handleMergeWorktree = (worktreeId: WorktreeId, targetBranch: string): void =>
+  const handleMergeWorktree = (
+    worktreeId: WorktreeId,
+    targetBranch: string,
+    adoptChecks?: { readonly proposalDigest: string; readonly rationale: string },
+  ): void =>
     executionCommand(async (csrfToken, forWorkspace) => {
-      await mergeWorktree(forWorkspace, worktreeId, { targetBranch }, csrfToken);
+      await mergeWorktree(
+        forWorkspace,
+        worktreeId,
+        { targetBranch, ...(adoptChecks ? { adoptChecks } : {}) },
+        csrfToken,
+      );
       setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
     });
   const handleLoadBranches = (repositoryId: SourceRepositoryId): void => {
@@ -1431,6 +1440,7 @@ export function App() {
           setExecutionError(undefined);
         }}
         onMergeWorktree={handleMergeWorktree}
+        workspaceId={workspaceId}
         onLoadBranches={handleLoadBranches}
         onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
         {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}

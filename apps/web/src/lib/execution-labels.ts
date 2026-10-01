@@ -86,6 +86,7 @@ export const MERGE_GATE_LABELS: Readonly<Record<MergeGate['reason'], string>> = 
   'superseded-by-later-run': 'A run started after the review; review again',
   'run-live': 'A run is live in this worktree',
   'merge-recovery-required': 'Recover the reserved integration merge',
+  'check-adoption': 'Merging adopts the check definitions this slice changes',
   'scope-blocked': 'Execution scope requirements or review evidence are unresolved',
   'scope-review-only': 'Use scope verification or parent acceptance; this worktree does not merge',
   'branch-review-required': 'Fresh review of the integration target required',

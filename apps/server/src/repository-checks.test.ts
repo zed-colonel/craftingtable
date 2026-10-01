@@ -111,6 +111,8 @@ it('adopts the checks file at the commit the operator reviewed, never the workin
     warnings: [
       expect.stringContaining('Check format runs cargo from PATH and names no definition files'),
     ],
+    // No plan merges into a branch of this repository yet (LIVE-30).
+    branches: [],
   });
   // Preview records nothing.
   expect(

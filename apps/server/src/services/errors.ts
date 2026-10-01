@@ -163,6 +163,21 @@ export class CheckDefinitionChangedError extends ExecutionRequestError {
 }
 
 /**
+ * A merge would adopt changed check definitions (R-G13 increment 5): only a person's merge
+ * approval, naming the proposal they were shown, may record it.
+ */
+export class CheckAdoptionRequiredError extends ExecutionRequestError {
+  constructor(
+    readonly repositoryId: string,
+    readonly proposalDigest: string,
+    message: string,
+  ) {
+    super('conflict', message);
+    this.name = 'CheckAdoptionRequiredError';
+  }
+}
+
+/**
  * A review held to adopted checks lacks a daemon run of some of them (R-G13). The review, not
  * its code, is incomplete: a fresh review that runs them can meet the gate (LIVE-24).
  */

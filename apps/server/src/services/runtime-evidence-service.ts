@@ -2678,16 +2678,29 @@ export class RuntimeEvidenceService {
    * A review held to declared checks stops as check-definition-changed when it is approved, not
    * first at merge (R-G13 review). Every other gap is still the merge gate's to report.
    */
-  assertDeclaredDefinitions(tree: Worktree, runId: string) {
+  assertDeclaredDefinitions(
+    tree: Worktree,
+    runId: string,
+    pendingDefinitions?: Readonly<Record<string, string>>,
+  ) {
     if (!this.storage.runtimeEvidence.run(tree.workspaceId, runId)?.checkDeclarationId) return;
     try {
-      this.assertRun(tree, runId);
+      this.assertRun(tree, runId, this.storage, pendingDefinitions);
     } catch (error) {
       if (error instanceof CheckDefinitionChangedError) throw error;
     }
   }
 
-  assertRun(tree: Worktree, runId: string, tx: StorageRepositories = this.storage) {
+  /**
+   * `pendingDefinitions`: the definitions a merge the operator approves would adopt (R-G13
+   * increment 5); a declared check that ran with them meets the gate.
+   */
+  assertRun(
+    tree: Worktree,
+    runId: string,
+    tx: StorageRepositories = this.storage,
+    pendingDefinitions?: Readonly<Record<string, string>>,
+  ) {
     const scope = this.treeContext(tree, tx);
     if (!scope) return;
     const runtime = activeRuntime(tx, tree.workspaceId, scope.definitionId, scope.bindingRevision);
@@ -2801,6 +2814,7 @@ export class RuntimeEvidenceService {
             r.verificationMode === verification.mode &&
             r.policyDigest === hash(JSON.stringify(verification)),
           tx.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0],
+          pendingDefinitions,
         );
         const changed = gaps.changed[0];
         if (changed)

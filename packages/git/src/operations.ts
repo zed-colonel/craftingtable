@@ -194,6 +194,11 @@ export interface GitOperations {
     leftSha: string,
     rightSha: string,
   ): Promise<GitResult<string>>;
+  /**
+   * The tree a merge of `theirsSha` into `oursSha` would record, computed without a worktree
+   * or any ref moving; a conflict is a `merge-conflict` failure.
+   */
+  mergeTree(repositoryPath: string, oursSha: string, theirsSha: string): Promise<GitResult<string>>;
   resolveBranch(repositoryPath: string, branchName: string): Promise<GitResult<string>>;
   createBranch(
     repositoryPath: string,
@@ -1835,6 +1840,29 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: result.value.stdout.toString('utf8').trim() };
   }
 
+  async function mergeTree(
+    repositoryPath: string,
+    oursSha: string,
+    theirsSha: string,
+  ): Promise<GitResult<string>> {
+    if (!SHA_PATTERN.test(oursSha) || !SHA_PATTERN.test(theirsSha))
+      return fail('invalid-path', 'Predicting a merge requires Git object names');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    // Exit 1 is a conflict; the first line is then a tree with conflict markers, never used.
+    const result = await runOk(
+      ['merge-tree', '--write-tree', '--no-messages', '--', oursSha, theirsSha],
+      repo.value,
+      [0, 1],
+    );
+    if (!result.ok) return result;
+    if (result.value.exitCode === 1) return fail('merge-conflict', 'The merge would conflict.');
+    const tree = result.value.stdout.toString('utf8').split('\n')[0]!.trim();
+    return /^[a-f0-9]{40}([a-f0-9]{24})?$/.test(tree)
+      ? { ok: true, value: tree }
+      : fail('git-failed', 'git merge-tree printed no tree.');
+  }
+
   async function resolveCommit(
     repositoryPath: string,
     ref: string,
@@ -2139,6 +2167,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     listBranches,
     branchHeads,
     mergeBranch,
+    mergeTree,
     inspectMergeOperation,
     deleteBranch,
   };

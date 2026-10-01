@@ -2569,3 +2569,18 @@ button:disabled {
 .reviewer-responsibilities .checkbox-row span {
   overflow-wrap: anywhere;
 }
+
+/* The definitions a merge adopts (R-G13 increment 5): one line per row, changes marked. */
+.line-diff {
+  margin: 0;
+}
+.line-diff pre {
+  overflow-x: auto;
+  max-height: 24rem;
+}
+.line-diff-added {
+  background: var(--color-ready-soft);
+}
+.line-diff-removed {
+  background: var(--color-attention-soft);
+}

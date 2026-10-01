@@ -217,6 +217,16 @@ export const mergeWorktreeRequestSchema = z.strictObject({
    * requires an explicit retarget and fresh review before merging.
    */
   targetBranch: gitBranchNameSchema.optional(),
+  /**
+   * The operator's approval of the check definitions this merge adopts (R-G13 increment 5):
+   * the digest of the proposal they were shown, and why.
+   */
+  adoptChecks: z
+    .strictObject({
+      proposalDigest: z.string().regex(/^[a-f0-9]{64}$/),
+      rationale: z.string().trim().min(1).max(2000),
+    })
+    .optional(),
 });
 
 /**
@@ -238,6 +248,8 @@ export const mergeGateSchema = z.strictObject({
     'scope-review-only',
     'branch-review-required',
     'merge-recovery-required',
+    /** Mergeable by a person who approves the check definitions it adopts (R-G13). */
+    'check-adoption',
   ]),
   reviewRunId: agentRunIdSchema.optional(),
 });

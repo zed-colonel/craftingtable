@@ -1093,3 +1093,57 @@ it('daemon Git reads neither the global configuration nor the global ignore and 
     else process.env.GIT_CONFIG_GLOBAL = previous.global;
   }
 });
+
+describe('merge result prediction (R-G13 increment 5)', () => {
+  const commit = (cwd: string, path: string, content: string) => {
+    writeFileSync(join(cwd, path), content);
+    runFixtureGit(['add', '--', path], { cwd });
+    runFixtureGit(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', path],
+      { cwd },
+    );
+    return runFixtureGit(['rev-parse', 'HEAD'], { cwd }).toString().trim();
+  };
+
+  it("predicts a merge's tree without moving any ref, and refuses a conflict", async () => {
+    const repo = fixture();
+    const base = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+    runFixtureGit(['checkout', '-q', '-b', 'slice'], { cwd: repo.repository });
+    const slice = commit(repo.repository, 'slice.txt', 'slice\n');
+    runFixtureGit(['checkout', '-q', 'main'], { cwd: repo.repository });
+    const target = commit(repo.repository, 'target.txt', 'target\n');
+    const refs = runFixtureGit(['show-ref'], { cwd: repo.repository }).toString();
+
+    const predicted = await operations.mergeTree(repo.repository, target, slice);
+    if (!predicted.ok) throw new Error(predicted.failure.message);
+    expect(runFixtureGit(['show-ref'], { cwd: repo.repository }).toString()).toBe(refs);
+    const files = await operations.readCommitFiles(repo.repository, predicted.value, [
+      'slice.txt',
+      'target.txt',
+    ]);
+    if (!files.ok) throw new Error(files.failure.message);
+    expect([...files.value.keys()].sort()).toEqual(['slice.txt', 'target.txt']);
+
+    runFixtureGit(['checkout', '-q', '-b', 'elsewhere'], { cwd: repo.repository });
+    const merged = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'slice',
+      sourceCommitSha: slice,
+      expectedTargetSha: target,
+      targetBranch: 'main',
+      scratchPath: join(repo.root, 'scratch', 'predict'),
+      message: 'Merge slice',
+    });
+    if (!merged.ok) throw new Error(merged.failure.message);
+    const after = await operations.resolveCommit(repo.repository, merged.value.mergeSha);
+    if (!after.ok) throw new Error(after.failure.message);
+    expect(after.value.treeSha).toBe(predicted.value);
+
+    // Both sides change one file: no tree, and nothing moves.
+    runFixtureGit(['checkout', '-q', '-b', 'other', base], { cwd: repo.repository });
+    const left = commit(repo.repository, 'target.txt', 'left\n');
+    const conflict = await operations.mergeTree(repo.repository, target, left);
+    expect(conflict).toMatchObject({ ok: false, failure: { kind: 'merge-conflict' } });
+    expect((await operations.mergeTree(repo.repository, 'main', left)).ok).toBe(false);
+  });
+});

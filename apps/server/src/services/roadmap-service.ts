@@ -43,6 +43,7 @@ import {
   type RoadmapView,
   effectiveRoadmapAttention,
   ENTRY_WAIT,
+  mergeAdoptsChecks,
   roadmapAttention,
   type RoadmapAttention,
   effectiveHoldAttention,
@@ -67,6 +68,7 @@ import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-pr
 import {
   ConcurrentModificationError,
   DaemonDrainingError,
+  CheckAdoptionRequiredError,
   DeclaredChecksMissingError,
   ExecutionRequestError,
   NotFoundError,
@@ -2302,9 +2304,12 @@ export class RoadmapService {
           roadmap.workspaceId,
           attempt.worktreeId,
         );
+        // A merge that adopts check definitions waits for a person (R-G13 increment 5); a
+        // reserved merge is completed as reserved.
         if (
           automation.integrationMerge === 'automatic' &&
-          (cycle.status === 'awaiting-merge' || pending?.status === 'reserved')
+          ((cycle.status === 'awaiting-merge' && !mergeAdoptsChecks(cycle.attention)) ||
+            pending?.status === 'reserved')
         ) {
           check();
           // A paused roadmap may have a technically approved candidate with controller
@@ -2361,6 +2366,12 @@ export class RoadmapService {
               (await this.cycles.reviewForDeclaredChecks(cycle, check))
             )
               return MOVED;
+            // The merge adopts changed check definitions: a person approves it (R-G13).
+            if (error instanceof CheckAdoptionRequiredError) {
+              this.cycles.leaveMergeToOperator(cycle, error.repositoryId);
+              this.reason(roadmap, `${entry.sourceId}: Awaiting your merge approval.`);
+              return cycleStep(cycle);
+            }
             throw error;
           }
           return MOVED;

@@ -227,6 +227,7 @@ export async function createServices(
     now,
     worktreeMutations,
     runtimeEvidenceService,
+    repositoryChecksService,
   );
   const baselineService = new BaselinePreparationService(
     storage,

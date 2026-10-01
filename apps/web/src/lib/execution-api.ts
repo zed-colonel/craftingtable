@@ -5,12 +5,17 @@ import {
   agentRunCommandResponseSchema,
   agentRunDetailResponseSchema,
   type CheckDeclarationPreview,
+  type CheckDefinitionDiagnosisView,
   checkDeclarationPreviewSchema,
+  checkDefinitionDiagnosisSchema,
+  type RepositoryCheckReceipts,
+  repositoryCheckReceiptsSchema,
   type CreateWorktreeRequest,
   type CreateWorktreeResponse,
   createWorktreeResponseSchema,
   type ExecutionStatusResponse,
   executionStatusResponseSchema,
+  type MergeWorktreeRequest,
   type MergeWorktreeResponse,
   mergeWorktreeResponseSchema,
   type RegisterSourceRepositoryRequest,
@@ -215,7 +220,7 @@ export function cancelRun(
 export function mergeWorktree(
   workspaceId: WorkspaceId,
   worktreeId: WorktreeId,
-  input: { targetBranch?: string },
+  input: MergeWorktreeRequest,
   csrfToken: string,
 ): Promise<MergeWorktreeResponse> {
   return request(
@@ -263,6 +268,28 @@ export function saveRunProfiles(
 }
 
 /** A repository's adopted checks (R-G13). */
+/** Where a worktree's review stands against its repository's adopted checks (R-G13). */
+export function loadCheckDefinitions(
+  workspaceId: WorkspaceId,
+  worktreeId: WorktreeId,
+): Promise<CheckDefinitionDiagnosisView> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/check-definitions`,
+    checkDefinitionDiagnosisSchema,
+  );
+}
+
+/** A repository's recent check receipts, labelled (R-G13 increment 5). */
+export function loadRepositoryCheckReceipts(
+  workspaceId: WorkspaceId,
+  repositoryId: SourceRepositoryId,
+): Promise<RepositoryCheckReceipts> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks/receipts`,
+    repositoryCheckReceiptsSchema,
+  );
+}
+
 export function loadRepositoryChecks(
   workspaceId: WorkspaceId,
   repositoryId: SourceRepositoryId,

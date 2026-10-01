@@ -1,3 +1,7 @@
+import {
+  type CheckDefinitionDiagnosis,
+  definitionChangeReason,
+} from './repository-checks-service.js';
 import { effectiveCycleProfiles } from './agent-profile-policy.js';
 import { agentSelections } from '@craftingtable/domain';
 import { createHash, randomUUID } from 'node:crypto';
@@ -18,6 +22,7 @@ import {
   asAuditEventId,
   asEventId,
   type CycleStep,
+  mergeAdoptsChecks,
   currentFinalizationStage,
   DEFAULT_ROADMAP_AUTOMATION,
   DEFAULT_ROADMAP_SCHEDULING,
@@ -2404,15 +2409,79 @@ export class WorkCycleService {
     );
     if (reviewedWorktree === undefined) throw new NotFoundError();
     await this.branches?.assertReview(reviewedWorktree, run);
-    this.runtimeEvidence?.assertDeclaredDefinitions(reviewedWorktree, run.id);
+    const adopts = await this.declaredDefinitions(reviewedWorktree, run, !approval.reviewOnly);
     if (await this.advanceWorkflow(cycle, run)) return;
     this.change(cycle, {
       status: 'awaiting-merge',
-      attention: cycleAttention(approval.reviewOnly ? 'record-scope-evidence' : 'merge-approval'),
+      attention: approval.reviewOnly
+        ? cycleAttention('record-scope-evidence')
+        : cycleAttention(
+            'merge-approval',
+            adopts ? { repositoryId: reviewedWorktree.repositoryId } : undefined,
+          ),
       reason: approval.reviewOnly
         ? 'Independent review meets the completion policy. Ready to record scope verification or parent acceptance.'
-        : approval.reason,
+        : adopts
+          ? `${approval.reason} The slice changes adopted check definitions: approving its merge adopts them, so review them with the merge.`
+          : approval.reason,
     });
+  }
+
+  /**
+   * A review held to adopted checks stops as check-definition-changed at approval when its
+   * checks ran with other definitions (R-G13), unless the slice itself made the change and its
+   * merge can adopt it (increment 5, operator decision 2026-09-30): it then returns true, and
+   * the merge is a person's to approve, with the definitions shown. The stop says whether the
+   * slice or its integration branch changed the definition (LIVE-30).
+   */
+  private async declaredDefinitions(
+    tree: Worktree,
+    run: AgentRun,
+    merges: boolean,
+  ): Promise<boolean> {
+    const checks = this.execution?.repositoryChecks;
+    if (
+      !this.runtimeEvidence ||
+      !checks ||
+      !run.reviewBranchContext ||
+      !this.storage.runtimeEvidence.run(tree.workspaceId, run.id)?.checkDeclarationId
+    ) {
+      this.runtimeEvidence?.assertDeclaredDefinitions(tree, run.id);
+      return false;
+    }
+    let diagnosis: CheckDefinitionDiagnosis | undefined;
+    try {
+      diagnosis = await checks.diagnose(tree, run.reviewBranchContext);
+    } catch {
+      // Git could not say who changed what: the gate still holds, with its own message.
+      this.runtimeEvidence.assertDeclaredDefinitions(tree, run.id);
+      return false;
+    }
+    const merge = diagnosis?.merge;
+    const adoptable =
+      merges && merge?.proposal && !merge.unchanged && !merge.issues.length ? merge : undefined;
+    try {
+      this.runtimeEvidence.assertDeclaredDefinitions(
+        tree,
+        run.id,
+        adoptable?.proposal?.definitionDigests,
+      );
+    } catch (error) {
+      if (error instanceof CheckDefinitionChangedError && diagnosis)
+        throw new CheckDefinitionChangedError(
+          error.repositoryId,
+          error.checkId,
+          definitionChangeReason(diagnosis, merges),
+        );
+      throw error;
+    }
+    if (diagnosis && merge && !merge.unchanged && !adoptable)
+      throw new CheckDefinitionChangedError(
+        tree.repositoryId,
+        merge.checks[0]?.id ?? diagnosis.declaration.id,
+        definitionChangeReason(diagnosis, merges),
+      );
+    return !!adoptable;
   }
 
   private async startWorkflowReview(
@@ -3662,6 +3731,21 @@ export class WorkCycleService {
       throw error;
     }
     return true;
+  }
+
+  /**
+   * A roadmap's merge was refused because the merge adopts changed check definitions (R-G13
+   * increment 5): the merge becomes a person's, with the definitions shown. This covers a
+   * slice approved before the rule, or whose stored attention does not say so.
+   */
+  leaveMergeToOperator(cycle: WorkCycle, repositoryId: string): void {
+    if (cycle.status !== 'awaiting-merge' || mergeAdoptsChecks(cycle.attention)) return;
+    this.change(cycle, {
+      status: 'awaiting-merge',
+      attention: cycleAttention('merge-approval', { repositoryId }),
+      reason:
+        'The slice changes adopted check definitions: approving its merge adopts them, so review them with the merge.',
+    });
   }
 
   private resolutionContext(cycle: WorkCycle) {

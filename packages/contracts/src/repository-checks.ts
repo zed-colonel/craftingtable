@@ -84,6 +84,13 @@ export const repositoryCheckDeclarationSchema = equivalentSchema<RepositoryCheck
     rationale: z.string().min(1).max(2000),
     adoptedByUserId: userIdSchema,
     adoptedAt: z.iso.datetime(),
+    adoptedAtMerge: z
+      .strictObject({
+        operationId: z.uuid(),
+        worktreeId: z.string().min(1).max(200),
+        reviewRunId: z.string().min(1).max(200),
+      })
+      .optional(),
   }),
 );
 
@@ -94,6 +101,14 @@ export const repositoryChecksViewSchema = z.strictObject({
 });
 export type RepositoryChecksView = z.infer<typeof repositoryChecksViewSchema>;
 
+const definitionFileSchema = z.strictObject({
+  path: repositoryPathSchema,
+  digest,
+  bytes: z.number().int().nonnegative(),
+  text: z.string().optional(),
+  truncated: z.boolean().optional(),
+});
+
 /** What adopting the file at a ref would record, read by the daemon at that commit. */
 export const checkDeclarationPreviewSchema = z.strictObject({
   ref: z.string(),
@@ -102,21 +117,76 @@ export const checkDeclarationPreviewSchema = z.strictObject({
   checks: z.array(declaredCheckSchema),
   definitionDigests: z.record(repositoryPathSchema, digest),
   /** Each definition file for review, with its text when it is short UTF-8. */
-  definitions: z.array(
-    z.strictObject({
-      path: repositoryPathSchema,
-      digest,
-      bytes: z.number().int().nonnegative(),
-      text: z.string().optional(),
-      truncated: z.boolean().optional(),
-    }),
-  ),
+  definitions: z.array(definitionFileSchema),
   /** Why the file cannot be adopted as it is; empty when it can. */
   issues: z.array(z.string()),
   /** What the operator should weigh before adopting it. */
   warnings: z.array(z.string()),
+  /**
+   * How the commit stands to each integration branch of the repository (LIVE-30): whether
+   * the branch contains it, and which proposed files differ at the branch's head.
+   */
+  branches: z.array(
+    z.strictObject({
+      branch: z.string(),
+      headSha: gitShaSchema,
+      contains: z.boolean(),
+      differing: z.array(repositoryPathSchema),
+    }),
+  ),
 });
 export type CheckDeclarationPreview = z.infer<typeof checkDeclarationPreviewSchema>;
+
+const fileState = z.union([digest, z.literal('link'), z.null()]);
+
+/**
+ * Where a reviewed slice's check definitions stand (R-G13 increment 5, LIVE-30): each file
+ * at the adoption, the reviewed head, its merge base and the integration branch's head; what
+ * the slice changed; and, when it changed any, what merging it would adopt.
+ */
+export const checkDefinitionDiagnosisSchema = z.strictObject({
+  repositoryId: sourceRepositoryIdSchema,
+  declaration: z.strictObject({
+    id: z.uuid(),
+    version: z.number().int().positive(),
+    sourceCommit: gitShaSchema,
+  }),
+  headSha: gitShaSchema,
+  targetBranch: z.string(),
+  targetSha: gitShaSchema,
+  baseSha: gitShaSchema,
+  paths: z.array(
+    z.strictObject({
+      path: repositoryPathSchema,
+      adopted: fileState,
+      head: fileState,
+      base: fileState,
+      target: fileState,
+    }),
+  ),
+  sliceChanged: z.array(repositoryPathSchema),
+  targetDiffers: z.array(repositoryPathSchema),
+  merge: z
+    .strictObject({
+      tree: gitShaSchema.optional(),
+      proposalDigest: digest.optional(),
+      unchanged: z.boolean(),
+      proposedChecks: z.array(declaredCheckSchema),
+      checks: z.array(
+        z.strictObject({ id: checkIdSchema, change: z.enum(['added', 'removed', 'changed']) }),
+      ),
+      definitions: z.array(
+        z.strictObject({
+          path: repositoryPathSchema,
+          adopted: definitionFileSchema.nullable(),
+          proposed: definitionFileSchema.nullable(),
+        }),
+      ),
+      issues: z.array(z.string()),
+    })
+    .optional(),
+});
+export type CheckDefinitionDiagnosisView = z.infer<typeof checkDefinitionDiagnosisSchema>;
 
 export const checkDeclarationPreviewRequestSchema = z.strictObject({
   ref: z.string().trim().min(1).max(256),
@@ -129,3 +199,37 @@ export const adoptCheckDeclarationRequestSchema = z.strictObject({
   rationale: z.string().trim().min(1).max(2000),
 });
 export type AdoptCheckDeclarationRequest = z.infer<typeof adoptCheckDeclarationRequestSchema>;
+
+/**
+ * A repository's recent check receipts (R-G13 increment 5): each labelled as a run of an
+ * adopted check or a supplemental one, and who asked for it. `requestedBy` is known only for
+ * runs whose receipts the daemon recorded; a run that wrote its own receipts says `unknown`.
+ */
+export const repositoryCheckReceiptsSchema = z.strictObject({
+  repositoryId: sourceRepositoryIdSchema,
+  runs: z.array(
+    z.strictObject({
+      runId: z.string(),
+      role: z.string(),
+      worktreeId: z.string(),
+      status: z.string(),
+      createdAt: z.iso.datetime(),
+      recordedBy: z.enum(['daemon', 'run']),
+      declarationVersion: z.number().int().positive().optional(),
+      receipts: z.array(
+        z.strictObject({
+          kind: z.enum(['declared', 'supplemental', 'pinned-build', 'local-ci', 'native']),
+          checkId: z.string().optional(),
+          declarationVersion: z.number().int().positive().optional(),
+          command: z.string(),
+          requestedBy: z.enum(['daemon', 'agent', 'unknown']),
+          success: z.boolean(),
+          clean: z.boolean(),
+          headSha: z.string(),
+          definitions: z.enum(['adopted', 'differ']).optional(),
+        }),
+      ),
+    }),
+  ),
+});
+export type RepositoryCheckReceipts = z.infer<typeof repositoryCheckReceiptsSchema>;

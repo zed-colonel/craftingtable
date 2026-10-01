@@ -17,4 +17,10 @@ export interface MergeOperation {
   readonly mergeSha?: string;
   readonly cleanupError?: string;
   readonly removeIntegrationBranch?: boolean;
+  /**
+   * The operator approved adopting the checks this merge's result proposes (R-G13 increment
+   * 5): the digest of the proposal they were shown, and their rationale. The adoption is
+   * recorded with the merge, at the merge commit, only if that commit proposes exactly this.
+   */
+  readonly checkAdoption?: { readonly proposalDigest: string; readonly rationale: string };
 }

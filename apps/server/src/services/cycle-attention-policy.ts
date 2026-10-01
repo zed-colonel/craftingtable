@@ -4,6 +4,7 @@ import {
   type CycleAttentionCode,
   cycleAttention,
   effectiveCycleAttention,
+  mergeAdoptsChecks,
   type WorkCycle,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
@@ -74,7 +75,12 @@ function roadmapClaim(tx: StorageRepositories, cycle: WorkCycle): AttentionClaim
       return delegation?.definition.crossProject?.parentAcceptance === 'automatic'
         ? 'roadmap-acceptance'
         : undefined;
-    if (delegation?.automation.integrationMerge === 'automatic') return 'roadmap-merge';
+    // A merge that adopts check definitions is a person's (R-G13 increment 5).
+    if (
+      delegation?.automation.integrationMerge === 'automatic' &&
+      !mergeAdoptsChecks(effectiveCycleAttention(cycle))
+    )
+      return 'roadmap-merge';
   }
   if (
     cycle.integrationResolution?.status === 'detected' &&

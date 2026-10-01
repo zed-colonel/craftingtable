@@ -113,6 +113,12 @@ export const mergeOperationSchema = equivalentSchema<MergeOperation>()(
     mergeSha: gitShaSchema.optional(),
     cleanupError: text.optional(),
     removeIntegrationBranch: z.boolean().optional(),
+    checkAdoption: z
+      .strictObject({
+        proposalDigest: digest,
+        rationale: z.string().min(1).max(2000),
+      })
+      .optional(),
   }),
 );
 

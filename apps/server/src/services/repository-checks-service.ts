@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   type AdoptCheckDeclarationRequest,
   checkDeclarationFileSchema,
+  type RepositoryCheckReceipts,
 } from '@craftingtable/contracts';
 import {
   asAuditEventId,
@@ -9,13 +10,17 @@ import {
   CHECK_DECLARATION_PATH,
   type DeclaredCheck,
   type RepositoryCheckDeclaration,
+  type SourceRepository,
   type SourceRepositoryId,
   type WorkspaceId,
+  type Worktree,
+  type WorktreeId,
 } from '@craftingtable/domain';
-import type { GitOperations } from '@craftingtable/git';
+import type { CommitFile, GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
-import { ExecutionRequestError } from './errors.js';
+import type { BuildReceipt } from './build-receipt-policy.js';
+import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 const sha256 = (content: Uint8Array | string) => createHash('sha256').update(content).digest('hex');
@@ -48,6 +53,93 @@ export interface CheckDeclarationProposal {
   readonly definitions: readonly CheckDefinitionFile[];
   readonly issues: readonly string[];
   readonly warnings: readonly string[];
+  /**
+   * Each integration branch the repository's plans merge into, and how this commit stands to
+   * it (LIVE-30): whether the branch contains it, and which proposed files differ at its head.
+   */
+  readonly branches: readonly CheckSourceBranch[];
+}
+
+export interface CheckSourceBranch {
+  readonly branch: string;
+  readonly headSha: string;
+  readonly contains: boolean;
+  readonly differing: readonly string[];
+}
+
+/**
+ * A check definition file (or the checks file) at each commit that decides who changed it
+ * (R-G13 increment 5, LIVE-30): the adoption, the reviewed head, the head's merge base with
+ * its integration branch, and that branch's head. Each is the SHA-256 of the file's contents,
+ * `link` for a link, or null where there is no file.
+ */
+export interface CheckDefinitionPath {
+  readonly path: string;
+  readonly adopted: string | null;
+  readonly head: string | null;
+  readonly base: string | null;
+  readonly target: string | null;
+}
+
+/** What a merge would adopt: the checks its result proposes, against the current adoption. */
+export interface MergeAdoption {
+  /** The merge's predicted tree; absent when the merge would conflict. */
+  readonly tree?: string;
+  readonly proposal?: CheckDeclarationProposal;
+  /** The digest an approval names; it covers the checks and their definitions. */
+  readonly proposalDigest?: string;
+  /** The proposal is exactly the current adoption: the merge adopts nothing. */
+  readonly unchanged: boolean;
+  readonly checks: readonly {
+    readonly id: string;
+    readonly change: 'added' | 'removed' | 'changed';
+  }[];
+  readonly definitions: readonly {
+    readonly path: string;
+    readonly adopted: CheckDefinitionFile | null;
+    readonly proposed: CheckDefinitionFile | null;
+  }[];
+  /** Why the merge cannot adopt its result; empty when it can. */
+  readonly issues: readonly string[];
+}
+
+/**
+ * Where a reviewed slice's check definitions stand (R-G13 increment 5, LIVE-30): which files
+ * the slice changed, which differ between the adoption and the integration branch, and, when
+ * the slice changes any, what merging it would adopt.
+ */
+export interface CheckDefinitionDiagnosis {
+  readonly repositoryId: SourceRepositoryId;
+  readonly declaration: {
+    readonly id: string;
+    readonly version: number;
+    readonly sourceCommit: string;
+  };
+  readonly headSha: string;
+  readonly targetBranch: string;
+  readonly targetSha: string;
+  readonly baseSha: string;
+  readonly paths: readonly CheckDefinitionPath[];
+  /** Files the slice changed since its merge base. */
+  readonly sliceChanged: readonly string[];
+  /** Definition files whose adopted version differs from the integration branch's head. */
+  readonly targetDiffers: readonly string[];
+  /** Present when the slice changed a file to other than its adopted version. */
+  readonly merge?: MergeAdoption;
+}
+
+/** The digest an operator's approval names: the checks and their definition files' digests. */
+export function proposalDigest(
+  proposal: Pick<CheckDeclarationProposal, 'checks' | 'definitionDigests'>,
+): string {
+  return sha256(
+    JSON.stringify({
+      checks: proposal.checks,
+      definitionDigests: Object.entries(proposal.definitionDigests).sort(([a], [b]) =>
+        a < b ? -1 : a > b ? 1 : 0,
+      ),
+    }),
+  );
 }
 
 /**
@@ -71,6 +163,86 @@ export class RepositoryChecksService {
       repositoryId,
       declarations: this.storage.runtimeEvidence.checkDeclarations(ws, repositoryId),
     };
+  }
+
+  /**
+   * Where a worktree's newest review stands against the adopted check definitions (R-G13
+   * increment 5). Undefined when no review of it was held to adopted checks.
+   */
+  async definitionsOf(
+    context: AuthContext,
+    ws: WorkspaceId,
+    worktreeId: WorktreeId,
+  ): Promise<CheckDefinitionDiagnosis | undefined> {
+    this.workspaces.requireAuthorized(context, ws);
+    const tree = this.storage.execution.worktrees.find(ws, worktreeId);
+    if (!tree) throw new NotFoundError();
+    const review = this.storage.execution.runs
+      .listForWorktree(ws, worktreeId)
+      .find((r) => r.role === 'review' && r.reviewBranchContext);
+    if (!review?.reviewBranchContext) return undefined;
+    if (!this.storage.runtimeEvidence.run(ws, review.id)?.checkDeclarationId) return undefined;
+    return this.diagnose(tree, review.reviewBranchContext);
+  }
+
+  /**
+   * The repository's recent check receipts, labelled (R-G13 increment 5). Who asked for a
+   * check is read only from receipts the daemon recorded: a run that wrote its own receipt
+   * file (before R-G4) could write any `origin`, so its requester is unknown (L4).
+   */
+  receipts(
+    context: AuthContext,
+    ws: WorkspaceId,
+    repositoryId: SourceRepositoryId,
+  ): RepositoryCheckReceipts {
+    this.workspaces.requireAuthorized(context, ws);
+    this.repository(ws, repositoryId);
+    const declarations = new Map(
+      this.storage.runtimeEvidence.checkDeclarations(ws, repositoryId).map((d) => [d.id, d]),
+    );
+    const runs: RepositoryCheckReceipts['runs'][number][] = [];
+    for (const run of this.storage.execution.runs.listRecentForRepository(ws, repositoryId, 60)) {
+      if (runs.length >= 20) break;
+      const env = this.storage.runtimeEvidence.run(ws, run.id);
+      if (!env) continue;
+      const daemon = env.receiptAuthority === 'daemon';
+      const frozen = this.storage.runtimeEvidence.build(ws, run.id);
+      const lines = frozen
+        ? frozen.receipts.split('\n')
+        : daemon
+          ? this.storage.runtimeEvidence.checkReceipts(ws, run.id).map((r) => r.receipt)
+          : [];
+      const receipts = lines
+        .filter((line) => line.trim() !== '')
+        .slice(0, 50)
+        .flatMap((line) => {
+          try {
+            return [
+              receiptView(
+                JSON.parse(line) as BuildReceipt & Record<string, unknown>,
+                daemon,
+                declarations,
+              ),
+            ];
+          } catch {
+            return [];
+          }
+        });
+      if (!receipts.length) continue;
+      runs.push({
+        runId: run.id,
+        role: run.role,
+        worktreeId: run.worktreeId,
+        status: run.status,
+        createdAt: run.createdAt,
+        recordedBy: daemon ? 'daemon' : 'run',
+        ...(env.checkDeclarationId && declarations.get(env.checkDeclarationId)
+          ? { declarationVersion: declarations.get(env.checkDeclarationId)!.version }
+          : {}),
+        receipts,
+      });
+    }
+    return { repositoryId, runs };
   }
 
   /** What adopting the file at `ref` would record. It changes nothing. */
@@ -166,7 +338,260 @@ export class RepositoryChecksService {
         'invalid-request',
         `${ref} is not a branch or a complete commit ID of ${repository.displayName}.`,
       );
-    const at = commit.value.commitSha;
+    const proposal = await this.proposalAt(repository, commit.value.commitSha, ref);
+    const branches = await this.boundBranches(repository, proposal);
+    return {
+      ...proposal,
+      warnings: [
+        ...proposal.warnings,
+        ...branches.flatMap((b) => [
+          ...(b.contains
+            ? []
+            : [
+                `${ref} is not on ${b.branch}, an integration branch of this repository: checks adopted from it may differ from what slices merged there carry.`,
+              ]),
+          ...(b.differing.length
+            ? [
+                `${b.differing.join(', ')} ${b.differing.length === 1 ? 'differs' : 'differ'} at the head of ${b.branch}: every slice that carries that branch's version will stop as check-definition-changed.`,
+              ]
+            : []),
+        ]),
+      ],
+      branches,
+    };
+  }
+
+  /**
+   * The integration branches this repository's plans merge into, and how the proposal's commit
+   * stands to each (LIVE-30). A branch that no longer exists is left out.
+   */
+  private async boundBranches(
+    repository: SourceRepository,
+    proposal: CheckDeclarationProposal,
+  ): Promise<CheckSourceBranch[]> {
+    const names = [
+      ...new Set(
+        this.storage.execution.branchSettings
+          .list()
+          .filter(
+            (s) => s.workspaceId === repository.workspaceId && s.repositoryId === repository.id,
+          )
+          .map((s) => s.integrationBranch),
+      ),
+    ].slice(0, 10);
+    const paths = [proposal.sourcePath, ...Object.keys(proposal.definitionDigests)];
+    const result: CheckSourceBranch[] = [];
+    for (const branch of names) {
+      const head = await this.git!.exactBranchCommit(repository.rootPath, branch);
+      if (!head.ok) continue;
+      const contains = await this.git!.isAncestor(
+        repository.rootPath,
+        proposal.commitSha,
+        head.value,
+      );
+      const there = await this.digests(repository, head.value, paths);
+      const here = await this.digests(repository, proposal.commitSha, paths);
+      result.push({
+        branch,
+        headSha: head.value,
+        contains: contains.ok && contains.value,
+        differing: paths.filter((path) => there.get(path) !== here.get(path)),
+      });
+    }
+    return result;
+  }
+
+  /** Each path's contents digest at a commit or tree: `link` for a link, null when absent. */
+  private async digests(
+    repository: SourceRepository,
+    at: string,
+    paths: readonly string[],
+  ): Promise<Map<string, string | null>> {
+    const files = await this.files(repository, at, paths);
+    return new Map(
+      paths.map((path) => {
+        const file = files.get(path);
+        return [path, !file ? null : file.kind === 'link' ? 'link' : sha256(file.content)];
+      }),
+    );
+  }
+
+  /** `readCommitFiles` for any number of paths (it reads at most 32 at once). */
+  private async files(
+    repository: SourceRepository,
+    at: string,
+    paths: readonly string[],
+  ): Promise<Map<string, CommitFile>> {
+    const unique = [...new Set(paths)];
+    const files = new Map<string, CommitFile>();
+    for (let i = 0; i < unique.length; i += 32) {
+      const read = await this.git!.readCommitFiles(
+        repository.rootPath,
+        at,
+        unique.slice(i, i + 32),
+      );
+      if (!read.ok)
+        throw new ExecutionRequestError(
+          'unavailable',
+          `Check definitions could not be read: ${read.failure.message}`,
+        );
+      for (const [path, file] of read.value) files.set(path, file);
+    }
+    return files;
+  }
+
+  /**
+   * Where a reviewed head's check definitions stand against the repository's current adoption
+   * (R-G13 increment 5, LIVE-30). Undefined when the repository has adopted none.
+   */
+  async diagnose(
+    tree: Pick<Worktree, 'workspaceId' | 'repositoryId'>,
+    review: { readonly headSha: string; readonly targetBranch: string; readonly targetSha: string },
+  ): Promise<CheckDefinitionDiagnosis | undefined> {
+    const repository = this.repository(tree.workspaceId, tree.repositoryId);
+    if (!this.git) throw new ExecutionRequestError('unavailable', 'Git is unavailable.');
+    const declaration = this.storage.runtimeEvidence.checkDeclarations(
+      tree.workspaceId,
+      tree.repositoryId,
+    )[0];
+    if (!declaration) return undefined;
+    const base = await this.git.commonAncestor(
+      repository.rootPath,
+      review.headSha,
+      review.targetSha,
+    );
+    if (!base.ok)
+      throw new ExecutionRequestError(
+        'unavailable',
+        `The slice's merge base could not be found: ${base.failure.message}`,
+      );
+    const definitionPaths = [...new Set(declaration.checks.flatMap((c) => c.definitionPaths))];
+    const paths = [declaration.sourcePath, ...definitionPaths];
+    const [head, at, target, adoptedFile] = await Promise.all([
+      this.digests(repository, review.headSha, paths),
+      this.digests(repository, base.value, paths),
+      this.digests(repository, review.targetSha, paths),
+      // The adopted checks file, read at its commit; unknown when that commit is gone.
+      this.digests(repository, declaration.sourceCommit, [declaration.sourcePath]).catch(
+        () => new Map<string, string | null>(),
+      ),
+    ]);
+    const rows: CheckDefinitionPath[] = paths.map((path) => ({
+      path,
+      adopted:
+        path === declaration.sourcePath
+          ? (adoptedFile.get(path) ?? null)
+          : (declaration.definitionDigests[path] ?? null),
+      head: head.get(path) ?? null,
+      base: at.get(path) ?? null,
+      target: target.get(path) ?? null,
+    }));
+    const sliceChanged = rows.filter((r) => r.head !== r.base).map((r) => r.path);
+    // A change the operator already adopted (on the Repositories page) leaves the merge
+    // nothing to adopt.
+    const unadopted = rows.filter((r) => r.head !== r.base && r.head !== r.adopted);
+    const diagnosis: CheckDefinitionDiagnosis = {
+      repositoryId: tree.repositoryId,
+      declaration: {
+        id: declaration.id,
+        version: declaration.version,
+        sourceCommit: declaration.sourceCommit,
+      },
+      headSha: review.headSha,
+      targetBranch: review.targetBranch,
+      targetSha: review.targetSha,
+      baseSha: base.value,
+      paths: rows,
+      sliceChanged,
+      targetDiffers: rows
+        .filter((r) => r.path !== declaration.sourcePath && r.target !== r.adopted)
+        .map((r) => r.path),
+    };
+    return unadopted.length
+      ? { ...diagnosis, merge: await this.mergeAdoption(repository, declaration, review) }
+      : diagnosis;
+  }
+
+  /** What merging the reviewed head into its integration branch would adopt. */
+  private async mergeAdoption(
+    repository: SourceRepository,
+    declaration: RepositoryCheckDeclaration,
+    review: { readonly headSha: string; readonly targetBranch: string; readonly targetSha: string },
+  ): Promise<MergeAdoption> {
+    const tree = await this.git!.mergeTree(repository.rootPath, review.targetSha, review.headSha);
+    if (!tree.ok)
+      return {
+        unchanged: false,
+        checks: [],
+        definitions: [],
+        issues: [
+          tree.failure.kind === 'merge-conflict'
+            ? `The slice does not merge cleanly into ${review.targetBranch}; refresh it first.`
+            : `The merge could not be predicted: ${tree.failure.message}`,
+        ],
+      };
+    const proposal = await this.proposalAt(
+      repository,
+      tree.value,
+      `the merge into ${review.targetBranch}`,
+    );
+    const adopted = new Map(declaration.checks.map((c) => [c.id, c]));
+    const proposed = new Map(proposal.checks.map((c) => [c.id, c]));
+    const checks = [
+      ...proposal.checks
+        .filter((c) => JSON.stringify(adopted.get(c.id)) !== JSON.stringify(c))
+        .map((c) => ({
+          id: c.id,
+          change: adopted.has(c.id) ? ('changed' as const) : ('added' as const),
+        })),
+      ...declaration.checks
+        .filter((c) => !proposed.has(c.id))
+        .map((c) => ({ id: c.id, change: 'removed' as const })),
+    ];
+    const definitionPaths = [
+      ...new Set([
+        ...Object.keys(declaration.definitionDigests),
+        ...Object.keys(proposal.definitionDigests),
+      ]),
+    ].filter((p) => declaration.definitionDigests[p] !== proposal.definitionDigests[p]);
+    // The adopted text, where the adopted commit still has the adopted bytes.
+    const before = await this.files(repository, declaration.sourceCommit, definitionPaths).catch(
+      () => new Map<string, CommitFile>(),
+    );
+    const definitions = definitionPaths.map((path) => {
+      const file = before.get(path);
+      const adoptedFile =
+        file?.kind === 'file' && sha256(file.content) === declaration.definitionDigests[path]
+          ? definitionPreview(path, file.content)
+          : declaration.definitionDigests[path]
+            ? { path, digest: declaration.definitionDigests[path]!, bytes: 0 }
+            : null;
+      return {
+        path,
+        adopted: adoptedFile,
+        proposed: proposal.definitions.find((d) => d.path === path) ?? null,
+      };
+    });
+    return {
+      tree: tree.value,
+      proposal,
+      proposalDigest: proposalDigest(proposal),
+      unchanged: !checks.length && !definitions.length,
+      checks,
+      definitions,
+      issues: proposal.issues,
+    };
+  }
+
+  /**
+   * The proposal at an exact commit or tree, checked by the adoption rules. `ref` names it in
+   * messages. It reads only through the daemon's Git, never a worktree.
+   */
+  async proposalAt(
+    repository: SourceRepository,
+    at: string,
+    ref: string,
+  ): Promise<CheckDeclarationProposal> {
     const read = (paths: readonly string[]) =>
       this.git!.readCommitFiles(repository.rootPath, at, paths);
     const base = {
@@ -176,6 +601,7 @@ export class RepositoryChecksService {
       checks: [] as readonly DeclaredCheck[],
       definitionDigests: {} as Record<string, string>,
       definitions: [] as CheckDefinitionFile[],
+      branches: [] as CheckSourceBranch[],
     };
     const declared = await read([CHECK_DECLARATION_PATH]);
     if (!declared.ok)
@@ -286,3 +712,89 @@ function definitionPreview(path: string, content: Uint8Array): CheckDefinitionFi
 
 /** SHA-256 of a definition file's contents, as the declaration and receipts record it. */
 export const definitionDigest = sha256;
+
+/**
+ * Why a review's check definitions stop it (R-G13 increment 5, LIVE-30): the slice's own
+ * change that its merge cannot adopt, or an adoption that differs from what the slice carries
+ * from its integration branch.
+ */
+export function definitionChangeReason(
+  diagnosis: CheckDefinitionDiagnosis,
+  merges: boolean,
+): string {
+  const short = (sha: string) => sha.slice(0, 12);
+  const sliceMade = diagnosis.paths
+    .filter((p) => diagnosis.sliceChanged.includes(p.path) && p.head !== p.adopted)
+    .map((p) => p.path);
+  const inherited = diagnosis.paths
+    .filter((p) => p.path !== CHECK_DECLARATION_PATH)
+    .filter((p) => p.head !== p.adopted && !sliceMade.includes(p.path))
+    .map((p) => p.path);
+  const parts: string[] = [];
+  if (inherited.length)
+    parts.push(
+      `This slice did not change ${inherited.join(', ')}: adoption version ${diagnosis.declaration.version} (from ${short(diagnosis.declaration.sourceCommit)}) differs from what it carries from ${diagnosis.targetBranch}${diagnosis.targetDiffers.some((p) => inherited.includes(p)) ? ` (head ${short(diagnosis.targetSha)})` : ''}. Adopt the checks from ${diagnosis.targetBranch} on the Repositories page, then resume for a fresh review.`,
+    );
+  if (sliceMade.length) {
+    const issues = diagnosis.merge?.issues ?? [];
+    parts.push(
+      !merges
+        ? `This slice changes ${sliceMade.join(', ')}, and this review does not merge, so nothing can adopt the change. Adopt it on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`
+        : issues.length
+          ? `This slice changes ${sliceMade.join(', ')}, and its merge cannot adopt the change: ${issues.join(' ')} Fix it in the slice, or adopt it on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`
+          : `This slice changes ${sliceMade.join(', ')}, and its checks ran with other definitions than its merge would adopt. Resume for a fresh review.`,
+    );
+  }
+  return (
+    parts.join(' ') ||
+    'A declared check ran with definitions that differ from the adopted ones. Resume for a fresh review.'
+  );
+}
+
+/** One receipt as the Checks panel shows it (R-G13 increment 5). */
+function receiptView(
+  r: BuildReceipt & Record<string, unknown>,
+  daemon: boolean,
+  declarations: ReadonlyMap<string, RepositoryCheckDeclaration>,
+): RepositoryCheckReceipts['runs'][number]['receipts'][number] {
+  const declared = r.declaredCheck;
+  const adoption = declared && declarations.get(declared.declarationId);
+  const check = adoption?.checks.find((c) => c.id === declared?.id);
+  const args = Array.isArray(r.args) ? (r.args as unknown[]).map(String) : [];
+  return {
+    kind: declared
+      ? ('declared' as const)
+      : r.kind === 'scoped-check'
+        ? ('supplemental' as const)
+        : r.kind === 'local-ci'
+          ? ('local-ci' as const)
+          : r.kind === 'native-check'
+            ? ('native' as const)
+            : ('pinned-build' as const),
+    ...(declared ? { checkId: declared.id } : {}),
+    ...(adoption ? { declarationVersion: adoption.version } : {}),
+    command: (declared
+      ? `ct-check --declared ${declared.id}`
+      : r.kind === undefined
+        ? ['cargo', ...args].join(' ')
+        : [String(r.command ?? ''), ...args].join(' ')
+    ).slice(0, 200),
+    requestedBy: daemon
+      ? r.origin === 'daemon'
+        ? ('daemon' as const)
+        : ('agent' as const)
+      : ('unknown' as const),
+    success: r.success === true,
+    clean: r.clean === true,
+    headSha: String(r.headSha ?? ''),
+    ...(check
+      ? {
+          definitions: check.definitionPaths.every(
+            (path) => declared!.definitionDigests[path] === adoption!.definitionDigests[path],
+          )
+            ? ('adopted' as const)
+            : ('differ' as const),
+        }
+      : {}),
+  };
+}

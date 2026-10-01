@@ -56,13 +56,16 @@ export function receiptKindEstablishes(
  * receipt the gate `accepts` (successful, clean, on the gated commit, of this run) recording a
  * run of that check under this declaration, with its definition files as adopted. `changed`
  * names a check that ran only with other definitions; `missing`, one that did not run at all.
- * Receipts of commands the agent chose never count here.
+ * Receipts of commands the agent chose never count here. `pending` holds the definitions a
+ * merge the operator approves would adopt (R-G13 increment 5): a file that ran as it holds them
+ * counts, as it will once the merge adopts them.
  */
 export function declaredCheckGaps(
   declaration: RepositoryCheckDeclaration,
   receipts: readonly BuildReceipt[],
   accepts: (receipt: BuildReceipt) => boolean,
   adoptedSince?: RepositoryCheckDeclaration,
+  pending?: Readonly<Record<string, string>>,
 ): {
   readonly missing: readonly string[];
   readonly changed: readonly { checkId: string; paths: readonly string[] }[];
@@ -87,7 +90,10 @@ export function declaredCheckGaps(
     const differs = (r: BuildReceipt) => {
       const from = (adopted: Readonly<Record<string, string>>) =>
         check.definitionPaths.filter(
-          (path) => r.declaredCheck?.definitionDigests[path] !== adopted[path],
+          (path) =>
+            r.declaredCheck?.definitionDigests[path] !== adopted[path] &&
+            (pending?.[path] === undefined ||
+              r.declaredCheck?.definitionDigests[path] !== pending[path]),
         );
       const held = from(declaration.definitionDigests);
       return held.length && later && !from(adoptedSince!.definitionDigests).length ? [] : held;

@@ -15,6 +15,7 @@ import {
   type AgentRunId,
   type AgentRunRole,
   type SourceRepositoryId,
+  type WorkspaceId,
   type WorktreeId,
 } from '@craftingtable/domain';
 import { type CSSProperties, type FormEvent, Fragment, type ReactNode, useState } from 'react';
@@ -34,6 +35,7 @@ import {
   VERDICT_ACCENTS,
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
+import { CheckAdoptionReview } from './CheckAdoptionReview.js';
 import { HandoffForm } from './HandoffForm.js';
 import {
   handoffDefaults,
@@ -97,6 +99,7 @@ export function DelegationPanel({
   removalRefused,
   onKeepWorktree,
   onMergeWorktree,
+  workspaceId,
   onLoadBranches,
   onLaunch,
   onOpenRun,
@@ -123,7 +126,17 @@ export function DelegationPanel({
   /** A removal the daemon refused to protect uncommitted work, awaiting the operator's choice. */
   removalRefused?: WorktreeChangesRefused & { readonly worktreeId: WorktreeId };
   onKeepWorktree?: () => void;
-  onMergeWorktree: (worktreeId: WorktreeId, targetBranch: string) => void;
+  /**
+   * `adoptChecks`: the operator's approval of the check definitions the merge adopts, for a
+   * gate of `check-adoption` (R-G13 increment 5).
+   */
+  onMergeWorktree: (
+    worktreeId: WorktreeId,
+    targetBranch: string,
+    adoptChecks?: { readonly proposalDigest: string; readonly rationale: string },
+  ) => void;
+  /** Needed to read the check definitions a merge adopts. */
+  workspaceId?: WorkspaceId;
   onLoadBranches: (repositoryId: SourceRepositoryId) => void;
   onLaunch: (input: LaunchInput) => void;
   onOpenRun: (runId: AgentRunId) => void;
@@ -166,6 +179,9 @@ export function DelegationPanel({
   const [instructions, setInstructions] = useState('');
   const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
   const [mergeOpen, setMergeOpen] = useState<string>();
+  /** The check definitions a `check-adoption` merge adopts: their digest, and why (R-G13). */
+  const [adoptionDigest, setAdoptionDigest] = useState<string>();
+  const [adoptionRationale, setAdoptionRationale] = useState('');
   /** The run whose handoff form is open, if any. */
   const [handoffOpen, setHandoffOpen] = useState<AgentRunId>();
   /** Operator override of the launch form's visibility; unset follows the item's state. */
@@ -357,9 +373,14 @@ export function DelegationPanel({
                       aria-label="Merge target"
                       onSubmit={(event) => {
                         event.preventDefault();
-                        if (target.trim().length > 0) {
+                        if (target.trim().length === 0) return;
+                        if (gate.reason !== 'check-adoption')
                           onMergeWorktree(worktree.id, target.trim());
-                        }
+                        else if (adoptionDigest && adoptionRationale.trim())
+                          onMergeWorktree(worktree.id, target.trim(), {
+                            proposalDigest: adoptionDigest,
+                            rationale: adoptionRationale.trim(),
+                          });
                       }}
                     >
                       <p className="merge-destination">
@@ -391,12 +412,27 @@ export function DelegationPanel({
                             ))}
                         </datalist>
                       </label>
+                      {gate.reason === 'check-adoption' && workspaceId && (
+                        <CheckAdoptionReview
+                          workspaceId={workspaceId}
+                          worktreeId={worktree.id}
+                          rationale={adoptionRationale}
+                          onRationale={setAdoptionRationale}
+                          onProposal={setAdoptionDigest}
+                          disabled={busy}
+                        />
+                      )}
                       <button
                         type="submit"
                         className="primary-button"
-                        disabled={busy || target.trim().length === 0}
+                        disabled={
+                          busy ||
+                          target.trim().length === 0 ||
+                          (gate.reason === 'check-adoption' &&
+                            (!adoptionDigest || !adoptionRationale.trim()))
+                        }
                       >
-                        Merge
+                        {gate.reason === 'check-adoption' ? 'Merge and adopt checks' : 'Merge'}
                       </button>
                       <button
                         type="button"

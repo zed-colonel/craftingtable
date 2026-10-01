@@ -31,7 +31,10 @@ export interface QueryState<T = unknown> extends QueryView<T> {
 }
 
 export interface QueryStore {
-  /** Watches a key: reads it now if it has nothing yet or is stale. Returns the unwatch. */
+  /**
+   * Watches a key. The first component to watch it reads it at once, showing what is cached
+   * meanwhile: a page visited again is read again, whatever events it missed. Returns the unwatch.
+   */
   subscribe<T>(key: QueryKey, loader: () => Promise<T>, listener: () => void): () => void;
   view<T>(key: QueryKey): QueryView<T>;
   read<T>(key: QueryKey): QueryState<T>;
@@ -39,11 +42,16 @@ export interface QueryStore {
   invalidate(prefixes: readonly QueryKey[]): void;
   /** The operator's own command: watched keys under these prefixes re-read at once. */
   refreshNow(prefixes: readonly QueryKey[]): void;
-  /** A command's response is the key's new data. */
+  /** Reads a watched key now; settles once a read that began after this call has ended. */
+  refetch(key: QueryKey): Promise<void>;
+  /** A command's response is the key's new data; a read under way is followed by another. */
   set<T>(key: QueryKey, data: T): void;
   visibilityChanged(): void;
-  /** Forgets every key's data (sign-out, another workspace); watched keys read again. */
-  clear(): void;
+  /**
+   * Forgets every key's data except those `keep` names (sign-out; another workspace). Nothing is
+   * read here: a component that watches a forgotten key again reads it.
+   */
+  clear(keep?: (key: QueryKey) => boolean): void;
   dispose(): void;
 }
 
@@ -51,6 +59,8 @@ export interface QueryStoreOptions {
   readonly debounceMs: number;
   readonly maxWaitMs: number;
   readonly hidden?: () => boolean;
+  /** How long a key nobody watches keeps its data before it is dropped. */
+  readonly unwatchedMs?: number;
 }
 
 interface Entry {
@@ -62,11 +72,18 @@ interface Entry {
   dirty: boolean;
   /** Increases with every read and every `set`; only the newest read's result is kept. */
   token: number;
-  loader?: () => Promise<unknown>;
-  readonly listeners: Set<() => void>;
+  /** Increases when the entry is forgotten; a read begun before then touches nothing. */
+  generation: number;
+  /** Each watcher's loader, oldest first; a read uses the newest. */
+  readonly watchers: Map<() => void, () => Promise<unknown>>;
+  /** Settled when the current read and any it owes have ended. */
+  waiters: (() => void)[];
+  drop?: ReturnType<typeof setTimeout>;
 }
 
 const IDLE: QueryView = Object.freeze({ status: 'idle', data: undefined, error: undefined });
+/** Five minutes: long enough for back and forward, short enough that tried drafts go. */
+const UNWATCHED_MS = 5 * 60_000;
 
 const keyId = (key: QueryKey): string => JSON.stringify(key);
 const under = (key: QueryKey, prefix: QueryKey): boolean =>
@@ -74,8 +91,8 @@ const under = (key: QueryKey, prefix: QueryKey): boolean =>
 
 export function createQueryStore(options: QueryStoreOptions): QueryStore {
   const hidden = options.hidden ?? (() => false);
+  const unwatchedMs = options.unwatchedMs ?? UNWATCHED_MS;
   const entries = new Map<string, Entry>();
-  let epoch = 0;
 
   const entry = (key: QueryKey): Entry => {
     const id = keyId(key);
@@ -88,12 +105,15 @@ export function createQueryStore(options: QueryStoreOptions): QueryStore {
         stale: false,
         dirty: false,
         token: 0,
-        listeners: new Set(),
+        generation: 0,
+        watchers: new Map(),
+        waiters: [],
       };
       entries.set(id, found);
     }
     return found;
   };
+  const loaderOf = (target: Entry) => [...target.watchers.values()].at(-1);
   const show = (target: Entry, view: QueryView): void => {
     if (
       view.status === target.view.status &&
@@ -102,31 +122,44 @@ export function createQueryStore(options: QueryStoreOptions): QueryStore {
     )
       return;
     target.view = view;
-    for (const listener of [...target.listeners]) listener();
+    for (const listener of [...target.watchers.keys()]) listener();
+  };
+  const settle = (target: Entry): void => {
+    const waiters = target.waiters;
+    target.waiters = [];
+    for (const resolve of waiters) resolve();
   };
   const fetch = (target: Entry): void => {
-    if (!target.loader) return;
+    const loader = loaderOf(target);
+    if (!loader) {
+      target.stale = true;
+      settle(target);
+      return;
+    }
     if (target.fetching) {
       target.dirty = true;
       return;
     }
-    const loader = target.loader;
     const token = ++target.token;
-    const started = epoch;
+    const generation = target.generation;
     target.fetching = true;
     target.stale = false;
     if (target.view.status === 'idle') show(target, { ...IDLE, status: 'loading' });
     const finish = (apply: () => void): void => {
-      // Cleared since: the read the clear started owns the entry now.
-      if (started !== epoch) return;
+      // Forgotten since: whatever read follows owns the entry now.
+      if (generation !== target.generation) return;
       // A command's response arrived since: this read is out of date, and is dropped.
       if (token === target.token) apply();
       target.fetching = false;
       if (target.dirty) {
         target.dirty = false;
-        if (target.listeners.size > 0) fetch(target);
-        else target.stale = true;
+        if (target.watchers.size > 0) {
+          fetch(target);
+          return;
+        }
+        target.stale = true;
       }
+      settle(target);
     };
     loader().then(
       (data) =>
@@ -138,13 +171,15 @@ export function createQueryStore(options: QueryStoreOptions): QueryStore {
           }),
         ),
       (error: unknown) =>
-        finish(() =>
+        finish(() => {
+          // A failed read leaves the key stale: the next watcher or event reads it again.
+          target.stale = true;
           show(target, {
             status: target.view.data === undefined ? 'error' : 'ready',
             data: target.view.data,
             error,
-          }),
-        ),
+          });
+        }),
     );
   };
   const scheduler = createRefreshScheduler<string>({
@@ -156,22 +191,49 @@ export function createQueryStore(options: QueryStoreOptions): QueryStore {
     run: (ids) => {
       for (const id of ids) {
         const target = entries.get(id);
-        if (target && target.listeners.size > 0) fetch(target);
+        if (target && target.watchers.size > 0) fetch(target);
       }
       return Promise.resolve();
     },
   });
   const matching = (prefixes: readonly QueryKey[]): Entry[] =>
     [...entries.values()].filter((target) => prefixes.some((prefix) => under(target.key, prefix)));
+  const forget = (target: Entry): void => {
+    target.generation++;
+    target.token++;
+    target.fetching = false;
+    target.dirty = false;
+    target.stale = true;
+    clearTimeout(target.drop);
+    settle(target);
+  };
+  const markStale = (prefixes: readonly QueryKey[]): string[] => {
+    const watched: string[] = [];
+    for (const target of matching(prefixes)) {
+      target.stale = true;
+      if (target.watchers.size > 0) watched.push(keyId(target.key));
+    }
+    return watched;
+  };
 
   return {
     subscribe(key, loader, listener) {
       const target = entry(key);
-      target.loader = loader;
-      target.listeners.add(listener);
-      if (!target.fetching && (target.view.status === 'idle' || target.stale)) fetch(target);
+      clearTimeout(target.drop);
+      const first = target.watchers.size === 0;
+      target.watchers.set(listener, loader);
+      // A read under way serves a watcher that comes back (StrictMode mounts twice).
+      if (!target.fetching && (first || target.view.status === 'idle' || target.stale))
+        fetch(target);
       return () => {
-        target.listeners.delete(listener);
+        target.watchers.delete(listener);
+        if (target.watchers.size > 0) return;
+        // Nobody watches it: its data is kept a while for a page visited again, then dropped.
+        target.drop = setTimeout(() => {
+          if (target.watchers.size > 0 || entries.get(keyId(key)) !== target) return;
+          forget(target);
+          entries.delete(keyId(key));
+        }, unwatchedMs);
       };
     },
     view<T>(key: QueryKey) {
@@ -186,25 +248,28 @@ export function createQueryStore(options: QueryStoreOptions): QueryStore {
       } as QueryState<T>;
     },
     invalidate(prefixes) {
-      const watched: string[] = [];
-      for (const target of matching(prefixes)) {
-        target.stale = true;
-        if (target.listeners.size > 0) watched.push(keyId(target.key));
-      }
+      const watched = markStale(prefixes);
       if (watched.length) scheduler.invalidate(watched);
     },
     refreshNow(prefixes) {
-      const watched: string[] = [];
-      for (const target of matching(prefixes)) {
-        target.stale = true;
-        if (target.listeners.size > 0) watched.push(keyId(target.key));
-      }
+      const watched = markStale(prefixes);
       if (watched.length) scheduler.refreshNow(watched);
+    },
+    refetch(key) {
+      const target = entries.get(keyId(key));
+      if (!target || target.watchers.size === 0) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        target.waiters.push(resolve);
+        target.stale = true;
+        fetch(target);
+      });
     },
     set(key, data) {
       const target = entry(key);
-      // A read already under way started before this response: its result is out of date.
+      // A read under way is dropped, and read again after: it may have begun before the
+      // command, or after it and carry later changes.
       target.token++;
+      if (target.fetching) target.dirty = true;
       target.stale = false;
       show(target, {
         status: 'ready',
@@ -215,20 +280,17 @@ export function createQueryStore(options: QueryStoreOptions): QueryStore {
     visibilityChanged() {
       scheduler.visibilityChanged();
     },
-    clear() {
-      epoch++;
+    clear(keep = () => false) {
       scheduler.reset();
       for (const target of entries.values()) {
-        target.fetching = false;
-        target.dirty = false;
-        target.stale = true;
+        if (keep(target.key)) continue;
+        forget(target);
         show(target, IDLE);
-        if (target.listeners.size > 0) fetch(target);
       }
     },
     dispose() {
-      epoch++;
       scheduler.dispose();
+      for (const target of entries.values()) forget(target);
       entries.clear();
     },
   };
@@ -285,9 +347,16 @@ export function resetFallbackQueryStore(): void {
   fallback = createQueryStore({ debounceMs: 0, maxWaitMs: 0 });
 }
 
-/** The app's store. */
+/**
+ * The app's store. Outside its provider only tests may read (the fallback above); the app
+ * itself never does, so nothing it shows can bypass sign-out or a change of workspace.
+ */
 export function useQueryStore(): QueryStore {
-  return useContext(QueryStoreContext) ?? fallback;
+  const store = useContext(QueryStoreContext);
+  if (store) return store;
+  if (import.meta.env.MODE !== 'test')
+    throw new Error('A query was read outside the app shell, which owns the query store.');
+  return fallback;
 }
 
 /** Reads a key, loading it when first watched; `undefined` reads nothing. */

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Roadmap } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
+import { testQueryStore } from '../../lib/query-store-testing.js';
 import { DecisionPreparationPanel } from './DecisionPreparationPanel.js';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
@@ -159,4 +160,34 @@ it("follows the panel's refreshed status, so a finished preparation can be prepa
       screen.getByRole('button', { name: 'Prepare decision brief' }).hasAttribute('disabled'),
     ).toBe(false),
   );
+});
+
+it("reads the map's supervision previews again after a refresh, as the window event did (R-D4 review M30)", async () => {
+  vi.mocked(request).mockResolvedValue({ version: 3, status: 'paused', decisions: [] });
+  const { store, wrap } = testQueryStore();
+  const preview = vi.fn(async () => ({}));
+  store.subscribe(
+    ['cross-project', 'ws', 'def-1', '4', 'T', 'target-only'],
+    preview,
+    () => undefined,
+  );
+  const crossProjectRoadmap = {
+    ...roadmap('paused'),
+    definition: { crossProject: { definitionId: 'def-1' } },
+  } as unknown as Roadmap;
+  render(
+    wrap(
+      <DecisionPreparationPanel
+        roadmap={crossProjectRoadmap}
+        backends={[]}
+        csrfToken="t"
+        disabled={false}
+      />,
+    ),
+  );
+  fireEvent.click(screen.getByText('Prepare architecture decision briefs'));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Refresh preparation status and decisions' }),
+  );
+  await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
 });

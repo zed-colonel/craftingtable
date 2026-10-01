@@ -24,17 +24,17 @@ export const queryKeys = {
   planBranches: (workspaceId: string, planVersionId: string) =>
     ['plan-branches', workspaceId, planVersionId] as const,
   notifications: (workspaceId: string) => ['notifications', workspaceId] as const,
-  /** The workspace's imported concurrency maps. */
-  concurrencyImports: (workspaceId: string) => ['concurrency-imports', workspaceId] as const,
 } satisfies Record<string, (...ids: string[]) => QueryKey>;
 
 const all = (family: string, workspaceId: string): QueryKey => [family, workspaceId];
 
 /**
  * Keys whose data Git holds: a branch can move outside the daemon, which no event reports, so a
- * visible tab re-reads these, and only these, once a minute (operator decision 2026-10-01).
+ * visible tab re-reads these, and only these, once a minute (operator decision 2026-10-01): a
+ * plan's branches, and a map's environment, whose pins' freshness is resolved from Git on every
+ * read (R-D4 review F1).
  */
-export const GIT_DERIVED_FAMILIES: readonly QueryKey[] = [['plan-branches']];
+export const GIT_DERIVED_FAMILIES: readonly QueryKey[] = [['plan-branches'], ['runtime']];
 
 /**
  * What a roadmap's views read: its list and statuses, and the maps' environments and
@@ -59,6 +59,14 @@ export function invalidationsFor(event: WorkspaceEventEnvelope): QueryKey[] {
     planVersionId === undefined
       ? []
       : [queryKeys.finalizations(ws, planVersionId), queryKeys.planBranches(ws, planVersionId)];
+  /**
+   * A work item's merge, completion or scope evidence moves its plan's integration branch and
+   * readiness, and the event does not name the plan: every plan's (R-D4 review F5).
+   */
+  const plans = (planVersionId: string | undefined): QueryKey[] =>
+    planVersionId === undefined
+      ? [all('finalizations', ws), all('plan-branches', ws)]
+      : plan(planVersionId);
   switch (event.kind) {
     // Workspaces, projects, plan imports and repositories: no query of these families shows them.
     case 'workspace-created':
@@ -74,10 +82,11 @@ export function invalidationsFor(event: WorkspaceEventEnvelope): QueryKey[] {
       return [];
     case 'work-item-admitted':
     case 'work-item-removed-from-agenda':
-    case 'work-item-completed':
     case 'scope-scheduling-authorized':
-    case 'scope-evidence-recorded':
       return roadmapViews(ws);
+    case 'work-item-completed':
+    case 'scope-evidence-recorded':
+      return [...roadmapViews(ws), ...plans(undefined)];
     case 'runtime-evidence-changed':
       return [
         queryKeys.roadmaps(ws),
@@ -99,8 +108,9 @@ export function invalidationsFor(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'worktree-created':
     case 'worktree-removed':
     case 'work-cycle-changed':
-    case 'worktree-merged':
       return [...roadmapViews(ws), ...plan(event.payload.planVersionId)];
+    case 'worktree-merged':
+      return [...roadmapViews(ws), ...plans(event.payload.planVersionId)];
     case 'branches-changed':
       return [...roadmapViews(ws), ...plan(event.payload.planVersionId)];
     case 'agent-run-started':

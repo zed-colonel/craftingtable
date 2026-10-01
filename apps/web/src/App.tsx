@@ -392,8 +392,8 @@ export function App() {
       setWorkspaceError(undefined);
       setWorkspaceNotice(undefined);
       dispatch({ type: 'workspace-changed' });
-      // Nothing read for the previous workspace is shown under the next.
-      queries.clear();
+      // Nothing read for another workspace is kept; the next one's queries stay as they are.
+      queries.clear((key) => key[1] === next);
       if (next !== undefined) {
         rememberWorkspace(next);
       }

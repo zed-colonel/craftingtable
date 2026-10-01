@@ -126,8 +126,8 @@ export function NotificationPanel({
             type="button"
             onClick={() => {
               setError(undefined);
-              setDraft(undefined);
-              store.refreshNow([key]);
+              // The form takes the status read now, not the one cached (R-D4 review F3).
+              void store.refetch(key).then(() => setDraft(undefined));
             }}
           >
             Reload settings

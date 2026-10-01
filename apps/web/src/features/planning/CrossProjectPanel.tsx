@@ -153,8 +153,9 @@ export function CrossProjectPanel({
       : preview.error instanceof Error
         ? preview.error.message
         : 'Could not inspect the roadmap.');
+  /** After a command: the preview it changed is read before the controls are offered again. */
   const refresh = async () => {
-    if (previewKey) store.refreshNow([previewKey]);
+    if (previewKey) await store.refetch(previewKey);
   };
   /** The environment shows what this panel adopts and saves: it is read again at once. */
   const savedPlanChanged = () => store.refreshNow([queryKeys.runtime(workspaceId, definitionId)]);

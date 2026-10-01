@@ -1,13 +1,15 @@
 import type { FinalizationView } from '@craftingtable/contracts';
 import { asPlanVersionId, asWorkspaceId } from '@craftingtable/domain';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { loadExecutionStatus } from '../../lib/execution-api.js';
+import { request } from '../../lib/api-client.js';
 import { loadFinalizations } from '../../lib/finalization-api.js';
 import { FinalizationDecision } from './FinalizationDecision.js';
 
 vi.mock('../../lib/execution-api.js', () => ({ loadExecutionStatus: vi.fn() }));
 vi.mock('../../lib/finalization-api.js', () => ({ loadFinalizations: vi.fn() }));
+vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -67,4 +69,27 @@ it('does not take another finalization for one it cannot find', async () => {
     />,
   );
   expect(await screen.findByText(/could not be loaded/)).toBeTruthy();
+});
+
+it('reads the finalization again after its own decision, and tells its host (R-D4 review M26)', async () => {
+  vi.mocked(loadExecutionStatus).mockResolvedValue({ backends: [] } as never);
+  vi.mocked(loadFinalizations).mockResolvedValue({ finalizations: [recovering] } as never);
+  vi.mocked(request).mockResolvedValue({});
+  const onChanged = vi.fn();
+  render(
+    <FinalizationDecision
+      workspaceId={asWorkspaceId('ws')}
+      planVersionId={asPlanVersionId('plan')}
+      worktreeId="tree-1"
+      csrfToken="csrf"
+      canMutate
+      onChanged={onChanged}
+      onOpenRun={vi.fn()}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Recover approved promotion' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Approve merge into main' }));
+  await waitFor(() => expect(request).toHaveBeenCalled());
+  await waitFor(() => expect(loadFinalizations).toHaveBeenCalledTimes(2));
+  expect(onChanged).toHaveBeenCalled();
 });

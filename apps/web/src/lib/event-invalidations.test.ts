@@ -3,7 +3,7 @@ import {
   workspaceEventEnvelopeSchema,
 } from '@craftingtable/contracts';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { invalidationsFor, queryKeys } from './event-invalidations.js';
+import { GIT_DERIVED_FAMILIES, invalidationsFor, queryKeys } from './event-invalidations.js';
 import { createQueryStore } from './query-store.js';
 
 beforeEach(() => vi.useFakeTimers());
@@ -82,4 +82,25 @@ it('makes no request for an event that changes nothing a mounted query shows (R-
   );
   expect(named).not.toContainEqual(queryKeys.roadmapStatus(ws, 'r2'));
   expect(loads).toHaveBeenCalledTimes(named.length);
+});
+
+it("refreshes every plan's branches and finalizations on a work item's merge, completion or evidence, which name no plan (R-D4 review F5)", () => {
+  for (const kind of ['worktree-merged', 'work-item-completed', 'scope-evidence-recorded'])
+    expect(
+      invalidationsFor(event(kind, { workItemId: 'w', payload: { workItemId: 'w' } })),
+      kind,
+    ).toEqual(
+      expect.arrayContaining([
+        ['finalizations', ws],
+        ['plan-branches', ws],
+      ]),
+    );
+  // A plan's own merge names it: that plan only.
+  const own = invalidationsFor(event('worktree-merged', { payload: { planVersionId: 'p1' } }));
+  expect(own).toEqual(expect.arrayContaining([queryKeys.planBranches(ws, 'p1')]));
+  expect(own).not.toEqual(expect.arrayContaining([['plan-branches', ws]]));
+});
+
+it("re-reads only Git's data on the visible tab's minute: plan branches and maps' environments (R-D4 review F1)", () => {
+  expect(GIT_DERIVED_FAMILIES).toEqual([['plan-branches'], ['runtime']]);
 });

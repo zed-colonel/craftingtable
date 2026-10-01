@@ -295,3 +295,44 @@ it("re-reads the target's prerequisites on its map's evidence and roadmap events
   store.refreshNow([['cross-project', ws, id]]);
   await waitFor(() => expect(previewCrossProject).toHaveBeenCalledTimes(4));
 });
+
+it("reads the map's environment again after adopting, and re-offers the controls only with the preview read again (R-D4 review M22, F8)", async () => {
+  const { store, wrap } = testQueryStore();
+  // The environment's panel, watching its key in the same store.
+  const environment = vi.fn(async () => ({ generation: 1 }));
+  store.subscribe(['runtime', ws, id], environment, () => undefined);
+  setup(undefined, undefined, undefined, wrap);
+  fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
+  await screen.findByText('2 selected milestones');
+  const adopt = screen.getByRole('button', { name: 'Adopt scheduling proposals' });
+  fireEvent.click(screen.getByLabelText(/I approve all listed/));
+  fireEvent.change(screen.getByLabelText('Adoption rationale'), {
+    target: { value: 'Reviewed preserved obligations.' },
+  });
+  vi.mocked(adoptCrossProject).mockResolvedValue({ adopted: true });
+  // The preview read after the command answers only when told.
+  let answer: () => void = () => undefined;
+  const previewed = vi.mocked(previewCrossProject).getMockImplementation()!;
+  vi.mocked(previewCrossProject).mockImplementationOnce(
+    (...args) =>
+      new Promise((resolve) => {
+        answer = () => resolve(previewed(...args));
+      }),
+  );
+  const before = environment.mock.calls.length;
+  fireEvent.click(adopt);
+  await waitFor(() => expect(adoptCrossProject).toHaveBeenCalled());
+  await waitFor(() => expect(environment.mock.calls.length).toBe(before + 1));
+  // Busy until the preview is read again: no second adoption from a stale list.
+  expect(
+    (screen.getByRole('button', { name: 'Refresh scope and evidence' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  answer();
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Refresh scope and evidence' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
+  );
+});

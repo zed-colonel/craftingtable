@@ -230,6 +230,8 @@ const snapshotCalls: string[] = [];
 const readCalls: string[] = [];
 /** The settings page's notification status, a store query (R-D4). */
 const notificationCalls: string[] = [];
+/** When set, the next notification reads wait for it: a read still under way. */
+let notificationGate: Promise<void> | undefined;
 let pendingSnapshotB: Deferred<WorkspaceSnapshotResponse>;
 /** When set, workspace A's snapshot waits for it: a slow round on the daemon. */
 let snapshotAGate: Promise<void> | undefined;
@@ -294,15 +296,30 @@ vi.mock('./lib/branch-api.js', () => ({
 vi.mock('./lib/notification-api.js', async () => {
   const { DEFAULT_NOTIFICATION_PREFERENCES } = await import('@craftingtable/domain');
   return {
-    loadNotifications: () => {
+    loadNotifications: async () => {
       notificationCalls.push('status');
+      if (notificationGate) await notificationGate;
       return Promise.resolve({
         preferences: DEFAULT_NOTIFICATION_PREFERENCES,
         version: 1,
         credentialsConfigured: false,
         blockedReason: null,
         retryAt: null,
-        records: [],
+        records: [
+          {
+            id: 'record',
+            kind: 'attention',
+            title: 'Earlier session record',
+            message: '',
+            path: '/',
+            state: 'active',
+            createdAt: '2026-09-30T00:00:00.000Z',
+            lastSentAt: null,
+            nextAttemptAt: '2026-09-30T00:00:00.000Z',
+            deliveredCount: 0,
+            lastError: null,
+          },
+        ],
       });
     },
     saveNotifications: () => new Promise(() => undefined),
@@ -601,6 +618,24 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
     expect(notificationCalls.length).toBe(before + 2);
+  });
+
+  it("never shows a signed-out session's data to the next one, while the next one's read is under way (R-D4 review M16)", async () => {
+    window.history.pushState(null, '', '/workspaces/workspace-a/settings');
+    renderApp();
+    expect(await screen.findByText('Earlier session record')).toBeTruthy();
+    notificationGate = new Promise(() => undefined);
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+      fireEvent.change(await screen.findByLabelText('Username'), { target: { value: 'operator' } });
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+      window.history.pushState(null, '', '/workspaces/workspace-a/settings');
+      await waitFor(() => expect(notificationCalls.length).toBeGreaterThan(1));
+      expect(screen.queryByText('Earlier session record')).toBeNull();
+    } finally {
+      notificationGate = undefined;
+    }
   });
 
   it('reads nothing while the tab is hidden and catches up once when shown', async () => {

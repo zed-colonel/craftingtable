@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
+import { testQueryStore } from '../../lib/query-store-testing.js';
 import { CheckpointPreparation } from './CheckpointPreparation.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -27,17 +28,28 @@ const prepared = {
   worktreeId: 'tree',
   candidates: [{ ...candidate, submission: { id: 'packet' } }],
 };
+/** The map's supervision preview, watching its key in the shared store (R-D4 review M31). */
+let previewReads = vi.fn();
 function show() {
   const onChanged = vi.fn();
+  const { store, wrap } = testQueryStore();
+  previewReads = vi.fn(async () => ({}));
+  store.subscribe(
+    ['cross-project', 'ws', 'map', '1', 'T', 'target-only'],
+    previewReads,
+    () => undefined,
+  );
   render(
-    <CheckpointPreparation
-      workspaceId="ws"
-      definitionId="map"
-      worktreeId="tree"
-      csrfToken="csrf"
-      canMutate
-      onChanged={onChanged}
-    />,
+    wrap(
+      <CheckpointPreparation
+        workspaceId="ws"
+        definitionId="map"
+        worktreeId="tree"
+        csrfToken="csrf"
+        canMutate
+        onChanged={onChanged}
+      />,
+    ),
   );
   return onChanged;
 }
@@ -71,6 +83,8 @@ it('prepares saved proof and requires explicit responsibilities and rationale be
     checkpointReviewRoles: ['provider-maintainer', 'consumer-maintainer'],
   });
   expect(changed).toHaveBeenCalledTimes(2);
+  // The accepted evidence changes what the map's previews show: they are read again.
+  await waitFor(() => expect(previewReads).toHaveBeenCalledTimes(2));
 });
 it('shows stale evidence without dropping operator rationale or enabling acceptance', async () => {
   vi.mocked(request)

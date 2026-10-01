@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { queryKeys } from '../../lib/event-invalidations.js';
+import { GIT_DERIVED_FAMILIES, queryKeys } from '../../lib/event-invalidations.js';
 import { createQueryStore, QueryStoreProvider } from '../../lib/query-store.js';
 import { testQueryStore } from '../../lib/query-store-testing.js';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -254,14 +254,24 @@ it('discovers an editable draft, opens setup, and only persists after explicit s
     .mockResolvedValueOnce(initial)
     .mockResolvedValueOnce({ configuration, notes: ['Review this draft.'] })
     .mockResolvedValueOnce(view());
+  // The map's supervision preview, watching its key in the same store (R-D4 review M23).
+  const { store, wrap } = testQueryStore();
+  const preview = vi.fn(async () => ({}));
+  store.subscribe(
+    ['cross-project', 'workspace', runtimeId, '1', 'PROOF', 'target-only'],
+    preview,
+    () => undefined,
+  );
   render(
-    <RuntimeEvidencePanel
-      workspaceId={asWorkspaceId('workspace')}
-      definitionId={runtimeId}
-      bindingRevision={1}
-      csrfToken="csrf"
-      canMutate
-    />,
+    wrap(
+      <RuntimeEvidencePanel
+        workspaceId={asWorkspaceId('workspace')}
+        definitionId={runtimeId}
+        bindingRevision={1}
+        csrfToken="csrf"
+        canMutate
+      />,
+    ),
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Set up dependencies' }));
   expect(
@@ -285,6 +295,8 @@ it('discovers an editable draft, opens setup, and only persists after explicit s
   fireEvent.click(screen.getByRole('button', { name: 'Save dependency environment' }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
   expect(vi.mocked(request).mock.calls[2]?.[0]).toMatch(/\/configure$/);
+  // The saved environment changes what the map's previews show: they are read again.
+  await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
 });
 
 it('separates saved readiness, evidence generation and explicit independent plan acceptance', async () => {
@@ -653,4 +665,89 @@ it("re-reads its map's environment on that map's evidence events, never another 
     payload: { definitionId: runtimeId, message: 'x' },
   });
   await waitFor(() => expect(reads()).toBe(2));
+});
+
+it("re-reads its map's environment on the visible tab's minute, and at once for a new binding or roadmap revision (R-D4 review F1, M24)", async () => {
+  vi.mocked(request).mockResolvedValue({ ...view(), submissions: [], subjects: [] });
+  const { store, wrap } = testQueryStore();
+  const panel = (bindingRevision: number) =>
+    wrap(
+      <RuntimeEvidencePanel
+        workspaceId={asWorkspaceId('workspace')}
+        definitionId={runtimeId}
+        bindingRevision={bindingRevision}
+        csrfToken="csrf"
+        canMutate
+      />,
+    );
+  const { rerender } = render(panel(1));
+  await screen.findByRole('button', { name: 'Set up dependencies' });
+  const reads = () =>
+    vi.mocked(request).mock.calls.filter(([url]) => String(url).endsWith('/runtime')).length;
+  expect(reads()).toBe(1);
+  // Pin freshness is resolved from Git on every read: the minute reads it again.
+  act(() => store.invalidate(GIT_DERIVED_FAMILIES));
+  await waitFor(() => expect(reads()).toBe(2));
+  rerender(panel(2));
+  await waitFor(() => expect(reads()).toBe(3));
+});
+
+it('keeps an unsaved setup draft when the environment is read again in the background (R-D4 review M21)', async () => {
+  const pinned = (ref: string) => ({
+    ...view(),
+    submissions: [],
+    subjects: [],
+    current: {
+      ...current,
+      pins: [
+        {
+          alias: 'aq',
+          ref,
+          commitSha: 'd'.repeat(40),
+          conformanceRevision: '16',
+          packages: [{ name: 'queue', path: '' }],
+        },
+      ],
+    },
+    repositories: [
+      {
+        alias: 'aq',
+        role: 'implemented_upstream',
+        configured: true,
+        integrationBranch: 'main',
+        requiredUpstreams: [],
+        conformanceRevision: '16',
+      },
+    ],
+  });
+  vi.mocked(request).mockResolvedValue(pinned('main'));
+  const { wrap, send } = testQueryStore();
+  render(
+    wrap(
+      <RuntimeEvidencePanel
+        workspaceId={asWorkspaceId('workspace')}
+        definitionId={runtimeId}
+        bindingRevision={1}
+        csrfToken="csrf"
+        canMutate
+      />,
+    ),
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up dependencies' }));
+  const ref = screen.getByLabelText('aq · branch or commit') as HTMLInputElement;
+  fireEvent.change(ref, { target: { value: 'other-branch' } });
+  // Automation saved another generation meanwhile.
+  vi.mocked(request).mockResolvedValue(pinned('release'));
+  await send('runtime-evidence-changed', {
+    workspaceId: 'workspace',
+    payload: { definitionId: runtimeId, message: 'x' },
+  });
+  await waitFor(() =>
+    expect(
+      vi.mocked(request).mock.calls.filter(([url]) => String(url).endsWith('/runtime')).length,
+    ).toBe(2),
+  );
+  expect((screen.getByLabelText('aq · branch or commit') as HTMLInputElement).value).toBe(
+    'other-branch',
+  );
 });

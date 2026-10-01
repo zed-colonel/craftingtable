@@ -5,7 +5,7 @@ import { resetFallbackQueryStore } from '../../lib/query-store.js';
 import { testQueryStore } from '../../lib/query-store-testing.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { loadConcurrencyDefinition, loadConcurrencyImports } from '../../lib/package-import-api.js';
-import { loadRoadmapHistory, loadRoadmaps } from '../../lib/roadmap-api.js';
+import { controlRoadmap, loadRoadmapHistory, loadRoadmaps } from '../../lib/roadmap-api.js';
 import { ConcurrencyImports } from './ConcurrencyImports.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { AmendmentDecision } from '../../decisions/amendment/AmendmentDecision.js';
@@ -434,4 +434,21 @@ it('re-reads the roadmaps on their events, once for every view that lists them, 
   expect(loadRoadmaps).toHaveBeenCalledTimes(reads);
   await send('roadmap-changed', { workspaceId: ws, payload: { roadmapId: 'r-active' } });
   await waitFor(() => expect(loadRoadmaps).toHaveBeenCalledTimes(reads + 1));
+});
+
+it("shows a command's returned roadmap at once, in the list every view shares (R-D4 review M27)", async () => {
+  const { wrap } = testQueryStore();
+  render(wrap(<RoadmapPage {...common} roadmapId="r-active" tab="board" />));
+  const resume = await screen.findByRole('button', { name: 'Resume roadmap' });
+  const resumed = roadmap('r-active', 'Cross-project roadmap', 'running', {
+    definitionId: 'def-1',
+    bindingRevision: 4,
+  });
+  // A read after the command answers late; the command's own response shows meanwhile.
+  vi.mocked(loadRoadmaps).mockImplementation(() => new Promise(() => undefined));
+  vi.mocked(controlRoadmap).mockResolvedValue(resumed as never);
+  fireEvent.click(resume);
+  await waitFor(() => expect(controlRoadmap).toHaveBeenCalled());
+  expect(await screen.findByRole('button', { name: 'Pause roadmap' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Resume roadmap' })).toBeNull();
 });

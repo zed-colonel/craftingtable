@@ -154,6 +154,156 @@ describe('query store (R-D4)', () => {
   });
 });
 
+describe('query store, after the 4a review', () => {
+  it('reads a key again for a watcher that comes back, showing what is cached meanwhile (F2)', async () => {
+    const store = createQueryStore(options);
+    let n = 0;
+    const load = vi.fn(async () => ++n);
+    const off = store.subscribe(['k'], load, () => undefined);
+    await settle();
+    off();
+    store.subscribe(['k'], load, () => undefined);
+    expect(store.read(['k'])).toMatchObject({ data: 1, fetching: true });
+    await settle();
+    expect(store.read(['k']).data).toBe(2);
+  });
+
+  it('leaves a failed read stale, so the next watcher reads it again (F2)', async () => {
+    const store = createQueryStore(options);
+    const load = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(new Error('daemon restarting'))
+      .mockResolvedValue('back');
+    const off = store.subscribe(['k'], load, () => undefined);
+    await settle();
+    expect(store.read(['k'])).toMatchObject({ status: 'error', stale: true });
+    off();
+    store.subscribe(['k'], load, () => undefined);
+    await settle();
+    expect(store.read(['k'])).toMatchObject({ status: 'ready', data: 'back' });
+  });
+
+  it("drops a read under way when a command's response arrives, and reads again after it (F4, M1)", async () => {
+    const store = createQueryStore(options);
+    const { load, pending } = controlled<string>();
+    store.subscribe(['k'], load, () => undefined);
+    pending[0]!.resolve('v1');
+    await settle();
+    store.refreshNow([['k']]);
+    store.set(['k'], 'v2 from the command');
+    // The older read lands: it never overwrites the response.
+    pending[1]!.resolve('v1 again');
+    await settle();
+    expect(store.read(['k']).data).toBe('v2 from the command');
+    // The read owed after it carries later changes.
+    expect(load).toHaveBeenCalledTimes(3);
+    pending[2]!.resolve('v3');
+    await settle();
+    expect(store.read(['k']).data).toBe('v3');
+  });
+
+  it('never lets a read begun before a clear repopulate it, watched or not (M3)', async () => {
+    const store = createQueryStore(options);
+    const { load, pending } = controlled<string>();
+    const off = store.subscribe(['k'], load, () => undefined);
+    off();
+    store.clear();
+    pending[0]!.resolve("the previous user's data");
+    await settle();
+    expect(store.read(['k']).data).toBeUndefined();
+  });
+
+  it('never lets a read begun before a clear end the read begun after it (R5)', async () => {
+    const store = createQueryStore(options);
+    const { load, pending } = controlled<string>();
+    store.subscribe(['k'], load, () => undefined);
+    store.clear();
+    // Watched again: the read after the clear is under way.
+    store.subscribe(['k'], load, () => undefined);
+    expect(load).toHaveBeenCalledTimes(2);
+    pending[0]!.resolve('before the clear');
+    await settle();
+    // Still one read at a time: a refresh owes a follow-up, it does not start a third.
+    store.refreshNow([['k']]);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(store.read(['k']).data).toBeUndefined();
+  });
+
+  it("keeps the keys a clear is told to keep, reads nothing itself, and a forgotten key's watcher reads it again (F6, M6)", async () => {
+    const store = createQueryStore(options);
+    const a = vi.fn(async () => 'a');
+    const b = vi.fn(async () => 'b');
+    store.subscribe(['f', 'ws-1'], a, () => undefined);
+    const offB = store.subscribe(['f', 'ws-2'], b, () => undefined);
+    await settle();
+    store.clear((key) => key[1] === 'ws-1');
+    await settle();
+    expect(store.read(['f', 'ws-1']).data).toBe('a');
+    expect(store.read(['f', 'ws-2']).data).toBeUndefined();
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+    offB();
+    store.subscribe(['f', 'ws-2'], b, () => undefined);
+    await settle();
+    expect(store.read(['f', 'ws-2']).data).toBe('b');
+  });
+
+  it('settles a refetch once a read begun after it has ended (F3, F8)', async () => {
+    const store = createQueryStore(options);
+    const { load, pending } = controlled<string>();
+    store.subscribe(['k'], load, () => undefined);
+    let done = false;
+    // A read is under way: the refetch waits for the one owed after it.
+    void store.refetch(['k']).then(() => {
+      done = true;
+    });
+    pending[0]!.resolve('before');
+    await settle();
+    expect(done).toBe(false);
+    pending[1]!.resolve('after');
+    await settle();
+    expect(done).toBe(true);
+    expect(store.read(['k']).data).toBe('after');
+    // Nobody watches it: there is nothing to read.
+    await expect(store.refetch(['unwatched'])).resolves.toBeUndefined();
+  });
+
+  it('drops a key nobody watches after a while, and keeps a watched one (F7)', async () => {
+    const store = createQueryStore({ ...options, unwatchedMs: 60_000 });
+    const off = store.subscribe(
+      ['gone'],
+      async () => 1,
+      () => undefined,
+    );
+    store.subscribe(
+      ['kept'],
+      async () => 2,
+      () => undefined,
+    );
+    await settle();
+    off();
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(store.read(['gone']).data).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.read(['gone']).data).toBeUndefined();
+    expect(store.read(['kept']).data).toBe(2);
+  });
+
+  it("reads with the newest remaining watcher's loader, never a gone one's (NIT)", async () => {
+    const store = createQueryStore(options);
+    const first = vi.fn(async () => 'first');
+    const second = vi.fn(async () => 'second');
+    store.subscribe(['k'], first, () => undefined);
+    await settle();
+    const off = store.subscribe(['k'], second, () => undefined);
+    off();
+    store.refreshNow([['k']]);
+    await settle();
+    expect(second).not.toHaveBeenCalled();
+    expect(first).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('replaceEqualDeep', () => {
   it('returns the previous value where nothing changed, at every level', () => {
     const previous = { a: [1, { b: 2 }], c: 'x' };

@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { loadPlanBranchSettings } from '../../lib/branch-api.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
-import { loadFinalizations } from '../../lib/finalization-api.js';
+import { loadFinalizations, startFinalization } from '../../lib/finalization-api.js';
 import { testQueryStore } from '../../lib/query-store-testing.js';
 import type { ReactElement } from 'react';
 import legacyRecord from '../../../../../fixtures/records/legacy-finalization-2026-09-13.json?raw';
@@ -114,4 +114,27 @@ it("re-reads its plan's finalizations on its own cycles' and runs' events, and i
   store.invalidate([['plan-branches']]);
   await waitFor(() => expect(loadPlanBranchSettings).toHaveBeenCalledTimes(branches + 1));
   expect(loadFinalizations).toHaveBeenCalledTimes(2);
+});
+
+it('reads its finalizations and its branches again after its own command (R-D4 review M25)', async () => {
+  const { wrap } = testQueryStore();
+  renderPanel(
+    [
+      {
+        finalization: legacy.finalization,
+        cycle: legacy.cycle,
+        runs: [],
+        mergeRecoveryPending: false,
+      },
+    ],
+    wrap,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up finalization' }));
+  const finalizations = vi.mocked(loadFinalizations).mock.calls.length;
+  const branches = vi.mocked(loadPlanBranchSettings).mock.calls.length;
+  vi.mocked(startFinalization).mockResolvedValue({} as never);
+  fireEvent.click(await screen.findByRole('button', { name: 'Start finalization' }));
+  await waitFor(() => expect(startFinalization).toHaveBeenCalled());
+  await waitFor(() => expect(loadFinalizations).toHaveBeenCalledTimes(finalizations + 1));
+  await waitFor(() => expect(loadPlanBranchSettings).toHaveBeenCalledTimes(branches + 1));
 });

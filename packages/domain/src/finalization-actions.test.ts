@@ -96,13 +96,33 @@ it('offers the decisions a staged finalization can be given now, one rule for co
   expect(
     finalizationActions({ ...base, finalization: { status: 'preparing', stages: [] } as never }),
   ).toEqual(['resume']);
-  // Ended, or the retired improvement rounds: nothing.
+  // Ended: nothing.
   for (const finalization of [
     { status: 'completed', stages: [] },
     { status: 'stopped', stages: [] },
-    { status: 'active' },
   ])
     expect(finalizationActions({ ...base, finalization: finalization as never })).toEqual([]);
+  // The retired improvement rounds: only an approved or reserved promotion; Stop is the
+  // panel's (R-A6 2b review).
+  const retired = { status: 'active' } as never;
+  expect(
+    finalizationActions({ ...base, finalization: retired, cycle: { status: 'paused' } as never }),
+  ).toEqual([]);
+  expect(
+    finalizationActions({
+      ...base,
+      finalization: retired,
+      cycle: { status: 'awaiting-merge' } as never,
+    }),
+  ).toEqual(['merge']);
+  expect(
+    finalizationActions({
+      ...base,
+      mergeRecoveryPending: true,
+      finalization: retired,
+      cycle: { status: 'paused' } as never,
+    }),
+  ).toEqual(['merge']);
 });
 
 it("counts only the current review's explicit proposals, as approve-plan-change does", () => {

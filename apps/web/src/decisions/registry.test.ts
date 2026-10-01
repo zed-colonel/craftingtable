@@ -233,6 +233,16 @@ it('decides merges, scope evidence, checks, runs, finalization, storage and prot
       }),
     ),
   ).toEqual([{ kind: 'finalization-decision' }]);
+  // A retired improvement-round finalization is stopped on its panel.
+  expect(
+    decisionsFor(
+      item({
+        subjectKey: 'cycle:f',
+        code: 'legacy-finalization-retired',
+        refs: { cycleId: 'f', planVersionId: 'p', projectId: 'pr' },
+      }),
+    ),
+  ).toEqual([{ kind: 'finalization' }]);
   // A finalization's own stops render its decisions; its cleanup stays on the panel (R-A6 2b).
   for (const code of ['final-promotion', 'stage-batch-selection', 'remediation-exhausted'] as const)
     expect(

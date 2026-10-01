@@ -51,6 +51,7 @@ export type FinalizationDecision = (typeof FINALIZATION_DECISIONS)[number];
  *   current review proposes, else its batch selection, else focused remediation of the checkpoint's
  *   findings and more attempts where the daemon allows them.
  * - `resume`: whenever the finalization is preparing or its cycle is not running.
+ * - A retired, stage-less finalization: only `merge`, approved or reserved.
  */
 export function finalizationActions(input: {
   readonly finalization: Pick<Finalization, 'status' | 'stages'>;
@@ -63,8 +64,11 @@ export function finalizationActions(input: {
   readonly canAuthorizeRemediation: boolean;
 }): FinalizationDecision[] {
   const { finalization, cycle } = input;
-  if (!['active', 'preparing'].includes(finalization.status) || !finalization.stages) return [];
+  if (!['active', 'preparing'].includes(finalization.status)) return [];
   if (input.mergeRecoveryPending) return ['merge'];
+  // A retired improvement-round finalization can still be promoted once approved, or stopped
+  // (a manual control); nothing else (R-A6 2b review).
+  if (!finalization.stages) return cycle?.status === 'awaiting-merge' ? ['merge'] : [];
   const actions: FinalizationDecision[] = [];
   if (cycle?.status === 'awaiting-merge' && cycle.polishPhase === 'final-review')
     actions.push('merge');

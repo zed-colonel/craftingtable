@@ -162,8 +162,11 @@ export function decisionsFor(item: AttentionItemView): readonly Decision[] {
   // A finalization's own cycle, merge or cleanup has no work item.
   if (workItemId === undefined && planVersionId !== undefined)
     // A promoted finalization's cleanup is a manual control on its panel: the integration
-    // branch's removal, or the merged worktree's cleanup retried (R-A6 2b review).
-    return code === 'finalization-cleanup-blocked' || code === 'merge-cleanup-failed'
+    // branch's removal, or the merged worktree's cleanup retried; so is stopping a retired
+    // improvement-round finalization (R-A6 2b review).
+    return code === 'finalization-cleanup-blocked' ||
+      code === 'merge-cleanup-failed' ||
+      code === 'legacy-finalization-retired'
       ? [{ kind: 'finalization' }]
       : FINALIZATION.has(code) || ['cycle', 'merge', 'run', 'finalization'].includes(subject(item))
         ? [{ kind: 'finalization-decision' }]

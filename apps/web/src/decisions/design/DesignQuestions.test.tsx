@@ -8,10 +8,10 @@ import {
 } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
-import { DesignRecoveryPanel } from './DesignRecoveryPanel.js';
+import { previewDesignRecovery, recoverDesign } from './design-api.js';
+import { DesignQuestions } from './DesignQuestions.js';
 
-vi.mock('../../lib/work-cycle-api.js', () => ({
+vi.mock('./design-api.js', () => ({
   previewDesignRecovery: vi.fn(),
   recoverDesign: vi.fn(),
 }));
@@ -59,12 +59,7 @@ it('only discovers on request, defaults to bounded investigation, and retains gu
   vi.mocked(recoverDesign).mockRejectedValue(new Error('Evidence changed; refresh.'));
   const onChanged = vi.fn();
   render(
-    <DesignRecoveryPanel
-      cycle={cycle}
-      backends={backends}
-      csrfToken="csrf"
-      onChanged={onChanged}
-    />,
+    <DesignQuestions cycle={cycle} backends={backends} csrfToken="csrf" onChanged={onChanged} />,
   );
   expect(previewDesignRecovery).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
@@ -102,12 +97,12 @@ it('only discovers on request, defaults to bounded investigation, and retains gu
 it('disables a preview when the cycle changes until discovery is refreshed', async () => {
   vi.mocked(previewDesignRecovery).mockResolvedValue(preview);
   const view = render(
-    <DesignRecoveryPanel cycle={cycle} backends={backends} csrfToken="csrf" onChanged={vi.fn()} />,
+    <DesignQuestions cycle={cycle} backends={backends} csrfToken="csrf" onChanged={vi.fn()} />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
   await screen.findByText('Who owns this decision?');
   view.rerender(
-    <DesignRecoveryPanel
+    <DesignQuestions
       cycle={{ ...cycle, version: 3 }}
       backends={backends}
       csrfToken="csrf"
@@ -187,7 +182,7 @@ it('shows accepted shared decisions after discovery without resuming or requirin
     },
   });
   render(
-    <DesignRecoveryPanel cycle={cycle} backends={backends} csrfToken="csrf" onChanged={vi.fn()} />,
+    <DesignQuestions cycle={cycle} backends={backends} csrfToken="csrf" onChanged={vi.fn()} />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
   await screen.findByText('Accepted · full architectural decision');
@@ -198,7 +193,7 @@ it('shows accepted shared decisions after discovery without resuming or requirin
 
 it('surfaces a completed investigation without requiring evidence rediscovery', () => {
   render(
-    <DesignRecoveryPanel
+    <DesignQuestions
       cycle={{
         ...cycle,
         designRecovery: {

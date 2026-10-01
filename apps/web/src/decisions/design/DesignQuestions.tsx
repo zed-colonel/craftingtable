@@ -8,18 +8,23 @@ import type { AgentBackendKind, WorkCycle } from '@craftingtable/domain';
 import { useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { revealElement } from '../../lib/reveal-element.js';
-import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
-import { SharedDecisionInbox } from '../planning/SharedDecisionInbox.js';
-import { BaselinePreparationPanel } from './BaselinePreparationPanel.js';
-import { SourceRunReport } from './SourceRunReport.js';
-import { ModelField } from './ModelField.js';
-import { ReasoningEffortField } from './ReasoningEffortField.js';
+import { previewDesignRecovery, recoverDesign } from './design-api.js';
+import { SharedDecisionInbox } from '../../features/planning/SharedDecisionInbox.js';
+import { BaselinePreparation } from './BaselinePreparation.js';
+import { SourceRunReport } from '../../features/execution/SourceRunReport.js';
+import { ModelField } from '../../features/execution/ModelField.js';
+import { ReasoningEffortField } from '../../features/execution/ReasoningEffortField.js';
 import { distinct } from '../../lib/distinct.js';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import { Link } from '../../lib/navigation.js';
 import { useRouteFocus } from '../../lib/navigation.js';
 
-export function DesignRecoveryPanel({
+/**
+ * A stopped design step's decision (R-A6 increment 2a): answer its questions and continue,
+ * clarify, or restart it, with the historical baseline its evidence needs. It renders in the
+ * cycle's inbox item, and on the work item page when no item carries the cycle's stop.
+ */
+export function DesignQuestions({
   cycle,
   backends,
   csrfToken,
@@ -156,7 +161,7 @@ export function DesignRecoveryPanel({
                   }}
                 />
               )}
-              <BaselinePreparationPanel
+              <BaselinePreparation
                 cycle={cycle}
                 csrfToken={csrfToken}
                 onChanged={() => {

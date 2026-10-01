@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import type { WorkCycle } from '@craftingtable/domain';
 import type { BaselinePreview } from '@craftingtable/contracts';
-import { prepareBaseline, previewBaseline } from '../../lib/work-cycle-api.js';
+import { prepareBaseline, previewBaseline } from './design-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
 
-export function BaselinePreparationPanel({
+export function BaselinePreparation({
   cycle,
   csrfToken,
   onChanged,

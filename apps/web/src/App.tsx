@@ -59,7 +59,7 @@ import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { AccountPage } from './features/account/AccountPage.js';
 import { CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
-import { DesignRecoveryPanel } from './features/execution/DesignRecoveryPanel.js';
+import { DesignQuestions } from './decisions/design/DesignQuestions.js';
 import { DiffView } from './features/execution/DiffView.js';
 import { ExecutionScopesPanel } from './features/execution/ExecutionScopesPanel.js';
 import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
@@ -1308,7 +1308,7 @@ export function App() {
           : {})}
         onSelectWorktree={setSelectedCycleWorktreeId}
         renderDesignRecovery={(cycle) => (
-          <DesignRecoveryPanel
+          <DesignQuestions
             key={`${cycle.id}-${cycle.currentRunId}`}
             cycle={cycle}
             backends={executionStatus?.backends ?? []}

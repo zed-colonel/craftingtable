@@ -10,14 +10,16 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { NavigationProvider } from '../../lib/navigation.js';
 import { buildPath, parseRoute, type Route } from '../../lib/route.js';
-import { previewDesignRecovery } from '../../lib/work-cycle-api.js';
-import { DesignRecoveryPanel } from './DesignRecoveryPanel.js';
+import { previewDesignRecovery } from './design-api.js';
+import { DesignQuestions } from './DesignQuestions.js';
 
-vi.mock('../../lib/work-cycle-api.js', () => ({
+vi.mock('./design-api.js', () => ({
   previewDesignRecovery: vi.fn(),
   recoverDesign: vi.fn(),
 }));
-vi.mock('../planning/SharedDecisionInbox.js', () => ({ SharedDecisionInbox: () => null }));
+vi.mock('../../features/planning/SharedDecisionInbox.js', () => ({
+  SharedDecisionInbox: () => null,
+}));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -75,7 +77,7 @@ function clarifyRoute(checkpointId: string): Route {
 function Panel({ route }: { route: Route }) {
   return (
     <NavigationProvider value={{ route, navigate: () => undefined }}>
-      <DesignRecoveryPanel
+      <DesignQuestions
         cycle={cycle}
         backends={backends}
         csrfToken="csrf"

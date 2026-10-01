@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { WorkCycle } from '@craftingtable/domain';
-import { BaselinePreparationPanel } from './BaselinePreparationPanel.js';
-import { prepareBaseline, previewBaseline } from '../../lib/work-cycle-api.js';
-vi.mock('../../lib/work-cycle-api.js', () => ({
+import { BaselinePreparation } from './BaselinePreparation.js';
+import { prepareBaseline, previewBaseline } from './design-api.js';
+vi.mock('./design-api.js', () => ({
   prepareBaseline: vi.fn(),
   previewBaseline: vi.fn(),
   loadBaselineEvidence: vi.fn(),
@@ -32,7 +32,7 @@ it('requires explicit exact-ref confirmation and keeps errors visible without la
   });
   vi.mocked(prepareBaseline).mockRejectedValue(new Error('Tag mismatch; nothing was moved.'));
   const onChanged = vi.fn();
-  render(<BaselinePreparationPanel cycle={cycle} csrfToken="csrf" onChanged={onChanged} />);
+  render(<BaselinePreparation cycle={cycle} csrfToken="csrf" onChanged={onChanged} />);
   expect(previewBaseline).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Prepare baseline evidence' }));
   const submit = await screen.findByRole('button', { name: 'Prepare historical sources and tags' });

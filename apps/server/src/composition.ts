@@ -438,7 +438,17 @@ export async function createRuntime(
   }
   const storage = openDaemonStorage(config.databasePath);
   try {
-    const services = await createServices(storage, config, options.overrides);
+    // The run service's and check service's warnings reach the daemon's log (LIVE-31
+    // verification): its own once the server exists, the journal before that (the start's sweep).
+    let log: { warn(detail: object, message: string): void } | undefined;
+    const runLog: RunLog = {
+      warn: (message, detail = {}) =>
+        log ? log.warn(detail, message) : console.warn(message, JSON.stringify(detail)),
+    };
+    const services = await createServices(storage, config, {
+      ...(options.logger === false ? {} : { runLog }),
+      ...options.overrides,
+    });
     const app = buildServer(
       {
         crossProjectService: services.crossProjectService,
@@ -469,6 +479,7 @@ export async function createRuntime(
       config,
       { logger: options.logger ?? true },
     );
+    log = app.log;
     let closed = false;
     return {
       app,

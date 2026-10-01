@@ -1543,6 +1543,34 @@ it('starts after a stop that left an unremovable directory, and removes it (LIVE
   await waitFor(() => !existsSync(dirname(locked)), 'leftover removed in the background');
 });
 
+it("removes a run's earlier directory when the run launches again, and when its record fails to end (LIVE-31 verification)", async () => {
+  const { state } = await cycleFixture([]);
+  // The service's own bookkeeping, as a launch that failed before its record leaves it.
+  const service = state.context.services.agentRunService as unknown as {
+    processTemporaryDirectory(runId: string): string;
+    finalize(workspaceId: string, runId: string, status: 'failed', detail: object): void;
+  };
+  const first = service.processTemporaryDirectory('run-a');
+  const second = service.processTemporaryDirectory('run-a');
+  expect(second).not.toBe(first);
+  await waitFor(() => !existsSync(first), 'the earlier directory removed');
+  expect(existsSync(second)).toBe(true);
+  // A run whose record cannot be written still loses its directory.
+  const storage = state.context.storage as unknown as { transaction: (work: unknown) => unknown };
+  const transaction = storage.transaction;
+  storage.transaction = () => {
+    throw new Error('storage unavailable');
+  };
+  try {
+    expect(() => service.finalize(state.workspaceId, 'run-a', 'failed', {})).toThrow(
+      'storage unavailable',
+    );
+  } finally {
+    storage.transaction = transaction;
+  }
+  await waitFor(() => !existsSync(second), 'removed although the record failed');
+});
+
 it('leaves no run starting when its temporary directory cannot be made (LIVE-31 review)', async () => {
   const { state, backend, worktree } = await cycleFixture([designDone]);
   // A file where the root should be: every directory beneath it fails.

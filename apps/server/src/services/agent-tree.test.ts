@@ -11,9 +11,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
-import { removeAgentTree } from './agent-tree.js';
+import { AGENT_TREE_MAX_DEPTH, removeAgentTree } from './agent-tree.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -97,4 +98,45 @@ it('reports a tree it cannot remove instead of throwing', async () => {
     chmodSync(root, 0o700);
   }
   rmSync(own, { recursive: true });
+});
+
+it('removes names that are not UTF-8, which a command can make (LIVE-31 verification)', async () => {
+  const root = scratch();
+  const own = join(root, 'own');
+  mkdirSync(join(own, 'claude-1000'), { recursive: true });
+  const name = Buffer.from([0xff, 0x66]);
+  writeFileSync(Buffer.concat([Buffer.from(`${join(own, 'claude-1000')}/`), name]), 'x');
+  mkdirSync(Buffer.concat([Buffer.from(`${own}/`), name]));
+  await expect(removeAgentTree(own)).resolves.toBeUndefined();
+  expect(existsSync(own)).toBe(false);
+});
+
+it('holds a bounded number of descriptors whatever the depth (LIVE-31 verification)', () => {
+  const root = scratch();
+  const own = join(root, 'own');
+  mkdirSync(own);
+  const levels = AGENT_TREE_MAX_DEPTH * 4 + 76;
+  execFileSync(
+    'sh',
+    [
+      '-c',
+      `for i in $(seq 1 ${levels}); do mkdir aaaa && cd aaaa || exit 1; done; touch f; chmod 500 .`,
+    ],
+    { cwd: own },
+  );
+  // A process allowed fewer descriptors than the tree has levels, and that cannot raise it.
+  const module = resolve(fileURLToPath(new URL('.', import.meta.url)), 'agent-tree.ts');
+  const tsx = resolve(fileURLToPath(new URL('../../../../node_modules/.bin/tsx', import.meta.url)));
+  const result = execFileSync(
+    'prlimit',
+    [
+      `--nofile=${AGENT_TREE_MAX_DEPTH + 100}:${AGENT_TREE_MAX_DEPTH + 100}`,
+      tsx,
+      '-e',
+      `import(${JSON.stringify(module)}).then(async (m) => console.log(JSON.stringify(await m.removeAgentTree(${JSON.stringify(own)}) ?? 'removed')))`,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  );
+  expect(result.trim().split('\n').at(-1)).toBe('"removed"');
+  expect(existsSync(own)).toBe(false);
 });

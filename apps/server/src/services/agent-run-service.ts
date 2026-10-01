@@ -2084,6 +2084,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             error: failure,
           });
       })
+      // Nothing here may become an unhandled rejection, not even a failing log.
+      .catch(() => undefined)
       .finally(() => this.cleanups.delete(removing));
     this.cleanups.add(removing);
   }

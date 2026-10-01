@@ -2,7 +2,6 @@ import type {
   AgentRunSummary,
   ExecutionStatusResponse,
   MergeGate,
-  RepositoryBranchesResponse,
   SourceRepositorySummary,
   WorktreeSummary,
 } from '@craftingtable/contracts';

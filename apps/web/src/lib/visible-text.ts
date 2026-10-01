@@ -3,6 +3,7 @@
  * else: zero-width and joiner characters, bidirectional controls, the byte order mark, the soft
  * hyphen, and control characters other than tab and newline (R-G13 increment 5 verification).
  */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this marks.
 const INVISIBLE = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F­​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 
 /** The text with each invisible character shown as `⟦U+XXXX⟧`, so a person can see it. */

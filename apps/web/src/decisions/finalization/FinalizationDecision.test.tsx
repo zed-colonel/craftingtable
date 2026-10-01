@@ -45,7 +45,6 @@ it("finds a merge item's finalization by its worktree, which is all the item nam
       worktreeId="tree-1"
       csrfToken="csrf"
       canMutate
-      refreshToken={0}
       onChanged={vi.fn()}
       onOpenRun={vi.fn()}
     />,
@@ -63,7 +62,6 @@ it('does not take another finalization for one it cannot find', async () => {
       worktreeId="tree-2"
       csrfToken="csrf"
       canMutate
-      refreshToken={0}
       onChanged={vi.fn()}
       onOpenRun={vi.fn()}
     />,

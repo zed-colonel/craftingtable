@@ -23,7 +23,8 @@ import {
 import type { WorkspaceId } from '@craftingtable/domain';
 import { revealElement } from '../../lib/reveal-element.js';
 import { request } from '../../lib/api-client.js';
-import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId } from '@craftingtable/domain';
@@ -56,10 +57,12 @@ export function RuntimeEvidencePanel({
   /** A download from the API, not a page: a plain anchor (R-E1). */
   const buildRecordDownload = (runId: string) =>
     `${base}/runs/${encodeURIComponent(runId)}/build-record`;
-  const baseRef = useRef(base);
-  baseRef.current = base;
-  const [view, setView] = useState<RuntimeEvidenceView>(),
-    [config, setConfig] = useState<ConfigureRuntime>(),
+  // The map's environment, shared with the setup-time decisions and re-read on its events (R-D4).
+  const store = useQueryStore();
+  const key = queryKeys.runtime(workspaceId, definitionId);
+  const runtime = useQuery(key, () => request(base, runtimeEvidenceViewSchema));
+  const view = runtime.data;
+  const [config, setConfig] = useState<ConfigureRuntime>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
@@ -83,8 +86,8 @@ export function RuntimeEvidencePanel({
       .then((record) => setRecords((known) => ({ ...known, [id]: record })))
       .catch(() => setRecords((known) => ({ ...known, [id]: 'failed' })));
   };
-  const adopt = useCallback((v: RuntimeEvidenceView) => {
-    setView(v);
+  /** The setup form follows a view: its pins, consumers and environments. */
+  const adoptDraft = useCallback((v: RuntimeEvidenceView) => {
     setRefs(Object.fromEntries(v.current?.pins.map((p) => [p.alias, p.ref]) ?? []));
     const nextConfig: ConfigureRuntime = {
       bindingRevision: v.bindingRevision,
@@ -107,34 +110,38 @@ export function RuntimeEvidencePanel({
     setConfig(nextConfig);
     setSavedConfig(JSON.stringify(nextConfig));
   }, []);
+  /** A command's response is the view, and the form follows it. */
+  const adopt = useCallback(
+    (v: RuntimeEvidenceView) => {
+      store.set(queryKeys.runtime(workspaceId, definitionId), v);
+      adoptDraft(v);
+    },
+    [store, workspaceId, definitionId, adoptDraft],
+  );
   useEffect(() => {
     if (roadmapId && view) onViewChange?.(roadmapId, view);
   }, [roadmapId, view, onViewChange]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Saved revisions invalidate this read even when the endpoint identity stays unchanged.
+  // A view read in the background keeps an unsaved setup draft: only the view under it changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the draft follows each new view.
   useEffect(() => {
-    let alive = true;
-    const load = () =>
-      void request(base, runtimeEvidenceViewSchema)
-        .then((v) => {
-          if (!alive) return;
-          // A reload can land after the operator has inspected or edited the setup; keep that
-          // draft, as the automation refresh below does.
-          if (setupDirty.current) setView(v);
-          else adopt(v);
-        })
-        .catch((e) => {
-          if (alive) setError(e instanceof Error ? e.message : 'Could not load runtime evidence.');
-        });
-    load();
-    const changed = (event: Event) => {
-      if ((event as CustomEvent<string>).detail === definitionId) load();
-    };
-    window.addEventListener('craftingtable:saved-plan-changed', changed);
-    return () => {
-      alive = false;
-      window.removeEventListener('craftingtable:saved-plan-changed', changed);
-    };
-  }, [base, adopt, bindingRevision, roadmapRevision, definitionId]);
+    if (view && (config === undefined || !setupDirty.current)) adoptDraft(view);
+  }, [view]);
+  // A saved binding or roadmap revision changes what this view shows: read it again at once.
+  const revisions = useRef(`${bindingRevision}:${roadmapRevision}`);
+  useEffect(() => {
+    const next = `${bindingRevision}:${roadmapRevision}`;
+    if (revisions.current === next) return;
+    revisions.current = next;
+    store.refreshNow([queryKeys.runtime(workspaceId, definitionId)]);
+  }, [store, workspaceId, definitionId, bindingRevision, roadmapRevision]);
+  /** The map's supervision previews show what was saved here: read again at once. */
+  const runtimeSaved = () => store.refreshNow([['cross-project', workspaceId, definitionId]]);
+  const loadError =
+    runtime.error === undefined
+      ? ''
+      : runtime.error instanceof Error
+        ? runtime.error.message
+        : 'Could not load runtime evidence.';
   const act = async (work: () => Promise<void>) => {
     setBusy(true);
     setError('');
@@ -163,18 +170,12 @@ export function RuntimeEvidencePanel({
   // Evidence recorded by automation shows without navigation (PERF-03, UI-13).
   // An unsaved setup draft is kept: only the view is replaced under it.
   setupDirty.current = dependencyDirty;
-  useRefreshOn('roadmaps', () => {
-    const requested = base;
-    void request(requested, runtimeEvidenceViewSchema)
-      .then((next) => {
-        if (requested !== baseRef.current) return;
-        if (setupDirty.current) setView(next);
-        else adopt(next);
-      })
-      .catch(() => undefined);
-  });
   if (!view || !config)
-    return <p role={error ? 'alert' : undefined}>{error || 'Loading dependency environments…'}</p>;
+    return (
+      <p role={error || loadError ? 'alert' : undefined}>
+        {error || loadError || 'Loading dependency environments…'}
+      </p>
+    );
   const changedRefs = config.pins.some(
     (pin) => refs[pin.alias] !== undefined && refs[pin.alias] !== pin.ref,
   );
@@ -244,9 +245,7 @@ export function RuntimeEvidencePanel({
           disabled={!canMutate || busy || unsavedSetup}
           onSaved={(next) => {
             adopt(next);
-            window.dispatchEvent(
-              new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-            );
+            runtimeSaved();
           }}
         />
       </SetupStepPart>
@@ -720,9 +719,7 @@ export function RuntimeEvidencePanel({
                 void act(async () => {
                   const input = configureRuntimeSchema.parse(config);
                   adopt(await post('configure', input));
-                  window.dispatchEvent(
-                    new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-                  );
+                  runtimeSaved();
                   setNotice(
                     'New dependency environment recorded. Unchanged inputs retain their evidence; affected roadmap reviews are queued for Resume. Review plan acceptance.',
                   );
@@ -1129,9 +1126,7 @@ export function RuntimeEvidencePanel({
                           ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
                           : `Evidence ${outcome}.`,
                     );
-                    window.dispatchEvent(
-                      new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-                    );
+                    runtimeSaved();
                   }}
                 />
               )}

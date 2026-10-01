@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, it, expect, vi } from 'vitest';
 import { asWorkItemId, asWorkspaceId, type Roadmap } from '@craftingtable/domain';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
+import { testQueryStore } from '../../lib/query-store-testing.js';
 import {
   previewCrossProject,
   saveCrossProject,
@@ -27,6 +28,7 @@ function setup(
   roadmap?: Roadmap,
   runtimeView?: import('@craftingtable/contracts').RuntimeEvidenceView,
   onDraftChange?: (id: string, dirty: boolean) => void,
+  wrap: (ui: import('react').ReactElement) => import('react').ReactElement = (ui) => ui,
 ) {
   vi.mocked(loadExecutionStatus).mockResolvedValue({
     backends: [{ kind: 'codex', label: 'Codex', available: true, models: [] }],
@@ -116,17 +118,19 @@ function setup(
     ],
   });
   render(
-    <CrossProjectPanel
-      roadmap={roadmap}
-      runtimeView={runtimeView}
-      onDraftChange={onDraftChange}
-      workspaceId={ws}
-      definitionId={id}
-      bindingRevision={1}
-      targets={[{ id: 'PROOF', scope: 'Native proof only' }]}
-      csrfToken="csrf"
-      canMutate
-    />,
+    wrap(
+      <CrossProjectPanel
+        roadmap={roadmap}
+        runtimeView={runtimeView}
+        onDraftChange={onDraftChange}
+        workspaceId={ws}
+        definitionId={id}
+        bindingRevision={1}
+        targets={[{ id: 'PROOF', scope: 'Native proof only' }]}
+        csrfToken="csrf"
+        canMutate
+      />,
+    ),
   );
 }
 it('requires explicit target choice and adoption rationale, with a trace to the provider action', async () => {
@@ -266,4 +270,28 @@ it('opens the exact reviewer checkboxes, retains other assignments, and saves ch
   expect(save.hasAttribute('disabled')).toBe(true);
   expect(changed).toHaveBeenLastCalledWith(id, false);
   expect(screen.queryByText(/Accepted for saved revision 2/)).toBeNull();
+});
+
+it("re-reads the target's prerequisites on its map's evidence and roadmap events, and when the environment is saved (R-D4)", async () => {
+  const { store, wrap, send } = testQueryStore();
+  setup(undefined, undefined, undefined, wrap);
+  fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
+  await screen.findByText('2 selected milestones');
+  expect(previewCrossProject).toHaveBeenCalledTimes(1);
+  await send('runtime-evidence-changed', {
+    workspaceId: ws,
+    payload: { definitionId: '00000000-0000-4000-8000-000000000000', message: 'x' },
+  });
+  await send('repository-registered', { workspaceId: ws, repositoryId: 'repo' });
+  expect(previewCrossProject).toHaveBeenCalledTimes(1);
+  await send('runtime-evidence-changed', {
+    workspaceId: ws,
+    payload: { definitionId: id, message: 'x' },
+  });
+  await waitFor(() => expect(previewCrossProject).toHaveBeenCalledTimes(2));
+  await send('roadmap-changed', { workspaceId: ws, payload: { roadmapId: 'r' } });
+  await waitFor(() => expect(previewCrossProject).toHaveBeenCalledTimes(3));
+  // The environment's panel saved setup: its map's previews are read again (was a window event).
+  store.refreshNow([['cross-project', ws, id]]);
+  await waitFor(() => expect(previewCrossProject).toHaveBeenCalledTimes(4));
 });

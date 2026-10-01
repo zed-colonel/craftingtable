@@ -6,7 +6,8 @@ import {
   saveNotifications,
   testNotifications,
 } from '../../lib/notification-api.js';
-import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { About } from '../../components/About.js';
 import { PathLink } from '../../lib/navigation.js';
 
@@ -17,35 +18,26 @@ export function NotificationPanel({
   workspaceId: WorkspaceId;
   csrfToken: string;
 }) {
-  const [status, setStatus] = useState<NotificationStatus>();
+  // Delivery status follows notification and attention events (R-D4), never a poll.
+  const store = useQueryStore();
+  const key = queryKeys.notifications(workspaceId);
+  const query = useQuery(key, () => loadNotifications(workspaceId));
+  const status = query.data;
+  const setStatus = (next: NotificationStatus) => store.set(key, next);
   const [draft, setDraft] = useState<NotificationPreferences>();
   const [version, setVersion] = useState(0);
   const [applicationToken, setApplicationToken] = useState('');
   const [userKey, setUserKey] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const [commandError, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [reload, setReload] = useState(0);
-  useEffect(() => {
-    void reload; // Explicit reload after a conflict or connection failure.
-    let alive = true;
-    const refresh = async () => {
-      try {
-        const next = await loadNotifications(workspaceId);
-        if (alive) setStatus(next);
-      } catch (failure) {
-        if (alive)
-          setError(failure instanceof Error ? failure.message : 'Could not load notifications.');
-      }
-    };
-    void refresh();
-    return () => {
-      alive = false;
-    };
-  }, [workspaceId, reload]);
-  // Delivery status follows notification events and the slow safety refresh,
-  // not a 5 s poll (PERF-06, PERF-17).
-  useRefreshOn('notifications', () => setReload((value) => value + 1));
+  const error =
+    commandError ??
+    (query.error === undefined
+      ? undefined
+      : query.error instanceof Error
+        ? query.error.message
+        : 'Could not load notifications.');
   // Polling delivery status must never erase unsaved settings or credentials.
   useEffect(() => {
     if (status !== undefined && draft === undefined) {
@@ -135,8 +127,7 @@ export function NotificationPanel({
             onClick={() => {
               setError(undefined);
               setDraft(undefined);
-              setStatus(undefined);
-              setReload((value) => value + 1);
+              store.refreshNow([key]);
             }}
           >
             Reload settings

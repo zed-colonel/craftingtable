@@ -1,8 +1,10 @@
-import type { ExecutionStatusResponse, FinalizationView } from '@craftingtable/contracts';
+import type { ExecutionStatusResponse } from '@craftingtable/contracts';
 import type { AgentRunId, PlanVersionId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { loadExecutionStatus } from '../../lib/execution-api.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
 import { loadFinalizations } from '../../lib/finalization-api.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { IntegrationConflict } from '../integration/IntegrationConflict.js';
 import { FinalizationStep } from './FinalizationStep.js';
 import { FinalPromotion } from './FinalPromotion.js';
@@ -20,7 +22,6 @@ export function FinalizationDecision({
   worktreeId,
   csrfToken,
   canMutate,
-  refreshToken,
   onChanged,
   onOpenRun,
 }: {
@@ -32,31 +33,27 @@ export function FinalizationDecision({
   worktreeId?: string;
   csrfToken: string;
   canMutate: boolean;
-  refreshToken: number;
   onChanged: () => void;
   onOpenRun: (id: AgentRunId) => void;
 }) {
-  const [view, setView] = useState<FinalizationView | null>();
-  const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
-  const [reload, setReload] = useState(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload on daemon events and own commands.
-  useEffect(() => {
-    let alive = true;
-    void loadFinalizations(workspaceId, planVersionId)
-      .then((result) => {
-        if (!alive) return;
-        setView(
-          result.finalizations.find(
+  // The plan's finalizations, shared with its finalization panel, read again on their events.
+  const store = useQueryStore();
+  const key = queryKeys.finalizations(workspaceId, planVersionId);
+  const query = useQuery(key, () => loadFinalizations(workspaceId, planVersionId));
+  const view =
+    query.status === 'error'
+      ? null
+      : query.data === undefined
+        ? undefined
+        : (query.data.finalizations.find(
             (v) =>
               (finalizationId !== undefined && v.finalization.id === finalizationId) ||
               (cycleId !== undefined && v.finalization.cycleId === cycleId) ||
               (worktreeId !== undefined && v.finalization.worktreeId === worktreeId),
-          ) ?? null,
-        );
-      })
-      .catch(() => {
-        if (alive) setView(null);
-      });
+          ) ?? null);
+  const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
+  useEffect(() => {
+    let alive = true;
     void loadExecutionStatus()
       .then((status) => {
         if (alive) setBackends(status.backends);
@@ -65,12 +62,12 @@ export function FinalizationDecision({
     return () => {
       alive = false;
     };
-  }, [workspaceId, planVersionId, finalizationId, cycleId, worktreeId, refreshToken, reload]);
+  }, []);
   if (view === undefined) return <p className="empty-state">Loading the finalization…</p>;
   if (view === null)
     return <p className="empty-state">This finalization could not be loaded. Reload the page.</p>;
   const done = () => {
-    setReload((v) => v + 1);
+    store.refreshNow([key]);
     onChanged();
   };
   if (!canMutate) return null;

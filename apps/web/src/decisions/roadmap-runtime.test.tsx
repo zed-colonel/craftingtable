@@ -4,6 +4,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../lib/api-client.js';
 import { loadRoadmaps } from '../lib/roadmap-api.js';
+import { resetFallbackQueryStore } from '../lib/query-store.js';
 import { RoadmapAmendments, RoadmapRuntime, runtimeScope } from './roadmap-runtime.js';
 
 vi.mock('../lib/api-client.js', () => ({ request: vi.fn() }));
@@ -86,6 +87,8 @@ it('says why there is nothing to decide when the roadmap has no single map, or i
   expect(children).not.toHaveBeenCalled();
   expect(request).not.toHaveBeenCalled();
   unmount();
+  // Another daemon state: what the store read before is gone, as an event would make it.
+  resetFallbackQueryStore();
 
   vi.mocked(loadRoadmaps).mockResolvedValue({ roadmaps: [] } as never);
   render(
@@ -107,6 +110,7 @@ it('hands a cross-project roadmap to its amendments, and only one (R-A6 2b)', as
   );
   expect(await screen.findByText('amend r')).toBeTruthy();
   cleanup();
+  resetFallbackQueryStore();
   vi.mocked(loadRoadmaps).mockResolvedValue({
     roadmaps: [{ roadmap: roadmap({ entries: [scope('m')] as never }) }],
   } as never);

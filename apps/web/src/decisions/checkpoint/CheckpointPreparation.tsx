@@ -5,6 +5,7 @@ import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
+import { useQueryStore } from '../../lib/query-store.js';
 
 /**
  * A slice whose merge waits on contract-checkpoint evidence (R-A6 increment 2a): the saved
@@ -27,6 +28,7 @@ export function CheckpointPreparation({
   canMutate: boolean;
   onChanged: () => void;
 }) {
+  const store = useQueryStore();
   const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
   const [view, setView] = useState<CheckpointRecovery>();
   const [busy, setBusy] = useState(false),
@@ -223,9 +225,8 @@ export function CheckpointPreparation({
                   onDecided={async () => {
                     await refresh();
                     onChanged();
-                    window.dispatchEvent(
-                      new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
-                    );
+                    // The map's supervision previews show the accepted evidence (R-D4).
+                    store.refreshNow([['cross-project', workspaceId, definitionId]]);
                   }}
                 />
               </>

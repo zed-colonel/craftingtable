@@ -6,8 +6,8 @@ import {
   type RoadmapEntryProgress,
   type WorkItemId,
 } from '@craftingtable/domain';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery } from '../../lib/query-store.js';
 import { loadRoadmapStatus } from '../../lib/roadmap-api.js';
 import { Link } from '../../lib/navigation.js';
 
@@ -54,39 +54,19 @@ export function RoadmapStatusList({
   onOpenWorkItem: (id: WorkItemId) => void;
   onOpenAttention?: (itemId: string) => void;
 }) {
-  const [status, setStatus] = useState<RoadmapStatusListResponse>();
-  const [error, setError] = useState<string>();
   const { workspaceId, id } = roadmap;
-  // One request at a time: a round that signals both topics, or a burst of rounds, coalesces
-  // into one follow-up request, and an older response never overwrites a newer one.
-  const loading = useRef<{ busy: boolean; again: boolean }>({ busy: false, again: false });
-  const refresh = useCallback(() => {
-    const state = loading.current;
-    if (state.busy) {
-      state.again = true;
-      return;
-    }
-    state.busy = true;
-    loadRoadmapStatus({ workspaceId, id })
-      .then(
-        (loaded) => {
-          setStatus(loaded);
-          setError(undefined);
-        },
-        (failure: unknown) =>
-          setError(failure instanceof Error ? failure.message : 'Status list is unavailable.'),
-      )
-      .finally(() => {
-        state.busy = false;
-        if (state.again) {
-          state.again = false;
-          refresh();
-        }
-      });
-  }, [workspaceId, id]);
-  useEffect(() => refresh(), [refresh]);
-  useRefreshOn('roadmaps', refresh);
-  useRefreshOn('workspace', refresh);
+  // Read again on the events that change a roadmap's entries, cycles or runs (R-D4); the store
+  // keeps one request at a time, and an older response never overwrites a newer one.
+  const query = useQuery(queryKeys.roadmapStatus(workspaceId, id), () =>
+    loadRoadmapStatus({ workspaceId, id }),
+  );
+  const status = query.data;
+  const error =
+    query.error === undefined
+      ? undefined
+      : query.error instanceof Error
+        ? query.error.message
+        : 'Status list is unavailable.';
   if (!status)
     return error ? (
       <p role="alert" className="error-state">

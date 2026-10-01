@@ -1,10 +1,12 @@
 import { finalizationsResponseSchema } from '@craftingtable/contracts';
 import type { AgentRunId, PlanVersionId, WorkspaceId } from '@craftingtable/domain';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { loadPlanBranchSettings } from '../../lib/branch-api.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { loadFinalizations } from '../../lib/finalization-api.js';
+import { testQueryStore } from '../../lib/query-store-testing.js';
+import type { ReactElement } from 'react';
 import legacyRecord from '../../../../../fixtures/records/legacy-finalization-2026-09-13.json?raw';
 import { FinalizationPanel } from './FinalizationPanel.js';
 
@@ -28,7 +30,7 @@ afterEach(() => {
 /** The completed legacy finalization on the live database, 2026-09-13 (R-B10). */
 const legacy = JSON.parse(legacyRecord);
 
-function renderPanel(finalizations: unknown[]) {
+function renderPanel(finalizations: unknown[], wrap = (ui: ReactElement) => ui) {
   vi.mocked(loadFinalizations).mockResolvedValue(
     finalizationsResponseSchema.parse({ finalizations }),
   );
@@ -42,13 +44,15 @@ function renderPanel(finalizations: unknown[]) {
     ReturnType<typeof loadRunProfiles>
   >);
   render(
-    <FinalizationPanel
-      workspaceId={legacy.finalization.workspaceId as WorkspaceId}
-      planVersionId={legacy.finalization.planVersionId as PlanVersionId}
-      csrfToken="csrf"
-      canMutate
-      onOpenRun={(_id: AgentRunId) => undefined}
-    />,
+    wrap(
+      <FinalizationPanel
+        workspaceId={legacy.finalization.workspaceId as WorkspaceId}
+        planVersionId={legacy.finalization.planVersionId as PlanVersionId}
+        csrfToken="csrf"
+        canMutate
+        onOpenRun={(_id: AgentRunId) => undefined}
+      />,
+    ),
   );
 }
 
@@ -76,4 +80,38 @@ it('offers only staged finalizations for a new start', async () => {
   expect(screen.queryByLabelText('Finalization workflow')).toBeNull();
   expect(screen.queryByText('Legacy improvement rounds')).toBeNull();
   expect(screen.queryByLabelText('Improvement rounds')).toBeNull();
+});
+
+it("re-reads its plan's finalizations on its own cycles' and runs' events, and its branches each minute (R-D4)", async () => {
+  const { store, wrap, send } = testQueryStore();
+  const ws = legacy.finalization.workspaceId as string;
+  const plan = legacy.finalization.planVersionId as string;
+  renderPanel(
+    [
+      {
+        finalization: legacy.finalization,
+        cycle: legacy.cycle,
+        runs: [],
+        mergeRecoveryPending: false,
+      },
+    ],
+    wrap,
+  );
+  await screen.findByRole('region', { name: 'Finalization attempt' });
+  expect(loadFinalizations).toHaveBeenCalledTimes(1);
+  // A work item's cycle, and another plan's, change nothing here.
+  await send('work-cycle-changed', {
+    workspaceId: ws,
+    workItemId: 'w',
+    payload: { workItemId: 'w' },
+  });
+  await send('work-cycle-changed', { workspaceId: ws, payload: { planVersionId: 'another-plan' } });
+  expect(loadFinalizations).toHaveBeenCalledTimes(1);
+  await send('agent-run-status-changed', { workspaceId: ws, payload: { planVersionId: plan } });
+  await waitFor(() => expect(loadFinalizations).toHaveBeenCalledTimes(2));
+  // The branches are Git's: the minute's refresh reads them, and nothing else.
+  const branches = vi.mocked(loadPlanBranchSettings).mock.calls.length;
+  store.invalidate([['plan-branches']]);
+  await waitFor(() => expect(loadPlanBranchSettings).toHaveBeenCalledTimes(branches + 1));
+  expect(loadFinalizations).toHaveBeenCalledTimes(2);
 });

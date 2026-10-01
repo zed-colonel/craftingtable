@@ -43,6 +43,8 @@ export default defineConfig({
           name: 'web',
           environment: 'jsdom',
           include: ['apps/web/src/**/*.test.tsx'],
+          // Nothing a query store caches outlives its test (R-D4).
+          setupFiles: ['apps/web/src/test-setup.ts'],
         },
       },
     ],

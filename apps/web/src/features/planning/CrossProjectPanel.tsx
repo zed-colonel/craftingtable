@@ -14,7 +14,7 @@ import {
   type Roadmap,
   type WorkspaceId,
 } from '@craftingtable/domain';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
 import { SetupStepPart } from './setup-steps.js';
 import { ActionBar } from '../../components/ActionBar.js';
@@ -27,7 +27,8 @@ import {
   saveCrossProject,
 } from '../../lib/cross-project-api.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
-import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import type { Route } from '../../lib/route.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
@@ -79,8 +80,7 @@ export function CrossProjectPanel({
     [selection, setSelection] = useState<'target-only' | 'prioritize-full'>(
       saved?.selection ?? 'target-only',
     );
-  const [view, setView] = useState<CrossProjectView>(),
-    [error, setError] = useState(''),
+  const [commandError, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<MapActivitySettings | undefined>(saved?.defaults),
@@ -125,26 +125,39 @@ export function CrossProjectPanel({
   const currentPlan = plan?.definitionRevision === editingRevision ? plan : undefined;
   const editing =
     canMutate && (!roadmap || ['draft', 'paused', 'needs-attention'].includes(roadmap.status));
-  const refresh = useCallback(async () => {
-    if (!target || !bindingRevision) return;
-    setView(
-      await previewCrossProject(
-        workspaceId,
-        { definitionId, bindingRevision, targetId: target, selection },
-        csrfToken,
-      ),
-    );
-  }, [workspaceId, definitionId, bindingRevision, target, selection, csrfToken]);
-  useEffect(() => {
-    const changed = (event: Event) => {
-      if ((event as CustomEvent<string>).detail === definitionId)
-        void refresh().catch((e) =>
-          setError(e instanceof Error ? e.message : 'Could not refresh prerequisites.'),
-        );
-    };
-    window.addEventListener('craftingtable:runtime-saved', changed);
-    return () => window.removeEventListener('craftingtable:runtime-saved', changed);
-  }, [definitionId, refresh]);
+  // The map's prerequisites for this target, read again on roadmap, cycle and evidence events
+  // and when the environment's setup is saved (R-D4).
+  const store = useQueryStore();
+  const previewKey =
+    target && bindingRevision
+      ? queryKeys.crossProject(
+          workspaceId,
+          definitionId,
+          String(bindingRevision),
+          target,
+          selection,
+        )
+      : undefined;
+  const preview = useQuery(previewKey, () =>
+    previewCrossProject(
+      workspaceId,
+      { definitionId, bindingRevision, targetId: target, selection },
+      csrfToken,
+    ),
+  );
+  const view: CrossProjectView | undefined = preview.data;
+  const error =
+    commandError ||
+    (preview.error === undefined
+      ? ''
+      : preview.error instanceof Error
+        ? preview.error.message
+        : 'Could not inspect the roadmap.');
+  const refresh = async () => {
+    if (previewKey) store.refreshNow([previewKey]);
+  };
+  /** The environment shows what this panel adopts and saves: it is read again at once. */
+  const savedPlanChanged = () => store.refreshNow([queryKeys.runtime(workspaceId, definitionId)]);
   useEffect(() => {
     let live = true;
     void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
@@ -171,45 +184,6 @@ export function CrossProjectPanel({
       live = false;
     };
   }, [workspaceId]);
-  // Event-driven instead of a 5 s poll (PERF-06): roadmap, cycle and evidence
-  // rounds, plus the slow safety refresh. One preview at a time.
-  const previewing = useRef(false);
-  useRefreshOn('roadmaps', () => {
-    if (previewing.current) return;
-    previewing.current = true;
-    void refresh()
-      .catch((e) => setError(e instanceof Error ? e.message : 'Could not inspect the roadmap.'))
-      .finally(() => {
-        previewing.current = false;
-      });
-  });
-  useEffect(() => {
-    let alive = true;
-    let loading = false;
-    setView(undefined);
-    const load = async () => {
-      if (loading) return;
-      loading = true;
-      try {
-        if (target && bindingRevision) {
-          const v = await previewCrossProject(
-            workspaceId,
-            { definitionId, bindingRevision, targetId: target, selection },
-            csrfToken,
-          );
-          if (alive) setView(v);
-        }
-      } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : 'Could not inspect the roadmap.');
-      } finally {
-        loading = false;
-      }
-    };
-    void load();
-    return () => {
-      alive = false;
-    };
-  }, [workspaceId, definitionId, bindingRevision, target, selection, csrfToken]);
   const command = async (action: () => Promise<void>) => {
     setBusy(true);
     setError('');
@@ -232,9 +206,7 @@ export function CrossProjectPanel({
         rationale,
         csrfToken,
       );
-      window.dispatchEvent(
-        new CustomEvent('craftingtable:saved-plan-changed', { detail: definitionId }),
-      );
+      savedPlanChanged();
       setApproved(false);
       setRationale('');
       setNotice(
@@ -268,9 +240,7 @@ export function CrossProjectPanel({
         },
         csrfToken,
       );
-      window.dispatchEvent(
-        new CustomEvent('craftingtable:saved-plan-changed', { detail: definitionId }),
-      );
+      savedPlanChanged();
       if (roadmap) {
         setEditingRevision(result.roadmap.definition.revision);
         setSavedSnapshot(snapshot);

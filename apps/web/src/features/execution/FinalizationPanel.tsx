@@ -3,7 +3,6 @@ import type {
   AgentRunDetailResponse,
   ExecutionStatusResponse,
   FinalizationView,
-  PlanBranchSettingsResponse,
   StartFinalizationRequest,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
@@ -32,7 +31,8 @@ import {
   loadFinalizations,
   startFinalization,
 } from '../../lib/finalization-api.js';
-import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
 import { DiffView } from './DiffView.js';
 import { FinalizationStageProgress } from './FinalizationStageProgress.js';
@@ -65,48 +65,38 @@ export function FinalizationPanel({
   /** The open inbox item that carries a finalization's stop, outside the inbox (R-A6). */
   decisionItemFor?: (finalizationId: string, cycleId: string) => string | undefined;
 }) {
-  const [views, setViews] = useState<FinalizationView[]>([]);
-  const [settings, setSettings] = useState<PlanBranchSettingsResponse>();
+  // The plan's finalizations follow their cycles', runs', worktrees' and branches' events, and
+  // the branch settings, read from Git, also the visible tab's minute (R-D4).
+  const store = useQueryStore();
+  const finalizationsKey = queryKeys.finalizations(workspaceId, planVersionId);
+  const branchesKey = queryKeys.planBranches(workspaceId, planVersionId);
+  const finalizations = useQuery(finalizationsKey, () =>
+    loadFinalizations(workspaceId, planVersionId),
+  );
+  const branchSettings = useQuery(branchesKey, () =>
+    loadPlanBranchSettings(workspaceId, planVersionId),
+  );
+  const views = finalizations.data?.finalizations ?? [];
+  const settings = branchSettings.data;
+  /** After a command: the plan's finalizations and branches are read again at once. */
+  const reload = () => store.refreshNow([finalizationsKey, branchesKey]);
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
   const [draft, setDraft] = useState<StartFinalizationRequest>();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const [commandError, setError] = useState<string>();
+  const loadFailure = finalizations.error ?? branchSettings.error;
+  const error =
+    commandError ??
+    (loadFailure === undefined
+      ? undefined
+      : loadFailure instanceof Error
+        ? loadFailure.message
+        : 'Could not load finalization.');
   const [removalRefused, setRemovalRefused] = useState<
     WorktreeChangesRefused & { readonly finalizationId: string }
   >();
-  const [reload, setReload] = useState(0);
   const [diff, setDiff] = useState<WorktreeDiffResponse>();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: A completed command requests an immediate server refresh.
-  useEffect(() => {
-    let active = true;
-    let refreshing = false;
-    const refresh = async () => {
-      if (refreshing) return;
-      refreshing = true;
-      try {
-        const [result, branches] = await Promise.all([
-          loadFinalizations(workspaceId, planVersionId),
-          loadPlanBranchSettings(workspaceId, planVersionId),
-        ]);
-        if (active) {
-          setViews(result.finalizations);
-          setSettings(branches);
-        }
-      } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : 'Could not load finalization.');
-      } finally {
-        refreshing = false;
-      }
-    };
-    void refresh();
-    return () => {
-      active = false;
-    };
-  }, [workspaceId, planVersionId, reload]);
-  // Page rounds (cycle, branch and merge events) and the slow safety refresh
-  // replace the 3 s poll (PERF-09, PERF-13).
-  useRefreshOn('workspace', () => setReload((value) => value + 1));
   useEffect(() => {
     let active = true;
     void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
@@ -152,10 +142,10 @@ export function FinalizationPanel({
     setError(undefined);
     try {
       await operation();
-      setReload((v) => v + 1);
+      reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Finalization command failed.');
-      setReload((v) => v + 1);
+      reload();
     } finally {
       setBusy(false);
     }
@@ -373,7 +363,7 @@ export function FinalizationPanel({
                 cycle={cycle}
                 csrfToken={csrfToken}
                 disabled={busy || !canMutate}
-                onChanged={() => setReload((v) => v + 1)}
+                onChanged={reload}
                 onPause={() => void command(view, 'pause')}
               />
             )}
@@ -528,7 +518,7 @@ export function FinalizationPanel({
                     view={view}
                     csrfToken={csrfToken}
                     disabled={busy}
-                    onDone={() => setReload((v) => v + 1)}
+                    onDone={reload}
                   />
                   <FinalizationStep
                     key={`${f.id}:${cycle?.version}`}
@@ -537,7 +527,7 @@ export function FinalizationPanel({
                     csrfToken={csrfToken}
                     disabled={busy}
                     backends={backends}
-                    onDone={() => setReload((v) => v + 1)}
+                    onDone={reload}
                   />
                 </>
               ))}
@@ -548,7 +538,7 @@ export function FinalizationPanel({
                 disabled={busy}
                 canMutate={canMutate}
                 csrfToken={csrfToken}
-                onChanged={() => setReload((v) => v + 1)}
+                onChanged={reload}
                 onOpenRun={onOpenRun}
                 runIds={view.runs.map((r) => r.id)}
               />

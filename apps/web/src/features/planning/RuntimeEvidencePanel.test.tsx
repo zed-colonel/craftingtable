@@ -1,4 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { createQueryStore, QueryStoreProvider } from '../../lib/query-store.js';
+import { testQueryStore } from '../../lib/query-store-testing.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { asWorkspaceId } from '@craftingtable/domain';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
@@ -487,21 +490,21 @@ it('keeps an inspected pin when a reload started before the inspection lands aft
     .mockResolvedValueOnce(initial)
     .mockImplementationOnce(() => new Promise((resolve) => (finishReload = resolve)))
     .mockImplementationOnce(() => new Promise((resolve) => (finishInspect = resolve)));
+  const store = createQueryStore({ debounceMs: 0, maxWaitMs: 0 });
   render(
-    <RuntimeEvidencePanel
-      workspaceId={asWorkspaceId('workspace')}
-      definitionId={runtimeId}
-      bindingRevision={1}
-      csrfToken="csrf"
-      canMutate
-    />,
+    <QueryStoreProvider value={store}>
+      <RuntimeEvidencePanel
+        workspaceId={asWorkspaceId('workspace')}
+        definitionId={runtimeId}
+        bindingRevision={1}
+        csrfToken="csrf"
+        canMutate
+      />
+    </QueryStoreProvider>,
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Set up dependencies' }));
-  act(() => {
-    window.dispatchEvent(
-      new CustomEvent('craftingtable:saved-plan-changed', { detail: runtimeId }),
-    );
-  });
+  // Saving plan bindings elsewhere reads this environment again (R-D4).
+  act(() => store.refreshNow([queryKeys.runtime('workspace', runtimeId)]));
   fireEvent.click(screen.getByRole('button', { name: 'Inspect aq' }));
   await act(async () => {
     finishInspect({ commitSha: 'd'.repeat(40), packages: [{ name: 'aq_e2e_pin', path: '' }] });
@@ -620,4 +623,34 @@ it('leaves shared decisions open while roadmap settings are unsaved (UI-17, R-E2
       .getByRole('button', { name: 'Generate plan-acceptance evidence' })
       .hasAttribute('disabled'),
   ).toBe(true);
+});
+
+it("re-reads its map's environment on that map's evidence events, never another map's (R-D4)", async () => {
+  vi.mocked(request).mockResolvedValue({ ...view(), submissions: [], subjects: [] });
+  const { wrap, send } = testQueryStore();
+  render(
+    wrap(
+      <RuntimeEvidencePanel
+        workspaceId={asWorkspaceId('workspace')}
+        definitionId={runtimeId}
+        bindingRevision={1}
+        csrfToken="csrf"
+        canMutate
+      />,
+    ),
+  );
+  await screen.findByRole('button', { name: 'Set up dependencies' });
+  const reads = () =>
+    vi.mocked(request).mock.calls.filter(([url]) => String(url).endsWith('/runtime')).length;
+  expect(reads()).toBe(1);
+  await send('runtime-evidence-changed', {
+    workspaceId: 'workspace',
+    payload: { definitionId: '00000000-0000-4000-8000-000000000000', message: 'x' },
+  });
+  expect(reads()).toBe(1);
+  await send('runtime-evidence-changed', {
+    workspaceId: 'workspace',
+    payload: { definitionId: runtimeId, message: 'x' },
+  });
+  await waitFor(() => expect(reads()).toBe(2));
 });

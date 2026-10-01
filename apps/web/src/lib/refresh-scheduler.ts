@@ -13,22 +13,24 @@ export const ALL_REFRESH_TOPICS: readonly RefreshTopic[] = [
   'notifications',
 ];
 
-export interface RefreshSchedulerOptions {
+export interface RefreshSchedulerOptions<T extends string = RefreshTopic> {
   /** Quiet period after the last invalidation before a background round starts. */
   readonly debounceMs: number;
   /** Longest a background invalidation waits while events keep arriving. */
   readonly maxWaitMs: number;
   /** Performs one round; the returned promise settles when its reads have. */
-  readonly run: (topics: ReadonlySet<RefreshTopic>) => Promise<void>;
+  readonly run: (topics: ReadonlySet<T>) => Promise<void>;
   /** Whether the page is hidden; hidden pages defer rounds until visible. */
   readonly hidden?: () => boolean;
+  /** What `refreshNow()` without arguments refreshes; every topic by default. */
+  readonly all?: () => Iterable<T>;
 }
 
-export interface RefreshScheduler {
+export interface RefreshScheduler<T extends string = RefreshTopic> {
   /** A background change: coalesced by debounce and max-wait. */
-  invalidate(topics: Iterable<RefreshTopic>): void;
+  invalidate(topics: Iterable<T>): void;
   /** The operator's own command: refresh without waiting for the debounce. */
-  refreshNow(topics?: Iterable<RefreshTopic>): void;
+  refreshNow(topics?: Iterable<T>): void;
   /** Call on `visibilitychange`; a page becoming visible catches up once. */
   visibilityChanged(): void;
   /** Drops pending work, e.g. when the workspace changes. */
@@ -49,9 +51,12 @@ export interface RefreshScheduler {
  *   round cause exactly one follow-up round once it settles;
  * - defers rounds while the page is hidden and runs one when it is shown.
  */
-export function createRefreshScheduler(options: RefreshSchedulerOptions): RefreshScheduler {
+export function createRefreshScheduler<T extends string = RefreshTopic>(
+  options: RefreshSchedulerOptions<T>,
+): RefreshScheduler<T> {
   const hidden = options.hidden ?? (() => false);
-  const pending = new Set<RefreshTopic>();
+  const all = options.all ?? (() => ALL_REFRESH_TOPICS as unknown as Iterable<T>);
+  const pending = new Set<T>();
   let debounce: ReturnType<typeof setTimeout> | undefined;
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let inFlight = false;
@@ -98,7 +103,7 @@ export function createRefreshScheduler(options: RefreshSchedulerOptions): Refres
       debounce = setTimeout(flush, options.debounceMs);
       deadline ??= setTimeout(flush, options.maxWaitMs);
     },
-    refreshNow(topics = ALL_REFRESH_TOPICS) {
+    refreshNow(topics = all()) {
       if (disposed) return;
       for (const topic of topics) pending.add(topic);
       flush();
@@ -119,4 +124,9 @@ export function createRefreshScheduler(options: RefreshSchedulerOptions): Refres
       pending.clear();
     },
   };
+}
+
+/** Whether the document is currently hidden; `false` where there is no document. */
+export function documentHidden(): boolean {
+  return typeof document !== 'undefined' && document.visibilityState === 'hidden';
 }

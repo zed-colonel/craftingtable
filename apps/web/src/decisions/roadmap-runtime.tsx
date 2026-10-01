@@ -1,9 +1,10 @@
 import { runtimeEvidenceViewSchema, type RuntimeEvidenceView } from '@craftingtable/contracts';
 import type { Roadmap, WorkspaceId } from '@craftingtable/domain';
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { request } from '../lib/api-client.js';
 import { Link } from '../lib/navigation.js';
-import { useRefreshOn } from '../lib/refresh-signals.js';
+import { queryKeys } from '../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../lib/query-store.js';
 import { loadRoadmaps } from '../lib/roadmap-api.js';
 
 /**
@@ -41,23 +42,19 @@ export function runtimeScope(
 export const runtimeBase = (workspaceId: WorkspaceId, definitionId: string) =>
   `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
 
-/** A roadmap by id, reloaded when roadmaps change. */
+/** A roadmap by id, from the workspace's roadmaps, which the store re-reads on their events. */
 function useRoadmap(workspaceId: WorkspaceId, roadmapId: string) {
-  const [roadmap, setRoadmap] = useState<Roadmap | null>();
-  const [error, setError] = useState('');
-  const load = useCallback(
-    () =>
-      loadRoadmaps(workspaceId).then(
-        (result) => {
-          setRoadmap(result.roadmaps.find((r) => r.roadmap.id === roadmapId)?.roadmap ?? null);
-          setError('');
-        },
-        (e: unknown) => setError(e instanceof Error ? e.message : 'Could not load the roadmap.'),
-      ),
-    [workspaceId, roadmapId],
-  );
-  useEffect(() => void load(), [load]);
-  useRefreshOn('roadmaps', () => void load());
+  const query = useQuery(queryKeys.roadmaps(workspaceId), () => loadRoadmaps(workspaceId));
+  const roadmap: Roadmap | null | undefined =
+    query.data === undefined
+      ? undefined
+      : (query.data.roadmaps.find((r) => r.roadmap.id === roadmapId)?.roadmap ?? null);
+  const error =
+    query.error === undefined
+      ? ''
+      : query.error instanceof Error
+        ? query.error.message
+        : 'Could not load the roadmap.';
   return { roadmap, error };
 }
 
@@ -83,29 +80,20 @@ export function RoadmapRuntime({
   const { roadmap, error: roadmapError } = useRoadmap(workspaceId, roadmapId);
   const scope = roadmap ? runtimeScope(roadmap) : undefined;
   const base = scope ? runtimeBase(workspaceId, scope.definitionId) : undefined;
-  const [view, setView] = useState<RuntimeEvidenceView>();
-  const [error, setError] = useState('');
-  const requested = useRef(base);
-  requested.current = base;
-  const load = useCallback(() => {
-    if (!base) return;
-    void request(base, runtimeEvidenceViewSchema).then(
-      (next) => {
-        if (requested.current !== base) return;
-        setView(next);
-        setError('');
-      },
-      (e: unknown) => {
-        if (requested.current === base)
-          setError(e instanceof Error ? e.message : 'Could not load the dependency environment.');
-      },
-    );
-  }, [base]);
-  useEffect(() => {
-    setView(undefined);
-    load();
-  }, [load]);
-  useRefreshOn('roadmaps', load);
+  // The map's environment, shared with its setup step and re-read on its events (R-D4).
+  const store = useQueryStore();
+  const key = scope ? queryKeys.runtime(workspaceId, scope.definitionId) : undefined;
+  const runtime = useQuery(key, () => request(base!, runtimeEvidenceViewSchema));
+  const view = runtime.data;
+  const error =
+    runtime.error === undefined
+      ? ''
+      : runtime.error instanceof Error
+        ? runtime.error.message
+        : 'Could not load the dependency environment.';
+  const setView = (next: RuntimeEvidenceView) => {
+    if (key) store.set(key, next);
+  };
   const failed = roadmapError || error;
   if (roadmap === null) return <p className="empty-state">This roadmap no longer exists.</p>;
   // The roadmap's setup is always linked: where the item cannot decide, the setup can.

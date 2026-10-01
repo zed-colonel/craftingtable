@@ -1,8 +1,9 @@
 import type { RoadmapStatusListResponse } from '@craftingtable/contracts';
 import { asWorkItemId, type Roadmap } from '@craftingtable/domain';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
+import { testQueryStore } from '../../lib/query-store-testing.js';
 import { RoadmapStatusList } from './RoadmapStatusList.js';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
@@ -105,4 +106,25 @@ it('says when the roadmap itself is not running', async () => {
   expect(
     await screen.findByText(/The roadmap is paused, so nothing starts until it runs/),
   ).toBeTruthy();
+});
+
+it("re-reads on its own roadmap's events and its cycles' and runs', never another roadmap's (R-D4)", async () => {
+  vi.mocked(request).mockResolvedValue({
+    roadmapId: 'roadmap',
+    name: 'Cross-project roadmap',
+    status: 'running',
+    reason: 'Parallel scheduling enabled.',
+    completed: 0,
+    entries: [],
+  });
+  const { wrap, send } = testQueryStore();
+  render(wrap(<RoadmapStatusList roadmap={roadmap} onOpenWorkItem={vi.fn()} />));
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  await send('roadmap-changed', { workspaceId: 'workspace', payload: { roadmapId: 'another' } });
+  await send('repository-registered', { workspaceId: 'workspace', repositoryId: 'repo' });
+  expect(request).toHaveBeenCalledTimes(1);
+  await send('roadmap-changed', { workspaceId: 'workspace', payload: { roadmapId: 'roadmap' } });
+  expect(request).toHaveBeenCalledTimes(2);
+  await send('agent-run-status-changed', { workspaceId: 'workspace', payload: { runId: 'r' } });
+  expect(request).toHaveBeenCalledTimes(3);
 });

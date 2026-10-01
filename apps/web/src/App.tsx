@@ -142,16 +142,9 @@ import {
   type PlanImportUpload,
   removeFromAgenda,
 } from './lib/planning-api.js';
-import {
-  ALL_REFRESH_TOPICS,
-  createRefreshScheduler,
-  type RefreshTopic,
-} from './lib/refresh-scheduler.js';
-import {
-  createRefreshSignals,
-  documentHidden,
-  RefreshSignalsProvider,
-} from './lib/refresh-signals.js';
+import { createRefreshScheduler, documentHidden } from './lib/refresh-scheduler.js';
+import { GIT_DERIVED_FAMILIES, invalidationsFor } from './lib/event-invalidations.js';
+import { createQueryStore, QueryStoreProvider } from './lib/query-store.js';
 import { type Route, routeWorkspaceId } from './lib/route.js';
 import {
   currentTheme,
@@ -182,11 +175,11 @@ const RUN_EVENT_PAGE_LIMIT = 20;
 const REFRESH_DEBOUNCE_MS = 400;
 const REFRESH_MAX_WAIT_MS = 2_000;
 /**
- * Self-loading panels otherwise refresh only on events; this catches state no
- * event announces (Git- and clock-derived), and only while the tab is visible.
+ * Queries otherwise re-read only on the events that change them; Git-derived ones are also
+ * re-read each minute while the tab is visible, for a branch that moved outside the daemon,
+ * which no event reports (R-D4, operator decision 2026-10-01).
  */
-const SAFETY_REFRESH_MS = 60_000;
-const SAFETY_CHECK_MS = 15_000;
+const GIT_REFRESH_MS = 60_000;
 
 export function App() {
   const [authenticationStatus, setAuthenticationStatus] =
@@ -254,20 +247,18 @@ export function App() {
   const trackLoad = useCallback((load: Promise<unknown>): void => {
     if (roundDone.current !== undefined) roundLoads.current.push(load);
   }, []);
-  const [signals] = useState(createRefreshSignals);
-  const lastSignalled = useRef<Record<RefreshTopic, number>>({
-    workspace: Date.now(),
-    roadmaps: Date.now(),
-    notifications: Date.now(),
-  });
-  const signalPanels = useCallback(
-    (topics: Iterable<RefreshTopic>): void => {
-      const list = [...topics];
-      for (const topic of list) lastSignalled.current[topic] = Date.now();
-      signals.emit(list);
-    },
-    [signals],
+  /** The query store the pages and panels read through (R-D4). */
+  const [queries] = useState(() =>
+    createQueryStore({
+      debounceMs: REFRESH_DEBOUNCE_MS,
+      maxWaitMs: REFRESH_MAX_WAIT_MS,
+      hidden: documentHidden,
+    }),
   );
+  // Signed out, or the session expired: nothing read for that session is shown again.
+  useEffect(() => {
+    if (authenticationStatus !== 'authenticated') queries.clear();
+  }, [authenticationStatus, queries]);
   const [scheduler] = useState(() =>
     createRefreshScheduler({
       debounceMs: REFRESH_DEBOUNCE_MS,
@@ -275,7 +266,6 @@ export function App() {
       hidden: documentHidden,
       run: (topics) =>
         new Promise<void>((resolve) => {
-          signalPanels(topics);
           if (!topics.has('workspace')) {
             resolve();
             return;
@@ -287,30 +277,31 @@ export function App() {
     }),
   );
   /** After the operator's own command: refresh now rather than after the debounce. */
-  const refreshNow = useCallback(() => scheduler.refreshNow(), [scheduler]);
+  const refreshNow = useCallback(() => {
+    scheduler.refreshNow(['workspace']);
+    // Every watched query too, as every topic was before; 4b narrows a command to its keys.
+    queries.refreshNow([[]]);
+  }, [scheduler, queries]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: discard pending refreshes on workspace changes.
   useEffect(() => () => scheduler.reset(), [activeWorkspaceId, scheduler]);
-  // Hidden tabs read nothing; becoming visible catches up once (PERF-17).
+  // Hidden tabs read nothing; becoming visible catches up once (PERF-17). A visible tab re-reads
+  // only its Git-derived queries each minute (R-D4).
   useEffect(() => {
-    const safetyRefresh = (): void => {
-      if (documentHidden()) return;
-      const now = Date.now();
-      const due = ALL_REFRESH_TOPICS.filter(
-        (topic) => now - lastSignalled.current[topic] >= SAFETY_REFRESH_MS,
-      );
-      if (due.length > 0) signalPanels(due);
+    const gitRefresh = (): void => {
+      if (!documentHidden()) queries.invalidate(GIT_DERIVED_FAMILIES);
     };
     const visibilityChanged = (): void => {
       scheduler.visibilityChanged();
-      safetyRefresh();
+      queries.visibilityChanged();
+      gitRefresh();
     };
     document.addEventListener('visibilitychange', visibilityChanged);
-    const timer = setInterval(safetyRefresh, SAFETY_CHECK_MS);
+    const timer = setInterval(gitRefresh, GIT_REFRESH_MS);
     return () => {
       document.removeEventListener('visibilitychange', visibilityChanged);
       clearInterval(timer);
     };
-  }, [scheduler, signalPanels]);
+  }, [scheduler, queries]);
   const [cycleState, setCycleState] = useState<{
     workspaceId: WorkspaceId;
     cycles: readonly WorkCycle[];
@@ -373,37 +364,42 @@ export function App() {
    * These updates are batched with the selection itself, so no such frame
    * exists. The render guard below is the structural backstop.
    */
-  const selectWorkspace = useCallback((next: WorkspaceId | undefined) => {
-    setSelectedWorkspaceId(next);
-    setImportBusy(false);
-    setItemBusy(false);
-    setProject(undefined);
-    setPlanVersion(undefined);
-    setWorkItem(undefined);
-    setArtifact(undefined);
-    setImportResult(undefined);
-    setImportError(undefined);
-    setItemError(undefined);
-    setAudit([]);
-    setStreamAfter(0);
-    setRepositories([]);
-    setWorkItemExecution(undefined);
-    setRunsState(undefined);
-    setAgenda(undefined);
-    setRun(undefined);
-    setRunEvents([]);
-    setRunStreamAfter(undefined);
-    setDiff(undefined);
-    setExecutionBusy(false);
-    setExecutionError(undefined);
-    setRemovalRefused(undefined);
-    setWorkspaceError(undefined);
-    setWorkspaceNotice(undefined);
-    dispatch({ type: 'workspace-changed' });
-    if (next !== undefined) {
-      rememberWorkspace(next);
-    }
-  }, []);
+  const selectWorkspace = useCallback(
+    (next: WorkspaceId | undefined) => {
+      setSelectedWorkspaceId(next);
+      setImportBusy(false);
+      setItemBusy(false);
+      setProject(undefined);
+      setPlanVersion(undefined);
+      setWorkItem(undefined);
+      setArtifact(undefined);
+      setImportResult(undefined);
+      setImportError(undefined);
+      setItemError(undefined);
+      setAudit([]);
+      setStreamAfter(0);
+      setRepositories([]);
+      setWorkItemExecution(undefined);
+      setRunsState(undefined);
+      setAgenda(undefined);
+      setRun(undefined);
+      setRunEvents([]);
+      setRunStreamAfter(undefined);
+      setDiff(undefined);
+      setExecutionBusy(false);
+      setExecutionError(undefined);
+      setRemovalRefused(undefined);
+      setWorkspaceError(undefined);
+      setWorkspaceNotice(undefined);
+      dispatch({ type: 'workspace-changed' });
+      // Nothing read for the previous workspace is shown under the next.
+      queries.clear();
+      if (next !== undefined) {
+        rememberWorkspace(next);
+      }
+    },
+    [queries],
+  );
 
   const establishSession = useCallback(async (session: AuthenticatedSessionResponse) => {
     setAuthenticated(session);
@@ -587,11 +583,8 @@ export function App() {
           : { workItemIds: projection.stale.workItemIds }),
       },
     });
-    scheduler.invalidate([
-      ...(page ? (['workspace'] as const) : []),
-      ...(stale.roadmaps ? (['roadmaps'] as const) : []),
-      ...(stale.notifications ? (['notifications'] as const) : []),
-    ]);
+    // Roadmaps and notifications are the store's: the event table names their keys (R-D4).
+    if (page) scheduler.invalidate(['workspace']);
   }, [projection.stale, scheduler]);
 
   const workspaceId = activeWorkspaceId;
@@ -898,10 +891,17 @@ export function App() {
       .catch(() => undefined);
   }, []);
   const receiveWorkspaceEvent = useCallback(
-    (event: WorkspaceEventEnvelope) => dispatch({ type: 'event-received', event }),
-    [],
+    (event: WorkspaceEventEnvelope) => {
+      dispatch({ type: 'event-received', event });
+      queries.invalidate(invalidationsFor(event));
+    },
+    [queries],
   );
-  const onInvalidEvent = useCallback(() => dispatch({ type: 'event-invalid' }), []);
+  const onInvalidEvent = useCallback(() => {
+    dispatch({ type: 'event-invalid' });
+    // An event that could not be read may have changed anything: every query is stale.
+    queries.invalidate([[]]);
+  }, [queries]);
   const onAuthenticationExpired = useCallback(() => {
     setAuthenticated(undefined);
     setAuthenticationStatus('expired');
@@ -1601,7 +1601,6 @@ export function App() {
               {...(item.refs.worktreeId ? { worktreeId: item.refs.worktreeId } : {})}
               csrfToken={authenticated.csrfToken}
               canMutate={canMutate}
-              refreshToken={refreshToken}
               onChanged={refreshNow}
               onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
             />
@@ -2254,50 +2253,50 @@ export function App() {
   };
 
   return (
-    <NavigationProvider value={{ route, navigate: go }}>
-      <WorkspaceShell
-        username={authenticated.user.username}
-        workspaces={workspaces}
-        {...(activeWorkspaceId === undefined ? {} : { selectedWorkspaceId: activeWorkspaceId })}
-        attentionCount={attentionItems.length}
-        connection={projection.connection}
-        route={route}
-        theme={theme}
-        onSelectWorkspace={(id) => {
-          selectWorkspace(id);
-          go({ name: 'dashboard', workspaceId: id });
-        }}
-        onToggleTheme={toggleTheme}
-        onLogout={() => void handleLogout()}
-      >
-        {route.name === 'home' && (
-          <WorkspacesPage
-            workspaces={workspaces}
-            busy={workspaceBusy}
-            {...(workspaceError === undefined ? {} : { error: workspaceError })}
-            onOpen={(id) => {
-              selectWorkspace(id);
-              go({ name: 'dashboard', workspaceId: id });
-            }}
-            onCreate={handleCreateWorkspace}
-          />
-        )}
-        {route.name === 'account' && (
-          <AccountPage
-            user={authenticated.user}
-            sessions={sessions}
-            busy={accountBusy}
-            {...(accountError === undefined ? {} : { error: accountError })}
-            {...(accountNotice === undefined ? {} : { notice: accountNotice })}
-            onRevoke={(id) => void handleRevoke(id)}
-            onChangePassword={handleChangePassword}
-          />
-        )}
-        {route.name === 'root' && <p className="empty-state">Opening your workspace…</p>}
-        <RefreshSignalsProvider value={signals}>
+    <QueryStoreProvider value={queries}>
+      <NavigationProvider value={{ route, navigate: go }}>
+        <WorkspaceShell
+          username={authenticated.user.username}
+          workspaces={workspaces}
+          {...(activeWorkspaceId === undefined ? {} : { selectedWorkspaceId: activeWorkspaceId })}
+          attentionCount={attentionItems.length}
+          connection={projection.connection}
+          route={route}
+          theme={theme}
+          onSelectWorkspace={(id) => {
+            selectWorkspace(id);
+            go({ name: 'dashboard', workspaceId: id });
+          }}
+          onToggleTheme={toggleTheme}
+          onLogout={() => void handleLogout()}
+        >
+          {route.name === 'home' && (
+            <WorkspacesPage
+              workspaces={workspaces}
+              busy={workspaceBusy}
+              {...(workspaceError === undefined ? {} : { error: workspaceError })}
+              onOpen={(id) => {
+                selectWorkspace(id);
+                go({ name: 'dashboard', workspaceId: id });
+              }}
+              onCreate={handleCreateWorkspace}
+            />
+          )}
+          {route.name === 'account' && (
+            <AccountPage
+              user={authenticated.user}
+              sessions={sessions}
+              busy={accountBusy}
+              {...(accountError === undefined ? {} : { error: accountError })}
+              {...(accountNotice === undefined ? {} : { notice: accountNotice })}
+              onRevoke={(id) => void handleRevoke(id)}
+              onChangePassword={handleChangePassword}
+            />
+          )}
+          {route.name === 'root' && <p className="empty-state">Opening your workspace…</p>}
           {workspaceRoute && workspaceContent()}
-        </RefreshSignalsProvider>
-      </WorkspaceShell>
-    </NavigationProvider>
+        </WorkspaceShell>
+      </NavigationProvider>
+    </QueryStoreProvider>
   );
 }

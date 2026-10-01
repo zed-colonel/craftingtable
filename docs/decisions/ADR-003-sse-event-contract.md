@@ -4,6 +4,7 @@
 - **Date:** 2026-07-23
 - **Amended:** 2026-07-24 for CT-02 durable replay
 - **Amended:** 2026-07-24 for CT-03 planning events
+- **Amended:** 2026-10-01 for R-D4's query store (operator decision the same day)
 
 ## Context
 
@@ -77,6 +78,22 @@ the app then refetches through authorized queries. A failed refetch leaves the
 last good projection visible and reports the degradation. CT-02 bootstrap still
 runs in a separate CLI process, so its visibility correctly relies on durable
 re-query.
+
+R-D4 amendment (2026-10-01). The browser reads through a keyed query store
+(`apps/web/src/lib/query-store.ts`, in the repository rather than a library, by
+operator decision). Each read has a typed key (`['roadmaps', ws]`,
+`['runtime', ws, definitionId]`, …) and a loader. Events stay invalidation
+signals: one tested table (`event-invalidations.ts`) maps every event kind, by
+the identifiers it carries, to the key prefixes it makes stale, and a kind with
+no row is an error. Only keys a component watches are read again, after the same
+debounce and max-wait as before, one read per key at a time with at most one
+follow-up; a hidden page defers them until shown. The data stays while a key
+re-reads and after a failed re-read, and an unchanged result keeps its identity,
+so nothing re-renders. A command's response may be written into its key; a
+stream event the browser cannot read makes every key stale; sign-out and a
+change of workspace forget everything. No query is polled except the Git-derived
+ones (a plan's branches), read again each minute while the tab is visible,
+because a branch can move outside the daemon and no event says so.
 
 ## Alternatives considered
 

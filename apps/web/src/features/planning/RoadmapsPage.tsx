@@ -33,7 +33,8 @@ import { StatusStrip } from '../../components/StatusStrip.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
-import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import {
   roadmapSetupIds,
@@ -90,40 +91,36 @@ const FINISHED: ReadonlySet<RoadmapStatus> = new Set(['completed', 'stopped']);
  * (PERF-06). One read at a time; a round during a read is caught by the next.
  */
 function useRoadmaps(workspaceId: WorkspaceId) {
-  const [roadmaps, setRoadmaps] = useState<readonly RoadmapView[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string>();
-  const mounted = useRef(true);
-  const refreshing = useRef(false);
-  const refresh = useCallback(async () => {
-    if (refreshing.current) return;
-    refreshing.current = true;
-    try {
-      const result = await loadRoadmaps(workspaceId);
-      if (mounted.current) {
-        setRoadmaps(result.roadmaps);
-        setLoaded(true);
-      }
-    } catch (e) {
-      if (mounted.current) setError(e instanceof Error ? e.message : 'Could not load roadmaps.');
-    } finally {
-      refreshing.current = false;
-    }
-  }, [workspaceId]);
-  useRefreshOn('roadmaps', () => void refresh());
-  useEffect(() => {
-    mounted.current = true;
-    void refresh();
-    return () => {
-      mounted.current = false;
-    };
-  }, [refresh]);
+  // The workspace's roadmaps, read again on the events that change them (R-D4) and shared with
+  // every view that lists them.
+  const store = useQueryStore();
+  const key = queryKeys.roadmaps(workspaceId);
+  const query = useQuery(key, () => loadRoadmaps(workspaceId));
+  const roadmaps: readonly RoadmapView[] = query.data?.roadmaps ?? [];
+  const [commandError, setError] = useState<string>();
+  const error =
+    commandError ??
+    (query.status === 'error'
+      ? query.error instanceof Error
+        ? query.error.message
+        : 'Could not load roadmaps.'
+      : undefined);
+  /** A command's response: the roadmap it returned replaces the listed one. */
   const apply = useCallback(
-    (view: RoadmapView) =>
-      setRoadmaps((current) => [view, ...current.filter((r) => r.roadmap.id !== view.roadmap.id)]),
-    [],
+    (view: RoadmapView) => {
+      const listed = queryKeys.roadmaps(workspaceId);
+      const current = store.view<{ roadmaps: RoadmapView[] }>(listed).data;
+      store.set(listed, {
+        ...current,
+        roadmaps: [
+          view,
+          ...(current?.roadmaps ?? []).filter((r) => r.roadmap.id !== view.roadmap.id),
+        ],
+      });
+    },
+    [store, workspaceId],
   );
-  return { roadmaps, loaded, error, setError, apply };
+  return { roadmaps, loaded: query.data !== undefined, error, setError, apply };
 }
 
 /** What the roadmap editor offers: the workspace's work items, backends and default profiles. */

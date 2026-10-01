@@ -1,6 +1,8 @@
 import type { AttentionItemView, ConcurrencyDetail } from '@craftingtable/contracts';
 import { asWorkspaceId, type RoadmapView } from '@craftingtable/domain';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { resetFallbackQueryStore } from '../../lib/query-store.js';
+import { testQueryStore } from '../../lib/query-store-testing.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { loadConcurrencyDefinition, loadConcurrencyImports } from '../../lib/package-import-api.js';
 import { loadRoadmapHistory, loadRoadmaps } from '../../lib/roadmap-api.js';
@@ -386,6 +388,7 @@ it("renders only the part an inbox item is decided in: the held entry's controls
     screen.getByRole('link', { name: 'Assign independent reviewer responsibilities' }),
   ).toBeTruthy();
   view.unmount();
+  resetFallbackQueryStore();
 
   // A running roadmap whose entry is not held: a cycle's item shows none of it.
   const running = roadmap('r-run', 'Running roadmap', 'running');
@@ -402,6 +405,7 @@ it("renders only the part an inbox item is decided in: the held entry's controls
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(empty.container.textContent).toBe('');
   empty.unmount();
+  resetFallbackQueryStore();
 
   vi.mocked(loadRoadmaps).mockResolvedValue({ roadmaps: [active] } as never);
   render(
@@ -418,4 +422,16 @@ it("renders only the part an inbox item is decided in: the held entry's controls
     document.getElementById('roadmap-setup-r-active-bindings')?.closest('[hidden]'),
   ).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Resume roadmap' })).toBeNull();
+});
+
+it('re-reads the roadmaps on their events, once for every view that lists them, and on no other event (R-D4)', async () => {
+  const { wrap, send } = testQueryStore();
+  render(wrap(<RoadmapsPage workspaceId={ws} csrfToken="csrf" canMutate />));
+  await screen.findByRole('region', { name: 'Active roadmaps' });
+  const reads = vi.mocked(loadRoadmaps).mock.calls.length;
+  await send('repository-registered', { workspaceId: ws, repositoryId: 'repo' });
+  await send('agent-run-status-changed', { workspaceId: ws, payload: { runId: 'run' } });
+  expect(loadRoadmaps).toHaveBeenCalledTimes(reads);
+  await send('roadmap-changed', { workspaceId: ws, payload: { roadmapId: 'r-active' } });
+  await waitFor(() => expect(loadRoadmaps).toHaveBeenCalledTimes(reads + 1));
 });

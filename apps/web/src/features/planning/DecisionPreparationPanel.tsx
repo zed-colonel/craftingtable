@@ -16,6 +16,7 @@ import { ReasoningEffortField } from '../execution/ReasoningEffortField.js';
 import { About } from '../../components/About.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
+import { useQueryStore } from '../../lib/query-store.js';
 
 export function DecisionPreparationPanel({
   roadmap,
@@ -31,6 +32,7 @@ export function DecisionPreparationPanel({
   /** The roadmap changed (the standing grant was saved). */
   onChanged?: () => void;
 }) {
+  const store = useQueryStore();
   const standing = roadmap.decisionPreparationGrant;
   const [grantEnabled, setGrantEnabled] = useState(standing?.enabled ?? false),
     [grantMinutes, setGrantMinutes] = useState(standing?.minutes ?? 30),
@@ -252,13 +254,12 @@ export function DecisionPreparationPanel({
           disabled={disabled}
           onClick={() => {
             void refresh()
-              .then(() =>
-                window.dispatchEvent(
-                  new CustomEvent('craftingtable:runtime-saved', {
-                    detail: roadmap.definition.crossProject?.definitionId,
-                  }),
-                ),
-              )
+              .then(() => {
+                // The map's supervision previews show the decisions: read them again (R-D4).
+                const definitionId = roadmap.definition.crossProject?.definitionId;
+                if (definitionId)
+                  store.refreshNow([['cross-project', roadmap.workspaceId, definitionId]]);
+              })
               .catch((e) => setMessage(e instanceof Error ? e.message : 'Could not refresh.'));
           }}
         >

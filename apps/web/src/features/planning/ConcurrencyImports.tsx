@@ -14,7 +14,7 @@ import type {
   SourceRepositoryId,
   WorkspaceId,
 } from '@craftingtable/domain';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
 import { PageHeader } from '../../components/PageHeader.js';
 import { Section } from '../../components/Section.js';
@@ -30,7 +30,8 @@ import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ImportIssues } from './import-issues.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link, useNavigation } from '../../lib/navigation.js';
-import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery } from '../../lib/query-store.js';
 import { loadRoadmaps } from '../../lib/roadmap-api.js';
 
 /**
@@ -63,19 +64,22 @@ export function ConcurrencyImports({
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState('');
   const [notice, setNotice] = useState('');
-  const [roadmaps, setRoadmaps] = useState<readonly RoadmapView[]>();
   // A map's page creates roadmaps one checklist step at a time, as setup does (R-E2).
   const [shownStep, setShownStep] = useSetupStep(
     definitionId === undefined ? undefined : mapSetupIds(definitionId),
     noSteps,
   );
-  const refreshRoadmaps = useCallback(() => {
-    if (!mapPage) return;
-    void loadRoadmaps(workspaceId)
-      .then((r) => setRoadmaps(r.roadmaps))
-      .catch((e) => setError(e instanceof Error ? e.message : 'Could not load roadmaps.'));
-  }, [workspaceId, mapPage]);
-  useRefreshOn('roadmaps', refreshRoadmaps);
+  // A map's page lists the roadmaps on it: the workspace's roadmaps, shared with their page (R-D4).
+  const roadmapsQuery = useQuery(mapPage ? queryKeys.roadmaps(workspaceId) : undefined, () =>
+    loadRoadmaps(workspaceId),
+  );
+  const roadmaps: readonly RoadmapView[] | undefined = roadmapsQuery.data?.roadmaps;
+  const roadmapsError =
+    roadmapsQuery.error === undefined
+      ? undefined
+      : roadmapsQuery.error instanceof Error
+        ? roadmapsQuery.error.message
+        : 'Could not load roadmaps.';
   useEffect(() => {
     let alive = true;
     if (!mapPage)
@@ -119,7 +123,6 @@ export function ConcurrencyImports({
   useEffect(() => {
     if (definitionId === undefined) return;
     void open(definitionId);
-    refreshRoadmaps();
   }, [workspaceId, definitionId]);
   const mapRoute = (id: string) => ({
     name: 'roadmap-map' as const,
@@ -556,9 +559,9 @@ export function ConcurrencyImports({
   );
   const alerts = (
     <>
-      {error && (
+      {(error ?? roadmapsError) && (
         <p className="error-state" role="alert">
-          {error}
+          {error ?? roadmapsError}
         </p>
       )}
       {notice && <p role="status">{notice}</p>}

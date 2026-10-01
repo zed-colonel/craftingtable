@@ -226,6 +226,10 @@ function workItemDetailFor(workspaceId: string) {
 }
 
 const snapshotCalls: string[] = [];
+/** The page's other reads: its cycles and its attention items. */
+const readCalls: string[] = [];
+/** The settings page's notification status, a store query (R-D4). */
+const notificationCalls: string[] = [];
 let pendingSnapshotB: Deferred<WorkspaceSnapshotResponse>;
 /** When set, workspace A's snapshot waits for it: a slow round on the daemon. */
 let snapshotAGate: Promise<void> | undefined;
@@ -287,11 +291,35 @@ vi.mock('./lib/branch-api.js', () => ({
   loadPlanBranchSettings: () => Promise.resolve({ issues: [], missingEvidence: [] }),
 }));
 
+vi.mock('./lib/notification-api.js', async () => {
+  const { DEFAULT_NOTIFICATION_PREFERENCES } = await import('@craftingtable/domain');
+  return {
+    loadNotifications: () => {
+      notificationCalls.push('status');
+      return Promise.resolve({
+        preferences: DEFAULT_NOTIFICATION_PREFERENCES,
+        version: 1,
+        credentialsConfigured: false,
+        blockedReason: null,
+        retryAt: null,
+        records: [],
+      });
+    },
+    saveNotifications: () => new Promise(() => undefined),
+    testNotifications: () => new Promise(() => undefined),
+  };
+});
 vi.mock('./lib/attention-api.js', () => ({
-  loadAttention: () => Promise.resolve({ items: [] }),
+  loadAttention: () => {
+    readCalls.push('attention');
+    return Promise.resolve({ items: [] });
+  },
 }));
 vi.mock('./lib/work-cycle-api.js', () => ({
-  loadWorkCycles: () => Promise.resolve({ cycles: [] }),
+  loadWorkCycles: () => {
+    readCalls.push('cycles');
+    return Promise.resolve({ cycles: [] });
+  },
   startWorkCycle: () => new Promise(() => undefined),
 }));
 
@@ -528,6 +556,51 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(snapshotCalls.length - initial).toBe(2);
+  });
+
+  it('reads nothing while visible and idle: no event, so no request, for minutes (R-D4)', async () => {
+    const initial = await loaded();
+    const reads = readCalls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+    expect(snapshotCalls.length).toBe(initial);
+    expect(readCalls.length).toBe(reads);
+  });
+
+  it("reads a page's store queries again when an event names them, and every one after an unreadable event (R-D4)", async () => {
+    window.history.pushState(null, '', '/workspaces/workspace-a/settings');
+    // Faked from the start, so the app's minute timer runs on the test's clock.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderApp();
+    await waitFor(() => expect(notificationCalls.length).toBeGreaterThan(0));
+    await settle();
+    const before = notificationCalls.length;
+    // Idle and visible: the minute's refresh reads only Git-derived queries, not this one.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+    });
+    expect(notificationCalls.length).toBe(before);
+    const callbacks = vi.mocked(useWorkspaceEventStream).mock.lastCall![2];
+    act(() => callbacks.onEvent(streamEvent(9, 'repository-registered', { repositoryId: 'repo' })));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(notificationCalls.length).toBe(before);
+    act(() =>
+      callbacks.onEvent(
+        streamEvent(10, 'notifications-changed', { payload: { action: 'delivery' } }),
+      ),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(notificationCalls.length).toBe(before + 1);
+    act(() => callbacks.onInvalidEvent());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(notificationCalls.length).toBe(before + 2);
   });
 
   it('reads nothing while the tab is hidden and catches up once when shown', async () => {

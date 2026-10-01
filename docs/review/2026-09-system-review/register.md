@@ -14,7 +14,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A3](#r-a3) | P1 | M-L | done (eb757da, 57a3a16) | Controller-declared, typed attention on every blocking transition |
 | [R-A4](#r-a4) | P2 | M-L | done (16d94de, see review) | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | done (a4635c7, see review) | One "Needs you" inbox that every surface reads |
-| [R-A6](#r-a6) | P3 | L | partial (increment 1, 2026-09-30) | Consolidate decision and recovery components; delete per-page hosts |
+| [R-A6](#r-a6) | P3 | L | partial (increments 1, 2a, 2b; architecture and preparation hosts left) | Consolidate decision and recovery components; delete per-page hosts |
 | [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0, 9084e50) | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
@@ -234,7 +234,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A6
 
-**Consolidate decision and recovery components; delete per-page hosts** · Phase P3 · Effort L · Status: partial (increments 1 and 2a, 2026-09-30; 2b open)
+**Consolidate decision and recovery components; delete per-page hosts** · Phase P3 · Effort L · Status: partial (increments 1, 2a and 2b, 2026-09-30 to 10-01; left: ArchitectureDecisionPanel, DecisionPreparationPanel and SharedDecisionInbox still host their kinds in `features/planning/`, and shared-decision and preparation items render the roadmap's decisions step)
 
 - **Resolves:** [UI-03](findings/UI-information-architecture.md#ui-03-the-same-decision-concept-is-surfaced-in-several-places-with-different-names-and-forms), [UI-10](findings/UI-information-architecture.md#ui-10-recovery-panels-render-when-nothing-needs-recovering), [UI-17](findings/UI-information-architecture.md#ui-17-roadmap-supervision-panels-share-mutable-page-level-dirty-gates-that-disable-unrelated-decisions), [UI-18](findings/UI-information-architecture.md#ui-18-the-work-item-page-stacks-up-to-about-a-dozen-conditional-panels-in-one-automated-cycle-section-slice-gates-sit-at-the-bottom), [UI-19](findings/UI-information-architecture.md#ui-19-the-e2e-and-walkthrough-suites-are-coupled-to-current-accessible-names-so-an-ia-migration-needs-a-test-plan)
 - **Change:** Replace the ~21 recovery/decision panels with one component per decision kind rendered only in the inbox detail: CycleContinuation (guidance, extra rounds, agent override, fresh-review semantics), DesignQuestions, ArchitectureDecision (prepare with agent / author manually / approve full or limited / clarify), EvidenceDecision (checkpoint and plan acceptance), EnvironmentApproval, IntegrationConflict, ScopeRepair, AmendmentDecision, FinalizationStep, FinalPromotion. Other pages show a one-line banner linking to the item. Delete the originals and their e2e specs in the same commit that adds the replacement specs.

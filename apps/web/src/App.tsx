@@ -49,6 +49,7 @@ import { loadAttention } from './lib/attention-api.js';
 import { CheckAdoption } from './decisions/checks/CheckAdoption.js';
 import { CycleDecision } from './decisions/cycle/CycleDecision.js';
 import { CheckpointPreparation } from './decisions/checkpoint/CheckpointPreparation.js';
+import { FinalizationDecision } from './decisions/finalization/FinalizationDecision.js';
 import { MergeApproval, RetryMergeCleanup } from './decisions/merge/MergeApproval.js';
 import { type Decision, decisionsFor, type RoadmapItemPart } from './decisions/registry.js';
 import { AuditPanel } from './components/AuditPanel.js';
@@ -1585,6 +1586,23 @@ export function App() {
               onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
             />
           ) : undefined;
+        case 'finalization-decision':
+          return planVersionId !== undefined &&
+            workspaceId !== undefined &&
+            authenticated !== undefined ? (
+            <FinalizationDecision
+              key={`finalization-${item.id}`}
+              workspaceId={workspaceId}
+              planVersionId={planVersionId as PlanVersionId}
+              {...(item.refs.finalizationId ? { finalizationId: item.refs.finalizationId } : {})}
+              {...(cycleId ? { cycleId } : {})}
+              csrfToken={authenticated.csrfToken}
+              canMutate={canMutate}
+              refreshToken={refreshToken}
+              onChanged={refreshNow}
+              onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
+            />
+          ) : undefined;
         case 'run':
           return runId !== undefined && workspaceId !== undefined ? (
             <p>
@@ -1972,6 +1990,14 @@ export function App() {
                   csrfToken={authenticated.csrfToken}
                   canMutate={canMutate}
                   onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+                  decisionItemFor={(finalizationId, finalizationCycleId) =>
+                    attentionItems.find(
+                      (item) =>
+                        (item.refs.finalizationId === finalizationId ||
+                          item.refs.cycleId === finalizationCycleId) &&
+                        decisionsFor(item).some((d) => d.kind === 'finalization-decision'),
+                    )?.id
+                  }
                 />
               </>
             }

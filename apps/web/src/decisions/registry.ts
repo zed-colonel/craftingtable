@@ -36,7 +36,10 @@ export type Decision =
   | { readonly kind: 'check-adoption' }
   /** A slice-verification or parent-acceptance review records its scope evidence. */
   | { readonly kind: 'scope-evidence' }
+  /** The plan's finalization panel: a promoted finalization's cleanup. */
   | { readonly kind: 'finalization' }
+  /** A finalization's promotion, next step or integration conflict (R-A6 2b). */
+  | { readonly kind: 'finalization-decision' }
   | { readonly kind: 'run' }
   | { readonly kind: 'storage' }
   | { readonly kind: 'acknowledge' }
@@ -148,10 +151,11 @@ export function decisionsFor(item: AttentionItemView): readonly Decision[] {
     ];
   // A finalization's own cycle, merge or cleanup has no work item.
   if (workItemId === undefined && planVersionId !== undefined)
-    return FINALIZATION.has(code) ||
-      ['cycle', 'merge', 'run', 'finalization'].includes(subject(item))
+    return code === 'finalization-cleanup-blocked'
       ? [{ kind: 'finalization' }]
-      : [];
+      : FINALIZATION.has(code) || ['cycle', 'merge', 'run', 'finalization'].includes(subject(item))
+        ? [{ kind: 'finalization-decision' }]
+        : [];
   // Adopting the checks is the way on; the cycle then resumes for a fresh review.
   if (CHECKS.has(code))
     return [{ kind: 'check-adoption' }, ...(workItemId === undefined ? [] : [CYCLE]), ...held];

@@ -23,18 +23,21 @@ export function FinalizationCheckpoint({
   busy,
   backends = [],
   onDecide,
+  actions = ['remediate-findings', 'authorize-remediation', 'resume'],
 }: {
   view: FinalizationView;
   busy: boolean;
   backends?: ExecutionStatusResponse['backends'];
   onDecide: (input: ControlFinalizationRequest) => void;
+  /** The decisions the daemon offers; an option it does not is not shown (R-A6 2b). */
+  actions?: readonly string[];
 }) {
   const findings = view.checkpointFindings;
   const [selected, setSelected] = useState<string[]>([]);
   const [action, setAction] = useState<CheckpointAction>(() =>
-    findings.length
+    findings.length && actions.includes('remediate-findings')
       ? 'remediate-findings'
-      : view.canAuthorizeRemediation
+      : view.canAuthorizeRemediation && actions.includes('authorize-remediation')
         ? 'authorize-remediation'
         : 'resume',
   );
@@ -107,13 +110,17 @@ export function FinalizationCheckpoint({
           disabled={busy}
           onChange={(e) => setAction(e.target.value as CheckpointAction)}
         >
-          {!!findings.length && (
+          {!!findings.length && actions.includes('remediate-findings') && (
             <option value="remediate-findings">Address selected findings</option>
           )}
-          {!findings.length && view.canAuthorizeRemediation && (
-            <option value="authorize-remediation">Authorize more remediation</option>
+          {!findings.length &&
+            view.canAuthorizeRemediation &&
+            actions.includes('authorize-remediation') && (
+              <option value="authorize-remediation">Authorize more remediation</option>
+            )}
+          {!view.canAuthorizeRemediation && actions.includes('resume') && (
+            <option value="resume">Resume with guidance</option>
           )}
-          {!view.canAuthorizeRemediation && <option value="resume">Resume with guidance</option>}
         </select>
       </label>
       {findingDecision && (

@@ -55,6 +55,16 @@ const COMMANDS: readonly {
   },
   { kind: 'scope-repair', command: 'cycles/:id/scope-repair', found: /\/scope-repair[`'"]/ },
   {
+    kind: 'finalization',
+    command: 'finalizations/:id/control stage, plan adjustment and findings decisions',
+    found: /['"`](select-stage-findings|approve-plan-change|remediate-findings)['"`]/,
+  },
+  {
+    kind: 'finalization',
+    command: 'finalizations/:id/control merge',
+    found: /action: ['"`]merge['"`]/,
+  },
+  {
     kind: 'checkpoint',
     command: 'runtime/prepare-checkpoint',
     found: /\/prepare-checkpoint[`'"]|['"`]prepare-checkpoint['"`]/,
@@ -89,6 +99,7 @@ it.each(COMMANDS)('posts $command only from decisions/$kind', ({ kind, found }) 
 it('posts a control command only from the cycle module and the roadmap and finalization helpers', () => {
   const allowed = [
     join(src, 'decisions', 'cycle') + sep,
+    join(src, 'decisions', 'finalization') + sep,
     join(src, 'lib', 'roadmap-api.ts'),
     join(src, 'lib', 'finalization-api.ts'),
   ];

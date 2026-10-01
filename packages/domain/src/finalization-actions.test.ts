@@ -18,6 +18,14 @@ it('offers the decisions a staged finalization can be given now, one rule for co
   expect(
     finalizationActions({ ...base, finalization: staged, cycle: { status: 'running' } as never }),
   ).toEqual([]);
+  // Awaiting merge in an earlier phase is not a promotion.
+  expect(
+    finalizationActions({
+      ...base,
+      finalization: staged,
+      cycle: { status: 'awaiting-merge', polishPhase: 'stage-review' } as never,
+    }),
+  ).toEqual([]);
   // A reserved promotion is recovered before anything else.
   expect(
     finalizationActions({

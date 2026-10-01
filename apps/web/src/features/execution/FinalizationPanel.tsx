@@ -35,9 +35,11 @@ import {
 import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
 import { DiffView } from './DiffView.js';
-import { FinalizationStageDecision } from './FinalizationStageDecision.js';
 import { FinalizationStageProgress } from './FinalizationStageProgress.js';
 import { defaultFinalizationStages, FinalizationStageSetup } from './FinalizationStageSetup.js';
+import { FinalPromotion } from '../../decisions/finalization/FinalPromotion.js';
+import { Link } from '../../lib/navigation.js';
+import { FinalizationStep } from '../../decisions/finalization/FinalizationStep.js';
 import { IntegrationConflict } from '../../decisions/integration/IntegrationConflict.js';
 import { ReviewFindings } from './ReviewFindings.js';
 import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
@@ -53,12 +55,15 @@ export function FinalizationPanel({
   csrfToken,
   canMutate,
   onOpenRun,
+  decisionItemFor,
 }: {
   workspaceId: WorkspaceId;
   planVersionId: PlanVersionId;
   csrfToken: string;
   canMutate: boolean;
   onOpenRun: (id: AgentRunId) => void;
+  /** The open inbox item that carries a finalization's stop, outside the inbox (R-A6). */
+  decisionItemFor?: (finalizationId: string, cycleId: string) => string | undefined;
 }) {
   const [views, setViews] = useState<FinalizationView[]>([]);
   const [settings, setSettings] = useState<PlanBranchSettingsResponse>();
@@ -71,14 +76,6 @@ export function FinalizationPanel({
     WorktreeChangesRefused & { readonly finalizationId: string }
   >();
   const [reload, setReload] = useState(0);
-  const [confirm, setConfirm] = useState<{
-    id: string;
-    head: string;
-    target: string;
-    version: number;
-    cycleVersion: number;
-    removeIntegrationBranch: boolean;
-  }>();
   const [diff, setDiff] = useState<WorktreeDiffResponse>();
   // biome-ignore lint/correctness/useExhaustiveDependencies: A completed command requests an immediate server refresh.
   useEffect(() => {
@@ -155,7 +152,6 @@ export function FinalizationPanel({
     setError(undefined);
     try {
       await operation();
-      setConfirm(undefined);
       setReload((v) => v + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Finalization command failed.');
@@ -326,7 +322,8 @@ export function FinalizationPanel({
         const f = view.finalization;
         const cycle = view.cycle;
         const latest = view.runs.find((r) => r.id === cycle?.currentRunId);
-        const reviewed = latest?.reviewBranchContext;
+        // An open item carries this finalization's stop: its next step is decided there (R-A6).
+        const decided = decisionItemFor?.(f.id, f.cycleId);
         return (
           <section className="panel" key={f.id} aria-label="Finalization attempt">
             <h3>
@@ -432,29 +429,6 @@ export function FinalizationPanel({
                   >
                     Stop finalization
                   </button>
-                  {cycle &&
-                    (cycle.status === 'awaiting-merge' || view.mergeRecoveryPending) &&
-                    reviewed && (
-                      <button
-                        type="button"
-                        className="primary-button"
-                        disabled={busy}
-                        onClick={() =>
-                          setConfirm({
-                            id: f.id,
-                            head: reviewed.headSha,
-                            target: reviewed.targetSha,
-                            version: f.version,
-                            cycleVersion: cycle.version,
-                            removeIntegrationBranch: false,
-                          })
-                        }
-                      >
-                        {view.mergeRecoveryPending
-                          ? 'Recover approved promotion'
-                          : 'Review final merge approval'}
-                      </button>
-                    )}
                 </>
               )}
               {canMutate && f.status === 'stopped' && view.worktree?.status === 'active' && (
@@ -539,67 +513,34 @@ export function FinalizationPanel({
                 )}
               </div>
             )}
-            {confirm?.id === f.id && (
-              <fieldset className="stack-form">
-                <legend>Approve final promotion</legend>
-                <p style={{ overflowWrap: 'anywhere' }}>
-                  Merge candidate <code>{confirm.head}</code> into <code>{f.targetBranch}</code> at{' '}
-                  <code>{confirm.target}</code>. This requires your explicit approval and renewed
-                  review if either commit changes.
+            {canMutate &&
+              (decided ? (
+                <p className="attention-banner" role="status">
+                  This finalization's next step is decided in Needs you.{' '}
+                  <Link route={{ name: 'inbox', workspaceId, itemId: decided }}>
+                    Open the decision
+                  </Link>
                 </p>
-                {!view.mergeRecoveryPending && (
-                  <label className="checkbox-field">
-                    <input
-                      type="checkbox"
-                      checked={confirm.removeIntegrationBranch}
-                      disabled={busy}
-                      onChange={(e) =>
-                        setConfirm({ ...confirm, removeIntegrationBranch: e.target.checked })
-                      }
-                    />
-                    Remove local integration branch {f.integrationBranch} after successful promotion
-                  </label>
-                )}
-                <p className="hint">
-                  Branch removal keeps merged commits and plan history. If the branch changed or is
-                  in use, promotion still completes and cleanup can be retried.
-                </p>
-                <div className="inline-actions">
-                  <button
-                    type="button"
-                    className="primary-button"
+              ) : (
+                <>
+                  <FinalPromotion
+                    workspaceId={workspaceId}
+                    view={view}
+                    csrfToken={csrfToken}
                     disabled={busy}
-                    onClick={() =>
-                      void perform(() =>
-                        controlFinalization(
-                          workspaceId,
-                          f.id,
-                          {
-                            action: 'merge',
-                            expectedVersion: confirm.version,
-                            expectedCycleVersion: confirm.cycleVersion,
-                            expectedHeadSha: confirm.head,
-                            expectedTargetSha: confirm.target,
-                            removeIntegrationBranch: confirm.removeIntegrationBranch,
-                          },
-                          csrfToken,
-                        ),
-                      )
-                    }
-                  >
-                    Approve merge into {f.targetBranch}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
+                    onDone={() => setReload((v) => v + 1)}
+                  />
+                  <FinalizationStep
+                    key={`${f.id}:${cycle?.version}`}
+                    workspaceId={workspaceId}
+                    view={view}
+                    csrfToken={csrfToken}
                     disabled={busy}
-                    onClick={() => setConfirm(undefined)}
-                  >
-                    Cancel approval
-                  </button>
-                </div>
-              </fieldset>
-            )}
+                    backends={backends}
+                    onDone={() => setReload((v) => v + 1)}
+                  />
+                </>
+              ))}
             {cycle && f.status === 'active' && (
               <IntegrationConflict
                 cycle={cycle}
@@ -641,22 +582,6 @@ export function FinalizationPanel({
                 ))}
               </details>
             )}
-            {canMutate &&
-              ['active', 'preparing'].includes(f.status) &&
-              !view.mergeRecoveryPending &&
-              (!cycle || ['paused', 'needs-attention'].includes(cycle.status)) &&
-              (!cycle?.integrationResolution ||
-                ['completed', 'abandoned'].includes(cycle.integrationResolution.status)) && (
-                <FinalizationStageDecision
-                  key={`${f.id}:${cycle?.version}`}
-                  view={view}
-                  busy={busy}
-                  backends={backends}
-                  onDecide={(input) =>
-                    void perform(() => controlFinalization(workspaceId, f.id, input, csrfToken))
-                  }
-                />
-              )}
             <details>
               <summary>Pass settings and run history</summary>
               {!f.stages && (

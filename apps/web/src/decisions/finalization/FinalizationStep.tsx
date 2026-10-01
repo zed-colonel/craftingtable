@@ -4,7 +4,6 @@ import type {
   FinalizationView,
 } from '@craftingtable/contracts';
 import {
-  currentFinalizationStage,
   type FinalizationAgentSelection,
   finalizationProfile,
   optionalFinding,
@@ -12,6 +11,9 @@ import {
   remediationUsed,
 } from '@craftingtable/domain';
 import { useState } from 'react';
+import { finalizationViewSchema } from '@craftingtable/contracts';
+import type { WorkspaceId } from '@craftingtable/domain';
+import { request } from '../../lib/api-client.js';
 import { About } from '../../components/About.js';
 import { FinalizationCheckpoint } from './FinalizationCheckpoint.js';
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
@@ -22,17 +24,86 @@ type Props = {
   backends: ExecutionStatusResponse['backends'];
   onDecide: (input: ControlFinalizationRequest) => void;
 };
-export function FinalizationStageDecision(props: Props) {
-  const progress = props.view.cycle?.finalizationProgress;
-  const proposals = progress?.obligations.filter((o) => o.status === 'change-requested') ?? [];
-  return props.view.cycle &&
-    (currentFinalizationStage(props.view.cycle)?.status === 'selecting' || proposals.length) ? (
-    <StageDecision {...props} />
-  ) : (
-    <FinalizationCheckpoint {...props} />
+
+const encode = encodeURIComponent;
+/**
+ * A staged finalization's decision (R-A6 increment 2b): the only poster of its stage, plan
+ * adjustment, findings, attempts and resume decisions on `finalizations/:id/control`.
+ */
+function decide(
+  workspaceId: WorkspaceId,
+  finalizationId: string,
+  input: ControlFinalizationRequest,
+  csrfToken: string,
+) {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/finalizations/${encode(finalizationId)}/control`,
+    finalizationViewSchema,
+    {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': csrfToken },
+      body: JSON.stringify(input),
+    },
   );
 }
-function StageDecision({ view, busy, backends, onDecide }: Props) {
+
+/**
+ * The next step of a staged finalization (R-A6 increment 2b): the stage's batch or the plan
+ * adjustment it proposes, else the checkpoint's findings, more attempts or a resume, offering
+ * only the decisions the daemon returned. It renders in the finalization's inbox item, and on
+ * the plan's page when no item carries the stop.
+ */
+export function FinalizationStep({
+  workspaceId,
+  view,
+  csrfToken,
+  disabled,
+  backends,
+  onDone,
+}: {
+  workspaceId: WorkspaceId;
+  view: FinalizationView;
+  csrfToken: string;
+  disabled: boolean;
+  backends: ExecutionStatusResponse['backends'];
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const actions = view.actions ?? [];
+  const onDecide = (input: ControlFinalizationRequest) => {
+    setBusy(true);
+    setError(undefined);
+    void decide(workspaceId, view.finalization.id, input, csrfToken)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .then(() => onDone())
+      .finally(() => setBusy(false));
+  };
+  const props = { view, busy: disabled || busy, backends, onDecide, actions };
+  const step = actions.some((a) => a === 'select-stage-findings' || a === 'approve-plan-change') ? (
+    <StageDecision {...props} />
+  ) : actions.some((a) => ['remediate-findings', 'authorize-remediation', 'resume'].includes(a)) ? (
+    <FinalizationCheckpoint {...props} />
+  ) : undefined;
+  if (!step) return null;
+  return (
+    <>
+      {error && (
+        <p role="alert" className="error-state">
+          {error}
+        </p>
+      )}
+      {step}
+    </>
+  );
+}
+function StageDecision({
+  view,
+  busy,
+  backends,
+  onDecide,
+  actions,
+}: Props & { actions: readonly string[] }) {
   const cycle = view.cycle;
   const progress = cycle?.finalizationProgress;
   const stage = view.finalization.stages?.[progress?.stageIndex ?? 0];
@@ -116,13 +187,15 @@ function StageDecision({ view, busy, backends, onDecide }: Props) {
           disabled={busy}
           onChange={(e) => setAction(e.target.value as typeof action)}
         >
-          {!!proposals.length && (
+          {!!proposals.length && actions.includes('approve-plan-change') && (
             <option value="approve-plan-change">Decide a proposed plan adjustment</option>
           )}
-          {!proposals.length && (
+          {!proposals.length && actions.includes('select-stage-findings') && (
             <option value="select-stage-findings">Select this stage’s improvement batch</option>
           )}
-          <option value="resume">Resume with answers or guidance</option>
+          {actions.includes('resume') && (
+            <option value="resume">Resume with answers or guidance</option>
+          )}
         </select>
       </label>
       {selection && (

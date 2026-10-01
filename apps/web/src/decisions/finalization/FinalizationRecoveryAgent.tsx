@@ -1,7 +1,7 @@
 import type { ExecutionStatusResponse } from '@craftingtable/contracts';
 import { AGENT_BACKEND_LABELS, type FinalizationAgentSelection } from '@craftingtable/domain';
 import { About } from '../../components/About.js';
-import { AgentSelectionFields } from './AgentSelectionFields.js';
+import { AgentSelectionFields } from '../../features/execution/AgentSelectionFields.js';
 
 export function FinalizationRecoveryAgent({
   mode,

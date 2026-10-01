@@ -202,6 +202,18 @@ it('decides merges, scope evidence, checks, runs, finalization, storage and prot
       }),
     ),
   ).toEqual([{ kind: 'finalization' }]);
+  // A finalization's own stops render its decisions; its cleanup stays on the panel (R-A6 2b).
+  for (const code of ['final-promotion', 'stage-batch-selection', 'remediation-exhausted'] as const)
+    expect(
+      decisionsFor(
+        item({
+          subjectKey: 'cycle:f',
+          code,
+          refs: { cycleId: 'f', planVersionId: 'p', projectId: 'pr' },
+        }),
+      ),
+      code,
+    ).toEqual([{ kind: 'finalization-decision' }]);
   expect(
     decisionsFor(item({ code: 'storage-pressure', refs: {}, subjectKey: 'storage:volumes' })),
   ).toEqual([{ kind: 'storage' }]);

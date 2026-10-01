@@ -142,12 +142,22 @@ for (const decision of ['remediate', 'staged'] as const) {
         .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
         .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
       await finalization.getByRole('button', { name: 'Start finalization', exact: true }).click();
+      // Each finalization stop is decided in its inbox item; the plan's page links there (R-A6).
+      const planPage = page.url();
+      const openDecision = async () => {
+        const link = finalization.getByRole('link', { name: 'Open the decision', exact: true });
+        await expect(link).toBeVisible({ timeout: 30000 });
+        await link.click();
+        return page.getByRole('region', { name: 'Decision' });
+      };
       if (decision === 'staged') {
-        const selection = finalization.getByRole('form', { name: 'Finalization next step' });
-        await expect(selection).toBeVisible({ timeout: 30000 });
         await expect(
           finalization.getByRole('heading', { name: 'Stage 4 of 6: Simplification', exact: true }),
-        ).toBeVisible();
+        ).toBeVisible({ timeout: 30000 });
+        const selection = (await openDecision()).getByRole('form', {
+          name: 'Finalization next step',
+        });
+        await expect(selection).toBeVisible();
         await selection.getByRole('checkbox', { name: /S-1/ }).check();
         await selection
           .getByLabel('Disposition rationale (required)')
@@ -158,9 +168,11 @@ for (const decision of ['remediate', 'staged'] as const) {
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
         await selection.scrollIntoViewIfNeeded();
         await selection.getByRole('button', { name: 'Authorize selected stage batch' }).click();
+        await page.goto(planPage);
       } else {
-        const recovery = finalization.getByRole('form', { name: 'Finalization next step' });
-        await expect(recovery).toBeVisible({ timeout: 30000 });
+        await expect(
+          finalization.getByRole('link', { name: 'Open the decision', exact: true }),
+        ).toBeVisible({ timeout: 30000 });
         await finalization.getByText('Review findings', { exact: true }).click();
         await expect(
           finalization.getByRole('heading', { name: /Clarify the finalization example/ }),
@@ -169,10 +181,12 @@ for (const decision of ['remediate', 'staged'] as const) {
           finalization.getByRole('button', { name: 'Resume finalization', exact: true }),
         ).toHaveCount(0);
         await page.reload();
+        const item = await openDecision();
+        const recovery = item.getByRole('form', { name: 'Finalization next step' });
         await expect(recovery).toBeVisible();
-        await expect(finalization.getByRole('form')).toHaveCount(1);
+        await expect(item.getByRole('form')).toHaveCount(1);
         await expect(
-          finalization.getByRole('button', { name: 'Authorize more remediation', exact: true }),
+          item.getByRole('button', { name: 'Authorize more remediation', exact: true }),
         ).toHaveCount(0);
         await recovery.getByLabel('Next action').selectOption('remediate-findings');
         await expect(recovery.getByText('Select at least one finding to continue.')).toBeVisible();
@@ -229,9 +243,14 @@ for (const decision of ['remediate', 'staged'] as const) {
           additionalRounds: 2,
           instructions: 'Clarify the example. E2E-EXTRA-REMEDIATION',
         });
+        await page.goto(planPage);
       }
+      // The promotion is the next item.
       await expect(
-        finalization.getByRole('button', { name: 'Review final merge approval' }),
+        finalization.getByRole('link', { name: 'Open the decision', exact: true }),
+      ).toBeVisible({ timeout: 30000 });
+      await expect(
+        finalization.getByRole('heading', { name: /Final independent review/ }),
       ).toBeVisible({ timeout: 30000 });
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
       if (decision === 'remediate') {
@@ -265,26 +284,25 @@ for (const decision of ['remediate', 'staged'] as const) {
       expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
       await page.reload();
       await expect(
-        finalization.getByRole('button', { name: 'Review final merge approval' }),
+        finalization.getByRole('link', { name: 'Open the decision', exact: true }),
       ).toBeVisible();
       await finalization.getByRole('button', { name: 'Open current run', exact: true }).click();
       await expect(page.getByRole('region', { name: 'Run outcome', exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Plan finalization', exact: true }).click();
       await finalization.getByRole('button', { name: 'View complete candidate diff' }).click();
       await expect(finalization.getByText(candidateFile, { exact: false }).first()).toBeVisible();
-      await finalization.getByRole('button', { name: 'Review final merge approval' }).click();
-      await expect(
-        finalization.getByRole('group', { name: 'Approve final promotion' }),
-      ).toBeVisible();
+      const promotion = await openDecision();
+      await promotion.getByRole('button', { name: 'Review final merge approval' }).click();
+      await expect(promotion.getByRole('group', { name: 'Approve final promotion' })).toBeVisible();
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
-      const removeIntegration = finalization.getByRole('checkbox', {
+      const removeIntegration = promotion.getByRole('checkbox', {
         name: 'Remove local integration branch revision after successful promotion',
       });
       await expect(removeIntegration).not.toBeChecked();
       if (decision === 'remediate') await removeIntegration.check();
-      await finalization
-        .getByRole('button', { name: 'Approve merge into main', exact: true })
-        .click();
+      await promotion.getByRole('button', { name: 'Approve merge into main', exact: true }).click();
+      await expect(page.getByText('This item is resolved.')).toBeVisible({ timeout: 15000 });
+      await page.goto(planPage);
       await expect(finalization.getByText('Promoted by operator', { exact: true })).toBeVisible({
         timeout: 15000,
       });

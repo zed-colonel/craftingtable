@@ -1507,7 +1507,7 @@ it("removes agents' temporary directories a stopped daemon left behind (LIVE-31)
   mkdirSync(join(left, 'claude-1000'), { recursive: true });
   writeFileSync(join(left, 'claude-1000', 'partial'), 'x');
   state.context.services.agentRunService.recoverInterrupted();
-  expect(existsSync(left)).toBe(false);
+  await waitFor(() => !existsSync(left), 'leftover removed in the background');
   expect(existsSync(root)).toBe(true);
 });
 
@@ -1540,7 +1540,7 @@ it('starts after a stop that left an unremovable directory, and removes it (LIVE
   writeFileSync(join(locked, 'file'), 'x');
   chmodSync(locked, 0o500);
   expect(() => state.context.services.agentRunService.recoverInterrupted()).not.toThrow();
-  expect(existsSync(dirname(locked))).toBe(false);
+  await waitFor(() => !existsSync(dirname(locked)), 'leftover removed in the background');
 });
 
 it('leaves no run starting when its temporary directory cannot be made (LIVE-31 review)', async () => {

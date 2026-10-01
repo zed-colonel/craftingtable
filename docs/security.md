@@ -109,8 +109,9 @@ program and filters. A sandboxed agent cannot write it: Codex runs use Codex's s
 R-G5 Claude runs' Bash runs in Claude Code's OS sandbox (every posture but unrestricted), writing
 only the worktree, the run's directories, its scratch space (also the commands' TMPDIR, TMP
 and TEMP; Claude Code itself keeps its sandbox's sockets in a short private directory of the
-run's, `<data>/t/<12 hex>`, 0700, removed when the run ends, LIVE-31) and Cargo's `registry`
-and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
+run's, `<data>/t/<12 hex>`, 0700, removed when the run ends without following anything an agent
+left there, LIVE-31; Claude Code lets commands write its `claude-<uid>` directory inside it,
+and nothing else of it or of other runs' directories) and Cargo's `registry` and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
 crate an agent plants never runs in the operator's own builds, R-G5 review; check units do not build
 from it either: each gets a fresh Cargo home of its own, a local registry of crates.io's published
 index entries and only the downloads whose SHA-256 matches them, which the daemon reads from

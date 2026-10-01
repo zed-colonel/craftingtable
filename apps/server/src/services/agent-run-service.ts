@@ -2,14 +2,12 @@ import { decisionPreparationDocuments } from './decision-preparation-policy.js';
 import { moveRecords, unrecordedMoves } from './ref-watch.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
-  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   realpathSync,
-  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -62,6 +60,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { cycleAgentSelection } from './agent-profile-policy.js';
+import { removeAgentTree } from './agent-tree.js';
 import { cycleOwnership } from './cycle-ownership.js';
 import { WORKTREE_CACHES_DIRECTORY } from './storage-files.js';
 import { offloadToolResult, readToolResult } from './tool-result-store.js';
@@ -2047,6 +2046,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
    * builds' place. Removed when the run ends.
    */
   private processTemporaryDirectory(runId: AgentRunId): string {
+    // A launch of the same run that failed before its record left one: it goes now.
+    this.removeProcessTemporaryDirectory(runId);
     const root = this.config.agentTemporaryRoot;
     mkdirSync(root, { recursive: true, mode: 0o700 });
     for (;;) {
@@ -2066,13 +2067,25 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     const directory = this.processTemporaryDirectories.get(runId);
     if (directory === undefined) return;
     this.processTemporaryDirectories.delete(runId);
-    const failure = removeAgentTree(directory);
-    if (failure)
-      this.log.warn("An agent's temporary directory could not be removed", {
-        runId,
-        directory,
-        error: failure,
-      });
+    this.removeAgentDirectory(directory, { runId });
+  }
+
+  /**
+   * Removes an agent's directory in the background, as a run's scratch is, never following
+   * what the agent left (LIVE-31 verification). `quiesce` waits for it; a failure is logged.
+   */
+  private removeAgentDirectory(directory: string, context: Record<string, string> = {}): void {
+    const removing: Promise<void> = removeAgentTree(directory)
+      .then((failure) => {
+        if (failure)
+          this.log.warn("An agent's temporary directory could not be removed", {
+            ...context,
+            directory,
+            error: failure,
+          });
+      })
+      .finally(() => this.cleanups.delete(removing));
+    this.cleanups.add(removing);
   }
 
   /** Marks runs that were live when the daemon last stopped; their processes are gone. */
@@ -2088,15 +2101,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           error: String(error),
         });
     }
-    for (const name of leftovers) {
-      const directory = join(this.config.agentTemporaryRoot, name);
-      const failure = removeAgentTree(directory);
-      if (failure)
-        this.log.warn("An agent's temporary directory could not be removed", {
-          directory,
-          error: failure,
-        });
-    }
+    for (const name of leftovers)
+      this.removeAgentDirectory(join(this.config.agentTemporaryRoot, name));
     this.storage.transaction((tx) =>
       tx.phaseScheduling.releaseOperations(this.now().toISOString()),
     );
@@ -2591,67 +2597,72 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     this.preparationTimers.delete(runId);
     this.live.delete(runId);
     const occurredAt = this.now().toISOString();
-    const changed = this.storage.transaction((tx) => {
-      tx.phaseScheduling.release(runId, occurredAt, status);
-      const before = tx.execution.runs.find(workspaceId, runId);
-      if (before === undefined || isTerminalAgentRunStatus(before.status)) {
-        return false;
-      }
-      this.runtimeEvidence?.freezeRun(tx, workspaceId, runId, this.checks?.inFlight(runId));
-      const after = tx.execution.runs.transition({
-        workspaceId,
-        runId,
-        expectedStatuses: LIVE_STATUSES,
-        toStatus: status,
-        occurredAt,
-        finishedAt: occurredAt,
-        ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
-        ...(detail.reason ? { verdict: null } : {}),
-        ...(detail.message === undefined || before.outcomeSummary !== undefined
-          ? {}
-          : { outcomeSummary: summarise(detail.message) }),
-      });
-      if (after === undefined) {
-        return false;
-      }
-      tx.execution.runEvents.append({
-        id: asAgentRunEventId(randomUUID()),
-        workspaceId,
-        runId,
-        occurredAt,
-        kind: 'run-finished',
-        payload: {
-          status,
+    let changed: boolean;
+    try {
+      changed = this.storage.transaction((tx) => {
+        tx.phaseScheduling.release(runId, occurredAt, status);
+        const before = tx.execution.runs.find(workspaceId, runId);
+        if (before === undefined || isTerminalAgentRunStatus(before.status)) {
+          return false;
+        }
+        this.runtimeEvidence?.freezeRun(tx, workspaceId, runId, this.checks?.inFlight(runId));
+        const after = tx.execution.runs.transition({
+          workspaceId,
+          runId,
+          expectedStatuses: LIVE_STATUSES,
+          toStatus: status,
+          occurredAt,
+          finishedAt: occurredAt,
           ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
-          ...(detail.signal === undefined ? {} : { signal: detail.signal }),
-          ...(detail.reason === undefined ? {} : { reason: detail.reason }),
-          ...(detail.message === undefined ? {} : { message: detail.message }),
-        },
+          ...(detail.reason ? { verdict: null } : {}),
+          ...(detail.message === undefined || before.outcomeSummary !== undefined
+            ? {}
+            : { outcomeSummary: summarise(detail.message) }),
+        });
+        if (after === undefined) {
+          return false;
+        }
+        tx.execution.runEvents.append({
+          id: asAgentRunEventId(randomUUID()),
+          workspaceId,
+          runId,
+          occurredAt,
+          kind: 'run-finished',
+          payload: {
+            status,
+            ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
+            ...(detail.signal === undefined ? {} : { signal: detail.signal }),
+            ...(detail.reason === undefined ? {} : { reason: detail.reason }),
+            ...(detail.message === undefined ? {} : { message: detail.message }),
+          },
+        });
+        tx.audit.append({
+          id: asAuditEventId(randomUUID()),
+          occurredAt,
+          actorKind: 'system',
+          workspaceId,
+          action: 'agent-run.finished',
+          targetType: 'agent-run',
+          targetId: runId,
+          outcome: status === 'finished' ? 'succeeded' : 'failed',
+          priorVersion: before.version,
+          resultingVersion: after.version,
+          metadata: {
+            status,
+            ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
+            turnCount: after.turnCount,
+            ...(after.costUsd === undefined ? {} : { costUsd: after.costUsd }),
+            ...(after.verdict === undefined ? {} : { verdict: after.verdict }),
+          },
+        });
+        appendStatusChanged(tx, after, before.status, occurredAt);
+        return true;
       });
-      tx.audit.append({
-        id: asAuditEventId(randomUUID()),
-        occurredAt,
-        actorKind: 'system',
-        workspaceId,
-        action: 'agent-run.finished',
-        targetType: 'agent-run',
-        targetId: runId,
-        outcome: status === 'finished' ? 'succeeded' : 'failed',
-        priorVersion: before.version,
-        resultingVersion: after.version,
-        metadata: {
-          status,
-          ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
-          turnCount: after.turnCount,
-          ...(after.costUsd === undefined ? {} : { costUsd: after.costUsd }),
-          ...(after.verdict === undefined ? {} : { verdict: after.verdict }),
-        },
-      });
-      appendStatusChanged(tx, after, before.status, occurredAt);
-      return true;
-    });
-    // After the run's record, so nothing an agent left can keep a run from ending (LIVE-31 review).
-    this.removeProcessTemporaryDirectory(runId);
+    } finally {
+      // After the run's record, and even if it failed, so nothing an agent left can keep a run
+      // from ending, and its directory never waits for a restart (LIVE-31 review).
+      this.removeProcessTemporaryDirectory(runId);
+    }
     // Checks still running record nothing: the build record was frozen above.
     const checks = this.checks?.close(runId);
     if (checks) {
@@ -2746,38 +2757,4 @@ function appendStatusChanged(
       toStatus: run.status,
     },
   });
-}
-
-/**
- * Removes a tree an agent wrote, whatever modes it left (LIVE-31 review): a directory a command
- * made read-only makes a plain recursive removal fail. Directories are made the owner's again,
- * never following a symbolic link, and the removal is tried once more. Returns why it failed,
- * never throws.
- */
-export function removeAgentTree(path: string): string | undefined {
-  try {
-    rmSync(path, { recursive: true, force: true });
-    return undefined;
-  } catch {
-    // Read-only directories inside; reopen them below.
-  }
-  try {
-    reopenDirectories(path);
-    rmSync(path, { recursive: true, force: true });
-    return undefined;
-  } catch (error) {
-    return String(error);
-  }
-}
-
-function reopenDirectories(path: string): void {
-  let entry: ReturnType<typeof lstatSync>;
-  try {
-    entry = lstatSync(path);
-  } catch {
-    return;
-  }
-  if (!entry.isDirectory()) return;
-  chmodSync(path, 0o700);
-  for (const name of readdirSync(path)) reopenDirectories(join(path, name));
 }

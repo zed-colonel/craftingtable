@@ -4,7 +4,12 @@ import {
   type ControlFinalizationRequest,
   type StartFinalizationRequest,
 } from '@craftingtable/contracts';
-import type { PlanVersionId, WorkspaceId } from '@craftingtable/domain';
+import {
+  FINALIZATION_DECISIONS,
+  type FinalizationDecision,
+  type PlanVersionId,
+  type WorkspaceId,
+} from '@craftingtable/domain';
 import { request } from './api-client.js';
 const url = (workspaceId: WorkspaceId, planVersionId: PlanVersionId) =>
   `/api/workspaces/${encodeURIComponent(workspaceId)}/plans/${encodeURIComponent(planVersionId)}/finalizations`;
@@ -21,14 +26,25 @@ export const startFinalization = (
   input: StartFinalizationRequest,
   csrf: string,
 ) => request(url(workspaceId, planVersionId), finalizationViewSchema, mutation(csrf, input));
-export const controlFinalization = (
+/**
+ * A finalization's manual controls: pause, stop and cleanup. Its decisions (resume, the stage
+ * and findings decisions, more attempts and the promotion) are posted only from
+ * `decisions/finalization/`, which offers what the daemon returned (R-A6 2b review).
+ */
+export type FinalizationControl = Omit<ControlFinalizationRequest, 'action'> & {
+  readonly action: Exclude<ControlFinalizationRequest['action'], FinalizationDecision>;
+};
+export const controlFinalization = async (
   workspaceId: WorkspaceId,
   id: string,
-  input: ControlFinalizationRequest,
+  input: FinalizationControl,
   csrf: string,
-) =>
-  request(
+) => {
+  if ((FINALIZATION_DECISIONS as readonly string[]).includes(input.action))
+    throw new Error(`${input.action} is a finalization decision, not a manual control.`);
+  return request(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/finalizations/${encodeURIComponent(id)}/control`,
     finalizationViewSchema,
     mutation(csrf, input),
   );
+};

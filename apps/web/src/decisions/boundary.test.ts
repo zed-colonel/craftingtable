@@ -112,6 +112,10 @@ it.each(COMMANDS)('posts $command only from decisions/$kind', ({ kind, found }) 
 });
 
 /**
+ * A finalization's decisions share `finalizations/:id/control` with its manual controls, so
+ * the shared helper's type and its runtime both refuse them (`lib/finalization-api.ts`,
+ * tested there): the panel can post pause, stop and cleanup, never a decision (R-A6 2b review).
+ *
  * `cycles/:id/control` shares its last segment with the roadmap and finalization `control`
  * routes, so a path built in pieces cannot be told apart by its text (R-A6 review). Every
  * `/control` is instead confined to the cycle's module and the two helpers that post the

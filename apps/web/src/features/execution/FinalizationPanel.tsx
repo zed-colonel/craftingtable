@@ -1,7 +1,6 @@
 import { ProviderRetry } from '../../decisions/cycle/CycleDecisions.js';
 import type {
   AgentRunDetailResponse,
-  ControlFinalizationRequest,
   ExecutionStatusResponse,
   FinalizationView,
   PlanBranchSettingsResponse,
@@ -29,6 +28,7 @@ import {
 } from '../../lib/execution-api.js';
 import {
   controlFinalization,
+  type FinalizationControl,
   loadFinalizations,
   startFinalization,
 } from '../../lib/finalization-api.js';
@@ -160,7 +160,7 @@ export function FinalizationPanel({
       setBusy(false);
     }
   };
-  const command = (view: FinalizationView, action: ControlFinalizationRequest['action']) =>
+  const command = (view: FinalizationView, action: FinalizationControl['action']) =>
     perform(async () => {
       await controlFinalization(
         workspaceId,

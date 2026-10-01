@@ -57,6 +57,32 @@ describe('completion policy', () => {
   ] as const)('pauses for missing or invalid structured evidence', (report) => {
     expect(evaluateCompletion(DEFAULT_COMPLETION_POLICY, report).action).toBe('needs-attention');
   });
+  // LIVE-32: a scope issue read as the generic reason, and three reviews were retried blind.
+  it('names why a report is not usable, within the stored reason limit', () => {
+    const scope = 'The review must identify this exact slice in scopeEvidence.';
+    expect(
+      evaluateCompletion(DEFAULT_COMPLETION_POLICY, { status: 'invalid', issues: [scope] }).reason,
+    ).toBe(`A complete, valid structured review report is required. ${scope}`);
+    expect(
+      evaluateCompletion(DEFAULT_COMPLETION_POLICY, {
+        status: 'unstructured',
+        issues: ['End the review with one block.', 'Add the verdict line.'],
+      }).reason,
+    ).toBe(
+      'A complete, valid structured review report is required. End the review with one block. Add the verdict line.',
+    );
+    expect(evaluateCompletion(DEFAULT_COMPLETION_POLICY, undefined).reason).toBe(
+      'A complete, valid structured review report is required.',
+    );
+    const long = evaluateCompletion(DEFAULT_COMPLETION_POLICY, {
+      status: 'invalid',
+      issues: Array.from({ length: 20 }, () => 'x'.repeat(1000)),
+    }).reason;
+    expect(long.length).toBeLessThanOrEqual(3000);
+    expect(long.startsWith('A complete, valid structured review report is required. xxx')).toBe(
+      true,
+    );
+  });
   it('requires the exit gate and mergeable verdict independently', () => {
     const complete = assessment([]);
     if (complete.status !== 'complete') throw new Error('fixture');

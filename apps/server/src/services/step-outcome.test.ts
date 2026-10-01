@@ -615,7 +615,13 @@ const rows: readonly Row[] = [
       reviewAssessment: () => review(),
       scopeIssue: () => 'The review omitted case C-1.',
     },
-    expected: { kind: 'attention', code: 'review-needs-attention' },
+    // The stop names the issue, not only that the report is unusable (LIVE-32).
+    expected: {
+      kind: 'attention',
+      code: 'review-needs-attention',
+      message:
+        'A complete, valid structured review report is required. The review omitted case C-1.',
+    },
   },
   {
     name: 'a schema-invalid review report is sent back for repair',

@@ -486,3 +486,15 @@ The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, se
   - The stops read "Answer the work-item questions": the agents' reports said they could not run commands, and the controller took them as questions.
 - Impact: Claude runs could not verify anything; a review that could not run its checks could stop as questions, or ask for changes the slice did not need.
 
+
+### LIVE-32: A review that passed stopped as "A complete, valid structured review report is required", hiding that only its scope evidence was misplaced
+- Severity: medium (one slice stopped three times and spent its remediation rounds; each retry was a full review that could not pass; no data loss, nothing approved unchecked)
+- Category: review report stops ([R-C2](../register.md#r-c2))
+- Status: CONFIRMED 2026-10-01 from the 2026-10-01d snapshot (read-only). Operator decision the same day: name the issue in the stop, and make the brief say where `scopeEvidence` goes; a missing `scopeEvidence` stays a content fault (no automatic repair, as decided 2026-09-24). Fixed the same day; see R-C2.
+- Replay case: the 2026-10-01d snapshot, cycle `2c9ead5d` (exo/EXO-18/instance-design), review `5168c9ca`, `review-needs-attention`, then `remediation-exhausted`. The decision replay records the stop and its message.
+- Evidence:
+  - The three Claude security reviews of the resolved candidate (`510cd1c4`, `3ee6d9ed`, `5168c9ca`) are `mergeable` with the exit gate met and only nits open. Each wrote its `scopeEvidence` (the right scope, every requirement covered) as text inside `exitGate.evidence`, not as a field of the report, so the report has none.
+  - `scopedReviewIssue` returns "The review must identify this exact slice or parent-acceptance scope in scopeEvidence." The step outcome passes it to `evaluateCycleCompletion` as an invalid report, whose reason, "A complete, valid structured review report is required.", is the whole stop message. The issue went only to the repair list, and a scope issue is a content fault, so no repair runs.
+  - The operator retried twice and authorized one implementation round (`ef74fa62`, which fixed nits); each review cost about $1.60 and 20 minutes. The fourth stop is `remediation-exhausted`, with the same message.
+  - The brief asks for `scopeEvidence` and shows its contents, but never says it is a field of the report, and the report shape it shows next omits it. Five of the eight Claude reviews since LIVE-31's fix (EXO-03, EXO-04, WI-03) placed it correctly; the later EXO-18 reviews were briefed with the previous review's text.
+- Impact: a review that is right in substance stops with a message that names nothing, so the operator retries what cannot pass.

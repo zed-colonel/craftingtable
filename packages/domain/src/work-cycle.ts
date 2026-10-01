@@ -290,9 +290,16 @@ export function evaluateCompletion(
 ): CompletionDecision {
   const openCounts = { blocking: 0, major: 0, minor: 0, nit: 0 };
   if (assessment?.status !== 'complete') {
+    // The stop names why, or the operator retries the same report blind (LIVE-32). Bounded
+    // below the cycle reason's 4,000 characters, leaving room for a stop's prefix.
+    const issues = assessment?.issues.join(' ') ?? '';
     return {
       action: 'needs-attention',
-      reason: 'A complete, valid structured review report is required.',
+      reason:
+        `A complete, valid structured review report is required.${issues ? ` ${issues}` : ''}`.slice(
+          0,
+          3000,
+        ),
       openCounts,
     };
   }

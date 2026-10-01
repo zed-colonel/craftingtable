@@ -380,13 +380,22 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await page.getByRole('button', { name: 'Work item', exact: true }).click();
     await cycle.getByRole('button', { name: 'Retry now', exact: true }).click();
 
+    // A design stop is decided in its inbox item; the work item links there (R-A6).
+    const designPage = page.url();
+    const openDecision = cycle.getByRole('link', { name: 'Open the decision', exact: true });
+    await expect(openDecision).toBeVisible({ timeout: 30_000 });
+    await walk.capture(
+      'work-item-design-questions',
+      'Work item · design needs answers, decided in Needs you',
+    );
+    await openDecision.click();
+    const designDecision = page.getByRole('region', { name: 'Decision' });
     await expect(
-      cycle.getByRole('button', { name: 'Resolve design questions', exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
-    await walk.capture('work-item-design-questions', 'Work item · design needs answers');
+      designDecision.getByRole('button', { name: 'Resolve design questions', exact: true }),
+    ).toBeVisible();
     await walk.capture(
       'work-item-design-recovery',
-      'Work item · design recovery and evidence',
+      'Needs you · design recovery and evidence',
       async (p) => {
         await p.getByRole('button', { name: 'Resolve design questions', exact: true }).click();
         await expect(p.getByLabel('Answers and guidance')).toBeVisible();
@@ -394,7 +403,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     );
     await walk.capture(
       'work-item-baseline-preparation',
-      'Work item · historical sources and explicit baseline preparation',
+      'Needs you · historical sources and explicit baseline preparation',
       async (p) => {
         const recovery = p.getByRole('button', { name: 'Resolve design questions', exact: true });
         if (await recovery.isVisible()) await recovery.click();
@@ -413,7 +422,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await expect(page.getByText(/Sources prepared ·/)).toBeVisible();
     await walk.capture(
       'work-item-baseline-prepared',
-      'Work item · prepared historical baseline and retained evidence',
+      'Needs you · prepared historical baseline and retained evidence',
       async (p) => {
         const recovery = p.getByRole('button', { name: 'Resolve design questions', exact: true });
         if (await recovery.isVisible()) await recovery.click();
@@ -424,12 +433,16 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .getByLabel('Answers and guidance')
       .fill('Investigate the available baseline evidence without approving it.');
     await page.getByRole('button', { name: 'Start bounded investigation', exact: true }).click();
+    // The investigation's results are a new stop, with its own item.
+    await page.goto(designPage);
+    await expect(openDecision).toBeVisible({ timeout: 30_000 });
+    await openDecision.click();
     await expect(page.getByText('Investigation results and evidence', { exact: true })).toBeVisible(
       { timeout: 30_000 },
     );
     await walk.capture(
       'work-item-investigation-results',
-      'Work item · recorded investigation evidence',
+      'Needs you · recorded investigation evidence',
       async (p) => {
         await p.getByText('Investigation results and evidence', { exact: true }).click();
         await expect(p.getByRole('heading', { name: 'Final outcome', exact: true })).toBeVisible();
@@ -443,6 +456,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .fill('I own the baseline decision. Use the pinned baseline.');
     await page.getByRole('combobox', { name: 'Next action', exact: true }).selectOption('continue');
     await page.getByRole('button', { name: 'Continue design with evidence', exact: true }).click();
+    await page.goto(designPage);
     // A stop is decided in its inbox item; the work item links there (R-A6).
     const decisionLink = cycle.getByRole('link', { name: 'Open the decision', exact: true });
     await expect(decisionLink).toBeVisible({ timeout: 30_000 });

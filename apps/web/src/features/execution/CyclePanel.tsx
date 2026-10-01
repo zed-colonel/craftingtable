@@ -20,22 +20,17 @@ import {
   type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
-import {
-  CycleContinuation,
-  CycleControlButtons,
-  continuationOf,
-  ProviderRetry,
-} from '../../decisions/cycle/CycleDecisions.js';
+import { CycleControlButtons } from '../../decisions/cycle/CycleDecisions.js';
+import { CycleDecision, cycleDecisions } from '../../decisions/cycle/CycleDecision.js';
 import { CycleSettingsFields } from './CycleSettingsFields.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import type { ProfileEntry } from './handoff.js';
-import { IntegrationConflict } from '../../decisions/integration/IntegrationConflict.js';
 import { defaultEffortLabel } from './ReasoningEffortField.js';
 import { WorkflowStatus } from './WorkflowStatus.js';
 import { Link } from '../../lib/navigation.js';
@@ -59,13 +54,9 @@ export function CyclePanel({
   onOpenRun,
   selectedWorktreeId,
   onSelectWorktree,
-  renderDesignRecovery,
-  renderReviewRecovery,
 }: {
-  renderReviewRecovery?: (cycle: WorkCycle, liveRun: boolean) => ReactNode;
   selectedWorktreeId?: WorktreeId;
   onSelectWorktree?: (id: WorktreeId) => void;
-  renderDesignRecovery?: (cycle: WorkCycle) => ReactNode;
   cycles: readonly WorkCycle[];
   worktrees: readonly WorktreeSummary[];
   runs: readonly AgentRunSummary[];
@@ -120,10 +111,6 @@ export function CyclePanel({
     (readOnly
       ? cycles.find((cycle) => cycle.worktreeId === selected && cycle.status === 'completed')
       : undefined);
-  const latestRun = runs.find((run) => run.worktreeId === selected);
-  const recoverableDesign =
-    active?.step === 'design' &&
-    (!runs.some((run) => run.id === active.currentRunId) || latestRun?.id === active.currentRunId);
   const [policy, setPolicy] = useState(DEFAULT_COMPLETION_POLICY);
   const [instructions, setInstructions] = useState('');
   const [choices, setChoices] = useState<CycleProfiles>(() =>
@@ -143,19 +130,13 @@ export function CyclePanel({
   // A stop that waits on shared decisions is answered there, not with guidance (LIVE-18).
   const openDecisions =
     active !== undefined && (active.actions ?? []).includes('open-shared-decisions');
-  // Design recovery continues a design step it can read; integration conflicts are resolved.
-  const designRecovery =
-    !!renderDesignRecovery &&
-    recoverableDesign &&
-    !!active &&
-    runs.some((run) => run.id === active.currentRunId);
-  const continuation =
-    active &&
-    !(designRecovery && continuationOf(active) === 'resume') &&
-    active.integrationResolution?.status !== 'detected'
-      ? continuationOf(active)
+  // The cycle's decisions, chosen from its state (R-A6): continuation, design, repair, conflict.
+  const continuation = active && cycleDecisions(active, runs, readOnly).continuation;
+  // A stop an open inbox item carries is decided there; the page links to it (R-A6).
+  const decisionItem =
+    active && ['paused', 'needs-attention'].includes(active.status)
+      ? decisionItemFor?.(active.id)
       : undefined;
-  const decisionItem = active && continuation ? decisionItemFor?.(active.id) : undefined;
   const attention =
     active !== undefined &&
     !active.scopeReviewWait &&
@@ -210,12 +191,6 @@ export function CyclePanel({
             <a href="#slices">Resolve checkpoint evidence for this slice</a>
           )}
           <WorkflowStatus cycle={active} />
-          <ProviderRetry
-            cycle={active}
-            csrfToken={csrfToken}
-            disabled={disabled}
-            onChanged={onChanged}
-          />
           <StatusStrip
             label="Cycle status"
             facts={[
@@ -272,52 +247,38 @@ export function CyclePanel({
               <a href="#slices">Open execution slices and verification controls</a>.
             </p>
           )}
-          {readOnly &&
-            renderReviewRecovery &&
-            ['paused', 'needs-attention', 'completed'].includes(active.status) &&
-            renderReviewRecovery(active, liveRun)}
-          {continuation &&
-            (decisionItem ? (
-              <p className="attention-banner" role="status">
-                This stop is decided in Needs you.{' '}
-                <Link
-                  route={{
-                    name: 'inbox',
-                    workspaceId: active.workspaceId as WorkspaceId,
-                    itemId: decisionItem,
-                  }}
-                >
-                  Open the decision
-                </Link>
-              </p>
-            ) : (
-              <CycleContinuation
-                cycle={active}
-                csrfToken={csrfToken}
-                disabled={disabled || liveRun}
-                refreshToken={refreshToken}
-                onChanged={onChanged}
-              />
-            ))}
-          {renderDesignRecovery &&
-            canMutate &&
-            recoverableDesign &&
-            ['paused', 'needs-attention'].includes(active.status) && (
-              <div id={`cycle-design-${active.id}`}>{renderDesignRecovery(active)}</div>
-            )}
-          {active.baselinePreparation && <HistoricalEvidencePanel cycle={active} />}
-          {!readOnly && (
-            <IntegrationConflict
+          {decisionItem ? (
+            <p className="attention-banner" role="status">
+              This stop is decided in Needs you.{' '}
+              <Link
+                route={{
+                  name: 'inbox',
+                  workspaceId: active.workspaceId as WorkspaceId,
+                  itemId: decisionItem,
+                }}
+              >
+                Open the decision
+              </Link>
+            </p>
+          ) : (
+            <CycleDecision
               cycle={active}
+              runs={runs}
+              readOnly={readOnly}
               backends={backends}
-              disabled={disabled}
-              canMutate={canMutate}
               csrfToken={csrfToken}
+              canMutate={canMutate}
+              busy={busy}
+              refreshToken={refreshToken}
               onChanged={onChanged}
               onOpenRun={onOpenRun}
-              runIds={runs.map((run) => run.id)}
+              onOpenWorktree={(id) => {
+                setWorktreeId(id);
+                onSelectWorktree?.(id);
+              }}
             />
           )}
+          {active.baselinePreparation && <HistoricalEvidencePanel cycle={active} />}
           <details>
             <summary>Cycle settings and future agents</summary>
             <p>

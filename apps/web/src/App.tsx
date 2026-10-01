@@ -47,6 +47,7 @@ import { InboxPage } from './features/inbox/InboxPage.js';
 import { AcknowledgeMoves } from './features/inbox/AcknowledgeMoves.js';
 import { loadAttention } from './lib/attention-api.js';
 import { CheckAdoption } from './decisions/checks/CheckAdoption.js';
+import { CycleDecision } from './decisions/cycle/CycleDecision.js';
 import { CheckpointPreparation } from './decisions/checkpoint/CheckpointPreparation.js';
 import { MergeApproval, RetryMergeCleanup } from './decisions/merge/MergeApproval.js';
 import { type Decision, decisionsFor } from './decisions/registry.js';
@@ -59,7 +60,6 @@ import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { AccountPage } from './features/account/AccountPage.js';
 import { CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
-import { DesignQuestions } from './decisions/design/DesignQuestions.js';
 import { DiffView } from './features/execution/DiffView.js';
 import { ExecutionScopesPanel } from './features/execution/ExecutionScopesPanel.js';
 import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
@@ -68,7 +68,6 @@ import { ProviderRetry } from './decisions/cycle/CycleDecisions.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
 import { RunPage } from './features/execution/RunPage.js';
 import { RunList, RunsPage } from './features/execution/RunsPage.js';
-import { ScopeRepair } from './decisions/scope-repair/ScopeRepair.js';
 import { WorktreeBranchPanel } from './features/execution/WorktreeBranchPanel.js';
 import {
   type WorktreeChangesRefused,
@@ -1307,33 +1306,6 @@ export function App() {
           ? { selectedWorktreeId: worktreeId ?? selectedCycleWorktreeId }
           : {})}
         onSelectWorktree={setSelectedCycleWorktreeId}
-        renderDesignRecovery={(cycle) => (
-          <DesignQuestions
-            key={`${cycle.id}-${cycle.currentRunId}`}
-            cycle={cycle}
-            backends={executionStatus?.backends ?? []}
-            csrfToken={authenticated.csrfToken}
-            onChanged={() => refreshNow()}
-          />
-        )}
-        renderReviewRecovery={(cycle, liveRun) => (
-          <>
-            {['paused', 'needs-attention'].includes(cycle.status) && (
-              <ScopeRepair
-                key={`repair-${cycle.id}`}
-                cycle={cycle}
-                disabled={executionBusy || !canMutate || liveRun}
-                csrfToken={authenticated.csrfToken}
-                refreshToken={refreshToken}
-                onOpen={setSelectedCycleWorktreeId}
-                onStarted={(repair) => {
-                  setSelectedCycleWorktreeId(repair.worktreeId);
-                  refreshNow();
-                }}
-              />
-            )}
-          </>
-        )}
         cycles={itemCycles}
         worktrees={workItemExecution.worktrees}
         runs={workItemExecution.runs}
@@ -1475,16 +1447,33 @@ export function App() {
     const loading = <p className="empty-state">Loading controls…</p>;
     const render = (decision: Decision): ReactNode => {
       switch (decision.kind) {
-        case 'cycle':
+        case 'cycle': {
+          // The cycle's decision alone, chosen from its state (R-A6 increment 2a).
+          const cycle =
+            itemCycles?.find((c) => c.id === cycleId) ?? cycles.find((c) => c.id === cycleId);
+          const worktree = workItemExecution?.worktrees.find((t) => t.id === cycle?.worktreeId);
+          if (!cycle || !worktree || authenticated === undefined || workspaceId === undefined)
+            return loading;
           return (
-            (workItemId &&
-              cycleControls(
-                workItemId as WorkItemId,
-                item.refs.worktreeId as WorktreeId | undefined,
-                true,
-              )) ||
-            loading
+            <CycleDecision
+              cycle={cycle}
+              runs={workItemExecution?.runs ?? []}
+              readOnly={!!worktree.executionScope && worktree.executionScope.kind !== 'slice'}
+              backends={executionStatus?.backends ?? []}
+              csrfToken={authenticated.csrfToken}
+              canMutate={canMutate}
+              busy={executionBusy}
+              refreshToken={refreshToken}
+              onChanged={refreshNow}
+              onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
+              onOpenWorktree={(id) => {
+                setSelectedCycleWorktreeId(id);
+                if (workItemId)
+                  go({ name: 'work-item', workspaceId, workItemId: workItemId as WorkItemId });
+              }}
+            />
           );
+        }
         case 'merge': {
           const worktree = workItemExecution?.worktrees.find((t) => t.id === item.refs.worktreeId);
           const gate = worktree && workItemExecution?.mergeGates[worktree.id];

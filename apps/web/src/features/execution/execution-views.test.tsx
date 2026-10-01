@@ -1494,13 +1494,21 @@ describe('automated cycle controls', () => {
           csrfToken="csrf"
           onChanged={vi.fn()}
           onOpenRun={vi.fn()}
-          renderReviewRecovery={(c) => <p>Review recovery for {c.executionScope?.kind}</p>}
         />,
       );
       expect((screen.getByLabelText('Cycle worktree') as HTMLSelectElement).value).toBe(
         reviewTree.id,
       );
-      expect(screen.getByText(`Review recovery for ${kind}`)).toBeTruthy();
+      // The review's own decision: its source fixes, delegated to the owning slice (R-A6).
+      await waitFor(() =>
+        expect(
+          vi
+            .mocked(fetch)
+            .mock.calls.some(([url]) =>
+              String(url).endsWith(`/cycles/${reviewCycle.id}/scope-repair`),
+            ),
+        ).toBe(true),
+      );
       expect(screen.queryByText('Set up a cycle')).toBeNull();
       expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
@@ -1521,10 +1529,10 @@ describe('automated cycle controls', () => {
           csrfToken="csrf"
           onChanged={vi.fn()}
           onOpenRun={vi.fn()}
-          renderReviewRecovery={(c) => <p>Review again for {c.executionScope?.kind}</p>}
         />,
       );
-      expect(screen.getByText(`Review again for ${kind}`)).toBeTruthy();
+      // A completed review is reviewed again from its continuation.
+      expect(screen.getByRole('heading', { name: 'Review again' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Stop automation' })).toBeNull();
       expect(screen.queryByText('Set up a cycle')).toBeNull();
       reviewView.unmount();

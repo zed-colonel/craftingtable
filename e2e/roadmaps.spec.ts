@@ -183,6 +183,12 @@ for (const mode of ['sequential', 'parallel'] as const) {
             timeout: 15000,
           });
           await roadmap.getByRole('link', { name: /^AQ-03 ·/ }).click();
+          const workItemPage = page.url();
+          // The conflict is decided in its inbox item; the work item links there (R-A6).
+          await page
+            .getByRole('region', { name: 'Automated cycle', exact: true })
+            .getByRole('link', { name: 'Open the decision', exact: true })
+            .click();
           const conflicts = page.getByRole('region', {
             name: 'Integration conflicts',
             exact: true,
@@ -201,6 +207,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
           await expect(conflicts).toBeVisible();
           const targetBefore = git(['rev-parse', 'revision-roadmap'], repository);
           await conflicts.getByRole('button', { name: 'Launch', exact: true }).click();
+          await page.goto(workItemPage);
           await expect(
             page
               .getByRole('region', { name: 'Automated cycle', exact: true })

@@ -1,12 +1,9 @@
 import {
-  type AdoptCheckDeclarationRequest,
   type AgentRunCommandResponse,
   type AgentRunDetailResponse,
   agentRunCommandResponseSchema,
   agentRunDetailResponseSchema,
-  type CheckDeclarationPreview,
   type CheckDefinitionDiagnosisView,
-  checkDeclarationPreviewSchema,
   checkDefinitionDiagnosisSchema,
   type RepositoryCheckReceipts,
   repositoryCheckReceiptsSchema,
@@ -297,32 +294,5 @@ export function loadRepositoryChecks(
   return request(
     `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks`,
     repositoryChecksViewSchema,
-  );
-}
-
-/** What adopting the repository's checks file at `ref` would record; it changes nothing. */
-export function previewRepositoryChecks(
-  workspaceId: WorkspaceId,
-  repositoryId: SourceRepositoryId,
-  ref: string,
-  csrfToken: string,
-): Promise<CheckDeclarationPreview> {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks/preview`,
-    checkDeclarationPreviewSchema,
-    mutation(csrfToken, { ref }),
-  );
-}
-
-export function adoptRepositoryChecks(
-  workspaceId: WorkspaceId,
-  repositoryId: SourceRepositoryId,
-  input: AdoptCheckDeclarationRequest,
-  csrfToken: string,
-): Promise<RepositoryChecksView> {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks/adopt`,
-    repositoryChecksViewSchema,
-    mutation(csrfToken, input),
   );
 }

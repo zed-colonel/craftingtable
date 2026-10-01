@@ -31,6 +31,12 @@ const COMMANDS: readonly {
     command: 'roadmaps/:id/decision-preparation-grant',
     found: /\/decision-preparation-grant[`'"]|['"`]decision-preparation-grant['"`]/,
   },
+  {
+    kind: 'checks',
+    command: 'repositories/:id/checks/adopt',
+    // The map's own `adopt` (supervision) is another command, so only the checks route counts.
+    found: /\/checks\/adopt[`'"]/,
+  },
 ];
 
 const src = fileURLToPath(new URL('..', import.meta.url));

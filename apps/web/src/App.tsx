@@ -47,6 +47,7 @@ import { NeedsYou } from './components/NeedsYou.js';
 import { InboxPage } from './features/inbox/InboxPage.js';
 import { AcknowledgeMoves } from './features/inbox/AcknowledgeMoves.js';
 import { loadAttention } from './lib/attention-api.js';
+import { CheckAdoption } from './decisions/checks/CheckAdoption.js';
 import { type Decision, decisionsFor } from './decisions/registry.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
@@ -64,7 +65,6 @@ import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
 import { PlanBranchPanel } from './features/execution/PlanBranchPanel.js';
 import { ProviderRetry } from './decisions/cycle/CycleDecisions.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
-import { RepositoryChecksPanel } from './features/execution/RepositoryChecksPanel.js';
 import { RunPage } from './features/execution/RunPage.js';
 import { RunList, RunsPage } from './features/execution/RunsPage.js';
 import { ScopeRepairPanel } from './features/execution/ScopeRepairPanel.js';
@@ -1511,13 +1511,19 @@ export function App() {
         case 'check-adoption': {
           const repositoryId = cycles.find((c) => c.id === cycleId)?.attention?.refs?.repositoryId;
           const repository = repositories.find((r) => r.id === repositoryId);
+          const worktree = workItemExecution?.worktrees.find((t) => t.id === item.refs.worktreeId);
           return repository && workspaceId !== undefined && authenticated !== undefined ? (
-            <RepositoryChecksPanel
+            <CheckAdoption
+              key={`checks-${item.id}`}
               workspaceId={workspaceId}
               repository={repository}
+              {...(item.refs.worktreeId ? { worktreeId: item.refs.worktreeId as WorktreeId } : {})}
+              {...(worktree?.integrationBranch
+                ? { integrationBranch: worktree.integrationBranch }
+                : {})}
               csrfToken={authenticated.csrfToken}
               editable={canMutate}
-              refreshToken={refreshToken}
+              onAdopted={refreshNow}
             />
           ) : (
             loading

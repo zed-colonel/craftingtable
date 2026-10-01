@@ -419,6 +419,177 @@ itNeedsCargo(
 );
 
 itNeedsCargo(
+  'a manual review whose worktree is retired during its checks starts no reviewer (R-G13 increment 3 verification)',
+  { timeout: 40000 },
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'slow', argv: ['node', '-e', 'setTimeout(() => {}, 2500)'], definitionPaths: [] },
+    ]);
+    const storage = f.state.context.storage;
+    const before = f.backend.launches.length;
+    const response = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+      headers: mutationHeaders(f.state),
+      payload: { worktreeId: f.tree.id, role: 'review' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const run = response.json().run.id as string;
+    const find = () => storage.execution.runs.find(f.state.workspaceId, run as never);
+    expect(find()?.status).toBe('starting');
+    // An amendment retires the worktree while the checks run; amendments take no worktree hold.
+    vi.spyOn(storage.amendments, 'retired').mockReturnValue(true);
+    try {
+      await waitFor(() => find()?.status !== 'starting', 'the launch ended after its checks');
+      expect(find()?.status).toBe('cancelled');
+      expect(find()?.outcomeSummary ?? '').toContain('retired by a reviewed amendment');
+      expect(f.backend.launches.length).toBe(before);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  },
+);
+
+itNeedsCargo(
+  'a drain counts only the reviews it stopped: one whose checks failed to run is not counted (R-G13 increment 3 verification)',
+  { timeout: 40000 },
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
+    ]);
+    const storage = f.state.context.storage;
+    const services = f.state.context.services;
+    let fail!: (error: Error) => void;
+    vi.spyOn(services.checkRequestService, 'runDeclared').mockReturnValue(
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
+    try {
+      const response = await f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+        headers: mutationHeaders(f.state),
+        payload: { worktreeId: f.tree.id, role: 'review' },
+      });
+      const run = response.json().run.id as string;
+      const draining = services.agentRunService.interruptForRestart();
+      fail(new Error('the check service failed'));
+      expect(await draining).toBe(0);
+      expect(storage.execution.runs.find(f.state.workspaceId, run as never)?.status).toBe('failed');
+    } finally {
+      vi.restoreAllMocks();
+    }
+  },
+);
+
+itNeedsCargo(
+  'a drain waits for a manual review still preparing its launch, and no run starts after it (R-G13 increment 3 verification)',
+  { timeout: 40000 },
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
+    ]);
+    const storage = f.state.context.storage;
+    const services = f.state.context.services;
+    const agentRuns = services.agentRunService;
+    // The launch is past its first drain check, pinning its evidence, when the drain begins.
+    const evidence = services.runtimeEvidenceService;
+    const prepare = evidence.prepare.bind(evidence);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const inPrepare = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    vi.spyOn(evidence, 'prepare').mockImplementation(async (...args) => {
+      entered();
+      await held;
+      return prepare(...args);
+    });
+    const runsBefore = storage.execution.runs.listForWorktree(f.state.workspaceId, f.tree.id);
+    const before = f.backend.launches.length;
+    try {
+      const request = f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+        headers: mutationHeaders(f.state),
+        payload: { worktreeId: f.tree.id, role: 'review' },
+      });
+      await inPrepare;
+      // A drain waits for it rather than seeing nothing in flight.
+      expect(agentRuns.busyRunCount()).toBe(1);
+      const draining = agentRuns.interruptForRestart();
+      release();
+      expect(await draining).toBe(0);
+      expect((await request).statusCode).not.toBe(200);
+      expect(storage.execution.runs.listForWorktree(f.state.workspaceId, f.tree.id)).toEqual(
+        runsBefore,
+      );
+      expect(f.backend.launches.length).toBe(before);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  },
+);
+
+itNeedsCargo(
+  'a drain records a run whose launch outlasts its grace, and the session it gets is ended (R-G13 increment 3 verification)',
+  { timeout: 40000 },
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
+    ]);
+    const storage = f.state.context.storage;
+    const agentRuns = f.state.context.services.agentRunService;
+    // An implementing run has no checks: its launch is the backend's, which hangs here.
+    const launch = f.backend.launch.bind(f.backend);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const inLaunch = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    vi.spyOn(f.backend, 'launch').mockImplementation(async (request) => {
+      entered();
+      await held;
+      return launch(request);
+    });
+    try {
+      const request = f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+        headers: mutationHeaders(f.state),
+        payload: { worktreeId: f.tree.id, role: 'implement' },
+      });
+      await inLaunch;
+      const [run] = storage.execution.runs
+        .listForWorktree(f.state.workspaceId, f.tree.id)
+        .filter((r) => r.status === 'starting');
+      expect(run).toBeDefined();
+      expect(agentRuns.busyRunCount()).toBe(1);
+      expect(await agentRuns.interruptForRestart()).toBe(1);
+      const status = () => storage.execution.runs.find(f.state.workspaceId, run!.id)?.status;
+      expect(status()).toBe('interrupted');
+      release();
+      await request;
+      expect(status()).toBe('interrupted');
+      // The session the backend returned after the drain was ended, not left running.
+      const session = f.backend.sessions.at(-1);
+      expect(session).toBeDefined();
+      expect(Reflect.get(session!, 'closed')).toBe(true);
+      expect(storage.execution.runs.listLive()).toEqual([]);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  },
+);
+
+itNeedsCargo(
   'a receipt an agent writes to the launcher file satisfies no gate; the daemon runs and records the check (R-G4, SEC-01)',
   async () => {
     // The check reports where it ran; the launcher only relays the daemon's output.

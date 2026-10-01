@@ -295,6 +295,16 @@ export class AgentRunService {
       readonly done: Promise<void>;
     }
   >();
+  /**
+   * Launches past their last drain check that are not yet live or in their checks: Git
+   * preflight, the pinned evidence, the baseline. A drain counts them and waits for them
+   * (R-G13 increment 3 verification).
+   */
+  private readonly startingLaunches = new Set<{
+    workspaceId?: WorkspaceId;
+    runId?: AgentRunId;
+    done?: Promise<unknown>;
+  }>();
   /** A restart is ending live sessions now: a launch that completes meanwhile is ended too. */
   private interrupting = false;
   /** A restart drain is in progress: no new run may start (R-B9). */
@@ -997,7 +1007,8 @@ export class AgentRunService {
         'The interrupted session belongs to another agent backend and cannot be resumed.',
       );
 
-    return this.mutations.during(input.worktreeId, async () => {
+    const starting: { workspaceId?: WorkspaceId; runId?: AgentRunId; done?: Promise<unknown> } = {};
+    const launch = this.mutations.during(input.worktreeId, async () => {
       let cancelled = false;
       const cancelPreflight = () => {
         cancelled = true;
@@ -1090,6 +1101,9 @@ export class AgentRunService {
       // A drain can begin during Git preflight; no run record may start after it.
       if (this.draining) throw new DaemonDrainingError();
       const runId = cycle?.currentRunId ?? preparation?.value.runId ?? asAgentRunId(randomUUID());
+      starting.workspaceId = workspaceId;
+      starting.runId = runId;
+      this.startingLaunches.add(starting);
       this.storageService?.requireSpace('runsRoot', prepared.worktree.path);
       const runDirectory = join(this.config.runsRoot, runId);
       const temporaryDirectory = join(runDirectory, 'scratch');
@@ -1452,6 +1466,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       brief += historicalBrief;
       writeFileSync(join(runDirectory, 'brief.md'), brief, { mode: 0o600 });
 
+      // Nor after a drain that began while the evidence, baseline or policy was prepared.
+      if (this.draining) throw new DaemonDrainingError();
       const createdAt = this.now().toISOString();
       const run = this.storage.transaction((tx) => {
         preparation?.check();
@@ -1795,6 +1811,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       this.mutations.hold(input.worktreeId, continuation);
       return this.storage.execution.runs.find(workspaceId, runId) ?? run;
     });
+    starting.done = launch;
+    return launch.finally(() => this.startingLaunches.delete(starting));
   }
 
   private async launchCycleSession(
@@ -2060,11 +2078,12 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   }
 
   /**
-   * Live work a drain waits for: launches in preflight, reviews still running their adopted
-   * checks, turns in progress, and sessions still holding background work. A session waiting between turns is at a boundary.
+   * Live work a drain waits for: launches in preflight or preparing, reviews still running their
+   * adopted checks, turns in progress, and sessions still holding background work. A session waiting between turns is at a boundary.
    */
   busyRunCount(): number {
-    let busy = this.pendingCycleLaunches.size + this.checkingLaunches.size;
+    let busy =
+      this.pendingCycleLaunches.size + this.checkingLaunches.size + this.startingLaunches.size;
     for (const liveRun of this.live.values()) {
       const run = this.storage.execution.runs.find(liveRun.workspaceId, liveRun.runId);
       if (run?.status !== 'waiting' || liveRun.session.backgroundWorkPending) busy++;
@@ -2084,6 +2103,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     for (const cancel of this.pendingCycleLaunches.values()) cancel();
     const checking = [...this.checkingLaunches.values()];
     for (const launch of checking) launch.cancel();
+    const starting = [...this.startingLaunches];
+    const liveAtStart = new Set(this.live.keys());
     const pending = [...this.live.values(), ...this.orphaned];
     let interrupted = 0;
     for (const liveRun of this.live.values()) {
@@ -2110,14 +2131,22 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         ...pending.map((liveRun) => liveRun.done),
         // A review stopped in its checks records its interruption before storage closes.
         ...checking.map((launch) => launch.done),
+        // A launch past its drain check reaches its checks (stopped at once) or its session
+        // (ended at once).
+        ...starting.map((launch) => launch.done),
       ]),
       timeout,
     ]);
-    // A review whose checks outlast the grace (a slow clone ignores the abort) is recorded as
-    // the drain's now, before storage closes; its continuation then starts nothing.
-    const status = (launch: (typeof checking)[number]) =>
+    // Every launch the drain found (none can begin a run after it). A review whose checks
+    // outlast the grace (a slow clone ignores the abort), or a launch whose session has not
+    // come, is recorded as the drain's now, before storage closes; it then starts nothing.
+    const launches = new Map<string, { workspaceId: WorkspaceId; runId: AgentRunId }>();
+    for (const launch of checking) launches.set(launch.runId, launch);
+    for (const { workspaceId, runId } of starting)
+      if (workspaceId && runId) launches.set(runId, { workspaceId, runId });
+    const status = (launch: { workspaceId: WorkspaceId; runId: AgentRunId }) =>
       this.storage.execution.runs.find(launch.workspaceId, launch.runId)?.status;
-    for (const launch of checking) {
+    for (const launch of launches.values()) {
       const current = status(launch);
       if (current && !isTerminalAgentRunStatus(current) && !this.live.has(launch.runId))
         this.finalize(launch.workspaceId, launch.runId, 'interrupted', {
@@ -2125,8 +2154,14 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           message: DRAIN_INTERRUPTED_MESSAGE,
         });
     }
-    // Only the reviews the drain itself stopped; one a pause had already cancelled is not.
-    return interrupted + checking.filter((launch) => status(launch) === 'interrupted').length;
+    // Only the launches the drain itself stopped, each once: a session already counted above,
+    // or a review whose checks failed or that something else ended, is not.
+    return (
+      interrupted +
+      [...launches.values()].filter(
+        (launch) => !liveAtStart.has(launch.runId) && status(launch) === 'interrupted',
+      ).length
+    );
   }
 
   async shutdown(): Promise<void> {

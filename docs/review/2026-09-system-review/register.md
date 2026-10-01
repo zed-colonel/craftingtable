@@ -43,6 +43,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C13](#r-c13) | P2 | S-M | done (2026-09-27) | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
 | [R-C14](#r-c14) | P2 | S-M | done (2026-09-28) | Attention says only what needs the operator now, and what the operator can act on (added 2026-09-28) |
 | [R-C15](#r-c15) | P2 | S | done (2026-09-28) | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
+| [R-C16](#r-c16) | P2 | M | open (design to the operator first) | Investigate: dispatch a read-only investigation from any question stop (added 2026-10-01) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -1378,6 +1379,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Test:** `server-execution-checkpoint-attestation.test.ts`. LOCAL-REVIEW now also requires an accepted decision, LOCAL-ADR-01. The checkpoint review's ledger carries its record: the proposal and the approval. The test fails without the change, on the missing record.
   - **Replay:** on the 2026-09-28 snapshot, WI-WORKER-G1's `packetMissing` goes from WI-ADR-016, 008 and 010 to nothing. That cycle record is the only replay change; the step outcomes are unchanged (59 and 356).
   - **After deploy:** resuming WI-04 runs WI-WORKER-G1's review with the decision bodies.
+
+### R-C16
+
+**Investigate: dispatch a read-only investigation from any question stop** · Phase P2 · Effort M · Status: open (design to the operator first)
+
+- **Added 2026-10-01** from [LIVE-33](findings/LIVE-live-run-2026-09-25.md#live-33-continue-with-guidance-on-a-review-whose-rounds-were-spent-dropped-the-guidance-and-replaced-the-question-with-remediation-exhausted) (operator decision the same day: record it, and bring a design before building). On EXO-04 the operator wanted an agent to investigate the implications of a review's question before answering it. Only two kinds of question can dispatch one today: a design step's (Resolve design questions → investigate, design recovery, with R-C3a's automatic continuation) and a shared ADR decision's (decision preparation, R-C3b). A question from an implementation or review step (`work-item-questions`, `review-open-questions`, `review-open-questions-at-limit`, `scope-review-open-questions`, and questions carried on a `remediation-exhausted` stop) offers only an answer: Continue with guidance or Authorize more remediation. So the operator answers from the question's text alone, or writes the investigation into guidance meant for the next implementation or review run.
+- **Change (to design):** one Investigate action on every question stop, alongside the stop's own control. It launches a read-only run on the cycle's worktree at its current commit, briefed with the stop's questions, the source run's report and the operator's prompt. The run gathers evidence, answers or frames each question with sources, and proposes a resolution. It changes no source, merges nothing, uses no remediation round, and never makes the decision (ADR-059's rule for design investigations). When it ends, the cycle returns to the same stop with the investigation attached to its questions, and the stop's control (Continue with guidance, Authorize more remediation, or the shared-decision flow) carries the operator's answer as before.
+- **Design questions for the operator:** whether to reuse design recovery's record (`designRecovery`, mode `investigate`) or add a step-neutral one; the agent profile and time limit (the roadmap's preparation defaults, as R-C3b's brief uses, or the design profile); whether a fully sourced investigation may continue automatically as R-C3a does for design (the default here: no, the operator still answers); and how the inbox shows an investigation under way and its result.
+- **Done when:** every question stop offers Investigate; an investigation leaves the worktree, allowance and stop unchanged and attaches its report to the questions; a replay of EXO-04's 2026-10-01e stop offers it; tests cover each question code and the read-only boundary.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

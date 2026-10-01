@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import {
@@ -103,18 +103,26 @@ export class ClaudeCodeBackend implements AgentBackend {
       permissionMode: request.permissionMode,
       cwd: request.cwd,
     });
-    const own = request.processTemporaryDirectory;
+    const sandboxed = claudeSandboxed(request);
+    const own = sandboxed ? request.processTemporaryDirectory : undefined;
+    const runTemporary = request.environment?.TMPDIR;
     const env = agentEnvironment(
       this.options.env ?? process.env,
       CLAUDE_LOGIN_VARIABLES,
       this.options.allowEnvironment ?? [],
-      // Claude itself takes the short directory; its sandbox gives commands one beneath it.
       own === undefined
         ? request.environment
-        : { ...request.environment, TMPDIR: own, TMP: own, TEMP: own },
+        : {
+            ...request.environment,
+            // Claude itself: a short TMPDIR, where its sandbox makes its sockets (LIVE-31).
+            TMPDIR: own,
+            // Its commands keep the run's own: Claude Code gives them CLAUDE_CODE_TMPDIR as
+            // TMPDIR, TMP and TEMP, so what they write stays with the run (LIVE-31 review).
+            ...(runTemporary === undefined ? {} : { CLAUDE_CODE_TMPDIR: runTemporary }),
+          },
       request.pathPrefix,
     );
-    if (claudeSandboxed(request)) {
+    if (sandboxed) {
       const issues = claudeSandboxIssues(env);
       if (issues.length)
         return Promise.reject(
@@ -262,10 +270,11 @@ export { RAW_LINE_LIMIT_BYTES };
 
 /**
  * The longest TMPDIR under which Claude Code's command sandbox can make its sockets (LIVE-31). A
- * Unix socket path holds at most 107 bytes, and the longest name Claude Code makes beneath
- * TMPDIR is `cc-socks/<32 hex>.sock` (46 bytes, 2.1.280); its proxy bridges are
- * `claude-socks-<16 hex>.sock`. socat shortens a longer path without failing, and Claude then
- * waits for a socket that never appears.
+ * Unix socket path holds at most 107 bytes. Claude Code 2.1.280 makes its proxy bridges
+ * directly beneath TMPDIR, `claude-http-` and `claude-socks-<16 hex>.sock` (TMPDIR + 35 bytes,
+ * so at most 72), with `srt-mux-<pid>-<n>.sock` and `srt-obs-<6>/s<8 hex>.sock` beside them;
+ * 60 leaves room for a longer name in a later release. socat shortens a longer path without
+ * failing, and Claude then waits for a socket that never appears.
  */
 export const CLAUDE_SANDBOX_TMPDIR_LIMIT = 60;
 
@@ -293,7 +302,7 @@ function onPath(name: string, path: string | undefined): boolean {
     if (!isAbsolute(entry)) return false;
     try {
       accessSync(join(entry, name), constants.X_OK);
-      return true;
+      return statSync(join(entry, name)).isFile();
     } catch {
       return false;
     }

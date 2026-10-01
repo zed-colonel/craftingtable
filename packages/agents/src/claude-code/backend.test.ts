@@ -34,7 +34,7 @@ let turns = 0;
 rl.on('line', (line) => {
   const message = JSON.parse(line);
   const asked = message.message.content[0].text;
-  const text = asked === 'ENV' ? JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]) : asked === 'ENV-NAMES' ? Object.keys(process.env).sort().join(',') + ' PATH=' + process.env.PATH : asked;
+  const text = asked === 'ENV-TMP' ? JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CLAUDE_CODE_TMPDIR ?? null]) : asked === 'ENV' ? JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]) : asked === 'ENV-NAMES' ? Object.keys(process.env).sort().join(',') + ' PATH=' + process.env.PATH : asked;
   turns += 1;
   process.stdout.write(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'echo: ' + text }] } }) + '\\n');
   process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'echo: ' + text, num_turns: turns, duration_ms: 5, total_cost_usd: 0.01, session_id: 'fake-session' }) + '\\n');
@@ -193,7 +193,8 @@ setInterval(() => out(limited), 50);
     const session = await backend.launch({
       cwd: fake.cwd,
       prompt: 'ENV',
-      permissionMode: 'auto',
+      // No sandbox, so the test's own TMPDIR length does not matter here (LIVE-31 review).
+      permissionMode: 'unrestricted',
       environment: {
         TMPDIR: fake.cwd,
         TMP: fake.cwd,
@@ -301,31 +302,38 @@ setInterval(() => out(limited), 50);
     }
   });
 
-  it("gives Claude itself the run's short private temporary directory, where its sandbox makes its sockets (LIVE-31)", async () => {
+  it("gives Claude itself a short private TMPDIR for its sandbox's sockets, and its commands the run's (LIVE-31)", async () => {
     const fake = fakeClaude();
-    const own = join(fake.cwd, 't');
-    mkdirSync(own, { mode: 0o700 });
-    const scratch = join(fake.cwd, 'scratch');
-    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
-      cwd: fake.cwd,
-      prompt: 'ENV',
-      permissionMode: 'auto',
-      processTemporaryDirectory: own,
-      environment: {
-        TMPDIR: scratch,
-        TMP: scratch,
-        TEMP: scratch,
-        CARGO_TARGET_DIR: join(scratch, 'target'),
-      },
-    });
-    const results: string[] = [];
-    for await (const item of session.items)
-      if (item.type === 'event' && item.event.kind === 'turn-completed') {
-        results.push(item.event.payload.resultText);
-        session.end();
-      }
-    // Its commands get a directory of Claude's own beneath it; the run's builds stay in scratch.
-    expect(results).toEqual([`echo: ${JSON.stringify([own, own, own, join(scratch, 'target')])}`]);
+    // Short whatever the test's own TMPDIR is.
+    const own = mkdtempSync('/tmp/ct-');
+    directories.push(own);
+    // A live run's scratch: 78 bytes, too long for the sockets; the check reads Claude's own.
+    const scratch =
+      '/mnt/workhorse/craftingtable/runs/c1c6769e-e894-4032-a41e-bb7a815e172c/scratch';
+    const ask = async (permissionMode: 'auto' | 'unrestricted') => {
+      const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+        cwd: fake.cwd,
+        prompt: 'ENV-TMP',
+        permissionMode,
+        processTemporaryDirectory: own,
+        environment: { TMPDIR: scratch, TMP: scratch, TEMP: scratch },
+      });
+      const results: string[] = [];
+      for await (const item of session.items)
+        if (item.type === 'event' && item.event.kind === 'turn-completed') {
+          results.push(item.event.payload.resultText);
+          session.end();
+        }
+      return results;
+    };
+    // Claude Code gives its sandboxed commands CLAUDE_CODE_TMPDIR as TMPDIR, TMP and TEMP.
+    expect(await ask('auto')).toEqual([
+      `echo: ${JSON.stringify([own, scratch, scratch, scratch])}`,
+    ]);
+    // Unrestricted runs no sandbox: nothing is moved.
+    expect(await ask('unrestricted')).toEqual([
+      `echo: ${JSON.stringify([scratch, scratch, scratch, null])}`,
+    ]);
   });
 
   it('refuses a sandboxed launch whose sockets would not fit, without starting Claude (LIVE-31)', async () => {
@@ -368,9 +376,12 @@ setInterval(() => out(limited), 50);
       executable: fake.executable,
       env: { ...process.env, PATH: empty },
     });
+    // A directory of that name is not the tool.
+    mkdirSync(join(empty, 'bwrap'));
     const refused = backend.launch({ cwd: fake.cwd, prompt: 'x', permissionMode: 'edit-only' });
     await expect(refused).rejects.toMatchObject({ reason: 'environment-unavailable' });
     await expect(refused).rejects.toThrow(/bwrap is not on the agent's PATH.*socat is not on/);
+    rmSync(join(empty, 'bwrap'), { recursive: true });
     // Found on the PATH, as Claude looks them up.
     for (const name of ['bwrap', 'socat']) {
       writeFileSync(join(empty, name), '#!/bin/sh\n');

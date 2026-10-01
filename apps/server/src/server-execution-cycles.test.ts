@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import {
   AgentLaunchError,
@@ -1501,6 +1509,48 @@ it("removes agents' temporary directories a stopped daemon left behind (LIVE-31)
   state.context.services.agentRunService.recoverInterrupted();
   expect(existsSync(left)).toBe(false);
   expect(existsSync(root)).toBe(true);
+});
+
+it('ends a run normally when its agent left a read-only directory behind, and removes it (LIVE-31 review)', async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  let own: string | undefined;
+  backend.onLaunch = (request) => {
+    own = request.processTemporaryDirectory;
+    // What any sandboxed command may do: a directory it cannot itself be removed from.
+    const locked = join(present(own), 'claude-1000', 'locked');
+    mkdirSync(locked, { recursive: true });
+    writeFileSync(join(locked, 'file'), 'x');
+    chmodSync(locked, 0o500);
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => own !== undefined && !existsSync(own), 'directory removed');
+  const run = present(
+    state.context.storage.execution.runs.find(
+      state.workspaceId,
+      currentCycle(state, cycle).currentRunId,
+    ),
+  );
+  expect(run.status).toBe('finished');
+});
+
+it('starts after a stop that left an unremovable directory, and removes it (LIVE-31 review)', async () => {
+  const { state } = await cycleFixture([]);
+  const locked = join(state.context.config.execution.agentTemporaryRoot, '0123456789ab', 'locked');
+  mkdirSync(locked, { recursive: true });
+  writeFileSync(join(locked, 'file'), 'x');
+  chmodSync(locked, 0o500);
+  expect(() => state.context.services.agentRunService.recoverInterrupted()).not.toThrow();
+  expect(existsSync(dirname(locked))).toBe(false);
+});
+
+it('leaves no run starting when its temporary directory cannot be made (LIVE-31 review)', async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  // A file where the root should be: every directory beneath it fails.
+  writeFileSync(state.context.config.execution.agentTemporaryRoot, 'in the way');
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status !== 'running', 'the start failed');
+  expect(backend.launches).toHaveLength(0);
+  expect(state.context.storage.execution.runs.listLive()).toEqual([]);
 });
 
 it("stops a cycle as agent-environment-unavailable when the agent's tools cannot start (LIVE-31)", async () => {

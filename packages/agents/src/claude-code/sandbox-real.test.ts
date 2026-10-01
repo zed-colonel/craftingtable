@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
   ClaudeCodeBackend,
@@ -46,8 +46,9 @@ it.skipIf(!real)(
     );
     mkdirSync(scratch, { recursive: true, mode: 0o700 });
     expect(Buffer.byteLength(scratch)).toBeGreaterThanOrEqual(78);
-    const own = join(base, 't');
-    mkdirSync(own, { mode: 0o700 });
+    // As short as the daemon's `<data>/t/<12 hex>`, whatever the test's own TMPDIR is.
+    const own = mkdtempSync('/tmp/ct-');
+    directories.push(own);
     expect(Buffer.byteLength(own)).toBeLessThanOrEqual(CLAUDE_SANDBOX_TMPDIR_LIMIT);
     const cargoHome = join(base, 'cargo');
     mkdirSync(cargoHome);
@@ -58,6 +59,8 @@ it.skipIf(!real)(
       cwd: worktree,
       temporaryDirectory: scratch,
       processTemporaryDirectory: own,
+      // As the daemon does: the run's directory, so its scratch is writable in the sandbox.
+      additionalDirectories: [dirname(scratch)],
       environment: { TMPDIR: scratch, TMP: scratch, TEMP: scratch, CARGO_HOME: cargoHome },
       permissionMode: 'auto',
       model: 'haiku',
@@ -82,8 +85,10 @@ it.skipIf(!real)(
     // The sandbox started: no "Failed to create bridge sockets", and the command could write
     // its own temporary directory, beneath the short one, and the worktree.
     expect(results[0]).toMatchObject({ isError: false });
-    expect(results[0]!.content).toContain(`TMPDIR=${own}/`);
+    // The command's TMPDIR is the run's scratch, as the brief says, and what it writes stays.
+    expect(results[0]!.content).toContain(`TMPDIR=${scratch}\n`);
     expect(results[0]!.content).toContain('wrote-tmpdir');
     expect(results[0]!.content).toContain('wrote-worktree');
+    expect(existsSync(join(scratch, 'ct-probe'))).toBe(true);
   },
 );

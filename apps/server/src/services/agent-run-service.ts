@@ -2,6 +2,7 @@ import { decisionPreparationDocuments } from './decision-preparation-policy.js';
 import { moveRecords, unrecordedMoves } from './ref-watch.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -1113,6 +1114,9 @@ export class AgentRunService {
       const runDirectory = join(this.config.runsRoot, runId);
       const temporaryDirectory = join(runDirectory, 'scratch');
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
+      // Made with the scratch, before the run's record: a failure here fails the launch as a
+      // scratch failure does, never leaves a run starting (LIVE-31 review).
+      const processTemporaryDirectory = this.processTemporaryDirectory(runId);
       const buildCacheDirectory = this.worktreeBuildCache(prepared.worktree);
       const pinned = await this.runtimeEvidence?.prepare(
         prepared.worktree,
@@ -1635,7 +1639,6 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
                   ...(cycle.stepGuidance ? { stepGuidance: cycle.stepGuidance } : {}),
                 })
             : brief) + declared;
-        const processTemporaryDirectory = this.processTemporaryDirectory(runId);
         const launch: AgentLaunchRequest = {
           ...(pinned
             ? { buildEnvironment: { binDirectory: pinned.binDirectory, namespace: runId } }
@@ -2063,17 +2066,36 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     const directory = this.processTemporaryDirectories.get(runId);
     if (directory === undefined) return;
     this.processTemporaryDirectories.delete(runId);
-    rmSync(directory, { recursive: true, force: true });
+    const failure = removeAgentTree(directory);
+    if (failure)
+      this.log.warn("An agent's temporary directory could not be removed", {
+        runId,
+        directory,
+        error: failure,
+      });
   }
 
   /** Marks runs that were live when the daemon last stopped; their processes are gone. */
   recoverInterrupted(): number {
-    // Their agents' temporary directories went with them (LIVE-31).
+    // Their agents' temporary directories went with them (LIVE-31). One that cannot be removed
+    // is logged; it never keeps the daemon from starting (LIVE-31 review).
+    let leftovers: string[] = [];
     try {
-      for (const name of readdirSync(this.config.agentTemporaryRoot))
-        rmSync(join(this.config.agentTemporaryRoot, name), { recursive: true, force: true });
+      leftovers = readdirSync(this.config.agentTemporaryRoot);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        this.log.warn("Agents' temporary directories could not be listed", {
+          error: String(error),
+        });
+    }
+    for (const name of leftovers) {
+      const directory = join(this.config.agentTemporaryRoot, name);
+      const failure = removeAgentTree(directory);
+      if (failure)
+        this.log.warn("An agent's temporary directory could not be removed", {
+          directory,
+          error: failure,
+        });
     }
     this.storage.transaction((tx) =>
       tx.phaseScheduling.releaseOperations(this.now().toISOString()),
@@ -2568,7 +2590,6 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     clearTimeout(this.preparationTimers.get(runId));
     this.preparationTimers.delete(runId);
     this.live.delete(runId);
-    this.removeProcessTemporaryDirectory(runId);
     const occurredAt = this.now().toISOString();
     const changed = this.storage.transaction((tx) => {
       tx.phaseScheduling.release(runId, occurredAt, status);
@@ -2629,6 +2650,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       appendStatusChanged(tx, after, before.status, occurredAt);
       return true;
     });
+    // After the run's record, so nothing an agent left can keep a run from ending (LIVE-31 review).
+    this.removeProcessTemporaryDirectory(runId);
     // Checks still running record nothing: the build record was frozen above.
     const checks = this.checks?.close(runId);
     if (checks) {
@@ -2723,4 +2746,38 @@ function appendStatusChanged(
       toStatus: run.status,
     },
   });
+}
+
+/**
+ * Removes a tree an agent wrote, whatever modes it left (LIVE-31 review): a directory a command
+ * made read-only makes a plain recursive removal fail. Directories are made the owner's again,
+ * never following a symbolic link, and the removal is tried once more. Returns why it failed,
+ * never throws.
+ */
+export function removeAgentTree(path: string): string | undefined {
+  try {
+    rmSync(path, { recursive: true, force: true });
+    return undefined;
+  } catch {
+    // Read-only directories inside; reopen them below.
+  }
+  try {
+    reopenDirectories(path);
+    rmSync(path, { recursive: true, force: true });
+    return undefined;
+  } catch (error) {
+    return String(error);
+  }
+}
+
+function reopenDirectories(path: string): void {
+  let entry: ReturnType<typeof lstatSync>;
+  try {
+    entry = lstatSync(path);
+  } catch {
+    return;
+  }
+  if (!entry.isDirectory()) return;
+  chmodSync(path, 0o700);
+  for (const name of readdirSync(path)) reopenDirectories(join(path, name));
 }

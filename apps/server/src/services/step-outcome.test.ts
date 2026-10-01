@@ -297,6 +297,19 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'background-work-unsafe' },
   },
   {
+    name: "an agent whose tools could not start needs the host fixed, not the agent's report (LIVE-31)",
+    facts: {
+      run: failedRun,
+      ended: endedOf({
+        status: 'failed',
+        reason: 'agent-environment-unavailable',
+        message:
+          "Claude Code's command sandbox cannot start on this host: socat is not on the agent's PATH.",
+      }),
+    },
+    expected: { kind: 'attention', code: 'agent-environment-unavailable' },
+  },
+  {
     name: 'a failed run without a known cause needs the operator',
     facts: { run: failedRun, ended: endedOf({ status: 'failed', exitCode: 1 }) },
     expected: { kind: 'attention', code: 'step-incomplete' },

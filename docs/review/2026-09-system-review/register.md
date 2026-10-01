@@ -78,7 +78,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
-| [R-G13](#r-g13) | P2 | M | partial (increments 1 to 3; increment 3 on 2026-09-30: the daemon runs adopted checks before the reviewer; 4 and 5 open) | Declared per-repository checks |
+| [R-G13](#r-g13) | P2 | M | partial (increments 1, 2, 3 and 5; 4 open until a plan-bundle or non-Rust repository joins a roadmap) | Declared per-repository checks |
 | [R-G14](#r-g14) | P3 | S-M | open | Operator-configured outside sources for agent sandboxes |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
@@ -826,6 +826,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Recorded, older than LIVE-22:* `approvedArchitectureDecisions` keeps only the newest clause record per checkpoint, so a newer clause approval that omits a slice unsettles it (the gate's rule, shared here); LIVE-18's `unsettledSliceDecisions` reads only merge requirements, so its "Needed now by" misses a started slice stopped by a start requirement.
   - *Probes that found nothing:* agreement with `stagedDecision` for several and newest clause records, binding revisions, phase-mismatched consumers and parent scopes; no new throw path in the projection; cost on the snapshot-cached reads; LIVE-18's `settles()` and batch approval.
 - **LIVE-16's cleanup** removed both stale worktrees on the first pass (06:48:52). Accepted preparations' worktrees are removed on the next running pass; the roadmap was paused at the snapshot, so the nine accepted today are still there, holding no capacity.
+
+- **Live measurement (2026-10-01b snapshot, from the hold's first deploy, e0d33b8 at 2026-09-30 00:31Z, to 18:30Z on 10-01): too few designs to decide the done-when.** Five slices started. Four ran no design step (EXO-03/domain, EXO-01/domain, WI-03/integration and EXO-02/domain: re-attempts and owning-slice repairs that reuse an earlier design). The one that designed, WI-05/integration, stopped three times for one slice-local decision: changing an adapter setting frozen at gate WI-AQ-G2 (`max_attempts` 1 to 3), which no shared map decision names, so neither preparation nor the hold can cover it. It took three stops because the operator first asked for an investigation (02:18, "is AQ at fault?"), then continued with guidance the next design did not find as an approval (02:38), and the approval was recorded at 03:38. No slice stopped for a shared decision. Before the hold, with the grant only (from fccce06, 2026-09-29): one of the two designing slices stopped (WI-05/domain, WI-ADR-009, now covered by the hold). The 10-of-11 baseline counted first attempts that design; measure again when more first attempts start. Slice-local decisions at design remain a stop source R-C3 does not address.
 
 ### R-C4
 

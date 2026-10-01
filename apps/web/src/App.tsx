@@ -111,7 +111,6 @@ import {
   endRun,
   loadExecutionStatus,
   loadRepositories,
-  loadRepositoryBranches,
   loadRun,
   loadRunEvents,
   loadRunProfiles,
@@ -160,7 +159,7 @@ import { Link, NavigationProvider, useRevealRouteFocus } from './lib/navigation.
 import { useRoute } from './lib/use-route.js';
 import { useRunEventStream } from './lib/use-run-event-stream.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
-import { loadWorkCycles, resolveIntegration, startWorkCycle } from './lib/work-cycle-api.js';
+import { loadWorkCycles, startWorkCycle } from './lib/work-cycle-api.js';
 import {
   type ConnectionState,
   INITIAL_WORKSPACE_PROJECTION,
@@ -1357,11 +1356,6 @@ export function App() {
               decisionItemFor: (cycleId: string) =>
                 attentionItems.find((item) => item.subjectKey === `cycle:${cycleId}`)?.id,
             })}
-        onResolution={(cycle, input) =>
-          executionCommand(async (csrfToken) => {
-            await resolveIntegration(cycle, input, csrfToken);
-          })
-        }
         onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
       />
     );

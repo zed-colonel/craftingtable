@@ -33,13 +33,12 @@ import {
   startFinalization,
 } from '../../lib/finalization-api.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
-import { resolveIntegration } from '../../lib/work-cycle-api.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
 import { DiffView } from './DiffView.js';
 import { FinalizationStageDecision } from './FinalizationStageDecision.js';
 import { FinalizationStageProgress } from './FinalizationStageProgress.js';
 import { defaultFinalizationStages, FinalizationStageSetup } from './FinalizationStageSetup.js';
-import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
+import { IntegrationConflict } from '../../decisions/integration/IntegrationConflict.js';
 import { ReviewFindings } from './ReviewFindings.js';
 import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
 import {
@@ -602,16 +601,15 @@ export function FinalizationPanel({
               </fieldset>
             )}
             {cycle && f.status === 'active' && (
-              <IntegrationResolutionPanel
+              <IntegrationConflict
                 cycle={cycle}
                 backends={backends}
-                busy={busy}
+                disabled={busy}
                 canMutate={canMutate}
+                csrfToken={csrfToken}
+                onChanged={() => setReload((v) => v + 1)}
                 onOpenRun={onOpenRun}
                 runIds={view.runs.map((r) => r.id)}
-                onCommand={(input) =>
-                  void perform(() => resolveIntegration(cycle, input, csrfToken))
-                }
               />
             )}
             {latest && (

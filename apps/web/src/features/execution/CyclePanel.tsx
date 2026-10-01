@@ -1,7 +1,6 @@
 import type {
   AgentRunSummary,
   ExecutionStatusResponse,
-  IntegrationResolutionRequest,
   StartWorkCycleRequest,
   WorktreeSummary,
 } from '@craftingtable/contracts';
@@ -36,7 +35,7 @@ import {
 import { CycleSettingsFields } from './CycleSettingsFields.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import type { ProfileEntry } from './handoff.js';
-import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
+import { IntegrationConflict } from '../../decisions/integration/IntegrationConflict.js';
 import { defaultEffortLabel } from './ReasoningEffortField.js';
 import { WorkflowStatus } from './WorkflowStatus.js';
 import { Link } from '../../lib/navigation.js';
@@ -58,7 +57,6 @@ export function CyclePanel({
   onChanged,
   decisionItemFor,
   onOpenRun,
-  onResolution,
   selectedWorktreeId,
   onSelectWorktree,
   renderDesignRecovery,
@@ -88,10 +86,6 @@ export function CyclePanel({
    */
   decisionItemFor?: (cycleId: string) => string | undefined;
   onOpenRun: (id: AgentRunId) => void;
-  onResolution?: (
-    cycle: WorkCycle,
-    input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
-  ) => void;
 }) {
   const activeWorktrees = worktrees.filter((worktree) => worktree.status === 'active');
   const preferred =
@@ -312,13 +306,14 @@ export function CyclePanel({
               <div id={`cycle-design-${active.id}`}>{renderDesignRecovery(active)}</div>
             )}
           {active.baselinePreparation && <HistoricalEvidencePanel cycle={active} />}
-          {onResolution && !readOnly && (
-            <IntegrationResolutionPanel
+          {!readOnly && (
+            <IntegrationConflict
               cycle={active}
               backends={backends}
-              busy={disabled}
+              disabled={disabled}
               canMutate={canMutate}
-              onCommand={(input) => onResolution(active, input)}
+              csrfToken={csrfToken}
+              onChanged={onChanged}
               onOpenRun={onOpenRun}
               runIds={runs.map((run) => run.id)}
             />

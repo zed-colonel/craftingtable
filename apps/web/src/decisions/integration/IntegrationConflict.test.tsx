@@ -1,17 +1,21 @@
 import type { WorkCycle } from '@craftingtable/domain';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
+import { request } from '../../lib/api-client.js';
+import { IntegrationConflict } from './IntegrationConflict.js';
+
+vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(cleanup);
 
 const panel = (cycle: Partial<WorkCycle>) =>
   render(
-    <IntegrationResolutionPanel
+    <IntegrationConflict
       cycle={{ status: 'needs-attention', reason: '', profiles: {}, ...cycle } as WorkCycle}
       backends={[]}
-      busy={false}
+      disabled={false}
       canMutate
-      onCommand={vi.fn()}
+      csrfToken="csrf"
+      onChanged={vi.fn()}
       onOpenRun={vi.fn()}
       runIds={[]}
     />,
@@ -71,4 +75,35 @@ it('asks for a fresh review only until one has run on the resolution commit (LIV
   });
   expect(screen.queryByText(/Fresh review required/)).toBeNull();
   expect(screen.getByText(/reviewed afresh/)).toBeDefined();
+});
+
+it('posts its own command, naming the version it saw, and reloads the cycle (R-A6)', async () => {
+  vi.mocked(request).mockResolvedValue({});
+  const onChanged = vi.fn();
+  render(
+    <IntegrationConflict
+      cycle={
+        {
+          id: 'c1',
+          workspaceId: 'ws',
+          version: 7,
+          status: 'paused',
+          reason: '',
+          profiles: {},
+        } as unknown as WorkCycle
+      }
+      backends={[]}
+      disabled={false}
+      canMutate
+      csrfToken="csrf"
+      onChanged={onChanged}
+      onOpenRun={vi.fn()}
+      runIds={[]}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect integration conflicts' }));
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  const [url, , init] = vi.mocked(request).mock.calls[0]!;
+  expect(url).toBe('/api/workspaces/ws/cycles/c1/integration-resolution');
+  expect(JSON.parse(String(init!.body))).toEqual({ action: 'inspect', expectedVersion: 7 });
 });

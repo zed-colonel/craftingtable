@@ -5,7 +5,6 @@ import {
   type PrepareBaselineRequest,
   type RecoverDesignRequest,
   designRecoveryPreviewSchema,
-  type IntegrationResolutionRequest,
   workCycleResponseSchema,
   workCyclesResponseSchema,
   scopeRepairPreviewSchema,
@@ -56,18 +55,6 @@ export function startWorkCycle(
     `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/cycles`,
     workCycleResponseSchema,
     mutation(csrfToken, input),
-  );
-}
-
-export function resolveIntegration(
-  cycle: WorkCycle,
-  input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/integration-resolution`,
-    workCycleResponseSchema,
-    mutation(csrfToken, { ...input, expectedVersion: cycle.version }),
   );
 }
 

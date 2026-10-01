@@ -1,7 +1,8 @@
 import { agentSelections, selectionsForPurpose } from '@craftingtable/domain';
-import type {
-  ExecutionStatusResponse,
-  IntegrationResolutionRequest,
+import {
+  type ExecutionStatusResponse,
+  type IntegrationResolutionRequest,
+  workCycleResponseSchema,
 } from '@craftingtable/contracts';
 import {
   type AgentRunId,
@@ -11,7 +12,8 @@ import {
 } from '@craftingtable/domain';
 import { useState } from 'react';
 import { About } from '../../components/About.js';
-import { HandoffForm } from './HandoffForm.js';
+import { HandoffForm } from '../../features/execution/HandoffForm.js';
+import { request } from '../../lib/api-client.js';
 
 /** Stops an integration update leaves for the operator (R-A3 codes). */
 const INTEGRATION_STOPS: readonly string[] = [
@@ -20,23 +22,63 @@ const INTEGRATION_STOPS: readonly string[] = [
   'integration-refresh-limit',
 ];
 
-export function IntegrationResolutionPanel({
+const encode = encodeURIComponent;
+
+/**
+ * The decision on a detected integration conflict: inspect, delegate a resolution, resume one,
+ * or abandon it. The only poster of `cycles/:id/integration-resolution` (R-A6).
+ */
+function resolveIntegration(
+  cycle: WorkCycle,
+  input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
+  csrfToken: string,
+) {
+  return request(
+    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/integration-resolution`,
+    workCycleResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': csrfToken },
+      body: JSON.stringify({ ...input, expectedVersion: cycle.version }),
+    },
+  );
+}
+
+/**
+ * A cycle's integration conflict (R-A6 increment 2a). It renders in the cycle's inbox item, on
+ * the work item page when no item carries the cycle's stop, and in a finalization's panel.
+ */
+export function IntegrationConflict({
   cycle,
   backends,
-  busy,
+  disabled,
   canMutate,
-  onCommand,
+  csrfToken,
+  onChanged,
   onOpenRun,
   runIds,
 }: {
   cycle: WorkCycle;
   backends: ExecutionStatusResponse['backends'];
-  busy: boolean;
+  disabled: boolean;
   canMutate: boolean;
   onOpenRun: (id: AgentRunId) => void;
   runIds: readonly AgentRunId[];
-  onCommand: (input: Omit<IntegrationResolutionRequest, 'expectedVersion'>) => void;
+  csrfToken: string;
+  /** After a command, so the host reloads the cycle. */
+  onChanged: () => void;
 }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string>();
+  const busy = disabled || pending;
+  const onCommand = (input: Omit<IntegrationResolutionRequest, 'expectedVersion'>) => {
+    setPending(true);
+    setError(undefined);
+    void resolveIntegration(cycle, input, csrfToken)
+      .then(() => onChanged())
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setPending(false));
+  };
   const [form, setForm] = useState(false);
   const [abandon, setAbandon] = useState(false);
   const resolution = cycle.integrationResolution;
@@ -52,6 +94,11 @@ export function IntegrationResolutionPanel({
     if (!idle || !canMutate || owned) return null;
     return (
       <div className="inline-actions">
+        {error && (
+          <p role="alert" className="error-state">
+            {error}
+          </p>
+        )}
         <button
           type="button"
           className="secondary-button"
@@ -66,6 +113,11 @@ export function IntegrationResolutionPanel({
   return (
     <section className="panel" aria-label="Integration conflicts">
       <h3>Integration conflicts</h3>
+      {error && (
+        <p role="alert" className="error-state">
+          {error}
+        </p>
+      )}
       {resolution && (
         <>
           <p>

@@ -39,6 +39,11 @@ const COMMANDS: readonly {
   },
   { kind: 'merge', command: 'worktrees/:id/merge', found: /\/merge[`'"]/ },
   {
+    kind: 'integration',
+    command: 'cycles/:id/integration-resolution',
+    found: /\/integration-resolution[`'"]/,
+  },
+  {
     kind: 'checkpoint',
     command: 'runtime/prepare-checkpoint',
     found: /\/prepare-checkpoint[`'"]|['"`]prepare-checkpoint['"`]/,

@@ -52,7 +52,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-D6](#r-d6) | P4 | L | open | Shared projections keyed by write generation (only if still needed) |
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
 | [R-E1](#r-e1) | P2 | M | done (a07dbfe, 4102517) | Real routes and one Link component |
-| [R-E2](#r-e2) | P2 | M | partial (3feb310; increment 2 with R-A6 2026-09-30: steps built, three screens not met, see R-A6) | Split the Roadmaps mega-page |
+| [R-E2](#r-e2) | P2 | M | done (3feb310; increment 2 with R-A6 2026-09-30, accepted as built by operator decision the same day) | Split the Roadmaps mega-page |
 | [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a done (2026-09-27); R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
@@ -84,7 +84,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
 | [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
-| [R-H4](#r-h4) | P2 | M | partial (increment 1: the evidence view, LIVE-29) | Lighter evidence and definition storage |
+| [R-H4](#r-h4) | P2 | M | partial (increment 1 done: the evidence view, LIVE-29, 1.37 MB accepted) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
@@ -1403,7 +1403,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E2
 
-**Split the Roadmaps mega-page** · Phase P2 · Effort M · Status: partial (3feb310, 2026-09-29)
+**Split the Roadmaps mega-page** · Phase P2 · Effort M · Status: done (3feb310, 2026-09-29; increment 2 with R-A6, 2026-09-30)
 
 - **Resolves:** [UI-05](findings/UI-information-architecture.md#ui-05-the-roadmaps-page-is-an-ever-growing-single-document-with-duplicated-panels-and-no-per-roadmap-route), [UI-17](findings/UI-information-architecture.md#ui-17-roadmap-supervision-panels-share-mutable-page-level-dirty-gates-that-disable-unrelated-decisions)
 - **Change:** /roadmaps lists roadmaps (active first, completed under History); /roadmaps/:id is the board and controls; /roadmaps/:id/setup is an ordered checklist (bindings, dependency environment, verification environments, reviewer responsibilities and delegation, automation and agents, plan acceptance); /roadmaps/:id/history holds revisions, amendments and decisions. Remove the duplicate CrossProjectPanel/RuntimeEvidencePanel mounts under ConcurrencyImports; namespace DOM ids.
@@ -1438,6 +1438,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *NIT, disposition:* the setup checklist keeps its own ordered list of buttons, not `SectionNav`'s chips, because its order is the point; the rail marks no detail page current (work items, runs and projects are the same); scheduling-page links open a cross-project roadmap's setup, where a capacity change's plan acceptance is.
   - *Checked and sound, per the reviewer:* route round trips; every server-written legacy focus lands on the page that holds it; every inbox focus exists in the inbox view; no page mounts a panel twice or repeats an id; history loads once per revision; the copy and anatomy tests.
 - **Gate fix (2026-09-30):** `pnpm check` at ade44c1 stopped at its format step on one quote in `global.css` from ab78399 (increment 2's checklist style); formatted, no change in behaviour.
+- **Operator decision 2026-09-30: done as built.** The second increment's pages (setup 3.0 to 4.0 desktop screens, a map's page 2.2 to 4.8, from 6 to 18) are accepted; the done-when's ~3 screens is amended to these measurements, and neither further option (Before Start and the shortcuts only on the bindings step, or splitting the dependency form) is pursued.
 
 ### R-E3
 
@@ -2373,6 +2374,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW-2, fixed:* the drain's count was untested. Test: a review whose checks fail to run during the drain is recorded failed and not counted.
   - *LOW-3, fixed:* a launch past its drain check (Git preflight, pinning evidence, the baseline, the policy) was invisible to the drain, and could record a run after it began (R-B9 checked only before those awaits). A drain now counts such launches as busy and waits for them within its grace; a launch checks the drain again before recording its run; a run whose session has not come by the grace's end is recorded as the drain's, and the session is ended when it comes. Tests: a review held in evidence preparation (counted, no run recorded); an implementing run whose backend launch outlasts the grace (recorded interrupted, its late session ended).
   - *LOW-4, fixed:* a session live when the drain began is counted once even if it was also in its checks' map. A guard without a test: the window is a few microtasks.
+- **Operator decision 2026-09-30: the increment's dispositions stand for now** (a check's clone and toolchain steps do not see a cancel, so stop, pause or a drain can wait for them; a relaunched review keeps its step's deadline; the "Resuming the review session" wording).
 
 ### R-G14
 
@@ -2501,7 +2503,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Evidence submissions become a light index row plus a lazily decoded body; persist canonical digests at write time instead of canonicalizing whole definitions at read time.
 - **Done when:** roadmap view and cross-project preview no longer decode full submissions.
 - **Pulled forward 2026-09-30 (operator decision, LIVE-29).** The plan's evidence view reached 9.7 MB and 3 to 25 s on the live roadmap, and holds the daemon while it runs. A first increment comes next in P2, before R-A6 and R-E2's second increment: the view sends a summary of each submission and loads the full record on demand, and accepted-evidence and decision-digest results are computed once per request. Done when, for that increment: on the 2026-09-30b snapshot the view is at most about 1 MB and a few hundred milliseconds of CPU, and its content, other than the submission bodies, matches a golden recorded before the change. Storage changes (an index row, digests at write time) need the operator's approval first.
-- **Increment 1 (LIVE-29): built 2026-09-30, no storage change; done once the operator accepts 1.37 MB against "about 1 MB" (see Size below).**
+- **Increment 1 (LIVE-29): built 2026-09-30, no storage change; done (operator decision 2026-09-30: 1.37 MB and about 380 ms are accepted against "about 1 MB"; the rest is not pursued, see Size below).**
   - **Measure.** `pnpm controller:replay <snapshot> --evidence-view [--record | --check <golden>]` renders each map's evidence view from a copy of a snapshot, with Git stubbed (every call fails the same way, and calls are counted), and prints its size by field and its CPU for three requests. The goldens recorded before the change are `evidence-view-golden-27641f4.json` beside the 2026-09-30b and 2026-09-30c snapshots. A check compares a golden that listed full records against the summaries the view now sends, and against each full record read on demand, so the bodies are compared too.
   - **Before (27641f4), definition `0ebcb7cf`:** 10.0 MB (submissions 8.8 MB, of which artifact contents 8.5 MB); 2.0 to 3.4 s of CPU per request; 28 Git calls.
   - **After:** 1.39 MB on 2026-09-30b and 1.37 MB on 2026-09-30c; 370 to 390 ms of CPU per request once warm, 570 to 620 ms for the first; 9 Git calls. Content equals the golden on both snapshots: every field, every summary, and every full record (555 records, 0 changed).

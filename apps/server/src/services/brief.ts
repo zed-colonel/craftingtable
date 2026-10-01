@@ -126,7 +126,7 @@ const REVIEW_REPORT_INSTRUCTIONS = [
   'empty findings array when none exist. The verdict must match your final VERDICT line.',
   'Set complete to true only once you have consolidated the entire review. A mergeable',
   'report requires exitGate.met=true and no open blocking or major findings.',
-  'A review with a controller-owned execution scope also adds the top-level scopeEvidence field that section shows.',
+  'Only when this brief has a "Controller-owned execution scope" section, also add the top-level scopeEvidence field it shows; otherwise omit scopeEvidence.',
 ].join('\n');
 
 const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {

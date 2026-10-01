@@ -132,7 +132,9 @@ describe('composeBrief scoped review report', () => {
     });
     expect(brief).toContain('never inside exitGate or its evidence text');
     // The generic report shape, read after the scope section, points back to it.
-    expect(brief).toContain('also adds the top-level scopeEvidence field that section shows');
+    expect(brief).toContain(
+      'Only when this brief has a "Controller-owned execution scope" section, also add the top-level scopeEvidence field it shows',
+    );
   });
 
   it('asks only a review for scope evidence', () => {

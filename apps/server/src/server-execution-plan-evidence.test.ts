@@ -673,6 +673,49 @@ it('alerts for an eligible missing native environment, not future dependency wai
   }
 });
 
+// LIVE-32: EXO-03's reviewer put scopeEvidence inside exitGate. That is a format fault: it is
+// repaired, its stop names the validator's issue, and authorizing remediation does not
+// blame the scope evidence either.
+it('a scoped review whose report is malformed is repaired and stops naming the format issue', async () => {
+  const f = await slicedFixture();
+  const { state, backend } = f;
+  const scope = f.scopes[0]!;
+  const tree = await scopeTree(f, scope);
+  backend.replyForRequest = (request) => {
+    if (request.model === 'design-model') return designDone;
+    if (request.model !== 'review-model') return implementationDone;
+    const block = scopeReport(state, scope);
+    const report = JSON.parse(block.slice(block.indexOf('{'), block.lastIndexOf('}') + 1));
+    const { scopeEvidence, ...rest } = report;
+    const nested = { ...rest, exitGate: { ...rest.exitGate, scopeEvidence } };
+    return {
+      resultText: `\`\`\`craftingtable-review\n${JSON.stringify(nested)}\n\`\`\`\nVERDICT: mergeable`,
+    };
+  };
+  const cycle = await startCycle(state, tree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review stop');
+  const stopped = currentCycle(state, cycle);
+  expect(backend.repairs).toBe(2);
+  expect(stopped.attention?.code).toBe('review-needs-attention');
+  expect(stopped.reason).toContain('Unrecognized key');
+  expect(stopped.reason).not.toContain('scope in scopeEvidence');
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action: 'authorize-remediation',
+      expectedVersion: stopped.version,
+      additionalRounds: 1,
+    },
+  });
+  expect(response.statusCode).toBe(409);
+  expect(response.body).toContain('A valid review requiring remediation is needed');
+  expect(currentCycle(state, cycle)).toEqual(stopped);
+});
+
 it.each([false, true])(
   'slice remediation recovery preserves exact scope (missing evidence: %s)',
   async (omitEvidence) => {

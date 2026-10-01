@@ -1121,7 +1121,11 @@ export class WorkCycleService {
       return 'Resolve the questions or incomplete outcome before authorizing remediation.';
     const assessment = latestReviewReport(this.storage.execution, run);
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    const scopeIssue = tree && scopedReviewIssue(this.storage, tree, assessment);
+    // Scope evidence is checked only on a well-formed report, as the step outcome does (LIVE-32).
+    const scopeIssue =
+      tree && assessment?.status === 'complete'
+        ? scopedReviewIssue(this.storage, tree, assessment)
+        : undefined;
     if (tree?.status !== 'active' || scopeIssue)
       return scopeIssue ?? 'The managed worktree must be active before authorizing remediation.';
     if (

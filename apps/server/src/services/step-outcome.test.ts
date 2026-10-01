@@ -651,9 +651,61 @@ const rows: readonly Row[] = [
     facts: {
       run: reviewRun,
       turn: turnOf(noQuestions),
+      reviewAssessment: () => ({
+        status: 'unstructured',
+        issues: ['No structured findings report.'],
+      }),
       scopeIssue: () => 'The review must identify this exact slice in scopeEvidence.',
     },
     expected: { kind: 'repair-output', code: 'review-needs-attention', attempt: 1 },
+  },
+  {
+    // The repaired report is well-formed, so its scope evidence is checked again.
+    name: 'a repaired scoped report without its scope evidence stops for the operator',
+    cycle: {
+      step: 'review',
+      outputRepair: {
+        attempts: 1,
+        sourceRunId: 'run-0',
+        code: 'review-needs-attention',
+        issues: ['exitGate: Unrecognized key: "scopeEvidence"'],
+      },
+    },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () => review(),
+      scopeIssue: () => 'The review must identify this exact slice in scopeEvidence.',
+    },
+    expected: {
+      kind: 'attention',
+      code: 'review-needs-attention',
+      repairAttempts: 1,
+      message:
+        'A complete, valid structured review report is required. The review must identify this exact slice in scopeEvidence.',
+    },
+  },
+  {
+    // A slice-verification or parent-acceptance review gets the same format repair.
+    name: 'a schema-invalid report in a scope-only review is repaired',
+    cycle: { step: 'review' },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(noQuestions),
+      reviewOnly: true,
+      reviewAssessment: () => ({
+        status: 'invalid',
+        fault: 'format',
+        issues: ['scopeEvidence.caseIds: Invalid input'],
+      }),
+      scopeIssue: () => 'The review must identify this exact parent-acceptance scope.',
+    },
+    expected: {
+      kind: 'repair-output',
+      code: 'scope-review-recovery',
+      attempt: 1,
+      issues: ['scopeEvidence.caseIds: Invalid input'],
+    },
   },
   {
     name: 'a schema-invalid review report is sent back for repair',

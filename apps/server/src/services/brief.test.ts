@@ -1,3 +1,4 @@
+import { reviewReportSchema } from '@craftingtable/contracts';
 import { describe, expect, it } from 'vitest';
 import { type BriefInput, composeBrief } from './brief.js';
 
@@ -83,5 +84,58 @@ describe('composeBrief instruction provenance', () => {
     const brief = composeBrief(briefInput({ controllerInstructions: ' ', stepGuidance: '' }));
     expect(brief).not.toContain('## Step rules');
     expect(brief).not.toContain('## Operator guidance');
+  });
+});
+
+describe('composeBrief scoped review report', () => {
+  const identity = {
+    kind: 'slice',
+    definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+    bindingRevision: 4,
+    sourceId: 'exo/EXO-18/instance-design',
+  } as const;
+  const scoped = (role: BriefInput['role']) =>
+    composeBrief(
+      briefInput({
+        role,
+        executionScope: {
+          identity,
+          title: 'Instance design',
+          scope: 'Prepare the instance design.',
+          excludes: [],
+          requirements: ['Prepare the instance design.', 'Local test results'],
+          cases: ['EE-001'],
+          context: '',
+        },
+      }),
+    );
+
+  // LIVE-32: three reviews wrote scopeEvidence inside exitGate.evidence, so the report had none.
+  it('shows scopeEvidence as a top-level field of a complete report', () => {
+    const brief = scoped('review');
+    const lines = brief.split('\n');
+    const shape =
+      lines[
+        lines.findIndex((line) =>
+          line.endsWith('A complete report for this scope has this shape:'),
+        ) + 1
+      ];
+    const parsed = reviewReportSchema.safeParse(JSON.parse(shape ?? 'null'));
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.scopeEvidence).toEqual({
+      scope: identity,
+      requirements: [
+        { requirement: 'Prepare the instance design.', evidence: expect.any(String) },
+        { requirement: 'Local test results', evidence: expect.any(String) },
+      ],
+      caseIds: ['EE-001'],
+    });
+    expect(brief).toContain('never inside exitGate or its evidence text');
+    // The generic report shape, read after the scope section, points back to it.
+    expect(brief).toContain('also adds the top-level scopeEvidence field that section shows');
+  });
+
+  it('asks only a review for scope evidence', () => {
+    expect(scoped('implement')).not.toContain('scopeEvidence');
   });
 });

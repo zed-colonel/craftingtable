@@ -126,6 +126,7 @@ const REVIEW_REPORT_INSTRUCTIONS = [
   'empty findings array when none exist. The verdict must match your final VERDICT line.',
   'Set complete to true only once you have consolidated the entire review. A mergeable',
   'report requires exitGate.met=true and no open blocking or major findings.',
+  'A review with a controller-owned execution scope also adds the top-level scopeEvidence field that section shows.',
 ].join('\n');
 
 const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
@@ -219,7 +220,8 @@ export function composeBrief(input: BriefInput): string {
     );
     if (input.role === 'review')
       sections.push(
-        `In the structured craftingtable-review report add scopeEvidence with this exact scope identity, an evidence entry for each requirement actually verified, and caseIds for cases actually checked. Never claim missing verification or outside-scope obligations passed. Shape: ${JSON.stringify({ scopeEvidence: { scope: s.identity, requirements: s.requirements.map((requirement) => ({ requirement, evidence: 'Concise commands/results and durable evidence references' })), caseIds: s.cases } })}. A slice review approves integration of this scope; it never accepts its parent. Use the supplied craftingtable-scope-evidence.json artifact for recorded slice receipts and verification references. A parent-acceptance review must independently assess the full original exit gate and retained source-plan obligations. Do not modify source files during acceptance review.`,
+        // A complete example, not only the field: reviewers put it inside exitGate (LIVE-32).
+        `In the structured craftingtable-review report add scopeEvidence with this exact scope identity, an evidence entry for each requirement actually verified, and caseIds for cases actually checked. Never claim missing verification or outside-scope obligations passed. scopeEvidence is a top-level field of the report, beside version, verdict, exitGate and findings, never inside exitGate or its evidence text. A complete report for this scope has this shape:\n${JSON.stringify({ version: 1, complete: true, verdict: 'mergeable', exitGate: { met: true, evidence: 'Summarize the checks and conformance.' }, findings: [], scopeEvidence: { scope: s.identity, requirements: s.requirements.map((requirement) => ({ requirement, evidence: 'Concise commands/results and durable evidence references' })), caseIds: s.cases } })}\nA slice review approves integration of this scope; it never accepts its parent. Use the supplied craftingtable-scope-evidence.json artifact for recorded slice receipts and verification references. A parent-acceptance review must independently assess the full original exit gate and retained source-plan obligations. Do not modify source files during acceptance review.`,
       );
     if (input.role === 'review' && s.owningSlices?.length)
       sections.push(

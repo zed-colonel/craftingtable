@@ -474,3 +474,15 @@ The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, se
   - The script lists the WI scopes and their coverage, so each WI domain slice that adds itself edits a check definition: its own review stops, and once it merges every other in-flight WI slice stops until the checks are adopted again.
 - Impact: a roadmap stops at every merge that changes a check definition, and at any adoption taken from a stale branch; each needs the operator to adopt and resume.
 
+### LIVE-31: Every sandboxed Claude run had no shell: its sandbox's socket paths did not fit under the run's TMPDIR
+- Severity: high (every Claude run since R-G5 could only read files: three design runs concluded from reading alone, and four security reviews ran no check; one returned `changes-requested` for the failure alone. Nothing was approved without being checked; no data loss.)
+- Category: agent environment ([R-G5](../register.md#r-g5) increment 5)
+- Status: CONFIRMED 2026-10-01 from the 2026-10-01 snapshot (read-only), Claude Code 2.1.280, and a reproduction in scratch with the real Claude Code. Operator decision the same day: fix it (a short private TMPDIR per run, a check before launch with its own stop code, an opt-in real-Claude test). Fixed the same day; see R-G5.
+- Replay case: the 2026-10-01 snapshot, cycles `b0de849a` (exo/EXO-04/domain, review `13df9f58`) and `2c9ead5d` (exo/EXO-18/instance-design, review `c1c6769e`), both `work-item-questions`, and `bc191724` (EXO-03, review `86d9061f`, `review-needs-attention`). The replays record those decisions from each review's report; the cause is before the launch, so they do not show it.
+- Evidence:
+  - All seven Claude runs on 2026-10-01 (the first since R-G5 turned the command sandbox on): every Bash call, the agent's and its subagents', failed with "Sandbox is required but failed to initialize: Failed to create bridge sockets after 5 attempts". Reads worked; the sandbox wraps only commands.
+  - The daemon set each run's TMPDIR to its scratch directory, `/mnt/workhorse/craftingtable/runs/<run id>/scratch` (78 bytes). Claude Code's sandbox makes its proxy bridges with `socat UNIX-LISTEN:<os.tmpdir()>/claude-http-<16 hex>.sock` (112 bytes), past Linux's 107-byte socket path limit. socat 1.8 does not fail: it shortens the path and listens on `…/claude-http-<16 hex>.` Claude waits about 0.6 s for the full name and gives up.
+  - Reproduced in scratch with the daemon's own adapter and the real Claude Code: a 78-byte TMPDIR fails the same way; a 46-byte one runs the command, and Claude gives its commands `<TMPDIR>/claude-<uid>` as their TMPDIR, which they can write.
+  - The stops read "Answer the work-item questions": the agents' reports said they could not run commands, and the controller took them as questions.
+- Impact: Claude runs could not verify anything; a review that could not run its checks could stop as questions, or ask for changes the slice did not need.
+

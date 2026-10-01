@@ -103,6 +103,27 @@ export class ClaudeCodeBackend implements AgentBackend {
       permissionMode: request.permissionMode,
       cwd: request.cwd,
     });
+    const own = request.processTemporaryDirectory;
+    const env = agentEnvironment(
+      this.options.env ?? process.env,
+      CLAUDE_LOGIN_VARIABLES,
+      this.options.allowEnvironment ?? [],
+      // Claude itself takes the short directory; its sandbox gives commands one beneath it.
+      own === undefined
+        ? request.environment
+        : { ...request.environment, TMPDIR: own, TMP: own, TEMP: own },
+      request.pathPrefix,
+    );
+    if (claudeSandboxed(request)) {
+      const issues = claudeSandboxIssues(env);
+      if (issues.length)
+        return Promise.reject(
+          new AgentLaunchError(
+            'environment-unavailable',
+            `Claude Code's command sandbox cannot start on this host: ${issues.join('; ')}.`,
+          ),
+        );
+    }
     let child: ReturnType<typeof spawnSupervisedProcess>;
     try {
       if (claudeSandboxed(request)) prepareCargoCaches(sandboxAllowedWrites(request));
@@ -110,13 +131,7 @@ export class ClaudeCodeBackend implements AgentBackend {
         executable: this.options.executable,
         args: claudeCodeArguments(request),
         cwd: request.cwd,
-        env: agentEnvironment(
-          this.options.env ?? process.env,
-          CLAUDE_LOGIN_VARIABLES,
-          this.options.allowEnvironment ?? [],
-          request.environment,
-          request.pathPrefix,
-        ),
+        env,
         terminationGraceMs: this.options.terminationGraceMs ?? 5000,
         maxLineBytes: MAX_LINE_BYTES,
         ...(request.deadlineAt
@@ -244,6 +259,46 @@ export class ClaudeCodeBackend implements AgentBackend {
 }
 
 export { RAW_LINE_LIMIT_BYTES };
+
+/**
+ * The longest TMPDIR under which Claude Code's command sandbox can make its sockets (LIVE-31). A
+ * Unix socket path holds at most 107 bytes, and the longest name Claude Code makes beneath
+ * TMPDIR is `cc-socks/<32 hex>.sock` (46 bytes, 2.1.280); its proxy bridges are
+ * `claude-socks-<16 hex>.sock`. socat shortens a longer path without failing, and Claude then
+ * waits for a socket that never appears.
+ */
+export const CLAUDE_SANDBOX_TMPDIR_LIMIT = 60;
+
+/**
+ * Why Claude Code's command sandbox could not start under this environment, found before
+ * launch so the run stops with a typed reason instead of an agent without a shell (LIVE-31):
+ * a TMPDIR too long for its sockets, or bubblewrap or socat missing from the PATH Claude
+ * searches.
+ */
+export function claudeSandboxIssues(env: Readonly<Record<string, string | undefined>>): string[] {
+  const issues: string[] = [];
+  const temporary = env.TMPDIR || '/tmp';
+  const bytes = Buffer.byteLength(temporary);
+  if (bytes > CLAUDE_SANDBOX_TMPDIR_LIMIT)
+    issues.push(
+      `its temporary directory ${temporary} is ${bytes} bytes, and its sockets need one of at most ${CLAUDE_SANDBOX_TMPDIR_LIMIT}`,
+    );
+  for (const tool of ['bwrap', 'socat'])
+    if (!onPath(tool, env.PATH)) issues.push(`${tool} is not on the agent's PATH`);
+  return issues;
+}
+
+function onPath(name: string, path: string | undefined): boolean {
+  return (path ?? '').split(delimiter).some((entry) => {
+    if (!isAbsolute(entry)) return false;
+    try {
+      accessSync(join(entry, name), constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
 
 /**
  * Creates the Cargo caches the sandbox lets a fetch write, which it can make writable only if

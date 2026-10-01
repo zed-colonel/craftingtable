@@ -77,6 +77,7 @@ export const STEP_ATTENTION_CODES = [
   'scope-review-recovery',
   'review-needs-attention',
   'restart-session-lost',
+  'agent-environment-unavailable',
 ] as const satisfies readonly CycleAttentionCode[];
 export type StepAttentionCode = (typeof STEP_ATTENTION_CODES)[number];
 
@@ -439,6 +440,16 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
         !questions,
     );
   }
+  // The agent never started: the host could not give it the tools its posture requires
+  // (LIVE-31). The daemon's own message names what is missing.
+  if (ended?.payload.reason === 'agent-environment-unavailable')
+    return attention(
+      'agent-environment-unavailable',
+      `The agent could not start with the tools it needs, so nothing ran. ${ended.payload.message ?? ''} Fix the host, then resume.`.replace(
+        /\s+/g,
+        ' ',
+      ),
+    );
   if (ended?.payload.reason) {
     const attempts = cycle.resultContinuations ?? 0;
     const explicitQuestions =

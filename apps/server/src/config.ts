@@ -46,6 +46,12 @@ export interface ExecutionConfig {
    * (`CRAFTINGTABLE_CARGO_SEED_FROM`; the operator's by default; empty turns seeding off).
    */
   readonly cargoSeedFrom?: string;
+  /**
+   * Where each run's agent process gets a short private temporary directory (LIVE-31): Claude
+   * Code's command sandbox makes Unix sockets in its TMPDIR, whose paths hold at most 107 bytes,
+   * so the directory must be short. `<data>/t`.
+   */
+  readonly agentTemporaryRoot: string;
 }
 
 export interface TlsConfig {
@@ -190,6 +196,13 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
   if (pathsOverlap(cargoHome, runsRoot) || pathsOverlap(cargoHome, worktreeRoot)) {
     throw new Error("The daemon's Cargo home must lie outside the worktree and runs roots");
   }
+  const agentTemporaryRoot = join(dataDir, 't');
+  if (
+    [runsRoot, worktreeRoot, checkLogRoot, cargoHome].some((root) =>
+      pathsOverlap(agentTemporaryRoot, root),
+    )
+  )
+    throw new Error("Agents' temporary directories must lie outside the daemon's other roots");
   const cargoSeedFrom =
     env.CRAFTINGTABLE_CARGO_SEED_FROM ??
     (env.CARGO_HOME || (env.HOME ? join(env.HOME, '.cargo') : ''));
@@ -218,6 +231,7 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
     checkLogRoot,
     agentEnvironmentAllow,
     cargoHome,
+    agentTemporaryRoot,
     ...(cargoSeedFrom === '' ? {} : { cargoSeedFrom }),
     ...(env.CRAFTINGTABLE_CLAUDE_MODELS === undefined
       ? {}

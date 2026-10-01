@@ -1,22 +1,25 @@
 import { decisionPreparationDocuments } from './decision-preparation-policy.js';
 import { moveRecords, unrecordedMoves } from './ref-watch.js';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type {
-  AgentBackend,
-  AgentLaunchRequest,
-  AgentSession,
-  AgentSessionItem,
-  NormalizedAgentEvent,
+import {
+  type AgentBackend,
+  AgentLaunchError,
+  type AgentLaunchRequest,
+  type AgentSession,
+  type AgentSessionItem,
+  type NormalizedAgentEvent,
 } from '@craftingtable/agents';
 import {
   AGENT_BACKEND_LABELS,
@@ -278,6 +281,8 @@ export function reviewContinuable(
 export class AgentRunService {
   private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
+  /** Each launched run's short private temporary directory, until the run ends (LIVE-31). */
+  private readonly processTemporaryDirectories = new Map<string, string>();
   /** Runs whose supervision failed; their killed sessions have not reported exit yet. */
   private readonly orphaned = new Set<LiveRun>();
   private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
@@ -1630,12 +1635,14 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
                   ...(cycle.stepGuidance ? { stepGuidance: cycle.stepGuidance } : {}),
                 })
             : brief) + declared;
+        const processTemporaryDirectory = this.processTemporaryDirectory(runId);
         const launch: AgentLaunchRequest = {
           ...(pinned
             ? { buildEnvironment: { binDirectory: pinned.binDirectory, namespace: runId } }
             : {}),
           cwd: prepared.worktree.path,
           temporaryDirectory,
+          processTemporaryDirectory,
           ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
           // The run's own variables (R-G5, AGT-04): its scratch space, the worktree's build cache
           // (R-G7) and, with a pinned environment, its launchers ahead of PATH. The adapter adds
@@ -1700,7 +1707,13 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
               workspaceId,
               runId,
               error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
-              { message },
+              {
+                message,
+                // The host lacks the agent's tools; the cycle stops saying so (LIVE-31).
+                ...(error instanceof AgentLaunchError && error.reason === 'environment-unavailable'
+                  ? { reason: 'agent-environment-unavailable' as const }
+                  : {}),
+              },
             );
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
@@ -2024,8 +2037,44 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   /* Lifecycle                                                               */
   /* ---------------------------------------------------------------------- */
 
+  /**
+   * A short private directory for the agent process itself, its TMPDIR (LIVE-31): Claude Code's
+   * command sandbox makes Unix sockets there, and a socket path holds at most 107 bytes, which
+   * the run's scratch path leaves no room for. The run's scratch stays the commands' and
+   * builds' place. Removed when the run ends.
+   */
+  private processTemporaryDirectory(runId: AgentRunId): string {
+    const root = this.config.agentTemporaryRoot;
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    for (;;) {
+      const directory = join(root, randomBytes(6).toString('hex'));
+      try {
+        mkdirSync(directory, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+        throw error;
+      }
+      this.processTemporaryDirectories.set(runId, directory);
+      return directory;
+    }
+  }
+
+  private removeProcessTemporaryDirectory(runId: string): void {
+    const directory = this.processTemporaryDirectories.get(runId);
+    if (directory === undefined) return;
+    this.processTemporaryDirectories.delete(runId);
+    rmSync(directory, { recursive: true, force: true });
+  }
+
   /** Marks runs that were live when the daemon last stopped; their processes are gone. */
   recoverInterrupted(): number {
+    // Their agents' temporary directories went with them (LIVE-31).
+    try {
+      for (const name of readdirSync(this.config.agentTemporaryRoot))
+        rmSync(join(this.config.agentTemporaryRoot, name), { recursive: true, force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
     this.storage.transaction((tx) =>
       tx.phaseScheduling.releaseOperations(this.now().toISOString()),
     );
@@ -2519,6 +2568,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     clearTimeout(this.preparationTimers.get(runId));
     this.preparationTimers.delete(runId);
     this.live.delete(runId);
+    this.removeProcessTemporaryDirectory(runId);
     const occurredAt = this.now().toISOString();
     const changed = this.storage.transaction((tx) => {
       tx.phaseScheduling.release(runId, occurredAt, status);

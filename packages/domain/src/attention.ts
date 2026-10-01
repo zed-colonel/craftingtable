@@ -46,6 +46,8 @@ export const CYCLE_ATTENTION = {
   'scope-review-recovery': 'operator',
   'review-needs-attention': 'operator',
   'restart-session-lost': 'operator',
+  // The agent could not start with the tools its posture requires (LIVE-31); nothing ran.
+  'agent-environment-unavailable': 'operator',
   // Controller and workflow stops.
   'restart-resume': 'operator',
   'controller-error': 'operator',

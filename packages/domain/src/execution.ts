@@ -123,6 +123,12 @@ export const AGENT_EXIT_REASONS = [
    * clean restart instead of waiting for the operator.
    */
   'daemon-drain',
+  /**
+   * The host could not give the agent the tools its posture requires, found before it started
+   * (LIVE-31): Claude Code's command sandbox could not make its sockets, or bubblewrap or socat
+   * was missing. Nothing ran.
+   */
+  'agent-environment-unavailable',
 ] as const;
 export type AgentExitReason = (typeof AGENT_EXIT_REASONS)[number];
 

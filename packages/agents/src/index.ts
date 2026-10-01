@@ -63,6 +63,13 @@ export interface AgentLaunchRequest {
   /** Controller-owned scratch directory, outside the Git worktree. */
   readonly temporaryDirectory?: string;
   /**
+   * A short private directory for the agent process's own temporary files, its TMPDIR (LIVE-31).
+   * Claude Code's command sandbox makes Unix sockets there, and a socket path holds at most 107
+   * bytes, which a run's scratch path leaves no room for. Adapters whose agent does not need it
+   * leave the run's variables as they are.
+   */
+  readonly processTemporaryDirectory?: string;
+  /**
    * The Cargo target directory for this run: the worktree's shared build cache (R-G7).
    * Without it, builds go to `<temporaryDirectory>/target`.
    */
@@ -144,7 +151,15 @@ export interface AgentBackend {
 
 export class AgentLaunchError extends Error {
   constructor(
-    readonly reason: 'executable-missing' | 'spawn-failed' | 'invalid-request',
+    /**
+     * `environment-unavailable`: the host cannot give the agent the tools its posture requires,
+     * such as Claude Code's command sandbox (LIVE-31); found before anything starts.
+     */
+    readonly reason:
+      | 'executable-missing'
+      | 'spawn-failed'
+      | 'invalid-request'
+      | 'environment-unavailable',
     message: string,
   ) {
     super(message);

@@ -79,6 +79,15 @@ describe('configFromEnv', () => {
     const config = configFromEnv({ CRAFTINGTABLE_DATA_DIR: '/tmp/craftingtable-test' });
     expect(config.execution.worktreeRoot).toBe('/tmp/craftingtable-test/worktrees');
     expect(config.execution.runsRoot).toBe('/tmp/craftingtable-test/runs');
+    // Short, for the sockets Claude Code's sandbox makes in an agent's TMPDIR (LIVE-31).
+    expect(config.execution.agentTemporaryRoot).toBe('/tmp/craftingtable-test/t');
+    // It may not lie inside a root agents or checks write.
+    expect(() =>
+      configFromEnv({
+        CRAFTINGTABLE_DATA_DIR: '/tmp/craftingtable-test',
+        CRAFTINGTABLE_WORKTREE_ROOT: '/tmp/craftingtable-test/t',
+      }),
+    ).toThrow(/temporary directories must lie outside/);
     expect(config.execution.maxPatchBytes).toBe(4 * 1024 * 1024);
     expect(() => configFromEnv({ CRAFTINGTABLE_CLAUDE_EXECUTABLE: 'claude' })).toThrow(
       /CLAUDE_EXECUTABLE/,

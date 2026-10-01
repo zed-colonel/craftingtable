@@ -107,8 +107,10 @@ daemon-written file holding the operator's `user.name` and `user.email`
 A repository's own configuration still does, including its identity, merge drivers, signing
 program and filters. A sandboxed agent cannot write it: Codex runs use Codex's sandbox, and since
 R-G5 Claude runs' Bash runs in Claude Code's OS sandbox (every posture but unrestricted), writing
-only the worktree, the run's directories, its scratch space and Cargo's `registry` and `git`
-caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
+only the worktree, the run's directories, its scratch space, the temporary directory Claude
+Code gives its commands beneath the run's own short private one (`<data>/t/<12 hex>`, 0700,
+removed when the run ends; Claude's TMPDIR, short so its sandbox's sockets fit, LIVE-31) and
+Cargo's `registry` and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
 crate an agent plants never runs in the operator's own builds, R-G5 review; check units do not build
 from it either: each gets a fresh Cargo home of its own, a local registry of crates.io's published
 index entries and only the downloads whose SHA-256 matches them, which the daemon reads from

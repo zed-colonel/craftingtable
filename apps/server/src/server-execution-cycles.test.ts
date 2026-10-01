@@ -1,6 +1,10 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import type { AgentLaunchRequest, AgentSession } from '@craftingtable/agents';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import {
+  AgentLaunchError,
+  type AgentLaunchRequest,
+  type AgentSession,
+} from '@craftingtable/agents';
 import { workCycleResponseSchema, workCyclesResponseSchema } from '@craftingtable/contracts';
 import {
   asPlanVersionId,
@@ -1452,6 +1456,74 @@ it.each(['pause', 'stop'] as const)(
     expect(currentCycle(state, cycle).status).toBe(action === 'pause' ? 'paused' : 'stopped');
   },
 );
+
+it("gives each run's agent a short private temporary directory and removes it when the run ends (LIVE-31)", async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  const root = state.context.config.execution.agentTemporaryRoot;
+  // Observed at launch and asserted after: an assertion failing inside the launch only fails it.
+  const seen: { own?: string; mode?: number; tmpdir?: string; scratch?: string }[] = [];
+  backend.onLaunch = (request) => {
+    const own = request.processTemporaryDirectory;
+    seen.push({
+      ...(own === undefined ? {} : { own, mode: statSync(own).mode & 0o777 }),
+      ...(request.environment?.TMPDIR ? { tmpdir: request.environment.TMPDIR } : {}),
+      ...(request.temporaryDirectory ? { scratch: request.temporaryDirectory } : {}),
+    });
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => seen.length === 1, 'launched');
+  const [launched] = seen;
+  const own = present(launched?.own);
+  // Its own, beneath the daemon's root, private, outside the worktree and the run's directory.
+  expect(dirname(own)).toBe(root);
+  expect(basename(own)).toMatch(/^[0-9a-f]{12}$/);
+  expect(launched?.mode).toBe(0o700);
+  expect(own.startsWith(worktree.path)).toBe(false);
+  expect(own.startsWith(state.context.config.execution.runsRoot)).toBe(false);
+  // The run's scratch stays the commands' and builds' place.
+  expect(launched?.tmpdir).toBe(launched?.scratch);
+  await waitFor(() => !existsSync(own), 'directory removed at run end');
+  const run = present(
+    state.context.storage.execution.runs.find(
+      state.workspaceId,
+      currentCycle(state, cycle).currentRunId,
+    ),
+  );
+  expect(run.status).toBe('finished');
+});
+
+it("removes agents' temporary directories a stopped daemon left behind (LIVE-31)", async () => {
+  const { state } = await cycleFixture([]);
+  const root = state.context.config.execution.agentTemporaryRoot;
+  const left = join(root, '0123456789ab');
+  mkdirSync(join(left, 'claude-1000'), { recursive: true });
+  writeFileSync(join(left, 'claude-1000', 'partial'), 'x');
+  state.context.services.agentRunService.recoverInterrupted();
+  expect(existsSync(left)).toBe(false);
+  expect(existsSync(root)).toBe(true);
+});
+
+it("stops a cycle as agent-environment-unavailable when the agent's tools cannot start (LIVE-31)", async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  let own: string | undefined;
+  backend.onLaunch = (request) => {
+    own = request.processTemporaryDirectory;
+    throw new AgentLaunchError(
+      'environment-unavailable',
+      "Claude Code's command sandbox cannot start on this host: socat is not on the agent's PATH.",
+    );
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'typed stop');
+  const stopped = currentCycle(state, cycle);
+  expect(stopped.attention?.code).toBe('agent-environment-unavailable');
+  expect(stopped.reason).toContain("socat is not on the agent's PATH");
+  expect(existsSync(present(own))).toBe(false);
+  // Not the agent's report: nothing ran, so no questions are asked of the operator.
+  expect(
+    state.context.storage.attention.open(state.workspaceId).map((item) => item.code),
+  ).toContain('agent-environment-unavailable');
+});
 
 it('finalizes an implementer’s tracked edits and staged new source before the first review', {
   timeout: 15000,

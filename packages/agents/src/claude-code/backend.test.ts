@@ -26,6 +26,7 @@ const args = process.argv.slice(2);
 if (process.env.FAKE_IGNORE_TERM === '1') {
   process.on('SIGTERM', () => {});
 }
+if (process.env.FAKE_MARK) require('node:fs').writeFileSync(process.env.FAKE_MARK, 'started');
 process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'fake-session', model: 'fake-model', cwd: process.cwd() }) + '\\n');
 process.stderr.write('fake claude started with ' + args.length + ' args\\n');
 const rl = readline.createInterface({ input: process.stdin });
@@ -298,6 +299,90 @@ setInterval(() => out(limited), 50);
     } finally {
       chmodSync(locked, 0o700);
     }
+  });
+
+  it("gives Claude itself the run's short private temporary directory, where its sandbox makes its sockets (LIVE-31)", async () => {
+    const fake = fakeClaude();
+    const own = join(fake.cwd, 't');
+    mkdirSync(own, { mode: 0o700 });
+    const scratch = join(fake.cwd, 'scratch');
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'ENV',
+      permissionMode: 'auto',
+      processTemporaryDirectory: own,
+      environment: {
+        TMPDIR: scratch,
+        TMP: scratch,
+        TEMP: scratch,
+        CARGO_TARGET_DIR: join(scratch, 'target'),
+      },
+    });
+    const results: string[] = [];
+    for await (const item of session.items)
+      if (item.type === 'event' && item.event.kind === 'turn-completed') {
+        results.push(item.event.payload.resultText);
+        session.end();
+      }
+    // Its commands get a directory of Claude's own beneath it; the run's builds stay in scratch.
+    expect(results).toEqual([`echo: ${JSON.stringify([own, own, own, join(scratch, 'target')])}`]);
+  });
+
+  it('refuses a sandboxed launch whose sockets would not fit, without starting Claude (LIVE-31)', async () => {
+    const fake = fakeClaude();
+    const mark = join(fake.cwd, 'started');
+    // A run's scratch directory as the daemon names it: 78 bytes, so the sandbox's sockets beneath
+    // it pass Linux's 107-byte limit and socat silently shortens their names.
+    const scratch = `/mnt/workhorse/craftingtable/runs/${'c1c6769e-e894-4032-a41e-bb7a815e172c'}/scratch`;
+    const backend = new ClaudeCodeBackend({
+      executable: fake.executable,
+      env: { ...process.env, FAKE_MARK: mark },
+      allowEnvironment: ['FAKE_MARK'],
+    });
+    const refused = backend.launch({
+      cwd: fake.cwd,
+      prompt: 'ENV',
+      permissionMode: 'auto',
+      environment: { TMPDIR: scratch },
+    });
+    await expect(refused).rejects.toMatchObject({ reason: 'environment-unavailable' });
+    await expect(refused).rejects.toThrow(/78 bytes.*at most 60/);
+    expect(existsSync(mark)).toBe(false);
+    // Unrestricted runs no sandbox, so nothing is checked.
+    const session = await backend.launch({
+      cwd: fake.cwd,
+      prompt: 'ENV',
+      permissionMode: 'unrestricted',
+      environment: { TMPDIR: scratch },
+    });
+    session.end();
+    for await (const _ of session.items);
+    expect(existsSync(mark)).toBe(true);
+  });
+
+  it("refuses a sandboxed launch when bubblewrap or socat is not on the agent's PATH (LIVE-31)", async () => {
+    const fake = fakeClaude();
+    const empty = join(fake.cwd, 'empty-bin');
+    mkdirSync(empty);
+    const backend = new ClaudeCodeBackend({
+      executable: fake.executable,
+      env: { ...process.env, PATH: empty },
+    });
+    const refused = backend.launch({ cwd: fake.cwd, prompt: 'x', permissionMode: 'edit-only' });
+    await expect(refused).rejects.toMatchObject({ reason: 'environment-unavailable' });
+    await expect(refused).rejects.toThrow(/bwrap is not on the agent's PATH.*socat is not on/);
+    // Found on the PATH, as Claude looks them up.
+    for (const name of ['bwrap', 'socat']) {
+      writeFileSync(join(empty, name), '#!/bin/sh\n');
+      chmodSync(join(empty, name), 0o755);
+    }
+    const session = await backend.launch({
+      cwd: fake.cwd,
+      prompt: 'x',
+      permissionMode: 'edit-only',
+    });
+    session.end();
+    for await (const _ of session.items);
   });
 
   it('rejects an invalid launch request without spawning', async () => {

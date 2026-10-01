@@ -157,7 +157,11 @@ it('opens a checkpoint item at the step that settles it (R-C14, LIVE-11)', () =>
   expect(checkpoint('checkpoint-evidence')).toEqual([setup('evidence')]);
   expect(checkpoint('plan-acceptance')).toEqual([setup('plan-acceptance')]);
   expect(checkpoint('architecture-decision')).toEqual([setup('decisions')]);
-  expect(checkpoint('verification-setup')).toEqual([{ kind: 'environment-approval' }]);
+  // Its blockers may be reviewer assignments too, which the code does not tell apart.
+  expect(checkpoint('verification-setup')).toEqual([
+    { kind: 'environment-approval' },
+    setup('reviewers'),
+  ]);
 });
 
 it('decides merges, scope evidence, checks, runs, finalization, storage and protected refs by their own kinds', () => {

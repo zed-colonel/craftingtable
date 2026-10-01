@@ -81,6 +81,8 @@ it('says why there is nothing to decide when the roadmap has no single map, or i
     </RoadmapRuntime>,
   );
   expect(await screen.findByText(/has no single map/)).toBeTruthy();
+  // The setup is still linked, where the roadmap's environments are set by hand.
+  expect(screen.getByRole('link', { name: "Open the roadmap's setup" })).toBeTruthy();
   expect(children).not.toHaveBeenCalled();
   expect(request).not.toHaveBeenCalled();
   unmount();

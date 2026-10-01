@@ -83,6 +83,15 @@ const ROADMAP: Partial<Record<AttentionItemCode, (item: AttentionItemView) => De
   'decision-preparation-questions': () => setup('decisions'),
 };
 
+/**
+ * A setup item whose blockers are of several kinds the item's code does not tell apart:
+ * `verification-setup` names reviewer assignments as well as environment approvals and
+ * unsupported resources, so the reviewers step comes beside the approval (R-A6 2b review).
+ */
+const BESIDE: Partial<Record<AttentionItemCode, readonly Decision[]>> = {
+  'verification-setup': [setup('reviewers')],
+};
+
 /** A roadmap's own stop whose way on also needs its controls: a resume, or the held entry. */
 const WITH_CONTROLS: ReadonlySet<AttentionItemCode> = new Set([
   'dependency-refresh-resume',
@@ -150,12 +159,14 @@ export function decisionsFor(item: AttentionItemView): readonly Decision[] {
   if (subject(item) === 'roadmap' && roadmapId !== undefined)
     return [
       roadmap ? roadmap(item) : controls(item),
+      ...(roadmap ? (BESIDE[code] ?? []) : []),
       ...(roadmap && WITH_CONTROLS.has(code) ? [controls(item)] : []),
     ];
   // A cycle stopped for a roadmap decision continues once it is made.
   if (roadmap)
     return [
       roadmap(item),
+      ...(BESIDE[code] ?? []),
       ...(workItemId !== undefined && subject(item) === 'cycle' ? [CYCLE] : []),
       ...held,
     ];

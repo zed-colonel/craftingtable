@@ -107,29 +107,32 @@ export function RoadmapRuntime({
   }, [load]);
   useRefreshOn('roadmaps', load);
   const failed = roadmapError || error;
-  if (failed)
-    return (
-      <p role="alert" className="error-state">
-        {failed}
-      </p>
-    );
   if (roadmap === null) return <p className="empty-state">This roadmap no longer exists.</p>;
-  if (roadmap && !scope)
-    return (
-      <p className="empty-state">
-        This roadmap has no single map, so it has no dependency environment to decide here.
-      </p>
-    );
-  if (!roadmap || !base || !view) return <p role="status">Loading dependency environment…</p>;
+  // The roadmap's setup is always linked: where the item cannot decide, the setup can.
+  const setupLink = (
+    <p className="hint">
+      <Link route={{ name: 'roadmap', workspaceId, roadmapId, tab: 'setup' }}>
+        Open the roadmap's setup
+      </Link>{' '}
+      to change its pins or environments by hand.
+    </p>
+  );
   return (
     <>
-      {children({ roadmap, base, view, onSaved: setView })}
-      <p className="hint">
-        <Link route={{ name: 'roadmap', workspaceId, roadmapId, tab: 'setup' }}>
-          Open the roadmap's setup
-        </Link>{' '}
-        to change its pins or environments by hand.
-      </p>
+      {failed ? (
+        <p role="alert" className="error-state">
+          {failed}
+        </p>
+      ) : roadmap && !scope ? (
+        <p className="empty-state">
+          This roadmap has no single map, so it has no dependency environment to decide here.
+        </p>
+      ) : !roadmap || !base || !view ? (
+        <p role="status">Loading dependency environment…</p>
+      ) : (
+        children({ roadmap, base, view, onSaved: setView })
+      )}
+      {setupLink}
     </>
   );
 }

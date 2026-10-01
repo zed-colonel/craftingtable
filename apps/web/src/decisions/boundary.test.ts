@@ -100,3 +100,23 @@ it('posts a control command only from the cycle module and the roadmap and final
   ).toEqual([]);
   expect(posters.some((path) => path.startsWith(allowed[0]!))).toBe(true);
 });
+
+/**
+ * A kind's commands file (`decisions/<kind>/*-api.ts`) is private to its module: nothing outside
+ * the kind's directory imports it, so no other component can post its command (R-A6 review).
+ */
+it('imports a decision kind’s commands only from inside its own directory', () => {
+  const decisions = join(src, 'decisions') + sep;
+  const outside = sources(src).flatMap((path) => {
+    const imports = [...readFileSync(path, 'utf8').matchAll(/from\s+['"]([^'"]+)['"]/g)].map(
+      (m) => m[1]!,
+    );
+    return imports
+      .filter((spec) => spec.startsWith('.'))
+      .map((spec) => join(path, '..', spec))
+      .filter((target) => target.startsWith(decisions) && /-api\.js$/.test(target))
+      .filter((target) => !path.startsWith(join(target, '..') + sep))
+      .map((target) => `${relative(src, path)} -> ${relative(src, target)}`);
+  });
+  expect(outside).toEqual([]);
+});

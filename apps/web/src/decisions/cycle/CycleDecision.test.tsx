@@ -32,9 +32,10 @@ const base = {
 } as unknown as WorkCycle;
 const withActions = (cycle: WorkCycle) => ({ ...cycle, actions: cycleActions(cycle) });
 const run = { id: 'run-1', worktreeId: 'wt-1', status: 'finished' } as AgentRunSummary;
-function show(cycle: WorkCycle, readOnly = false) {
+function show(cycle: WorkCycle, readOnly = false, inInbox = false) {
   render(
     <CycleDecision
+      inInbox={inInbox}
       cycle={withActions(cycle)}
       runs={[run]}
       readOnly={readOnly}
@@ -85,4 +86,40 @@ it('renders an integration conflict, and no design questions', () => {
   show({ ...base, attention: { code: 'integration-conflict', owner: 'operator' } } as WorkCycle);
   expect(screen.getByRole('region', { name: 'Integration conflicts' })).toBeDefined();
   expect(screen.queryByRole('region', { name: 'Resolve design questions' })).toBeNull();
+});
+
+it("in the inbox, shows the cycle's questions, its run and its shared decisions, and no idle inspection (R-A6 review M2, M3)", () => {
+  const onOpenRun = vi.fn();
+  render(
+    <CycleDecision
+      inInbox
+      cycle={
+        {
+          ...withActions({
+            ...base,
+            attention: { code: 'shared-decision-required', owner: 'operator' },
+            workflow: { questions: [{ destination: 'local', question: 'Which queue backs it?' }] },
+          } as unknown as WorkCycle),
+          actions: ['open-shared-decisions'],
+          unsettledDecisions: [{ checkpointId: 'ADR-1' }],
+          executionScope: { kind: 'slice', definitionId: 'm', bindingRevision: 1, sourceId: 's' },
+        } as unknown as WorkCycle
+      }
+      runs={[run]}
+      readOnly={false}
+      backends={[]}
+      csrfToken="csrf"
+      canMutate
+      busy={false}
+      refreshToken={0}
+      onChanged={vi.fn()}
+      onOpenRun={onOpenRun}
+      onOpenWorktree={vi.fn() as (id: WorktreeId) => void}
+    />,
+  );
+  expect(screen.getByText('Which queue backs it?')).toBeDefined();
+  expect(screen.getByRole('link', { name: 'Open shared decisions (1)' })).toBeDefined();
+  screen.getByRole('button', { name: 'Open current run' }).click();
+  expect(onOpenRun).toHaveBeenCalledWith('run-1');
+  expect(screen.queryByRole('button', { name: 'Inspect integration conflicts' })).toBeNull();
 });

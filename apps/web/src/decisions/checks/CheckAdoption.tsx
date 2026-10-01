@@ -356,6 +356,7 @@ export function CheckAdoption({
   onAdopted: () => void;
 }) {
   const [checks, setChecks] = useState<RepositoryChecksView>();
+  const [loadError, setLoadError] = useState<string>();
   const [diagnosis, setDiagnosis] = useState<CheckDefinitionDiagnosisView | null>();
   useEffect(() => {
     let alive = true;
@@ -363,7 +364,9 @@ export function CheckAdoption({
       .then((next) => {
         if (alive) setChecks(next);
       })
-      .catch(() => undefined);
+      .catch((e) => {
+        if (alive) setLoadError(e instanceof Error ? e.message : String(e));
+      });
     if (worktreeId)
       void loadCheckDefinitions(workspaceId, worktreeId)
         .then((next) => {
@@ -394,7 +397,9 @@ export function CheckAdoption({
           ? `Adopted: version ${current.version}, from ${shortSha(current.sourceCommit)}.`
           : checks
             ? 'No adopted checks yet.'
-            : 'Loading checks…'}
+            : loadError
+              ? 'The adopted checks could not be loaded. Reload the page.'
+              : 'Loading checks…'}
       </p>
       {diagnosis && changed.length > 0 && (
         <div className="table-scroll">

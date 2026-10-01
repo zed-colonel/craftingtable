@@ -7,7 +7,15 @@ import type { SetupStep } from '../features/planning/setup-steps.js';
  * controls with one held entry, one setup step, or its map amendments.
  */
 export type RoadmapItemPart =
-  | { readonly kind: 'controls'; readonly entryId?: string }
+  | {
+      readonly kind: 'controls';
+      readonly entryId?: string;
+      /**
+       * Only while the entry is held or the roadmap stopped: a roadmap-owned cycle's item
+       * carries the hold, whose exits (resume, re-verify) are the roadmap's (LIVE-24).
+       */
+      readonly heldOnly?: true;
+    }
   | { readonly kind: 'setup'; readonly step: SetupStep }
   | { readonly kind: 'amendments'; readonly entryId?: string };
 
@@ -55,6 +63,7 @@ const ROADMAP: Partial<Record<AttentionItemCode, (item: AttentionItemView) => De
     part: { kind: 'amendments', ...entry(i) },
   }),
   'amendment-decision': () => ({ kind: 'roadmap', part: { kind: 'amendments' } }),
+  // The refresh is saved; resuming the roadmap runs the refreshed reviews (beside it, below).
   'dependency-refresh-resume': () => setup('dependency'),
   'upstream-pin-moved': () => setup('dependency'),
   'upstream-transition-undeclared': () => setup('dependency'),
@@ -112,16 +121,30 @@ export function decisionsFor(item: AttentionItemView): readonly Decision[] {
   const code = item.code;
   if (code === 'protected-ref-moved') return [{ kind: 'acknowledge' }];
   if (STORAGE.has(code)) return [{ kind: 'storage' }];
+  // A roadmap-owned cycle's item may carry its entry's hold, whose exits are the roadmap's.
+  const held: readonly Decision[] =
+    roadmapId !== undefined && item.refs.entryId !== undefined && subject(item) === 'cycle'
+      ? [
+          {
+            kind: 'roadmap',
+            part: { kind: 'controls', entryId: item.refs.entryId, heldOnly: true },
+          },
+        ]
+      : [];
   const roadmap = roadmapId === undefined ? undefined : ROADMAP[code];
   // A roadmap's own stop, held entry or checkpoint is decided on the roadmap, even when it
   // names the cycle of its attempt.
   if (subject(item) === 'roadmap' && roadmapId !== undefined)
-    return [roadmap ? roadmap(item) : controls(item)];
+    return [
+      roadmap ? roadmap(item) : controls(item),
+      ...(code === 'dependency-refresh-resume' ? [controls(item)] : []),
+    ];
   // A cycle stopped for a roadmap decision continues once it is made.
   if (roadmap)
     return [
       roadmap(item),
       ...(workItemId !== undefined && subject(item) === 'cycle' ? [CYCLE] : []),
+      ...held,
     ];
   // A finalization's own cycle, merge or cleanup has no work item.
   if (workItemId === undefined && planVersionId !== undefined)
@@ -131,16 +154,24 @@ export function decisionsFor(item: AttentionItemView): readonly Decision[] {
       : [];
   // Adopting the checks is the way on; the cycle then resumes for a fresh review.
   if (CHECKS.has(code))
-    return [{ kind: 'check-adoption' }, ...(workItemId === undefined ? [] : [CYCLE])];
+    return [{ kind: 'check-adoption' }, ...(workItemId === undefined ? [] : [CYCLE]), ...held];
   if (MERGE.has(code) || item.kind === 'merge')
     return workItemId === undefined
       ? []
-      : code === 'merge-requirements'
-        ? // The merge waits on its requirements, of which checkpoint evidence is settled here.
-          [{ kind: 'merge' }, { kind: 'checkpoint-preparation' }]
-        : [{ kind: 'merge' }];
-  if (code === 'record-scope-evidence') return [{ kind: 'scope-evidence' }];
+      : [
+          { kind: 'merge' },
+          // A merge waiting on its requirements, or a manual review whose merge may be held by
+          // them: checkpoint evidence is settled here (R-A6 review).
+          ...(code === 'merge-requirements' || code === 'manual-review-mergeable'
+            ? [{ kind: 'checkpoint-preparation' } as const]
+            : []),
+          ...(code === 'manual-review-mergeable' && runId !== undefined
+            ? [{ kind: 'run' } as const]
+            : []),
+          ...held,
+        ];
+  if (code === 'record-scope-evidence') return [{ kind: 'scope-evidence' }, ...held];
   if (RUN.has(code) && runId !== undefined)
     return [{ kind: 'run' }, ...(workItemId === undefined ? [] : [{ kind: 'worktrees' } as const])];
-  return workItemId === undefined ? [] : [CYCLE];
+  return workItemId === undefined ? [] : [CYCLE, ...held];
 }

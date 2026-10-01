@@ -2,7 +2,11 @@ import { effectiveCycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { Link } from '../../lib/navigation.js';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import type { Route } from '../../lib/route.js';
-export function WorkflowStatus({ cycle }: { cycle: WorkCycle }) {
+/**
+ * The cycle's controller work and its questions. `decidedIn`: the inbox item that decides the
+ * cycle's stop, where questions are answered when the page shows only a banner (R-A6).
+ */
+export function WorkflowStatus({ cycle, decidedIn }: { cycle: WorkCycle; decidedIn?: Route }) {
   const workflow = cycle.workflow;
   if (!workflow) return null;
   const roadmap: Route =
@@ -54,6 +58,11 @@ export function WorkflowStatus({ cycle }: { cycle: WorkCycle }) {
                   </Link>
                   . Save and approve it there so other work items inherit it, then refresh this
                   item’s evidence and continue with it.
+                </p>
+              ) : decidedIn ? (
+                <p>
+                  <Link route={decidedIn}>Answer in Needs you</Link>. This answer stays with this
+                  cycle; it does not approve a shared ADR.
                 </p>
               ) : (
                 <p>

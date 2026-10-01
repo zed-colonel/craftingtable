@@ -30,6 +30,8 @@ const item = (changes: Partial<AttentionItemView>): AttentionItemView => ({
   ...changes,
 });
 const cycle = { kind: 'cycle' };
+/** A roadmap-owned cycle's item may carry its entry's hold: the roadmap's controls, if held. */
+const held = { kind: 'roadmap', part: { kind: 'controls', entryId: 'e', heldOnly: true } };
 const setup = (step: string) => ({ kind: 'roadmap', part: { kind: 'setup', step } });
 
 it('gives every code a decision, so no item is left without a way forward (R-A6)', () => {
@@ -58,18 +60,28 @@ it("decides a cycle's own stops on the cycle, and only there (R-A6 increment 2a)
     'design-open-questions',
     'integration-conflict',
   ] as const)
-    expect(decisionsFor(item({ code })), code).toEqual([cycle]);
+    expect(decisionsFor(item({ code })), code).toEqual([cycle, held]);
+  // A cycle no roadmap owns has no hold to carry.
+  expect(decisionsFor(item({ refs: { cycleId: 'c', worktreeId: 't', workItemId: 'w' } }))).toEqual([
+    cycle,
+  ]);
 });
 
 it('decides a roadmap decision in its setup step, beside the cycle that waits on it (LIVE-15, LIVE-18)', () => {
   expect(decisionsFor(item({ code: 'upstream-transition-undeclared' }))).toEqual([
     setup('dependency'),
     cycle,
+    held,
   ]);
-  expect(decisionsFor(item({ code: 'upstream-pin-moved' }))).toEqual([setup('dependency'), cycle]);
+  expect(decisionsFor(item({ code: 'upstream-pin-moved' }))).toEqual([
+    setup('dependency'),
+    cycle,
+    held,
+  ]);
   expect(decisionsFor(item({ code: 'shared-decision-required' }))).toEqual([
     setup('decisions'),
     cycle,
+    held,
   ]);
   // Outside a roadmap the cycle's own controls decide it.
   expect(
@@ -96,13 +108,24 @@ it("decides a roadmap's held entry on the roadmap, not the cycle it names", () =
       item({ subjectKey: 'roadmap:r', code: 'restart-resume', refs: { roadmapId: 'r' } }),
     ),
   ).toEqual([{ kind: 'roadmap', part: { kind: 'controls' } }]);
-  expect(decisionsFor(item({ code: 'restart-resume' }))).toEqual([cycle]);
+  expect(decisionsFor(item({ code: 'restart-resume' }))).toEqual([cycle, held]);
+  // A paused roadmap whose refresh is saved: its resume runs the refreshed reviews (review H2).
+  expect(
+    decisionsFor(
+      item({
+        subjectKey: 'roadmap:r:refresh',
+        code: 'dependency-refresh-resume',
+        refs: { roadmapId: 'r' },
+      }),
+    ),
+  ).toEqual([setup('dependency'), { kind: 'roadmap', part: { kind: 'controls' } }]);
 });
 
 it('offers a split through the amendment form when automatic recovery stopped converging (R-C5)', () => {
   expect(decisionsFor(item({ code: 'recovery-not-converging' }))).toEqual([
     { kind: 'roadmap', part: { kind: 'amendments', entryId: 'e' } },
     cycle,
+    held,
   ]);
   expect(
     decisionsFor(
@@ -127,23 +150,40 @@ it('opens a checkpoint item at the step that settles it (R-C14, LIVE-11)', () =>
 });
 
 it('decides merges, scope evidence, checks, runs, finalization, storage and protected refs by their own kinds', () => {
+  // A roadmap-owned slice's merge item may carry a hold too (LIVE-24, review H1).
   expect(decisionsFor(item({ code: 'merge-approval', kind: 'merge' }))).toEqual([
     { kind: 'merge' },
+    held,
   ]);
-  expect(decisionsFor(item({ subjectKey: 'merge:t', code: 'merge-recovery-required' }))).toEqual([
-    { kind: 'merge' },
-  ]);
+  // A manual review's merge may wait on checkpoint evidence, and its run is linked (review M1).
+  expect(
+    decisionsFor(
+      item({
+        subjectKey: 'run:x',
+        code: 'manual-review-mergeable',
+        kind: 'merge',
+        refs: { workItemId: 'w', worktreeId: 't', runId: 'x' },
+      }),
+    ),
+  ).toEqual([{ kind: 'merge' }, { kind: 'checkpoint-preparation' }, { kind: 'run' }]);
+  expect(
+    decisionsFor(
+      item({ subjectKey: 'merge:t', code: 'merge-recovery-required', refs: { workItemId: 'w' } }),
+    ),
+  ).toEqual([{ kind: 'merge' }]);
   // A merge waiting on its requirements: the merge, and the checkpoint evidence it waits on.
   expect(decisionsFor(item({ code: 'merge-requirements', kind: 'merge' }))).toEqual([
     { kind: 'merge' },
     { kind: 'checkpoint-preparation' },
+    held,
   ]);
   expect(decisionsFor(item({ code: 'record-scope-evidence' }))).toEqual([
     { kind: 'scope-evidence' },
+    held,
   ]);
   // Adopting is the way on; the cycle then resumes (R-G13, LIVE-30).
   for (const code of ['check-definition-changed', 'repository-checks-undeclared'] as const)
-    expect(decisionsFor(item({ code }))).toEqual([{ kind: 'check-adoption' }, cycle]);
+    expect(decisionsFor(item({ code }))).toEqual([{ kind: 'check-adoption' }, cycle, held]);
   expect(
     decisionsFor(
       item({

@@ -3,6 +3,9 @@ import type { AgentRunId, WorkCycle, WorktreeId } from '@craftingtable/domain';
 import { DesignQuestions } from '../design/DesignQuestions.js';
 import { IntegrationConflict } from '../integration/IntegrationConflict.js';
 import { ScopeRepair } from '../scope-repair/ScopeRepair.js';
+import { WorkflowStatus } from '../../features/execution/WorkflowStatus.js';
+import { sharedDecisionsRoute } from '../../lib/decision-links.js';
+import { Link } from '../../lib/navigation.js';
 import { CycleContinuation, continuationOf, ProviderRetry } from './CycleDecisions.js';
 
 /**
@@ -51,6 +54,7 @@ export function CycleDecision({
   onChanged,
   onOpenRun,
   onOpenWorktree,
+  inInbox = false,
 }: {
   cycle: WorkCycle;
   /** The work item's runs; the cycle's own are read from them. */
@@ -66,6 +70,11 @@ export function CycleDecision({
   onOpenRun: (id: AgentRunId) => void;
   /** Shows another worktree's cycle: a delegated repair's, once started. */
   onOpenWorktree: (id: WorktreeId) => void;
+  /**
+   * In the cycle's inbox item, which shows nothing else of the cycle: its questions, its run and
+   * its shared decisions come with the decision (R-A6 review).
+   */
+  inInbox?: boolean;
 }) {
   const disabled = busy || !canMutate;
   const liveRun = runs.some(
@@ -74,8 +83,28 @@ export function CycleDecision({
       ['starting', 'running', 'waiting'].includes(run.status),
   );
   const applies = cycleDecisions(cycle, runs, readOnly);
+  const openDecisions = (cycle.actions ?? []).includes('open-shared-decisions');
   return (
     <>
+      {inInbox && <WorkflowStatus cycle={cycle} />}
+      {inInbox && (runs.some((run) => run.id === cycle.currentRunId) || openDecisions) && (
+        <p className="inline-actions">
+          {runs.some((run) => run.id === cycle.currentRunId) && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => onOpenRun(cycle.currentRunId)}
+            >
+              Open current run
+            </button>
+          )}
+          {openDecisions && (
+            <Link className="primary-button" route={sharedDecisionsRoute(cycle)}>
+              Open shared decisions ({cycle.unsettledDecisions?.length})
+            </Link>
+          )}
+        </p>
+      )}
       <ProviderRetry
         cycle={cycle}
         csrfToken={csrfToken}
@@ -118,6 +147,7 @@ export function CycleDecision({
       )}
       {applies.integration && (
         <IntegrationConflict
+          offerInspect={!inInbox}
           cycle={cycle}
           backends={backends}
           disabled={disabled}

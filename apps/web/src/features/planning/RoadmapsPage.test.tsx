@@ -365,3 +365,63 @@ it("offers a map's supervisor once on its page, and links every roadmap on the m
     within(checklist).getByRole('button', { name: 'Plan and repository bindings' }).ariaCurrent,
   ).toBe('step');
 });
+
+it("renders only the part an inbox item is decided in: the held entry's controls, one setup step, or the amendments (R-A6 review M5)", async () => {
+  const entryId = 'r-active-entry';
+  const view = render(
+    <RoadmapPage
+      {...common}
+      roadmapId="r-active"
+      tab="all"
+      part={{ kind: 'controls', entryId, heldOnly: true }}
+    />,
+  );
+  // The paused roadmap: its controls and the held entry's row, and nothing else.
+  expect(await screen.findByRole('button', { name: 'Resume roadmap' })).toBeTruthy();
+  expect(document.getElementById(`roadmap-entry-r-active-${entryId}`)).toBeTruthy();
+  expect(screen.queryByRole('region', { name: 'Cross-project supervision' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Map amendments' })).toBeNull();
+  // A setup element the part does not show is reached on the roadmap's page (review M4).
+  expect(
+    screen.getByRole('link', { name: 'Assign independent reviewer responsibilities' }),
+  ).toBeTruthy();
+  view.unmount();
+
+  // A running roadmap whose entry is not held: a cycle's item shows none of it.
+  const running = roadmap('r-run', 'Running roadmap', 'running');
+  vi.mocked(loadRoadmaps).mockResolvedValue({ roadmaps: [running] } as never);
+  const empty = render(
+    <RoadmapPage
+      {...common}
+      roadmapId="r-run"
+      tab="all"
+      part={{ kind: 'controls', entryId: 'r-run-entry', heldOnly: true }}
+    />,
+  );
+  await waitFor(() => expect(loadRoadmaps).toHaveBeenCalled());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(empty.container.textContent).toBe('');
+  empty.unmount();
+
+  vi.mocked(loadRoadmaps).mockResolvedValue({ roadmaps: [active] } as never);
+  const step = render(
+    <RoadmapPage
+      {...common}
+      roadmapId="r-active"
+      tab="all"
+      part={{ kind: 'setup', step: 'reviewers' }}
+    />,
+  );
+  const reviewers = await screen.findByRole('region', { name: 'Independent review recovery' });
+  expect(reviewers.closest('[hidden]')).toBeNull();
+  expect(
+    document.getElementById('roadmap-setup-r-active-bindings')?.closest('[hidden]'),
+  ).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Resume roadmap' })).toBeNull();
+  step.unmount();
+
+  render(<RoadmapPage {...common} roadmapId="r-active" tab="all" part={{ kind: 'amendments' }} />);
+  expect(await screen.findByRole('region', { name: 'Map amendments' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Resume roadmap' })).toBeTruthy();
+  expect(screen.queryByRole('region', { name: 'Cross-project supervision' })).toBeNull();
+});

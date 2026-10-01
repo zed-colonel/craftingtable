@@ -926,13 +926,14 @@ export function RoadmapPage({
   });
   // An element on another of the roadmap's pages is reached by navigating there; on this one
   // (or inside the inbox, which shows every part) it is revealed in place.
-  const reveal = (part: RoadmapTab, element: string) => (label: string) =>
-    shows(part) ? (
+  const reveal = (tabPart: RoadmapTab, element: string) => (label: string) =>
+    // Inside an inbox item showing one part, the element is on the roadmap's own page.
+    shows(tabPart) && !part ? (
       <button type="button" className="secondary-button" onClick={() => revealElement(element)}>
         {label}
       </button>
     ) : (
-      <Link className="secondary-button" route={tabRoute(part, element)}>
+      <Link className="secondary-button" route={tabRoute(tabPart, element)}>
         {label}
       </Link>
     );
@@ -1445,8 +1446,16 @@ export function RoadmapPage({
       {shows('history') && historyPart}
     </>
   );
-  // Inside an inbox item, only the part the item is decided in (R-A6 increment 2a).
+  // Inside an inbox item, only the part the item is decided in (R-A6 increment 2a). A cycle's
+  // item shows its entry's controls only while the entry is held or the roadmap stopped.
   const held = part && part.kind !== 'setup' && part.entryId;
+  if (
+    part?.kind === 'controls' &&
+    part.heldOnly &&
+    !(held && roadmap.entryHolds?.[held]?.status === 'needs-attention') &&
+    !['paused', 'needs-attention'].includes(roadmap.status)
+  )
+    return null;
   const partBody =
     part?.kind === 'setup' ? (
       setup

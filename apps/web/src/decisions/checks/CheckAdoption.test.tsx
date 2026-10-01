@@ -221,3 +221,17 @@ it('marks paths in the differing table, and says when a changed file has no adop
   fireEvent.click(screen.getByRole('button', { name: 'Review checks file' }));
   expect(await screen.findByText(/No adopted text to compare/)).toBeDefined();
 });
+
+it('says when the adopted checks could not be loaded, rather than loading for ever (R-A6 review L4)', async () => {
+  vi.mocked(request).mockRejectedValue(new Error('Daemon unavailable'));
+  render(
+    <CheckAdoption
+      workspaceId={asWorkspaceId('ws-1')}
+      repository={repository}
+      csrfToken="csrf"
+      editable
+      onAdopted={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText(/could not be loaded/)).toBeDefined();
+});

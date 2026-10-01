@@ -50,7 +50,7 @@ import { CheckAdoption } from './decisions/checks/CheckAdoption.js';
 import { CycleDecision } from './decisions/cycle/CycleDecision.js';
 import { CheckpointPreparation } from './decisions/checkpoint/CheckpointPreparation.js';
 import { MergeApproval, RetryMergeCleanup } from './decisions/merge/MergeApproval.js';
-import { type Decision, decisionsFor } from './decisions/registry.js';
+import { type Decision, decisionsFor, type RoadmapItemPart } from './decisions/registry.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
 import { PageHeader } from './components/PageHeader.js';
@@ -1332,6 +1332,20 @@ export function App() {
       />
     );
   };
+  /** Where a roadmap part opens: the held entry, the step's own form, or the amendments (LIVE-11). */
+  const roadmapPartFocus = (roadmapId: string, part: RoadmapItemPart): string | undefined => {
+    const runtime = `runtime-evidence-roadmap-${roadmapId}`;
+    if (part.kind === 'amendments') return `map-amendments-${roadmapId}`;
+    if (part.kind === 'controls')
+      return part.entryId === undefined ? undefined : `roadmap-entry-${roadmapId}-${part.entryId}`;
+    return {
+      dependency: runtime,
+      verification: `${runtime}-native`,
+      decisions: `${runtime}-decisions`,
+      evidence: `${runtime}-evidence`,
+      'plan-acceptance': `${runtime}-plan-acceptance`,
+    }[part.step as string];
+  };
   /** After a merge or a cleanup retry: the merged worktree's diff closes and the page reloads. */
   const merged = (worktreeId: WorktreeId) => {
     setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
@@ -1434,7 +1448,16 @@ export function App() {
         itemStatus={workItem.workItem.status}
         refreshToken={refreshToken}
         onChanged={() => refreshNow()}
-        {...(inInbox ? {} : { decisionItemFor: (id: string) => mergeItemFor(id)?.id })}
+        {...(inInbox
+          ? {}
+          : {
+              decisionItemFor: (id: string) =>
+                attentionItems.find(
+                  (item) =>
+                    item.refs.worktreeId === id &&
+                    decisionsFor(item).some((d) => d.kind === 'checkpoint-preparation'),
+                )?.id,
+            })}
       />
     );
   };
@@ -1449,8 +1472,8 @@ export function App() {
       switch (decision.kind) {
         case 'cycle': {
           // The cycle's decision alone, chosen from its state (R-A6 increment 2a).
-          const cycle =
-            itemCycles?.find((c) => c.id === cycleId) ?? cycles.find((c) => c.id === cycleId);
+          // The item's cycles in full: the workspace list leaves out design-recovery detail.
+          const cycle = itemCycles?.find((c) => c.id === cycleId);
           const worktree = workItemExecution?.worktrees.find((t) => t.id === cycle?.worktreeId);
           if (!cycle || !worktree || authenticated === undefined || workspaceId === undefined)
             return loading;
@@ -1465,6 +1488,7 @@ export function App() {
               busy={executionBusy}
               refreshToken={refreshToken}
               onChanged={refreshNow}
+              inInbox
               onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
               onOpenWorktree={(id) => {
                 setSelectedCycleWorktreeId(id);
@@ -1525,7 +1549,9 @@ export function App() {
         case 'scope-evidence':
           return (workItemId && scopeControls(workItemId as WorkItemId, true)) || loading;
         case 'check-adoption': {
-          const repositoryId = cycles.find((c) => c.id === cycleId)?.attention?.refs?.repositoryId;
+          const repositoryId =
+            cycles.find((c) => c.id === cycleId)?.attention?.refs?.repositoryId ??
+            workItemExecution?.worktrees.find((t) => t.id === item.refs.worktreeId)?.repositoryId;
           const repository = repositories.find((r) => r.id === repositoryId);
           const worktree = workItemExecution?.worktrees.find((t) => t.id === item.refs.worktreeId);
           return repository && workspaceId !== undefined && authenticated !== undefined ? (
@@ -1600,8 +1626,8 @@ export function App() {
               onOpenWorkItem={(id) => go({ name: 'work-item', workspaceId, workItemId: id })}
               attention={attentionItems}
               onOpenAttention={(id) => go({ name: 'inbox', workspaceId, itemId: id })}
-              {...(decision.part.kind === 'controls' && decision.part.entryId
-                ? { focus: `roadmap-entry-${roadmapId}-${decision.part.entryId}` }
+              {...(roadmapPartFocus(roadmapId, decision.part)
+                ? { focus: roadmapPartFocus(roadmapId, decision.part)! }
                 : {})}
             />
           ) : undefined;

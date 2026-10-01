@@ -55,6 +55,7 @@ export function IntegrationConflict({
   canMutate,
   csrfToken,
   onChanged,
+  offerInspect = true,
   onOpenRun,
   runIds,
 }: {
@@ -67,6 +68,11 @@ export function IntegrationConflict({
   csrfToken: string;
   /** After a command, so the host reloads the cycle. */
   onChanged: () => void;
+  /**
+   * Whether an idle cycle with no conflict on record offers inspection: on its page, where a
+   * manual update may have conflicted, but not in an inbox item about another stop.
+   */
+  offerInspect?: boolean;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
@@ -75,8 +81,8 @@ export function IntegrationConflict({
     setPending(true);
     setError(undefined);
     void resolveIntegration(cycle, input, csrfToken)
-      .then(() => onChanged())
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .then(() => onChanged())
       .finally(() => setPending(false));
   };
   const [form, setForm] = useState(false);
@@ -91,7 +97,7 @@ export function IntegrationConflict({
   if (!resolution && !(idle && INTEGRATION_STOPS.includes(code))) {
     // Any other idle cycle keeps the one action: a manual update from integration can
     // conflict without recording a stop, and inspection is how that conflict reaches an agent.
-    if (!idle || !canMutate || owned) return null;
+    if (!idle || !canMutate || owned || !offerInspect) return null;
     return (
       <div className="inline-actions">
         {error && (

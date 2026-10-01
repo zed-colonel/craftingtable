@@ -302,7 +302,6 @@ vi.mock('./lib/execution-api.js', () => ({
   loadWorkItemExecution: (_workspaceId: string, workItemId: string) =>
     Promise.resolve({ workItemId, worktrees: [], runs: [], mergeGates: {} }),
   loadWorkspaceRuns: () => Promise.resolve({ runs: [], liveCount: 0 }),
-  mergeWorktree: () => new Promise(() => undefined),
   loadRepositoryBranches: () => Promise.resolve({ branches: [] }),
   loadRun: () => new Promise(() => undefined),
   loadRunEvents: () => Promise.resolve({ events: [], nextAfter: 0 }),

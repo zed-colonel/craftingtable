@@ -190,7 +190,18 @@ export function CyclePanel({
           {active.mergeRequirementsWait && !active.workflow?.waiting && (
             <a href="#slices">Resolve checkpoint evidence for this slice</a>
           )}
-          <WorkflowStatus cycle={active} />
+          <WorkflowStatus
+            cycle={active}
+            {...(decisionItem
+              ? {
+                  decidedIn: {
+                    name: 'inbox' as const,
+                    workspaceId: active.workspaceId as WorkspaceId,
+                    itemId: decisionItem,
+                  },
+                }
+              : {})}
+          />
           <StatusStrip
             label="Cycle status"
             facts={[

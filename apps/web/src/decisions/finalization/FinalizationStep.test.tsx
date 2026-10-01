@@ -20,7 +20,13 @@ const view = (actions: FinalizationView['actions'], extra: Partial<FinalizationV
       targetBranch: 'main',
       integrationBranch: 'aq-cont-1',
       policy: { maxRemediationRounds: 3 },
-      stages: [{ kind: 'simplification' }],
+      stages: [
+        {
+          kind: 'simplification',
+          implement: { backend: 'codex', permissionMode: 'auto' },
+          review: { backend: 'codex', permissionMode: 'auto' },
+        },
+      ],
       finalReview: { backend: 'codex', permissionMode: 'auto' },
     },
     cycle: {

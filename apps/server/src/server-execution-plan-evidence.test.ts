@@ -6,7 +6,12 @@ import {
   registerSourceRepositoryResponseSchema,
   workCycleResponseSchema,
 } from '@craftingtable/contracts';
-import { asAgentRunId, asPlanVersionId, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  asPlanVersionId,
+  cycleAttention,
+  DEFAULT_COMPLETION_POLICY,
+} from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { openDaemonStorage } from './persisted-records.js';
 import { resolveScope, scopeEvidenceLedger } from './services/execution-scope.js';
@@ -714,6 +719,75 @@ it('a scoped review whose report is malformed is repaired and stops naming the f
   expect(response.statusCode).toBe(409);
   expect(response.body).toContain('A valid review requiring remediation is needed');
   expect(currentCycle(state, cycle)).toEqual(stopped);
+});
+
+// LIVE-33: EXO-04's review asked a question with its rounds spent. Continue with guidance went
+// down the remediation path, found the limit, and replaced the question with
+// remediation-exhausted (200 OK, the guidance dropped). The stop now says the rounds are spent,
+// and only Authorize more remediation, which carries the answer, moves it.
+it('a slice review question at the remediation limit keeps the question and the guidance', async () => {
+  const f = await slicedFixture();
+  const { state, backend } = f;
+  const scope = f.scopes[0]!;
+  const tree = await scopeTree(f, scope);
+  const question = 'Should a planning amendment add a bounded-cost replay requirement?';
+  backend.replyForRequest = (request) => {
+    if (request.model === 'design-model') return designDone;
+    if (request.model !== 'review-model') return implementationDone;
+    const workflow = JSON.stringify({
+      version: 1,
+      questions: [{ question, destination: 'work-item' }],
+      resolved: [],
+      securityReview: { required: false, sources: [] },
+    });
+    return {
+      resultText: `\`\`\`craftingtable-workflow\n${workflow}\n\`\`\`\n\n## Open questions\n\n- ${question}\n\n## Review report\n\n${scopeReport(state, scope).replace('"findings":[]', `"findings":${JSON.stringify([structuredFinding])}`)}`,
+    };
+  };
+  const cycle = await startCycle(state, tree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review question');
+  const stopped = currentCycle(state, cycle);
+  expect(stopped.attention?.code).toBe('review-open-questions-at-limit');
+  expect(stopped.reason).toContain('Remediation limit reached.');
+  const control = (payload: Record<string, unknown>) =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: { expectedVersion: currentCycle(state, cycle).version, ...payload },
+    });
+  const guidance = 'Defer it to a planning amendment; do not change code for it.';
+  const refused = await control({ action: 'resume', instructions: guidance });
+  expect(refused.statusCode).toBe(409);
+  expect(refused.body).toContain('Authorize more remediation');
+  expect(currentCycle(state, cycle)).toEqual(stopped);
+
+  // A stop the deployed release recorded as work-item-questions is refused the same way.
+  const legacy = state.context.storage.execution.cycles.replace(
+    {
+      ...stopped,
+      version: stopped.version + 1,
+      attention: cycleAttention('work-item-questions'),
+      reason: 'Operator input required. Answer the work-item questions in Continue with guidance.',
+    },
+    stopped.version,
+  )!;
+  const legacyRefused = await control({ action: 'resume', instructions: guidance });
+  expect(legacyRefused.statusCode).toBe(409);
+  expect(legacyRefused.body).toContain('Authorize more remediation');
+  expect(currentCycle(state, cycle)).toEqual(legacy);
+
+  const launches = backend.launches.length;
+  const granted = await control({
+    action: 'authorize-remediation',
+    additionalRounds: 1,
+    instructions: guidance,
+  });
+  expect(granted.statusCode, granted.body).toBe(200);
+  await waitFor(() => backend.launches.length > launches, 'remediation launch');
+  expect(backend.launches[launches]?.prompt).toContain(guidance);
 });
 
 it.each([false, true])(

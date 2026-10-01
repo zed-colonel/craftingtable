@@ -3255,6 +3255,13 @@ export class WorkCycleService {
       run.reviewBranchContext,
     );
     if (remediationUsed(cycle) >= remediationAllowance(cycle) + (grant?.additionalRounds ?? 0)) {
+      // Guidance with no new round cannot start one; recording a stop here would drop it and
+      // replace the stop the operator answered (LIVE-33).
+      if (grant)
+        throw new ExecutionRequestError(
+          'conflict',
+          'The remediation rounds are used up, so guidance alone cannot start another. Use Authorize more remediation; its instructions carry your answer.',
+        );
       this.attention(
         cycle,
         'remediation-exhausted',

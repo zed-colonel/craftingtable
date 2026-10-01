@@ -204,6 +204,19 @@ export function stepOutcomeFacts(
 }
 
 const OPEN_QUESTIONS = /^## Open questions[ \t]*$/m;
+const QUESTIONS_AT_LIMIT =
+  'Remediation limit reached. Review needs your input. Answer the Open questions when authorizing more remediation.';
+
+/** A finished review whose well-formed report asks for remediation the allowance has spent. */
+function reviewAtRemediationLimit(cycle: WorkCycle, facts: StepOutcomeFacts): boolean {
+  if (cycle.step !== 'review' || remediationUsed(cycle) < remediationAllowance(cycle)) return false;
+  const assessment = facts.reviewAssessment();
+  return (
+    assessment?.status === 'complete' &&
+    !facts.scopeIssue(assessment) &&
+    evaluateCycleCompletion(cycle, assessment, facts.run.reviewBranchContext).action === 'remediate'
+  );
+}
 const CHECKPOINT_ISSUE =
   'The final report must contain exactly one “## Open questions” section containing only “none” when nothing needs the operator, or listing each question for the operator.';
 const REVIEW_REPORT_ISSUE = 'A complete, valid structured review report is required.';
@@ -557,11 +570,15 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
               'Operator decision required. Open Shared architecture decisions for the named ADR; answer any work-item questions in Continue with guidance.',
               workflowUpdate,
             )
-          : attention(
-              'work-item-questions',
-              'Operator input required. Answer the work-item questions in Continue with guidance.',
-              workflowUpdate,
-            );
+          : reviewAtRemediationLimit(cycle, facts)
+            ? // Continue with guidance cannot add a round, so the answer goes with the grant
+              // that does (LIVE-33).
+              attention('review-open-questions-at-limit', QUESTIONS_AT_LIMIT, workflowUpdate)
+            : attention(
+                'work-item-questions',
+                'Operator input required. Answer the work-item questions in Continue with guidance.',
+                workflowUpdate,
+              );
     }
   }
   const withWorkflow = <T extends StepOutcomeDecision>(decision: T): T =>
@@ -700,10 +717,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
   )
     return withWorkflow(
       decision.action === 'remediate' && remediationUsed(cycle) >= remediationAllowance(cycle)
-        ? attention(
-            'review-open-questions-at-limit',
-            'Remediation limit reached. Review needs your input. Answer the Open questions when authorizing more remediation.',
-          )
+        ? attention('review-open-questions-at-limit', QUESTIONS_AT_LIMIT)
         : attention(
             'review-open-questions',
             'Review needs your input. Answer the Open questions using Continue with guidance before another remediation.',

@@ -357,6 +357,52 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'work-item-questions' },
   },
   {
+    // LIVE-33: Continue with guidance cannot add a round, so the stop names the grant that can.
+    name: "a slice review's question with its remediation rounds spent stops at the limit",
+    cycle: { step: 'review', executionScope: { kind: 'slice' }, remediationRounds: 3 },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(workflow([{ question: 'Which name?', destination: 'work-item' }])),
+      workflowQuestions: () => [{ question: 'Which name?', destination: 'work-item' }],
+      reviewAssessment: () => review([minor]),
+    },
+    expected: { kind: 'attention', code: 'review-open-questions-at-limit' },
+  },
+  {
+    name: "a slice review's question with rounds left stops for guidance",
+    cycle: { step: 'review', executionScope: { kind: 'slice' }, remediationRounds: 2 },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(workflow([{ question: 'Which name?', destination: 'work-item' }])),
+      workflowQuestions: () => [{ question: 'Which name?', destination: 'work-item' }],
+      reviewAssessment: () => review([minor]),
+    },
+    expected: { kind: 'attention', code: 'work-item-questions' },
+  },
+  {
+    name: "a passing slice review's question at the limit stops for guidance",
+    cycle: { step: 'review', executionScope: { kind: 'slice' }, remediationRounds: 3 },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(workflow([{ question: 'Which name?', destination: 'work-item' }])),
+      workflowQuestions: () => [{ question: 'Which name?', destination: 'work-item' }],
+      reviewAssessment: () => review(),
+    },
+    expected: { kind: 'attention', code: 'work-item-questions' },
+  },
+  {
+    name: "a slice review's question at the limit with a scope issue stops for guidance",
+    cycle: { step: 'review', executionScope: { kind: 'slice' }, remediationRounds: 3 },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(workflow([{ question: 'Which name?', destination: 'work-item' }])),
+      workflowQuestions: () => [{ question: 'Which name?', destination: 'work-item' }],
+      reviewAssessment: () => review([minor]),
+      scopeIssue: () => 'The review omitted case C-1.',
+    },
+    expected: { kind: 'attention', code: 'work-item-questions' },
+  },
+  {
     name: 'finalization without an Open questions checkpoint is sent back for repair',
     facts: { finalization: finalization() },
     expected: { kind: 'repair-output', code: 'finalization-needs-input', attempt: 1 },

@@ -1437,6 +1437,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *NIT, fixed:* `PageTabs` is a shared primitive in `components/`; the list's finished section is "Finished roadmaps", not "History"; list links are 44 px tall; `ui-principles.md` names in-page navigation.
   - *NIT, disposition:* the setup checklist keeps its own ordered list of buttons, not `SectionNav`'s chips, because its order is the point; the rail marks no detail page current (work items, runs and projects are the same); scheduling-page links open a cross-project roadmap's setup, where a capacity change's plan acceptance is.
   - *Checked and sound, per the reviewer:* route round trips; every server-written legacy focus lands on the page that holds it; every inbox focus exists in the inbox view; no page mounts a panel twice or repeats an id; history loads once per revision; the copy and anatomy tests.
+- **Gate fix (2026-09-30):** `pnpm check` at ade44c1 stopped at its format step on one quote in `global.css` from ab78399 (increment 2's checklist style); formatted, no change in behaviour.
 
 ### R-E3
 

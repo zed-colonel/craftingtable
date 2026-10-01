@@ -2255,7 +2255,7 @@ button:disabled {
   display: grid;
   gap: var(--space-1);
 }
-.setup-checklist [aria-current='step'] {
+.setup-checklist [aria-current="step"] {
   font-weight: 600;
   text-decoration: underline;
 }

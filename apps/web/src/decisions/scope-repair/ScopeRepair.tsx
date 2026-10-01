@@ -2,11 +2,16 @@ import type { ScopeRepairPreview } from '@craftingtable/contracts';
 import type { WorkCycle, WorktreeId } from '@craftingtable/domain';
 import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
-import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
+import { delegateScopeRepair, previewScopeRepair } from './scope-repair-api.js';
 
-export function ScopeRepairPanel({
+/**
+ * A scope review's source findings delegated to the slice that owns them (R-A6 increment 2a).
+ * It renders in the review cycle's inbox item, and on the work item page when no item carries
+ * the cycle's stop.
+ */
+export function ScopeRepair({
   cycle,
   disabled,
   csrfToken,

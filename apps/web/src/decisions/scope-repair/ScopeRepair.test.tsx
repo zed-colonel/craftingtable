@@ -2,9 +2,9 @@ import type { ScopeRepairPreview } from '@craftingtable/contracts';
 import { asAgentRunId, cycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
-import { ScopeRepairPanel } from './ScopeRepairPanel.js';
-vi.mock('../../lib/work-cycle-api.js', () => ({
+import { delegateScopeRepair, previewScopeRepair } from './scope-repair-api.js';
+import { ScopeRepair } from './ScopeRepair.js';
+vi.mock('./scope-repair-api.js', () => ({
   delegateScopeRepair: vi.fn(),
   previewScopeRepair: vi.fn(),
 }));
@@ -80,7 +80,7 @@ function panel() {
   const onStarted = vi.fn(),
     onOpen = vi.fn();
   render(
-    <ScopeRepairPanel
+    <ScopeRepair
       cycle={cycle}
       disabled={false}
       csrfToken="csrf"
@@ -187,7 +187,7 @@ it('preserves expanded findings and draft guidance through slow, failed and newe
     onStarted: vi.fn(),
     onOpen: vi.fn(),
   };
-  const { rerender } = render(<ScopeRepairPanel {...props} />);
+  const { rerender } = render(<ScopeRepair {...props} />);
   const finding = await screen.findByText('R2.F-003 · major · Semantic inventory');
   const disclosure = finding.closest('details')!;
   disclosure.open = true;
@@ -200,7 +200,7 @@ it('preserves expanded findings and draft guidance through slow, failed and newe
       reject = fail;
     }),
   );
-  rerender(<ScopeRepairPanel {...props} refreshToken={1} cycle={{ ...cycle, version: 6 }} />);
+  rerender(<ScopeRepair {...props} refreshToken={1} cycle={{ ...cycle, version: 6 }} />);
   await screen.findByText('Refreshing source recovery… Existing findings remain visible.');
   expect(screen.getByText('R2.F-003 · major · Semantic inventory').closest('details')).toBe(
     disclosure,

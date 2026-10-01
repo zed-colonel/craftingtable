@@ -68,7 +68,7 @@ import { ProviderRetry } from './decisions/cycle/CycleDecisions.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
 import { RunPage } from './features/execution/RunPage.js';
 import { RunList, RunsPage } from './features/execution/RunsPage.js';
-import { ScopeRepairPanel } from './features/execution/ScopeRepairPanel.js';
+import { ScopeRepair } from './decisions/scope-repair/ScopeRepair.js';
 import { WorktreeBranchPanel } from './features/execution/WorktreeBranchPanel.js';
 import {
   type WorktreeChangesRefused,
@@ -1319,7 +1319,7 @@ export function App() {
         renderReviewRecovery={(cycle, liveRun) => (
           <>
             {['paused', 'needs-attention'].includes(cycle.status) && (
-              <ScopeRepairPanel
+              <ScopeRepair
                 key={`repair-${cycle.id}`}
                 cycle={cycle}
                 disabled={executionBusy || !canMutate || liveRun}

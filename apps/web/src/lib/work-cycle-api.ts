@@ -7,8 +7,6 @@ import {
   designRecoveryPreviewSchema,
   workCycleResponseSchema,
   workCyclesResponseSchema,
-  scopeRepairPreviewSchema,
-  type ScopeRepairRequest,
 } from '@craftingtable/contracts';
 import type { WorkCycle, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import { request } from './api-client.js';
@@ -19,23 +17,6 @@ const mutation = (csrfToken: string, body: unknown): RequestInit => ({
   headers: { 'x-craftingtable-csrf': csrfToken },
   body: JSON.stringify(body),
 });
-export function previewScopeRepair(cycle: WorkCycle) {
-  return request(
-    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/scope-repair`,
-    scopeRepairPreviewSchema,
-  );
-}
-export function delegateScopeRepair(
-  cycle: WorkCycle,
-  input: ScopeRepairRequest,
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/scope-repair`,
-    workCycleResponseSchema,
-    mutation(csrfToken, input),
-  );
-}
 /**
  * Without a work item: the cycles that have not ended, without design-recovery
  * detail (attention strip, rail count, run page). With one: that item's full

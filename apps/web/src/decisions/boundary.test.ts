@@ -43,6 +43,7 @@ const COMMANDS: readonly {
     command: 'cycles/:id/integration-resolution',
     found: /\/integration-resolution[`'"]/,
   },
+  { kind: 'scope-repair', command: 'cycles/:id/scope-repair', found: /\/scope-repair[`'"]/ },
   {
     kind: 'checkpoint',
     command: 'runtime/prepare-checkpoint',

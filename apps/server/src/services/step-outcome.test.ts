@@ -624,6 +624,38 @@ const rows: readonly Row[] = [
     },
   },
   {
+    // LIVE-32: scope evidence is checked only on a well-formed report. EXO-03's review put
+    // scopeEvidence inside exitGate, a schema fault, and stopped as a scope issue instead.
+    name: 'a schema-invalid report in a scoped review is repaired, not stopped as a scope issue',
+    cycle: { step: 'review' },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () => ({
+        status: 'invalid',
+        fault: 'format',
+        issues: ['exitGate: Unrecognized key: "scopeEvidence"'],
+      }),
+      scopeIssue: () => 'The review must identify this exact slice in scopeEvidence.',
+    },
+    expected: {
+      kind: 'repair-output',
+      code: 'review-needs-attention',
+      attempt: 1,
+      issues: ['exitGate: Unrecognized key: "scopeEvidence"'],
+    },
+  },
+  {
+    name: 'a scoped review without a structured report is sent back for repair',
+    cycle: { step: 'review' },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(noQuestions),
+      scopeIssue: () => 'The review must identify this exact slice in scopeEvidence.',
+    },
+    expected: { kind: 'repair-output', code: 'review-needs-attention', attempt: 1 },
+  },
+  {
     name: 'a schema-invalid review report is sent back for repair',
     cycle: { step: 'review' },
     facts: {

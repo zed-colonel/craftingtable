@@ -684,7 +684,9 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
   }
   const reviewOnly = facts.reviewOnly;
   const assessment = facts.reviewAssessment();
-  const scopeIssue = facts.scopeIssue(assessment);
+  // Scope evidence is content, checked only on a well-formed report: a report the validator
+  // rejects is a format fault and is repaired first, whatever its scope evidence (LIVE-32).
+  const scopeIssue = assessment?.status === 'complete' ? facts.scopeIssue(assessment) : undefined;
   const decision = evaluateCycleCompletion(
     cycle,
     scopeIssue ? { status: 'invalid', issues: [scopeIssue] } : assessment,

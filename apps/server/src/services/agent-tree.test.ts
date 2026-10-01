@@ -16,6 +16,25 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
 import { AGENT_TREE_MAX_DEPTH, removeAgentTree } from './agent-tree.js';
 
+/** apps/server's tsx, which runs this module in a child process. */
+const serverTsx = resolve(fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url)));
+const treeModule = resolve(fileURLToPath(new URL('.', import.meta.url)), 'agent-tree.ts');
+/** Runs `removeAgentTree(path)` in a child: under a descriptor limit, or in a namespace. */
+function removeInChild(launcher: readonly string[], path: string): string {
+  const [command, ...args] = launcher;
+  const output = execFileSync(
+    command!,
+    [
+      ...args,
+      serverTsx,
+      '-e',
+      `import(${JSON.stringify(treeModule)}).then(async (m) => console.log(JSON.stringify((await m.removeAgentTree(${JSON.stringify(path)})) ?? 'removed')))`,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  );
+  return JSON.parse(output.trim().split('\n').at(-1)!);
+}
+
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -125,18 +144,62 @@ it('holds a bounded number of descriptors whatever the depth (LIVE-31 verificati
     { cwd: own },
   );
   // A process allowed fewer descriptors than the tree has levels, and that cannot raise it.
-  const module = resolve(fileURLToPath(new URL('.', import.meta.url)), 'agent-tree.ts');
-  const tsx = resolve(fileURLToPath(new URL('../../../../node_modules/.bin/tsx', import.meta.url)));
-  const result = execFileSync(
-    'prlimit',
-    [
-      `--nofile=${AGENT_TREE_MAX_DEPTH + 100}:${AGENT_TREE_MAX_DEPTH + 100}`,
-      tsx,
-      '-e',
-      `import(${JSON.stringify(module)}).then(async (m) => console.log(JSON.stringify(await m.removeAgentTree(${JSON.stringify(own)}) ?? 'removed')))`,
-    ],
-    { encoding: 'utf8', timeout: 120_000 },
-  );
-  expect(result.trim().split('\n').at(-1)).toBe('"removed"');
+  const limit = AGENT_TREE_MAX_DEPTH + 100;
+  expect(removeInChild(['prlimit', `--nofile=${limit}:${limit}`], own)).toBe('removed');
   expect(existsSync(own)).toBe(false);
 });
+
+it('removes a tree a stopped removal left with its subtrees moved up, past the bound again (LIVE-31 verification)', async () => {
+  const root = scratch();
+  const own = join(root, 'own');
+  mkdirSync(own);
+  // What an interrupted removal leaves: a moved-up subtree named as the next pass would name
+  // its own move, itself deeper than the bound.
+  const levels = AGENT_TREE_MAX_DEPTH + 44;
+  mkdirSync(join(own, '.removing-0'));
+  execFileSync(
+    'sh',
+    ['-c', `for i in $(seq 1 ${levels}); do mkdir a && cd a || exit 1; done; touch f`],
+    { cwd: join(own, '.removing-0') },
+  );
+  await expect(removeAgentTree(own)).resolves.toBeUndefined();
+  expect(existsSync(own)).toBe(false);
+});
+
+const userNamespaces = (() => {
+  try {
+    execFileSync('unshare', ['-rm', 'true']);
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+it.skipIf(!userNamespaces)(
+  'removes the rest when one entry cannot go, and reports it (LIVE-31 verification)',
+  () => {
+    const root = scratch();
+    const own = join(root, 'own');
+    for (const name of ['a-first', 'm-mounted', 'z-last'])
+      mkdirSync(join(own, name, 'inside'), { recursive: true });
+    writeFileSync(join(own, 'z-last', 'inside', 'file'), 'x');
+    // In a mount namespace of its own, a mount point cannot be removed: the one failing entry.
+    const result = execFileSync(
+      'unshare',
+      [
+        '-rm',
+        'sh',
+        '-c',
+        `mount -t tmpfs none ${JSON.stringify(join(own, 'm-mounted'))} && "$@"`,
+        'sh',
+        serverTsx,
+        '-e',
+        `import(${JSON.stringify(treeModule)}).then(async (m) => console.log(JSON.stringify((await m.removeAgentTree(${JSON.stringify(own)})) ?? 'removed')))`,
+      ],
+      { encoding: 'utf8', timeout: 120_000 },
+    );
+    expect(JSON.parse(result.trim().split('\n').at(-1)!)).toMatch(/EBUSY/);
+    // Its siblings, before and after it, are gone; only the mount point and the top remain.
+    expect(readdirSync(own)).toEqual(['m-mounted']);
+  },
+);

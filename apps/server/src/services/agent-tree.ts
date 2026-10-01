@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { chmod, lstat, open, readdir, rename, rmdir, unlink } from 'node:fs/promises';
 
@@ -6,7 +7,7 @@ const O_PATH = 0o10000000;
 /** A directory, never through a link in its last component, whatever its mode. */
 const DIRECTORY_FLAGS = O_PATH | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 /**
- * Directories held open at once (LIVE-31 verification): deeper subtrees are moved up beside the
+ * Directories held open at once (LIVE-31 verification): deeper subtrees are moved up into the
  * top and removed from a queue, so a tree of any depth needs at most this many descriptors.
  */
 export const AGENT_TREE_MAX_DEPTH = 256;
@@ -20,8 +21,9 @@ type Name = string | Buffer;
  * descriptor's `/proc/self/fd` link, and its entries, read as bytes, are reached as
  * `/proc/self/fd/<fd>/<name>`, so a link an agent plants or swaps in, even while the removal
  * runs, is only unlinked, never followed, and no path grows with the depth. Past
- * `AGENT_TREE_MAX_DEPTH` a subtree is renamed up into the top directory, which an agent cannot
- * write, and removed in turn. An entry that fails is passed over, the rest still go, and the
+ * `AGENT_TREE_MAX_DEPTH` a subtree is renamed up into the top directory (an agent's commands
+ * cannot write it; it is Claude Code's own TMPDIR) under a fresh random name, and removed in
+ * turn. An entry that fails is passed over, the rest still go, and the
  * first failure is returned; an entry already gone is done. Asynchronous, so a large tree does
  * not hold the daemon. Never rejects. Linux only, as the daemon is.
  */
@@ -41,7 +43,7 @@ export async function removeAgentTree(path: string): Promise<string | undefined>
     }
     try {
       const root = `/proc/self/fd/${held.fd}`;
-      const walk: Walk = { root, moved: 0, queue: [], failures };
+      const walk: Walk = { root, queue: [], failures };
       await removeContents(root, 1, walk);
       // Subtrees moved up past the depth bound, until none is left.
       for (let next = walk.queue.shift(); next !== undefined; next = walk.queue.shift()) {
@@ -64,7 +66,6 @@ export async function removeAgentTree(path: string): Promise<string | undefined>
 interface Walk {
   /** The top directory's descriptor link: moved subtrees go here. */
   readonly root: string;
-  moved: number;
   readonly queue: Name[];
   readonly failures: unknown[];
 }
@@ -99,10 +100,7 @@ async function removeEntry(path: Name, depth: number, walk: Walk): Promise<void>
     return;
   }
   if (depth >= AGENT_TREE_MAX_DEPTH) {
-    // Moved up beside the top, where no agent writes; a rename follows no link.
-    const moved = `${walk.root}/.removing-${walk.moved++}`;
-    await rename(path, moved).catch(gone);
-    walk.queue.push(moved);
+    walk.queue.push(await moveUp(path, walk));
     return;
   }
   const held = await openDirectory(path);
@@ -117,6 +115,29 @@ async function removeEntry(path: Name, depth: number, walk: Walk): Promise<void>
     await held.close();
   }
   await rmdir(path).catch(gone);
+}
+
+/**
+ * Moves a subtree up into the top directory, under a name nothing there has: never one an
+ * earlier, interrupted removal left, which may be this subtree's own ancestor (LIVE-31
+ * verification). A rename follows no link.
+ */
+async function moveUp(path: Name, walk: Walk): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    const moved = `${walk.root}/.removing-${randomBytes(8).toString('hex')}`;
+    try {
+      await rename(path, moved);
+      return moved;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // Gone meanwhile: the queue finds nothing there.
+      if (code === 'ENOENT') return moved;
+      // Taken, which a random name makes all but impossible: another name, a few times.
+      if (attempt < 3 && ['EEXIST', 'ENOTEMPTY', 'ENOTDIR', 'EISDIR'].includes(code ?? ''))
+        continue;
+      throw error;
+    }
+  }
 }
 
 /** The directory itself, or undefined if a link or file is there now, or nothing. */

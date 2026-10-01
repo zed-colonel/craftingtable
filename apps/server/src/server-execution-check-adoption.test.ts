@@ -66,7 +66,7 @@ function commitOnBranch(root: string, branch: string, files: Record<string, stri
   }
 }
 
-function writeFiles(cwd: string, files: Record<string, string>) {
+function writeFiles(cwd: string, files: Record<string, string | Uint8Array>) {
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(join(cwd, path, '..'), { recursive: true });
     writeFileSync(join(cwd, path), content);
@@ -80,7 +80,7 @@ function writeFiles(cwd: string, files: Record<string, string>) {
  * implementing agent commits.
  */
 async function adoptionFixture(
-  slice: Record<string, string>,
+  slice: Record<string, string | Uint8Array>,
   options: { adoptFrom?: (root: string, integration: string) => string } = {},
 ) {
   const f = await slicedFixture((source) => ({
@@ -667,6 +667,7 @@ itNeedsCargo(
     );
     expect(preview.definitions[0]).toMatchObject({ truncated: true });
     expect(preview.definitions[0]!.text?.length).toBeGreaterThan(60 * 1024);
+    expect(preview.definitions[0]!.text?.endsWith('\uFFFD')).toBe(false);
   },
 );
 
@@ -755,7 +756,7 @@ itNeedsCargo(
 );
 
 itNeedsCargo(
-  'a slice whose adopted checks failed is not offered as an adoption (review F3)',
+  'a slice whose adopted checks failed is not offered as an adoption, and the stop names the exit (review F3)',
   { timeout: 40000 },
   async () => {
     // The slice adds a Cargo configuration and names it: the adopted check, which does not
@@ -773,9 +774,20 @@ itNeedsCargo(
         ],
       })}\n`,
     });
-    const cycle = await runToMergeApproval(x);
-    expect(cycle.attention).toEqual({ code: 'merge-approval', owner: 'operator' });
-    expect(cycle.reason).not.toContain('adopts them');
+    const cycle = await startCycle(x.f.state, x.tree.id);
+    await waitFor(
+      () => currentCycle(x.f.state, cycle).status === 'needs-attention',
+      'definition stop',
+      25000,
+    );
+    const stopped = currentCycle(x.f.state, cycle);
+    // The merge could adopt the change, but its checks did not pass as adopted: the stop says
+    // so and names the exit (verification of the review fixes).
+    expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
+    expect(stopped.reason).toContain('did not all pass on the reviewed commit');
+    expect(stopped.reason).toContain(
+      `adopt the checks from the slice's commit ${stopped.reviewHeadSha!.slice(0, 12)} on the Repositories page`,
+    );
   },
 );
 
@@ -814,5 +826,115 @@ itNeedsCargo(
       outcome: 'failed',
       metadata: { reason: expect.stringContaining('changed while the merge ran') },
     });
+  },
+);
+
+itNeedsCargo(
+  'a definition between 64 KiB and 1 MiB is shown whole and adopted at merge; one that is not UTF-8, or starts with a byte order mark, is shown as it is (verification)',
+  { timeout: 60000 },
+  async () => {
+    // 200 KiB, the change at the end: shown in full, with no trailing replacement character.
+    const long = `${IMPROVED}${'# a long but readable check script line\n'.repeat(5000)}echo tail\n`;
+    const x = await adoptionFixture({ 'scripts/check.sh': long });
+    await runToMergeApproval(x);
+    const diagnosis = await x.definitions();
+    const proposed = diagnosis.merge!.definitions[0]!.proposed!;
+    expect(proposed).toMatchObject({ truncated: false, text: long });
+    expect(diagnosis.merge!.adoptedChecks).toEqual(x.declarations()[0]!.checks);
+    expect(
+      (
+        await x.merge({
+          adoptChecks: {
+            proposalDigest: diagnosis.merge!.proposalDigest!,
+            rationale: 'x',
+            declarationId: diagnosis.declaration.id,
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
+  },
+);
+
+itNeedsCargo(
+  'a definition that is not UTF-8 is not adopted at merge (verification)',
+  { timeout: 40000 },
+  async () => {
+    const x = await adoptionFixture({
+      'scripts/check.sh': Buffer.concat([Buffer.from(IMPROVED), Buffer.from([0x23, 0xff, 0x0a])]),
+    });
+    const cycle = await startCycle(x.f.state, x.tree.id);
+    await waitFor(
+      () => currentCycle(x.f.state, cycle).status === 'needs-attention',
+      'definition stop',
+      25000,
+    );
+    expect(currentCycle(x.f.state, cycle).reason).toContain(
+      'scripts/check.sh is not short UTF-8 text, so it cannot be shown in full',
+    );
+    expect((await x.definitions()).merge!.definitions[0]!.proposed!.text).toBeUndefined();
+  },
+);
+
+itNeedsCargo(
+  'a byte order mark stays in the text the operator is shown (verification NEW-1)',
+  { timeout: 40000 },
+  async () => {
+    const x = await adoptionFixture({ 'scripts/check.sh': `﻿${ADOPTED}` });
+    await runToMergeApproval(x).catch(() => undefined);
+    const diagnosis = await x.definitions();
+    const change = diagnosis.merge!.definitions[0]!;
+    expect(change.proposed!.text!.startsWith('﻿')).toBe(true);
+    expect(change.proposed!.text).not.toBe(change.adopted!.text);
+  },
+);
+
+itNeedsCargo(
+  'an approval of a diff against an earlier adoption is refused before the merge (verification F6)',
+  { timeout: 40000 },
+  async () => {
+    const x = await adoptionFixture({ 'scripts/check.sh': IMPROVED });
+    await runToMergeApproval(x);
+    const diagnosis = await x.definitions();
+    const current = x.declarations()[0]!;
+    x.storage.runtimeEvidence.addCheckDeclaration({
+      ...current,
+      id: '55555555-5555-4555-8555-555555555555',
+      version: current.version + 1,
+      rationale: 'Adopted on the page after the diff was read.',
+    });
+    const refused = await x.merge({
+      adoptChecks: {
+        proposalDigest: diagnosis.merge!.proposalDigest!,
+        rationale: 'x',
+        declarationId: diagnosis.declaration.id,
+      },
+    });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.body).toContain('adopted checks changed since');
+    expect(x.storage.execution.merges.latest(x.ws, x.tree.id)).toBeUndefined();
+  },
+);
+
+itNeedsCargo(
+  'changed definitions past 4 MiB in all are not adopted at merge (verification NEW-3)',
+  { timeout: 60000 },
+  async () => {
+    const big = (n: number) =>
+      `# part ${n}\n${'# padding for a large definition file\n'.repeat(23_000)}`;
+    const extra = [1, 2, 3, 4, 5].map((n) => `defs/part-${n}.txt`);
+    const x = await adoptionFixture({
+      ...Object.fromEntries(extra.map((path, i) => [path, big(i)])),
+      [CHECK_DECLARATION_PATH]: `${JSON.stringify({
+        version: 1,
+        checks: [{ id: 'script', argv: ['scripts/check.sh'], definitionPaths: extra }],
+      })}\n`,
+    });
+    const cycle = await startCycle(x.f.state, x.tree.id);
+    await waitFor(
+      () => currentCycle(x.f.state, cycle).status === 'needs-attention',
+      'definition stop',
+      25000,
+    );
+    expect(currentCycle(x.f.state, cycle).reason).toContain('The changed definitions hold');
   },
 );

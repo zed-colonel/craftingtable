@@ -61,7 +61,7 @@ export function MergeApproval({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   /** The check definitions a `check-adoption` merge adopts: their digest, and why (R-G13). */
-  const [adoptionDigest, setAdoptionDigest] = useState<string>();
+  const [proposal, setProposal] = useState<{ digest: string; declarationId: string }>();
   const [adoptionRationale, setAdoptionRationale] = useState('');
   if (!gate.mergeable) return null;
   const adopting = gate.reason === 'check-adoption';
@@ -109,10 +109,14 @@ export function MergeApproval({
         event.preventDefault();
         if (target.trim().length === 0) return;
         if (!adopting) merge({ targetBranch: target.trim() });
-        else if (adoptionDigest && adoptionRationale.trim())
+        else if (proposal && adoptionRationale.trim())
           merge({
             targetBranch: target.trim(),
-            adoptChecks: { proposalDigest: adoptionDigest, rationale: adoptionRationale.trim() },
+            adoptChecks: {
+              proposalDigest: proposal.digest,
+              rationale: adoptionRationale.trim(),
+              declarationId: proposal.declarationId,
+            },
           });
       }}
     >
@@ -151,7 +155,7 @@ export function MergeApproval({
           worktreeId={worktree.id as WorktreeId}
           rationale={adoptionRationale}
           onRationale={setAdoptionRationale}
-          onProposal={setAdoptionDigest}
+          onProposal={setProposal}
           disabled={locked}
         />
       )}
@@ -161,7 +165,7 @@ export function MergeApproval({
         disabled={
           locked ||
           target.trim().length === 0 ||
-          (adopting && (!adoptionDigest || !adoptionRationale.trim()))
+          (adopting && (!proposal || !adoptionRationale.trim()))
         }
       >
         {adopting ? 'Merge and adopt checks' : 'Merge'}

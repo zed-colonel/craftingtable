@@ -185,7 +185,11 @@ it('shows the definitions a merge adopts and merges only with a rationale, namin
   await waitFor(() => expect(onMerged).toHaveBeenCalledWith('wt-1'));
   expect(posted()[0]!.body).toEqual({
     targetBranch: 'wi-fabric-2',
-    adoptChecks: { proposalDigest: digest, rationale: 'The slice adds its isolation check.' },
+    adoptChecks: {
+      proposalDigest: digest,
+      rationale: 'The slice adds its isolation check.',
+      declarationId: '22222222-2222-4222-8222-222222222222',
+    },
   });
 });
 
@@ -235,4 +239,53 @@ it('says when a definition is shown only in part (review F1)', async () => {
   renderPanel();
   const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
   expect(within(review).getByText(/Shown only in part/)).toBeDefined();
+  // A part is never diffed against a whole: the diff would show the cut as a change.
+  expect(within(review).queryByLabelText('Changes to scripts/check.sh')).toBeNull();
+});
+
+it('shows characters that render as nothing, paths exactly, and when the adopted text is gone (verification)', async () => {
+  const base = diagnosis();
+  respond({
+    ...base,
+    merge: {
+      ...base.merge,
+      adoptedChecks: [
+        { id: 'tests', argv: ['make'], definitionPaths: ['Makefile', 'mk/rules.mk'] },
+      ],
+      proposedChecks: [{ id: 'tests', argv: ['make'], definitionPaths: ['Makefile, mk/rules.mk'] }],
+      checks: [{ id: 'tests', change: 'changed' }],
+      definitions: [
+        {
+          path: 'scripts/check.sh',
+          adopted: {
+            path: 'scripts/check.sh',
+            digest: '3'.repeat(64),
+            bytes: 20,
+            text: '#!/bin/sh -e\nfalse\n',
+          },
+          proposed: {
+            path: 'scripts/check.sh',
+            digest: '4'.repeat(64),
+            bytes: 23,
+            text: '\uFEFF#!/bin/sh -e\nfalse\n',
+          },
+        },
+        {
+          path: 'scripts/gone.sh',
+          adopted: { path: 'scripts/gone.sh', digest: '5'.repeat(64), bytes: 0 },
+          proposed: { path: 'scripts/gone.sh', digest: '6'.repeat(64), bytes: 4, text: 'new\n' },
+        },
+      ],
+    },
+  });
+  renderPanel();
+  const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
+  expect(within(review).getByLabelText('Changes to scripts/check.sh').textContent).toContain(
+    '+ ⟦U+FEFF⟧#!/bin/sh -e',
+  );
+  expect(within(review).getByText(/holds characters that show as nothing/)).toBeDefined();
+  const change = within(review).getByRole('group', { name: 'Check tests changed' });
+  expect(change.textContent).toContain('["Makefile","mk/rules.mk"]');
+  expect(change.textContent).toContain('["Makefile, mk/rules.mk"]');
+  expect(within(review).getByText(/The adopted text cannot be shown/)).toBeDefined();
 });

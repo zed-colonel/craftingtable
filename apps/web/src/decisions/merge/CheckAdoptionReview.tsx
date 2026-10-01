@@ -1,19 +1,25 @@
 import type { CheckDefinitionDiagnosisView } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { loadCheckDefinitions } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
 import { lineDiff } from '../../lib/line-diff.js';
+import { hasInvisible, visible } from '../../lib/visible-text.js';
 
 type DefinitionChange = NonNullable<CheckDefinitionDiagnosisView['merge']>['definitions'][number];
 
 /** One definition file: what is adopted now, and what the merge would adopt. */
 function DefinitionDiff({ change }: { change: DefinitionChange }) {
   const { adopted, proposed } = change;
-  const lines =
-    adopted?.text !== undefined && proposed?.text !== undefined
-      ? lineDiff(adopted.text, proposed.text)
-      : undefined;
+  // Computed once per definition, not on every keystroke of the rationale.
+  const lines = useMemo(
+    () =>
+      adopted?.text !== undefined && proposed?.text !== undefined
+        ? lineDiff(adopted.text, proposed.text)
+        : undefined,
+    [adopted?.text, proposed?.text],
+  );
+  const invisible = [adopted?.text, proposed?.text].some((t) => t !== undefined && hasInvisible(t));
   return (
     <div className="check-definition-diff">
       <p>
@@ -24,6 +30,14 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
             ? 'no longer a definition file.'
             : `changed (${shortSha(adopted.digest)} → ${shortSha(proposed.digest)}).`}
       </p>
+      {invisible && (
+        <p className="warning-state">
+          This file holds characters that show as nothing; each is shown as ⟦U+…⟧.
+        </p>
+      )}
+      {adopted && adopted.text === undefined && proposed && (
+        <p className="hint">The adopted text cannot be shown: its commit no longer holds it.</p>
+      )}
       {(adopted?.truncated || proposed?.truncated) && (
         <p className="warning-state">
           Shown only in part:{' '}
@@ -41,7 +55,7 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
                 className={`line-diff-${line.kind}`}
               >
                 {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
-                {line.text}
+                {visible(line.text)}
                 {'\n'}
               </span>
             ))}
@@ -52,13 +66,13 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
           {adopted?.text !== undefined && (
             <details>
               <summary>Adopted text</summary>
-              <pre>{adopted.text}</pre>
+              <pre>{visible(adopted.text)}</pre>
             </details>
           )}
           {proposed?.text !== undefined ? (
             <details open>
               <summary>Text the merge adopts</summary>
-              <pre>{proposed.text}</pre>
+              <pre>{visible(proposed.text)}</pre>
             </details>
           ) : (
             proposed && <p className="hint">Not shown: the file is not short text.</p>
@@ -91,8 +105,12 @@ function CheckChange({
       <>
         <dt>{label}</dt>
         <dd>
-          <code>{JSON.stringify(check.argv)}</code>; definition files:{' '}
-          {check.definitionPaths.length ? <code>{check.definitionPaths.join(', ')}</code> : 'none'}
+          <code>{visible(JSON.stringify(check.argv))}</code>; definition files:{' '}
+          {check.definitionPaths.length ? (
+            <code>{visible(JSON.stringify(check.definitionPaths))}</code>
+          ) : (
+            'none'
+          )}
         </dd>
       </>
     );
@@ -127,7 +145,8 @@ export function CheckAdoptionReview({
   worktreeId: WorktreeId;
   rationale: string;
   onRationale: (value: string) => void;
-  onProposal: (digest: string | undefined) => void;
+  /** What an approval names: the proposal's digest and the adoption it was compared with. */
+  onProposal: (proposal: { digest: string; declarationId: string } | undefined) => void;
   disabled: boolean;
 }) {
   const [diagnosis, setDiagnosis] = useState<CheckDefinitionDiagnosisView>();
@@ -140,7 +159,11 @@ export function CheckAdoptionReview({
       .then((next) => {
         if (!alive) return;
         setDiagnosis(next);
-        onProposal(next.merge && !next.merge.issues.length ? next.merge.proposalDigest : undefined);
+        onProposal(
+          next.merge?.proposalDigest && !next.merge.issues.length
+            ? { digest: next.merge.proposalDigest, declarationId: next.declaration.id }
+            : undefined,
+        );
       })
       .catch((e) => {
         if (alive) setError(String(e));

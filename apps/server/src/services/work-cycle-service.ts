@@ -71,6 +71,7 @@ import {
   UpstreamPinMovedError,
   RepositoryChecksUndeclaredError,
   CheckDefinitionChangedError,
+  DeclaredChecksMissingError,
   UpstreamTransitionUndeclaredError,
   CheckpointAttestationError,
 } from './errors.js';
@@ -2482,8 +2483,9 @@ export class WorkCycleService {
         definitionChangeReason(diagnosis, merges),
       );
     if (!adoptable) return false;
-    // Offered as an adoption only when the whole gate is met; any other gap stays the merge
-    // gate's to report (review F3).
+    // Offered as an adoption only when the whole gate is met (review F3). When the adopted
+    // checks did not all pass with the definitions the slice proposes, the stop says so and
+    // names the exit; any other gap stays the merge gate's to report.
     try {
       this.runtimeEvidence.assertRun(
         tree,
@@ -2492,7 +2494,13 @@ export class WorkCycleService {
         adoptable.proposal?.definitionDigests,
       );
       return true;
-    } catch {
+    } catch (error) {
+      if (diagnosis && error instanceof DeclaredChecksMissingError)
+        throw new CheckDefinitionChangedError(
+          tree.repositoryId,
+          error.missing[0] ?? diagnosis.declaration.id,
+          `This slice changes ${diagnosis.sliceChanged.join(', ')}; its adopted checks did not all pass on the reviewed commit, so its merge cannot adopt them. ${error.message} If the change needs its new definitions to pass, adopt the checks from the slice's commit ${diagnosis.headSha.slice(0, 12)} on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`,
+        );
       return false;
     }
   }

@@ -225,6 +225,8 @@ export const mergeWorktreeRequestSchema = z.strictObject({
     .strictObject({
       proposalDigest: z.string().regex(/^[a-f0-9]{64}$/),
       rationale: z.string().trim().min(1).max(2000),
+      /** The adoption the definitions were shown against; a later one refuses the merge. */
+      declarationId: z.uuid().optional(),
     })
     .optional(),
 });

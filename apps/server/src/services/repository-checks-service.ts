@@ -132,6 +132,8 @@ export interface CheckDefinitionDiagnosis {
 
 /** The most text of one definition a merge's approval shows; a longer one is not adopted. */
 const MERGE_TEXT_LIMIT = 1024 * 1024;
+/** The most text all changed definitions of one merge may hold together. */
+const MERGE_TOTAL_LIMIT = 4 * 1024 * 1024;
 
 /** The digest an operator's approval names: the checks and their definition files' digests. */
 export function proposalDigest(
@@ -585,6 +587,11 @@ export class RepositoryChecksService {
         );
       return { path, adopted: adoptedFile, proposed };
     });
+    const shown = definitions.reduce((sum, d) => sum + (d.proposed?.bytes ?? 0), 0);
+    if (shown > MERGE_TOTAL_LIMIT)
+      issues.push(
+        `The changed definitions hold ${shown} bytes; a merge adopts at most ${MERGE_TOTAL_LIMIT / 1024 / 1024} MiB of definitions shown with it. Adopt them on the Repositories page after reading them in the repository.`,
+      );
     return {
       tree: tree.value,
       proposal,
@@ -716,8 +723,10 @@ function definitionPreview(
   let text: string | undefined;
   try {
     // The whole file must be UTF-8; the text shown is cut at a character, never inside one.
-    const whole = new TextDecoder('utf-8', { fatal: true }).decode(content);
-    text = new TextDecoder('utf-8').decode(content.subarray(0, limit));
+    // A byte order mark is kept: the text shown is the file's, and the mark changes what runs
+    // (verification of the R-G13 increment 5 review).
+    const whole = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(content);
+    text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(content.subarray(0, limit));
     if (content.byteLength > limit && text.endsWith('\uFFFD') && !whole.startsWith(text))
       text = text.slice(0, -1);
   } catch {
@@ -763,7 +772,7 @@ export function definitionChangeReason(
         ? `This slice changes ${sliceMade.join(', ')}, and this review does not merge, so nothing can adopt the change. Adopt it on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`
         : issues.length
           ? `This slice changes ${sliceMade.join(', ')}, and its merge cannot adopt the change: ${issues.join(' ')} Fix it in the slice, or adopt it on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`
-          : `This slice changes ${sliceMade.join(', ')}, and its checks, run as adoption version ${diagnosis.declaration.version} holds them, cannot meet the gate with the definitions it proposes. Adopt the checks from the slice's commit ${short(diagnosis.headSha)} on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`,
+          : `This slice changes ${sliceMade.join(', ')}, and its checks, run as adoption version ${diagnosis.declaration.version} defines them, cannot meet the gate with the definitions it proposes. Adopt the checks from the slice's commit ${short(diagnosis.headSha)} on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`,
     );
   }
   return (

@@ -227,7 +227,13 @@ export class ExecutionService {
   private async checkAdoption(
     worktree: Worktree,
     review: AgentRun,
-    approval: { readonly proposalDigest: string; readonly rationale: string } | undefined,
+    approval:
+      | {
+          readonly proposalDigest: string;
+          readonly rationale: string;
+          readonly declarationId?: string;
+        }
+      | undefined,
     delegated: boolean,
   ): Promise<CheckAdoptionAtMerge | undefined> {
     const refuseUnneeded = () => {
@@ -254,11 +260,28 @@ export class ExecutionService {
         merge.checks[0]?.id ?? diagnosis.declaration.id,
         definitionChangeReason(diagnosis, true),
       );
+    // The gate first, with the definitions the merge would adopt: an unmet gate is reported as
+    // itself, not as an adoption to approve (verification of the review fixes).
+    this.runtimeEvidence?.assertRun(
+      worktree,
+      review.id,
+      this.storage,
+      merge.proposal.definitionDigests,
+    );
     if (delegated)
       throw new CheckAdoptionRequiredError(
         worktree.repositoryId,
         merge.proposalDigest,
         'This merge changes adopted check definitions, so a person approves it and the definitions with it.',
+      );
+    if (
+      approval?.declarationId !== undefined &&
+      approval.declarationId !== diagnosis.declaration.id
+    )
+      throw new CheckAdoptionRequiredError(
+        worktree.repositoryId,
+        merge.proposalDigest,
+        'The adopted checks changed since you reviewed this merge. Review the definitions again before approving.',
       );
     if (approval?.proposalDigest !== merge.proposalDigest)
       throw new CheckAdoptionRequiredError(
@@ -1493,7 +1516,11 @@ export class ExecutionService {
     worktreeId: WorktreeId,
     input: {
       readonly targetBranch?: string;
-      readonly adoptChecks?: { readonly proposalDigest: string; readonly rationale: string };
+      readonly adoptChecks?: {
+        readonly proposalDigest: string;
+        readonly rationale: string;
+        readonly declarationId?: string;
+      };
     } = {},
     requestId?: string,
     delegation?: { roadmapId: string; definitionRevision: number; check: () => void },

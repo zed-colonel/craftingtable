@@ -99,4 +99,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-01-inbox-registry-after | `39e35e4` | 2026-10-01 | 67 (1 phone only) | 1× |
 | 2026-10-01-finalization-setup-kinds-after | `36668c3` | 2026-10-01 | 67 (1 phone only) | 1× |
 | 2026-10-01-query-store-before | `07081fe` | 2026-10-01 | 67 (1 phone only) | 1× |
-| 2026-10-01-query-store-4a-after | `07081fe` | 2026-10-01 | 67 (1 phone only) | 1× |
+| 2026-10-01-query-store-4a-after | `c6f37e1` | 2026-10-01 | 67 (1 phone only) | 1× |

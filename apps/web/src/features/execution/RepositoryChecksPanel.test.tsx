@@ -95,7 +95,7 @@ it('says scoped reviews stop until checks are adopted, then reviews and adopts t
   ).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Review checks file' }));
   const proposed = await screen.findByRole('table', { name: 'Proposed checks for wi' });
-  expect(proposed.textContent).toContain('cargo fmt --check');
+  expect(proposed.textContent).toContain('["cargo","fmt","--check"]');
   // What each definition file holds, and a warning that does not block adoption.
   expect(screen.getByText(/cargo test --all/)).toBeTruthy();
   expect(screen.getByText(/scripts\/check\.sh/, { selector: 'code' })).toBeTruthy();

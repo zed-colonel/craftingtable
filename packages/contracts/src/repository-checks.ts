@@ -101,12 +101,17 @@ export const repositoryChecksViewSchema = z.strictObject({
 });
 export type RepositoryChecksView = z.infer<typeof repositoryChecksViewSchema>;
 
-const definitionFileSchema = z.strictObject({
+const definitionFileFields = {
   path: repositoryPathSchema,
   digest,
   bytes: z.number().int().nonnegative(),
   text: z.string().optional(),
   truncated: z.boolean().optional(),
+};
+const definitionFileSchema = z.strictObject({
+  ...definitionFileFields,
+  /** On the Repositories page: the adopted version, where the file differs from it. */
+  previous: z.strictObject(definitionFileFields).optional(),
 });
 
 /** What adopting the file at a ref would record, read by the daemon at that commit. */
@@ -184,6 +189,7 @@ export const checkDefinitionDiagnosisSchema = z.strictObject({
         }),
       ),
       issues: z.array(z.string()),
+      warnings: z.array(z.string()).optional(),
     })
     .optional(),
 });

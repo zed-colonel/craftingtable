@@ -83,7 +83,15 @@ it('says the slice did not change a definition behind its adoption, and adopts f
       sourcePath: '.craftingtable/checks.json',
       checks: declaration.checks,
       definitionDigests: { 'scripts/isolation.py': '8'.repeat(64) },
-      definitions: [],
+      definitions: [
+        {
+          path: 'scripts/isolation.py',
+          digest: '8'.repeat(64),
+          bytes: 12,
+          text: '\uFEFFcheck()\n',
+          previous: { path: 'scripts/isolation.py', digest: adopted, bytes: 8, text: 'check()\n' },
+        },
+      ],
       issues: [],
       warnings: [],
       branches: [],
@@ -110,6 +118,13 @@ it('says the slice did not change a definition behind its adoption, and adopts f
   ) as HTMLInputElement;
   expect(ref.value).toBe('wi-fabric-2');
   fireEvent.click(screen.getByRole('button', { name: 'Review checks file' }));
+  // The page shows each changed definition against the adopted text, and commands exactly.
+  expect((await screen.findByLabelText('Changes to scripts/isolation.py')).textContent).toBe(
+    '- check()\n+ ⟦U+FEFF⟧check()\n  \n',
+  );
+  expect(screen.getByRole('table', { name: 'Proposed checks for wi' }).textContent).toContain(
+    '["scripts/isolation.py"]',
+  );
   fireEvent.change(await screen.findByLabelText('Why these checks'), {
     target: { value: 'WI-05 extended the isolation check.' },
   });

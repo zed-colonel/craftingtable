@@ -1,18 +1,18 @@
 /**
- * Characters that change what a script or command does but show as nothing, or as something
- * else: zero-width and joiner characters, bidirectional controls, the byte order mark, the soft
- * hyphen, and control characters other than tab and newline (R-G13 increment 5 verification).
+ * Every character outside printable ASCII, tab and newline (R-G13 increment 5, verification):
+ * spaces other than ASCII's, format, control and combining characters, tags, and letters that
+ * look like ASCII ones. Marking all of them, rather than a list of invisible ones, shows a
+ * person exactly what a check runs. The daemon refuses the ones that do not show at merge.
  */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this marks.
-const INVISIBLE = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F­​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+const MARKED = /[^\t\n\x20-\x7E]/gu;
 
-/** The text with each invisible character shown as `⟦U+XXXX⟧`, so a person can see it. */
+/** The text with each character outside printable ASCII shown as `⟦U+XXXX⟧`. */
 export function visible(text: string): string {
   return text.replace(
-    INVISIBLE,
+    MARKED,
     (c) => `⟦U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}⟧`,
   );
 }
 
 /** Whether the text holds a character `visible` would mark. */
-export const hasInvisible = (text: string): boolean => new RegExp(INVISIBLE.source).test(text);
+export const hasMarked = (text: string): boolean => new RegExp(MARKED.source, 'u').test(text);

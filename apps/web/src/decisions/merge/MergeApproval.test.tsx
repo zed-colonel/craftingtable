@@ -283,9 +283,54 @@ it('shows characters that render as nothing, paths exactly, and when the adopted
   expect(within(review).getByLabelText('Changes to scripts/check.sh').textContent).toContain(
     '+ ⟦U+FEFF⟧#!/bin/sh -e',
   );
-  expect(within(review).getByText(/holds characters that show as nothing/)).toBeDefined();
+  expect(within(review).getByText(/holds characters outside plain ASCII/)).toBeDefined();
   const change = within(review).getByRole('group', { name: 'Check tests changed' });
   expect(change.textContent).toContain('["Makefile","mk/rules.mk"]');
   expect(change.textContent).toContain('["Makefile, mk/rules.mk"]');
   expect(within(review).getByText(/The adopted text cannot be shown/)).toBeDefined();
+});
+
+it('marks characters outside plain ASCII in commands, paths and whole texts, and shows the warnings (second verification)', async () => {
+  const base = diagnosis();
+  respond({
+    ...base,
+    merge: {
+      ...base.merge,
+      adoptedChecks: [{ id: 'tests', argv: ['grep', 'TODO'], definitionPaths: [] }],
+      proposedChecks: [{ id: 'tests', argv: ['grep', 'TODO\u{E0020}'], definitionPaths: [] }],
+      checks: [{ id: 'tests', change: 'changed' }],
+      definitions: [
+        {
+          path: 'scripts/tеst.sh',
+          adopted: { path: 'scripts/tеst.sh', digest: '7'.repeat(64), bytes: 0 },
+          proposed: {
+            path: 'scripts/tеst.sh',
+            digest: '8'.repeat(64),
+            bytes: 9,
+            text: 'exit 0\n',
+          },
+        },
+        {
+          path: 'scripts/long.sh',
+          adopted: {
+            path: 'scripts/long.sh',
+            digest: '1'.repeat(64),
+            bytes: 9,
+            text: 'set​-e\n',
+            truncated: true,
+          },
+          proposed: { path: 'scripts/long.sh', digest: '2'.repeat(64), bytes: 9, text: 'set -e\n' },
+        },
+      ],
+      warnings: ['Check tests runs grep from PATH and names no definition files.'],
+    },
+  });
+  renderPanel();
+  const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
+  const text = review.textContent ?? '';
+  expect(text).toContain('["grep","TODO⟦U+E0020⟧"]');
+  expect(text).toContain('scripts/t⟦U+0435⟧st.sh');
+  expect(text).toContain('exit⟦U+00A0⟧0');
+  expect(text).toContain('set⟦U+200B⟧-e');
+  expect(within(review).getByRole('note').textContent).toContain('names no definition files');
 });

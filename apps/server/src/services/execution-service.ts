@@ -231,7 +231,7 @@ export class ExecutionService {
       | {
           readonly proposalDigest: string;
           readonly rationale: string;
-          readonly declarationId?: string;
+          readonly declarationId: string;
         }
       | undefined,
     delegated: boolean,
@@ -274,10 +274,7 @@ export class ExecutionService {
         merge.proposalDigest,
         'This merge changes adopted check definitions, so a person approves it and the definitions with it.',
       );
-    if (
-      approval?.declarationId !== undefined &&
-      approval.declarationId !== diagnosis.declaration.id
-    )
+    if (approval !== undefined && approval.declarationId !== diagnosis.declaration.id)
       throw new CheckAdoptionRequiredError(
         worktree.repositoryId,
         merge.proposalDigest,
@@ -1519,7 +1516,7 @@ export class ExecutionService {
       readonly adoptChecks?: {
         readonly proposalDigest: string;
         readonly rationale: string;
-        readonly declarationId?: string;
+        readonly declarationId: string;
       };
     } = {},
     requestId?: string,

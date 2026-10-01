@@ -137,13 +137,26 @@ async function adoptionFixture(
       resultText: `## Open questions\nnone\n\n## Review report\n${scopeReport(f.state, tree.executionScope!)}`,
     };
   };
-  const merge = (payload: object = {}) =>
+  const post = (payload: object) =>
     f.state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${ws}/worktrees/${tree.id}/merge`,
       headers: mutationHeaders(f.state),
       payload,
     });
+  // An approval names the adoption it was shown against; the current one, unless a test says.
+  const merge = (payload: { adoptChecks?: object } = {}) =>
+    post(
+      payload.adoptChecks
+        ? {
+            ...payload,
+            adoptChecks: {
+              declarationId: storage.runtimeEvidence.checkDeclarations(ws, f.repository.id)[0]!.id,
+              ...payload.adoptChecks,
+            },
+          }
+        : payload,
+    );
   const definitions = async () => {
     const response = await f.state.context.app.inject({
       method: 'GET',
@@ -154,7 +167,7 @@ async function adoptionFixture(
     return checkDefinitionDiagnosisSchema.parse(response.json());
   };
   const declarations = () => storage.runtimeEvidence.checkDeclarations(ws, f.repository.id);
-  return { f, ws, storage, root, integration, head, tree, merge, definitions, declarations };
+  return { f, ws, storage, root, integration, head, tree, merge, post, definitions, declarations };
 }
 
 async function runToMergeApproval(x: Awaited<ReturnType<typeof adoptionFixture>>) {
@@ -390,7 +403,13 @@ itNeedsCargo(
         x.f.auth,
         x.ws,
         x.tree.id,
-        { adoptChecks: { proposalDigest: digest, rationale: 'x' } },
+        {
+          adoptChecks: {
+            proposalDigest: digest,
+            rationale: 'x',
+            declarationId: x.declarations()[0]!.id,
+          },
+        },
         undefined,
         {
           roadmapId: '00000000-0000-4000-8000-000000000001',
@@ -540,7 +559,11 @@ itNeedsCargo(
       url: `/api/workspaces/${ws}/worktrees/${tree.id}/merge`,
       headers: mutationHeaders(state),
       payload: {
-        adoptChecks: { proposalDigest: diagnosis.merge!.proposalDigest!, rationale: 'Better.' },
+        adoptChecks: {
+          proposalDigest: diagnosis.merge!.proposalDigest!,
+          rationale: 'Better.',
+          declarationId: diagnosis.declaration.id,
+        },
       },
     });
     expect(merged.statusCode, merged.body).toBe(200);
@@ -785,6 +808,10 @@ itNeedsCargo(
     // so and names the exit (verification of the review fixes).
     expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
     expect(stopped.reason).toContain('did not all pass on the reviewed commit');
+    // The merge reports the unmet gate before asking for an approval.
+    const bare = await x.merge();
+    expect(bare.statusCode, bare.body).toBe(409);
+    expect(bare.body).toContain('needs a successful run of each declared check');
     expect(stopped.reason).toContain(
       `adopt the checks from the slice's commit ${stopped.reviewHeadSha!.slice(0, 12)} on the Repositories page`,
     );
@@ -936,5 +963,85 @@ itNeedsCargo(
       25000,
     );
     expect(currentCycle(x.f.state, cycle).reason).toContain('The changed definitions hold');
+  },
+);
+
+itNeedsCargo(
+  'a character that does not show, in a definition or a check, is not adopted at merge; the page warns of it (second verification NEW-A)',
+  { timeout: 60000 },
+  async () => {
+    // A tag space renders as nothing: the weakened grep reads like the adopted one.
+    const x = await adoptionFixture({ 'scripts/check.sh': `${IMPROVED}# TODO\u{E0020}\n` });
+    const cycle = await startCycle(x.f.state, x.tree.id);
+    await waitFor(
+      () => currentCycle(x.f.state, cycle).status === 'needs-attention',
+      'definition stop',
+      25000,
+    );
+    expect(currentCycle(x.f.state, cycle).reason).toContain(
+      'scripts/check.sh holds U+E0020 at line 3, a character that does not show',
+    );
+    // The same commit on the Repositories page: adoptable, with the warning.
+    const preview = await x.f.state.context.services.repositoryChecksService.preview(
+      x.f.auth,
+      x.ws,
+      x.tree.repositoryId,
+      currentCycle(x.f.state, cycle).reviewHeadSha!,
+    );
+    expect(preview.issues).toEqual([]);
+    expect(preview.warnings.join(' ')).toContain('scripts/check.sh holds U+E0020 at line 3');
+    // The page shows the adopted text beside it, to compare.
+    expect(preview.definitions[0]).toMatchObject({ previous: { text: ADOPTED } });
+  },
+);
+
+itNeedsCargo(
+  'a check whose command holds a character that does not show is not adopted at merge (second verification NEW-A)',
+  { timeout: 60000 },
+  async () => {
+    const x = await adoptionFixture({
+      [CHECK_DECLARATION_PATH]: `${JSON.stringify({
+        version: 1,
+        checks: [
+          { id: 'script', argv: ['scripts/check.sh'] },
+          { id: 'again', argv: ['scripts/check.sh', '--strict '] },
+        ],
+      })}\n`,
+    });
+    const cycle = await startCycle(x.f.state, x.tree.id);
+    await waitFor(
+      () => currentCycle(x.f.state, cycle).status === 'needs-attention',
+      'definition stop',
+      25000,
+    );
+    expect(currentCycle(x.f.state, cycle).reason).toContain(
+      'check again holds U+00A0 in its command, a character that does not show',
+    );
+  },
+);
+
+itNeedsCargo(
+  'a visible letter outside ASCII is adopted at merge, and an approval must name the adoption it was shown against (second verification)',
+  { timeout: 60000 },
+  async () => {
+    const x = await adoptionFixture({ 'scripts/check.sh': `${IMPROVED}# naïve — fine\n` });
+    await runToMergeApproval(x);
+    const diagnosis = await x.definitions();
+    expect(diagnosis.merge!.issues).toEqual([]);
+    const unnamed = await x.post({
+      adoptChecks: { proposalDigest: diagnosis.merge!.proposalDigest!, rationale: 'x' },
+    });
+    expect(unnamed.statusCode, unnamed.body).toBe(400);
+    expect(
+      (
+        await x.merge({
+          adoptChecks: {
+            proposalDigest: diagnosis.merge!.proposalDigest!,
+            rationale: 'x',
+            declarationId: diagnosis.declaration.id,
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
   },
 );

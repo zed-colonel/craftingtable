@@ -38,6 +38,8 @@ export interface CheckDefinitionFile {
   readonly bytes: number;
   readonly text?: string;
   readonly truncated?: boolean;
+  /** On the Repositories page: the adopted version, where the file differs from it. */
+  readonly previous?: CheckDefinitionFile;
 }
 
 /**
@@ -103,6 +105,8 @@ export interface MergeAdoption {
   }[];
   /** Why the merge cannot adopt its result; empty when it can. */
   readonly issues: readonly string[];
+  /** What the operator should weigh, as the Repositories page's preview says it. */
+  readonly warnings?: readonly string[];
 }
 
 /**
@@ -134,6 +138,52 @@ export interface CheckDefinitionDiagnosis {
 const MERGE_TEXT_LIMIT = 1024 * 1024;
 /** The most text all changed definitions of one merge may hold together. */
 const MERGE_TOTAL_LIMIT = 4 * 1024 * 1024;
+
+/**
+ * The first character a person could not see, or could mistake (R-G13 increment 5, second
+ * verification): anything but tab, newline, printable ASCII, and letters, numbers,
+ * punctuation and symbols that are not default-ignorable. An allowlist, not a list of
+ * invisible characters: spaces other than ASCII's, format and control characters, combining
+ * marks, variation selectors, tags and separators all fall outside it.
+ */
+export function unseenCharacter(
+  text: string,
+): { readonly codePoint: string; readonly line: number } | undefined {
+  let line = 1;
+  for (const c of text) {
+    if (c === '\n') {
+      line += 1;
+      continue;
+    }
+    if (c === '\t' || (c >= ' ' && c <= '~')) continue;
+    if (/[\p{L}\p{N}\p{P}\p{S}]/u.test(c) && !/\p{Default_Ignorable_Code_Point}/u.test(c)) continue;
+    return {
+      codePoint: `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`,
+      line,
+    };
+  }
+  return undefined;
+}
+
+/** Each place in a proposal a person could not see exactly: definitions, commands and paths. */
+function unseenIn(
+  checks: readonly DeclaredCheck[],
+  definitions: readonly { path: string; text?: string }[],
+): string[] {
+  const found: string[] = [];
+  for (const d of definitions) {
+    const at = d.text === undefined ? undefined : unseenCharacter(d.text);
+    if (at) found.push(`${d.path} holds ${at.codePoint} at line ${at.line}`);
+  }
+  for (const check of checks) {
+    const command = check.argv.map((a) => unseenCharacter(a)).find((at) => at);
+    if (command) found.push(`check ${check.id} holds ${command.codePoint} in its command`);
+    const path = check.definitionPaths.map((p) => unseenCharacter(p)).find((at) => at);
+    if (path)
+      found.push(`check ${check.id} names a definition file whose path holds ${path.codePoint}`);
+  }
+  return found;
+}
 
 /** The digest an operator's approval names: the checks and their definition files' digests. */
 export function proposalDigest(
@@ -345,10 +395,33 @@ export class RepositoryChecksService {
       );
     const proposal = await this.proposalAt(repository, commit.value.commitSha, ref);
     const branches = await this.boundBranches(repository, proposal);
+    // Each definition that differs from the current adoption, beside its adopted text.
+    const current = this.storage.runtimeEvidence.checkDeclarations(ws, repositoryId)[0];
+    const changed = current
+      ? proposal.definitions.filter((d) => current.definitionDigests[d.path] !== d.digest)
+      : [];
+    const before = current
+      ? await this.files(
+          repository,
+          current.sourceCommit,
+          changed.map((d) => d.path).filter((p) => current.definitionDigests[p]),
+        ).catch(() => new Map<string, CommitFile>())
+      : new Map<string, CommitFile>();
+    const definitions = proposal.definitions.map((d) => {
+      const old = before.get(d.path);
+      return old?.kind === 'file' && sha256(old.content) === current?.definitionDigests[d.path]
+        ? { ...d, previous: definitionPreview(d.path, old.content) }
+        : d;
+    });
     return {
       ...proposal,
+      definitions,
       warnings: [
         ...proposal.warnings,
+        ...unseenIn(proposal.checks, proposal.definitions).map(
+          (unseen) =>
+            `${unseen}, a character that does not show, or shows as something else; it is shown here as U+…. Adopt it only if you meant it.`,
+        ),
         ...branches.flatMap((b) => [
           ...(b.contains
             ? []
@@ -587,6 +660,17 @@ export class RepositoryChecksService {
         );
       return { path, adopted: adoptedFile, proposed };
     });
+    // What the person approves must be exactly what is adopted: a character they cannot see,
+    // in a changed definition or a changed check, refuses adoption at merge.
+    for (const unseen of unseenIn(
+      proposal.checks.filter((c) => checks.some((x) => x.id === c.id)),
+      definitions.flatMap((d) =>
+        d.proposed?.text === undefined ? [] : [{ path: d.path, text: d.proposed.text }],
+      ),
+    ))
+      issues.push(
+        `${unseen}, a character that does not show, or shows as something else; a merge adopts only what it can show exactly. Remove it, or adopt the checks on the Repositories page after reading them in the repository.`,
+      );
     const shown = definitions.reduce((sum, d) => sum + (d.proposed?.bytes ?? 0), 0);
     if (shown > MERGE_TOTAL_LIMIT)
       issues.push(
@@ -601,6 +685,7 @@ export class RepositoryChecksService {
       checks,
       definitions,
       issues,
+      warnings: proposal.warnings,
     };
   }
 

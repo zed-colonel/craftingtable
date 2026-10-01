@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { loadCheckDefinitions } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
 import { lineDiff } from '../../lib/line-diff.js';
-import { hasInvisible, visible } from '../../lib/visible-text.js';
+import { hasMarked, visible } from '../../lib/visible-text.js';
 
 type DefinitionChange = NonNullable<CheckDefinitionDiagnosisView['merge']>['definitions'][number];
 
@@ -19,20 +19,22 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
         : undefined,
     [adopted?.text, proposed?.text],
   );
-  const invisible = [adopted?.text, proposed?.text].some((t) => t !== undefined && hasInvisible(t));
+  const marked = [change.path, adopted?.text, proposed?.text].some(
+    (t) => t !== undefined && hasMarked(t),
+  );
   return (
     <div className="check-definition-diff">
       <p>
-        <code>{change.path}</code>:{' '}
+        <code>{visible(change.path)}</code>:{' '}
         {!adopted
           ? 'added to the adopted definitions.'
           : !proposed
             ? 'no longer a definition file.'
             : `changed (${shortSha(adopted.digest)} → ${shortSha(proposed.digest)}).`}
       </p>
-      {invisible && (
+      {marked && (
         <p className="warning-state">
-          This file holds characters that show as nothing; each is shown as ⟦U+…⟧.
+          This file holds characters outside plain ASCII; each is shown as ⟦U+…⟧.
         </p>
       )}
       {adopted && adopted.text === undefined && proposed && (
@@ -202,6 +204,11 @@ export function CheckAdoptionReview({
           ))}
           {merge.definitions.map((change) => (
             <DefinitionDiff key={change.path} change={change} />
+          ))}
+          {(merge.warnings ?? []).map((warning) => (
+            <p key={warning} className="hint" role="note">
+              {visible(warning)}
+            </p>
           ))}
           {merge.issues.length > 0 ? (
             <div className="error-state" role="status">

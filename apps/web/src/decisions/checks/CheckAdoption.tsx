@@ -7,10 +7,12 @@ import {
   type SourceRepositorySummary,
 } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { request } from '../../lib/api-client.js';
 import { loadCheckDefinitions, loadRepositoryChecks } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
+import { lineDiff } from '../../lib/line-diff.js';
+import { hasMarked, visible } from '../../lib/visible-text.js';
 
 const encode = encodeURIComponent;
 const mutation = (csrfToken: string, body: unknown): RequestInit => ({
@@ -162,7 +164,7 @@ export function AdoptChecks({
           {preview.definitions.map((file) => (
             <details key={file.path}>
               <summary>
-                <code>{file.path}</code> ({file.bytes} bytes,{' '}
+                <code>{visible(file.path)}</code> ({file.bytes} bytes,{' '}
                 {current === undefined || !(file.path in current.definitionDigests)
                   ? 'new'
                   : current.definitionDigests[file.path] === file.digest
@@ -170,14 +172,7 @@ export function AdoptChecks({
                     : `changed since version ${current.version}`}
                 )
               </summary>
-              {file.text === undefined ? (
-                <p className="hint">Not shown: it is not UTF-8 text.</p>
-              ) : (
-                <pre className="mono">
-                  {file.text}
-                  {file.truncated ? '\n[shortened to its first 64 KiB]' : ''}
-                </pre>
-              )}
+              <DefinitionText file={file} />
             </details>
           ))}
           {preview.issues.length === 0 && (
@@ -207,7 +202,59 @@ export function AdoptChecks({
   );
 }
 
-/** A declaration's checks: each command and the files that define it. */
+type PreviewFile = CheckDeclarationPreview['definitions'][number];
+
+/**
+ * One definition file as the review shows it: against its adopted text where both are whole,
+ * else in full; every character outside plain ASCII marked (R-G13 increment 5 verification).
+ */
+function DefinitionText({ file }: { file: PreviewFile }) {
+  const previous = file.previous;
+  const lines = useMemo(
+    () =>
+      previous?.text !== undefined &&
+      file.text !== undefined &&
+      !previous.truncated &&
+      !file.truncated
+        ? lineDiff(previous.text, file.text)
+        : undefined,
+    [previous?.text, previous?.truncated, file.text, file.truncated],
+  );
+  if (file.text === undefined) return <p className="hint">Not shown: it is not UTF-8 text.</p>;
+  return (
+    <>
+      {[file.text, previous?.text, file.path].some((t) => t !== undefined && hasMarked(t)) && (
+        <p className="warning-state">
+          This file holds characters outside plain ASCII; each is shown as ⟦U+…⟧.
+        </p>
+      )}
+      {lines ? (
+        <figure aria-label={`Changes to ${file.path}`} className="line-diff">
+          <pre>
+            {lines.map((line, index) => (
+              <span
+                // biome-ignore lint/suspicious/noArrayIndexKey: lines have no identity of their own.
+                key={index}
+                className={`line-diff-${line.kind}`}
+              >
+                {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
+                {visible(line.text)}
+                {'\n'}
+              </span>
+            ))}
+          </pre>
+        </figure>
+      ) : (
+        <pre className="mono check-definition-text">
+          {visible(file.text)}
+          {file.truncated ? '\n[shortened to its first 64 KiB]' : ''}
+        </pre>
+      )}
+    </>
+  );
+}
+
+/** A declaration's checks: each command and the files that define it, exactly. */
 export function ChecksTable({
   label,
   checks,
@@ -230,8 +277,12 @@ export function ChecksTable({
           {checks.map((check) => (
             <tr key={check.id}>
               <td className="mono">{check.id}</td>
-              <td className="mono">{check.argv.join(' ')}</td>
-              <td className="mono">{check.definitionPaths.join(', ') || '—'}</td>
+              <td className="mono">{visible(JSON.stringify(check.argv))}</td>
+              <td className="mono">
+                {check.definitionPaths.length
+                  ? visible(JSON.stringify(check.definitionPaths))
+                  : '—'}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -2584,3 +2584,11 @@ button:disabled {
 .line-diff-removed {
   background: var(--color-attention-soft);
 }
+
+/* Definition text wraps, so nothing after a long run of spaces is out of view (R-G13). */
+.line-diff pre,
+.check-adoption-review pre,
+.check-definition-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

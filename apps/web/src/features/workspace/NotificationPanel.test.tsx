@@ -1,5 +1,5 @@
 import { asWorkspaceId, DEFAULT_NOTIFICATION_PREFERENCES } from '@craftingtable/domain';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { loadNotifications, saveNotifications } from '../../lib/notification-api.js';
 import { testQueryStore } from '../../lib/query-store-testing.js';
@@ -63,12 +63,22 @@ it('reloads after a conflict from the status read now, not the cached one (R-D4 
   const { wrap } = testQueryStore();
   render(wrap(<NotificationPanel workspaceId={asWorkspaceId('ws')} csrfToken="csrf" />));
   fireEvent.click(await screen.findByRole('button', { name: 'Save notifications' }));
-  // Changed elsewhere meanwhile: the reload reads version 2.
-  vi.mocked(loadNotifications).mockResolvedValue({ ...status, version: 2 } as never);
+  // Changed elsewhere meanwhile: the reload reads version 2, answered when the test says
+  // so. Looking for Save before the form reset to it raced under load.
+  let answer!: (value: unknown) => void;
+  vi.mocked(loadNotifications).mockReturnValueOnce(
+    new Promise((resolve) => {
+      answer = resolve;
+    }) as never,
+  );
   fireEvent.click(await screen.findByRole('button', { name: 'Reload settings' }));
   await waitFor(() => expect(loadNotifications).toHaveBeenCalledTimes(2));
   vi.mocked(saveNotifications).mockResolvedValue({ ...status, version: 3 } as never);
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Reload settings' })).toBeNull());
+  // The form resets to the read once it settles; look for Save only after that.
+  await act(async () => {
+    answer({ ...status, version: 2 });
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Save notifications' }));
   await waitFor(() => expect(saveNotifications).toHaveBeenCalledTimes(2));
   expect(vi.mocked(saveNotifications).mock.calls[1]![1]).toMatchObject({ expectedVersion: 2 });

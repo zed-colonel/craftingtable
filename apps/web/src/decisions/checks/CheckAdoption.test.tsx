@@ -183,3 +183,41 @@ it('adopts first checks from the integration branch for an undeclared repository
       .value,
   ).toBe('wi-fabric-2');
 });
+
+it('marks paths in the differing table, and says when a changed file has no adopted text (third verification)', async () => {
+  const marked = diagnosis(['scripts/isolation.py'], '6'.repeat(64));
+  marked.paths[1]!.path = 'scripts/is\u043Elation.py';
+  respond({
+    '/checks': { repositoryId, declarations: [declaration] },
+    '/check-definitions': marked,
+    '/checks/preview': {
+      ref: 'e'.repeat(40),
+      commitSha: 'e'.repeat(40),
+      sourcePath: '.craftingtable/checks.json',
+      checks: declaration.checks,
+      definitionDigests: { 'scripts/isolation.py': '6'.repeat(64) },
+      definitions: [
+        { path: 'scripts/isolation.py', digest: '6'.repeat(64), bytes: 5, text: 'new()\n' },
+      ],
+      issues: [],
+      warnings: [],
+      branches: [],
+    },
+  });
+  render(
+    <CheckAdoption
+      workspaceId={asWorkspaceId('ws-1')}
+      repository={repository}
+      worktreeId={'wt-1' as WorktreeId}
+      csrfToken="csrf"
+      editable
+      onAdopted={vi.fn()}
+    />,
+  );
+  const table = await screen.findByRole('table', {
+    name: 'Definitions that differ from the adoption',
+  });
+  expect(table.textContent).toContain('scripts/is⟦U+043E⟧lation.py');
+  fireEvent.click(screen.getByRole('button', { name: 'Review checks file' }));
+  expect(await screen.findByText(/No adopted text to compare/)).toBeDefined();
+});

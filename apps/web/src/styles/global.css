@@ -2592,3 +2592,9 @@ button:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* A command or path shown exactly: runs of spaces are not collapsed (R-G13). */
+.exact-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

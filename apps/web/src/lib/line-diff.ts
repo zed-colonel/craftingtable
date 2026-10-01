@@ -12,8 +12,27 @@ const LIMIT = 4_000_000;
  * too long to compare here.
  */
 export function lineDiff(before: string, after: string): DiffLine[] | undefined {
-  const a = before.split('\n');
-  const b = after.split('\n');
+  const all = { a: before.split('\n'), b: after.split('\n') };
+  // Lines both texts start and end with are kept as they are; only the middle is compared.
+  let head = 0;
+  while (head < all.a.length && head < all.b.length && all.a[head] === all.b[head]) head += 1;
+  let tail = 0;
+  while (
+    tail < all.a.length - head &&
+    tail < all.b.length - head &&
+    all.a[all.a.length - 1 - tail] === all.b[all.b.length - 1 - tail]
+  )
+    tail += 1;
+  const a = all.a.slice(head, all.a.length - tail);
+  const b = all.b.slice(head, all.b.length - tail);
+  const same = (lines: readonly string[]) => lines.map((text) => ({ kind: 'same' as const, text }));
+  const middle = middleDiff(a, b);
+  return (
+    middle && [...same(all.a.slice(0, head)), ...middle, ...same(all.a.slice(all.a.length - tail))]
+  );
+}
+
+function middleDiff(a: readonly string[], b: readonly string[]): DiffLine[] | undefined {
   if (a.length * b.length > LIMIT) return undefined;
   const width = b.length + 1;
   const lengths = new Uint32Array((a.length + 1) * width);

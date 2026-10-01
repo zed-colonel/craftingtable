@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { AdoptChecks, ChecksTable } from '../../decisions/checks/CheckAdoption.js';
 import { loadRepositoryCheckReceipts, loadRepositoryChecks } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
+import { visible } from '../../lib/visible-text.js';
 
 /** The element a check stop's inbox item opens (R-G13). */
 export const repositoryChecksFocus = (repositoryId: string): string =>
@@ -95,7 +96,7 @@ function CheckReceipts({ data }: { data: RepositoryCheckReceipts }) {
                   )}
                   {receipt.declarationVersion && ` (version ${receipt.declarationVersion})`}
                   {receipt.kind !== 'declared' && (
-                    <span className="mono hint"> {receipt.command}</span>
+                    <span className="mono hint exact-text"> {visible(receipt.command)}</span>
                   )}
                 </td>
                 <td>{REQUESTED_BY[receipt.requestedBy]}</td>
@@ -193,7 +194,7 @@ export function RepositoryChecksPanel({
                 {d.adoptedAtMerge
                   ? ', adopted by approving the merge that changed them'
                   : ', adopted on this page'}
-                : {adoptionChanges(d, declarations[index + 1])}. Why: {d.rationale}
+                : {visible(adoptionChanges(d, declarations[index + 1]))}. Why: {d.rationale}
               </li>
             ))}
           </ol>

@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { loadCheckDefinitions } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
 import { lineDiff } from '../../lib/line-diff.js';
-import { hasMarked, visible } from '../../lib/visible-text.js';
+import {
+  differsOnlyInWhitespace,
+  hasMarked,
+  visible,
+  visibleDefinition,
+} from '../../lib/visible-text.js';
 
 type DefinitionChange = NonNullable<CheckDefinitionDiagnosisView['merge']>['definitions'][number];
 
@@ -38,7 +43,10 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
         </p>
       )}
       {adopted && adopted.text === undefined && proposed && (
-        <p className="hint">The adopted text cannot be shown: its commit no longer holds it.</p>
+        <p className="hint">
+          The adopted text cannot be shown: it is not short UTF-8 text, or its commit no longer
+          holds it.
+        </p>
       )}
       {(adopted?.truncated || proposed?.truncated) && (
         <p className="warning-state">
@@ -47,6 +55,21 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
           this view shows.
         </p>
       )}
+      {adopted?.text !== undefined &&
+        proposed?.text !== undefined &&
+        differsOnlyInWhitespace(adopted.text, proposed.text) && (
+          <p className="warning-state">
+            The texts differ only in spaces, tabs or line ends, which can change what a script does:
+            tabs are shown as →, trailing spaces as ·.
+          </p>
+        )}
+      {adopted?.text !== undefined &&
+        proposed?.text !== undefined &&
+        !adopted.truncated &&
+        !proposed.truncated &&
+        !lines && (
+          <p className="hint">Too long to compare line by line here; both texts are shown.</p>
+        )}
       {lines && !adopted?.truncated && !proposed?.truncated ? (
         <figure aria-label={`Changes to ${change.path}`} className="line-diff">
           <pre>
@@ -57,7 +80,7 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
                 className={`line-diff-${line.kind}`}
               >
                 {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
-                {visible(line.text)}
+                {visibleDefinition(line.text)}
                 {'\n'}
               </span>
             ))}
@@ -68,13 +91,13 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
           {adopted?.text !== undefined && (
             <details>
               <summary>Adopted text</summary>
-              <pre>{visible(adopted.text)}</pre>
+              <pre>{visibleDefinition(adopted.text)}</pre>
             </details>
           )}
           {proposed?.text !== undefined ? (
             <details open>
               <summary>Text the merge adopts</summary>
-              <pre>{visible(proposed.text)}</pre>
+              <pre>{visibleDefinition(proposed.text)}</pre>
             </details>
           ) : (
             proposed && <p className="hint">Not shown: the file is not short text.</p>
@@ -107,9 +130,10 @@ function CheckChange({
       <>
         <dt>{label}</dt>
         <dd>
-          <code>{visible(JSON.stringify(check.argv))}</code>; definition files:{' '}
+          <code className="exact-text">{visible(JSON.stringify(check.argv))}</code>; definition
+          files:{' '}
           {check.definitionPaths.length ? (
-            <code>{visible(JSON.stringify(check.definitionPaths))}</code>
+            <code className="exact-text">{visible(JSON.stringify(check.definitionPaths))}</code>
           ) : (
             'none'
           )}
@@ -215,7 +239,7 @@ export function CheckAdoptionReview({
               <p>The merge cannot adopt these checks:</p>
               <ul>
                 {merge.issues.map((issue) => (
-                  <li key={issue}>{issue}</li>
+                  <li key={issue}>{visible(issue)}</li>
                 ))}
               </ul>
             </div>

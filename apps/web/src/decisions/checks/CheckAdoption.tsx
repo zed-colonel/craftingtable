@@ -12,7 +12,12 @@ import { request } from '../../lib/api-client.js';
 import { loadCheckDefinitions, loadRepositoryChecks } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
 import { lineDiff } from '../../lib/line-diff.js';
-import { hasMarked, visible } from '../../lib/visible-text.js';
+import {
+  differsOnlyInWhitespace,
+  hasMarked,
+  visible,
+  visibleDefinition,
+} from '../../lib/visible-text.js';
 
 const encode = encodeURIComponent;
 const mutation = (csrfToken: string, body: unknown): RequestInit => ({
@@ -146,13 +151,13 @@ export function AdoptChecks({
           {preview.issues.map((issue, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: two issues may read the same.
             <p key={index} className="warning-state">
-              {issue}
+              {visible(issue)}
             </p>
           ))}
           {preview.warnings.map((warning, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: two warnings may read the same.
             <p key={index} className="hint" role="note">
-              {warning}
+              {visible(warning)}
             </p>
           ))}
           {preview.checks.length > 0 && (
@@ -172,7 +177,10 @@ export function AdoptChecks({
                     : `changed since version ${current.version}`}
                 )
               </summary>
-              <DefinitionText file={file} />
+              <DefinitionText
+                file={file}
+                changed={current?.definitionDigests[file.path] !== file.digest}
+              />
             </details>
           ))}
           {preview.issues.length === 0 && (
@@ -208,7 +216,7 @@ type PreviewFile = CheckDeclarationPreview['definitions'][number];
  * One definition file as the review shows it: against its adopted text where both are whole,
  * else in full; every character outside plain ASCII marked (R-G13 increment 5 verification).
  */
-function DefinitionText({ file }: { file: PreviewFile }) {
+function DefinitionText({ file, changed }: { file: PreviewFile; changed: boolean }) {
   const previous = file.previous;
   const lines = useMemo(
     () =>
@@ -223,6 +231,18 @@ function DefinitionText({ file }: { file: PreviewFile }) {
   if (file.text === undefined) return <p className="hint">Not shown: it is not UTF-8 text.</p>;
   return (
     <>
+      {changed && previous === undefined && (
+        <p className="hint">
+          No adopted text to compare: the file is new, not short UTF-8 text, or the adopted commit
+          no longer holds it.
+        </p>
+      )}
+      {previous?.text !== undefined && differsOnlyInWhitespace(previous.text, file.text) && (
+        <p className="warning-state">
+          The texts differ only in spaces, tabs or line ends, which can change what a script does:
+          tabs are shown as →, trailing spaces as ·.
+        </p>
+      )}
       {[file.text, previous?.text, file.path].some((t) => t !== undefined && hasMarked(t)) && (
         <p className="warning-state">
           This file holds characters outside plain ASCII; each is shown as ⟦U+…⟧.
@@ -238,17 +258,25 @@ function DefinitionText({ file }: { file: PreviewFile }) {
                 className={`line-diff-${line.kind}`}
               >
                 {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
-                {visible(line.text)}
+                {visibleDefinition(line.text)}
                 {'\n'}
               </span>
             ))}
           </pre>
         </figure>
       ) : (
-        <pre className="mono check-definition-text">
-          {visible(file.text)}
-          {file.truncated ? '\n[shortened to its first 64 KiB]' : ''}
-        </pre>
+        <>
+          {previous?.text !== undefined && (
+            <details>
+              <summary>Adopted text (too long to compare line by line here)</summary>
+              <pre className="mono check-definition-text">{visibleDefinition(previous.text)}</pre>
+            </details>
+          )}
+          <pre className="mono check-definition-text">
+            {visibleDefinition(file.text)}
+            {file.truncated ? '\n[shortened to its first 64 KiB]' : ''}
+          </pre>
+        </>
       )}
     </>
   );
@@ -277,7 +305,7 @@ export function ChecksTable({
           {checks.map((check) => (
             <tr key={check.id}>
               <td className="mono">{check.id}</td>
-              <td className="mono">{visible(JSON.stringify(check.argv))}</td>
+              <td className="mono exact-text">{visible(JSON.stringify(check.argv))}</td>
               <td className="mono">
                 {check.definitionPaths.length
                   ? visible(JSON.stringify(check.definitionPaths))
@@ -381,7 +409,7 @@ export function CheckAdoption({
             <tbody>
               {changed.map((row) => (
                 <tr key={row.path}>
-                  <td className="mono">{row.path}</td>
+                  <td className="mono">{visible(row.path)}</td>
                   <td>{changedBy(row, diagnosis.targetBranch)}</td>
                 </tr>
               ))}

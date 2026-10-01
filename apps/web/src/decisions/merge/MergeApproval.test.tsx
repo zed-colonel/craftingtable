@@ -334,3 +334,51 @@ it('marks characters outside plain ASCII in commands, paths and whole texts, and
   expect(text).toContain('set⟦U+200B⟧-e');
   expect(within(review).getByRole('note').textContent).toContain('names no definition files');
 });
+
+it('shows tabs, trailing spaces and spacing in commands, says when only whitespace differs, and when the diff was skipped (third verification)', async () => {
+  const base = diagnosis();
+  const long = (tag: string) => Array.from({ length: 2100 }, (_, i) => `${tag} ${i}`).join('\n');
+  respond({
+    ...base,
+    merge: {
+      ...base.merge,
+      adoptedChecks: [{ id: 'tests', argv: ['grep', 'TODO FIXME'], definitionPaths: [] }],
+      proposedChecks: [{ id: 'tests', argv: ['grep', 'TODO  FIXME'], definitionPaths: [] }],
+      checks: [{ id: 'tests', change: 'changed' }],
+      definitions: [
+        {
+          path: 'scripts/heredoc.sh',
+          adopted: {
+            path: 'scripts/heredoc.sh',
+            digest: '1'.repeat(64),
+            bytes: 9,
+            text: 'cat <<-EOF\n\tEOF\n',
+          },
+          proposed: {
+            path: 'scripts/heredoc.sh',
+            digest: '2'.repeat(64),
+            bytes: 9,
+            text: 'cat <<-EOF\n      EOF\n',
+          },
+        },
+        {
+          path: 'Makefile',
+          adopted: { path: 'Makefile', digest: '3'.repeat(64), bytes: 9, text: long('old') },
+          proposed: { path: 'Makefile', digest: '4'.repeat(64), bytes: 9, text: long('new') },
+        },
+      ],
+      issues: ['defs/bеd.sh holds U+0435'],
+    },
+  });
+  renderPanel();
+  const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
+  expect(within(review).getByLabelText('Changes to scripts/heredoc.sh').textContent).toBe(
+    '  cat <<-EOF\n- →\tEOF\n+       EOF\n  \n',
+  );
+  expect(within(review).getByText(/differ only in spaces, tabs or line ends/)).toBeDefined();
+  expect(within(review).getByText(/Too long to compare line by line here/)).toBeDefined();
+  const change = within(review).getByRole('group', { name: 'Check tests changed' });
+  for (const code of change.querySelectorAll('dd code'))
+    expect(code.className).toContain('exact-text');
+  expect(review.textContent).toContain('defs/b⟦U+0435⟧d.sh holds U+0435');
+});

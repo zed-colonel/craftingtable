@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { hasMarked, visible } from './visible-text.js';
+import { differsOnlyInWhitespace, hasMarked, visible, visibleDefinition } from './visible-text.js';
 
 it('marks every character outside printable ASCII, and leaves tabs, newlines and ASCII alone', () => {
   expect(visible('﻿#!/bin/sh -e\n')).toBe('⟦U+FEFF⟧#!/bin/sh -e\n');
@@ -12,4 +12,11 @@ it('marks every character outside printable ASCII, and leaves tabs, newlines and
   expect(visible('\tindented\nplain ascii ~')).toBe('\tindented\nplain ascii ~');
   expect(hasMarked('plain')).toBe(false);
   expect(hasMarked('naïve')).toBe(true);
+});
+
+it('shows tabs and trailing spaces in a definition, which marks can only be ours', () => {
+  expect(visibleDefinition('\tEOF\n      EOF   \n')).toBe('→\tEOF\n      EOF···\n');
+  expect(visibleDefinition('literal → ·')).toBe('literal ⟦U+2192⟧ ⟦U+00B7⟧');
+  expect(differsOnlyInWhitespace('a\tb', 'a  b')).toBe(true);
+  expect(differsOnlyInWhitespace('a b', 'a c')).toBe(false);
 });

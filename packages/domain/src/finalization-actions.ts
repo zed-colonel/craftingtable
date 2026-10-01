@@ -2,6 +2,32 @@ import { currentFinalizationStage } from './finalization-stages.js';
 import type { Finalization } from './finalization.js';
 import type { WorkCycle } from './work-cycle.js';
 
+/**
+ * The plan adjustments a finalization's current review proposes: the only ones
+ * `approve-plan-change` accepts. A proposal an earlier review made, kept in the ledger because
+ * a later report did not mention it, cannot be approved (R-A6 2b review).
+ */
+export function currentPlanChanges<
+  O extends {
+    readonly status: string;
+    readonly proposedRequirement?: string;
+    readonly runId?: string;
+  },
+>(cycle: {
+  readonly currentRunId?: string;
+  readonly finalizationProgress?: { readonly obligations: readonly O[] };
+}): O[] {
+  return (
+    cycle.finalizationProgress?.obligations.filter(
+      (o) =>
+        o.status === 'change-requested' &&
+        !!o.proposedRequirement &&
+        o.runId !== undefined &&
+        o.runId === cycle.currentRunId,
+    ) ?? []
+  );
+}
+
 /** The decisions a staged finalization can be given (R-A6 increment 2b). */
 export const FINALIZATION_DECISIONS = [
   'resume',
@@ -21,8 +47,8 @@ export type FinalizationDecision = (typeof FINALIZATION_DECISIONS)[number];
  *
  * - `merge`: the final review approved the candidate, or an approved promotion is reserved and
  *   must be recovered (nothing else is offered then).
- * - At a stopped or paused cycle with no integration resolution open: the plan adjustment a
- *   stage proposes, else its batch selection, else focused remediation of the checkpoint's
+ * - At a stopped or paused cycle with no integration resolution open: the plan adjustment the
+ *   current review proposes, else its batch selection, else focused remediation of the checkpoint's
  *   findings and more attempts where the daemon allows them.
  * - `resume`: whenever the finalization is preparing or its cycle is not running.
  */
@@ -30,7 +56,7 @@ export function finalizationActions(input: {
   readonly finalization: Pick<Finalization, 'status' | 'stages'>;
   readonly cycle?: Pick<
     WorkCycle,
-    'status' | 'polishPhase' | 'integrationResolution' | 'finalizationProgress'
+    'status' | 'polishPhase' | 'integrationResolution' | 'finalizationProgress' | 'currentRunId'
   >;
   readonly mergeRecoveryPending: boolean;
   readonly checkpointFindings: number;
@@ -48,10 +74,7 @@ export function finalizationActions(input: {
     !!cycle?.integrationResolution &&
     !['completed', 'abandoned'].includes(cycle.integrationResolution.status);
   if (!resolving) {
-    const proposals =
-      cycle?.finalizationProgress?.obligations.filter((o) => o.status === 'change-requested')
-        .length ?? 0;
-    if (proposals) actions.push('approve-plan-change');
+    if (cycle && currentPlanChanges(cycle).length) actions.push('approve-plan-change');
     else if (cycle && currentFinalizationStage(cycle)?.status === 'selecting')
       actions.push('select-stage-findings');
     else {

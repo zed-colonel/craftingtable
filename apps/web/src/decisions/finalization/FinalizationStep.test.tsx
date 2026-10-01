@@ -149,3 +149,72 @@ it("offers a stage's batch without a resume the daemon does not offer", () => {
     [...screen.getByLabelText('Next action').querySelectorAll('option')].map((o) => o.value),
   ).toEqual(['select-stage-findings']);
 });
+
+const selecting = (obligations: object[]) =>
+  ({
+    ...view([]).cycle!,
+    currentRunId: 'run-9',
+    finalizationProgress: { stageIndex: 0, stages: [{ status: 'selecting' }], obligations },
+  }) as never;
+const proposal = (runId: string) => ({
+  id: 'OB-1',
+  status: 'change-requested',
+  requirement: 'Adopted requirement.',
+  proposedRequirement: 'Narrower requirement.',
+  runId,
+});
+const options = () =>
+  [...screen.getByLabelText('Next action').querySelectorAll('option')].map((o) => o.value);
+
+it("offers an earlier review's leftover proposal for nothing: the stage's batch instead (R-A6 2b review)", () => {
+  render(
+    <FinalizationStep
+      workspaceId={asWorkspaceId('ws')}
+      view={view(['select-stage-findings', 'resume'], {
+        cycle: selecting([proposal('run-1')]),
+      })}
+      csrfToken="csrf"
+      disabled={false}
+      backends={[]}
+      onDone={vi.fn()}
+    />,
+  );
+  expect(options()).toEqual(['select-stage-findings', 'resume']);
+});
+
+it("offers the current review's proposal only when the daemon does", () => {
+  const { rerender } = render(
+    <FinalizationStep
+      workspaceId={asWorkspaceId('ws')}
+      view={view(['approve-plan-change', 'resume'], { cycle: selecting([proposal('run-9')]) })}
+      csrfToken="csrf"
+      disabled={false}
+      backends={[]}
+      onDone={vi.fn()}
+    />,
+  );
+  expect(options()).toEqual(['approve-plan-change', 'resume']);
+  rerender(
+    <FinalizationStep
+      workspaceId={asWorkspaceId('ws')}
+      view={view(['resume'], { cycle: selecting([proposal('run-9')]) })}
+      csrfToken="csrf"
+      disabled={false}
+      backends={[]}
+      onDone={vi.fn()}
+    />,
+  );
+  expect(options()).toEqual(['resume']);
+  // At the stage form, a proposal the daemon does not offer for approval is not offered.
+  rerender(
+    <FinalizationStep
+      workspaceId={asWorkspaceId('ws')}
+      view={view(['select-stage-findings', 'resume'], { cycle: selecting([proposal('run-9')]) })}
+      csrfToken="csrf"
+      disabled={false}
+      backends={[]}
+      onDone={vi.fn()}
+    />,
+  );
+  expect(options()).not.toContain('approve-plan-change');
+});

@@ -4,6 +4,7 @@ import type {
   FinalizationView,
 } from '@craftingtable/contracts';
 import {
+  currentPlanChanges,
   type FinalizationAgentSelection,
   finalizationProfile,
   optionalFinding,
@@ -107,7 +108,8 @@ function StageDecision({
   const cycle = view.cycle;
   const progress = cycle?.finalizationProgress;
   const stage = view.finalization.stages?.[progress?.stageIndex ?? 0];
-  const proposals = progress?.obligations.filter((o) => o.status === 'change-requested') ?? [];
+  // Only the current review's proposals can be approved (R-A6 2b review).
+  const proposals = cycle ? currentPlanChanges(cycle) : [];
   const choices = view.checkpointFindings.filter(
     (f) => optionalFinding(f) && f.category === stage?.kind,
   );

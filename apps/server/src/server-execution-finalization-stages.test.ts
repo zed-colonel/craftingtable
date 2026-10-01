@@ -125,6 +125,29 @@ async function findingCheckpointFixture(severity: 'nit' | 'minor' = 'nit', quest
 }
 
 describe('finalization finding decisions', () => {
+  it('refuses a decision the finalization does not offer now, and returns the ones it does (R-A6 2b)', async () => {
+    const { state, value, backend } = await findingCheckpointFixture();
+    const listed = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/plans/${value.planVersionId}/finalizations`,
+      headers: { cookie: state.cookie },
+    });
+    expect(listed.statusCode, listed.body).toBe(200);
+    expect(
+      (listed.json() as { finalizations: { actions: string[] }[] }).finalizations[0]!.actions,
+    ).toEqual(['remediate-findings', 'resume']);
+    const before = finalizationCycle(state, value);
+    // A stage batch is chosen only while a stage is selecting; this checkpoint is not.
+    const refused = await finalizationCommand(state, value, 'select-stage-findings', {
+      selectedFindingIds: [],
+      rationale: 'Keep as follow-up.',
+    });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.body).toContain('does not offer select-stage-findings now');
+    expect(finalizationCycle(state, value)).toEqual(before);
+    expect(backend.launches).toHaveLength(1);
+  });
+
   it.each(['head', 'target', 'unknown'])(
     'rejects a finding decision after %s changes',
     async (change) => {

@@ -1,4 +1,4 @@
-import { FINALIZATION_STAGE_KINDS } from '@craftingtable/domain';
+import { FINALIZATION_DECISIONS, FINALIZATION_STAGE_KINDS } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
   agentRunSummarySchema,
@@ -126,6 +126,8 @@ export const finalizationViewSchema = z.strictObject({
   worktree: worktreeSummarySchema.optional(),
   runs: z.array(agentRunSummarySchema),
   mergeRecoveryPending: z.boolean(),
+  /** The decisions the finalization offers now, as the daemon decides them (R-A6 2b). */
+  actions: z.array(z.enum(FINALIZATION_DECISIONS)).default([]),
   checkpointFindings: z.array(reviewFindingSchema).default([]),
   canAuthorizeRemediation: z.boolean().default(false),
 });

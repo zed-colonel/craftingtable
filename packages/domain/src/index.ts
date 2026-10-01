@@ -4,6 +4,7 @@ export * from './concurrency-source.js';
 export * from './execution.js';
 export * from './finalization.js';
 export * from './finalization-stages.js';
+export * from './finalization-actions.js';
 export * from './ids.js';
 export * from './imports.js';
 export * from './merge-operation.js';

@@ -11,6 +11,9 @@ import {
   type Finalization,
   type PlanVersionId,
   type WorkspaceId,
+  FINALIZATION_DECISIONS,
+  type FinalizationDecision,
+  finalizationActions,
 } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
@@ -170,6 +173,16 @@ export class FinalizationService {
         cycle.version !== input.expectedCycleVersion
       )
         conflict('Finalization cycle changed; refresh before continuing.');
+      // A decision the finalization does not offer now is refused, whatever its own checks say.
+      // A stage-less (retired) finalization keeps its own refusal below.
+      if (
+        value.stages &&
+        (FINALIZATION_DECISIONS as readonly string[]).includes(input.action) &&
+        !this.actions(value).includes(input.action as FinalizationDecision)
+      )
+        conflict(
+          `This finalization does not offer ${input.action} now; refresh to see its next step.`,
+        );
       if (input.action === 'remove-integration-branch')
         return this.view(await this.cleanupIntegration(context, value));
       if (input.action === 'remove-worktree') {
@@ -476,11 +489,29 @@ export class FinalizationService {
       throw error;
     }
   }
+  /**
+   * The decisions the finalization offers now (R-A6 increment 2b): returned with the view, and
+   * the first check of the control command.
+   */
+  private actions(value: Finalization): FinalizationDecision[] {
+    const cycle = this.storage.execution.cycles.find(value.workspaceId, value.cycleId);
+    return finalizationActions({
+      finalization: value,
+      ...(cycle ? { cycle } : {}),
+      mergeRecoveryPending:
+        this.storage.execution.merges.latest(value.workspaceId, value.worktreeId)?.status ===
+        'reserved',
+      checkpointFindings: cycle ? this.cycles.finalizationCheckpointFindings(cycle).length : 0,
+      canAuthorizeRemediation:
+        value.status === 'active' && !!cycle && !this.cycles.finalizationRemediationBlocker(cycle),
+    });
+  }
   private view(value: Finalization) {
     const cycle = this.storage.execution.cycles.find(value.workspaceId, value.cycleId);
     return {
       finalization: value,
       cycle,
+      actions: this.actions(value),
       checkpointFindings: cycle ? this.cycles.finalizationCheckpointFindings(cycle) : [],
       canAuthorizeRemediation:
         value.status === 'active' && !!cycle && !this.cycles.finalizationRemediationBlocker(cycle),

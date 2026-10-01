@@ -8,7 +8,12 @@ import { e2eEnvironment } from './e2e-environment.js';
 const E2E_USERNAME = 'e2e-admin';
 const E2E_PASSWORD = 'correct horse battery staple';
 const directory = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-'));
-const config = configFromEnv(e2eEnvironment(directory, process.env));
+// Agents' own short temporary directories (LIVE-31): the data directory's path is too long.
+const agents = mkdtempSync('/tmp/cte-');
+const config = configFromEnv({
+  ...e2eEnvironment(directory, process.env),
+  CRAFTINGTABLE_AGENT_TMP_ROOT: agents,
+});
 const runtime = await createRuntime(config, {
   logger: true,
   overrides: { notificationTransport: { send: async () => ({ status: 'accepted' }) } },
@@ -30,10 +35,14 @@ async function close(): Promise<void> {
     rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+  rmSync(agents, { recursive: true, force: true });
 }
 
 process.once('SIGINT', () => void close());
 process.once('SIGTERM', () => void close());
-process.once('exit', () => rmSync(directory, { recursive: true, force: true }));
+process.once('exit', () => {
+  rmSync(directory, { recursive: true, force: true });
+  rmSync(agents, { recursive: true, force: true });
+});
 
 await runtime.app.listen({ host: config.host, port: config.port });

@@ -49,7 +49,8 @@ export interface ExecutionConfig {
   /**
    * Where each run's agent process gets a short private temporary directory (LIVE-31): Claude
    * Code's command sandbox makes Unix sockets in its TMPDIR, whose paths hold at most 107 bytes,
-   * so the directory must be short. `<data>/t`.
+   * so the directory must be short: `<data>/t`, or `CRAFTINGTABLE_AGENT_TMP_ROOT` where the data
+   * directory's path is long (each run's is this plus 13 bytes, and must be at most 60).
    */
   readonly agentTemporaryRoot: string;
 }
@@ -196,7 +197,10 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
   if (pathsOverlap(cargoHome, runsRoot) || pathsOverlap(cargoHome, worktreeRoot)) {
     throw new Error("The daemon's Cargo home must lie outside the worktree and runs roots");
   }
-  const agentTemporaryRoot = join(dataDir, 't');
+  // Short, for Claude Code's sandbox sockets; a long data directory names one elsewhere.
+  const agentTemporaryRoot = env.CRAFTINGTABLE_AGENT_TMP_ROOT ?? join(dataDir, 't');
+  if (!isNormalizedAbsolutePath(agentTemporaryRoot))
+    throw new Error('CRAFTINGTABLE_AGENT_TMP_ROOT must be a normalized absolute path');
   if (
     [runsRoot, worktreeRoot, checkLogRoot, cargoHome].some((root) =>
       pathsOverlap(agentTemporaryRoot, root),

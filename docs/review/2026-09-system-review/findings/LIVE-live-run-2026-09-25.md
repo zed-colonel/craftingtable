@@ -461,3 +461,16 @@ The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, se
   - The view is fetched by the evidence panel on the Roadmaps and Plans pages, again on each roadmap revision, and returned by every shared-decision and evidence action. The daemon reads SQLite synchronously on one event loop, so each request holds every other request, and the scheduler's pass, for its duration.
   - Lesser costs in the same log: `worktrees/:id/branch-status` up to 5.8 s (Git) and the Delegate source fixes preview (`cycles/:id/scope-repair`) occasionally 7 to 9 s.
 - Impact: the app feels slow everywhere while a roadmap runs, worse as evidence accumulates and as agent builds load the machine; automation waits with it.
+
+### LIVE-30: An adoption from a branch behind the integration branch stops every slice as `check-definition-changed`, and the stop blames the slice
+- Severity: medium (every WI slice reviewed on the current integration branch stops until the checks are adopted again; no data loss; the exit is adopting, then Resume)
+- Category: declared checks ([R-G13](../register.md#r-g13) increment 5)
+- Status: CONFIRMED 2026-09-30 from the 2026-09-30d snapshot (read-only) and the WorldInterface repository's refs. Operator decision the same day: R-G13 increment 5 next, with this finding's diagnostics.
+- Replay case: the 2026-09-30d snapshot, cycle `ace289b2` (wi/WI-03/domain), review `71727624`. The decision replays record the review's approval; the stop comes from the approval's check gate, which reads Git, so they do not show it.
+- Evidence:
+  - WI's checks v2 was adopted at 07:12Z from `craftingtable/checks` at f5dce85. That branch was cut from `wi-fabric-2` at 6f71472 (09-29 12:09Z), before 96d073b (WI-05, 09-29 23:52Z) extended `scripts/check-wi-domain-isolation.py` with WI-05's receipt coverage. Of the four checks' definition files, only that one differs between the adopted commit and `wi-fabric-2`.
+  - WI-03's slice branch never touches the script; its reviewed head 3ae8261 carries the integration branch's version. The review passed all 12 checks and was mergeable; the gate stopped the cycle at 20:54Z.
+  - The stop says "to keep the adopted definition, stop this cycle and revert the change in a new attempt", which is wrong here: the slice made no change. Adoption accepted a source commit that the integration branch does not contain, without a warning.
+  - The script lists the WI scopes and their coverage, so each WI domain slice that adds itself edits a check definition: its own review stops, and once it merges every other in-flight WI slice stops until the checks are adopted again.
+- Impact: a roadmap stops at every merge that changes a check definition, and at any adoption taken from a stale branch; each needs the operator to adopt and resume.
+

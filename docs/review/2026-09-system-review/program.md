@@ -431,7 +431,7 @@ done-when by an independent agent, and the confirmed findings were fixed.
 Exit criteria:
 - The push log, rail count, inbox and roadmap page always agree.
 - No in-app navigation reloads the document.
-- An idle tab makes no requests.
+- An idle tab makes no requests: a hidden tab none, a visible one only its Git-derived queries once a minute (restated by operator decision 2026-10-01, R-D4).
 - The design-stage stop rate is well below the 10-of-11 baseline.
 - Loaded from the 2026-09-27 snapshot, the status list (R-E3a) states what each open entry is
   doing or waiting on, and who acts, with no database query (added 2026-09-27).

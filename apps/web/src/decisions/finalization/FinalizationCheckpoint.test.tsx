@@ -20,10 +20,12 @@ const view = {
     { id: 'F-052', severity: 'nit', title: 'Clarify diagnostics', status: 'open' },
   ],
 } as FinalizationView;
+/** What the daemon offers at an exhausted checkpoint with findings, attempts allowed. */
+const ALL = ['remediate-findings', 'authorize-remediation', 'resume'];
 
 it('authorizes a selected batch and extra attempts together when the allowance is exhausted', () => {
   const onDecide = vi.fn();
-  render(<FinalizationCheckpoint view={view} busy={false} onDecide={onDecide} />);
+  render(<FinalizationCheckpoint view={view} busy={false} onDecide={onDecide} actions={ALL} />);
   const button = screen.getByRole<HTMLButtonElement>('button', {
     name: 'Authorize focused remediation',
   });
@@ -62,11 +64,12 @@ it('authorizes a selected batch and extra attempts together when the allowance i
 });
 
 it('no longer offers deferring nits, which retired with improvement rounds (R-B10)', () => {
-  render(<FinalizationCheckpoint view={view} busy={false} onDecide={vi.fn()} />);
+  render(<FinalizationCheckpoint view={view} busy={false} onDecide={vi.fn()} actions={ALL} />);
   const actions = Array.from(
     (screen.getByLabelText('Next action') as HTMLSelectElement).options,
   ).map((o) => o.value);
-  expect(actions).toEqual(['remediate-findings']);
+  // Exactly what the daemon offers (R-A6 2b review), and no nit deferral.
+  expect(actions).toEqual(ALL);
   expect(screen.queryByRole('button', { name: 'Defer selected nits and review' })).toBeNull();
 });
 
@@ -77,6 +80,7 @@ it('supports a review requiring remediation without selectable findings in the s
       view={{ ...view, checkpointFindings: [] }}
       busy={false}
       onDecide={onDecide}
+      actions={['authorize-remediation', 'resume']}
     />,
   );
   fireEvent.change(screen.getByLabelText('Additional remediation attempts'), {
@@ -102,6 +106,7 @@ it('resumes incomplete runs with guidance without granting allowance or finding 
       view={{ ...view, canAuthorizeRemediation: false, checkpointFindings: [] }}
       busy={false}
       onDecide={onDecide}
+      actions={['resume']}
     />,
   );
   fireEvent.change(screen.getByLabelText('Answers and guidance (optional)'), {
@@ -154,6 +159,7 @@ it('switches the recovery backend/model without carrying the old model or changi
       backends={backends}
       busy={false}
       onDecide={onDecide}
+      actions={ALL}
     />,
   );
   fireEvent.click(screen.getByRole('checkbox', { name: /F-051/ }));
@@ -189,6 +195,7 @@ it('restores the original agent profiles explicitly on a later recovery', () => 
       backends={backends}
       busy={false}
       onDecide={onDecide}
+      actions={['resume']}
     />,
   );
   fireEvent.change(screen.getByLabelText('Agent settings'), { target: { value: 'restore' } });
@@ -199,7 +206,13 @@ it('restores the original agent profiles explicitly on a later recovery', () => 
 it('prefills the current profile even when the backend catalog arrives after the checkpoint', () => {
   const onDecide = vi.fn();
   const { rerender } = render(
-    <FinalizationCheckpoint view={agentView} backends={[]} busy={false} onDecide={onDecide} />,
+    <FinalizationCheckpoint
+      view={agentView}
+      backends={[]}
+      busy={false}
+      onDecide={onDecide}
+      actions={ALL}
+    />,
   );
   rerender(
     <FinalizationCheckpoint
@@ -207,8 +220,27 @@ it('prefills the current profile even when the backend catalog arrives after the
       backends={backends}
       busy={false}
       onDecide={onDecide}
+      actions={ALL}
     />,
   );
   fireEvent.change(screen.getByLabelText('Agent settings'), { target: { value: 'switch' } });
   expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe('fable-fixture');
+});
+
+it('offers exactly the decisions the daemon returned, none it did not (R-A6 2b review)', () => {
+  const options = (actions: string[]) => {
+    const { unmount } = render(
+      <FinalizationCheckpoint view={view} busy={false} onDecide={vi.fn()} actions={actions} />,
+    );
+    const values = Array.from(
+      (screen.getByLabelText('Next action') as HTMLSelectElement).options,
+    ).map((o) => o.value);
+    unmount();
+    return values;
+  };
+  // An exhausted checkpoint with findings: resuming with guidance is offered too.
+  expect(options(ALL)).toEqual(ALL);
+  expect(options(['remediate-findings', 'resume'])).toEqual(['remediate-findings', 'resume']);
+  expect(options(['authorize-remediation', 'resume'])).toEqual(['authorize-remediation', 'resume']);
+  expect(options(['resume'])).toEqual(['resume']);
 });

@@ -13,8 +13,8 @@ interface CheckAdoptionAtMerge {
     readonly proposalDigest: string;
   };
   readonly rationale: string;
-  readonly headSha: string;
-  readonly targetSha: string;
+  /** The adoption the definitions were compared with; a later one refuses this adoption. */
+  readonly declarationId: string;
 }
 import { securityReviewCurrent } from './workflow-policy.js';
 import { asAgentRunId } from '@craftingtable/domain';
@@ -271,8 +271,7 @@ export class ExecutionService {
     return {
       merge: { ...merge, proposal: merge.proposal, proposalDigest: merge.proposalDigest },
       rationale: approval.rationale,
-      headSha: diagnosis.headSha,
-      targetSha: diagnosis.targetSha,
+      declarationId: diagnosis.declaration.id,
     };
   }
 
@@ -312,12 +311,21 @@ export class ExecutionService {
     merge: MergeOperation & { readonly mergeSha: string },
     adopting: { proposal?: CheckDeclarationProposal; refused?: string },
     at: string,
+    /** The adoption the operator's diff was against, when this request read it (review F6). */
+    comparedWith?: string,
   ): void {
     const declarations = tx.runtimeEvidence.checkDeclarations(
       worktree.workspaceId,
       worktree.repositoryId,
     );
     if (declarations.some((d) => d.adoptedAtMerge?.operationId === merge.id)) return;
+    const outcome =
+      comparedWith !== undefined && declarations[0]?.id !== comparedWith
+        ? {
+            refused:
+              'The adopted checks changed while the merge ran, so the diff the operator approved was against an earlier adoption.',
+          }
+        : adopting;
     const audit = {
       id: asAuditEventId(randomUUID()),
       occurredAt: at,
@@ -328,7 +336,7 @@ export class ExecutionService {
       targetType: 'source-repository',
       targetId: worktree.repositoryId,
     };
-    const proposal = adopting.proposal;
+    const proposal = outcome.proposal;
     if (!proposal) {
       tx.audit.append({
         ...audit,
@@ -337,7 +345,7 @@ export class ExecutionService {
           via: 'merge',
           operationId: merge.id,
           mergeSha: merge.mergeSha,
-          reason: (adopting.refused ?? 'Not adopted.').slice(0, 1000),
+          reason: (outcome.refused ?? 'Not adopted.').slice(0, 1000),
         },
       });
       return;
@@ -1728,14 +1736,6 @@ export class ExecutionService {
                 'Retarget the worktree explicitly and review again before merging elsewhere',
               );
             if (
-              adoption &&
-              (reviewed.headSha !== adoption.headSha || reviewed.targetSha !== adoption.targetSha)
-            )
-              throw new ExecutionRequestError(
-                'conflict',
-                'The reviewed commit or its integration branch changed since the check definitions were read. Review them again before approving.',
-              );
-            if (
               finalApproval &&
               (reviewed.headSha !== finalApproval.expectedHeadSha ||
                 reviewed.targetSha !== finalApproval.expectedTargetSha)
@@ -1879,7 +1879,14 @@ export class ExecutionService {
               },
             });
             if (committed.checkAdoption && adopting)
-              this.recordMergeAdoption(tx, worktree, committed, adopting, occurredAt);
+              this.recordMergeAdoption(
+                tx,
+                worktree,
+                committed,
+                adopting,
+                occurredAt,
+                adoption?.declarationId,
+              );
             tx.workspaceEvents.appendEvent({
               id: asEventId(randomUUID()),
               occurredAt,

@@ -24,7 +24,14 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
             ? 'no longer a definition file.'
             : `changed (${shortSha(adopted.digest)} → ${shortSha(proposed.digest)}).`}
       </p>
-      {lines ? (
+      {(adopted?.truncated || proposed?.truncated) && (
+        <p className="warning-state">
+          Shown only in part:{' '}
+          {proposed?.truncated ? 'the text the merge adopts' : 'the adopted text'} is longer than
+          this view shows.
+        </p>
+      )}
+      {lines && !adopted?.truncated && !proposed?.truncated ? (
         <figure aria-label={`Changes to ${change.path}`} className="line-diff">
           <pre>
             {lines.map((line, index) => (
@@ -59,6 +66,46 @@ function DefinitionDiff({ change }: { change: DefinitionChange }) {
         </>
       )}
     </div>
+  );
+}
+
+type Check = NonNullable<CheckDefinitionDiagnosisView['merge']>['proposedChecks'][number];
+
+/**
+ * One added, removed or changed check, its command exactly as JSON (an argument boundary is
+ * part of the command) and its definition files, adopted and proposed (review F2).
+ */
+function CheckChange({
+  id,
+  change,
+  adopted,
+  proposed,
+}: {
+  id: string;
+  change: 'added' | 'removed' | 'changed';
+  adopted: Check | undefined;
+  proposed: Check | undefined;
+}) {
+  const facts = (label: string, check: Check | undefined) =>
+    check && (
+      <>
+        <dt>{label}</dt>
+        <dd>
+          <code>{JSON.stringify(check.argv)}</code>; definition files:{' '}
+          {check.definitionPaths.length ? <code>{check.definitionPaths.join(', ')}</code> : 'none'}
+        </dd>
+      </>
+    );
+  return (
+    <fieldset aria-label={`Check ${id} ${change}`} className="check-change">
+      <legend>
+        Check <code>{id}</code> {change}
+      </legend>
+      <dl>
+        {facts('Adopted', adopted)}
+        {facts('Merge adopts', proposed)}
+      </dl>
+    </fieldset>
   );
 }
 
@@ -121,17 +168,15 @@ export function CheckAdoptionReview({
             (now version {diagnosis.declaration.version}, from{' '}
             {shortSha(diagnosis.declaration.sourceCommit)}). Later reviews are held to them.
           </p>
-          {merge.checks.length > 0 && (
-            <ul>
-              {merge.checks.map((c) => (
-                <li key={c.id}>
-                  Check <code>{c.id}</code> {c.change}
-                  {c.change !== 'removed' &&
-                    `: ${merge.proposedChecks.find((p) => p.id === c.id)?.argv.join(' ') ?? ''}`}
-                </li>
-              ))}
-            </ul>
-          )}
+          {merge.checks.map((c) => (
+            <CheckChange
+              key={c.id}
+              id={c.id}
+              change={c.change}
+              adopted={merge.adoptedChecks?.find((a) => a.id === c.id)}
+              proposed={merge.proposedChecks.find((p) => p.id === c.id)}
+            />
+          ))}
           {merge.definitions.map((change) => (
             <DefinitionDiff key={change.path} change={change} />
           ))}

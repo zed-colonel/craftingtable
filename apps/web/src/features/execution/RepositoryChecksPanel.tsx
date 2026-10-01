@@ -82,6 +82,7 @@ const RECEIPT_KIND: Readonly<Record<Receipt['kind'], string>> = {
   'pinned-build': 'Pinned build',
   'local-ci': 'Local CI',
   native: 'Native check',
+  'self-reported': 'Self-reported',
 };
 const REQUESTED_BY: Readonly<Record<Receipt['requestedBy'], string>> = {
   daemon: 'CraftingTable',

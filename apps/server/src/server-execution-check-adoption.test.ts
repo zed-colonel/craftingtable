@@ -616,8 +616,203 @@ itNeedsCargo(
       expect.objectContaining({
         runId: cycle.currentRunId,
         recordedBy: 'run',
-        receipts: [expect.objectContaining({ kind: 'supplemental', requestedBy: 'unknown' })],
+        receipts: [expect.objectContaining({ kind: 'self-reported', requestedBy: 'unknown' })],
       }),
     ]);
+  },
+);
+
+itNeedsCargo(
+  'a definition the merge view cannot show in full is not adopted at merge (review F1)',
+  { timeout: 40000 },
+  async () => {
+    // Padding past what is shown, with the change at the end.
+    const padded = `${IMPROVED}${'# padding line for the check script\n'.repeat(32_000)}echo hidden tail\n`;
+    const x = await adoptionFixture({ 'scripts/check.sh': padded });
+    const cycle = await startCycle(x.f.state, x.tree.id);
+    await waitFor(
+      () => currentCycle(x.f.state, cycle).status === 'needs-attention',
+      'definition stop',
+      25000,
+    );
+    const stopped = currentCycle(x.f.state, cycle);
+    expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
+    expect(stopped.reason).toContain(
+      'scripts/check.sh is not short UTF-8 text, so it cannot be shown in full',
+    );
+    const diagnosis = await x.definitions();
+    expect(diagnosis.merge?.issues.join(' ')).toContain('cannot be shown in full');
+    const refused = await x.merge({
+      adoptChecks: { proposalDigest: diagnosis.merge!.proposalDigest!, rationale: 'x' },
+    });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(x.declarations()).toHaveLength(1);
+  },
+);
+
+itNeedsCargo(
+  'text is cut at a character, never mid-way through one (review F1)',
+  { timeout: 20000 },
+  async () => {
+    const x = await adoptionFixture({});
+    // A three-byte character straddles the 64 KiB preview limit.
+    // `#!/bin/sh\n# ` is 12 bytes, so the euro sign starts at the limit's last byte.
+    const text = `${'a'.repeat(64 * 1024 - 13)}€ tail\n`;
+    commitOnBranch(x.root, x.integration, { 'scripts/check.sh': `#!/bin/sh\n# ${text}` });
+    const preview = await x.f.state.context.services.repositoryChecksService.preview(
+      x.f.auth,
+      x.ws,
+      x.tree.repositoryId,
+      x.integration,
+    );
+    expect(preview.definitions[0]).toMatchObject({ truncated: true });
+    expect(preview.definitions[0]!.text?.length).toBeGreaterThan(60 * 1024);
+  },
+);
+
+itNeedsCargo(
+  'a slice whose checks cannot meet the gate as adopted is told to adopt from its own commit, and an unmet gate is not offered as an adoption (review F3)',
+  { timeout: 60000 },
+  async () => {
+    // The slice changes the script and stops naming it: the adopted check still runs it.
+    const x = await adoptionFixture({
+      'scripts/check.sh': IMPROVED,
+      [CHECK_DECLARATION_PATH]: `${JSON.stringify({ version: 1, checks: [{ id: 'script', argv: ['true'] }] })}\n`,
+    });
+    const cycle = await startCycle(x.f.state, x.tree.id);
+    await waitFor(
+      () => currentCycle(x.f.state, cycle).status === 'needs-attention',
+      'definition stop',
+      25000,
+    );
+    const stopped = currentCycle(x.f.state, cycle);
+    expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
+    expect(stopped.reason).toContain(
+      `Adopt the checks from the slice's commit ${stopped.reviewHeadSha!.slice(0, 12)} on the Repositories page`,
+    );
+    expect(stopped.reason).not.toContain('Resume for a fresh review.');
+  },
+);
+
+itNeedsCargo(
+  'a run that wrote its own receipts cannot break the receipts list or claim adopted labels (review F4)',
+  { timeout: 40000 },
+  async () => {
+    const x = await adoptionFixture({});
+    const cycle = await runToMergeApproval(x);
+    const storage = x.storage.runtimeEvidence;
+    const env = storage.run(x.ws, cycle.currentRunId!)!;
+    const build = storage.build(x.ws, cycle.currentRunId!)!;
+    vi.spyOn(storage, 'run').mockImplementation((_ws, id) => {
+      const { receiptAuthority: _, ...legacy } = env;
+      return id === cycle.currentRunId ? legacy : undefined;
+    });
+    const line = (fields: object) =>
+      JSON.stringify({
+        kind: 'scoped-check',
+        command: 'true',
+        args: [],
+        success: true,
+        clean: true,
+        headSha: 'a'.repeat(40),
+        ...fields,
+      });
+    vi.spyOn(storage, 'build').mockImplementation((_ws, id) =>
+      id === cycle.currentRunId
+        ? {
+            ...build,
+            receipts: `${[
+              line({
+                declaredCheck: { id: { forged: 1 }, declarationId: 'x', definitionDigests: {} },
+              }),
+              line({
+                declaredCheck: {
+                  id: 'script',
+                  declarationId: x.declarations()[0]!.id,
+                  definitionDigests: {},
+                },
+              }),
+              line({ headSha: 7 }),
+            ].join('\n')}\n`,
+          }
+        : undefined,
+    );
+    const response = await x.f.state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${x.ws}/repositories/${x.tree.repositoryId}/checks/receipts`,
+      headers: { cookie: x.f.state.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const run = repositoryCheckReceiptsSchema.parse(response.json()).runs[0]!;
+    expect(run.receipts).toHaveLength(3);
+    for (const receipt of run.receipts) {
+      expect(receipt).toMatchObject({ kind: 'self-reported', requestedBy: 'unknown' });
+      expect(receipt.checkId).toBeUndefined();
+      expect(receipt.declarationVersion).toBeUndefined();
+      expect(receipt.definitions).toBeUndefined();
+    }
+  },
+);
+
+itNeedsCargo(
+  'a slice whose adopted checks failed is not offered as an adoption (review F3)',
+  { timeout: 40000 },
+  async () => {
+    // The slice adds a Cargo configuration and names it: the adopted check, which does not
+    // name it, is refused by the runner, so the gate is unmet.
+    const x = await adoptionFixture({
+      '.cargo/config.toml': '[build]\n',
+      [CHECK_DECLARATION_PATH]: `${JSON.stringify({
+        version: 1,
+        checks: [
+          {
+            id: 'script',
+            argv: ['scripts/check.sh'],
+            definitionPaths: ['scripts/check.sh', '.cargo/config.toml'],
+          },
+        ],
+      })}\n`,
+    });
+    const cycle = await runToMergeApproval(x);
+    expect(cycle.attention).toEqual({ code: 'merge-approval', owner: 'operator' });
+    expect(cycle.reason).not.toContain('adopts them');
+  },
+);
+
+itNeedsCargo(
+  'an adoption made on the Repositories page while the merge ran refuses the merge adoption (review F6)',
+  { timeout: 40000 },
+  async () => {
+    const x = await adoptionFixture({ 'scripts/check.sh': IMPROVED });
+    await runToMergeApproval(x);
+    const digest = (await x.definitions()).merge!.proposalDigest!;
+    const checks = x.f.state.context.services.repositoryChecksService;
+    const real = checks.proposalAt.bind(checks);
+    vi.spyOn(checks, 'proposalAt').mockImplementation(async (repository, at, ref) => {
+      if (ref.startsWith('merge ')) {
+        const current = x.declarations()[0]!;
+        x.storage.runtimeEvidence.addCheckDeclaration({
+          ...current,
+          id: '44444444-4444-4444-8444-444444444444',
+          version: current.version + 1,
+          rationale: 'Adopted on the page meanwhile.',
+        });
+      }
+      return real(repository, at, ref);
+    });
+    const merged = await x.merge({ adoptChecks: { proposalDigest: digest, rationale: 'x' } });
+    expect(merged.statusCode, merged.body).toBe(200);
+    expect(x.declarations().map((d) => d.rationale)).toEqual([
+      'Adopted on the page meanwhile.',
+      'The integration branch proposes these checks.',
+    ]);
+    expect(
+      x.storage.audit
+        .listWorkspace({ workspaceId: x.ws, limit: 500 })
+        .find((e) => e.action === 'repository-checks.adopted'),
+    ).toMatchObject({
+      outcome: 'failed',
+      metadata: { reason: expect.stringContaining('changed while the merge ran') },
+    });
   },
 );

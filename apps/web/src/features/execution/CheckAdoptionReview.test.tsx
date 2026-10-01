@@ -128,7 +128,9 @@ it('shows the definitions a merge adopts and merges only with a rationale, namin
     '/api/workspaces/ws-1/worktrees/wt-1/check-definitions',
   );
   expect(within(review).getByText(/adopts these checks as version 3/)).toBeDefined();
-  expect(within(review).getByText(/scripts\/isolation\.py/)).toBeDefined();
+  expect(
+    within(review).getByRole('group', { name: 'Check isolation added' }).textContent,
+  ).toContain('["scripts/isolation.py"]');
   const diff = within(review).getByLabelText('Changes to scripts/check.sh');
   expect(diff.textContent).toBe('  run\n- old\n+ new\n  \n');
   const submit = within(form).getByRole('button', { name: 'Merge and adopt checks' });
@@ -154,4 +156,40 @@ it('offers no merge when the daemon says the merge cannot adopt its checks', asy
     (within(form).getByRole('button', { name: 'Merge and adopt checks' }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
+});
+
+it('shows a changed check as it is adopted and as the merge adopts it, exactly (review F2)', async () => {
+  const strict = ['sh', '-c', 'scripts/check.sh --strict'];
+  const weakened = ['sh', '-c', 'scripts/check.sh', '--strict'];
+  vi.mocked(request).mockResolvedValueOnce({
+    ...diagnosis(),
+    merge: {
+      ...diagnosis().merge,
+      adoptedChecks: [{ id: 'tests', argv: strict, definitionPaths: ['scripts/check.sh'] }],
+      proposedChecks: [{ id: 'tests', argv: weakened, definitionPaths: [] }],
+      checks: [{ id: 'tests', change: 'changed' }],
+      definitions: [],
+    },
+  });
+  renderPanel();
+  const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
+  const change = within(review).getByRole('group', { name: 'Check tests changed' });
+  expect(change.textContent).toContain(JSON.stringify(strict));
+  expect(change.textContent).toContain(JSON.stringify(weakened));
+  expect(change.textContent).toContain('scripts/check.sh');
+  expect(change.textContent).toContain('none');
+});
+
+it('says when a definition is shown only in part (review F1)', async () => {
+  const shortened = diagnosis([
+    'scripts/check.sh is not short UTF-8 text, so it cannot be shown in full',
+  ]);
+  shortened.merge.definitions[0]!.proposed = {
+    ...shortened.merge.definitions[0]!.proposed,
+    truncated: true,
+  } as never;
+  vi.mocked(request).mockResolvedValueOnce(shortened);
+  renderPanel();
+  const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
+  expect(within(review).getByText(/Shown only in part/)).toBeDefined();
 });

@@ -90,6 +90,8 @@ export interface MergeAdoption {
   readonly proposalDigest?: string;
   /** The proposal is exactly the current adoption: the merge adopts nothing. */
   readonly unchanged: boolean;
+  /** The checks adopted now, beside the proposal's, so a changed check shows both. */
+  readonly adoptedChecks?: readonly DeclaredCheck[];
   readonly checks: readonly {
     readonly id: string;
     readonly change: 'added' | 'removed' | 'changed';
@@ -127,6 +129,9 @@ export interface CheckDefinitionDiagnosis {
   /** Present when the slice changed a file to other than its adopted version. */
   readonly merge?: MergeAdoption;
 }
+
+/** The most text of one definition a merge's approval shows; a longer one is not adopted. */
+const MERGE_TEXT_LIMIT = 1024 * 1024;
 
 /** The digest an operator's approval names: the checks and their definition files' digests. */
 export function proposalDigest(
@@ -216,17 +221,15 @@ export class RepositoryChecksService {
         .filter((line) => line.trim() !== '')
         .slice(0, 50)
         .flatMap((line) => {
+          let parsed: unknown;
           try {
-            return [
-              receiptView(
-                JSON.parse(line) as BuildReceipt & Record<string, unknown>,
-                daemon,
-                declarations,
-              ),
-            ];
+            parsed = JSON.parse(line);
           } catch {
             return [];
           }
+          return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? [receiptView(parsed as Record<string, unknown>, daemon, declarations)]
+            : [];
         });
       if (!receipts.length) continue;
       runs.push({
@@ -554,32 +557,43 @@ export class RepositoryChecksService {
         ...Object.keys(proposal.definitionDigests),
       ]),
     ].filter((p) => declaration.definitionDigests[p] !== proposal.definitionDigests[p]);
-    // The adopted text, where the adopted commit still has the adopted bytes.
-    const before = await this.files(repository, declaration.sourceCommit, definitionPaths).catch(
-      () => new Map<string, CommitFile>(),
-    );
+    // Both sides in full: the operator approves exactly what the merge adopts (review F1).
+    const [before, after] = await Promise.all([
+      // The adopted text, where the adopted commit still has the adopted bytes.
+      this.files(repository, declaration.sourceCommit, definitionPaths).catch(
+        () => new Map<string, CommitFile>(),
+      ),
+      this.files(repository, tree.value, definitionPaths),
+    ]);
+    const issues = [...proposal.issues];
     const definitions = definitionPaths.map((path) => {
-      const file = before.get(path);
+      const old = before.get(path);
       const adoptedFile =
-        file?.kind === 'file' && sha256(file.content) === declaration.definitionDigests[path]
-          ? definitionPreview(path, file.content)
+        old?.kind === 'file' && sha256(old.content) === declaration.definitionDigests[path]
+          ? definitionPreview(path, old.content, MERGE_TEXT_LIMIT)
           : declaration.definitionDigests[path]
             ? { path, digest: declaration.definitionDigests[path]!, bytes: 0 }
             : null;
-      return {
-        path,
-        adopted: adoptedFile,
-        proposed: proposal.definitions.find((d) => d.path === path) ?? null,
-      };
+      const next = after.get(path);
+      const proposed =
+        next?.kind === 'file' && proposal.definitionDigests[path] !== undefined
+          ? definitionPreview(path, next.content, MERGE_TEXT_LIMIT)
+          : null;
+      if (proposed && (proposed.text === undefined || proposed.truncated))
+        issues.push(
+          `${path} is not short UTF-8 text, so it cannot be shown in full before a merge adopts it (${proposed.bytes} bytes; at most ${MERGE_TEXT_LIMIT / 1024} KiB of UTF-8 is shown). Keep it shorter, or adopt it on the Repositories page after reading it in the repository.`,
+        );
+      return { path, adopted: adoptedFile, proposed };
     });
     return {
       tree: tree.value,
       proposal,
       proposalDigest: proposalDigest(proposal),
       unchanged: !checks.length && !definitions.length,
+      adoptedChecks: declaration.checks,
       checks,
       definitions,
-      issues: proposal.issues,
+      issues,
     };
   }
 
@@ -694,11 +708,18 @@ export class RepositoryChecksService {
 }
 
 /** A definition file as the preview shows it: its digest and, if text and short, its contents. */
-function definitionPreview(path: string, content: Uint8Array): CheckDefinitionFile {
-  const limit = 64 * 1024;
+function definitionPreview(
+  path: string,
+  content: Uint8Array,
+  limit = 64 * 1024,
+): CheckDefinitionFile {
   let text: string | undefined;
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(content.subarray(0, limit));
+    // The whole file must be UTF-8; the text shown is cut at a character, never inside one.
+    const whole = new TextDecoder('utf-8', { fatal: true }).decode(content);
+    text = new TextDecoder('utf-8').decode(content.subarray(0, limit));
+    if (content.byteLength > limit && text.endsWith('\uFFFD') && !whole.startsWith(text))
+      text = text.slice(0, -1);
   } catch {
     text = undefined;
   }
@@ -742,7 +763,7 @@ export function definitionChangeReason(
         ? `This slice changes ${sliceMade.join(', ')}, and this review does not merge, so nothing can adopt the change. Adopt it on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`
         : issues.length
           ? `This slice changes ${sliceMade.join(', ')}, and its merge cannot adopt the change: ${issues.join(' ')} Fix it in the slice, or adopt it on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`
-          : `This slice changes ${sliceMade.join(', ')}, and its checks ran with other definitions than its merge would adopt. Resume for a fresh review.`,
+          : `This slice changes ${sliceMade.join(', ')}, and its checks, run as adoption version ${diagnosis.declaration.version} holds them, cannot meet the gate with the definitions it proposes. Adopt the checks from the slice's commit ${short(diagnosis.headSha)} on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`,
     );
   }
   return (
@@ -751,46 +772,54 @@ export function definitionChangeReason(
   );
 }
 
-/** One receipt as the Checks panel shows it (R-G13 increment 5). */
+/**
+ * One receipt as the Checks panel shows it (R-G13 increment 5). A receipt the daemon recorded
+ * is labelled from its fields; one a run wrote itself is "self-reported", whatever it claims,
+ * and every field is checked before use (review F4).
+ */
 function receiptView(
-  r: BuildReceipt & Record<string, unknown>,
+  r: Record<string, unknown>,
   daemon: boolean,
   declarations: ReadonlyMap<string, RepositoryCheckDeclaration>,
 ): RepositoryCheckReceipts['runs'][number]['receipts'][number] {
-  const declared = r.declaredCheck;
-  const adoption = declared && declarations.get(declared.declarationId);
-  const check = adoption?.checks.find((c) => c.id === declared?.id);
-  const args = Array.isArray(r.args) ? (r.args as unknown[]).map(String) : [];
-  return {
-    kind: declared
-      ? ('declared' as const)
-      : r.kind === 'scoped-check'
-        ? ('supplemental' as const)
-        : r.kind === 'local-ci'
-          ? ('local-ci' as const)
-          : r.kind === 'native-check'
-            ? ('native' as const)
-            : ('pinned-build' as const),
-    ...(declared ? { checkId: declared.id } : {}),
-    ...(adoption ? { declarationVersion: adoption.version } : {}),
-    command: (declared
-      ? `ct-check --declared ${declared.id}`
-      : r.kind === undefined
-        ? ['cargo', ...args].join(' ')
-        : [String(r.command ?? ''), ...args].join(' ')
-    ).slice(0, 200),
-    requestedBy: daemon
-      ? r.origin === 'daemon'
-        ? ('daemon' as const)
-        : ('agent' as const)
-      : ('unknown' as const),
+  const args = Array.isArray(r.args) ? r.args.map((a) => String(a)) : [];
+  const base = {
     success: r.success === true,
     clean: r.clean === true,
-    headSha: String(r.headSha ?? ''),
+    headSha: typeof r.headSha === 'string' && /^[0-9a-f]{40,64}$/.test(r.headSha) ? r.headSha : '',
+  };
+  const command = (program: string) => [program, ...args].join(' ').slice(0, 200);
+  const program = typeof r.command === 'string' ? r.command : '';
+  if (!daemon)
+    return { ...base, kind: 'self-reported', command: command(program), requestedBy: 'unknown' };
+  const declared = (r as Partial<BuildReceipt>).declaredCheck;
+  const adoption =
+    declared && typeof declared.declarationId === 'string'
+      ? declarations.get(declared.declarationId)
+      : undefined;
+  const check = adoption?.checks.find((c) => c.id === declared?.id);
+  return {
+    ...base,
+    kind: check
+      ? 'declared'
+      : r.kind === 'scoped-check'
+        ? 'supplemental'
+        : r.kind === 'local-ci'
+          ? 'local-ci'
+          : r.kind === 'native-check'
+            ? 'native'
+            : 'pinned-build',
+    ...(check ? { checkId: check.id, declarationVersion: adoption!.version } : {}),
+    command: check
+      ? `ct-check --declared ${check.id}`
+      : r.kind === undefined
+        ? command('cargo')
+        : command(program),
+    requestedBy: r.origin === 'daemon' ? 'daemon' : 'agent',
     ...(check
       ? {
           definitions: check.definitionPaths.every(
-            (path) => declared!.definitionDigests[path] === adoption!.definitionDigests[path],
+            (path) => declared!.definitionDigests?.[path] === adoption!.definitionDigests[path],
           )
             ? ('adopted' as const)
             : ('differ' as const),

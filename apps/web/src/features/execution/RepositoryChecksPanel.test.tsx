@@ -238,3 +238,32 @@ it('shows each adoption and how it was made, and the recent check runs with who 
   expect(rows[1]!.textContent).toContain('Failed');
   expect(rows[2]!.textContent).toContain('Unknown: the run wrote its own receipts');
 });
+
+it('labels a receipt a run wrote itself as self-reported (review F4)', async () => {
+  respond([{ repositoryId, declarations: [declaration(1)] }], {
+    repositoryId,
+    runs: [
+      {
+        runId: 'run-0',
+        role: 'review',
+        worktreeId: 'wt-0',
+        status: 'finished',
+        createdAt: '2026-09-20T00:00:00.000Z',
+        recordedBy: 'run',
+        receipts: [
+          {
+            kind: 'self-reported',
+            command: 'true',
+            requestedBy: 'unknown',
+            success: true,
+            clean: true,
+            headSha: 'f'.repeat(40),
+          },
+        ],
+      },
+    ],
+  });
+  renderPanel(false);
+  const table = await screen.findByRole('table', { name: 'Recent check runs' });
+  expect(table.textContent).toContain('Self-reported true');
+});

@@ -171,6 +171,7 @@ export const checkDefinitionDiagnosisSchema = z.strictObject({
       tree: gitShaSchema.optional(),
       proposalDigest: digest.optional(),
       unchanged: z.boolean(),
+      adoptedChecks: z.array(declaredCheckSchema).optional(),
       proposedChecks: z.array(declaredCheckSchema),
       checks: z.array(
         z.strictObject({ id: checkIdSchema, change: z.enum(['added', 'removed', 'changed']) }),
@@ -218,7 +219,15 @@ export const repositoryCheckReceiptsSchema = z.strictObject({
       declarationVersion: z.number().int().positive().optional(),
       receipts: z.array(
         z.strictObject({
-          kind: z.enum(['declared', 'supplemental', 'pinned-build', 'local-ci', 'native']),
+          kind: z.enum([
+            'declared',
+            'supplemental',
+            'pinned-build',
+            'local-ci',
+            'native',
+            /** A receipt a run wrote itself (before R-G4): its claims are not checked. */
+            'self-reported',
+          ]),
           checkId: z.string().optional(),
           declarationVersion: z.number().int().positive().optional(),
           command: z.string(),

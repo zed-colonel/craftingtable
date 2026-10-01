@@ -2481,7 +2481,20 @@ export class WorkCycleService {
         merge.checks[0]?.id ?? diagnosis.declaration.id,
         definitionChangeReason(diagnosis, merges),
       );
-    return !!adoptable;
+    if (!adoptable) return false;
+    // Offered as an adoption only when the whole gate is met; any other gap stays the merge
+    // gate's to report (review F3).
+    try {
+      this.runtimeEvidence.assertRun(
+        tree,
+        run.id,
+        this.storage,
+        adoptable.proposal?.definitionDigests,
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async startWorkflowReview(

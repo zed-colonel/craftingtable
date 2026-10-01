@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
-import { expectSignedIn, git, submitSignIn } from './support';
+import { expectSignedIn, git, openMergeDecision, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 test.use({ actionTimeout: 15_000 });
@@ -211,8 +211,8 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     await expect(menu).toHaveAttribute('aria-expanded', 'false');
     await fitsPhone(page);
-    await page.getByRole('button', { name: 'Merge…', exact: true }).click();
-    const merge = page.getByRole('form', { name: 'Merge target' });
+    // The merge is decided in its inbox item; the work item links there (R-A6).
+    const merge = await openMergeDecision(page);
     await expect(merge.getByLabel('Merge into')).toHaveValue(TARGET);
     await fitsPhone(page);
     expect(
@@ -229,8 +229,13 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await expect(merge).toBeVisible();
     await merge.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(git(['rev-parse', TARGET], repository)).toBe(initial);
-    await page.getByRole('button', { name: 'Merge…', exact: true }).click();
+    await page
+      .getByRole('region', { name: 'Decision' })
+      .getByRole('button', { name: 'Merge…', exact: true })
+      .click();
     await merge.getByRole('button', { name: 'Merge', exact: true }).click();
+    await expect(page.getByText('This item is resolved.')).toBeVisible();
+    await page.goto(itemUrl);
     await expect(cycle.getByText(/Previous cycle: Completed/)).toBeVisible();
     expect(git(['rev-parse', TARGET], repository)).not.toBe(initial);
     expect(git(['branch', '--show-current'], repository)).toBe('main');

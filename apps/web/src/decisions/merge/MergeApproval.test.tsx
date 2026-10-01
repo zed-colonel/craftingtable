@@ -1,13 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type {
-  AgentRunSummary,
-  SourceRepositorySummary,
-  WorktreeSummary,
-} from '@craftingtable/contracts';
+import type { AgentRunSummary, MergeGate, WorktreeSummary } from '@craftingtable/contracts';
 import { asWorkspaceId } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
-import { DelegationPanel } from './DelegationPanel.js';
+import { MergeApproval, RetryMergeCleanup } from './MergeApproval.js';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn(), ApiError: class extends Error {} }));
 afterEach(() => {
@@ -15,15 +11,6 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const repository = {
-  id: 'repo-1',
-  displayName: 'wi',
-  rootPath: '/home/user/src/wi',
-  defaultBranch: 'main',
-  registeredHeadSha: 'a'.repeat(40),
-  registeredAt: '2026-09-01T00:00:00.000Z',
-  status: 'active',
-} as unknown as SourceRepositorySummary;
 const worktree = {
   id: 'wt-1',
   workspaceId: 'ws-1',
@@ -87,46 +74,101 @@ const diagnosis = (issues: string[] = []) => ({
   },
 });
 
-function renderPanel(onMergeWorktree = vi.fn()) {
+const adoptionGate: MergeGate = {
+  mergeable: true,
+  reason: 'check-adoption',
+  reviewRunId: 'run-1' as AgentRunSummary['id'],
+};
+const merged = {
+  worktree: { ...worktree, status: 'removed' },
+  mergeSha: '5'.repeat(40),
+  targetBranch: 'wi-fabric-2',
+  createdTarget: false,
+  workItemCompleted: false,
+};
+
+/**
+ * The daemon's answers by route: the branches read, the definitions read, and the merge, whose
+ * request bodies are kept.
+ */
+function respond(definitions: unknown) {
+  vi.mocked(request).mockImplementation(async (url: string) => {
+    if (url.endsWith('/branches')) return { branches: ['aq-cont-1', 'main'], checkedOut: 'main' };
+    if (url.endsWith('/check-definitions')) return definitions;
+    if (url.endsWith('/merge')) return merged;
+    throw new Error(`unexpected ${url}`);
+  });
+}
+const posted = () =>
+  vi
+    .mocked(request)
+    .mock.calls.filter(([url]) => String(url).endsWith('/merge'))
+    .map(([url, , init]) => ({ url, body: JSON.parse(String(init!.body)) }));
+
+function renderPanel(onMerged = vi.fn(), gate: MergeGate = adoptionGate, tree = worktree) {
   render(
-    <DelegationPanel
+    <MergeApproval
       workspaceId={asWorkspaceId('ws-1')}
-      repositories={[repository]}
-      worktrees={[worktree]}
-      runs={[]}
-      mergeGates={{
-        'wt-1': {
-          mergeable: true,
-          reason: 'check-adoption',
-          reviewRunId: 'run-1' as AgentRunSummary['id'],
-        },
-      }}
-      backends={[]}
-      itemCompleted={false}
-      canMutate={true}
-      busy={false}
-      onCreateWorktree={vi.fn()}
-      onRemoveWorktree={vi.fn()}
-      onMergeWorktree={onMergeWorktree}
-      onLoadBranches={vi.fn()}
-      onLaunch={vi.fn()}
-      onOpenRun={vi.fn()}
-      onOpenDiff={vi.fn()}
+      worktree={tree}
+      gate={gate}
+      csrfToken="csrf"
+      disabled={false}
+      onMerged={onMerged}
     />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Merge…' }));
   return screen.getByRole('form', { name: 'Merge target' });
 }
 
-it('shows the definitions a merge adopts and merges only with a rationale, naming what was shown (R-G13 increment 5)', async () => {
-  vi.mocked(request).mockResolvedValueOnce(diagnosis());
-  const onMergeWorktree = vi.fn();
-  const form = renderPanel(onMergeWorktree);
-  expect(screen.getByText('Merging adopts the check definitions this slice changes')).toBeDefined();
-  const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
-  expect(vi.mocked(request).mock.calls[0]![0]).toBe(
-    '/api/workspaces/ws-1/worktrees/wt-1/check-definitions',
+it('merges into a chosen target only when the daemon reports the gate open (R-A6)', async () => {
+  respond(undefined);
+  const onMerged = vi.fn();
+  const manual = { ...worktree, integrationBranch: undefined } as unknown as WorktreeSummary;
+  const { container } = render(
+    <MergeApproval
+      workspaceId={asWorkspaceId('ws-1')}
+      worktree={manual}
+      gate={{ mergeable: false, reason: 'no-review' }}
+      csrfToken="csrf"
+      disabled={false}
+      onMerged={onMerged}
+    />,
   );
+  expect(container.textContent).toBe('');
+  cleanup();
+  const form = renderPanel(onMerged, { mergeable: true, reason: 'ready' }, manual);
+  const input = within(form).getByLabelText('Merge into') as HTMLInputElement;
+  expect(input.value).toBe('wi-fabric-2');
+  fireEvent.change(input, { target: { value: 'aq-cont-1' } });
+  fireEvent.click(within(form).getByRole('button', { name: 'Merge' }));
+  await waitFor(() => expect(onMerged).toHaveBeenCalledWith('wt-1'));
+  expect(posted()).toEqual([
+    { url: '/api/workspaces/ws-1/worktrees/wt-1/merge', body: { targetBranch: 'aq-cont-1' } },
+  ]);
+});
+
+it('retries a failed cleanup with the same command', async () => {
+  respond(undefined);
+  const onDone = vi.fn();
+  render(
+    <RetryMergeCleanup
+      workspaceId={asWorkspaceId('ws-1')}
+      worktree={{ ...worktree, mergeCleanupError: 'busy' } as WorktreeSummary}
+      csrfToken="csrf"
+      disabled={false}
+      onDone={onDone}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Retry worktree cleanup' }));
+  await waitFor(() => expect(onDone).toHaveBeenCalledWith('wt-1'));
+  expect(posted()[0]!.body).toEqual({ targetBranch: 'wi-fabric-2' });
+});
+
+it('shows the definitions a merge adopts and merges only with a rationale, naming what was shown (R-G13 increment 5)', async () => {
+  respond(diagnosis());
+  const onMerged = vi.fn();
+  const form = renderPanel(onMerged);
+  const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
   expect(within(review).getByText(/adopts these checks as version 3/)).toBeDefined();
   expect(
     within(review).getByRole('group', { name: 'Check isolation added' }).textContent,
@@ -140,14 +182,15 @@ it('shows the definitions a merge adopts and merges only with a rationale, namin
   });
   await waitFor(() => expect((submit as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(submit);
-  expect(onMergeWorktree).toHaveBeenCalledWith('wt-1', 'wi-fabric-2', {
-    proposalDigest: digest,
-    rationale: 'The slice adds its isolation check.',
+  await waitFor(() => expect(onMerged).toHaveBeenCalledWith('wt-1'));
+  expect(posted()[0]!.body).toEqual({
+    targetBranch: 'wi-fabric-2',
+    adoptChecks: { proposalDigest: digest, rationale: 'The slice adds its isolation check.' },
   });
 });
 
 it('offers no merge when the daemon says the merge cannot adopt its checks', async () => {
-  vi.mocked(request).mockResolvedValueOnce(diagnosis(['.craftingtable/checks.json is not JSON.']));
+  respond(diagnosis(['.craftingtable/checks.json is not JSON.']));
   const form = renderPanel();
   const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
   expect(within(review).getByText('.craftingtable/checks.json is not JSON.')).toBeDefined();
@@ -161,7 +204,7 @@ it('offers no merge when the daemon says the merge cannot adopt its checks', asy
 it('shows a changed check as it is adopted and as the merge adopts it, exactly (review F2)', async () => {
   const strict = ['sh', '-c', 'scripts/check.sh --strict'];
   const weakened = ['sh', '-c', 'scripts/check.sh', '--strict'];
-  vi.mocked(request).mockResolvedValueOnce({
+  respond({
     ...diagnosis(),
     merge: {
       ...diagnosis().merge,
@@ -188,7 +231,7 @@ it('says when a definition is shown only in part (review F1)', async () => {
     ...shortened.merge.definitions[0]!.proposed,
     truncated: true,
   } as never;
-  vi.mocked(request).mockResolvedValueOnce(shortened);
+  respond(shortened);
   renderPanel();
   const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
   expect(within(review).getByText(/Shown only in part/)).toBeDefined();

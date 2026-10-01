@@ -13,6 +13,7 @@ import {
   cycleActions,
   DEFAULT_COMPLETION_POLICY,
   type WorkCycle,
+  type WorkspaceId,
 } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -153,8 +154,8 @@ describe('DelegationPanel', () => {
         busy={false}
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
-        onMergeWorktree={vi.fn()}
-        onLoadBranches={vi.fn()}
+        csrfToken="csrf"
+        onMerged={vi.fn()}
         onLaunch={onLaunch}
         onOpenRun={onOpenRun}
         onOpenDiff={vi.fn()}
@@ -196,9 +197,7 @@ describe('DelegationPanel', () => {
     expect(onLaunch).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'claude-next-9' }));
   });
 
-  it('offers Merge with a chosen target only when the daemon reports the gate open', () => {
-    const onMergeWorktree = vi.fn();
-    const onLoadBranches = vi.fn();
+  it('offers the merge only when the daemon reports the gate open, and links to its inbox item when one carries it (R-A6)', () => {
     const review = run({
       status: 'finished',
       role: 'review',
@@ -207,32 +206,33 @@ describe('DelegationPanel', () => {
       resolvedModel: 'claude-fable-5-1',
       outcomeSummary: 'Review complete.\n\n1. Minor: rename the helper.\n2. Nit: typo.',
     });
-    render(
-      <DelegationPanel
-        repositories={[repository]}
-        worktrees={[worktree]}
-        runs={[review]}
-        mergeGates={{
-          'wt-1': {
-            mergeable: true,
-            reason: 'ready',
-            reviewRunId: 'run-1' as AgentRunSummary['id'],
-          },
-        }}
-        branches={{ branches: ['aq-cont-1', 'ct/aq-01-abcd1234', 'main'], checkedOut: 'main' }}
-        backends={[{ kind: 'claude-code', label: 'Claude Code', available: true, models: [] }]}
-        itemCompleted={false}
-        canMutate={true}
-        busy={false}
-        onCreateWorktree={vi.fn()}
-        onRemoveWorktree={vi.fn()}
-        onMergeWorktree={onMergeWorktree}
-        onLoadBranches={onLoadBranches}
-        onLaunch={vi.fn()}
-        onOpenRun={vi.fn()}
-        onOpenDiff={vi.fn()}
-      />,
-    );
+    const props = {
+      workspaceId: 'ws-1' as WorkspaceId,
+      repositories: [repository],
+      worktrees: [worktree],
+      runs: [review],
+      mergeGates: {
+        'wt-1': {
+          mergeable: true,
+          reason: 'ready' as const,
+          reviewRunId: 'run-1' as AgentRunSummary['id'],
+        },
+      },
+      backends: [
+        { kind: 'claude-code' as const, label: 'Claude Code', available: true, models: [] },
+      ],
+      itemCompleted: false,
+      canMutate: true,
+      busy: false,
+      csrfToken: 'csrf',
+      onMerged: vi.fn(),
+      onCreateWorktree: vi.fn(),
+      onRemoveWorktree: vi.fn(),
+      onLaunch: vi.fn(),
+      onOpenRun: vi.fn(),
+      onOpenDiff: vi.fn(),
+    };
+    const { rerender } = render(<DelegationPanel {...props} />);
     expect(screen.getByText('Reviewed and mergeable')).toBeDefined();
     const table = screen.getByRole('table', { name: 'Agent runs' });
     expect(within(table).getByText('Mergeable')).toBeDefined();
@@ -243,14 +243,19 @@ describe('DelegationPanel', () => {
     const details = within(table).getByText('Review complete.').closest('details');
     expect(details).not.toBeNull();
     expect(details?.hasAttribute('open')).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Merge…' }));
-    expect(onLoadBranches).toHaveBeenCalledWith('repo-1');
-    const form = screen.getByRole('form', { name: 'Merge target' });
-    const input = within(form).getByLabelText('Merge into') as HTMLInputElement;
-    expect(input.value).toBe('main');
-    fireEvent.change(input, { target: { value: 'aq-cont-1' } });
-    fireEvent.click(within(form).getByRole('button', { name: 'Merge' }));
-    expect(onMergeWorktree).toHaveBeenCalledWith('wt-1', 'aq-cont-1');
+    expect(screen.getByRole('button', { name: 'Merge…' })).toBeDefined();
+    // An open item carries the merge: the page links to it instead.
+    rerender(
+      <DelegationPanel
+        {...props}
+        decisionItemFor={(id) => (id === 'wt-1' ? 'item-7' : undefined)}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Merge…' })).toBeNull();
+    expect(screen.getByText(/This merge is decided in Needs you/)).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Open the decision' }).getAttribute('href')).toContain(
+      '/inbox/item-7',
+    );
   });
 
   it('cannot remove a worktree with a live run and disables launch without a backend', () => {
@@ -266,8 +271,8 @@ describe('DelegationPanel', () => {
         busy={false}
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
-        onMergeWorktree={vi.fn()}
-        onLoadBranches={vi.fn()}
+        csrfToken="csrf"
+        onMerged={vi.fn()}
         onLaunch={vi.fn()}
         onOpenRun={vi.fn()}
         onOpenDiff={vi.fn()}
@@ -584,8 +589,8 @@ it('offers per-agent models, resets the model on switch, and marks unavailable a
     busy: false,
     onCreateWorktree: vi.fn(),
     onRemoveWorktree: vi.fn(),
-    onMergeWorktree: vi.fn(),
-    onLoadBranches: vi.fn(),
+    csrfToken: 'csrf',
+    onMerged: vi.fn(),
     onLaunch,
     onOpenRun: vi.fn(),
     onOpenDiff: vi.fn(),
@@ -660,8 +665,8 @@ function panelProps(overrides: Partial<Parameters<typeof DelegationPanel>[0]> = 
     busy: false,
     onCreateWorktree: vi.fn(),
     onRemoveWorktree: vi.fn(),
-    onMergeWorktree: vi.fn(),
-    onLoadBranches: vi.fn(),
+    csrfToken: 'csrf',
+    onMerged: vi.fn(),
     onLaunch: vi.fn(),
     onOpenRun: vi.fn(),
     onOpenDiff: vi.fn(),

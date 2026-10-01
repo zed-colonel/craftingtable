@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 /**
  * Helpers shared by the browser specs (R-I5, QA-05). The e2e daemon bootstraps this admin
@@ -115,4 +115,19 @@ export async function setupStep(page: Page, label: string): Promise<void> {
     .getByRole('navigation', { name: 'Setup checklist', exact: true })
     .getByRole('button', { name: label, exact: true })
     .click();
+}
+
+/**
+ * Opens a worktree's merge where it is decided, its inbox item (R-A6): the work item page links
+ * there. Returns the merge form; the caller merges and returns to the work item.
+ */
+export async function openMergeDecision(page: Page): Promise<Locator> {
+  await page
+    .locator('.worktree-item')
+    .getByRole('link', { name: 'Open the decision', exact: true })
+    .first()
+    .click();
+  const decision = page.getByRole('region', { name: 'Decision' });
+  await decision.getByRole('button', { name: 'Merge…', exact: true }).click();
+  return decision.getByRole('form', { name: 'Merge target' });
 }

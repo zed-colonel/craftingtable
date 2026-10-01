@@ -12,9 +12,6 @@ import {
   createWorktreeResponseSchema,
   type ExecutionStatusResponse,
   executionStatusResponseSchema,
-  type MergeWorktreeRequest,
-  type MergeWorktreeResponse,
-  mergeWorktreeResponseSchema,
   type RegisterSourceRepositoryRequest,
   type RegisterSourceRepositoryResponse,
   type RemoveWorktreeRequest,
@@ -211,19 +208,6 @@ export function cancelRun(
     `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/cancel`,
     agentRunCommandResponseSchema,
     mutation(csrfToken, {}),
-  );
-}
-
-export function mergeWorktree(
-  workspaceId: WorkspaceId,
-  worktreeId: WorktreeId,
-  input: MergeWorktreeRequest,
-  csrfToken: string,
-): Promise<MergeWorktreeResponse> {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/merge`,
-    mergeWorktreeResponseSchema,
-    mutation(csrfToken, input),
   );
 }
 

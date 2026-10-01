@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Browser, devices, expect, type Page, test } from '@playwright/test';
-import { E2E_USERNAME, git, setupStep, signIn } from './support';
+import { E2E_USERNAME, git, openMergeDecision, setupStep, signIn } from './support';
 
 /**
  * The UI walkthrough: seed one workspace with every kind of state the app can
@@ -506,10 +506,9 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await walk.capture('inbox-item', 'Needs you · the merge approval');
     await page.goto(awaitingMerge);
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
-    await walk.capture('work-item-merge-form', 'Work item · merge confirmation', async (p) => {
-      await p.getByRole('button', { name: 'Merge…', exact: true }).click();
-      await expect(p.getByRole('form', { name: 'Merge target' })).toBeVisible();
-    });
+    // The work item links to the merge's inbox item, where it is decided (R-A6).
+    await expect(page.getByText(/This merge is decided in Needs you/)).toBeVisible();
+    await walk.capture('work-item-merge-form', 'Work item · the merge, decided in Needs you');
     await cycle.getByRole('button', { name: 'Open current run' }).click();
     await expect(page.getByRole('heading', { name: 'Review run', exact: true })).toBeVisible();
     await walk.capture('run-review', 'Review run with findings', async (p) => {
@@ -519,11 +518,11 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       await expect(findings.getByText('F-001', { exact: true })).toBeVisible();
     });
     await page.getByRole('button', { name: 'Work item', exact: true }).click();
-    await page.getByRole('button', { name: 'Merge…', exact: true }).click();
-    await page
-      .getByRole('form', { name: 'Merge target' })
-      .getByRole('button', { name: 'Merge', exact: true })
-      .click();
+    const mergeForm = await openMergeDecision(page);
+    await walk.capture('inbox-merge-form', 'Needs you · merge confirmation');
+    await mergeForm.getByRole('button', { name: 'Merge', exact: true }).click();
+    await expect(page.getByText('This item is resolved.')).toBeVisible();
+    await page.goto(awaitingMerge);
     await expect(cycle.getByText(/Previous cycle: Completed/)).toBeVisible();
     await walk.capture('work-item-completed', 'Work item · completed by merge');
 

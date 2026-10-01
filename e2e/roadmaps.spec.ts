@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { expectSignedIn, git, openRoadmap, submitSignIn } from './support';
+import { expectSignedIn, git, openMergeDecision, openRoadmap, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 for (const mode of ['sequential', 'parallel'] as const) {
@@ -165,8 +165,11 @@ for (const mode of ['sequential', 'parallel'] as const) {
         await expect(
           page.getByRole('heading', { name: new RegExp(`^${sourceId} ·`) }),
         ).toBeVisible();
-        await page.getByRole('button', { name: 'Merge…', exact: true }).click();
-        await page.getByRole('button', { name: 'Merge', exact: true }).click();
+        const itemPage = page.url();
+        const form = await openMergeDecision(page);
+        await form.getByRole('button', { name: 'Merge', exact: true }).click();
+        await expect(page.getByText('This item is resolved.')).toBeVisible({ timeout: 15000 });
+        await page.goto(itemPage);
         await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible({
           timeout: 15000,
         });

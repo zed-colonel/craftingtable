@@ -7,7 +7,6 @@ import type {
   PlanImportResponse,
   PlanVersionDetailResponse,
   ProjectDetailResponse,
-  RepositoryBranchesResponse,
   RunEventEnvelope,
   RunProfilesResponse,
   SessionSummary,
@@ -48,6 +47,7 @@ import { InboxPage } from './features/inbox/InboxPage.js';
 import { AcknowledgeMoves } from './features/inbox/AcknowledgeMoves.js';
 import { loadAttention } from './lib/attention-api.js';
 import { CheckAdoption } from './decisions/checks/CheckAdoption.js';
+import { MergeApproval, RetryMergeCleanup } from './decisions/merge/MergeApproval.js';
 import { type Decision, decisionsFor } from './decisions/registry.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
@@ -117,7 +117,6 @@ import {
   loadWorkItemExecution,
   loadWorkspaceRuns,
   loadWorktreeDiff,
-  mergeWorktree,
   registerRepository,
   removeWorktree,
   retireRepository,
@@ -125,7 +124,7 @@ import {
   sendRunMessage,
   startRun,
 } from './lib/execution-api.js';
-import { isLiveStatus } from './lib/execution-labels.js';
+import { isLiveStatus, MERGE_GATE_LABELS } from './lib/execution-labels.js';
 import {
   admitWorkItem,
   completeWorkItem,
@@ -340,7 +339,6 @@ export function App() {
     scope: 'live' | 'recent';
     response: WorkspaceRunsResponse;
   }>();
-  const [branches, setBranches] = useState<RepositoryBranchesResponse>();
   const [agenda, setAgenda] = useState<WorkspaceWorkItemListResponse>();
   const [run, setRun] = useState<AgentRunDetailResponse>();
   const [runEvents, setRunEvents] = useState<readonly RunEventEnvelope[]>([]);
@@ -386,7 +384,6 @@ export function App() {
     setRepositories([]);
     setWorkItemExecution(undefined);
     setRunsState(undefined);
-    setBranches(undefined);
     setAgenda(undefined);
     setRun(undefined);
     setRunEvents([]);
@@ -1095,33 +1092,6 @@ export function App() {
       }
       setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
     });
-  const handleMergeWorktree = (
-    worktreeId: WorktreeId,
-    targetBranch: string,
-    adoptChecks?: { readonly proposalDigest: string; readonly rationale: string },
-  ): void =>
-    executionCommand(async (csrfToken, forWorkspace) => {
-      await mergeWorktree(
-        forWorkspace,
-        worktreeId,
-        { targetBranch, ...(adoptChecks ? { adoptChecks } : {}) },
-        csrfToken,
-      );
-      setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
-    });
-  const handleLoadBranches = (repositoryId: SourceRepositoryId): void => {
-    if (workspaceId === undefined) {
-      return;
-    }
-    const requestedFor = workspaceId;
-    void loadRepositoryBranches(workspaceId, repositoryId)
-      .then((response) => {
-        if (activeWorkspaceIdRef.current === requestedFor) {
-          setBranches(response);
-        }
-      })
-      .catch(() => undefined);
-  };
   const handleSaveProfiles = (profiles: readonly WorkspaceAgentProfile[]): void => {
     if (authenticated === undefined || workspaceId === undefined) {
       return;
@@ -1395,6 +1365,18 @@ export function App() {
       />
     );
   };
+  /** After a merge or a cleanup retry: the merged worktree's diff closes and the page reloads. */
+  const merged = (worktreeId: WorktreeId) => {
+    setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
+    refreshNow();
+  };
+  /** The open inbox item that carries a worktree's merge (R-A6). */
+  const mergeItemFor = (worktreeId: string) =>
+    attentionItems.find(
+      (item) =>
+        item.refs.worktreeId === worktreeId &&
+        decisionsFor(item).some((decision) => decision.kind === 'merge'),
+    );
   /** The work item's worktrees, runs and merges. */
   const delegationControls = (workItemId: WorkItemId): ReactElement | undefined => {
     if (
@@ -1426,7 +1408,6 @@ export function App() {
         worktrees={workItemExecution.worktrees}
         runs={workItemExecution.runs}
         mergeGates={workItemExecution.mergeGates}
-        {...(branches === undefined ? {} : { branches })}
         backends={executionStatus?.backends ?? []}
         itemCompleted={workItem.workItem.status === 'completed'}
         canMutate={canMutate}
@@ -1441,9 +1422,10 @@ export function App() {
           setRemovalRefused(undefined);
           setExecutionError(undefined);
         }}
-        onMergeWorktree={handleMergeWorktree}
         workspaceId={workspaceId}
-        onLoadBranches={handleLoadBranches}
+        csrfToken={authenticated.csrfToken}
+        onMerged={merged}
+        decisionItemFor={(worktreeId) => mergeItemFor(worktreeId)?.id}
         onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
         {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}
         onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
@@ -1503,7 +1485,37 @@ export function App() {
               )) ||
             loading
           );
-        case 'merge':
+        case 'merge': {
+          const worktree = workItemExecution?.worktrees.find((t) => t.id === item.refs.worktreeId);
+          const gate = worktree && workItemExecution?.mergeGates[worktree.id];
+          if (!worktree || workspaceId === undefined || authenticated === undefined) return loading;
+          return worktree.mergeCleanupError ? (
+            <RetryMergeCleanup
+              workspaceId={workspaceId}
+              worktree={worktree}
+              csrfToken={authenticated.csrfToken}
+              disabled={!canMutate}
+              onDone={merged}
+            />
+          ) : (
+            <>
+              <p>
+                <code>{worktree.branchName}</code>:{' '}
+                {gate ? MERGE_GATE_LABELS[gate.reason] : 'Loading the merge gate…'}
+              </p>
+              {gate && canMutate && (
+                <MergeApproval
+                  workspaceId={workspaceId}
+                  worktree={worktree}
+                  gate={gate}
+                  csrfToken={authenticated.csrfToken}
+                  disabled={false}
+                  onMerged={merged}
+                />
+              )}
+            </>
+          );
+        }
         case 'worktrees':
           return (workItemId && delegationControls(workItemId as WorkItemId)) || loading;
         case 'scope-evidence':

@@ -37,6 +37,7 @@ const COMMANDS: readonly {
     // The map's own `adopt` (supervision) is another command, so only the checks route counts.
     found: /\/checks\/adopt[`'"]/,
   },
+  { kind: 'merge', command: 'worktrees/:id/merge', found: /\/merge[`'"]/ },
 ];
 
 const src = fileURLToPath(new URL('..', import.meta.url));

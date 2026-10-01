@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { git, openOwnWorkspace } from './support';
+import { git, openMergeDecision, openOwnWorkspace } from './support';
 
 /**
  * The first useful loop, driven from the browser: register a repository, open
@@ -185,11 +185,14 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await page.getByRole('button', { name: 'Work item' }).click();
     await expect(page.getByText('Reviewed and mergeable')).toBeVisible();
 
-    // Merge lands on revision-test, leaving main checked out and unchanged.
-    await page.getByRole('button', { name: 'Merge…' }).click();
-    const mergeForm = page.getByRole('form', { name: 'Merge target' });
+    // Merge lands on revision-test, leaving main checked out and unchanged. The merge is
+    // decided in its inbox item, which the work item links to (R-A6).
+    const reviewed = page.url();
+    const mergeForm = await openMergeDecision(page);
     await expect(mergeForm.getByLabel('Merge into')).toHaveValue('revision-test');
     await mergeForm.getByRole('button', { name: 'Merge' }).click();
+    await expect(page.getByText('This item is resolved.')).toBeVisible();
+    await page.goto(reviewed);
     await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/merged as [0-9a-f]{10}/)).toBeVisible();
     await expect(page.getByRole('button', { name: /Merge into/ })).toHaveCount(0);
@@ -317,17 +320,16 @@ test('registers a repository, delegates a work item, follows the run, and reads 
       execFileSync('git', ['log', '--oneline', 'main'], { cwd: repository, encoding: 'utf8' }),
     ).not.toContain('fake agent');
 
-    await page.getByRole('button', { name: 'Merge…' }).click();
+    const awaiting = page.url();
+    const automatedMerge = await openMergeDecision(page);
     const completedMerge = page.waitForResponse(
       (response) => response.request().method() === 'POST' && response.url().endsWith('/merge'),
       { timeout: 15000 },
     );
-    await page
-      .getByRole('form', { name: 'Merge target' })
-      .getByRole('button', { name: 'Merge', exact: true })
-      .click();
+    await automatedMerge.getByRole('button', { name: 'Merge', exact: true }).click();
     const mergeResponse = await completedMerge;
     expect(mergeResponse.status(), await mergeResponse.text()).toBe(200);
+    await page.goto(awaiting);
     await expect(cyclePanel.getByText(/Previous cycle: Completed/)).toBeVisible({ timeout: 15000 });
   } finally {
     rmSync(repository, { recursive: true, force: true });

@@ -35,7 +35,8 @@ import {
   VERDICT_ACCENTS,
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
-import { CheckAdoptionReview } from './CheckAdoptionReview.js';
+import { MergeApproval, RetryMergeCleanup } from '../../decisions/merge/MergeApproval.js';
+import { Link } from '../../lib/navigation.js';
 import { HandoffForm } from './HandoffForm.js';
 import {
   handoffDefaults,
@@ -88,7 +89,6 @@ export function DelegationPanel({
   worktrees,
   runs,
   mergeGates,
-  branches,
   backends,
   itemCompleted,
   canMutate,
@@ -98,9 +98,10 @@ export function DelegationPanel({
   onRemoveWorktree,
   removalRefused,
   onKeepWorktree,
-  onMergeWorktree,
   workspaceId,
-  onLoadBranches,
+  csrfToken,
+  onMerged,
+  decisionItemFor,
   onLaunch,
   onOpenRun,
   onOpenDiff,
@@ -114,8 +115,6 @@ export function DelegationPanel({
   worktrees: readonly WorktreeSummary[];
   runs: readonly AgentRunSummary[];
   mergeGates: Readonly<Record<string, MergeGate>>;
-  /** Branches of the repository a merge is being prepared for, once loaded. */
-  branches?: RepositoryBranchesResponse;
   backends: ExecutionStatusResponse['backends'];
   itemCompleted: boolean;
   canMutate: boolean;
@@ -126,18 +125,16 @@ export function DelegationPanel({
   /** A removal the daemon refused to protect uncommitted work, awaiting the operator's choice. */
   removalRefused?: WorktreeChangesRefused & { readonly worktreeId: WorktreeId };
   onKeepWorktree?: () => void;
-  /**
-   * `adoptChecks`: the operator's approval of the check definitions the merge adopts, for a
-   * gate of `check-adoption` (R-G13 increment 5).
-   */
-  onMergeWorktree: (
-    worktreeId: WorktreeId,
-    targetBranch: string,
-    adoptChecks?: { readonly proposalDigest: string; readonly rationale: string },
-  ) => void;
-  /** Needed to read the check definitions a merge adopts. */
+  /** Needed to merge (R-A6: MergeApproval posts the merge itself). */
   workspaceId?: WorkspaceId;
-  onLoadBranches: (repositoryId: SourceRepositoryId) => void;
+  csrfToken: string;
+  /** After a merge or a cleanup retry: the page reloads the item's execution. */
+  onMerged: (worktreeId: WorktreeId) => void;
+  /**
+   * The open inbox item that carries a worktree's merge: the page then links to it instead of
+   * rendering the merge (R-A6).
+   */
+  decisionItemFor?: (worktreeId: string) => string | undefined;
   onLaunch: (input: LaunchInput) => void;
   onOpenRun: (runId: AgentRunId) => void;
   onOpenDiff: (worktreeId: WorktreeId) => void;
@@ -177,11 +174,6 @@ export function DelegationPanel({
     import('@craftingtable/domain').AgentReasoningEffort | undefined
   >(initialChoice?.reasoningEffort);
   const [instructions, setInstructions] = useState('');
-  const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
-  const [mergeOpen, setMergeOpen] = useState<string>();
-  /** The check definitions a `check-adoption` merge adopts: their digest, and why (R-G13). */
-  const [adoptionDigest, setAdoptionDigest] = useState<string>();
-  const [adoptionRationale, setAdoptionRationale] = useState('');
   /** The run whose handoff form is open, if any. */
   const [handoffOpen, setHandoffOpen] = useState<AgentRunId>();
   /** Operator override of the launch form's visibility; unset follows the item's state. */
@@ -240,16 +232,6 @@ export function DelegationPanel({
     setInstructions('');
   };
 
-  const openMerge = (worktree: WorktreeSummary): void => {
-    setMergeOpen(worktree.id);
-    setMergeTargets((current) =>
-      current[worktree.id] === undefined
-        ? { ...current, [worktree.id]: worktree.integrationBranch ?? worktree.baseBranch }
-        : current,
-    );
-    onLoadBranches(worktree.repositoryId);
-  };
-
   const launchVisible = launchableWorktrees.length > 0 && (launchOpen ?? !automationActive);
   // Counts only: the merge gate is named once, on the worktree itself.
   const summary =
@@ -277,26 +259,20 @@ export function DelegationPanel({
         </p>
       )}
 
-      {mergedWorktrees
-        .filter((tree) => tree.mergeCleanupError)
-        .map((tree) => (
-          <div className="error-state" role="status" key={tree.id}>
-            <p>
-              Merge succeeded. Cleanup for {tree.branchName} needs attention:{' '}
-              {tree.mergeCleanupError}
-            </p>
-            {canMutate && (
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={busy}
-                onClick={() => onMergeWorktree(tree.id, tree.integrationBranch ?? tree.baseBranch)}
-              >
-                Retry worktree cleanup
-              </button>
-            )}
-          </div>
-        ))}
+      {workspaceId &&
+        canMutate &&
+        mergedWorktrees
+          .filter((tree) => tree.mergeCleanupError)
+          .map((tree) => (
+            <RetryMergeCleanup
+              key={tree.id}
+              workspaceId={workspaceId}
+              worktree={tree}
+              csrfToken={csrfToken}
+              disabled={busy}
+              onDone={onMerged}
+            />
+          ))}
       <h4>Worktrees ({activeWorktrees.length})</h4>
       {activeWorktrees.length === 0 ? (
         <p className="empty-state">
@@ -313,9 +289,6 @@ export function DelegationPanel({
           {activeWorktrees.map((worktree) => {
             const gate = mergeGates[worktree.id];
             const hasLiveRun = liveRuns.some((run) => run.worktreeId === worktree.id);
-            const target =
-              worktree.integrationBranch ?? mergeTargets[worktree.id] ?? worktree.baseBranch;
-            const listId = `branches-${worktree.id}`;
             return (
               <li key={worktree.id} className="worktree-item">
                 <div>
@@ -367,102 +340,34 @@ export function DelegationPanel({
                       )}
                     </div>
                   )}
-                  {gate?.mergeable === true && canMutate && mergeOpen === worktree.id && (
-                    <form
-                      className="inline-form merge-form"
-                      aria-label="Merge target"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        if (target.trim().length === 0) return;
-                        if (gate.reason !== 'check-adoption')
-                          onMergeWorktree(worktree.id, target.trim());
-                        else if (adoptionDigest && adoptionRationale.trim())
-                          onMergeWorktree(worktree.id, target.trim(), {
-                            proposalDigest: adoptionDigest,
-                            rationale: adoptionRationale.trim(),
-                          });
-                      }}
-                    >
-                      <p className="merge-destination">
-                        Merge <code>{worktree.branchName}</code> into <code>{target}</code>.
+                  {gate?.mergeable === true &&
+                    canMutate &&
+                    workspaceId &&
+                    (decisionItemFor?.(worktree.id) ? (
+                      <p className="attention-banner" role="status">
+                        This merge is decided in Needs you.{' '}
+                        <Link
+                          route={{
+                            name: 'inbox',
+                            workspaceId,
+                            itemId: decisionItemFor(worktree.id)!,
+                          }}
+                        >
+                          Open the decision
+                        </Link>
                       </p>
-                      <label className="field">
-                        Merge into
-                        <input
-                          type="text"
-                          list={listId}
-                          value={target}
-                          readOnly={worktree.integrationBranch !== undefined}
-                          onChange={(event) =>
-                            setMergeTargets((current) => ({
-                              ...current,
-                              [worktree.id]: event.target.value,
-                            }))
-                          }
-                          disabled={busy}
-                          maxLength={255}
-                          spellCheck={false}
-                          required
-                        />
-                        <datalist id={listId}>
-                          {(branches?.branches ?? [])
-                            .filter((name) => name !== worktree.branchName)
-                            .map((name) => (
-                              <option key={name} value={name} />
-                            ))}
-                        </datalist>
-                      </label>
-                      {gate.reason === 'check-adoption' && workspaceId && (
-                        <CheckAdoptionReview
-                          workspaceId={workspaceId}
-                          worktreeId={worktree.id}
-                          rationale={adoptionRationale}
-                          onRationale={setAdoptionRationale}
-                          onProposal={setAdoptionDigest}
-                          disabled={busy}
-                        />
-                      )}
-                      <button
-                        type="submit"
-                        className="primary-button"
-                        disabled={
-                          busy ||
-                          target.trim().length === 0 ||
-                          (gate.reason === 'check-adoption' &&
-                            (!adoptionDigest || !adoptionRationale.trim()))
-                        }
-                      >
-                        {gate.reason === 'check-adoption' ? 'Merge and adopt checks' : 'Merge'}
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-button"
-                        onClick={() => setMergeOpen(undefined)}
+                    ) : (
+                      <MergeApproval
+                        workspaceId={workspaceId}
+                        worktree={worktree}
+                        gate={gate}
+                        csrfToken={csrfToken}
                         disabled={busy}
-                      >
-                        Cancel
-                      </button>
-                      <span className="hint">
-                        Merges into this worktree’s recorded integration target. Retargeting
-                        requires a new review.
-                        {branches?.checkedOut !== undefined
-                          ? ` The primary checkout is on ${branches.checkedOut}.`
-                          : ''}
-                      </span>
-                    </form>
-                  )}
+                        onMerged={onMerged}
+                      />
+                    ))}
                 </div>
                 <div className="inline-actions">
-                  {gate?.mergeable === true && canMutate && mergeOpen !== worktree.id && (
-                    <button
-                      type="button"
-                      className="primary-button"
-                      onClick={() => openMerge(worktree)}
-                      disabled={busy}
-                    >
-                      Merge…
-                    </button>
-                  )}
                   <button
                     type="button"
                     className="text-button"

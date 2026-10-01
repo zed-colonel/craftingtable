@@ -17,6 +17,7 @@ export function FinalizationDecision({
   planVersionId,
   finalizationId,
   cycleId,
+  worktreeId,
   csrfToken,
   canMutate,
   refreshToken,
@@ -27,6 +28,8 @@ export function FinalizationDecision({
   planVersionId: PlanVersionId;
   finalizationId?: string;
   cycleId?: string;
+  /** A merge item names only the finalization's worktree, and no cycle once it has ended. */
+  worktreeId?: string;
   csrfToken: string;
   canMutate: boolean;
   refreshToken: number;
@@ -44,7 +47,10 @@ export function FinalizationDecision({
         if (!alive) return;
         setView(
           result.finalizations.find(
-            (v) => v.finalization.id === finalizationId || v.finalization.cycleId === cycleId,
+            (v) =>
+              (finalizationId !== undefined && v.finalization.id === finalizationId) ||
+              (cycleId !== undefined && v.finalization.cycleId === cycleId) ||
+              (worktreeId !== undefined && v.finalization.worktreeId === worktreeId),
           ) ?? null,
         );
       })
@@ -59,7 +65,7 @@ export function FinalizationDecision({
     return () => {
       alive = false;
     };
-  }, [workspaceId, planVersionId, finalizationId, cycleId, refreshToken, reload]);
+  }, [workspaceId, planVersionId, finalizationId, cycleId, worktreeId, refreshToken, reload]);
   if (view === undefined) return <p className="empty-state">Loading the finalization…</p>;
   if (view === null)
     return <p className="empty-state">This finalization could not be loaded. Reload the page.</p>;

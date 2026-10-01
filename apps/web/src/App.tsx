@@ -1598,6 +1598,7 @@ export function App() {
               planVersionId={planVersionId as PlanVersionId}
               {...(item.refs.finalizationId ? { finalizationId: item.refs.finalizationId } : {})}
               {...(cycleId ? { cycleId } : {})}
+              {...(item.refs.worktreeId ? { worktreeId: item.refs.worktreeId } : {})}
               csrfToken={authenticated.csrfToken}
               canMutate={canMutate}
               refreshToken={refreshToken}

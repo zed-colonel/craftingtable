@@ -213,6 +213,26 @@ it('decides merges, scope evidence, checks, runs, finalization, storage and prot
       }),
     ),
   ).toEqual([{ kind: 'finalization' }]);
+  // A finalization's merge item carries its worktree, and after the promotion no cycle: its
+  // cleanup retry is the panel's (R-A6 2b review).
+  expect(
+    decisionsFor(
+      item({
+        subjectKey: 'merge:t',
+        code: 'merge-cleanup-failed',
+        refs: { worktreeId: 't', planVersionId: 'p', projectId: 'pr' },
+      }),
+    ),
+  ).toEqual([{ kind: 'finalization' }]);
+  expect(
+    decisionsFor(
+      item({
+        subjectKey: 'merge:t',
+        code: 'merge-recovery-required',
+        refs: { worktreeId: 't', planVersionId: 'p', projectId: 'pr' },
+      }),
+    ),
+  ).toEqual([{ kind: 'finalization-decision' }]);
   // A finalization's own stops render its decisions; its cleanup stays on the panel (R-A6 2b).
   for (const code of ['final-promotion', 'stage-batch-selection', 'remediation-exhausted'] as const)
     expect(

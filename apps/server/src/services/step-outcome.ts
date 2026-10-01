@@ -342,6 +342,8 @@ const OUTAGE_QUESTION_STOPS: ReadonlySet<string> = new Set([
   'design-open-questions',
   'implementation-open-questions',
   'review-open-questions',
+  // A question at the round limit is still a question the outage may have caused (LIVE-33).
+  'review-open-questions-at-limit',
   'scope-review-open-questions',
 ]);
 

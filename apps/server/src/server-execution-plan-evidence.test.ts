@@ -751,6 +751,26 @@ it('a slice review question at the remediation limit keeps the question and the 
   const stopped = currentCycle(state, cycle);
   expect(stopped.attention?.code).toBe('review-open-questions-at-limit');
   expect(stopped.reason).toContain('Remediation limit reached.');
+  expect(stopped.workflow?.questions).toEqual([{ question, destination: 'work-item' }]);
+  // The browser offers what the daemon returns with the cycle.
+  const offered = async () => {
+    const response = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/cycles`,
+      headers: { cookie: state.cookie },
+    });
+    return (response.json() as { cycles: { id: string; actions: string[] }[] }).cycles.find(
+      (c) => c.id === cycle.id,
+    )?.actions;
+  };
+  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  const rewrite = (changes: Record<string, unknown>) => {
+    const current = currentCycle(state, cycle);
+    return state.context.storage.execution.cycles.replace(
+      { ...current, ...changes, version: current.version + 1 } as typeof current,
+      current.version,
+    )!;
+  };
   const control = (payload: Record<string, unknown>) =>
     state.context.app.inject({
       method: 'POST',
@@ -764,21 +784,55 @@ it('a slice review question at the remediation limit keeps the question and the 
   expect(refused.body).toContain('Authorize more remediation');
   expect(currentCycle(state, cycle)).toEqual(stopped);
 
-  // A stop the deployed release recorded as work-item-questions is refused the same way.
-  const legacy = state.context.storage.execution.cycles.replace(
-    {
-      ...stopped,
-      version: stopped.version + 1,
-      attention: cycleAttention('work-item-questions'),
-      reason: 'Operator input required. Answer the work-item questions in Continue with guidance.',
-    },
-    stopped.version,
-  )!;
+  // A stop the deployed release recorded as work-item-questions is refused the same way, and
+  // offers the grant instead; so does a settled shared-decision stop, and a paused one.
+  const legacy = rewrite({
+    attention: cycleAttention('work-item-questions'),
+    reason: 'Operator input required. Answer the work-item questions in Continue with guidance.',
+  });
   const legacyRefused = await control({ action: 'resume', instructions: guidance });
   expect(legacyRefused.statusCode).toBe(409);
   expect(legacyRefused.body).toContain('Authorize more remediation');
   expect(currentCycle(state, cycle)).toEqual(legacy);
+  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  rewrite({ attention: cycleAttention('shared-decision-required') });
+  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  rewrite({ status: 'paused', attention: cycleAttention('review-open-questions-at-limit') });
+  expect(await offered()).toEqual(['authorize-remediation', 'resume', 'stop']);
+  rewrite({ status: 'needs-attention' });
+  // With a round left, the question stop is answered with guidance as before.
+  rewrite({ attention: cycleAttention('work-item-questions'), additionalRemediationRounds: 1 });
+  expect(await offered()).toEqual(['resume', 'stop']);
+  rewrite({
+    attention: cycleAttention('review-open-questions-at-limit'),
+    additionalRemediationRounds: 0,
+  });
 
+  // A grant that still leaves the rounds spent names what would start one.
+  rewrite({ remediationRounds: 5 });
+  const short = await control({
+    action: 'authorize-remediation',
+    additionalRounds: 1,
+    instructions: guidance,
+  });
+  expect(short.statusCode).toBe(409);
+  expect(short.body).toContain('Authorize at least 6');
+  rewrite({ remediationRounds: 0 });
+
+  // The finished review was a separate security review; its remediation is not briefed as one.
+  rewrite({
+    workflow: {
+      ...currentCycle(state, cycle).workflow!,
+      activeReview: {
+        kind: 'security',
+        sourceRunId: currentCycle(state, cycle).currentRunId,
+        requirements: [],
+        caseIds: [],
+        roles: ['independent-security-reviewer-if-required-by-source'],
+        contextDigest: 'a'.repeat(64),
+      },
+    },
+  });
   const launches = backend.launches.length;
   const granted = await control({
     action: 'authorize-remediation',
@@ -788,6 +842,8 @@ it('a slice review question at the remediation limit keeps the question and the 
   expect(granted.statusCode, granted.body).toBe(200);
   await waitFor(() => backend.launches.length > launches, 'remediation launch');
   expect(backend.launches[launches]?.prompt).toContain(guidance);
+  expect(backend.launches[launches]?.prompt).not.toContain('This is a separate security review');
+  expect(currentCycle(state, cycle).workflow?.activeReview ?? null).toBeNull();
 });
 
 it.each([false, true])(

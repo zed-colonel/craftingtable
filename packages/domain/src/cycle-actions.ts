@@ -100,24 +100,45 @@ export function resumeRedirect(
   return resolution ? { action: resolution[0], message: resolution[1] } : undefined;
 }
 
+/** Question stops whose answer, at the round limit, travels with Authorize more remediation. */
+const QUESTION_STOPS: ReadonlySet<string> = new Set([
+  'work-item-questions',
+  'shared-decision-required',
+  'review-open-questions',
+  'review-open-questions-at-limit',
+  'remediation-exhausted',
+]);
+
 export function cycleActions(
   cycle: Parameters<typeof effectiveCycleAttention>[0] &
     Pick<WorkCycle, 'status' | 'currentRunId'> &
     Partial<Pick<WorkCycle, 'unsettledDecisions'>>,
   latestRunId?: string,
+  /**
+   * The current review asks for remediation and the allowance is spent. Guidance alone cannot
+   * start a round then, so a question stop, stopped or paused, offers the grant (LIVE-33).
+   */
+  reviewNeedsRounds = false,
 ): readonly CycleAction[] {
   // A stop that waits on unsettled shared decisions offers them instead of a resume the daemon
   // would refuse (LIVE-18); the list is the daemon's, read with the cycle.
   if (['paused', 'needs-attention'].includes(cycle.status) && cycle.unsettledDecisions?.length)
     return ['open-shared-decisions', 'stop'];
+  // A pause taken at a stop keeps that stop's attention (as resumeRedirect reads it).
+  const code =
+    cycle.status === 'paused' ? cycle.attention?.code : effectiveCycleAttention(cycle)?.code;
+  const grantOnly =
+    reviewNeedsRounds &&
+    code !== undefined &&
+    QUESTION_STOPS.has(code) &&
+    (latestRunId === undefined || latestRunId === cycle.currentRunId);
   switch (cycle.status) {
     case 'running':
       return ['pause', 'stop'];
     case 'paused':
-      return ['resume', 'stop'];
+      return grantOnly ? ['authorize-remediation', 'resume', 'stop'] : ['resume', 'stop'];
     case 'awaiting-merge': {
       // Pausing at the merge boundary holds a roadmap's automatic merge.
-      const code = effectiveCycleAttention(cycle)?.code;
       return code === 'merge-approval'
         ? ['merge', 'pause', 'stop']
         : code === 'record-scope-evidence'
@@ -127,6 +148,7 @@ export function cycleActions(
             : ['pause', 'stop'];
     }
     case 'needs-attention': {
+      if (grantOnly) return ['authorize-remediation', 'stop'];
       const redirect = resumeRedirect(cycle, latestRunId);
       return redirect ? [redirect.action, 'stop'] : ['resume', 'stop'];
     }

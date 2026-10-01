@@ -25,6 +25,44 @@ describe('cycle actions (R-A7)', () => {
     expect(cycleActions(cycle('running'))).toEqual(['pause', 'stop']);
   });
 
+  // LIVE-33: guidance cannot start a round, so at the limit a question stop offers the grant.
+  it('offers only the grant at a question stop whose review needs rounds the allowance lacks', () => {
+    for (const code of [
+      'work-item-questions',
+      'shared-decision-required',
+      'review-open-questions',
+      'review-open-questions-at-limit',
+      'remediation-exhausted',
+    ] as const) {
+      expect(cycleActions(cycle('needs-attention', code), undefined, true)).toEqual([
+        'authorize-remediation',
+        'stop',
+      ]);
+      expect(cycleActions(cycle('paused', code), undefined, true)).toEqual([
+        'authorize-remediation',
+        'resume',
+        'stop',
+      ]);
+    }
+    // Other stops, rounds left, and a newer manual run (which a resume adopts) are unchanged.
+    expect(cycleActions(cycle('needs-attention', 'step-incomplete'), undefined, true)).toEqual([
+      'resume',
+      'stop',
+    ]);
+    expect(cycleActions(cycle('needs-attention', 'work-item-questions'))).toEqual([
+      'resume',
+      'stop',
+    ]);
+    expect(
+      cycleActions(
+        { ...cycle('needs-attention', 'work-item-questions'), currentRunId: 'run-1' } as WorkCycle,
+        'run-2',
+        true,
+      ),
+    ).toEqual(['resume', 'stop']);
+    expect(cycleActions(cycle('paused'), undefined, true)).toEqual(['resume', 'stop']);
+  });
+
   it('offers the shared decisions, not a resume, while a stop still waits on them (LIVE-18)', () => {
     const waiting = (status: WorkCycle['status']) =>
       ({

@@ -369,6 +369,40 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'review-open-questions-at-limit' },
   },
   {
+    // R-C11: a question asked during a refused approval review is likely the outage's, so the
+    // step is retried at the limit too (LIVE-33 review).
+    name: "a slice review's question at the limit during a provider outage is retried",
+    cycle: { step: 'review', executionScope: { kind: 'slice' }, remediationRounds: 3 },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(workflow([{ question: 'Which name?', destination: 'work-item' }]), {
+        suspectedOutage: credentialFailure(),
+      }),
+      workflowQuestions: () => [{ question: 'Which name?', destination: 'work-item' }],
+      reviewAssessment: () => review([minor]),
+    },
+    expected: { kind: 'schedule-service-retry' },
+  },
+  {
+    name: "a slice review's shared and work-item questions at the limit wait for the shared decision",
+    cycle: { step: 'review', executionScope: { kind: 'slice' }, remediationRounds: 3 },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(
+        workflow([
+          { question: 'Which store?', destination: 'shared-decision' },
+          { question: 'Which name?', destination: 'work-item' },
+        ]),
+      ),
+      workflowQuestions: () => [
+        { question: 'Which store?', destination: 'shared-decision' },
+        { question: 'Which name?', destination: 'work-item' },
+      ],
+      reviewAssessment: () => review([minor]),
+    },
+    expected: { kind: 'attention', code: 'shared-decision-required' },
+  },
+  {
     name: "a slice review's question with rounds left stops for guidance",
     cycle: { step: 'review', executionScope: { kind: 'slice' }, remediationRounds: 2 },
     facts: {

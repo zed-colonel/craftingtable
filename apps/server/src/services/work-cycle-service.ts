@@ -287,6 +287,7 @@ export class WorkCycleService {
     const actions = cycleActions(
       { ...c, ...(unsettled.length ? { unsettledDecisions: unsettled } : {}) },
       tx.execution.runs.latestIdForWorktree(c.workspaceId, c.worktreeId),
+      reviewNeedsRounds(tx, c, currentRun),
     );
     const routes =
       c.status === 'needs-attention' &&
@@ -3260,7 +3261,9 @@ export class WorkCycleService {
       if (grant)
         throw new ExecutionRequestError(
           'conflict',
-          'The remediation rounds are used up, so guidance alone cannot start another. Use Authorize more remediation; its instructions carry your answer.',
+          grant.additionalRounds === 0
+            ? 'The remediation rounds are used up, so guidance alone cannot start another. Use Authorize more remediation; its instructions carry your answer.'
+            : `${remediationUsed(cycle)} remediation rounds are used of ${remediationAllowance(cycle)} allowed. Authorize at least ${remediationUsed(cycle) - remediationAllowance(cycle) + 1} more to start another.`,
         );
       this.attention(
         cycle,
@@ -3302,6 +3305,11 @@ export class WorkCycleService {
       run,
       context,
       {
+        // The finished review's role ends with it, as on the automatic path; a remediation
+        // briefed as a read-only security or checkpoint review would not edit (LIVE-33 review).
+        ...(cycle.workflow?.activeReview
+          ? { workflow: { ...cycle.workflow, activeReview: null, waiting: null } }
+          : {}),
         housekeepingInstructions: this.housekeepingGuidance(),
         remediationRounds: cycle.remediationRounds + 1,
         previousFindingFingerprint: fingerprint,
@@ -4723,4 +4731,26 @@ export class WorkCycleService {
       },
     });
   }
+}
+
+/**
+ * A stopped or paused review whose well-formed report asks for remediation the allowance has
+ * spent: only Authorize more remediation can continue it (LIVE-33).
+ */
+function reviewNeedsRounds(tx: StorageRepositories, cycle: WorkCycle, run?: AgentRun): boolean {
+  if (
+    !['needs-attention', 'paused'].includes(cycle.status) ||
+    cycle.step !== 'review' ||
+    run?.role !== 'review' ||
+    run.status !== 'finished' ||
+    remediationUsed(cycle) < remediationAllowance(cycle)
+  )
+    return false;
+  const assessment = latestReviewReport(tx.execution, run);
+  if (assessment?.status !== 'complete') return false;
+  const tree = tx.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+  return (
+    !(tree && scopedReviewIssue(tx, tree, assessment)) &&
+    evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
+  );
 }

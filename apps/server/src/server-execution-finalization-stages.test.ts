@@ -492,6 +492,22 @@ describe('completed plan and integration branch cleanup', () => {
     } finally {
       reopened.close();
     }
+    // Paused with the promotion reserved: only its recovery is offered, and nothing else is
+    // accepted (R-A6 2b review).
+    const paused = await finalizationCommand(state, value, 'pause');
+    expect(paused.statusCode, paused.body).toBe(200);
+    expect(finalizationCycle(state, value).status).toBe('paused');
+    const listed = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/plans/${value.planVersionId}/finalizations`,
+      headers: { cookie: state.cookie },
+    });
+    expect(
+      (listed.json() as { finalizations: { actions: string[] }[] }).finalizations[0]!.actions,
+    ).toEqual(['merge']);
+    const resume = await finalizationCommand(state, value, 'resume');
+    expect(resume.statusCode, resume.body).toBe(409);
+    expect(resume.body).toContain('does not offer resume now');
     const retry = await finalizationCommand(state, value, 'merge', approval);
     expect(retry.statusCode, retry.body).toBe(200);
     expect(retry.json().finalization.integrationCleanup.status).toBe('removed');

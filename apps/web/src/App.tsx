@@ -34,6 +34,7 @@ import type {
 } from '@craftingtable/domain';
 import {
   type ReactElement,
+  type ReactNode,
   useCallback,
   useEffect,
   useReducer,
@@ -46,7 +47,7 @@ import { NeedsYou } from './components/NeedsYou.js';
 import { InboxPage } from './features/inbox/InboxPage.js';
 import { AcknowledgeMoves } from './features/inbox/AcknowledgeMoves.js';
 import { loadAttention } from './lib/attention-api.js';
-import { inboxHost } from './lib/inbox-host.js';
+import { type Decision, decisionsFor } from './decisions/registry.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
 import { PageHeader } from './components/PageHeader.js';
@@ -63,6 +64,7 @@ import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
 import { PlanBranchPanel } from './features/execution/PlanBranchPanel.js';
 import { ProviderRetry } from './decisions/cycle/CycleDecisions.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
+import { RepositoryChecksPanel } from './features/execution/RepositoryChecksPanel.js';
 import { RunPage } from './features/execution/RunPage.js';
 import { RunList, RunsPage } from './features/execution/RunsPage.js';
 import { ScopeRepairPanel } from './features/execution/ScopeRepairPanel.js';
@@ -1483,41 +1485,49 @@ export function App() {
     );
   };
   /**
-   * The existing controls that resolve one inbox item, unchanged (R-A5): the work item's
-   * cycle or delegation controls, a finalization, the roadmap's own controls, or storage.
-   * R-A6 replaces each kind with one consolidated component.
+   * The decisions that resolve one inbox item, chosen by its code through the registry (R-A6
+   * increment 2a): each kind's own component, or one part of a roadmap.
    */
   const renderInboxHost = (item: AttentionItemView): ReactElement => {
-    const { workItemId, roadmapId, planVersionId, projectId, runId } = item.refs;
-    const host = inboxHost(item);
-    const cycle =
-      host.cycle && workItemId
-        ? cycleControls(
-            workItemId as WorkItemId,
-            item.refs.worktreeId as WorktreeId | undefined,
-            true,
-          )
-        : undefined;
-    const delegation =
-      host.delegation && workItemId ? delegationControls(workItemId as WorkItemId) : undefined;
-    const scopes = host.scopes && workItemId ? scopeControls(workItemId as WorkItemId) : undefined;
-    return (
-      <Fragment key={item.id}>
-        {workItemId !== undefined &&
-          (cycle || delegation || scopes ? (
-            <>
-              {cycle}
-              {scopes}
-              {delegation}
-            </>
+    const { workItemId, roadmapId, planVersionId, projectId, runId, cycleId } = item.refs;
+    const loading = <p className="empty-state">Loading controls…</p>;
+    const render = (decision: Decision): ReactNode => {
+      switch (decision.kind) {
+        case 'cycle':
+          return (
+            (workItemId &&
+              cycleControls(
+                workItemId as WorkItemId,
+                item.refs.worktreeId as WorktreeId | undefined,
+                true,
+              )) ||
+            loading
+          );
+        case 'merge':
+        case 'worktrees':
+          return (workItemId && delegationControls(workItemId as WorkItemId)) || loading;
+        case 'scope-evidence':
+          return (workItemId && scopeControls(workItemId as WorkItemId)) || loading;
+        case 'check-adoption': {
+          const repositoryId = cycles.find((c) => c.id === cycleId)?.attention?.refs?.repositoryId;
+          const repository = repositories.find((r) => r.id === repositoryId);
+          return repository && workspaceId !== undefined && authenticated !== undefined ? (
+            <RepositoryChecksPanel
+              workspaceId={workspaceId}
+              repository={repository}
+              csrfToken={authenticated.csrfToken}
+              editable={canMutate}
+              refreshToken={refreshToken}
+            />
           ) : (
-            <p className="empty-state">Loading controls…</p>
-          ))}
-        {host.finalization &&
-          planVersionId !== undefined &&
-          projectId !== undefined &&
-          workspaceId !== undefined &&
-          authenticated !== undefined && (
+            loading
+          );
+        }
+        case 'finalization':
+          return planVersionId !== undefined &&
+            projectId !== undefined &&
+            workspaceId !== undefined &&
+            authenticated !== undefined ? (
             <FinalizationPanel
               key={`finalize-${planVersionId}`}
               workspaceId={workspaceId}
@@ -1526,10 +1536,24 @@ export function App() {
               canMutate={canMutate}
               onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
             />
-          )}
-        {item.actions?.includes('acknowledge') &&
-          workspaceId !== undefined &&
-          authenticated !== undefined && (
+          ) : undefined;
+        case 'run':
+          return runId !== undefined && workspaceId !== undefined ? (
+            <p>
+              <Link
+                className="text-button"
+                route={{ name: 'run', workspaceId, runId: runId as AgentRunId }}
+              >
+                Open the run
+              </Link>
+            </p>
+          ) : undefined;
+        case 'storage':
+          return activeWorkspace?.role === 'owner' && authenticated !== undefined ? (
+            <StoragePanel workspaceId={activeWorkspace.id} csrfToken={authenticated.csrfToken} />
+          ) : undefined;
+        case 'acknowledge':
+          return workspaceId !== undefined && authenticated !== undefined ? (
             <AcknowledgeMoves
               workspaceId={workspaceId}
               moveIds={item.members ?? []}
@@ -1537,41 +1561,36 @@ export function App() {
               canMutate={canMutate}
               onDone={() => setRefreshToken((value) => value + 1)}
             />
-          )}
-        {host.storage && activeWorkspace?.role === 'owner' && authenticated !== undefined && (
-          <StoragePanel workspaceId={activeWorkspace.id} csrfToken={authenticated.csrfToken} />
-        )}
-        {host.run && runId !== undefined && workspaceId !== undefined && (
-          <p>
-            <Link
-              className="text-button"
-              route={{ name: 'run', workspaceId, runId: runId as AgentRunId }}
-            >
-              Open the run
-            </Link>
-          </p>
-        )}
-        {host.roadmap !== undefined &&
-          roadmapId !== undefined &&
-          workspaceId !== undefined &&
-          activeWorkspace !== undefined &&
-          authenticated !== undefined && (
-            <details open={host.roadmap.open}>
-              <summary>Roadmap controls</summary>
-              <RoadmapPage
-                key={`inbox-${item.id}`}
-                workspaceId={workspaceId}
-                roadmapId={roadmapId}
-                tab="all"
-                csrfToken={authenticated.csrfToken}
-                canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
-                onOpenWorkItem={(id) => go({ name: 'work-item', workspaceId, workItemId: id })}
-                attention={attentionItems}
-                onOpenAttention={(id) => go({ name: 'inbox', workspaceId, itemId: id })}
-                {...(host.roadmap.focus === undefined ? {} : { focus: host.roadmap.focus })}
-              />
-            </details>
-          )}
+          ) : undefined;
+        case 'roadmap':
+          return roadmapId !== undefined &&
+            workspaceId !== undefined &&
+            activeWorkspace !== undefined &&
+            authenticated !== undefined ? (
+            <RoadmapPage
+              key={`inbox-${item.id}`}
+              workspaceId={workspaceId}
+              roadmapId={roadmapId}
+              tab="all"
+              part={decision.part}
+              csrfToken={authenticated.csrfToken}
+              canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
+              onOpenWorkItem={(id) => go({ name: 'work-item', workspaceId, workItemId: id })}
+              attention={attentionItems}
+              onOpenAttention={(id) => go({ name: 'inbox', workspaceId, itemId: id })}
+              {...(decision.part.kind === 'controls' && decision.part.entryId
+                ? { focus: `roadmap-entry-${roadmapId}-${decision.part.entryId}` }
+                : {})}
+            />
+          ) : undefined;
+      }
+    };
+    return (
+      <Fragment key={item.id}>
+        {decisionsFor(item).map((decision, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: an item's decisions are fixed by its code.
+          <Fragment key={index}>{render(decision)}</Fragment>
+        ))}
       </Fragment>
     );
   };

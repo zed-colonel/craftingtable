@@ -491,7 +491,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       timeout: 30_000,
     });
     await walk.capture('work-item-awaiting-merge', 'Work item · cycle awaiting merge approval');
-    // The merge approval is an inbox item that hosts the same cycle controls (R-A5).
+    // The merge approval is an inbox item whose decision is the merge itself (R-A6).
     const awaitingMerge = page.url();
     expect(await attentionAgrees(page)).toBe(1);
     await navigate(page, 'Needs you');
@@ -501,14 +501,9 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .getByRole('link', { name: 'Merge approval' })
       .click();
     await expect(
-      page.getByRole('region', { name: 'Decision' }).getByText('Awaiting merge approval', {
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(
       page.getByRole('region', { name: 'Decision' }).getByRole('button', { name: 'Merge…' }),
     ).toBeVisible();
-    await walk.capture('inbox-item', 'Needs you · the merge approval with its cycle controls');
+    await walk.capture('inbox-item', 'Needs you · the merge approval');
     await page.goto(awaitingMerge);
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     await walk.capture('work-item-merge-form', 'Work item · merge confirmation', async (p) => {

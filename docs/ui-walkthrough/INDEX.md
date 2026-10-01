@@ -95,3 +95,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-09-30-decisions-before | `34ca0e5` | 2026-09-30 | 64 (1 phone only) | 1× |
 | 2026-09-30-decisions-after | `ab78399` | 2026-09-30 | 66 (1 phone only) | 1× |
 | 2026-09-30-decisions-after-2 | `0166049` | 2026-09-30 | 66 (1 phone only) | 1× |
+| 2026-10-01-2026-09-30-inbox-registry-before | `4e3573d` | 2026-10-01 | 66 (1 phone only) | 1× |

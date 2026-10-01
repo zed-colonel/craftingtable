@@ -11,8 +11,8 @@ import type { Route } from '../../lib/route.js';
 
 /**
  * The "Needs you" inbox (R-A5): every open attention item, most blocking first, and one
- * item's decision. The detail hosts the existing controls for the item's subject, unchanged,
- * until R-A6 gives each kind one consolidated component.
+ * item's decision. The detail renders the decisions the registry chooses from the item's code
+ * (R-A6, `decisions/registry.ts`).
  */
 export function InboxPage({
   workspaceId,
@@ -29,7 +29,7 @@ export function InboxPage({
   selectedId?: string;
   now: number;
   onNavigate: (route: Route) => void;
-  /** The existing controls that resolve this item. */
+  /** The decisions that resolve this item. */
   renderHost: (item: AttentionItemView) => ReactNode;
 }) {
   const selected = items.find((item) => item.id === selectedId);

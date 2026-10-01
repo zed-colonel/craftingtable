@@ -250,6 +250,31 @@ A check counts for the gate only when it succeeded on the clean reviewed head. R
 /** How much of a failed check's log a reviewer is given. */
 const DECLARED_LOG_TAIL_BYTES = 64 * 1024;
 
+/**
+ * Whether a review may continue its parent's review on the parent's pinned baseline: a resumed
+ * session; a review whose background work did not finish, or that failed with a service error
+ * safe to retry; or one the drain stopped in its adopted checks, before its agent started
+ * (R-G13 increment 3 verification).
+ */
+export function reviewContinuable(
+  resumed: boolean,
+  parent: Pick<AgentRun, 'id' | 'status' | 'startedAt'> | undefined,
+  /** The parent's `run-finished` payload, when it has one. */
+  finished: { readonly reason?: string } | undefined,
+  providerRecovery: WorkCycle['providerRecovery'] | undefined,
+): boolean {
+  return (
+    resumed ||
+    (parent?.status === 'interrupted' &&
+      parent.startedAt === undefined &&
+      finished?.reason === 'daemon-drain') ||
+    (parent?.status === 'failed' &&
+      finished !== undefined &&
+      (finished.reason === 'background-work-incomplete' ||
+        (providerRecovery?.sourceRunId === parent.id && providerRecovery.failure.safeToRetry)))
+  );
+}
+
 export class AgentRunService {
   private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
@@ -263,8 +288,15 @@ export class AgentRunService {
    */
   private readonly checkingLaunches = new Map<
     string,
-    { readonly cancel: () => void; readonly done: Promise<void> }
+    {
+      readonly workspaceId: WorkspaceId;
+      readonly runId: AgentRunId;
+      readonly cancel: () => void;
+      readonly done: Promise<void>;
+    }
   >();
+  /** A restart is ending live sessions now: a launch that completes meanwhile is ended too. */
+  private interrupting = false;
   /** A restart drain is in progress: no new run may start (R-B9). */
   private draining = false;
   /**
@@ -700,9 +732,18 @@ export class AgentRunService {
   private launchRefusal(
     workspaceId: WorkspaceId,
     runId: AgentRunId,
+    worktreeId: WorktreeId,
     userId: UserId,
     cycle: WorkCycle | undefined,
   ): string | undefined {
+    // Its scope may have been retired or held by an amendment while the checks ran.
+    const tree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
+    if (!tree) return 'The worktree is gone.';
+    try {
+      requireTreeScope(this.storage, tree, 'start');
+    } catch (error) {
+      return error instanceof Error ? error.message : 'The worktree may no longer start work.';
+    }
     if (cycle) {
       const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
       if (latest?.currentRunId !== runId || latest.status !== 'running')
@@ -993,13 +1034,12 @@ export class AgentRunService {
               'run-finished',
             );
           // A resumed review continues on its pinned baseline, like a completion continuation.
-          const continuable =
-            resume !== undefined ||
-            (prepared.parentRun?.status === 'failed' &&
-              ended?.kind === 'run-finished' &&
-              (ended.payload.reason === 'background-work-incomplete' ||
-                (cycle?.providerRecovery?.sourceRunId === prepared.parentRun.id &&
-                  cycle.providerRecovery.failure.safeToRetry)));
+          const continuable = reviewContinuable(
+            resume !== undefined,
+            prepared.parentRun,
+            ended?.kind === 'run-finished' ? ended.payload : undefined,
+            cycle?.providerRecovery,
+          );
           if (!baseline || !continuable || !this.branches)
             throw new ExecutionRequestError(
               'conflict',
@@ -1649,6 +1689,16 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
 
+        // A restart began ending sessions while this one was launching: it is the drain's too, so
+        // the restart resumes it (R-G13 increment 3 verification).
+        if (this.interrupting) {
+          session.kill();
+          this.finalize(workspaceId, runId, 'interrupted', {
+            reason: 'daemon-drain',
+            message: DRAIN_INTERRUPTED_MESSAGE,
+          });
+          return this.storage.execution.runs.find(workspaceId, runId) ?? run;
+        }
         this.appendEvent(workspaceId, runId, {
           kind: 'user-message',
           payload: {
@@ -1719,7 +1769,13 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           });
         // The checks can take long: the launch's authority is checked again before the agent
         // starts, as the preflight checked it (R-G13 increment 3 review).
-        const refused = this.launchRefusal(workspaceId, runId, actor.userId, cycle);
+        const refused = this.launchRefusal(
+          workspaceId,
+          runId,
+          input.worktreeId,
+          actor.userId,
+          cycle,
+        );
         if (refused) return this.finalize(workspaceId, runId, 'cancelled', { message: refused });
         await proceed(declaredCheckReport(results, runDirectory));
       })()
@@ -1735,7 +1791,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           }
         })
         .finally(() => this.checkingLaunches.delete(runId));
-      this.checkingLaunches.set(runId, { cancel, done: continuation });
+      this.checkingLaunches.set(runId, { workspaceId, runId, cancel, done: continuation });
       this.mutations.hold(input.worktreeId, continuation);
       return this.storage.execution.runs.find(workspaceId, runId) ?? run;
     });
@@ -2024,6 +2080,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
    */
   async interruptForRestart(): Promise<number> {
     this.draining = true;
+    this.interrupting = true;
     for (const cancel of this.pendingCycleLaunches.values()) cancel();
     const checking = [...this.checkingLaunches.values()];
     for (const launch of checking) launch.cancel();
@@ -2056,7 +2113,20 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       ]),
       timeout,
     ]);
-    return interrupted + checking.length;
+    // A review whose checks outlast the grace (a slow clone ignores the abort) is recorded as
+    // the drain's now, before storage closes; its continuation then starts nothing.
+    const status = (launch: (typeof checking)[number]) =>
+      this.storage.execution.runs.find(launch.workspaceId, launch.runId)?.status;
+    for (const launch of checking) {
+      const current = status(launch);
+      if (current && !isTerminalAgentRunStatus(current) && !this.live.has(launch.runId))
+        this.finalize(launch.workspaceId, launch.runId, 'interrupted', {
+          reason: 'daemon-drain',
+          message: DRAIN_INTERRUPTED_MESSAGE,
+        });
+    }
+    // Only the reviews the drain itself stopped; one a pause had already cancelled is not.
+    return interrupted + checking.filter((launch) => status(launch) === 'interrupted').length;
   }
 
   async shutdown(): Promise<void> {

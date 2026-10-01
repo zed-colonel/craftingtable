@@ -16,7 +16,7 @@ import { deflateSync } from 'node:zlib';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, PinnedCargoManifest } from '@craftingtable/agents';
 import type { DeclaredCheck } from '@craftingtable/domain';
-import { afterEach, expect } from 'vitest';
+import { afterEach, expect, vi } from 'vitest';
 import {
   cleanupExecutionFixtures,
   commitFile,
@@ -342,6 +342,79 @@ itNeedsCargo(
     expect(ended()).toBe('cancelled');
     expect(reviewsLaunched()).toBe(0);
     expect(services.checkRequestService.inFlight(starting.id)).toEqual([]);
+  },
+);
+
+itNeedsCargo(
+  'a restart ends a reviewer that launched during it, and records a review whose checks outlast its grace (R-G13 increment 3 verification)',
+  { timeout: 60000 },
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
+    ]);
+    const storage = f.state.context.storage;
+    const services = f.state.context.services;
+    const start = async () => {
+      const response = await f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+        headers: mutationHeaders(f.state),
+        payload: { worktreeId: f.tree.id, role: 'review' },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json().run.id as string;
+    };
+    const status = (id: string) =>
+      storage.execution.runs.find(f.state.workspaceId, id as never)?.status;
+    // The reviewer's launch is under way when the restart begins ending sessions.
+    let release!: () => void;
+    const launching = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const inLaunch = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    f.backend.replyForRequest = async () => {
+      entered();
+      await launching;
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const run = await start();
+    await inLaunch;
+    const draining = services.agentRunService.interruptForRestart();
+    release();
+    expect(await draining).toBe(1);
+    expect(status(run)).toBe('interrupted');
+    expect(storage.execution.runs.listLive()).toEqual([]);
+  },
+);
+
+itNeedsCargo(
+  'a drain records a review whose checks outlast its grace, and counts it once (R-G13 increment 3 verification)',
+  { timeout: 60000 },
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'endless', argv: ['node', '-e', 'setTimeout(() => {}, 30000)'], definitionPaths: [] },
+    ]);
+    const storage = f.state.context.storage;
+    const services = f.state.context.services;
+    // The checks ignore the cancellation, as a slow clone does before the command runs.
+    vi.spyOn(services.checkRequestService, 'close').mockResolvedValue(undefined);
+    const response = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+      headers: mutationHeaders(f.state),
+      payload: { worktreeId: f.tree.id, role: 'review' },
+    });
+    const run = response.json().run.id as string;
+    expect(await services.agentRunService.interruptForRestart()).toBe(1);
+    expect(storage.execution.runs.find(f.state.workspaceId, run as never)?.status).toBe(
+      'interrupted',
+    );
+    expect(storage.execution.runs.listLive()).toEqual([]);
+    vi.restoreAllMocks();
+    await services.checkRequestService.close(run);
   },
 );
 

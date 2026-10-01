@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { RuntimeEvidenceView } from '@craftingtable/contracts';
-import { UpstreamTransitionsPanel } from './UpstreamTransitionsPanel.js';
+import { UpstreamTransitions } from './UpstreamTransitions.js';
 import { request } from '../../lib/api-client.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -24,13 +24,7 @@ it('approves a chosen transition with the records the operator saw and a rationa
   const saved = vi.fn();
   vi.mocked(request).mockResolvedValueOnce(view);
   render(
-    <UpstreamTransitionsPanel
-      base="/runtime"
-      view={view}
-      csrfToken="csrf"
-      canMutate
-      onSaved={saved}
-    />,
+    <UpstreamTransitions base="/runtime" view={view} csrfToken="csrf" canMutate onSaved={saved} />,
   );
   const approve = screen.getByRole('button', { name: 'Approve transitions' }) as HTMLButtonElement;
   expect(approve.disabled).toBe(true);
@@ -55,7 +49,7 @@ it('approves a chosen transition with the records the operator saw and a rationa
 
 it('sends a link with no qualifying slice to the next map revision', () => {
   render(
-    <UpstreamTransitionsPanel
+    <UpstreamTransitions
       base="/runtime"
       view={view}
       csrfToken="csrf"
@@ -98,7 +92,7 @@ it('shows declared links and their source, with no form once every link is decla
     },
   } as unknown as RuntimeEvidenceView;
   render(
-    <UpstreamTransitionsPanel
+    <UpstreamTransitions
       base="/runtime"
       view={declared}
       csrfToken="csrf"
@@ -113,7 +107,7 @@ it('shows declared links and their source, with no form once every link is decla
 
 it('does not offer approval to a read-only viewer', () => {
   render(
-    <UpstreamTransitionsPanel
+    <UpstreamTransitions
       base="/runtime"
       view={view}
       csrfToken="csrf"

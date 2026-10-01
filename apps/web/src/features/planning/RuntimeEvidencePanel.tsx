@@ -2,9 +2,9 @@ import { ArchitectureDecisionPanel } from './ArchitectureDecisionPanel.js';
 import { EvidenceDecision } from '../../decisions/evidence/EvidenceDecision.js';
 import { SetupStepPart } from './setup-steps.js';
 import { SharedDecisionInbox } from './SharedDecisionInbox.js';
-import { NativeVerificationPanel } from './NativeVerificationPanel.js';
-import { UpstreamTransitionsPanel } from './UpstreamTransitionsPanel.js';
-import { DependencyRefreshPanel } from './DependencyRefreshPanel.js';
+import { EnvironmentApproval } from '../../decisions/environment/EnvironmentApproval.js';
+import { UpstreamTransitions } from '../../decisions/upstream/UpstreamTransitions.js';
+import { DependencyRefresh } from '../../decisions/refresh/DependencyRefresh.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
@@ -196,7 +196,7 @@ export function RuntimeEvidencePanel({
       }
     >
       <SetupStepPart step="verification">
-        <NativeVerificationPanel
+        <EnvironmentApproval
           panelId={`${panelId}-native`}
           base={base}
           view={view}
@@ -206,7 +206,7 @@ export function RuntimeEvidencePanel({
         />
       </SetupStepPart>
       <SetupStepPart step="dependency" id={`${panelId}-dependency-step`}>
-        <UpstreamTransitionsPanel
+        <UpstreamTransitions
           base={base}
           view={view}
           csrfToken={csrfToken}
@@ -237,7 +237,7 @@ export function RuntimeEvidencePanel({
         </ul>
       )}
       <SetupStepPart step="dependency">
-        <DependencyRefreshPanel
+        <DependencyRefresh
           base={base}
           view={view}
           csrfToken={csrfToken}

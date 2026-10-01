@@ -6,7 +6,7 @@ import { loadConcurrencyDefinition, loadConcurrencyImports } from '../../lib/pac
 import { loadRoadmapHistory, loadRoadmaps } from '../../lib/roadmap-api.js';
 import { ConcurrencyImports } from './ConcurrencyImports.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
-import { MapAmendmentPanel } from './MapAmendmentPanel.js';
+import { AmendmentDecision } from '../../decisions/amendment/AmendmentDecision.js';
 import { RoadmapPage, RoadmapsPage } from './RoadmapsPage.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { SHOW_PART_EVENT } from '../../lib/reveal-element.js';
@@ -18,8 +18,8 @@ vi.mock('./CrossProjectPanel.js', () => ({
 vi.mock('./RuntimeEvidencePanel.js', () => ({
   RuntimeEvidencePanel: vi.fn(() => <section aria-label="Dependency environments and evidence" />),
 }));
-vi.mock('./MapAmendmentPanel.js', () => ({
-  MapAmendmentPanel: vi.fn(() => <section aria-label="Map amendments" />),
+vi.mock('../../decisions/amendment/AmendmentDecision.js', () => ({
+  AmendmentDecision: vi.fn(() => <section aria-label="Map amendments" />),
 }));
 vi.mock('./ScopeRecoveryPanel.js', () => ({
   ScopeRecoveryPanel: () => <section aria-label="Independent review recovery" />,
@@ -169,7 +169,7 @@ it('shows the board with its controls and entries, and leaves setup and history 
   );
   expect(CrossProjectPanel).not.toHaveBeenCalled();
   expect(RuntimeEvidencePanel).not.toHaveBeenCalled();
-  expect(MapAmendmentPanel).not.toHaveBeenCalled();
+  expect(AmendmentDecision).not.toHaveBeenCalled();
   expect(loadRoadmapHistory).not.toHaveBeenCalled();
 });
 
@@ -204,7 +204,7 @@ it('puts every setup panel on the setup page once, after an ordered checklist', 
     bindingRevision: 4,
   });
   expect(screen.queryByRole('button', { name: 'Resume roadmap' })).toBeNull();
-  expect(MapAmendmentPanel).not.toHaveBeenCalled();
+  expect(AmendmentDecision).not.toHaveBeenCalled();
 });
 
 it('opens setup at the step an open item needs, marks it, and switches step when asked (R-E2)', async () => {
@@ -404,7 +404,7 @@ it("renders only the part an inbox item is decided in: the held entry's controls
   empty.unmount();
 
   vi.mocked(loadRoadmaps).mockResolvedValue({ roadmaps: [active] } as never);
-  const step = render(
+  render(
     <RoadmapPage
       {...common}
       roadmapId="r-active"
@@ -418,10 +418,4 @@ it("renders only the part an inbox item is decided in: the held entry's controls
     document.getElementById('roadmap-setup-r-active-bindings')?.closest('[hidden]'),
   ).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Resume roadmap' })).toBeNull();
-  step.unmount();
-
-  render(<RoadmapPage {...common} roadmapId="r-active" tab="all" part={{ kind: 'amendments' }} />);
-  expect(await screen.findByRole('region', { name: 'Map amendments' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Resume roadmap' })).toBeTruthy();
-  expect(screen.queryByRole('region', { name: 'Cross-project supervision' })).toBeNull();
 });

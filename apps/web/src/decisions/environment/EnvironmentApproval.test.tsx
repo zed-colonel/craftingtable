@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { RuntimeEvidenceView } from '@craftingtable/contracts';
-import { NativeVerificationPanel } from './NativeVerificationPanel.js';
+import { EnvironmentApproval } from './EnvironmentApproval.js';
 import { request } from '../../lib/api-client.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -35,13 +35,7 @@ it('requires reviewed audit and explicit approval, then sends only bounded autho
     })
     .mockResolvedValueOnce(view);
   render(
-    <NativeVerificationPanel
-      base="/runtime"
-      view={view}
-      csrfToken="csrf"
-      canMutate
-      onSaved={saved}
-    />,
+    <EnvironmentApproval base="/runtime" view={view} csrfToken="csrf" canMutate onSaved={saved} />,
   );
   const approve = screen.getByRole('button', {
     name: 'Approve native verification',
@@ -69,7 +63,7 @@ it('requires reviewed audit and explicit approval, then sends only bounded autho
 });
 it('does not expose execution controls to a read-only viewer', () => {
   render(
-    <NativeVerificationPanel
+    <EnvironmentApproval
       base="/runtime"
       view={view}
       csrfToken="csrf"
@@ -93,7 +87,7 @@ it('explains an approval tied to an older dependency generation without suggesti
     },
   } as RuntimeEvidenceView;
   render(
-    <NativeVerificationPanel
+    <EnvironmentApproval
       base="/runtime"
       view={stale}
       csrfToken="csrf"

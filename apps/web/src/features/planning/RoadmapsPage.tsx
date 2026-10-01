@@ -53,7 +53,8 @@ import {
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { ConcurrencyImports } from './ConcurrencyImports.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
-import { MapAmendmentPanel } from './MapAmendmentPanel.js';
+import { AmendmentDecision } from '../../decisions/amendment/AmendmentDecision.js';
+import { runtimeScope } from '../../decisions/roadmap-runtime.js';
 import { ATTENTION_CODE_LABELS } from '../../lib/attention-labels.js';
 import { effectiveRoadmapAttention } from '@craftingtable/domain';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
@@ -939,21 +940,7 @@ export function RoadmapPage({
     );
   const runtimePanelId = `runtime-evidence-roadmap-${roadmap.id}`;
   // A single-project roadmap whose slices all come from one map revision.
-  const scopes = [
-    ...new Map(
-      roadmap.definition.entries.flatMap((e) =>
-        e.executionScope
-          ? [
-              [
-                `${e.executionScope.definitionId}:${e.executionScope.bindingRevision}`,
-                e.executionScope,
-              ] as const,
-            ]
-          : [],
-      ),
-    ).values(),
-  ];
-  const mapScope = !crossProject && scopes.length === 1 ? scopes[0] : undefined;
+  const mapScope = crossProject ? undefined : runtimeScope(roadmap);
 
   const actionBar = (
     <ActionBar label="Roadmap controls">
@@ -1407,7 +1394,7 @@ export function RoadmapPage({
   const historyPart = (
     <>
       {crossProject && (
-        <MapAmendmentPanel
+        <AmendmentDecision
           key={`${roadmap.id}:${roadmap.definition.revision}`}
           workspaceId={workspaceId}
           roadmap={roadmap}
@@ -1448,7 +1435,7 @@ export function RoadmapPage({
   );
   // Inside an inbox item, only the part the item is decided in (R-A6 increment 2a). A cycle's
   // item shows its entry's controls only while the entry is held or the roadmap stopped.
-  const held = part && part.kind !== 'setup' && part.entryId;
+  const held = part?.kind === 'controls' && part.entryId;
   if (
     part?.kind === 'controls' &&
     part.heldOnly &&
@@ -1471,7 +1458,6 @@ export function RoadmapPage({
             {roadmap.definition.entries.filter((e) => e.id === held).map(entryRow)}
           </ol>
         )}
-        {part.kind === 'amendments' && historyPart}
       </>
     ) : undefined;
   if (embedded)

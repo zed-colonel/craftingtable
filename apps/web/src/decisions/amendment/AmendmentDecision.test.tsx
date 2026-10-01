@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, it, expect, vi } from 'vitest';
 import { asWorkspaceId, type Roadmap } from '@craftingtable/domain';
-import { MapAmendmentPanel } from './MapAmendmentPanel.js';
+import { AmendmentDecision } from './AmendmentDecision.js';
 import { request } from '../../lib/api-client.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -76,7 +76,7 @@ function setup(canMutate = true, blockers: string[] = []) {
       : { ...view, pendingImpact: { ...impact, blockers } },
   );
   render(
-    <MapAmendmentPanel
+    <AmendmentDecision
       workspaceId={asWorkspaceId('workspace')}
       roadmap={roadmap}
       csrfToken="csrf"
@@ -143,7 +143,7 @@ it('keeps a recorded proposal when a refresh that started during the proposal la
     return new Promise((resolve) => held.push(resolve));
   });
   const rendered = render(
-    <MapAmendmentPanel
+    <AmendmentDecision
       workspaceId={asWorkspaceId('workspace')}
       roadmap={roadmap}
       csrfToken="csrf"
@@ -159,7 +159,7 @@ it('keeps a recorded proposal when a refresh that started during the proposal la
   fireEvent.click(screen.getByRole('button', { name: 'Propose and hold roadmap' }));
   // The roadmap changes while the proposal is in flight, which starts a refresh.
   rendered.rerender(
-    <MapAmendmentPanel
+    <AmendmentDecision
       workspaceId={asWorkspaceId('workspace')}
       roadmap={{ ...roadmap, version: roadmap.version + 1 } as Roadmap}
       csrfToken="csrf"

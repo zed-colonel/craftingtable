@@ -65,6 +65,27 @@ const COMMANDS: readonly {
     found: /action: ['"`]merge['"`]/,
   },
   {
+    kind: 'environment',
+    command: 'runtime/authorize-native and runtime/audit-native',
+    found: /\/(authorize|audit)-native[`'"]|['"`](authorize|audit)-native['"`]/,
+  },
+  {
+    kind: 'upstream',
+    command: 'runtime/declare-transitions',
+    found: /\/declare-transitions[`'"]|['"`]declare-transitions['"`]/,
+  },
+  {
+    kind: 'refresh',
+    command: 'runtime/preview-refresh and runtime/refresh',
+    // Not backticks around the bare name: a comment names the refresh-signal callback so.
+    found: /\/(preview-)?refresh[`'"]|['"](preview-)?refresh['"]/,
+  },
+  {
+    kind: 'amendment',
+    command: 'roadmaps/:id/amendments, its preview and its decision',
+    found: /\/amendments[`'"/]|['"`]amendments['"`]/,
+  },
+  {
     kind: 'checkpoint',
     command: 'runtime/prepare-checkpoint',
     found: /\/prepare-checkpoint[`'"]|['"`]prepare-checkpoint['"`]/,

@@ -533,10 +533,29 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect(amendments.getByText('Execution held:', { exact: true })).toBeVisible();
   await page.reload();
   await expect(amendments.getByText('Execution held:', { exact: true })).toBeVisible();
-  await amendments
+  // The held amendment is decided in its Needs you item, which loads the roadmap itself
+  // (R-A6 increment 2b).
+  const history = page.url();
+  // By its address: the phone's rail is behind the menu.
+  await page.goto(history.replace(/\/roadmaps\/.*$/, '/inbox'));
+  await page
+    .getByRole('region', { name: 'Open items' })
+    .getByRole('link', { name: 'Planning amendment', exact: true })
+    .click();
+  const inItem = page.getByRole('region', { name: 'Decision' }).getByRole('region', {
+    name: 'Planning amendments and finalization',
+    exact: true,
+  });
+  await expect(inItem.getByText('Execution held:', { exact: true })).toBeVisible();
+  await inItem
     .getByLabel('Decision rationale', { exact: true })
     .fill('Reviewed queued work and unchanged plan bindings.');
-  await amendments.getByRole('button', { name: 'Apply reviewed amendment', exact: true }).click();
+  const decided = page.waitForResponse(
+    (r) => r.url().endsWith('/amendments/decision') && r.request().method() === 'POST',
+  );
+  await inItem.getByRole('button', { name: 'Apply reviewed amendment', exact: true }).click();
+  expect((await decided).status()).toBe(200);
+  await page.goto(history);
   await expect(amendments.getByText('Execution held:', { exact: true })).toHaveCount(0);
   await amendments.locator(':scope > details > summary').click();
   await expect(amendments.getByText(/Amendment history/)).toBeVisible();

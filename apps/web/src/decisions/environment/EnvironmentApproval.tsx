@@ -8,7 +8,7 @@ import type { NativeAudit } from '@craftingtable/contracts';
 import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
-export function NativeVerificationPanel({
+export function EnvironmentApproval({
   base,
   panelId,
   view,

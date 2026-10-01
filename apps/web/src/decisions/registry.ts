@@ -4,7 +4,7 @@ import type { SetupStep } from '../features/planning/setup-steps.js';
 
 /**
  * One part of a roadmap an inbox item is decided in, rendered alone (R-A6 increment 2a): its
- * controls with one held entry, one setup step, or its map amendments.
+ * controls with one held entry, or one setup step.
  */
 export type RoadmapItemPart =
   | {
@@ -16,8 +16,7 @@ export type RoadmapItemPart =
        */
       readonly heldOnly?: true;
     }
-  | { readonly kind: 'setup'; readonly step: SetupStep }
-  | { readonly kind: 'amendments'; readonly entryId?: string };
+  | { readonly kind: 'setup'; readonly step: SetupStep };
 
 /**
  * What an inbox item's detail renders (R-A6 increment 2a, operator decision 2026-09-30): the
@@ -40,6 +39,14 @@ export type Decision =
   | { readonly kind: 'finalization' }
   /** A finalization's promotion, next step or integration conflict (R-A6 2b). */
   | { readonly kind: 'finalization-decision' }
+  /** The workstation's approval of a map's native verification environment (R-A6 2b). */
+  | { readonly kind: 'environment-approval' }
+  /** When each consumer→upstream link moves to its current pin (ADR-069, R-A6 2b). */
+  | { readonly kind: 'upstream-transitions' }
+  /** A map's dependency pins refreshed to their providers' current commits (R-A6 2b). */
+  | { readonly kind: 'dependency-refresh' }
+  /** A cross-project roadmap's map amendment: a split, a re-selection, or its decision. */
+  | { readonly kind: 'amendment' }
   | { readonly kind: 'run' }
   | { readonly kind: 'storage' }
   | { readonly kind: 'acknowledge' }
@@ -49,7 +56,7 @@ const CYCLE: Decision = { kind: 'cycle' };
 const setup = (step: SetupStep): Decision => ({ kind: 'roadmap', part: { kind: 'setup', step } });
 
 /**
- * Codes whose decision is a roadmap's: its controls, one setup step, or its amendments. A
+ * Codes whose decision is a roadmap's: its controls, one setup step, or a setup-time kind. A
  * roadmap-subject item with a code a cycle shares (`restart-resume`, `legacy-attention`) is
  * told apart by its subject (below).
  */
@@ -61,16 +68,13 @@ const ROADMAP: Partial<Record<AttentionItemCode, (item: AttentionItemView) => De
   'cycle-needs-attention': (i) => controls(i),
   // Automatic recovery stopped converging: a split of the remaining work into a follow-up
   // slice is offered through the amendment form (R-C5, ADR-049), beside the held entry.
-  'recovery-not-converging': (i) => ({
-    kind: 'roadmap',
-    part: { kind: 'amendments', ...entry(i) },
-  }),
-  'amendment-decision': () => ({ kind: 'roadmap', part: { kind: 'amendments' } }),
+  'recovery-not-converging': () => ({ kind: 'amendment' }),
+  'amendment-decision': () => ({ kind: 'amendment' }),
   // The refresh is saved; resuming the roadmap runs the refreshed reviews (beside it, below).
-  'dependency-refresh-resume': () => setup('dependency'),
-  'upstream-pin-moved': () => setup('dependency'),
-  'upstream-transition-undeclared': () => setup('dependency'),
-  'verification-setup': () => setup('verification'),
+  'dependency-refresh-resume': () => ({ kind: 'dependency-refresh' }),
+  'upstream-pin-moved': () => ({ kind: 'dependency-refresh' }),
+  'upstream-transition-undeclared': () => ({ kind: 'upstream-transitions' }),
+  'verification-setup': () => ({ kind: 'environment-approval' }),
   'checkpoint-evidence': () => setup('evidence'),
   'plan-acceptance': () => setup('plan-acceptance'),
   'architecture-decision': () => setup('decisions'),
@@ -78,6 +82,12 @@ const ROADMAP: Partial<Record<AttentionItemCode, (item: AttentionItemView) => De
   'shared-decision-required': () => setup('decisions'),
   'decision-preparation-questions': () => setup('decisions'),
 };
+
+/** A roadmap's own stop whose way on also needs its controls: a resume, or the held entry. */
+const WITH_CONTROLS: ReadonlySet<AttentionItemCode> = new Set([
+  'dependency-refresh-resume',
+  'recovery-not-converging',
+]);
 
 const entry = (item: AttentionItemView) =>
   item.refs.entryId === undefined ? {} : { entryId: item.refs.entryId };
@@ -140,7 +150,7 @@ export function decisionsFor(item: AttentionItemView): readonly Decision[] {
   if (subject(item) === 'roadmap' && roadmapId !== undefined)
     return [
       roadmap ? roadmap(item) : controls(item),
-      ...(code === 'dependency-refresh-resume' ? [controls(item)] : []),
+      ...(roadmap && WITH_CONTROLS.has(code) ? [controls(item)] : []),
     ];
   // A cycle stopped for a roadmap decision continues once it is made.
   if (roadmap)

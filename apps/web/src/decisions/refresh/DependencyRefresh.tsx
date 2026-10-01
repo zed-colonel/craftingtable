@@ -10,7 +10,7 @@ import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
 
-export function DependencyRefreshPanel({
+export function DependencyRefresh({
   base,
   view,
   csrfToken,

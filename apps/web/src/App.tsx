@@ -51,6 +51,11 @@ import { CycleDecision } from './decisions/cycle/CycleDecision.js';
 import { CheckpointPreparation } from './decisions/checkpoint/CheckpointPreparation.js';
 import { FinalizationDecision } from './decisions/finalization/FinalizationDecision.js';
 import { MergeApproval, RetryMergeCleanup } from './decisions/merge/MergeApproval.js';
+import { AmendmentDecision } from './decisions/amendment/AmendmentDecision.js';
+import { EnvironmentApproval } from './decisions/environment/EnvironmentApproval.js';
+import { DependencyRefresh } from './decisions/refresh/DependencyRefresh.js';
+import { RoadmapAmendments, RoadmapRuntime } from './decisions/roadmap-runtime.js';
+import { UpstreamTransitions } from './decisions/upstream/UpstreamTransitions.js';
 import { type Decision, decisionsFor, type RoadmapItemPart } from './decisions/registry.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
@@ -1333,15 +1338,12 @@ export function App() {
       />
     );
   };
-  /** Where a roadmap part opens: the held entry, the step's own form, or the amendments (LIVE-11). */
+  /** Where a roadmap part opens: the held entry, or the step's own form (LIVE-11). */
   const roadmapPartFocus = (roadmapId: string, part: RoadmapItemPart): string | undefined => {
     const runtime = `runtime-evidence-roadmap-${roadmapId}`;
-    if (part.kind === 'amendments') return `map-amendments-${roadmapId}`;
     if (part.kind === 'controls')
       return part.entryId === undefined ? undefined : `roadmap-entry-${roadmapId}-${part.entryId}`;
     return {
-      dependency: runtime,
-      verification: `${runtime}-native`,
       decisions: `${runtime}-decisions`,
       evidence: `${runtime}-evidence`,
       'plan-acceptance': `${runtime}-plan-acceptance`,
@@ -1602,6 +1604,69 @@ export function App() {
               onChanged={refreshNow}
               onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
             />
+          ) : undefined;
+        case 'environment-approval':
+        case 'upstream-transitions':
+        case 'dependency-refresh': {
+          if (roadmapId === undefined || workspaceId === undefined || authenticated === undefined)
+            return undefined;
+          const csrfToken = authenticated.csrfToken;
+          const kind = decision.kind;
+          return (
+            <RoadmapRuntime
+              key={`${kind}-${item.id}`}
+              workspaceId={workspaceId}
+              roadmapId={roadmapId}
+            >
+              {({ base, view, onSaved }) =>
+                kind === 'environment-approval' ? (
+                  <EnvironmentApproval
+                    base={base}
+                    view={view}
+                    csrfToken={csrfToken}
+                    canMutate={canMutate}
+                    onSaved={onSaved}
+                  />
+                ) : kind === 'upstream-transitions' ? (
+                  <UpstreamTransitions
+                    base={base}
+                    view={view}
+                    csrfToken={csrfToken}
+                    canMutate={canMutate}
+                    onSaved={onSaved}
+                  />
+                ) : (
+                  <DependencyRefresh
+                    base={base}
+                    view={view}
+                    csrfToken={csrfToken}
+                    disabled={!canMutate}
+                    onSaved={onSaved}
+                  />
+                )
+              }
+            </RoadmapRuntime>
+          );
+        }
+        case 'amendment':
+          return roadmapId !== undefined &&
+            workspaceId !== undefined &&
+            authenticated !== undefined ? (
+            <RoadmapAmendments
+              key={`amendment-${item.id}`}
+              workspaceId={workspaceId}
+              roadmapId={roadmapId}
+            >
+              {(roadmap) => (
+                <AmendmentDecision
+                  key={`${roadmap.id}:${roadmap.definition.revision}`}
+                  workspaceId={workspaceId}
+                  roadmap={roadmap}
+                  csrfToken={authenticated.csrfToken}
+                  canMutate={canMutate}
+                />
+              )}
+            </RoadmapAmendments>
           ) : undefined;
         case 'run':
           return runId !== undefined && workspaceId !== undefined ? (

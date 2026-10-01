@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { RuntimeEvidenceView } from '@craftingtable/contracts';
-import { DependencyRefreshPanel } from './DependencyRefreshPanel.js';
+import { DependencyRefresh } from './DependencyRefresh.js';
 import { request } from '../../lib/api-client.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -64,7 +64,7 @@ it('shows exact changes and retained evidence, and applies only an explicitly re
     .mockResolvedValueOnce(preview)
     .mockResolvedValueOnce({ ...view, current: { id: 'runtime-4', generation: 4 } });
   render(
-    <DependencyRefreshPanel
+    <DependencyRefresh
       base="/runtime"
       view={view}
       csrfToken="csrf"
@@ -109,7 +109,7 @@ it('keeps refresh blocked for live work and requires review again after a stale-
       new Error('The dependency refresh impact changed. Preview and review it again.'),
     );
   render(
-    <DependencyRefreshPanel
+    <DependencyRefresh
       base="/runtime"
       view={view}
       csrfToken="csrf"

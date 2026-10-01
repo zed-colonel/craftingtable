@@ -18,7 +18,7 @@ import {
 import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
-export function MapAmendmentPanel({
+export function AmendmentDecision({
   workspaceId,
   roadmap,
   csrfToken,

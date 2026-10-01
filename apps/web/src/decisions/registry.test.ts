@@ -68,13 +68,14 @@ it("decides a cycle's own stops on the cycle, and only there (R-A6 increment 2a)
 });
 
 it('decides a roadmap decision in its setup step, beside the cycle that waits on it (LIVE-15, LIVE-18)', () => {
+  // The setup-time kinds render alone, loading their map's environment (R-A6 increment 2b).
   expect(decisionsFor(item({ code: 'upstream-transition-undeclared' }))).toEqual([
-    setup('dependency'),
+    { kind: 'upstream-transitions' },
     cycle,
     held,
   ]);
   expect(decisionsFor(item({ code: 'upstream-pin-moved' }))).toEqual([
-    setup('dependency'),
+    { kind: 'dependency-refresh' },
     cycle,
     held,
   ]);
@@ -118,12 +119,13 @@ it("decides a roadmap's held entry on the roadmap, not the cycle it names", () =
         refs: { roadmapId: 'r' },
       }),
     ),
-  ).toEqual([setup('dependency'), { kind: 'roadmap', part: { kind: 'controls' } }]);
+  ).toEqual([{ kind: 'dependency-refresh' }, { kind: 'roadmap', part: { kind: 'controls' } }]);
 });
 
 it('offers a split through the amendment form when automatic recovery stopped converging (R-C5)', () => {
+  // On the cycle's item, the hold carries the entry's controls.
   expect(decisionsFor(item({ code: 'recovery-not-converging' }))).toEqual([
-    { kind: 'roadmap', part: { kind: 'amendments', entryId: 'e' } },
+    { kind: 'amendment' },
     cycle,
     held,
   ]);
@@ -135,7 +137,16 @@ it('offers a split through the amendment form when automatic recovery stopped co
         refs: { roadmapId: 'r', entryId: 'e', workItemId: 'w', cycleId: 'c' },
       }),
     ),
-  ).toEqual([{ kind: 'roadmap', part: { kind: 'amendments', entryId: 'e' } }]);
+  ).toEqual([{ kind: 'amendment' }, { kind: 'roadmap', part: { kind: 'controls', entryId: 'e' } }]);
+  expect(
+    decisionsFor(
+      item({
+        subjectKey: 'roadmap:r:amendment',
+        code: 'amendment-decision',
+        refs: { roadmapId: 'r' },
+      }),
+    ),
+  ).toEqual([{ kind: 'amendment' }]);
 });
 
 it('opens a checkpoint item at the step that settles it (R-C14, LIVE-11)', () => {
@@ -146,7 +157,7 @@ it('opens a checkpoint item at the step that settles it (R-C14, LIVE-11)', () =>
   expect(checkpoint('checkpoint-evidence')).toEqual([setup('evidence')]);
   expect(checkpoint('plan-acceptance')).toEqual([setup('plan-acceptance')]);
   expect(checkpoint('architecture-decision')).toEqual([setup('decisions')]);
-  expect(checkpoint('verification-setup')).toEqual([setup('verification')]);
+  expect(checkpoint('verification-setup')).toEqual([{ kind: 'environment-approval' }]);
 });
 
 it('decides merges, scope evidence, checks, runs, finalization, storage and protected refs by their own kinds', () => {

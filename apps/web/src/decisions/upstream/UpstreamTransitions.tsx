@@ -4,7 +4,7 @@ import { request } from '../../lib/api-client.js';
 import { About } from '../../components/About.js';
 
 /** When each consumer→upstream link moves to the current pin, and approval of undeclared ones (ADR-069). */
-export function UpstreamTransitionsPanel({
+export function UpstreamTransitions({
   base,
   view,
   csrfToken,

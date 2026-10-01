@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { checkpointRecoverySchema, type CheckpointRecovery } from '@craftingtable/contracts';
-import { EvidenceDecision } from '../../decisions/evidence/EvidenceDecision.js';
+import { EvidenceDecision } from '../evidence/EvidenceDecision.js';
 import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
 
-export function CheckpointRecoveryPanel({
+/**
+ * A slice whose merge waits on contract-checkpoint evidence (R-A6 increment 2a): the saved
+ * candidate review and build receipts are prepared as evidence, then accepted through
+ * EvidenceDecision. The only poster of `runtime/prepare-checkpoint`. It renders in the
+ * merge's inbox item, and in the work item's execution slices when no item carries the merge.
+ */
+export function CheckpointPreparation({
   workspaceId,
   definitionId,
   worktreeId,

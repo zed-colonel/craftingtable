@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
-import { CheckpointRecoveryPanel } from './CheckpointRecoveryPanel.js';
+import { CheckpointPreparation } from './CheckpointPreparation.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
   cleanup();
@@ -30,7 +30,7 @@ const prepared = {
 function show() {
   const onChanged = vi.fn();
   render(
-    <CheckpointRecoveryPanel
+    <CheckpointPreparation
       workspaceId="ws"
       definitionId="map"
       worktreeId="tree"

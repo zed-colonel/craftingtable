@@ -47,6 +47,7 @@ import { InboxPage } from './features/inbox/InboxPage.js';
 import { AcknowledgeMoves } from './features/inbox/AcknowledgeMoves.js';
 import { loadAttention } from './lib/attention-api.js';
 import { CheckAdoption } from './decisions/checks/CheckAdoption.js';
+import { CheckpointPreparation } from './decisions/checkpoint/CheckpointPreparation.js';
 import { MergeApproval, RetryMergeCleanup } from './decisions/merge/MergeApproval.js';
 import { type Decision, decisionsFor } from './decisions/registry.js';
 import { AuditPanel } from './components/AuditPanel.js';
@@ -1435,7 +1436,11 @@ export function App() {
   };
 
   /** The work item's execution slices: phase requirements and scope evidence. */
-  const scopeControls = (workItemId: WorkItemId): ReactElement | undefined => {
+  const scopeControls = (
+    workItemId: WorkItemId,
+    /** In the inbox the item's own decision renders; elsewhere a merge links to its item. */
+    inInbox = false,
+  ): ReactElement | undefined => {
     if (
       workspaceId === undefined ||
       authenticated === undefined ||
@@ -1463,6 +1468,7 @@ export function App() {
         itemStatus={workItem.workItem.status}
         refreshToken={refreshToken}
         onChanged={() => refreshNow()}
+        {...(inInbox ? {} : { decisionItemFor: (id: string) => mergeItemFor(id)?.id })}
       />
     );
   };
@@ -1516,10 +1522,25 @@ export function App() {
             </>
           );
         }
+        case 'checkpoint-preparation': {
+          const worktree = workItemExecution?.worktrees.find((t) => t.id === item.refs.worktreeId);
+          return worktree?.executionScope?.kind === 'slice' &&
+            workspaceId !== undefined &&
+            authenticated !== undefined ? (
+            <CheckpointPreparation
+              workspaceId={workspaceId}
+              definitionId={worktree.executionScope.definitionId}
+              worktreeId={worktree.id}
+              csrfToken={authenticated.csrfToken}
+              canMutate={canMutate}
+              onChanged={refreshNow}
+            />
+          ) : undefined;
+        }
         case 'worktrees':
           return (workItemId && delegationControls(workItemId as WorkItemId)) || loading;
         case 'scope-evidence':
-          return (workItemId && scopeControls(workItemId as WorkItemId)) || loading;
+          return (workItemId && scopeControls(workItemId as WorkItemId, true)) || loading;
         case 'check-adoption': {
           const repositoryId = cycles.find((c) => c.id === cycleId)?.attention?.refs?.repositoryId;
           const repository = repositories.find((r) => r.id === repositoryId);

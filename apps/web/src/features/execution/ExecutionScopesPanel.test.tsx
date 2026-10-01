@@ -104,3 +104,52 @@ it('still asks for admission before scoped work on a proposed item', async () =>
   expect(create.disabled).toBe(true);
   expect(screen.getByText('Admit the parent before creating an execution worktree.')).toBeDefined();
 });
+it("links a slice's checkpoint to the inbox item that carries its merge, else prepares it here (R-A6)", async () => {
+  const slice = {
+    id: 'slice-tree',
+    status: 'active',
+    branchName: 'ct/slice',
+    executionScope: scope,
+  } as WorktreeSummary;
+  const choices = {
+    choices: [
+      {
+        scope,
+        title: 'Implementation',
+        description: 'Slice',
+        status: 'in-progress',
+        excludes: [],
+        blockers: [],
+        repositoryId: 'repo',
+        phases: [
+          {
+            phase: 'merge',
+            blockers: [
+              { kind: 'checkpoint', code: 'checkpoint-evidence', message: 'Evidence needed' },
+            ],
+            resources: [],
+            reservations: [],
+          },
+        ],
+      } as unknown as ExecutionScopeChoice,
+    ],
+  };
+  const props = {
+    workspaceId: 'ws' as WorkspaceId,
+    workItemId: 'wi' as WorkItemId,
+    csrfToken: 'csrf',
+    canMutate: true,
+    itemStatus: 'admitted' as const,
+    refreshToken: 0,
+    onChanged: vi.fn(),
+    worktrees: [slice],
+  };
+  vi.mocked(loadExecutionScopes).mockResolvedValue(choices);
+  render(<ExecutionScopesPanel {...props} decisionItemFor={() => 'item-3'} />);
+  expect(await screen.findByText(/This checkpoint is decided in Needs you/)).toBeDefined();
+  expect(screen.queryByRole('region', { name: 'Checkpoint recovery' })).toBeNull();
+  cleanup();
+  vi.mocked(loadExecutionScopes).mockResolvedValue(choices);
+  render(<ExecutionScopesPanel {...props} />);
+  expect(await screen.findByRole('region', { name: 'Checkpoint recovery' })).toBeDefined();
+});

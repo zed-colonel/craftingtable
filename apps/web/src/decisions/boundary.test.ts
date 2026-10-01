@@ -38,6 +38,11 @@ const COMMANDS: readonly {
     found: /\/checks\/adopt[`'"]/,
   },
   { kind: 'merge', command: 'worktrees/:id/merge', found: /\/merge[`'"]/ },
+  {
+    kind: 'checkpoint',
+    command: 'runtime/prepare-checkpoint',
+    found: /\/prepare-checkpoint[`'"]|['"`]prepare-checkpoint['"`]/,
+  },
 ];
 
 const src = fileURLToPath(new URL('..', import.meta.url));

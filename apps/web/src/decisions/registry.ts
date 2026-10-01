@@ -20,6 +20,8 @@ export type Decision =
   | { readonly kind: 'cycle' }
   /** A slice's merge, or a merge's recovery. */
   | { readonly kind: 'merge' }
+  /** The contract-checkpoint evidence a slice's merge waits on. */
+  | { readonly kind: 'checkpoint-preparation' }
   /** The work item's worktrees and runs, where a manual run is launched again. */
   | { readonly kind: 'worktrees' }
   /** The repository's declared checks: adopt, or see which definition changed (LIVE-30). */
@@ -131,7 +133,12 @@ export function decisionsFor(item: AttentionItemView): readonly Decision[] {
   if (CHECKS.has(code))
     return [{ kind: 'check-adoption' }, ...(workItemId === undefined ? [] : [CYCLE])];
   if (MERGE.has(code) || item.kind === 'merge')
-    return workItemId === undefined ? [] : [{ kind: 'merge' }];
+    return workItemId === undefined
+      ? []
+      : code === 'merge-requirements'
+        ? // The merge waits on its requirements, of which checkpoint evidence is settled here.
+          [{ kind: 'merge' }, { kind: 'checkpoint-preparation' }]
+        : [{ kind: 'merge' }];
   if (code === 'record-scope-evidence') return [{ kind: 'scope-evidence' }];
   if (RUN.has(code) && runId !== undefined)
     return [{ kind: 'run' }, ...(workItemId === undefined ? [] : [{ kind: 'worktrees' } as const])];

@@ -15,7 +15,7 @@ import { About } from '../../components/About.js';
 import { blockerDestination } from '../../lib/blocker-destinations.js';
 import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
-import { CheckpointRecoveryPanel } from './CheckpointRecoveryPanel.js';
+import { CheckpointPreparation } from '../../decisions/checkpoint/CheckpointPreparation.js';
 import { createWorktree } from '../../lib/execution-api.js';
 import {
   authorizeScopeScheduling,
@@ -23,6 +23,7 @@ import {
   recordScopeEvidence,
 } from '../../lib/execution-scope-api.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
 
 export function ExecutionScopesPanel({
   workspaceId,
@@ -35,8 +36,11 @@ export function ExecutionScopesPanel({
   onChanged,
   cycles = [],
   onOpenCycle,
+  decisionItemFor,
 }: {
   cycles?: readonly WorkCycle[];
+  /** The open inbox item that carries a worktree's merge: its checkpoint is decided there (R-A6). */
+  decisionItemFor?: (worktreeId: string) => string | undefined;
   onOpenCycle?: (id: WorktreeId) => void;
   workspaceId: WorkspaceId;
   workItemId: WorkItemId;
@@ -226,8 +230,22 @@ export function ExecutionScopesPanel({
                       phaseBlockerCode(b),
                     ),
                   ),
-              ) && (
-                <CheckpointRecoveryPanel
+              ) &&
+              (decisionItemFor?.(existing.id) ? (
+                <p className="attention-banner" role="status">
+                  This checkpoint is decided in Needs you.{' '}
+                  <Link
+                    route={{
+                      name: 'inbox',
+                      workspaceId,
+                      itemId: decisionItemFor(existing.id)!,
+                    }}
+                  >
+                    Open the decision
+                  </Link>
+                </p>
+              ) : (
+                <CheckpointPreparation
                   workspaceId={workspaceId}
                   definitionId={choice.scope.definitionId}
                   worktreeId={existing.id}
@@ -235,7 +253,7 @@ export function ExecutionScopesPanel({
                   canMutate={canMutate}
                   onChanged={onChanged}
                 />
-              )}
+              ))}
             {choice.earlyDevelopment && (
               <p className="hint">
                 {choice.earlyDevelopmentAuthorized

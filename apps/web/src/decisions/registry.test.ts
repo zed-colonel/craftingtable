@@ -133,6 +133,11 @@ it('decides merges, scope evidence, checks, runs, finalization, storage and prot
   expect(decisionsFor(item({ subjectKey: 'merge:t', code: 'merge-recovery-required' }))).toEqual([
     { kind: 'merge' },
   ]);
+  // A merge waiting on its requirements: the merge, and the checkpoint evidence it waits on.
+  expect(decisionsFor(item({ code: 'merge-requirements', kind: 'merge' }))).toEqual([
+    { kind: 'merge' },
+    { kind: 'checkpoint-preparation' },
+  ]);
   expect(decisionsFor(item({ code: 'record-scope-evidence' }))).toEqual([
     { kind: 'scope-evidence' },
   ]);

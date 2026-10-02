@@ -34,9 +34,12 @@ are suitable for delegation to CraftingTable itself.
    is done.
    - A live stop becomes a [LIVE finding](findings/LIVE-live-run-2026-09-25.md) plus a
      replay case or a redacted fixture ([R-I10](register.md#r-i10)). It is not a patch.
-   - A fix goes on `main` ahead of the P2 line only for data loss, a safety issue, or a stop
-     with no working control. It is merged into the P2 line the same day, and gets an
-     independent review like any P2 item.
+   - A fix goes ahead of the queued work only for data loss, a safety issue, or a stop with
+     no working control, and gets an independent review like any P2 item.
+   - Which branch it goes on: since 2026-10-02 (operator) the deployed line is `remediation/p2`,
+     and `main` is only ever fast-forwarded to it. Such a fix therefore goes on
+     `remediation/p2`, or on a short branch from it. Until then it went on `main` and was
+     merged into the P2 line the same day.
 
 ## Phases
 
@@ -887,9 +890,13 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - **Operator decisions 2026-10-02:**
     1. Test daemons' data directories go on tmpfs (`$XDG_RUNTIME_DIR`), and TMPDIR stays on disk (TS-H8).
     2. R-I2 is reopened for TS-H1 and TS-H2 and the related load findings.
-    3. TS-H3 (the agent temporary-root sweep can delete the database) is a rule-7 blocker. It has not been material, so it will be fixed on `main` in a review pass after P2 merges (recorded on R-G5).
+    3. TS-H3 (the agent temporary-root sweep can delete the database) is a rule-7 blocker. It has not been material, so it will be fixed in the review pass (recorded on R-G5). Revised the same day: on `remediation/p2`, not on `main`.
     4. TS-H7, TS-M2, TS-M6 and TS-M10 (untested merge, promotion and scheduler gates) go into that same review pass, not a new register item.
-  - **Operator decision 2026-10-02: land P2 first.** The bulk of the remediation runs after P2 merges. Before it lands, P2 fixes only what it introduced, or what keeps its gate from being trusted.
+  - **Operator decision 2026-10-02: land P2 first.** Before landing, P2 fixes only what it introduced, or what keeps its gate from being trusted. The bulk of the remediation follows as the review pass.
+  - **Revised the same day (operator): the review pass runs on `remediation/p2`, not on `main`.**
+    - `main` is static and not deployed; the operator deploys from `remediation/p2`.
+    - `main` is only ever fast-forwarded to `remediation/p2`, whenever a landing point is wanted, so the two never diverge and no merge is needed.
+    - Fixes therefore reach the live daemon on the normal deploy path, and the rest of P2 is built on the remediated gate.
   - **Done before landing (2026-10-02; recorded on R-D4):**
     - TS-H4, the stream seed;
     - TS-M1, a resolved item now links its subject's current item, and the spec waits for Needs you;
@@ -911,7 +918,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - the notification exit criterion (enable notifications, check that the push log, rail count and inbox agree, count false alarms);
     - P1's R-G7 and R-H2 measurements.
   - **Order after landing:**
-    1. The review pass on a branch from `main`: R-I2 with tmpfs test data directories, TS-H3, then the gate tests TS-H7, TS-M2, TS-M6 and TS-M10, and R-I4.
+    1. The review pass, on `remediation/p2`: R-I2 with tmpfs test data directories, TS-H3, then the gate tests TS-H7, TS-M2, TS-M6 and TS-M10, and R-I4.
     2. R-G15: model pickers from each CLI's own catalog (added 2026-10-02 from LIVE-34, operator decision).
     3. R-D5.
     4. R-G9.

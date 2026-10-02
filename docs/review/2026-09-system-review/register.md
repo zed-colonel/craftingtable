@@ -2492,7 +2492,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Document the variable.
     - Test that a non-run entry survives a restart.
   - **Related.** No test excludes the daemon's variables from the Codex environment ([TS-M4](findings/TS-test-suite-review-2026-10-02.md)).
-  - **Operator decision 2026-10-02.** This is a rule-7 blocker, but it has not been material: the live root is the default `<data>/t`. It will be fixed on `main` in the review pass after P2 merges, not on the P2 branch.
+  - **Operator decision 2026-10-02.** This is a rule-7 blocker, but it has not been material: the live root is the default `<data>/t`. It will be fixed in the review pass, not before P2 lands. Revised the same day: the review pass runs on `remediation/p2`, the deployed line, and `main` is only fast-forwarded.
 
 ### R-G6
 
@@ -3127,12 +3127,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I4
 
-**Structural test/production and process-authority boundaries** · Phase P2 (in the review pass after P2 lands, operator 2026-10-02) · Effort M · Status: open
+**Structural test/production and process-authority boundaries** · Phase P2 (in the review pass on `remediation/p2`, operator 2026-10-02) · Effort M · Status: open
 
 - **Resolves:** [QA-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-04-checkscope-exemptions-are-filename-patterns-and-several-bypasses-are-open), [QA-07](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-07-the-testproduction-boundary-is-structural-only-in-packagesgit-everywhere-else-tests-and-test-support-compile-into-dist)
 - **Change:** Move test-support and fixtures out of compiled src trees everywhere (as packages/git already does); make check:scope reject builtin-module access via computed import/getBuiltinModule and stop exempting files by name pattern.
 - **Done when:** No *.test.js or test-support in dist; the known bypasses fail check:scope.
-- **Done in the review pass after P2 lands (operator decision 2026-10-02).** The test-suite review's findings extend it ([TS-M11, TS-M14, TS-H6](findings/TS-test-suite-review-2026-10-02.md)):
+- **Done in the review pass on `remediation/p2` (operator decision 2026-10-02).** The test-suite review's findings extend it ([TS-M11, TS-M14, TS-H6](findings/TS-test-suite-review-2026-10-02.md)):
   - `check:scope` passes a static import under `src/dist/`, a template-literal `import()` and `switch (x.reason)`.
   - The links guard and the decision-boundary import rule pass with their detector disabled.
   - The two server fixture stacks have drifted, and test teardown skips the daemon's `checkRequestService.closeAll()`.
@@ -3334,7 +3334,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:**
   - **Snapshot.** Take a read-only `.backup` of the live database in its paused 2026-09-27 state. Keep it with its goldens under `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-27/`, outside the repository, because it holds real plans and agent output. Record `controller:replay --record` and `--every-run --record` from the P2 head.
   - **Scheduler replay.** Extend the harness to the roadmap scheduler. For each non-draft roadmap entry of the snapshot, record the decision one pass would take (start, advance, recover, wait with its reason, or hold) without launching anything. Its golden goes beside the step-outcome goldens. It uses `RoadmapService.tick()` under R-B2's stepping seam, on a copy.
-  - **Record, don't patch.** Each live stop the operator hits becomes a LIVE finding plus a replay case or a redacted fixture test. The fix lands with its replay difference explained. A fix goes on `main` ahead of P2 only for data loss, a safety issue, or a stop with no working control. It is then merged into the P2 line the same day (program rule 7).
+  - **Record, don't patch.** Each live stop the operator hits becomes a LIVE finding plus a replay case or a redacted fixture test. The fix lands with its replay difference explained. A fix goes ahead of the queued work only for data loss, a safety issue, or a stop with no working control. It goes on `main` and is merged into the P2 line the same day; since 2026-10-02 it goes on `remediation/p2`, the deployed line, with `main` fast-forwarded only (program rule 7).
 - **Done when:**
   - The 2026-09-27 snapshot and its step-outcome and scheduler goldens are recorded.
   - The scheduler replay reproduces LIVE-06 (EXO-02 without a round) and LIVE-07 (WI-04's readiness), which R-C12 and R-C13 then change on purpose.

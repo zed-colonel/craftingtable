@@ -175,6 +175,7 @@ The order is by payoff for trust in the gate first, then the data-safety and aut
 
 1. **Test data directories:** test daemons (vitest and e2e) keep their data directories on tmpfs (`$XDG_RUNTIME_DIR`), and TMPDIR stays on disk for everything else (TS-H8). Production pragmas are unchanged.
 2. **R-I2 is reopened** to remediate TS-H1 and TS-H2, together with the related load findings (LF F4, AS F-9) and decision 1.
-3. **TS-H3 is a rule-7 blocker, but not urgent:** it has not been material. It will be fixed on `main` in a review pass after P2 merges, not on the P2 branch.
+3. **TS-H3 is a rule-7 blocker, but not urgent:** it has not been material. It will be fixed in the review pass. Revised the same day: the review pass, including TS-H3, runs on `remediation/p2`, the deployed line; `main` is only fast-forwarded.
 4. **TS-H7, TS-M2, TS-M6 and TS-M10 go into that review pass**, not a new register item.
+5. **The review pass runs on `remediation/p2`** (revised 2026-10-02). `main` is static and not deployed, and it is only ever fast-forwarded to `remediation/p2`.
 

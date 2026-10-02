@@ -427,6 +427,7 @@ done-when by an independent agent, and the confirmed findings were fixed.
 | R-C12, R-C13 (added 2026-09-27) | The open live stops: automatic recovery that silently did not start (LIVE-06), and a checkpoint review that repeats a failed attestation on resume (LIVE-07). |
 | R-E3a (split 2026-09-27) | A read-only roadmap status list: every entry's state, what it waits on and who acts next. It was pulled forward from P3 because the operator cannot run the roadmap without it (LIVE-08). R-E3b, the board and graph, stays in P3. |
 | R-F7 (added 2026-09-25; code done 2026-09-25, 2713a6a..9c1904c; done 2026-09-29, the live wi→aq record and WI-02/domain's verification) | Map-declared upstream pin transitions for each consumer link. It blocks the live roadmap now (WI-02/domain cannot build on the migrated `wi-fabric-2` head), so it comes ahead of R-F5's wider format additions and adds only its own optional field. |
+| R-G15 (added 2026-10-02, LIVE-34) | Model pickers come from each CLI's own catalog: Codex's `model/list`, and Claude Code's per-account catalog. The picker sends ids, never display names. It runs after the review pass and before R-D5. |
 
 Exit criteria:
 - The push log, rail count, inbox and roadmap page always agree.
@@ -911,8 +912,9 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - P1's R-G7 and R-H2 measurements.
   - **Order after landing:**
     1. The review pass on a branch from `main`: R-I2 with tmpfs test data directories, TS-H3, then the gate tests TS-H7, TS-M2, TS-M6 and TS-M10, and R-I4.
-    2. R-D5.
-    3. R-G9.
+    2. R-G15: model pickers from each CLI's own catalog (added 2026-10-02 from LIVE-34, operator decision).
+    3. R-D5.
+    4. R-G9.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

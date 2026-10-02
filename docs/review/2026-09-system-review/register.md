@@ -2871,7 +2871,26 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - Codex's sandbox cannot allow a single host, so it needs its own route: for example, a daemon-run fetch, or a proxy the daemon owns.
 - **Done when:** A source added in that one place reaches both agents' sandboxes, and nothing else does.
 
-## Workstream H — Data lifecycle and integrity
+### R-G15
+
+**Model pickers from each CLI's own catalog** · Phase P2 (after the review pass, before R-D5) · Effort S-M · Status: open
+
+- **Added 2026-10-02** (operator decision) from [LIVE-34](findings/LIVE-live-run-2026-09-25.md#live-34-a-codex-run-failed-because-the-model-pickers-other-field-sent-a-models-display-name-instead-of-its-id).
+  - The model lists are written by hand (`packages/agents/src/{claude-code,codex}/models.ts`, or `CRAFTINGTABLE_{CLAUDE,CODEX}_MODELS`), so each release needs a code change.
+  - Typing a newer model under "Other…" sent the display name `GPT-6.1-Sol` instead of the id `gpt-6.1-sol`, and the run failed.
+- **Change:**
+  - **Discovery.** Each backend gets `listModels()`, returning id, display name, section and hidden.
+    - Codex calls its app-server's `model/list`, which is in the published protocol, though marked experimental.
+    - Claude Code reads its per-account catalog (`model-catalog/*-cc.json` under the account's `CLAUDE_CONFIG_DIR` or `~/.claude`). It is an undocumented file, so it is validated strictly by format version, and entries newer than the installed CLI (`min_claude_code_version`) are dropped.
+    - Both fall back to today's lists. Claude keeps the `opus`, `sonnet` and `haiku` aliases, and the environment overrides still replace a list.
+  - **Refresh.** At daemon start, on a timer (about hourly), and on a "Refresh models" control. The lists reach the browser through the execution status, as now.
+  - **Picker.** It groups by section and shows display names, but always sends the id. "Other…" stays, and it warns when the id is not in the catalog, offering the catalog's spelling for a case-insensitive match.
+  - **Profiles.** A saved profile whose model the catalog no longer lists gets a warning, not a block: a catalog can lag a release.
+- **Done when:**
+  - A model added to a CLI's catalog appears in CraftingTable's picker without a code or configuration change, at the latest by the next refresh.
+  - Choosing it sends its id.
+  - A typed display name is caught before launch.
+
 
 ### R-H1
 

@@ -512,3 +512,15 @@ The operator deployed b63df53 at 07:10 UTC, re-adopted WI's and EXO's checks, se
   - The operator meant the guidance to ask an agent to investigate the question's implications. No question stop outside a design step can dispatch an investigation; only design questions (design recovery) and shared ADR decisions (decision preparation) can.
 - Impact: the operator's answer disappears, the stop changes to one that does not show the question, and the only remaining control (Authorize more remediation) is not tied to the question.
 
+
+### LIVE-34: A Codex run failed because the model picker's "Other…" field sent a model's display name instead of its id
+- Severity: low (one failed run, and the operator re-chose the model; no data lost). The cause is structural: CraftingTable's model lists are written by hand and fall behind each release.
+- Category: agent configuration ([R-G15](../register.md#r-g15))
+- Status: CONFIRMED 2026-10-02 from a copy of the live database, Codex's local model cache and the code. Operator decision the same day: replace the hand-written lists with each CLI's own catalog (R-G15, P2, after the review pass).
+- Replay case: none. The failure is the provider's answer to the id the run sent. The controller handled the failed run as it handles any failed run.
+- Evidence:
+  - Run `7674cc8a` (Codex, implement, WI-03) was created at 22:19:16Z and failed at 22:19:36Z with exit 1. Its model is `GPT-6.1-Sol` and its effort `xhigh`, on a subscription. Its outcome is OpenAI's `400 invalid_request_error`: "The 'GPT-6.1-Sol' model is not supported when using Codex with a ChatGPT account."
+  - Codex's own catalog (`~/.codex/models_cache.json`) lists the model as id `gpt-6.1-sol` with display name `GPT-6.1-Sol`. The operator's `~/.codex/config.toml` sets `model = "gpt-6.1-sol"`, which is why the CLI worked.
+  - CraftingTable's pickers come from fixed lists in `packages/agents/src/codex/models.ts` and `…/claude-code/models.ts`. Updating the CLIs changes nothing there. The Codex list has no `gpt-6.1-sol`, and the Claude list has no `claude-opus-5-5`. The operator therefore typed the newer model under "Other…", which sends what is typed, unchecked.
+  - Both CLIs keep a per-account catalog. Claude Code's is `~/.claude/cache/model-catalog/*-cc.json`, with ids, names, main and overflow sections, and `min_claude_code_version`. Codex has its app-server's `model/list` (verified in the 0.160.0 protocol schema) and `models_cache.json`.
+- Impact: every model release needs a code change or an environment override before the picker offers it. Until then the operator types ids by hand, and a display name fails only at launch.

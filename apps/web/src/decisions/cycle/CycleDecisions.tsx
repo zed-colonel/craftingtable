@@ -109,7 +109,11 @@ export function CycleContinuation({
   /** The stop's answer as its decision holds it, which the forms share (R-C16). */
   answer?: AnswerDraft;
 }) {
-  const { busy, error, run } = useCommand(onChanged);
+  // A sent answer is not offered again (R-C16 16b review).
+  const { busy, error, run } = useCommand(() => {
+    answer?.clear?.();
+    onChanged();
+  });
   const kind = continuationOf(cycle);
   if (!kind) return null;
   const locked = disabled || busy;

@@ -440,3 +440,104 @@ it('shows nothing without a record or an offer, and no form unless one is offere
   expect(screen.getByRole('region', { name: 'Investigation' })).toBeTruthy();
   expect(screen.queryByRole('form', { name: 'Investigate these questions' })).toBeNull();
 });
+
+// R-C16 16b verification: the draft is held for the session, above the view; it is cleared
+// once sent; proposals are added once per investigation; the field keeps its Tab place.
+it('keeps a stop draft across leaving and coming back, and clears it once sent', async () => {
+  const questions = ['continue-with-guidance', 'investigate', 'stop'] as const;
+  const at = { ...base, investigation: { ...record, result: finished } };
+  const view = render(decision(at, questions));
+  const field = () => screen.getByLabelText('Answers and recovery guidance') as HTMLTextAreaElement;
+  fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
+  // Once per investigation: a second click cannot add them again.
+  expect(
+    (screen.getByRole('button', { name: 'Use proposed answers' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(field().value.match(/Use JSON lines\./g)).toHaveLength(1);
+  expect(document.activeElement).toBe(field());
+  expect(field().getAttribute('tabindex')).toBeNull();
+  fireEvent.change(field(), { target: { value: `${field().value}\nMine.` } });
+  const typed = field().value;
+  // Opening the run and coming back mounts the decision again.
+  view.unmount();
+  render(decision(at, questions));
+  expect(field().value).toBe(typed);
+  // The status and the used state belong to that investigation.
+  expect(screen.getByText('Added to your answer below. Edit it before you send it.')).toBeTruthy();
+  cleanup();
+  render(
+    decision({ ...at, investigation: { ...record, id: 'next', result: finished } }, questions),
+  );
+  expect(screen.queryByText(/Added to your answer below/)).toBeNull();
+  expect(
+    (screen.getByRole('button', { name: 'Use proposed answers' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  // A pause taken at the stop keeps its draft; a new run at the same stop starts empty.
+  cleanup();
+  render(
+    decision(
+      {
+        ...at,
+        status: 'paused',
+        workflow: { reassessments: 0, questions: [{ question: 'Q?', destination: 'work-item' }] },
+      } as WorkCycle,
+      ['resume', 'investigate', 'stop'],
+    ),
+  );
+  expect(field().value).toBe(typed);
+  cleanup();
+  render(decision({ ...at, currentRunId: 'run-2' } as WorkCycle, questions));
+  expect(field().value).toBe('');
+  cleanup();
+  // A successful answer is not offered again.
+  vi.mocked(request).mockResolvedValueOnce({ cycle: base } as never);
+  render(decision(at, questions));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with guidance' }));
+  await vi.waitFor(() => expect(field().value).toBe(''));
+});
+
+it('offers no proposals to a stop that only resumes, and focuses the grant and scope review fields', () => {
+  show(
+    {
+      ...base,
+      attention: { code: 'scope-review-open-questions', owner: 'operator' },
+      investigation: { ...record, result: finished },
+    } as WorkCycle,
+    ['resume', 'investigate', 'stop'],
+  );
+  expect(screen.getByRole('button', { name: 'Resume automation' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Use proposed answers' })).toBeNull();
+  cleanup();
+  show(
+    {
+      ...base,
+      step: 'review',
+      remediationRounds: 3,
+      attention: { code: 'review-open-questions-at-limit', owner: 'operator' },
+      investigation: { ...record, result: finished },
+    } as WorkCycle,
+    ['authorize-remediation', 'investigate', 'stop'],
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
+  expect(document.activeElement).toBe(
+    screen.getByLabelText('Guidance for the next run (optional)'),
+  );
+  cleanup();
+  show(
+    {
+      ...base,
+      step: 'review',
+      executionScope: {
+        kind: 'parent-acceptance',
+        definitionId: 'd',
+        bindingRevision: 1,
+        sourceId: 'P',
+      },
+      attention: { code: 'scope-review-open-questions', owner: 'operator' },
+      investigation: { ...record, result: finished },
+    } as unknown as WorkCycle,
+    ['resume', 'investigate', 'stop'],
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
+  expect(document.activeElement).toBe(screen.getByLabelText('Additional review guidance'));
+});

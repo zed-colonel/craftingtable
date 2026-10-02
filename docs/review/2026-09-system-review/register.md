@@ -1541,6 +1541,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - the walkthrough commit above now matches the index.
   - **Tests:** the reviewer's reproductions of H1, M1, M2, M3 and M4 now fail without the fix, as do L1, L2, L5, L7 and each surviving mutation it listed. 25 mutations were run: all are caught but one, which is now unreachable (live from actions alone; "live" is read from the record).
 
+- **Verification review of the 16b rework (2026-10-02, worktree at 955cbe5).** H1, M1, M2, M3 and M4 hold under its own variants, and the forms submit as before. Its findings:
+  - *MEDIUM, fixed:* drafts lived in the decision's component state, so opening the investigation run, another item, or a route change lost them. The same happened when the stop's item was replaced. Drafts are now held for the browser session above the views (`useStopDraft`, a module store keyed by stop), and a successful submit clears them.
+  - *LOW, fixed:*
+    - Focusing the answer took the field out of the Tab order (`revealElement` sets `tabIndex = -1`) and scrolled its label out of view. The continuation now comes into view, and the field takes the focus without losing its Tab place.
+    - A second click added the proposals twice. Each investigation's proposals are added once per stop, and the store remembers it across views.
+    - "Added to your answer below" followed the operator to another cycle or a later investigation. It is now said only of the investigation added.
+    - `appendAnswer` could cut the operator's own text near the limit. Only the added text is cut now, never across a surrogate pair. When there is no room, the draft is left as it was.
+    - The stop key used `effectiveCycleAttention`, which is undefined when paused, so a pause taken at the stop hid its draft. It now uses `stopCode`, which is how the daemon reads a stop.
+  - *NIT, fixed:* a draft is cleared once sent, so it is not offered again if the same stop recurs.
+  - **Test gaps closed:** a new run at the same stop, a stop that only resumes, the whitespace and trim edges, and focus for the grant and the scope review. Thirteen mutations of these fixes are each caught. The web test setup clears drafts between tests.
+
 ## Workstream D — Read side and browser performance (pain point 3)
 
 ### R-D1

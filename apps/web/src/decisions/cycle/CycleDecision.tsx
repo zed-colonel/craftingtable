@@ -1,11 +1,5 @@
 import type { AgentRunSummary, ExecutionStatusResponse } from '@craftingtable/contracts';
-import { useState } from 'react';
-import {
-  type AgentRunId,
-  effectiveCycleAttention,
-  type WorkCycle,
-  type WorktreeId,
-} from '@craftingtable/domain';
+import { type AgentRunId, stopCode, type WorkCycle, type WorktreeId } from '@craftingtable/domain';
 import { DesignQuestions } from '../design/DesignQuestions.js';
 import { IntegrationConflict } from '../integration/IntegrationConflict.js';
 import { ScopeRepair } from '../scope-repair/ScopeRepair.js';
@@ -13,7 +7,7 @@ import { WorkflowStatus } from '../../features/execution/WorkflowStatus.js';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import { Link } from '../../lib/navigation.js';
 import { revealElement } from '../../lib/reveal-element.js';
-import { answerFieldId, appendAnswer } from './answer-draft.js';
+import { answerFieldId, useStopDraft } from './answer-draft.js';
 import { CycleContinuation, continuationOf, ProviderRetry } from './CycleDecisions.js';
 import { CycleInvestigation } from './CycleInvestigation.js';
 
@@ -84,15 +78,14 @@ export function CycleDecision({
   inInbox?: boolean;
 }) {
   const disabled = busy || !canMutate;
-  // One answer draft per stop: the cycle, the run it stopped on and why (R-C16 16b review).
-  // It survives the stop's form being hidden while an investigation runs, never follows the
-  // operator to another cycle or stop, and proposals are added to it, never put in its place.
-  const stop = `${cycle.id}:${cycle.currentRunId}:${effectiveCycleAttention(cycle)?.code ?? cycle.status}`;
-  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
-  const answer = {
-    value: drafts[stop] ?? '',
-    onChange: (value: string) => setDrafts((current) => ({ ...current, [stop]: value })),
-  };
+  // One answer draft per stop, the cycle, the run it stopped on and why, as the daemon reads
+  // a stop (a pause taken there keeps it). It is held for the session above this view: it
+  // survives the form being hidden while an investigation runs and leaving the page, never
+  // follows the operator to another stop, and proposals are added to it (R-C16 16b review).
+  const answer = useStopDraft(
+    `${cycle.id}:${cycle.currentRunId}:${stopCode(cycle) ?? cycle.status}`,
+    cycle.investigation?.id,
+  );
   const liveRun = runs.some(
     (run) =>
       run.worktreeId === cycle.worktreeId &&
@@ -147,15 +140,16 @@ export function CycleDecision({
         disabled={disabled}
         onChanged={onChanged}
         onOpenRun={onOpenRun}
+        proposalsAdded={answer.added}
         {...(applies.continuation && applies.continuation !== 'resume'
           ? {
               // Only where a form takes the answer: guidance, a grant or a scope review's.
               onUseAnswers: (text: string) => {
-                setDrafts((current) => ({
-                  ...current,
-                  [stop]: appendAnswer(current[stop] ?? '', text),
-                }));
-                revealElement(answerFieldId(cycle.id));
+                answer.append(text);
+                // The answer, with its label, comes into view; the field takes the focus and
+                // keeps its place in the Tab order.
+                revealElement(`cycle-continuation-${cycle.id}`);
+                document.getElementById(answerFieldId(cycle.id))?.focus({ preventScroll: true });
               },
             }
           : {})}

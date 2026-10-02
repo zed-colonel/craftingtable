@@ -48,6 +48,7 @@ export function CycleInvestigation({
   onChanged,
   onOpenRun,
   onUseAnswers,
+  proposalsAdded = false,
 }: {
   cycle: WorkCycle;
   backends: ExecutionStatusResponse['backends'];
@@ -57,10 +58,11 @@ export function CycleInvestigation({
   onOpenRun: (id: AgentRunId) => void;
   /** Adds the proposals to the stop's answer; absent where no form takes one. */
   onUseAnswers?: (text: string) => void;
+  /** This investigation's proposals are already in the stop's answer. */
+  proposalsAdded?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [used, setUsed] = useState(false);
   const actions = cycle.actions ?? [];
   const record = cycle.investigation;
   // The record says whether it runs; the daemon offers only End while it does.
@@ -82,6 +84,7 @@ export function CycleInvestigation({
   const locked = disabled || busy;
   const result = record?.result;
   const findings = result?.findings ?? [];
+  const used = proposalsAdded;
   return (
     <section aria-label="Investigation" className="stack">
       <h3>Investigation</h3>
@@ -152,10 +155,9 @@ export function CycleInvestigation({
               <button
                 type="button"
                 className="primary-button"
-                disabled={locked}
+                disabled={locked || used}
                 onClick={() => {
                   onUseAnswers(proposedAnswers(findings));
-                  setUsed(true);
                 }}
               >
                 Use proposed answers

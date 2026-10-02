@@ -195,7 +195,6 @@ describe('finalization finding decisions', () => {
       await waitFor(
         () => finalizationCycle(state, value).status === 'awaiting-merge',
         'focused verification',
-        8000,
       );
       // The focus belongs to its stage: it is implemented and verified there, then cleared so
       // the later stages review the whole candidate.
@@ -272,7 +271,6 @@ describe('finalization recovery agent selection', () => {
       await waitFor(
         () => finalizationCycle(state, value).status === 'awaiting-merge',
         'Codex final review',
-        8000,
       );
       expect(backend.launches).toHaveLength(1);
       // The switched agent implements (when authorized) and performs every later stage review.
@@ -327,7 +325,6 @@ describe('finalization recovery agent selection', () => {
         await waitFor(
           () => finalizationCycle(state, value).status === 'awaiting-merge',
           'restored review',
-          8000,
         );
         expect(backend.launches.at(-1)?.model).toBe('final-review-review');
         expect(finalizationCycle(state, value).finalizationAgentOverride).toBeNull();
@@ -356,7 +353,6 @@ describe('completed plan and integration branch cleanup', () => {
     await waitFor(
       () => finalizationCycle(fixture.state, value).status === 'awaiting-merge',
       'final review',
-      8000,
     );
     const cycle = finalizationCycle(fixture.state, value);
     const reviewed = present(
@@ -633,7 +629,6 @@ describe('staged finalization', () => {
     await waitFor(
       () => finalizationCycle(state, value).status === 'needs-attention',
       'optional selection',
-      8000,
     );
     expect(finalizationCycle(state, value).finalizationProgress?.stageIndex).toBe(2);
     expect(finalizationCycle(state, value).finalizationProgress?.stages[2]?.status).toBe(
@@ -668,7 +663,6 @@ describe('staged finalization', () => {
     await waitFor(
       () => finalizationCycle(state, value).status === 'awaiting-merge',
       'all stages verified',
-      10000,
     );
     const cycle = finalizationCycle(state, value);
     const progress = present(cycle.finalizationProgress);
@@ -759,7 +753,6 @@ describe('staged finalization', () => {
     await waitFor(
       () => finalizationCycle(state, value).status === 'needs-attention',
       'reopened exhausted stage',
-      12000,
     );
     let cycle = finalizationCycle(state, value);
     expect(cycle.reason).toContain('limit');
@@ -785,7 +778,6 @@ describe('staged finalization', () => {
     await waitFor(
       () => finalizationCycle(state, value).status === 'awaiting-merge',
       'regression and final review',
-      10000,
     );
     cycle = finalizationCycle(state, value);
     expect(fixes).toBe(2);
@@ -853,7 +845,6 @@ describe('staged finalization', () => {
     await waitFor(
       () => finalizationCycle(state, value).status === 'needs-attention',
       'plan adjustment',
-      6000,
     );
     const obligation = present(
       finalizationCycle(state, value).finalizationProgress?.obligations[0],
@@ -890,7 +881,6 @@ describe('staged finalization', () => {
     await waitFor(
       () => finalizationCycle(state, value).status === 'needs-attention',
       'required check failed',
-      6000,
     );
     expect(finalizationCycle(state, value).reason).toContain('limit');
     expect(finalizationCycle(state, value).finalizationProgress?.stageIndex).toBe(1);
@@ -908,7 +898,6 @@ describe('staged finalization', () => {
     await waitFor(
       () => finalizationCycle(state, value).status === 'needs-attention',
       'missing final checks',
-      9000,
     );
     let cycle = finalizationCycle(state, value);
     expect(cycle.finalizationProgress?.stageIndex).toBe(4);
@@ -1103,7 +1092,6 @@ it('keeps all selected stage findings required when recovery temporarily focuses
   await waitFor(
     () => finalizationCycle(state, value).status === 'needs-attention',
     'stage selection',
-    6000,
   );
   expect(
     (
@@ -1154,7 +1142,6 @@ it('keeps all selected stage findings required when recovery temporarily focuses
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'selected batch complete',
-    6000,
   );
   expect(implementations).toBe(3);
 });

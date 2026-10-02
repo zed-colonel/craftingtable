@@ -65,15 +65,11 @@ describe('parallel roadmaps', () => {
       state.context.storage.execution.cycles.find(state.workspaceId, right.cycleId),
     ).currentRunId;
     await mergeRoadmapAttempt(state, left.worktreeId);
-    await waitFor(
-      () => {
-        const cycle = state.context.storage.execution.cycles.find(state.workspaceId, right.cycleId);
-        if (cycle?.status === 'needs-attention') throw new Error(cycle.reason);
-        return cycle?.status === 'awaiting-merge' && cycle.currentRunId !== priorReview;
-      },
-      'fresh sibling review',
-      6000,
-    );
+    await waitFor(() => {
+      const cycle = state.context.storage.execution.cycles.find(state.workspaceId, right.cycleId);
+      if (cycle?.status === 'needs-attention') throw new Error(cycle.reason);
+      return cycle?.status === 'awaiting-merge' && cycle.currentRunId !== priorReview;
+    }, 'fresh sibling review');
     const cycle = present(
       state.context.storage.execution.cycles.find(state.workspaceId, right.cycleId),
     );
@@ -212,7 +208,6 @@ describe('parallel roadmaps', () => {
         state.context.storage.execution.cycles.find(state.workspaceId, right.cycleId)?.status ===
         'needs-attention',
       'conflicted sibling',
-      6000,
     );
     expect(storedRoadmap(state).status).toBe('running');
     const tree = present(
@@ -240,19 +235,15 @@ describe('parallel roadmaps', () => {
       writeFileSync(join(root, `external-${index}.txt`), 'external integration change');
       git(['add', '.'], root);
       git(['commit', '-m', 'external change'], root);
-      await waitFor(
-        () => {
-          const cycle = present(
-            state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId),
-          );
-          if (index === 1 && cycle.status === 'needs-attention') throw new Error(cycle.reason);
-          return index === 1
-            ? cycle.integrationRefreshes === 1 && cycle.status === 'awaiting-merge'
-            : cycle.status === 'needs-attention';
-        },
-        'bounded refresh',
-        6000,
-      );
+      await waitFor(() => {
+        const cycle = present(
+          state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId),
+        );
+        if (index === 1 && cycle.status === 'needs-attention') throw new Error(cycle.reason);
+        return index === 1
+          ? cycle.integrationRefreshes === 1 && cycle.status === 'awaiting-merge'
+          : cycle.status === 'needs-attention';
+      }, 'bounded refresh');
     }
     const cycle = present(
       state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId),

@@ -41,7 +41,7 @@ import {
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { sourceRecordDigest } from '@craftingtable/planning';
 import type { LightMyRequestResponse } from 'fastify';
-import { expect, it, vi } from 'vitest';
+import { expect, inject, it, onTestFailed, vi } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { resolveExecutable } from './services/executables.js';
 import { PLAN_CRITERIA, PLAN_REQUIREMENTS } from './services/plan-acceptance-policy.js';
@@ -66,10 +66,23 @@ import { createTestContext, type TestContext } from './test-support.js';
 export const contexts: TestContext[] = [];
 export const directories: string[] = [];
 export async function cleanupExecutionFixtures(): Promise<void> {
-  await Promise.all(contexts.splice(0).map((context) => context.cleanup()));
+  const callbackErrors = launchCallbackErrors.splice(0);
+  const closed = await Promise.allSettled(contexts.splice(0).map((context) => context.cleanup()));
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
+  // A failed `onLaunch` assertion is the test's own failure (AS F-9); then any cleanup error.
+  if (callbackErrors.length) throw callbackErrors[0];
+  for (const result of closed) if (result.status === 'rejected') throw result.reason;
+}
+
+/**
+ * Errors thrown by `CycleBackend.onLaunch` callbacks, oldest first (AS F-9). A launch the
+ * test means to fail throws from `failLaunch` instead, which is not collected.
+ */
+const launchCallbackErrors: unknown[] = [];
+function throwLaunchCallbackError(): void {
+  if (launchCallbackErrors.length) throw launchCallbackErrors.shift();
 }
 
 export const GIT_ENV = {
@@ -515,22 +528,137 @@ export async function stepDaemons(steps = 1): Promise<void> {
 const freeRunning = new WeakSet<TestContext>();
 
 /**
- * Steps the daemons until the predicate holds. Their loops are stopped, so state changes
- * only here; real time still passes between steps for sessions that answer on a timer.
+ * Steps a wait may take (R-I2, TS-H1). The number of steps a controller needs is the same at
+ * any load; load only makes each step slower. The longest wait measured took 230 steps.
+ */
+export const WAIT_STEPS = 1000;
+
+export interface WaitOptions {
+  /** The step budget, when a wait legitimately needs more than `WAIT_STEPS`. */
+  readonly steps?: number;
+  /**
+   * What one step does, for a test that drives one controller itself instead of every
+   * daemon through `stepDaemons`.
+   */
+  readonly step?: () => Promise<unknown>;
+}
+
+/**
+ * Steps the daemons until the predicate holds (R-B2 seam). Their loops are stopped, so state
+ * changes only here; real time still passes between steps for sessions that answer on a timer.
+ *
+ * A wait is bounded by steps, not by time (R-I2, TS-H1): it fails after `steps` steps, which is
+ * a controller that stopped converging. Only daemons with `workers: true` cannot be stepped;
+ * when every open daemon runs free, a step is one poll and only the hang guard bounds the wait.
+ * The hang guard (`waitHangGuardMs`) catches a step that never returns or a free-running loop
+ * that never gets there, and names the wait.
  */
 export async function waitFor(
   predicate: () => boolean,
   label: string,
-  timeoutMs = 3000,
+  options: WaitOptions = {},
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out waiting for ${label}`);
+  const budget = options.steps ?? WAIT_STEPS;
+  const pending: PendingWait = { label, steps: 0, startedAt: Date.now() };
+  pendingWaits.add(pending);
+  reportPendingWaitsOnFailure();
+  try {
+    for (;;) {
+      throwLaunchCallbackError();
+      if (predicate()) return;
+      const stepped = options.step !== undefined || contexts.some((c) => !freeRunning.has(c));
+      if (stepped && pending.steps >= budget)
+        throw new Error(`Timed out waiting for ${label} after ${pending.steps} steps`);
+      const elapsed = Date.now() - pending.startedAt;
+      if (elapsed > waitHangGuardMs())
+        throw new Error(
+          `Hung waiting for ${label}: ${pending.steps} steps in ${elapsed} ms, past the ${waitHangGuardMs()} ms hang guard`,
+        );
+      await (options.step ?? stepDaemons)();
+      pending.steps += 1;
+      throwLaunchCallbackError();
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    await stepDaemons();
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  } finally {
+    pendingWaits.delete(pending);
+  }
+}
+
+/**
+ * Polls a condition that real processes bring about rather than controller steps, such as
+ * checks the daemon runs for an agent. Nothing can be counted, so only the hang guard bounds
+ * it (R-I2); use it only where the test itself controls when the condition can hold.
+ */
+export function waitUntil(predicate: () => boolean, label: string): Promise<void> {
+  return waitFor(predicate, label, { step: () => Promise.resolve(), steps: Infinity });
+}
+
+/** Fails with the label if the promise has not settled within the hang guard (R-I2). */
+export async function withinHangGuard<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const guard = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(new Error(`Hung waiting for ${label}: past the ${waitHangGuardMs()} ms hang guard`)),
+      waitHangGuardMs(),
+    );
+  });
+  try {
+    return await Promise.race([promise, guard]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * How long one wait may run (R-I2): half the suite's one test timeout, so a wait that hangs
+ * is reported by its label before the test itself is timed out.
+ */
+export function waitHangGuardMs(): number {
+  return testTimeoutMs() / 2;
+}
+
+declare module 'vitest' {
+  export interface ProvidedContext {
+    /** The suite's one test timeout in milliseconds, scaled (vitest.config.ts, R-I2). */
+    testTimeoutMs: number;
+    /** `CRAFTINGTABLE_TEST_TIMEOUT_SCALE`, 1 when unset. */
+    testTimeScale: number;
+  }
+}
+function testTimeoutMs(): number {
+  const value = inject('testTimeoutMs');
+  if (typeof value !== 'number') throw new Error('vitest.config.ts provides no testTimeoutMs');
+  return value;
+}
+
+interface PendingWait {
+  readonly label: string;
+  readonly startedAt: number;
+  steps: number;
+}
+const pendingWaits = new Set<PendingWait>();
+const failureReports = new Set<string>();
+/**
+ * If the test times out during a wait, its failure names what it was waiting for: a test
+ * timeout alone says nothing about where the test stood (R-I2, LF F2).
+ */
+function reportPendingWaitsOnFailure(): void {
+  const state = expect.getState();
+  const test = `${state.testPath ?? ''}\u0000${state.currentTestName ?? ''}`;
+  if (failureReports.has(test)) return;
+  try {
+    onTestFailed(({ task }) => {
+      for (const wait of pendingWaits)
+        task.result?.errors?.push({
+          name: 'PendingWait',
+          message: `The test failed while waiting for ${wait.label}: ${wait.steps} steps in ${Date.now() - wait.startedAt} ms`,
+        });
+    });
+    failureReports.add(test);
+  } catch {
+    /* outside a test, as in a hook: nothing to annotate */
   }
 }
 
@@ -548,10 +676,12 @@ export async function admit(state: Ready): Promise<void> {
   expect(response.statusCode, response.body).toBe(200);
 }
 
+/** Starts a run, waits for its first turn, ends it and waits for it to finish. */
 export async function runToFinish(
   state: Ready,
   worktreeId: string,
   payload: Record<string, unknown>,
+  wait: WaitOptions = {},
 ): Promise<AgentRunId> {
   const started = await state.context.app.inject({
     method: 'POST',
@@ -565,6 +695,7 @@ export async function runToFinish(
     () =>
       state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'waiting',
     'turn',
+    wait,
   );
   await state.context.app.inject({
     method: 'POST',
@@ -576,6 +707,7 @@ export async function runToFinish(
     () =>
       state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'finished',
     'finish',
+    wait,
   );
   return run.id;
 }
@@ -628,7 +760,10 @@ export async function runDetail(state: Ready, id: AgentRunId) {
 
 /* Automated cycle exercises the same real Git/worktree and journal path as manual execution. */
 export class CycleBackend extends ScriptedBackend {
+  /** Observes each launch; what it throws fails the test, not only the launch (AS F-9). */
   onLaunch: ((request: AgentLaunchRequest) => void) | undefined;
+  /** A launch failure the test means: the error it returns rejects the launch. */
+  failLaunch: ((request: AgentLaunchRequest) => Error | undefined) | undefined;
   replyForRequest:
     | ((request: AgentLaunchRequest) => ScriptedReply | Promise<ScriptedReply>)
     | undefined;
@@ -644,7 +779,16 @@ export class CycleBackend extends ScriptedBackend {
   /** Automatic output-format repairs launched so far (R-C2). */
   repairs = 0;
   override async launch(request: AgentLaunchRequest): Promise<AgentSession> {
-    this.onLaunch?.(request);
+    try {
+      this.onLaunch?.(request);
+    } catch (error) {
+      // The daemon absorbs a failed launch, so an `expect` failing here would surface only as
+      // a wait that never ends (AS F-9): the next wait or the cleanup rethrows it instead.
+      launchCallbackErrors.push(error);
+      throw error;
+    }
+    const failure = this.failLaunch?.(request);
+    if (failure) throw failure;
     // An automatic output-format repair resumes the session (R-C2). The scripted agent repeats
     // its report, so scripted outputs and reply scripts stay aligned with the steps.
     const repair =
@@ -869,18 +1013,14 @@ export async function roadmapControl(
   return response;
 }
 export async function awaitRoadmapMerge(state: Ready, index: number) {
-  await waitFor(
-    () => {
-      const attempt = storedRoadmap(state).attempts[index];
-      return (
-        !!attempt &&
-        state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId)?.status ===
-          'awaiting-merge'
-      );
-    },
-    `roadmap merge ${index}`,
-    6000,
-  );
+  await waitFor(() => {
+    const attempt = storedRoadmap(state).attempts[index];
+    return (
+      !!attempt &&
+      state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId)?.status ===
+        'awaiting-merge'
+    );
+  }, `roadmap merge ${index}`);
   const attempt = storedRoadmap(state).attempts[index];
   if (!attempt) throw new Error('Missing attempt');
   return attempt;

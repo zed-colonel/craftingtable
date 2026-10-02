@@ -456,7 +456,6 @@ itNeedsCargo(
           .listForWorkspace(f.state.workspaceId)
           .some((c) => c.executionScope?.kind === 'slice' && c.status === 'completed'),
       'specialist-reviewed integration',
-      12000,
     );
     expect(security).toHaveLength(1);
     const cycle = f.state.context.storage.execution.cycles
@@ -496,7 +495,6 @@ itNeedsCargo.each([true, false])(
     await waitFor(
       () => currentCycle(f.state, cycle).status !== 'running',
       'security-reviewed candidate',
-      15000,
     );
     const reviewed = currentCycle(f.state, cycle);
     expect(reviewed.owner ?? null).toBeNull();
@@ -556,7 +554,6 @@ itNeedsCargo(
           .listForWorkspace(f.state.workspaceId)
           .some((c) => c.executionScope?.kind === 'slice' && c.status !== 'running'),
       'reviewed slice',
-      15000,
     );
     const cycle = f.state.context.storage.execution.cycles
       .listForWorkspace(f.state.workspaceId)
@@ -581,7 +578,6 @@ itNeedsCargo(
           .listForWorkspace(f.state.workspaceId)
           .some((c) => c.executionScope?.kind === 'slice' && c.owner),
       'an owned slice cycle',
-      12000,
     );
     await roadmapControl(f.state, 'pause');
     await roadmapControl(f.state, 'resume');
@@ -719,7 +715,7 @@ itNeedsCargo.each([
       f.state.context.storage.execution.cycles
         .listForWorkspace(f.state.workspaceId)
         .find((c) => c.executionScope?.kind === 'slice' && c.status === 'needs-attention');
-    await waitFor(() => !!stopped(), 'moved-pin stop', 15000).catch((error) => {
+    await waitFor(() => !!stopped(), 'moved-pin stop').catch((error) => {
       throw new Error(
         `${error.message}: ${JSON.stringify(f.state.context.storage.execution.cycles.listForWorkspace(f.state.workspaceId).map((c) => ({ status: c.status, reason: c.reason, attention: c.attention, active: c.workflow?.activeReview })))}`,
       );
@@ -830,7 +826,6 @@ itNeedsCargo.each([
               c.status === (valid ? 'completed' : 'needs-attention'),
           ),
       'checkpoint-reviewed integration',
-      12000,
     ).catch((error) => {
       throw new Error(
         `${error.message}: ${JSON.stringify(f.state.context.storage.execution.cycles.listForWorkspace(f.state.workspaceId).map((c) => ({ status: c.status, reason: c.reason, workflow: c.workflow })))}`,
@@ -1007,7 +1002,6 @@ itNeedsCargo(
           .listForWorkspace(f.state.workspaceId)
           .some((c) => c.workflow?.questions.length === 1 && c.status === 'needs-attention'),
       'genuine question',
-      12000,
     );
     const cycle = f.state.context.storage.execution.cycles
       .listForWorkspace(f.state.workspaceId)
@@ -1056,7 +1050,7 @@ itNeedsCargo(
     await roadmapControl(f.state, 'start');
     const tx = f.state.context.storage,
       ws = f.state.workspaceId;
-    await waitFor(() => attempts > 0, 'controller reassessment', 12000);
+    await waitFor(() => attempts > 0, 'controller reassessment');
     await waitFor(
       () => tx.execution.cycles.listForWorkspace(ws).some((c) => c.reason.includes('reassessment')),
       'surfaced reassessment failure',
@@ -1134,7 +1128,6 @@ itNeedsCargo(
           .listForWorkspace(f.state.workspaceId)
           .some((c) => c.executionScope?.kind === 'slice' && c.status === 'completed'),
       'repair then security review',
-      12000,
     );
     const cycle = f.state.context.storage.execution.cycles
       .listForWorkspace(f.state.workspaceId)
@@ -1192,7 +1185,6 @@ itNeedsCargo(
           .listForWorkspace(f.state.workspaceId)
           .some((c) => !!c.workflow?.waiting),
       'checkpoint dependency wait',
-      6000,
     );
     const cycle = f.state.context.storage.execution.cycles
       .listForWorkspace(f.state.workspaceId)
@@ -1237,7 +1229,6 @@ itNeedsCargo(
     await waitFor(
       () => cycles().some((c) => c.status === 'awaiting-merge'),
       'paused specialist review',
-      8000,
     );
     expect(f.backend.launches.filter((r) => r.model === 'review-model')).toHaveLength(1);
     expect(
@@ -1247,7 +1238,6 @@ itNeedsCargo(
     await waitFor(
       () => cycles().some((c) => c.status === 'completed'),
       'resumed specialist review',
-      8000,
     );
     const cycle = cycles().find((c) => c.workflow?.securityReceipt)!;
     const run = f.state.context.storage.execution.runs.find(
@@ -1344,7 +1334,6 @@ itNeedsCargo(
           .listForWorkspace(f.state.workspaceId)
           .some((c) => c.workflow?.questions.length),
       'shared question',
-      8000,
     );
     const cycle = tx.execution.cycles
       .listForWorkspace(f.state.workspaceId)
@@ -1781,7 +1770,6 @@ itNeedsCargo(
           .listForWorkspace(ws)
           .some((c) => ['needs-attention', 'awaiting-merge'].includes(c.status)),
       'missing reviewer delegation',
-      10000,
     );
     await roadmapControl(f.state, 'pause');
     const saved = storedRoadmap(f.state),
@@ -1850,7 +1838,6 @@ itNeedsCargo(
     await waitFor(
       () => !!tx.execution.worktrees.find(ws, attempt.worktreeId)?.mergedAt,
       'integration after explicit reviewer grant',
-      10000,
     ).catch((error) => {
       throw new Error(
         `${error.message}: ${JSON.stringify(tx.execution.cycles.listForWorkspace(ws).map((c) => ({ status: c.status, reason: c.reason, workflow: c.workflow })))}; roadmap=${JSON.stringify(storedRoadmap(f.state).entryHolds)}`,

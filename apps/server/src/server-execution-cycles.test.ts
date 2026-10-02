@@ -1582,9 +1582,9 @@ it('leaves no run starting when its temporary directory cannot be made (LIVE-31 
 it("stops a cycle as agent-environment-unavailable when the agent's tools cannot start (LIVE-31)", async () => {
   const { state, backend, worktree } = await cycleFixture([designDone]);
   let own: string | undefined;
-  backend.onLaunch = (request) => {
+  backend.failLaunch = (request) => {
     own = request.processTemporaryDirectory;
-    throw new AgentLaunchError(
+    return new AgentLaunchError(
       'environment-unavailable',
       "Claude Code's command sandbox cannot start on this host: socat is not on the agent's PATH.",
     );
@@ -1622,7 +1622,6 @@ it('finalizes an implementer’s tracked edits and staged new source before the 
   await waitFor(
     () => currentCycle(state, cycle).status === 'awaiting-merge',
     'checkpoint then review',
-    6000,
   );
   const settled = currentCycle(state, cycle);
   expect(backend.launches.map((r) => r.model)).toEqual([
@@ -1662,7 +1661,6 @@ it('hands dirty negative review findings directly to remediation', async () => {
   await waitFor(
     () => currentCycle(state, cycle).status === 'awaiting-merge',
     'dirty review remediation',
-    6000,
   );
   expect(backend.launches.map((r) => r.model)).toEqual([
     'design-model',
@@ -1691,11 +1689,7 @@ it('routes unclassified new files through bounded remediation without checkpoint
     }
   };
   const cycle = await startCycle(state, worktree.id);
-  await waitFor(
-    () => currentCycle(state, cycle).status === 'awaiting-merge',
-    'classified files',
-    6000,
-  );
+  await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'classified files');
   expect(backend.launches.map((r) => r.model)).toEqual([
     'design-model',
     'implement-model',
@@ -1758,7 +1752,6 @@ it('resumes an older dirty negative review directly into remediation', async () 
   await waitFor(
     () => currentCycle(state, cycle).status === 'awaiting-merge',
     'resumed remediation',
-    6000,
   );
   expect(backend.launches.map((request) => request.model)).toEqual([
     'design-model',
@@ -1852,7 +1845,6 @@ it.each(['untracked artifact', 'index-only change'])(
     await waitFor(
       () => currentCycle(state, cycle).status === 'awaiting-merge',
       'fresh clean review',
-      6000,
     );
     expect(backend.launches.map((request) => request.model)).toEqual([
       'design-model',

@@ -172,15 +172,11 @@ async function adoptionFixture(
 
 async function runToMergeApproval(x: Awaited<ReturnType<typeof adoptionFixture>>) {
   const cycle = await startCycle(x.f.state, x.tree.id);
-  await waitFor(
-    () => {
-      const current = currentCycle(x.f.state, cycle);
-      if (current.status === 'needs-attention') throw new Error(current.reason);
-      return current.status === 'awaiting-merge';
-    },
-    'merge approval',
-    25000,
-  );
+  await waitFor(() => {
+    const current = currentCycle(x.f.state, cycle);
+    if (current.status === 'needs-attention') throw new Error(current.reason);
+    return current.status === 'awaiting-merge';
+  }, 'merge approval');
   return currentCycle(x.f.state, cycle);
 }
 
@@ -297,7 +293,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(x.f.state, cycle).status === 'needs-attention',
       'definition stop',
-      25000,
     );
     const stopped = currentCycle(x.f.state, cycle);
     expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
@@ -349,7 +344,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(x.f.state, cycle).status === 'needs-attention',
       'definition stop',
-      25000,
     );
     const stopped = currentCycle(x.f.state, cycle);
     expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
@@ -496,16 +490,12 @@ itNeedsCargo(
       storage.execution.worktrees
         .listForWorkItem(ws, state.workItemId)
         .find((t) => t.executionScope?.kind === 'slice')!;
-    await waitFor(
-      () => {
-        const tree = sliceTree();
-        const cycle = tree && storage.execution.cycles.activeForWorktree(ws, tree.id);
-        if (cycle?.status === 'needs-attention') throw new Error(cycle.reason);
-        return cycle?.status === 'awaiting-merge';
-      },
-      'merge approval',
-      40000,
-    );
+    await waitFor(() => {
+      const tree = sliceTree();
+      const cycle = tree && storage.execution.cycles.activeForWorktree(ws, tree.id);
+      if (cycle?.status === 'needs-attention') throw new Error(cycle.reason);
+      return cycle?.status === 'awaiting-merge';
+    }, 'merge approval');
     const tree = sliceTree();
     // Several controller passes later the roadmap has not merged it, and the stop is the
     // operator's, not claimed by the roadmap.
@@ -643,7 +633,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(x.f.state, cycle).status === 'needs-attention',
       'definition stop',
-      25000,
     );
     const stopped = currentCycle(x.f.state, cycle);
     expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
@@ -689,7 +678,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(x.f.state, cycle).status === 'needs-attention',
       'definition stop',
-      25000,
     );
     const stopped = currentCycle(x.f.state, cycle);
     expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
@@ -781,7 +769,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(x.f.state, cycle).status === 'needs-attention',
       'definition stop',
-      25000,
     );
     const stopped = currentCycle(x.f.state, cycle);
     // The merge could adopt the change, but its checks did not pass as adopted: the stop says
@@ -868,7 +855,6 @@ itNeedsCargo('a definition that is not UTF-8 is not adopted at merge (verificati
   await waitFor(
     () => currentCycle(x.f.state, cycle).status === 'needs-attention',
     'definition stop',
-    25000,
   );
   expect(currentCycle(x.f.state, cycle).reason).toContain(
     'scripts/check.sh is not short UTF-8 text, so it cannot be shown in full',
@@ -931,7 +917,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(x.f.state, cycle).status === 'needs-attention',
       'definition stop',
-      25000,
     );
     expect(currentCycle(x.f.state, cycle).reason).toContain('The changed definitions hold');
   },
@@ -946,7 +931,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(x.f.state, cycle).status === 'needs-attention',
       'definition stop',
-      25000,
     );
     expect(currentCycle(x.f.state, cycle).reason).toContain(
       'scripts/check.sh holds U+E0020 at line 3, a character that does not show',
@@ -981,7 +965,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(x.f.state, cycle).status === 'needs-attention',
       'definition stop',
-      25000,
     );
     expect(currentCycle(x.f.state, cycle).reason).toContain(
       'check again holds U+00A0 in its command, a character that does not show',

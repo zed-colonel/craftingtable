@@ -276,7 +276,6 @@ itNeedsCargo(
     await waitFor(
       () => storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
       'original acceptance',
-      15000,
     );
     await roadmapControl(state, 'pause');
     const old = storedRoadmap(state),
@@ -322,7 +321,6 @@ itNeedsCargo(
     await waitFor(
       () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
       'fresh parent acceptance',
-      15000,
     );
     expect(
       storage.scopeReceipts
@@ -350,7 +348,6 @@ itNeedsCargo(
     await waitFor(
       () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
       'original parent acceptance',
-      15000,
     );
     await roadmapControl(state, 'pause');
     const before = storedRoadmap(state),
@@ -398,7 +395,6 @@ itNeedsCargo(
     await waitFor(
       () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
       'refreshed parent acceptance',
-      15000,
     );
     expect(storedRoadmap(state).attempts.map((a) => a.id)).toEqual(
       before.attempts.map((a) => a.id),
@@ -450,11 +446,7 @@ itNeedsCargo.each(['manual', 'roadmap'] as const)(
       tx.execution.cycles
         .listForWorkspace(ws)
         .find((c) => c.executionScope?.kind === 'parent-acceptance');
-    await waitFor(
-      () => parent()?.status === 'needs-attention',
-      'unstarted parent preflight',
-      15000,
-    );
+    await waitFor(() => parent()?.status === 'needs-attention', 'unstarted parent preflight');
     await roadmapControl(state, 'pause');
     fault.mockRestore();
     const before = parent()!;
@@ -481,7 +473,6 @@ itNeedsCargo.each(['manual', 'roadmap'] as const)(
       await waitFor(
         () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
         'unstarted parent after refresh',
-        15000,
       );
     } else {
       const response = await state.context.app.inject({

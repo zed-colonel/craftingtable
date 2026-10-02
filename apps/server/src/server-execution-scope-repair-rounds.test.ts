@@ -61,7 +61,6 @@ async function stoppedParentReview() {
           (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'needs-attention',
         ),
     'parent finding',
-    15000,
   );
   const parent = tx.execution.cycles
     .listForWorkspace(ws)

@@ -197,21 +197,16 @@ describe('execution slices and parent acceptance', () => {
     await waitFor(
       () => state.context.storage.execution.cycles.listForWorkspace(state.workspaceId).length === 2,
       'two sibling cycles',
-      8000,
     );
     const cycles = state.context.storage.execution.cycles.listForWorkspace(state.workspaceId);
     expect(new Set(cycles.map((c) => c.executionScope?.sourceId)).size).toBe(2);
     expect(new Set(cycles.map((c) => c.worktreeId)).size).toBe(2);
     for (const cycle of cycles)
-      await waitFor(
-        () => {
-          const c = currentCycle(state, cycle);
-          if (c.status === 'needs-attention') throw new Error(c.reason);
-          return c.status === 'awaiting-merge';
-        },
-        `review ${cycle.executionScope?.sourceId}`,
-        8000,
-      );
+      await waitFor(() => {
+        const c = currentCycle(state, cycle);
+        if (c.status === 'needs-attention') throw new Error(c.reason);
+        return c.status === 'awaiting-merge';
+      }, `review ${cycle.executionScope?.sourceId}`);
     const first = cycles[0]!,
       second = cycles[1]!;
     await mergeRoadmapAttempt(state, first.worktreeId);
@@ -220,7 +215,6 @@ describe('execution slices and parent acceptance', () => {
         currentCycle(state, second).integrationRefreshes === 1 &&
         currentCycle(state, second).status === 'awaiting-merge',
       'fresh slice review',
-      6000,
     );
     await mergeRoadmapAttempt(state, second.worktreeId);
     await waitFor(() => storedRoadmap(state).status === 'completed', 'slice roadmap completed');
@@ -510,7 +504,6 @@ it('phase resource waits resume cycles automatically without consuming the execu
   await waitFor(
     () => !!state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
     'queued cycle starts',
-    6000,
   );
   expect(Date.parse(currentCycle(state, cycle).runDeadlineAt)).toBeGreaterThan(
     Date.parse(deadline),
@@ -559,23 +552,19 @@ it('phase merge dependencies let an independent sibling integrate first and then
   });
   expect(saved.statusCode, saved.body).toBe(200);
   await roadmapControl(state, 'start');
-  await waitFor(
-    () => {
-      const r = storedRoadmap(state);
-      const stalled = state.context.storage.execution.cycles
-        .listForWorkspace(state.workspaceId)
-        .find((c) => c.status === 'needs-attention');
-      if (stalled) throw new Error(stalled.reason);
-      if (
-        r.status === 'needs-attention' ||
-        Object.values(r.entryHolds ?? {}).some((h) => h.status === 'needs-attention')
-      )
-        throw new Error(JSON.stringify(r));
-      return r.status === 'completed';
-    },
-    'phase dependency roadmap completes',
-    14000,
-  );
+  await waitFor(() => {
+    const r = storedRoadmap(state);
+    const stalled = state.context.storage.execution.cycles
+      .listForWorkspace(state.workspaceId)
+      .find((c) => c.status === 'needs-attention');
+    if (stalled) throw new Error(stalled.reason);
+    if (
+      r.status === 'needs-attention' ||
+      Object.values(r.entryHolds ?? {}).some((h) => h.status === 'needs-attention')
+    )
+      throw new Error(JSON.stringify(r));
+    return r.status === 'completed';
+  }, 'phase dependency roadmap completes');
   const trees = state.context.storage.execution.worktrees.listForWorkItem(
     state.workspaceId,
     state.workItemId,
@@ -658,7 +647,6 @@ it('phase verification worktrees do not consume roadmap development capacity', a
         .listForWorkspace(state.workspaceId)
         .some((c) => c.status === 'awaiting-merge'),
     'development beside pending verification',
-    6000,
   );
   expect(
     state.context.storage.execution.worktrees.find(state.workspaceId, verification.id)?.status,
@@ -700,7 +688,6 @@ it('phase started milestones require a launched run, not a cycle queued for reso
     () =>
       !!state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId)?.startedAt,
     'real start',
-    6000,
   );
   const { scopePhaseBlockers } = await import('./services/execution-scope.js');
   expect(

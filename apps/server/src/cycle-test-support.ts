@@ -53,19 +53,6 @@ export function git(args: readonly string[], cwd: string): string {
   return execFileSync('git', [...args], { cwd, env: GIT_ENV, encoding: 'utf8' });
 }
 
-/** Polls a condition; only for tests that let the real worker loops run. */
-export async function waitFor(
-  predicate: () => boolean,
-  label: string,
-  timeoutMs = 4000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
 /**
  * A session whose turn completes only when the test releases it, like a long agent turn.
  * It reports a vendor session id unless told not to, and exits by signal when killed.

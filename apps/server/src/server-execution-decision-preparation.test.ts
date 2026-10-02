@@ -9,6 +9,7 @@ import {
   storedRoadmap,
   supervisedMapFixture,
   waitFor,
+  waitUntil,
 } from './execution-test-support.js';
 import { architectureDecisionInbox } from './services/architecture-decision-inbox.js';
 import { RepositoryMutationBusyError } from './services/branch-service.js';
@@ -139,15 +140,9 @@ function prepare({ f, saved, ws }: Fixture, checkpointId: string) {
 
 /**
  * Waits without stepping the daemons: a step waits for launches to settle, which a held launch
- * never does.
+ * never does. Only the hang guard bounds it (R-I2).
  */
-async function until(predicate: () => boolean, label: string, timeoutMs = 10000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
+const until = waitUntil;
 
 /** Holds every agent launch until released, so a test can act while one is in flight. */
 function holdLaunches({ f }: Fixture) {
@@ -457,14 +452,10 @@ it('a busy repository leaves a standing preparation for the next pass, not faile
     'createDecisionWorktree',
   ).mockRejectedValueOnce(new RepositoryMutationBusyError());
   await grantAndStart(fixture);
-  await waitFor(
-    () => {
-      const p = preparation(fixture, 'LOCAL-ADR-01');
-      return !!p && tx.execution.runs.find(ws, p.runId)?.status === 'finished';
-    },
-    'LOCAL-ADR-01 prepared on a later pass',
-    15000,
-  );
+  await waitFor(() => {
+    const p = preparation(fixture, 'LOCAL-ADR-01');
+    return !!p && tx.execution.runs.find(ws, p.runId)?.status === 'finished';
+  }, 'LOCAL-ADR-01 prepared on a later pass');
   expect((storedRoadmap(f.state).decisionPreparations ?? []).filter((p) => p.failure)).toEqual([]);
 });
 
@@ -485,14 +476,10 @@ it('a decision that cannot be reserved gives its place to the next, and waits be
     return launch(...args);
   });
   await grantAndStart(fixture);
-  await waitFor(
-    () => {
-      const p = preparation(fixture, 'LOCAL-ADR-02');
-      return !!p && tx.execution.runs.find(ws, p.runId)?.status === 'finished';
-    },
-    'LOCAL-ADR-02 prepared although LOCAL-ADR-01 cannot be',
-    15000,
-  );
+  await waitFor(() => {
+    const p = preparation(fixture, 'LOCAL-ADR-02');
+    return !!p && tx.execution.runs.find(ws, p.runId)?.status === 'finished';
+  }, 'LOCAL-ADR-02 prepared although LOCAL-ADR-01 cannot be');
   for (let pass = 0; pass < 3; pass++) await f.state.context.services.roadmapService.tick();
   expect(refused).toBe(1);
 });

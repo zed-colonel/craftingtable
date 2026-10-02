@@ -54,7 +54,7 @@ itNeedsCargo(
       tx.execution.cycles
         .listForWorkspace(ws)
         .find((c) => c.executionScope?.kind === 'parent-acceptance');
-    await waitFor(() => parent()?.status === 'awaiting-merge', 'manual parent review', 20000);
+    await waitFor(() => parent()?.status === 'awaiting-merge', 'manual parent review');
     await roadmapControl(state, 'pause');
     const reverify = (entryId: string) =>
       state.context.app.inject({

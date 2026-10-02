@@ -68,17 +68,13 @@ const slice = (state: Awaited<ReturnType<typeof fixture>>['state'], ws: string) 
 
 it('sends a slice whose review skipped the adopted checks back for one fresh review, then merges it (LIVE-24)', async () => {
   const { state, ws, reviews } = await fixture(1);
-  await waitFor(
-    () => {
-      const hold = Object.values(storedRoadmap(state).entryHolds ?? {}).find(
-        (h) => h.status === 'needs-attention',
-      );
-      if (hold) throw new Error(hold.reason);
-      return slice(state, ws).some((t) => t.mergedAt);
-    },
-    'the slice merged after a fresh review',
-    35000,
-  );
+  await waitFor(() => {
+    const hold = Object.values(storedRoadmap(state).entryHolds ?? {}).find(
+      (h) => h.status === 'needs-attention',
+    );
+    if (hold) throw new Error(hold.reason);
+    return slice(state, ws).some((t) => t.mergedAt);
+  }, 'the slice merged after a fresh review');
   expect(
     [...reviews.entries()].filter(([k]) => k.startsWith('slice:')).map(([, n]) => n),
   ).toContain(2);
@@ -92,7 +88,6 @@ it('holds the entry with the refusal when the fresh review skips the adopted che
         (h) => h.status === 'needs-attention' && h.reason.includes('ct-check --declared fixture'),
       ),
     'the refusal held',
-    35000,
   );
   expect(slice(state, ws).some((t) => t.mergedAt)).toBe(false);
   // The item says why, and does not offer a merge the roadmap owns and could not make.
@@ -123,11 +118,7 @@ it('does not start the fresh review once the operator has paused the roadmap dur
       return merge(...args);
     });
   });
-  await waitFor(
-    () => paused !== undefined && storedRoadmap(state).status === 'paused',
-    'paused',
-    35000,
-  );
+  await waitFor(() => paused !== undefined && storedRoadmap(state).status === 'paused', 'paused');
   await state.context.services.roadmapService.tick();
   const counts = [...reviews.entries()].filter(([k]) => k.startsWith('slice:')).map(([, n]) => n);
   expect(Math.max(...counts)).toBe(1);

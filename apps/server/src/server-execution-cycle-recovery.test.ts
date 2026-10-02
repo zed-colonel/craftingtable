@@ -195,7 +195,6 @@ describe('background-work completion recovery', () => {
     await waitFor(
       () => finalizationCycle(state, value).status === 'awaiting-merge',
       'final independent review',
-      8000,
     );
     expect(backend.launches.map((r) => r.model)).toEqual([
       'correctness-review',
@@ -443,7 +442,6 @@ describe('collecting background review results', () => {
       await waitFor(
         () => finalizationCycle(state, value).status === 'awaiting-merge',
         'guided artifact continuation',
-        8000,
       );
       expect(readFileSync(present(preserved), 'utf8')).toBe('generated fixture');
       expect(finalizationCycle(state, value).remediationRounds).toBe(0);

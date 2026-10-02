@@ -167,7 +167,6 @@ itNeedsCargo.each([
           (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'needs-attention',
         ),
     'initial parent finding',
-    15000,
   );
   await roadmapControl(state, 'pause');
   const prior = storedRoadmap(state);
@@ -235,7 +234,6 @@ itNeedsCargo.each([
           );
         }),
       'repair completed turn awaiting session close',
-      10000,
     );
     await roadmapControl(state, 'pause');
     const round = storedRoadmap(state).attempts.find((a) => a.recovery)!;
@@ -257,7 +255,6 @@ itNeedsCargo.each([
     await waitFor(
       () => tx.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
       'automatic recovered parent acceptance',
-      22000,
     );
     await waitFor(
       () =>
@@ -302,7 +299,6 @@ itNeedsCargo.each([
           ),
         ),
       'bounded recovery stopping reason',
-      outcome === 'stalled' ? 35000 : 22000,
     );
     expect(repairs).toBe(
       ['ambiguous', 'split-owners', 'partly-named'].includes(outcome)
@@ -495,7 +491,6 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
             (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'needs-attention',
           ),
       'parent finding',
-      15000,
     );
     expect(storedRoadmap(state).scopeRecovery?.enabled ?? false).toBe(false);
     const parent = tx.execution.cycles
@@ -568,7 +563,6 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
     await waitFor(
       () => tx.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
       'roadmap-carried parent acceptance',
-      30000,
     );
     await waitFor(
       () =>
@@ -650,7 +644,6 @@ itNeedsCargo(
             (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'needs-attention',
           ),
       'parent finding',
-      15000,
     );
     // Automatic recovery is off: the round exists only because the operator requested it.
     expect(storedRoadmap(state).scopeRecovery?.enabled ?? false).toBe(false);
@@ -676,14 +669,10 @@ itNeedsCargo(
     });
     expect(response.statusCode, response.body).toBe(200);
     const repairId = response.json().cycle.id;
-    await waitFor(
-      () => {
-        const c = tx.execution.cycles.find(ws, repairId);
-        return !!advancedTo && !!c && c.status !== 'running' && c.step === 'review';
-      },
-      'repair review settles',
-      20000,
-    );
+    await waitFor(() => {
+      const c = tx.execution.cycles.find(ws, repairId);
+      return !!advancedTo && !!c && c.status !== 'running' && c.step === 'review';
+    }, 'repair review settles');
     const repair = tx.execution.cycles.find(ws, repairId)!;
     expect(repair.reason ?? '').not.toContain('Integration branch advanced');
     expect(repair.integrationRefreshes ?? 0).toBe(1);

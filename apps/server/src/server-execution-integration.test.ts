@@ -151,7 +151,6 @@ it.each([false, true])(
     await waitFor(
       () => currentCycle(state, cycle).status === 'awaiting-merge',
       'resolved fresh review',
-      6000,
     );
     const final = currentCycle(state, cycle);
     expect(final.integrationResolution?.status).toBe('completed');
@@ -342,7 +341,6 @@ it.each(['preparing', 'committing'] as const)(
     await waitFor(
       () => currentCycle(state, cycle).status === 'awaiting-merge',
       'recovered resolution',
-      6000,
     );
     expect(currentCycle(state, cycle).integrationResolution?.attempts).toBe(1);
     expect(backend.launches).toHaveLength(5);
@@ -495,7 +493,6 @@ it('automatically resolves parallel integration conflicts and freshly reviews be
   await waitFor(
     () => storedRoadmap(state).status === 'completed',
     'unattended parallel integration',
-    15000,
   );
   expect(git(['rev-parse', 'main'], root)).toBe(base);
   expect(backend.launches.some((r) => r.model === 'resolution-auto')).toBe(true);
@@ -598,11 +595,7 @@ it('keeps a started entry manual when queued defaults change to automatic integr
     state.context.storage.execution.merges.latest(state.workspaceId, first.worktreeId),
   ).toBeUndefined();
   await mergeRoadmapAttempt(state, first.worktreeId);
-  await waitFor(
-    () => storedRoadmap(state).status === 'completed',
-    'queued automatic integration',
-    8000,
-  );
+  await waitFor(() => storedRoadmap(state).status === 'completed', 'queued automatic integration');
   expect(
     state.context.storage.execution.merges.latest(state.workspaceId, first.worktreeId)?.roadmapId,
   ).toBeUndefined();
@@ -667,7 +660,6 @@ it('refreshes and merges a started manual entry once a delegation grant makes it
   await waitFor(
     () => storedRoadmap(state).status === 'completed',
     'delegated refresh and merge',
-    15000,
   ).catch((error) => {
     throw new Error(`${error.message}: ${storedRoadmap(state).reason}`);
   });
@@ -807,7 +799,6 @@ it.each([
     await waitFor(
       () => state.context.storage.execution.cycles.find(ws, stopped.id)?.status !== 'running',
       'resumed cycle settles',
-      15000,
     );
     const cycle = present(state.context.storage.execution.cycles.find(ws, stopped.id));
     if (roadmapState === 'stopped' || roadmapState === 'held') {
@@ -871,6 +862,6 @@ it('cleans an interrupted reserved scratch worktree before retrying an uncommitt
   expect(operation.status).toBe('reserved');
   expect(git(['worktree', 'list', '--porcelain'], root)).toContain(operation.id);
   await roadmapControl(state, 'resume');
-  await waitFor(() => storedRoadmap(state).status === 'completed', 'recovered scratch merge', 8000);
+  await waitFor(() => storedRoadmap(state).status === 'completed', 'recovered scratch merge');
   expect(git(['worktree', 'list', '--porcelain'], root)).not.toContain(operation.id);
 });

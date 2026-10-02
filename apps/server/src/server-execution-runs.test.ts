@@ -541,11 +541,12 @@ describe('agent runs', () => {
 
     stalled?.exitNow();
     let relaunched = await launch();
-    const deadline = Date.now() + 3000;
-    while (relaunched.statusCode === 409 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      relaunched = await launch();
-    }
+    // Each step retries the launch until the daemon has seen the exit (R-I2: steps, not time).
+    await waitFor(() => relaunched.statusCode !== 409, 'a launch once the process exited', {
+      step: async () => {
+        relaunched = await launch();
+      },
+    });
     expect(relaunched.statusCode, relaunched.body).toBe(200);
     expect(backend.launches).toHaveLength(2);
   });

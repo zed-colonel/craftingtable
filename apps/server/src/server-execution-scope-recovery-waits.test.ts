@@ -77,7 +77,6 @@ async function stoppedVerification(holderWaitsOnOwner = false) {
           (c) => c.executionScope?.kind === 'slice-verification' && c.status === 'needs-attention',
         ),
     'verification finding',
-    15000,
   );
   const review = tx.execution.cycles
     .listForWorkspace(ws)
@@ -305,21 +304,15 @@ itNeedsCargo(
     await waitFor(
       () => !!storedRoadmap(state).entryHolds?.[sourceEntryId],
       'the stopped round holds its review',
-      30000,
     );
     await waitFor(
       () => repairRuns === 2 && repair()?.status === 'running',
       'the round reassesses its repair',
-      15000,
     );
     // While the round's repair is at work again, nobody is asked anything.
     expect(openSubjects()).toEqual([]);
     releaseReassessment();
-    await waitFor(
-      () => repair()?.status === 'needs-attention',
-      'the repair stops on its question',
-      30000,
-    );
+    await waitFor(() => repair()?.status === 'needs-attention', 'the repair stops on its question');
     // The repair's own item carries the question; the review's hold does not repeat it.
     expect(openSubjects()).toEqual([`cycle:${round()!.cycleId}`]);
   },

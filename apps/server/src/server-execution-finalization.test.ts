@@ -70,7 +70,6 @@ it('runs plan-scoped staged review and remediation, then requires explicit exact
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'final independent review',
-    8000,
   );
   const cycle = finalizationCycle(state, value);
   expect(backend.launches.map((r) => r.model)).toEqual([
@@ -125,7 +124,6 @@ it('completes all five stages with no findings and promotes only the exact revie
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'all stages reviewed',
-    8000,
   );
   expect(backend.launches.map((r) => r.model)).toEqual(STAGE_REVIEWS);
   const cycle = finalizationCycle(state, value);
@@ -188,11 +186,7 @@ it('invalidates final promotion after integration drift and preserves the snapsh
   const fixture = await finalizationFixture();
   const { state, root } = fixture;
   const value = await beginFinalization(fixture);
-  await waitFor(
-    () => finalizationCycle(state, value).status === 'awaiting-merge',
-    'final review',
-    8000,
-  );
+  await waitFor(() => finalizationCycle(state, value).status === 'awaiting-merge', 'final review');
   const cycle = finalizationCycle(state, value);
   const context = present(
     state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
@@ -254,7 +248,6 @@ it('recovers finalization preparation only on explicit resume and preserves its 
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'recovered plan review',
-    8000,
   );
   expect(git(['worktree', 'list', '--porcelain'], root)).toBe(before);
   // One review per stage: the recovered preparation launched nothing twice.
@@ -268,7 +261,6 @@ it('holds integration merges while finalization is active or paused and releases
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'ready finalization',
-    8000,
   );
   const created = await state.context.app.inject({
     method: 'POST',
@@ -316,7 +308,6 @@ it('compacts finalization findings while preserving closure history and requirin
   await waitFor(
     () => finalizationCycle(state, value).status === 'needs-attention',
     'missing reopened finding',
-    12000,
   );
   const cycle = finalizationCycle(state, value);
   expect(cycle.reason).toContain('F-001');
@@ -356,7 +347,6 @@ it('compacts finalization findings while preserving closure history and requirin
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'closed reopened finding',
-    10000,
   );
   expect(
     (await runDetail(state, finalizationCycle(state, value).currentRunId)).reviewReport,
@@ -396,7 +386,6 @@ it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] a
     await waitFor(
       () => finalizationCycle(state, value).status === 'awaiting-merge',
       'corrected finalization',
-      12000,
     );
     // The oversized report is repaired automatically twice before the stop (R-C2).
     expect(backend.repairs).toBe(scenario === 'truncated' ? 0 : 2);
@@ -441,7 +430,6 @@ it('authorizes bounded extra finalization remediation, preserves stage counts, a
   await waitFor(
     () => finalizationCycle(state, value).status === 'needs-attention',
     'initial remediation limit',
-    10000,
   );
   const before = finalizationCycle(state, value);
   expect(before).toMatchObject({ remediationRounds: 1 });
@@ -505,7 +493,6 @@ it('authorizes bounded extra finalization remediation, preserves stage counts, a
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'remaining stages and independent review',
-    10000,
   );
   const done = finalizationCycle(state, value);
   expect(done).toMatchObject({

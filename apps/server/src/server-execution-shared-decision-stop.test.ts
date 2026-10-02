@@ -212,7 +212,7 @@ itNeedsCargo(
     const fx = await fixture();
     const { f, tx, ws } = fx;
     await roadmapControl(f.state, 'start');
-    await waitFor(() => !!stopped(fx), 'the shared-decision stop', 15000);
+    await waitFor(() => !!stopped(fx), 'the shared-decision stop');
     let cycle = stopped(fx)!;
     expect(cycle.attention?.code).toBe('shared-decision-required');
     // One stop for both decisions, not one after the other.
@@ -334,7 +334,6 @@ itNeedsCargo.each([
     await waitFor(
       () => slice()?.attention?.code === 'shared-decision-required',
       'the shared-decision stop',
-      15000,
     );
     const reviewed = f.backend.launches.filter((r) => r.model === 'review-model').length;
     // Its slices come from one map, so the roadmap's setup shows that map's decisions.
@@ -401,7 +400,7 @@ itNeedsCargo(
     });
     const { f, tx, ws } = fx;
     await roadmapControl(f.state, 'start');
-    await waitFor(() => !!stopped(fx), 'the shared-decision stop', 15000);
+    await waitFor(() => !!stopped(fx), 'the shared-decision stop');
     let cycle = stopped(fx)!;
     expect(cycle.attention?.code).toBe('shared-decision-required');
     // LOCAL-ADR-02 is named, but only LOCAL-ADR-01 can be approved now.

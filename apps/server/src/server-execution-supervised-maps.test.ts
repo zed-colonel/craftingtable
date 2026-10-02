@@ -176,23 +176,18 @@ itNeedsCargo(
     await notifications.tick();
     expect(checkpointItems()).toHaveLength(0);
     expect((await roadmapControl(state, 'start')).statusCode).toBe(200);
-    await waitFor(
-      () => {
-        const r = storedRoadmap(state),
-          bad = Object.values(r.entryHolds ?? {}).find((h) => h.status === 'needs-attention');
-        if (bad) throw new Error(bad.reason);
-        const cycle = state.context.storage.execution.cycles
-          .listForWorkspace(ws)
-          .find((c) => c.status === 'needs-attention');
-        if (cycle) throw new Error(cycle.reason);
-        return (
-          state.context.storage.planning.workItems.find(ws, state.workItemId)?.status ===
-          'completed'
-        );
-      },
-      'parent independently accepted',
-      15000,
-    );
+    await waitFor(() => {
+      const r = storedRoadmap(state),
+        bad = Object.values(r.entryHolds ?? {}).find((h) => h.status === 'needs-attention');
+      if (bad) throw new Error(bad.reason);
+      const cycle = state.context.storage.execution.cycles
+        .listForWorkspace(ws)
+        .find((c) => c.status === 'needs-attention');
+      if (cycle) throw new Error(cycle.reason);
+      return (
+        state.context.storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed'
+      );
+    }, 'parent independently accepted');
     const scopes = state.context.storage.scopeReceipts.list(ws, state.workItemId);
     expect(scopes.filter((s) => s.scope.kind === 'slice')).toHaveLength(2);
     expect(scopes.filter((s) => s.scope.kind === 'parent-acceptance')).toHaveLength(1);
@@ -284,7 +279,6 @@ itNeedsCargo(
             (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
           ),
       'parent approval',
-      15000,
     );
     expect(state.context.storage.planning.workItems.find(ws, state.workItemId)?.status).toBe(
       'admitted',
@@ -334,7 +328,6 @@ itNeedsCargo(
               c.executionScope?.kind === 'slice-verification' && c.status === 'needs-attention',
           ),
       'verification question',
-      10000,
     );
     expect(state.context.storage.scopeReceipts.list(ws, state.workItemId)).toHaveLength(0);
     expect(
@@ -363,7 +356,7 @@ itNeedsCargo(
       tx.execution.cycles
         .listForWorkspace(ws)
         .find((c) => c.executionScope?.kind === 'parent-acceptance');
-    await waitFor(() => parent()?.status === 'awaiting-merge', 'manual parent review', 15000);
+    await waitFor(() => parent()?.status === 'awaiting-merge', 'manual parent review');
     await roadmapControl(state, 'pause');
     const old = parent()!,
       runtime = f.runtime.current!;
@@ -386,7 +379,6 @@ itNeedsCargo(
     await waitFor(
       () => parent()?.currentRunId !== old.currentRunId && parent()?.status === 'awaiting-merge',
       'fresh manual parent review',
-      15000,
     );
     expect(parent()?.id).toBe(old.id);
     expect(tx.runtimeEvidence.run(ws, parent()!.currentRunId)?.runtimeId).toBe(
@@ -436,8 +428,6 @@ itNeedsCargo(
     await waitFor(
       () => storage.planning.workItems.find(ws, f.second)?.status === 'completed',
       'complete original plan',
-      // Eight cycles since the valid map gave local/AQ-02 its own slice (R-F3), up from five.
-      24000,
     );
     await roadmapControl(state, 'pause');
     expect(service.finalization(f.auth, ws, roadmapId).projects[0]?.status).toBe('ready');
@@ -456,15 +446,11 @@ itNeedsCargo(
       ),
       value = started.finalization;
     expect(value.mapContext?.runtimeId).toBe(f.runtime.current!.id);
-    await waitFor(
-      () => {
-        const c = finalizationCycle(state, value);
-        if (c.status === 'needs-attention') throw new Error(c.reason);
-        return c.status === 'awaiting-merge';
-      },
-      'pinned final review',
-      8000,
-    );
+    await waitFor(() => {
+      const c = finalizationCycle(state, value);
+      if (c.status === 'needs-attention') throw new Error(c.reason);
+      return c.status === 'awaiting-merge';
+    }, 'pinned final review');
     const cycle = finalizationCycle(state, value),
       run = storage.execution.runs.find(ws, cycle.currentRunId)!;
     expect(storage.runtimeEvidence.run(ws, run.id)?.runtimeId).toBe(f.runtime.current!.id);
@@ -532,7 +518,6 @@ itNeedsCargo(
           .list(ws, state.workItemId)
           .some((r) => r.scope.sourceId === 'local/AQ-01/a'),
       'slice independently verified',
-      10000,
     );
     await roadmapControl(state, 'pause');
     const old = storage.imports.definition(ws, f.parentScope.definitionId)!,

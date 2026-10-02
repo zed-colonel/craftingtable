@@ -152,7 +152,6 @@ itNeedsCargo(
             (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
           ),
       'parent review ready',
-      15000,
     );
     await roadmapControl(state, 'pause');
     const cycle = state.context.storage.execution.cycles
@@ -343,7 +342,6 @@ itNeedsCargo(
           (a) => a.recovery && tx.execution.cycles.find(ws, a.cycleId)?.status === 'awaiting-merge',
         ),
       'manual repair integration',
-      10000,
     );
     const repair = storedRoadmap(state).attempts.find((a) => a.recovery)!;
     expect(tx.execution.worktrees.find(ws, repair.worktreeId)?.mergedAt).toBeUndefined();
@@ -373,7 +371,6 @@ itNeedsCargo(
             (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
           ),
       'manual parent approval',
-      10000,
     );
     expect(verifications).toBe(2);
     expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');

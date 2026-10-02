@@ -36,6 +36,7 @@ import {
   slicedFixture,
   startCycle,
   waitFor,
+  waitUntil,
   withoutDaemonChecks,
 } from './execution-test-support.js';
 import { CheckDefinitionChangedError } from './services/errors.js';
@@ -879,9 +880,8 @@ itNeedsCargo(
         resultText: scopeReport(f.state, f.tree.executionScope!),
       });
       const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
-      const deadline = Date.now() + 10_000;
-      while (!existsSync(calls) && Date.now() < deadline)
-        await new Promise((r) => setTimeout(r, 20));
+      // The removal runs the docker stub after the run ends: a process, not a step (R-I2).
+      await waitUntil(() => existsSync(calls), 'the container removal');
       expect(readFileSync(calls, 'utf8')).toContain(
         `ps -aq --filter label=craftingtable.run=${run}`,
       );
@@ -1163,7 +1163,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(f.state, cycle).status === 'needs-attention',
       'definition stop',
-      20000,
     );
     const stopped = currentCycle(f.state, cycle);
     expect(stopped.attention).toMatchObject({
@@ -1197,7 +1196,6 @@ itNeedsCargo(
     await waitFor(
       () => currentCycle(f.state, cycle).status === 'awaiting-merge',
       'fresh review passes',
-      20000,
     );
   },
 );

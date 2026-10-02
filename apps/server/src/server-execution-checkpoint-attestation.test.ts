@@ -200,7 +200,7 @@ itNeedsCargo(
     expect(early.statusCode, early.body).toBe(200);
     f.service.save(f.auth, ws, f.input);
     await roadmapControl(f.state, 'start');
-    await waitFor(() => packet !== undefined, 'the LOCAL-REVIEW checkpoint review', 30000);
+    await waitFor(() => packet !== undefined, 'the LOCAL-REVIEW checkpoint review');
 
     // The receipt that made LOCAL-REVIEW ready is in the packet, from the same evaluation.
     const checkpoint = packet!.checkpoints?.find((c) => c.id === 'LOCAL-REVIEW');

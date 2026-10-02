@@ -98,7 +98,7 @@ itNeedsCargo(
     // The status list agrees: slice b waits on other work first, not on the operator.
     expect(m.row('local/AQ-01/b')?.actor).toBe('controller');
     // Once slice a has merged, the decision is all that holds slice b.
-    await waitFor(() => m.merged('local/AQ-01/a'), 'slice a merged', 30000);
+    await waitFor(() => m.merged('local/AQ-01/a'), 'slice a merged');
     await m.state.context.services.roadmapService.tick();
     expect(m.openCheckpoints()).toEqual([['LOCAL-ADR-01', 'architecture-decision']]);
     expect(m.row('local/AQ-01/b')).toMatchObject({
@@ -131,7 +131,7 @@ itNeedsCargo(
       },
     );
     expect(m.openCheckpoints()).toEqual([]);
-    await waitFor(() => m.merged('local/AQ-01/a'), 'slice a merged', 30000);
+    await waitFor(() => m.merged('local/AQ-01/a'), 'slice a merged');
     await m.state.context.services.roadmapService.tick();
     expect(m.openCheckpoints()).toEqual([['LOCAL-RELEASE', 'checkpoint-evidence']]);
     expect(m.row('local/AQ-01/b')?.actor).toBe('operator');
@@ -174,7 +174,6 @@ itNeedsCargo(
             (c) => c.executionScope?.sourceId === 'local/AQ-01/a' && c.status === 'awaiting-merge',
           ),
       'slice a at its merge',
-      30000,
     );
     await m.state.context.services.roadmapService.tick();
     expect(m.openCheckpoints()).toEqual([['LOCAL-ADR-01', 'architecture-decision']]);

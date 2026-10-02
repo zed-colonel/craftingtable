@@ -70,7 +70,6 @@ itNeedsCargo.each([false, true])(
             (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'needs-attention',
           ),
       'parent finding',
-      15000,
     );
     await roadmapControl(state, 'pause');
     const parent = tx.execution.cycles

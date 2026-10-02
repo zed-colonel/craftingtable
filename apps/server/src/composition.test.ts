@@ -1,11 +1,11 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServices } from './composition.js';
 import { configFromEnv } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
 import { FastTestPasswordHasher } from './test-support.js';
+import { testDataRoot } from './test-data-root.js';
 
 const directories: string[] = [];
 
@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe('service composition', () => {
   it('composes the planning, auth and execution services', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-composition-'));
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
     directories.push(directory);
     const storage = openDaemonStorage(join(directory, 'state.sqlite'));
     try {

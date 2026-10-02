@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
@@ -10,7 +9,7 @@ import { discoverMigrations, runMigrations } from './migrations.js';
 import { seedPlan, seedWorkspace } from './planning-test-support.js';
 import { acceptAnyRecord } from './records.js';
 import { openCraftingTableStorage } from './storage.js';
-import { temporaryStorage } from './test-support.js';
+import { temporaryStorage, testDataRoot } from './test-support.js';
 
 /**
  * Migration 0029 (R-B3): roadmap control rows keep only their definition revision, cycles
@@ -142,7 +141,7 @@ function schema28(path: string, drift = false): Database.Database {
 }
 
 function temporaryPath() {
-  const directory = mkdtempSync(join(tmpdir(), 'craftingtable-migration-0029-'));
+  const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-migration-0029-'));
   return {
     path: join(directory, 'state.sqlite'),
     cleanup: () => rmSync(directory, { recursive: true, force: true }),

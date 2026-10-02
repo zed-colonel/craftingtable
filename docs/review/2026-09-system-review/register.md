@@ -3113,6 +3113,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - The stale-lock contenders start on a readiness handshake on stdin, not a busy-wait until "now + 1.5 s". The test took 5.1 s, where it took 12.7 s.
       - Elapsed-time asserts became state asserts: the cargo time limit (a signal exit), the FIFO reads that nothing ever writes (a wait would never return), and Claude's quota end and SIGTERM escalation (the fakes never stop on their own; the background shell now sleeps 3600 s and is killed if left).
       - One genuine bound stays: the Codex credential-rejection match must finish within 5 s × `testTimeScale`. It takes 1 ms, and a backtracking regression would take far longer.
+  - **Test daemons' data directories on tmpfs (TS-H8, operator decision 2026-10-02).**
+    - `testDataRoot()` (`apps/server/src/test-data-root.ts`) returns `$XDG_RUNTIME_DIR` when it is an absolute directory this user can write, and `os.tmpdir()` otherwise. `packages/storage/src/test-support.ts` keeps a copy, because the storage package exports only its built entry point.
+    - These use it: `createTestContext`, `temporaryStorage`, the e2e daemon (`e2e-entry.ts`), and every test that opens a daemon database itself (restart, cli, composition, instance-lock, db-verify, scheduler-replay, map-read-snapshot, migrations, and migrations 0002–0004 and 0029). Fixture repositories and other scratch stay in TMPDIR, and `database.ts` is unchanged.
+    - `test-data-root.test.ts` failed first, with the daemon's directory in `~/.cache/ct-p2-tmp`, and passes now. The e2e shutdown test points `XDG_RUNTIME_DIR` at its scratch directory.
+    - The Unix-socket limit (ARCH F10) has more room: `/run/user/1000/craftingtable-server-test-XXXXXX/state/daemon.lock` is 60 bytes, against 108.
+    - Test cleanup now calls `checkRequestService.closeAll()` before removing the directory, as the daemon's own close does (TS-M14). Without it, a check still running wrote its log into the removed directory and recreated it: today's runs had left 7 such directories in TMPDIR.
+    - One test depended on disk size. The storage alert clears only above the 5 GiB reserve plus 2 GiB, more than the 6.3 GiB tmpfs ever has free. The volume-loss test now sets a 1 GiB reserve, which is not what it tests, and passes on either root. The same 5 GiB reserve leaves test daemons about 1.2 GiB of the tmpfs before they refuse writes; a full run peaked at 104–112 MB.
+    - One default `pnpm test` afterwards (load 1.9, peaking near 9): 2,083 passed, 0 failed, 186 s. That compares with 218 s for the run after the step budgets. The sum of per-file times fell from 2,248 s to 1,714 s: `storage-management` 36 s → 5.4 s, `migrations` 14.8 s → 1.3 s, `planning-schema` 14.3 s → 7.6 s.
+    - One directory still leaks per run, 150 bytes: the ct-act test in `server-execution-receipt-gates` ends a run with CI still running. The check's log line about removing containers (its docker stub already gone) lands after cleanup, outside what `closeAll` awaits. It belongs to TS-M14 (R-I4).
 
 ### R-I3
 

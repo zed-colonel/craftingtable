@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
@@ -17,6 +16,7 @@ import {
 } from './execution-test-support.js';
 import { openDaemonStorage } from './persisted-records.js';
 import { replaySchedulerDecisions, replaySchedulerSnapshot } from './scheduler-replay.js';
+import { testDataRoot } from './test-data-root.js';
 
 /**
  * The scheduler replay (R-I10) runs one real roadmap pass over a copy of a snapshot and
@@ -30,7 +30,7 @@ afterEach(async () => {
 });
 
 async function snapshot(state: Ready): Promise<string> {
-  const directory = mkdtempSync(join(tmpdir(), 'scheduler-replay-test-'));
+  const directory = mkdtempSync(join(testDataRoot(), 'scheduler-replay-test-'));
   directories.push(directory);
   const path = join(directory, 'snapshot.sqlite');
   await state.context.storage.backup(path);
@@ -69,7 +69,7 @@ it('records each roadmap entry’s decision for one pass without launching or wr
   });
 
   // The replay's own copy: the pass reserved the attempt, but created no worktree, cycle or run.
-  const copyDirectory = mkdtempSync(join(tmpdir(), 'scheduler-replay-copy-'));
+  const copyDirectory = mkdtempSync(join(testDataRoot(), 'scheduler-replay-copy-'));
   directories.push(copyDirectory);
   const copy = join(copyDirectory, 'copy.sqlite');
   copyFileSync(source, copy);

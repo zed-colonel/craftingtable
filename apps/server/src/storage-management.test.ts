@@ -466,6 +466,13 @@ it('automatic cleanup resumes after restart and daily backups are consistent, pr
 });
 it('refuses new writes after a configured volume disappears and raises a stable attention source', async () => {
   const s = await fixture();
+  // A 1 GiB reserve: the alert clears only above the reserve plus 2 GiB, more than the free
+  // space of the small tmpfs test daemons use (TS-H8). The reserve is not what this tests.
+  const settings = s.service.get(s.auth, s.workspaceId);
+  s.service.save(s.auth, s.workspaceId, {
+    expectedVersion: settings.version,
+    policy: { ...settings.policy, minimumFreeGiB: 1 },
+  });
   const before = s.service.get(s.auth, s.workspaceId);
   const root = before.policy.runsRoot;
   vi.useFakeTimers({ toFake: ['Date'] });

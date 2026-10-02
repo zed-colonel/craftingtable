@@ -1,5 +1,4 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentBackend } from '@craftingtable/agents';
 import { CYCLE_ATTENTION } from '@craftingtable/domain';
@@ -13,6 +12,7 @@ import type { PasswordHasher } from './security/password-hasher.js';
 import { buildServer } from './server.js';
 import type { NotificationTransport } from './services/notification-transport.js';
 import type { WorkspaceEventStreamHooks } from './services/workspace-event-stream-service.js';
+import { testDataRoot } from './test-data-root.js';
 
 export const TEST_USERNAME = 'test-user';
 export const TEST_PASSWORD = 'correct horse battery staple';
@@ -60,7 +60,7 @@ export async function createTestContext(
     readonly verifyRecords?: boolean;
   } = {},
 ): Promise<TestContext> {
-  const directory = mkdtempSync(join(tmpdir(), 'craftingtable-server-test-'));
+  const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-server-test-'));
   const config = configFromEnv({
     CRAFTINGTABLE_DATA_DIR: directory,
     CRAFTINGTABLE_PUBLIC_ORIGIN: options.publicOrigin ?? 'http://127.0.0.1:5173',
@@ -159,6 +159,9 @@ export async function createTestContext(
       }
       closed = true;
       await app.close();
+      // As the daemon's own close does: a check still running would otherwise write its log
+      // into the data directory after it is removed, and leave it behind (TS-M14, TS-H8).
+      await services.checkRequestService.closeAll();
       const untyped = untypedStops(storage);
       const unverified = options.verifyRecords === false ? [] : unverifiedRecords(storage);
       storage.close();

@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AUDIT_ACTION_INTRODUCED_IN_SCHEMA, AUDIT_ACTIONS } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
 import { checksumSql, discoverMigrations, runMigrations } from './migrations.js';
+import { testDataRoot } from './test-support.js';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 function databasePath() {
-  const directory = mkdtempSync(join(tmpdir(), 'craftingtable-migration-0003-'));
+  const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-migration-0003-'));
   directories.push(directory);
   return join(directory, 'state.sqlite');
 }

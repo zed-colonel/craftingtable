@@ -1,5 +1,4 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AUDIT_ACTION_INTRODUCED_IN_SCHEMA,
@@ -24,6 +23,7 @@ import { SqliteSessionRepository } from './repositories/sessions.js';
 import { SqliteUserRepository } from './repositories/users.js';
 import { SqliteWorkspaceEventRepository } from './repositories/workspace-events.js';
 import { SqliteWorkspaceRepository } from './repositories/workspaces.js';
+import { testDataRoot } from './test-support.js';
 
 /**
  * CT03-A01 to A07.
@@ -52,7 +52,7 @@ interface Seeded {
 
 /** Applies migration 0001 only, then seeds it through the CT-02 repositories. */
 function seedSchemaOne(): Seeded {
-  const directory = mkdtempSync(join(tmpdir(), 'craftingtable-migration-0002-'));
+  const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-migration-0002-'));
   directories.push(directory);
   const path = join(directory, 'craftingtable.sqlite');
   const database = openDatabase(path);

@@ -1,5 +1,4 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   discoverMigrations,
@@ -16,6 +15,7 @@ import {
   SCHEMA_VALIDATION_EXIT_CODE,
 } from './cli.js';
 import { acquireInstanceLock } from './instance-lock.js';
+import { testDataRoot } from './test-data-root.js';
 
 describe('CLI argument parsing', () => {
   it('accepts bootstrap and database commands', () => {
@@ -41,7 +41,7 @@ describe('CLI argument parsing', () => {
   });
 
   it('refuses to compact, even as a dry run, a database with pending migrations (R-H2)', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-cli-compact-test-'));
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-cli-compact-test-'));
     const databasePath = join(directory, 'craftingtable.sqlite');
     try {
       const database = openDatabase(databasePath);
@@ -77,7 +77,7 @@ describe('CLI argument parsing', () => {
   });
 
   it('reports unsupported and checksum-mismatched schemas with a dedicated exit', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-cli-schema-test-'));
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-cli-schema-test-'));
     const databasePath = join(directory, 'craftingtable.sqlite');
     const output = { stdout: '', stderr: '' };
     const streams = {
@@ -152,7 +152,7 @@ describe('admin commands and the running daemon', () => {
     ['admin', 'reset-password', '--username', 'keith'],
     ['admin', 'bootstrap', '--username', 'keith'],
   ])('refuses %s %s when it would migrate the database a daemon holds', async (...args) => {
-    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-cli-admin-test-'));
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-cli-admin-test-'));
     mkdirSync(join(directory, 'state'));
     const databasePath = join(directory, 'state', 'craftingtable.sqlite');
     const database = openDatabase(databasePath);

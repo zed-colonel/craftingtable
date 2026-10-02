@@ -1,5 +1,4 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,6 +13,7 @@ import {
   runMigrations,
   snapshotBeforeMigration,
 } from './migrations.js';
+import { testDataRoot } from './test-support.js';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 function databasePath(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'craftingtable-migration-test-'));
+  const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-migration-test-'));
   directories.push(directory);
   return join(directory, 'craftingtable.sqlite');
 }

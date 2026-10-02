@@ -1,5 +1,4 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   asProjectId,
@@ -23,6 +22,7 @@ import { acceptAnyRecord } from './records.js';
 import { planningRepositories } from './repositories/planning/index.js';
 import { SqliteUserRepository } from './repositories/users.js';
 import { SqliteWorkspaceRepository } from './repositories/workspaces.js';
+import { testDataRoot } from './test-support.js';
 
 const NOW = '2026-07-29T00:00:00.000Z';
 const directories: string[] = [];
@@ -40,7 +40,7 @@ interface Graph {
 }
 
 function databasePath(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'craftingtable-migration-0004-'));
+  const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-migration-0004-'));
   directories.push(directory);
   return join(directory, 'state.sqlite');
 }

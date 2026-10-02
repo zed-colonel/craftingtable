@@ -1,14 +1,14 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { acquireInstanceLock, type InstanceLock, InstanceLockedError } from './instance-lock.js';
+import { testDataRoot } from './test-data-root.js';
 
 describe('instance lock', () => {
   const held: InstanceLock[] = [];
   const directories: string[] = [];
   const dataDir = (): string => {
-    const path = mkdtempSync(join(tmpdir(), 'craftingtable-lock-'));
+    const path = mkdtempSync(join(testDataRoot(), 'craftingtable-lock-'));
     directories.push(path);
     return path;
   };

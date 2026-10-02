@@ -1,13 +1,13 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { asWorkItemId, asWorkspaceId } from '@craftingtable/domain';
 import { expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../persisted-records.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { testDataRoot } from '../test-data-root.js';
 
 it('shares repeated projection reads but sees changed authority in the next snapshot', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'craftingtable-projection-'));
+  const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-projection-'));
   const storage = openDaemonStorage(join(directory, 'state.sqlite'));
   try {
     const ws = asWorkspaceId('missing-workspace'),

@@ -1,5 +1,4 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   authenticatedSessionResponseSchema,
@@ -15,6 +14,7 @@ import { type CraftingTableRuntime, createRuntime } from './composition.js';
 import { CSRF_HEADER_NAME, configFromEnv } from './config.js';
 import { buildMultipartBody } from './multipart-test-support.js';
 import { FastTestPasswordHasher, TEST_PASSWORD, TEST_USERNAME } from './test-support.js';
+import { testDataRoot } from './test-data-root.js';
 
 const runtimes: CraftingTableRuntime[] = [];
 const directories: string[] = [];
@@ -28,7 +28,7 @@ afterEach(async () => {
 
 describe('daemon restart reconstruction', () => {
   it('reopens with imported plans and admission intact (CT03-A50)', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-restart-planning-'));
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-restart-planning-'));
     directories.push(directory);
     const config = configFromEnv({
       CRAFTINGTABLE_DATA_DIR: directory,
@@ -159,7 +159,7 @@ describe('daemon restart reconstruction', () => {
   });
 
   it('reopens the same database with user, session, audit, event, and snapshot state', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-restart-test-'));
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-restart-test-'));
     directories.push(directory);
     const config = configFromEnv({
       CRAFTINGTABLE_DATA_DIR: directory,

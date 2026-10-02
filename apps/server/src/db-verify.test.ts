@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copyDatabase, openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCycleFixture, startCycle, stepController } from './cycle-test-support.js';
 import { formatVerification, verifyDatabase } from './db-verify.js';
 import { verified } from './persisted-records.js';
+import { testDataRoot } from './test-data-root.js';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -20,7 +20,7 @@ async function cycleDatabase(): Promise<{ path: string; workspaceId: string }> {
   try {
     await startCycle(f);
     await stepController(f.services, 2);
-    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-db-verify-test-'));
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-db-verify-test-'));
     directories.push(directory);
     const path = join(directory, 'copy.sqlite');
     await copyDatabase(f.context.config.databasePath, path);

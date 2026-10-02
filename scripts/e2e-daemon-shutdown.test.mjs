@@ -78,6 +78,8 @@ it.skipIf(!built)('the e2e daemon leaves no data directory when Playwright stops
       ...daemon.env,
       CRAFTINGTABLE_PORT: String(port),
       TMPDIR: scratch,
+      // The data directory goes on the runtime tmpfs when there is one (TS-H8).
+      XDG_RUNTIME_DIR: scratch,
     },
   });
   running.push(child);

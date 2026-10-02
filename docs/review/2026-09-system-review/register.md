@@ -2463,6 +2463,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, fixed:* the descriptor test ran the repository root's `tsx`, which a clean install lacks; it runs `apps/server`'s.
     - *LOW, fixed (Z2):* passing over a failed entry had no test. In a user and mount namespace of its own (skipped where they are unavailable), a mounted directory cannot be removed: its siblings before and after it go, and the failure (EBUSY) is reported. A failure inside a moved-up subtree stopping the rest of the queue is still untested (it needs a mount past 256 levels).
     - *NIT, left:* the run service's other warning chains ("Check cleanup failed", "Run cleanup failed") and `recoverInterrupted` would let a throwing log escape; the daemon's log is pino with string details and does not throw. The 256-descriptor bound is per tree; the start's sweep removes leftovers concurrently, which matters only with thousands of them.
+- **Test-suite review, 2026-10-02 ([TS-H3](findings/TS-test-suite-review-2026-10-02.md)): the start's sweep can delete the database.**
+  - **The defect.** `recoverInterrupted` (`agent-run-service.ts:2202-2215`) unlinks every entry under `CRAFTINGTABLE_AGENT_TMP_ROOT`, files included, with no name filter. The config (`config.ts:201-208`) accepts `<data>/state`, the directory that holds `craftingtable.sqlite` and `pre-migration/`. It also accepts `/tmp` and `/var/tmp`. It refuses `$HOME` only when the data directory is under it. The variable is not in the operations docs.
+  - **Evidence.** A `configFromEnv` probe, and a code read of `removeAgentTree`, which unlinks non-directories.
+  - **Fix.**
+    - Sweep only `^[0-9a-f]{12}$` names, or require a marker.
+    - Refuse a root that overlaps the database directory, `$HOME`, `/tmp` or `/`.
+    - Document the variable.
+    - Test that a non-run entry survives a restart.
+  - **Related.** No test excludes the daemon's variables from the Codex environment ([TS-M4](findings/TS-test-suite-review-2026-10-02.md)).
+  - **Operator decision 2026-10-02.** This is a rule-7 blocker, but it has not been material: the live root is the default `<data>/t`. It will be fixed on `main` in the review pass after P2 merges, not on the P2 branch.
 
 ### R-G6
 
@@ -3011,7 +3021,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I2
 
-**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: done (7bb4562, b0a0c0d, d08a143)
+**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: reopened (2026-10-02, operator; was done at 7bb4562, b0a0c0d, d08a143)
 
 - **Resolves:** [QA-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-01-server-executiontestts-is-the-whole-critical-path-of-the-unit-suite-and-should-be-split-by-aggregate), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Split server-execution.test.ts by aggregate (runs, merge gate, cycles, roadmaps, finalization, execution scopes) so files run in parallel; use the R-B2 stepping seam to remove wall-clock polling.
@@ -3030,6 +3040,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Timeout.** The node project's default test timeout is 15 s. `recovers parent review with durable guidance…` took 4.7 s against the 5 s default before this change, and it timed out once under load average 20. Several other tests take 4–5 s under load.
   - **Result.** `pnpm test`: 72, 74, 74, 71, 72 and 76 s in six readings. The live daemon and back-to-back runs loaded the machine (load average 6–20). The third reading, before the timeout change, failed only that test on the 5 s timeout. The fourth to sixth readings ran with the new timeout. All 1,341 tests passed in every reading except the third.
   - **CPU.** Total CPU is unchanged, about 940–970 s of user and system time. Most of it is real Git process spawns. The gain is no longer idling on loop timeouts and polls. The floor is about 60 s on 16 cores unless the controller makes fewer Git calls per pass (R-B5).
+- **Reopened 2026-10-02 by the operator,** after the test-suite review ([TS-H1, TS-H2, TS-H8](findings/TS-test-suite-review-2026-10-02.md)).
+  - **Why.** The stepping seam is deterministic, but `waitFor` (`execution-test-support.ts:521`) still gives up after 3 s of wall-clock time, and about 160 per-test `timeout:` values are sized for an idle machine. Load slows each step, not the number of steps needed.
+  - **Evidence.** In 18 default parallel runs of the node project at ambient load 2.4–4.3, every run had 3–15 `Timed out waiting for …` failures, and every one passed serially. The R-G4 bound test ("at most four checks … 32 waiting") failed in all 18, because it puts 40 real check processes inside a 3 s turn wait. A trial (not committed) of a step-budget `waitFor` plus one 120 s guard passed 452 of 452 execution tests at load up to 40.6.
+  - **Scope.**
+    - Step-budget `waitFor`, with a hang guard that names its label.
+    - One scalable test timeout instead of the per-test numbers.
+    - The four-checks test rewritten so it awaits its own release, or uses smaller limits.
+    - Checks that sleep gated on a FIFO, and the `< 3000 ms` drain assertion replaced by a state assertion.
+    - Errors thrown in `onLaunch` collected and asserted after the wait.
+  - **Operator decision 2026-10-02: tmpfs data directories.** Test daemons (vitest and e2e) keep their data directories under `$XDG_RUNTIME_DIR`. TMPDIR stays on disk for everything else, and production pragmas are unchanged. Reason: `synchronous=FULL` on the btrfs TMPDIR stalls the e2e daemon for 1–8 s per commit (TS-H8).
+  - **Done when (proposed by the review; the operator has not confirmed it):** three consecutive default parallel `pnpm test` runs pass at ambient load, with no serial rerun.
 
 ### R-I3
 

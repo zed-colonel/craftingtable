@@ -876,6 +876,18 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - R-C16's untested backstops are listed on its register entry.
     - These open items are the first inputs for the test-suite review.
   - **Next, after the review:** fix or record its findings, then R-D5.
+- **Test-suite review (2026-10-02, at b417dce; report only).**
+  - **What ran.** Six independent reviewers covered load flakiness, e2e, assertion strength, risk coverage, architecture and speed, and guards and replays. A consolidation pass then re-verified every HIGH and MEDIUM. Mutations were re-run against the whole node or web project, and failing files serially. Four reviewer claims were overturned or narrowed.
+  - **Findings.** [findings/TS-test-suite-review-2026-10-02.md](findings/TS-test-suite-review-2026-10-02.md) lists 8 HIGH and 15 MEDIUM, with a proposed order of work keyed to register items.
+  - **The R-D4 open items explained:**
+    - The mobile merge-approval flake is a test bug: clicking a command, then navigating at once, aborts its request (TS-H5).
+    - The parallel-roadmap flake is the test racing a decision link that briefly targets the resolved item (TS-M1).
+    - The review also found an R-D4 increment-4b seed race: attention and cycles read before the snapshot never see events between the reads (TS-H4). In the deployed release, a safety refresh re-reads every topic not refreshed within 60 s, and that masked it; 4b removed the refresh.
+  - **Operator decisions 2026-10-02:**
+    1. Test daemons' data directories go on tmpfs (`$XDG_RUNTIME_DIR`), and TMPDIR stays on disk (TS-H8).
+    2. R-I2 is reopened for TS-H1 and TS-H2 and the related load findings.
+    3. TS-H3 (the agent temporary-root sweep can delete the database) is a rule-7 blocker. It has not been material, so it will be fixed on `main` in a review pass after P2 merges (recorded on R-G5).
+    4. TS-H7, TS-M2, TS-M6 and TS-M10 (untested merge, promotion and scheduler gates) go into that same review pass, not a new register item.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

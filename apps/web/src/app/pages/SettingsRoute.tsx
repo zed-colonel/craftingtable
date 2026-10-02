@@ -53,8 +53,10 @@ export function SettingsRoute() {
     setProfilesNotice(undefined);
     void saveRunProfiles(workspaceId, { profiles: [...next] }, csrfToken)
       .then((response) => {
+        // A save for a workspace no longer shown is not written into the store (4b review).
+        if (!alive()) return;
         store.set(queryKeys.runProfiles(workspaceId), response);
-        if (alive()) setProfilesNotice('Profiles saved.');
+        setProfilesNotice('Profiles saved.');
       })
       .catch((failure: unknown) => {
         if (alive())

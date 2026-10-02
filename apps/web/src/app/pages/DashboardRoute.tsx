@@ -11,6 +11,7 @@ import { ProjectCards } from '../../features/planning/ProjectCards.js';
 import { OperatorWaitSection } from '../../features/workspace/OperatorWaitSection.js';
 import { isLiveStatus } from '../../lib/execution-labels.js';
 import type { WorkspaceProjectionState } from '../../lib/workspace-projection.js';
+import { RefreshFailed } from '../RefreshFailed.js';
 import { useAudit, useRuns } from '../reads.js';
 import { useGo, useWorkspaceScope } from '../session.js';
 
@@ -34,6 +35,7 @@ export function DashboardRoute({
   const count = projection.planningSummary.projectCount;
   return (
     <div className="page">
+      <RefreshFailed failed={runs.error !== undefined} />
       <PageHeader
         title={projection.workspace?.name ?? workspace.name}
         subtitle={`${count} project${count === 1 ? '' : 's'}`}

@@ -112,9 +112,3 @@ export const useRunProfiles = (workspaceId: WorkspaceId) =>
   useQuery(queryKeys.runProfiles(workspaceId), () => loadRunProfiles(workspaceId));
 
 export const useSessions = () => useQuery(queryKeys.sessions(), loadSessions);
-
-/** A read's failure as the pages show it: the daemon's message, or the fallback. */
-export function failureMessage(error: unknown, fallback: string): string | undefined {
-  if (error === undefined) return undefined;
-  return error instanceof Error && error.message ? error.message : fallback;
-}

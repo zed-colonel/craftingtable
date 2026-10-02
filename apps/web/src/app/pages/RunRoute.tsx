@@ -1,6 +1,6 @@
 import type { RunEventEnvelope, WorktreeDiffResponse } from '@craftingtable/contracts';
 import type { AgentRunId, WorkCycle, WorkItemId } from '@craftingtable/domain';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ProviderRetry } from '../../decisions/cycle/CycleDecisions.js';
 import type { LaunchInput } from '../../features/execution/DelegationPanel.js';
 import { RunPage } from '../../features/execution/RunPage.js';
@@ -18,6 +18,7 @@ import { useQueryStore } from '../../lib/query-store.js';
 import { useRunEventStream } from '../../lib/use-run-event-stream.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { useCommands } from '../commands.js';
+import { RefreshFailed } from '../RefreshFailed.js';
 import { useExecutionStatus, useRun, useRunProfiles, useWorkItemExecution } from '../reads.js';
 import { useAlive, useCycleFocus, useGo, useSession, useWorkspaceScope } from '../session.js';
 
@@ -35,7 +36,8 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
   const go = useGo();
   const focus = useCycleFocus();
   const alive = useAlive();
-  const detail = useRun(workspaceId, runId).data;
+  const runQuery = useRun(workspaceId, runId);
+  const detail = runQuery.data;
   const run = detail?.run.id === runId ? detail : undefined;
   const workItemId = run?.run.workItemId as WorkItemId | undefined;
   const execution = useWorkItemExecution(workspaceId, workItemId).data;
@@ -82,6 +84,10 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
   const onError = useCallback((sourceClosed: boolean) => {
     setConnection(sourceClosed ? 'disconnected' : 'reconnecting');
   }, []);
+  // The stream's callback stays the same when the run's work item becomes known; a new one would
+  // reconnect the stream from its first sequence (4b review F4).
+  const latestKeys = useRef(refreshKeys);
+  latestKeys.current = refreshKeys;
   const onEvent = useCallback(
     (event: RunEventEnvelope) => {
       setEvents((current) =>
@@ -94,9 +100,9 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
         event.kind === 'turn-completed' ||
         event.kind === 'session-started'
       )
-        store.invalidate(refreshKeys());
+        store.invalidate(latestKeys.current());
     },
-    [store, refreshKeys],
+    [store],
   );
   const onInvalidEvent = useCallback(() => undefined, []);
   useRunEventStream(
@@ -105,7 +111,8 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
     streamAfter ?? 0,
     { onOpen, onError, onEvent, onInvalidEvent, onAuthenticationExpired: expire },
   );
-  if (run === undefined) return null;
+  const failed = <RefreshFailed failed={runQuery.error !== undefined} />;
+  if (run === undefined) return failed;
   const launch = (input: LaunchInput): void => {
     if (workItemId === undefined) return;
     commands.run(async () => {
@@ -127,74 +134,79 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
       });
   };
   return (
-    <RunPage
-      detail={run}
-      providerRecovery={cycles
-        .filter(
-          (c) =>
-            c.worktreeId === run.worktree.id && c.currentRunId === run.run.id && c.providerRecovery,
+    <>
+      {failed}
+      <RunPage
+        detail={run}
+        providerRecovery={cycles
+          .filter(
+            (c) =>
+              c.worktreeId === run.worktree.id &&
+              c.currentRunId === run.run.id &&
+              c.providerRecovery,
+          )
+          .map((cycle) => (
+            <ProviderRetry
+              key={cycle.id}
+              cycle={cycle}
+              csrfToken={csrfToken}
+              disabled={!canMutate || commands.busy}
+              onChanged={() => store.refreshNow(refreshKeys())}
+            />
+          ))}
+        events={events}
+        connection={connection}
+        {...(diff?.worktree.id === run.worktree.id ? { diff } : {})}
+        canMutate={canMutate}
+        busy={commands.busy}
+        {...(commands.error === undefined ? {} : { error: commands.error })}
+        onSend={(text) =>
+          commands.run(async () => {
+            const response = await sendRunMessage(workspaceId, runId, text, csrfToken);
+            if (!response.accepted)
+              throw new ApiError(409, 'conflict', 'The run is no longer accepting messages');
+          })
+        }
+        onEnd={() => commands.run(() => endRun(workspaceId, runId, csrfToken))}
+        onCancel={() => commands.run(() => cancelRun(workspaceId, runId, csrfToken))}
+        onOpenWorkItem={() =>
+          run.run.workItemId
+            ? go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId })
+            : run.run.planVersionId &&
+              go({
+                name: 'plan-version',
+                workspaceId,
+                projectId: run.run.projectId,
+                planVersionId: run.run.planVersionId,
+              })
+        }
+        onLoadDiff={loadDiff}
+        onCloseDiff={() => setDiff(undefined)}
+        {...(status === undefined ? {} : { backends: status.backends })}
+        {...(profiles === undefined ? {} : { profiles: profiles.profiles })}
+        {...(canMutate &&
+        run.run.workItemId &&
+        cycles.some(
+          (cycle) =>
+            cycle.worktreeId === run.worktree.id &&
+            cycle.step === 'design' &&
+            ['paused', 'needs-attention'].includes(cycle.status),
         )
-        .map((cycle) => (
-          <ProviderRetry
-            key={cycle.id}
-            cycle={cycle}
-            csrfToken={csrfToken}
-            disabled={!canMutate || commands.busy}
-            onChanged={() => store.refreshNow(refreshKeys())}
-          />
-        ))}
-      events={events}
-      connection={connection}
-      {...(diff?.worktree.id === run.worktree.id ? { diff } : {})}
-      canMutate={canMutate}
-      busy={commands.busy}
-      {...(commands.error === undefined ? {} : { error: commands.error })}
-      onSend={(text) =>
-        commands.run(async () => {
-          const response = await sendRunMessage(workspaceId, runId, text, csrfToken);
-          if (!response.accepted)
-            throw new ApiError(409, 'conflict', 'The run is no longer accepting messages');
-        })
-      }
-      onEnd={() => commands.run(() => endRun(workspaceId, runId, csrfToken))}
-      onCancel={() => commands.run(() => cancelRun(workspaceId, runId, csrfToken))}
-      onOpenWorkItem={() =>
-        run.run.workItemId
-          ? go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId })
-          : run.run.planVersionId &&
-            go({
-              name: 'plan-version',
-              workspaceId,
-              projectId: run.run.projectId,
-              planVersionId: run.run.planVersionId,
-            })
-      }
-      onLoadDiff={loadDiff}
-      onCloseDiff={() => setDiff(undefined)}
-      {...(status === undefined ? {} : { backends: status.backends })}
-      {...(profiles === undefined ? {} : { profiles: profiles.profiles })}
-      {...(canMutate &&
-      run.run.workItemId &&
-      cycles.some(
-        (cycle) =>
-          cycle.worktreeId === run.worktree.id &&
-          cycle.step === 'design' &&
-          ['paused', 'needs-attention'].includes(cycle.status),
-      )
-        ? {
-            onResolveDesign: () => {
-              focus.focus(run.worktree.id);
-              if (run.run.workItemId)
-                go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId });
-            },
-          }
-        : {})}
-      {...(execution !== undefined && execution.workItemId === run.run.workItemId
-        ? { runs: execution.runs }
-        : {})}
-      {...(canMutate && run.run.workItemId && run.worktree.status === 'active'
-        ? { onHandoff: launch }
-        : {})}
-    />
+          ? {
+              onResolveDesign: () => {
+                focus.focus(run.worktree.id);
+                if (run.run.workItemId)
+                  go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId });
+              },
+            }
+          : {})}
+        {...(execution !== undefined && execution.workItemId === run.run.workItemId
+          ? { runs: execution.runs }
+          : {})}
+        {...(canMutate && run.run.workItemId && run.worktree.status === 'active'
+          ? { onHandoff: launch }
+          : {})}
+      />
+    </>
   );
 }

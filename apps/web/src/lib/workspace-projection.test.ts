@@ -1,11 +1,5 @@
 import type { WorkspaceEventEnvelope, WorkspaceSnapshotResponse } from '@craftingtable/contracts';
-import {
-  asEventId,
-  asProjectId,
-  asRepositoryId,
-  asRepositoryInspectionId,
-  asWorkspaceId,
-} from '@craftingtable/domain';
+import { asEventId, asWorkspaceId } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
 import { INITIAL_WORKSPACE_PROJECTION, reduceWorkspaceProjection } from './workspace-projection.js';
 
@@ -132,7 +126,7 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
   const hydrate = () =>
     reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, { type: 'snapshot-loaded', snapshot });
 
-  it('marks the workspace summary and project stale without patching the model', () => {
+  it('records the event without patching the model (the event table says what to read again)', () => {
     const imported = {
       ...event,
       id: asEventId('event-2'),
@@ -150,95 +144,11 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
     } as unknown as WorkspaceEventEnvelope;
 
     const state = reduceWorkspaceProjection(hydrate(), { type: 'event-received', event: imported });
-    expect(state.stale.workspaceSummary).toBe(true);
-    expect(state.stale.projectIds).toEqual(['project-1']);
     // The summary is NOT patched from the payload: the counts stay as the
     // authoritative snapshot left them until a refetch replaces them.
     expect(state.planningSummary.proposedCount).toBe(0);
     expect(state.projects).toEqual([]);
     expect(state.lastSequence).toBe(2);
-  });
-
-  it('sends notification bookkeeping only to the notification panel (PERF-03)', () => {
-    const notifications = {
-      ...event,
-      id: asEventId('event-4'),
-      sequence: 4,
-      kind: 'notifications-changed',
-      payload: { action: 'delivery' },
-    } as unknown as WorkspaceEventEnvelope;
-    const state = reduceWorkspaceProjection(hydrate(), {
-      type: 'event-received',
-      event: notifications,
-    });
-    expect(state.stale).toMatchObject({
-      workspaceSummary: false,
-      roadmaps: false,
-      notifications: true,
-    });
-  });
-
-  it.each([
-    ['roadmap-changed', {}],
-    ['runtime-evidence-changed', {}],
-    ['scope-evidence-recorded', { payload: { workItemId: 'item-1' } }],
-  ])('sends %s to the roadmap and evidence panels as well as the page', (kind, extra) => {
-    const change = {
-      ...event,
-      id: asEventId('event-5'),
-      sequence: 5,
-      kind,
-      payload: {},
-      ...extra,
-    } as unknown as WorkspaceEventEnvelope;
-    const state = reduceWorkspaceProjection(hydrate(), { type: 'event-received', event: change });
-    expect(state.stale).toMatchObject({ workspaceSummary: true, roadmaps: true });
-    expect(state.stale.notifications).toBe(false);
-  });
-
-  it('invalidates the work item as well when one is admitted', () => {
-    const admitted = {
-      ...event,
-      id: asEventId('event-3'),
-      sequence: 3,
-      kind: 'work-item-admitted',
-      payload: {
-        projectId: 'project-1',
-        planVersionId: 'version-1',
-        workItemId: 'item-1',
-        sourceWorkItemId: 'AQ-01',
-      },
-    } as unknown as WorkspaceEventEnvelope;
-
-    const state = reduceWorkspaceProjection(hydrate(), { type: 'event-received', event: admitted });
-    expect(state.stale).toEqual({
-      workspaceSummary: true,
-      roadmaps: true,
-      notifications: false,
-      projectIds: ['project-1'],
-      workItemIds: ['item-1'],
-      repositoryList: false,
-      repositoryIds: [],
-    });
-    expect(
-      reduceWorkspaceProjection(state, {
-        type: 'stale-consumed',
-        consumed: {
-          workspaceSummary: true,
-          roadmaps: true,
-          projectIds: state.stale.projectIds,
-          workItemIds: state.stale.workItemIds,
-        },
-      }).stale,
-    ).toEqual({
-      workspaceSummary: false,
-      roadmaps: false,
-      notifications: false,
-      projectIds: [],
-      workItemIds: [],
-      repositoryList: false,
-      repositoryIds: [],
-    });
   });
 
   it('keeps the last good projection visible when a refetch fails', () => {
@@ -269,153 +179,12 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
       type: 'event-received',
       event: { ...event, sequence: 2, id: asEventId('event-2') },
     });
+    // The event is still recorded; the app sends every event to the event table (R-D4).
     expect(advanced.lastSequence).toBe(2);
-    expect(advanced.stale.workspaceSummary).toBe(true);
+    expect(advanced.events.at(-1)?.sequence).toBe(2);
   });
 });
 
-describe('repository event invalidation', () => {
-  const hydrate = () =>
-    reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, { type: 'snapshot-loaded', snapshot });
-
-  function registeredEvent(sequence: number, repositoryNumber: number): WorkspaceEventEnvelope {
-    const repositoryId = asRepositoryId(`repository-${repositoryNumber}`);
-    const inspectionId = asRepositoryInspectionId(`inspection-${repositoryNumber}`);
-    return {
-      ...event,
-      id: asEventId(`repository-event-${sequence}`),
-      sequence,
-      kind: 'repository-registered',
-      repositoryId,
-      repositoryInspectionId: inspectionId,
-      payload: {
-        repositoryId,
-        inspectionId,
-        displayName: `Repository ${repositoryNumber}`,
-        status: 'active',
-        statusReason: 'registration-accepted',
-        version: 1,
-      },
-    } as WorkspaceEventEnvelope;
-  }
-
-  it('B1-UI-001/B1-UI-002 invalidates the repository list and structural repository ID', () => {
-    const repositoryEvents = [
-      registeredEvent(2, 1),
-      {
-        ...registeredEvent(3, 2),
-        kind: 'repository-status-changed',
-        repositoryInspectionId: asRepositoryInspectionId('inspection-2'),
-        payload: {
-          repositoryId: asRepositoryId('repository-2'),
-          inspectionId: asRepositoryInspectionId('inspection-2'),
-          displayName: 'Repository 2',
-          fromStatus: 'attention',
-          toStatus: 'active',
-          statusReason: 'verification-restored',
-          priorVersion: 1,
-          resultingVersion: 2,
-        },
-      },
-      {
-        ...registeredEvent(4, 3),
-        kind: 'repository-evidence-changed',
-        payload: {
-          repositoryId: asRepositoryId('repository-3'),
-          inspectionId: asRepositoryInspectionId('inspection-3'),
-          displayName: 'Repository 3',
-          evidenceClass: 'risk-scan',
-          repositoryVersion: 2,
-        },
-      },
-    ] as readonly WorkspaceEventEnvelope[];
-    const state = repositoryEvents.reduce(
-      (current, repositoryEvent) =>
-        reduceWorkspaceProjection(current, { type: 'event-received', event: repositoryEvent }),
-      hydrate(),
-    );
-    expect(state.stale).toEqual({
-      workspaceSummary: false,
-      roadmaps: false,
-      notifications: false,
-      projectIds: [],
-      workItemIds: [],
-      repositoryList: true,
-      repositoryIds: ['repository-1', 'repository-2', 'repository-3'],
-    });
-  });
-
-  it('B1-UI-003/B1-UI-013 and A2B-JRN-007 invalidate structural binding IDs, even in a hostile mismatch fixture', () => {
-    const bound = {
-      ...event,
-      id: asEventId('binding-event'),
-      sequence: 2,
-      kind: 'project-repository-bound',
-      projectId: asProjectId('structural-project'),
-      repositoryId: asRepositoryId('structural-repository'),
-      repositoryBindingId: 'binding-1',
-      payload: {
-        projectId: asProjectId('payload-project'),
-        repositoryId: asRepositoryId('payload-repository'),
-        bindingId: 'binding-1',
-        repositoryDisplayName: 'Mismatch is rejected at the wire',
-        bindingVersion: 1,
-      },
-    } as unknown as WorkspaceEventEnvelope;
-    const state = reduceWorkspaceProjection(hydrate(), {
-      type: 'event-received',
-      event: bound,
-    });
-    expect(state.stale.projectIds).toEqual(['structural-project']);
-    expect(state.stale.repositoryIds).toEqual(['structural-repository']);
-    expect(state.stale.repositoryList).toBe(false);
-  });
-
-  it('B1-UI-011 bounds stable unique repository IDs and consumes only named scopes', () => {
-    let state = hydrate();
-    for (let index = 1; index <= 101; index += 1) {
-      state = reduceWorkspaceProjection(state, {
-        type: 'event-received',
-        event: registeredEvent(index + 1, index),
-      });
-    }
-    expect(state.stale.repositoryIds).toHaveLength(100);
-    expect(state.stale.repositoryIds[0]).toBe('repository-2');
-    const repeated = reduceWorkspaceProjection(state, {
-      type: 'event-received',
-      event: registeredEvent(103, 50),
-    });
-    expect(repeated.stale.repositoryIds).toEqual(state.stale.repositoryIds);
-
-    const consumed = reduceWorkspaceProjection(repeated, {
-      type: 'stale-consumed',
-      consumed: {
-        repositoryIds: [asRepositoryId('repository-50')],
-      },
-    });
-    expect(consumed.stale.repositoryIds).not.toContain('repository-50');
-    expect(consumed.stale.repositoryIds).toHaveLength(99);
-    expect(consumed.stale.repositoryList).toBe(true);
-  });
-
-  it('B1-UI-006 preserves pending repository scopes across a same-workspace snapshot', () => {
-    const stale = reduceWorkspaceProjection(hydrate(), {
-      type: 'event-received',
-      event: registeredEvent(2, 1),
-    });
-    const refreshed = reduceWorkspaceProjection(stale, { type: 'snapshot-loaded', snapshot });
-    expect(refreshed.stale.repositoryList).toBe(true);
-    expect(refreshed.stale.repositoryIds).toEqual(['repository-1']);
-  });
-});
-
-/**
- * CT03-R6 regression cover.
- *
- * The first review found that switching workspaces retained and then merged the
- * previous workspace's activity into the newly selected projection, because the
- * reducer had no workspace identity.
- */
 describe('workspace switching (CT03-R6)', () => {
   const otherWorkspace = asWorkspaceId('workspace-2');
 
@@ -507,7 +276,6 @@ describe('workspace switching (CT03-R6)', () => {
     expect(cleared.projects).toEqual([]);
     expect(cleared.lastSequence).toBe(0);
     expect(cleared.statusSummary).toEqual(INITIAL_WORKSPACE_PROJECTION.statusSummary);
-    expect(cleared.stale).toEqual(INITIAL_WORKSPACE_PROJECTION.stale);
   });
 
   it('still retains state across a refetch of the same workspace', () => {

@@ -89,10 +89,8 @@ export function useWorkItem(workItemId: WorkItemId | undefined) {
     execution: own(execution.data),
     cycles: cycles.data?.cycles,
     cyclesFailed: cycles.error !== undefined,
-    /** A re-read failed; the last data stays visible. */
-    refreshFailed:
-      (detail.error !== undefined && detail.data !== undefined) ||
-      (execution.error !== undefined && execution.data !== undefined),
+    /** A read failed; whatever was read last stays visible. */
+    refreshFailed: detail.error !== undefined || execution.error !== undefined,
     repositories: repositories.data?.repositories ?? [],
     backends: status.data?.backends ?? [],
     profiles: profiles.data?.profiles,

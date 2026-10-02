@@ -238,6 +238,8 @@ let snapshotAGate: Promise<void> | undefined;
 const auditCalls: string[] = [];
 /** The signed-in user's workspaces; tests may change the role. */
 let workspaceList: WorkspaceListResponse = WORKSPACES;
+/** Reads made to fail, by name (R-D4 4b review). */
+const failing = new Set<string>();
 
 vi.mock('./lib/api-client.js', () => ({
   ApiError: class ApiError extends Error {
@@ -340,6 +342,7 @@ vi.mock('./lib/attention-api.js', () => ({
 vi.mock('./lib/work-cycle-api.js', () => ({
   loadWorkCycles: () => {
     readCalls.push('cycles');
+    if (failing.has('cycles')) return Promise.reject(new Error('cycles unavailable'));
     return Promise.resolve({ cycles: [] });
   },
   startWorkCycle: () => new Promise(() => undefined),
@@ -381,6 +384,7 @@ vi.mock('./lib/planning-api.js', () => ({
   loadPlanVersion: () => new Promise(() => undefined),
   loadWorkItem: (workspaceId: string) => {
     readCalls.push('work-item');
+    if (failing.has('work-item')) return Promise.reject(new Error('work item unavailable'));
     return Promise.resolve(workItemDetailFor(workspaceId));
   },
   loadImportAttempts: () => new Promise(() => undefined),
@@ -450,6 +454,7 @@ beforeEach(() => {
   snapshotCalls.length = 0;
   auditCalls.length = 0;
   snapshotAGate = undefined;
+  failing.clear();
   workspaceList = WORKSPACES;
   pendingSnapshotB = deferred<WorkspaceSnapshotResponse>();
   planning.artifact = deferred<string>();
@@ -710,6 +715,85 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
     } finally {
       visibility.mockRestore();
     }
+  });
+});
+
+describe('page reads after the split (R-D4 increment 4b review)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("moves the rail's run and work-item counts with the events that change them (F1)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderApp();
+    await screen.findByText('Alpha Project');
+    await settle();
+    workspaceList = {
+      workspaces: WORKSPACES.workspaces.map((workspace) => ({
+        ...workspace,
+        liveRunCount: 2,
+        admittedCount: 3,
+      })),
+    } as unknown as WorkspaceListResponse;
+    const onEvent = vi.mocked(useWorkspaceEventStream).mock.lastCall![2].onEvent;
+    act(() => onEvent(streamEvent(50, 'agent-run-started', { runId: 'run-9' })));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    const rail = screen.getByRole('navigation', { name: 'Primary' });
+    expect(rail.textContent).toContain('Runs2');
+    expect(rail.textContent).toContain('Work items3');
+  });
+
+  it('says a background read failed and keeps the last snapshot (CT03-A67)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderApp();
+    await screen.findByText('Alpha Project');
+    await settle();
+    snapshotAGate = Promise.reject(new Error('snapshot unavailable'));
+    snapshotAGate.catch(() => undefined);
+    const onEvent = vi.mocked(useWorkspaceEventStream).mock.lastCall![2].onEvent;
+    act(() => onEvent(streamEvent(51, 'work-cycle-changed')));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(
+      screen.getByText('The latest refresh failed. The last committed state remains visible.'),
+    ).toBeTruthy();
+    expect(screen.getByText('Alpha Project')).toBeTruthy();
+  });
+
+  it("warns when the workspace's cycles cannot be read", async () => {
+    failing.add('cycles');
+    renderApp();
+    expect(
+      await screen.findByText(
+        'Cycle status could not be loaded. Refresh before controlling automation.',
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says a work item's page could not be read, rather than showing nothing (F3)", async () => {
+    failing.add('work-item');
+    window.history.pushState(null, '', '/workspaces/workspace-a/work-items/item-workspace-a');
+    renderApp();
+    expect(
+      await screen.findByText(
+        'The latest refresh failed. The last committed state remains visible.',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('opens the current workspace from Home without waiting on its snapshot forever', async () => {
+    workspaceList = {
+      workspaces: WORKSPACES.workspaces.map((workspace) => ({ ...workspace, projects: [] })),
+    } as unknown as WorkspaceListResponse;
+    renderApp();
+    await screen.findByText('Alpha Project');
+    window.history.pushState(null, '', '/workspaces');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Workspace A' }));
+    expect(await screen.findByText('Alpha Project')).toBeTruthy();
   });
 });
 

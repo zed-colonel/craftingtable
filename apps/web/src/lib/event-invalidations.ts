@@ -135,20 +135,24 @@ export function invalidationsFor(event: WorkspaceEventEnvelope): QueryKey[] {
  */
 function pageKeys(event: WorkspaceEventEnvelope): QueryKey[] {
   const ws = event.workspaceId;
-  const snapshot = queryKeys.snapshot(ws);
+  /**
+   * The workspace list comes with the snapshot: the rail's run and work-item counts and Home's
+   * counts are the list's (4b review F1).
+   */
+  const snapshot: QueryKey[] = [queryKeys.snapshot(ws), queryKeys.workspaces()];
   const cycles = queryKeys.cycles(ws);
   const attention = queryKeys.attention(ws);
   const audit = queryKeys.audit(ws);
   const project =
     event.projectId === undefined ? all('project', ws) : queryKeys.project(ws, event.projectId);
   const run = event.runId === undefined ? all('run', ws) : queryKeys.run(ws, event.runId);
-  const summary = [snapshot, all('agenda', ws), project];
+  const summary = [...snapshot, all('agenda', ws), project];
   switch (event.kind) {
     case 'notifications-changed':
       return [];
     case 'workspace-created':
     case 'workspace-updated':
-      return [queryKeys.workspaces(), snapshot, audit];
+      return [...snapshot, audit];
     case 'repository-registered':
     case 'repository-status-changed':
     case 'repository-evidence-changed':
@@ -169,11 +173,11 @@ function pageKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'work-item-completed':
       return [...summary, cycles, attention, audit];
     case 'runtime-evidence-changed':
-      return [snapshot, cycles, audit];
+      return [...snapshot, cycles, audit];
     case 'roadmap-changed':
-      return [snapshot, cycles, attention, audit];
+      return [...snapshot, cycles, attention, audit];
     case 'attention-changed':
-      return [snapshot, attention, audit];
+      return [...snapshot, attention, audit];
     case 'work-cycle-changed':
       return [...summary, cycles, audit];
     case 'worktree-created':
@@ -212,23 +216,30 @@ function panelKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'workspace-created':
     case 'workspace-updated':
     case 'project-created':
-    case 'plan-version-imported':
     case 'notifications-changed':
     case 'attention-changed':
       return [];
+    // A new plan version leaves the earlier one's slices inactive.
+    case 'plan-version-imported':
+      return [all('work-item', ws)];
     case 'repository-registered':
       return [repositories, checks];
+    // A repository's status shows in every slice that builds from it (4b review F2).
     case 'repository-status-changed':
+      return [repositories, checks, policy, all('work-item', ws)];
     case 'repository-evidence-changed':
       return [repositories, checks, policy];
     case 'source-repository-registered':
     case 'project-repository-bound':
     case 'project-repository-binding-retired':
       return [repositories];
+    // An item's admission, completion, evidence or merge changes its dependents' readiness,
+    // slices and waits, and the event names only the item (4b review F2).
     case 'work-item-admitted':
     case 'work-item-removed-from-agenda':
     case 'work-item-completed':
     case 'scope-evidence-recorded':
+      return [all('work-item', ws)];
     case 'agent-run-started':
       return [workItem()];
     // A map's or roadmap's change moves every item's phase readiness.
@@ -245,7 +256,7 @@ function panelKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'branches-changed':
       return [workItem(), branches, policy];
     case 'worktree-merged':
-      return [workItem(), branches, checks, policy];
+      return [all('work-item', ws), branches, checks, policy];
     default: {
       const unmapped: never = event;
       throw new Error(

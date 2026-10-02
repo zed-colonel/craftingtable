@@ -10,6 +10,7 @@ import { SourceText } from '../../features/planning/SourceText.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { loadArtifactText } from '../../lib/planning-api.js';
 import { useQueryStore } from '../../lib/query-store.js';
+import { RefreshFailed } from '../RefreshFailed.js';
 import { usePlanVersion, useProject } from '../reads.js';
 import { useAlive, useGo, useSession, useWorkspaceScope } from '../session.js';
 
@@ -43,10 +44,13 @@ export function ProjectRoute({ projectId }: { projectId: ProjectId }) {
   const store = useQueryStore();
   const go = useGo();
   const artifact = useArtifact();
-  const detail = useProject(workspaceId, projectId).data;
-  if (detail?.project.id !== projectId) return null;
+  const query = useProject(workspaceId, projectId);
+  const detail = query.data;
+  const failed = <RefreshFailed failed={query.error !== undefined} />;
+  if (detail?.project.id !== projectId) return failed;
   return (
     <>
+      {failed}
       <ProjectPage
         detail={detail}
         branchSettings={
@@ -86,10 +90,13 @@ export function PlanVersionRoute({
   const store = useQueryStore();
   const go = useGo();
   const artifact = useArtifact();
-  const detail = usePlanVersion(workspaceId, projectId, planVersionId).data;
-  if (detail?.version.id !== planVersionId) return null;
+  const query = usePlanVersion(workspaceId, projectId, planVersionId);
+  const detail = query.data;
+  const failed = <RefreshFailed failed={query.error !== undefined} />;
+  if (detail?.version.id !== planVersionId) return failed;
   return (
     <>
+      {failed}
       <PlanVersionPage
         workspaceId={workspaceId}
         detail={detail}

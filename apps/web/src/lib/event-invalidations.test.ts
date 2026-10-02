@@ -121,13 +121,8 @@ it("narrows a work item's reads to the work item an event names, and reads them 
   expect(own).toEqual(expect.arrayContaining([queryKeys.workItem(ws, 'w1')]));
   expect(own).not.toEqual(expect.arrayContaining([['work-item', ws]]));
   for (const kind of [
-    'work-item-admitted',
-    'work-item-removed-from-agenda',
-    'work-item-completed',
-    'scope-evidence-recorded',
     'worktree-created',
     'worktree-removed',
-    'worktree-merged',
     'branches-changed',
     'agent-run-started',
     'agent-run-status-changed',
@@ -225,7 +220,15 @@ it("re-reads each page's data on the events that change it, and on nothing else"
   ];
   const audited = KINDS.filter((kind) => kind !== 'notifications-changed');
   const rows: Record<string, readonly string[]> = {
-    workspaces: ['workspace-created', 'workspace-updated'],
+    // The rail's run and work-item counts and Home's counts come with the list (4b review F1).
+    workspaces: [
+      ...summary,
+      'workspace-created',
+      'workspace-updated',
+      'runtime-evidence-changed',
+      'roadmap-changed',
+      'attention-changed',
+    ],
     snapshot: [
       ...summary,
       'workspace-created',
@@ -287,4 +290,41 @@ it('keeps reads that belong to no workspace when the workspace changes', () => {
   expect(workspaceScoped(queryKeys.sessions())).toBe(false);
   expect(workspaceScoped(queryKeys.snapshot(ws))).toBe(true);
   expect(workspaceScoped(queryKeys.workItem(ws, 'w1'))).toBe(true);
+});
+
+// R-D4 4b review F2: a work item's readiness, slices and waits depend on its predecessors',
+// repositories' and plan's state, which events about those name, not the dependent item.
+it("reads every work item's data when a predecessor, repository or plan changes", () => {
+  for (const kind of [
+    'work-item-admitted',
+    'work-item-removed-from-agenda',
+    'work-item-completed',
+    'scope-evidence-recorded',
+    'worktree-merged',
+    'repository-status-changed',
+    'plan-version-imported',
+  ])
+    expect(
+      invalidationsFor(event(kind, { workItemId: 'w1', repositoryId: 'repo', payload: {} })),
+      kind,
+    ).toEqual(expect.arrayContaining([['work-item', ws]]));
+  // A run's or a cycle's own events still name only their item.
+  for (const kind of ['agent-run-status-changed', 'work-cycle-changed'])
+    expect(invalidationsFor(event(kind, { workItemId: 'w1', payload: {} })), kind).not.toEqual(
+      expect.arrayContaining([['work-item', ws]]),
+    );
+});
+
+// B1-UI-003/B1-UI-013 and A2B-JRN-007, carried from the projection's former stale scopes: a
+// binding event names its project structurally, and a payload that disagrees is never read.
+it("reads the project a binding event names structurally, never the payload's", () => {
+  const keys = invalidationsFor(
+    event('project-repository-bound', {
+      projectId: 'structural-project',
+      repositoryId: 'structural-repository',
+      payload: { projectId: 'payload-project', repositoryId: 'payload-repository' },
+    }),
+  );
+  expect(keys).toEqual(expect.arrayContaining([queryKeys.project(ws, 'structural-project')]));
+  expect(keys.some((key) => key.includes('payload-project'))).toBe(false);
 });

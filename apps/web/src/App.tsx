@@ -3,7 +3,7 @@ import type {
   WorkspaceEventEnvelope,
 } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccountRoute, HomeRoute } from './app/pages/AccountRoutes.js';
 import { useAttention, useWorkspaces } from './app/reads.js';
 import {
@@ -110,8 +110,13 @@ function AppShell() {
    * Switches workspace in one transition: the projection is cleared with the selection, and
    * nothing read for another workspace is kept (CT03-RR4).
    */
+  const selected = useRef(selectedWorkspaceId);
+  selected.current = selectedWorkspaceId;
   const selectWorkspace = useCallback(
     (next: WorkspaceId) => {
+      // The workspace already shown keeps its projection: its snapshot is not read again, so a
+      // reset would wait on it forever (4b review).
+      if (next === selected.current) return;
       setSelectedWorkspaceId(next);
       reset();
       queries.clear((key) => !workspaceScoped(key) || key[1] === next);

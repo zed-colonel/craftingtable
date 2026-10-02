@@ -3,39 +3,8 @@ import type {
   WorkspaceEventEnvelope,
   WorkspaceSnapshotResponse,
 } from '@craftingtable/contracts';
-import type { ProjectId, RepositoryId, WorkItemId } from '@craftingtable/domain';
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'disconnected';
-
-/**
- * Scopes a workspace event invalidates.
- *
- * The reducer marks scopes stale and the app refetches through authorized
- * queries; it never patches the planning model from an event payload, because
- * a summary event is not the authoritative model (CT03-I13, CT03-A66).
- */
-export interface StaleScopes {
-  /** The page's authoritative queries: snapshot, cycles, route detail. */
-  readonly workspaceSummary: boolean;
-  /** Roadmap, map-preview and runtime-evidence panels. */
-  readonly roadmaps: boolean;
-  /** The notification settings panel only; no page query depends on it. */
-  readonly notifications: boolean;
-  readonly projectIds: readonly ProjectId[];
-  readonly workItemIds: readonly WorkItemId[];
-  readonly repositoryList: boolean;
-  readonly repositoryIds: readonly RepositoryId[];
-}
-
-const NO_STALE_SCOPES: StaleScopes = {
-  workspaceSummary: false,
-  roadmaps: false,
-  notifications: false,
-  projectIds: [],
-  workItemIds: [],
-  repositoryList: false,
-  repositoryIds: [],
-};
 
 export interface WorkspaceProjectionState {
   readonly snapshotStatus: 'idle' | 'loading' | 'ready' | 'error';
@@ -49,7 +18,6 @@ export interface WorkspaceProjectionState {
   readonly invalidPayloadCount: number;
   readonly foreignWorkspaceEventCount: number;
   readonly consecutiveErrors: number;
-  readonly stale: StaleScopes;
   /** True when a refetch failed; the last good projection stays visible. */
   readonly refreshFailed: boolean;
 }
@@ -83,7 +51,6 @@ export const INITIAL_WORKSPACE_PROJECTION: WorkspaceProjectionState = {
   invalidPayloadCount: 0,
   foreignWorkspaceEventCount: 0,
   consecutiveErrors: 0,
-  stale: NO_STALE_SCOPES,
   refreshFailed: false,
 };
 
@@ -96,153 +63,7 @@ export type WorkspaceProjectionAction =
   | { readonly type: 'stream-error'; readonly sourceClosed: boolean }
   | { readonly type: 'event-received'; readonly event: WorkspaceEventEnvelope }
   | { readonly type: 'event-invalid' }
-  | { readonly type: 'refresh-failed' }
-  | {
-      readonly type: 'stale-consumed';
-      readonly consumed: {
-        readonly workspaceSummary?: true;
-        readonly roadmaps?: true;
-        readonly notifications?: true;
-        readonly projectIds?: readonly ProjectId[];
-        readonly workItemIds?: readonly WorkItemId[];
-        readonly repositoryList?: true;
-        readonly repositoryIds?: readonly RepositoryId[];
-      };
-    };
-
-function unique<T extends string>(values: readonly T[]): readonly T[] {
-  return [...new Set(values)];
-}
-
-function appendBoundedUnique<T extends string>(
-  values: readonly T[],
-  value: T,
-  limit: number,
-): readonly T[] {
-  if (values.includes(value)) {
-    return values;
-  }
-  return [...values, value].slice(-limit);
-}
-
-function subtract<T extends string>(values: readonly T[], consumed: readonly T[]): readonly T[] {
-  const consumedSet = new Set(consumed);
-  return values.filter((value) => !consumedSet.has(value));
-}
-
-/**
- * Which authoritative queries an event makes stale.
- *
- * Roadmap progress is derived from cycles, worktrees, evidence and admission,
- * so those events also reach the roadmap panels. Roadmap and evidence events
- * still refresh the page itself because cycle waits are derived from roadmap
- * state and scope evidence. Notification bookkeeping reaches only the
- * notification panel: no page query reads it (PERF-03).
- */
-function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): StaleScopes {
-  switch (event.kind) {
-    case 'workspace-created':
-      return { ...current, workspaceSummary: true };
-    case 'project-created':
-      return {
-        ...current,
-        workspaceSummary: true,
-        projectIds: unique([...current.projectIds, event.payload.projectId]),
-      };
-    case 'plan-version-imported':
-      return {
-        ...current,
-        workspaceSummary: true,
-        projectIds: unique([...current.projectIds, event.payload.projectId]),
-      };
-    case 'work-item-removed-from-agenda':
-    case 'work-item-admitted':
-      return {
-        ...current,
-        workspaceSummary: true,
-        roadmaps: true,
-        projectIds: unique([...current.projectIds, event.payload.projectId]),
-        workItemIds: unique([...current.workItemIds, event.payload.workItemId]),
-      };
-    case 'repository-registered':
-    case 'repository-status-changed':
-    case 'repository-evidence-changed':
-      return {
-        ...current,
-        repositoryList: true,
-        repositoryIds: appendBoundedUnique(current.repositoryIds, event.repositoryId, 100),
-      };
-    case 'project-repository-bound':
-    case 'project-repository-binding-retired':
-      return {
-        ...current,
-        projectIds: unique([...current.projectIds, event.projectId]),
-        repositoryIds: appendBoundedUnique(current.repositoryIds, event.repositoryId, 100),
-      };
-    case 'source-repository-registered':
-      return { ...current, repositoryList: true };
-    case 'runtime-evidence-changed':
-      return { ...current, workspaceSummary: true, roadmaps: true };
-    case 'scope-scheduling-authorized':
-    case 'scope-evidence-recorded':
-      return {
-        ...current,
-        workspaceSummary: true,
-        roadmaps: true,
-        workItemIds: unique([...current.workItemIds, event.payload.workItemId]),
-      };
-    case 'roadmap-changed':
-      return { ...current, workspaceSummary: true, roadmaps: true };
-    case 'notifications-changed':
-      return { ...current, notifications: true };
-    case 'attention-changed':
-      // The feed loads with the page round; roadmaps list their own items (R-A5).
-      return { ...current, workspaceSummary: true, roadmaps: true, notifications: true };
-    case 'workspace-updated':
-      return { ...current, workspaceSummary: true };
-    case 'work-item-completed':
-      return {
-        ...current,
-        workspaceSummary: true,
-        roadmaps: true,
-        projectIds: unique([...current.projectIds, event.projectId]),
-        workItemIds: event.workItemId
-          ? unique([...current.workItemIds, event.workItemId])
-          : current.workItemIds,
-      };
-    case 'worktree-merged':
-    case 'branches-changed':
-      return {
-        ...current,
-        workspaceSummary: true,
-        roadmaps: true,
-        workItemIds: event.workItemId
-          ? unique([...current.workItemIds, event.workItemId])
-          : current.workItemIds,
-        projectIds: unique([...current.projectIds, event.projectId]),
-      };
-    case 'worktree-created':
-    case 'worktree-removed':
-    case 'work-cycle-changed':
-      return {
-        ...current,
-        workspaceSummary: true,
-        roadmaps: true,
-        workItemIds: event.workItemId
-          ? unique([...current.workItemIds, event.workItemId])
-          : current.workItemIds,
-      };
-    case 'agent-run-started':
-    case 'agent-run-status-changed':
-      return {
-        ...current,
-        workspaceSummary: true,
-        workItemIds: event.workItemId
-          ? unique([...current.workItemIds, event.workItemId])
-          : current.workItemIds,
-      };
-  }
-}
+  | { readonly type: 'refresh-failed' };
 
 export function reduceWorkspaceProjection(
   state: WorkspaceProjectionState,
@@ -277,7 +98,6 @@ export function reduceWorkspaceProjection(
         invalidPayloadCount: sameWorkspace ? state.invalidPayloadCount : 0,
         foreignWorkspaceEventCount: sameWorkspace ? state.foreignWorkspaceEventCount : 0,
         consecutiveErrors: 0,
-        stale: sameWorkspace ? state.stale : NO_STALE_SCOPES,
         refreshFailed: false,
       };
     }
@@ -308,7 +128,6 @@ export function reduceWorkspaceProjection(
         lastSequence: action.event.sequence,
         events: [...state.events, action.event].slice(-100),
         consecutiveErrors: 0,
-        stale: invalidatedBy(action.event, state.stale),
       };
     case 'event-invalid':
       return { ...state, invalidPayloadCount: state.invalidPayloadCount + 1 };
@@ -316,27 +135,5 @@ export function reduceWorkspaceProjection(
       // Deliberately keeps workspace, summaries, and events: a failed refetch
       // degrades freshness, it does not invalidate committed state.
       return { ...state, refreshFailed: true };
-    case 'stale-consumed':
-      return {
-        ...state,
-        stale: {
-          workspaceSummary: action.consumed.workspaceSummary ? false : state.stale.workspaceSummary,
-          roadmaps: action.consumed.roadmaps ? false : state.stale.roadmaps,
-          notifications: action.consumed.notifications ? false : state.stale.notifications,
-          projectIds:
-            action.consumed.projectIds === undefined
-              ? state.stale.projectIds
-              : subtract(state.stale.projectIds, action.consumed.projectIds),
-          workItemIds:
-            action.consumed.workItemIds === undefined
-              ? state.stale.workItemIds
-              : subtract(state.stale.workItemIds, action.consumed.workItemIds),
-          repositoryList: action.consumed.repositoryList ? false : state.stale.repositoryList,
-          repositoryIds:
-            action.consumed.repositoryIds === undefined
-              ? state.stale.repositoryIds
-              : subtract(state.stale.repositoryIds, action.consumed.repositoryIds),
-        },
-      };
   }
 }

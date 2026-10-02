@@ -15,6 +15,7 @@ import { isLiveStatus } from '../../lib/execution-labels.js';
 import { admitWorkItem, completeWorkItem, removeFromAgenda } from '../../lib/planning-api.js';
 import { useQueryStore } from '../../lib/query-store.js';
 import { useCommands } from '../commands.js';
+import { RefreshFailed } from '../RefreshFailed.js';
 import { useGo, useSession, useWorkspaceScope } from '../session.js';
 
 /** One work item: its plan entry, branches, automation, delegation and execution slices. */
@@ -44,7 +45,7 @@ export function WorkItemRoute({
     ]),
   );
   const { detail, execution, diff } = item;
-  if (detail === undefined) return null;
+  if (detail === undefined) return <RefreshFailed failed={item.refreshFailed} />;
   const inProgress =
     execution !== undefined &&
     (execution.worktrees.some((worktree) => worktree.status === 'active') ||
@@ -54,11 +55,7 @@ export function WorkItemRoute({
   const version = detail.agendaRemoval?.expectedVersion;
   return (
     <div className="page">
-      {item.refreshFailed && (
-        <p className="warning-state" role="alert">
-          The latest refresh failed. The last committed state remains visible.
-        </p>
-      )}
+      <RefreshFailed failed={item.refreshFailed} />
       {item.cyclesFailed && !workspaceCyclesFailed && (
         <p className="warning-state" role="alert">
           Cycle status could not be loaded. Refresh before controlling automation.

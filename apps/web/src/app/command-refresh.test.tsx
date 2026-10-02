@@ -61,7 +61,9 @@ vi.mock('../lib/use-run-event-stream.js', () => ({
   ) => {
     Object.assign(stream, callbacks);
     // The handlers the open stream was given; a new one reconnects it.
-    if (ws !== undefined) (stream.handlers ??= new Set()).add(callbacks.onEvent);
+    if (ws === undefined) return;
+    stream.handlers ??= new Set();
+    stream.handlers.add(callbacks.onEvent);
   },
 }));
 vi.mock('../lib/api-client.js', async (original) => ({

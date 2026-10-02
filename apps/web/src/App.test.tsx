@@ -333,10 +333,12 @@ vi.mock('./lib/notification-api.js', async () => {
     testNotifications: () => new Promise(() => undefined),
   };
 });
+/** The daemon's open attention items, as a read of them returns at the time it is made. */
+let attentionItems: readonly unknown[] = [];
 vi.mock('./lib/attention-api.js', () => ({
   loadAttention: () => {
     readCalls.push('attention');
-    return Promise.resolve({ items: [] });
+    return Promise.resolve({ items: attentionItems });
   },
 }));
 vi.mock('./lib/work-cycle-api.js', () => ({
@@ -454,6 +456,7 @@ beforeEach(() => {
   snapshotCalls.length = 0;
   auditCalls.length = 0;
   snapshotAGate = undefined;
+  attentionItems = [];
   failing.clear();
   workspaceList = WORKSPACES;
   pendingSnapshotB = deferred<WorkspaceSnapshotResponse>();
@@ -794,6 +797,40 @@ describe('page reads after the split (R-D4 increment 4b review)', () => {
     window.dispatchEvent(new PopStateEvent('popstate'));
     fireEvent.click(await screen.findByRole('button', { name: 'Workspace A' }));
     expect(await screen.findByText('Alpha Project')).toBeTruthy();
+  });
+});
+
+describe('the stream seed (R-D4, test-suite review TS-H4)', () => {
+  it('never loses a stop opened between the shell reads and the snapshot that starts the stream', async () => {
+    // The snapshot is slow on the daemon; the stream will start after its sequence.
+    let release!: () => void;
+    snapshotAGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    renderApp();
+    await settle();
+    // A stop opens now, before the snapshot is taken: its event is at or below the snapshot's
+    // sequence, so the stream never delivers it, and no timer re-reads Needs you.
+    attentionItems = [
+      {
+        id: 'stop-1',
+        subjectKey: 'cycle:c1',
+        code: 'service-failure-not-retryable',
+        kind: 'attention',
+        title: 'Alpha Project · Needs attention',
+        message: 'The backend failed without a recognized temporary service error.',
+        path: '/workspaces/workspace-a/work-items/item-workspace-a',
+        inboxPath: '/workspaces/workspace-a/inbox/stop-1',
+        refs: { cycleId: 'c1', workItemId: 'item-workspace-a' },
+        blocks: 0,
+        openedAt: '2026-07-24T00:00:00.000Z',
+        pushedAt: null,
+      },
+    ];
+    await act(async () => release());
+    await screen.findByText('Alpha Project');
+    await settle();
+    expect(screen.getByRole('navigation', { name: 'Primary' }).textContent).toContain('Needs you1');
   });
 });
 

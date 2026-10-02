@@ -118,6 +118,20 @@ export async function setupStep(page: Page, label: string): Promise<void> {
 }
 
 /**
+ * Clicks a control that sends a command and waits for the daemon's answer. A navigation started
+ * right after the click aborts the command's request in the browser, and the command then runs
+ * only if its request reached the daemon first (test-suite review TS-H5).
+ */
+export async function sendCommand(page: Page, control: Locator): Promise<void> {
+  const answered = page.waitForResponse(
+    (response) => response.url().includes('/api/') && response.request().method() !== 'GET',
+  );
+  await control.click();
+  const response = await answered;
+  expect(response.ok(), `${response.url()}: ${await response.text()}`).toBe(true);
+}
+
+/**
  * Opens a worktree's merge where it is decided, its inbox item (R-A6): the work item page links
  * there. Returns the merge form; the caller merges and returns to the work item.
  */

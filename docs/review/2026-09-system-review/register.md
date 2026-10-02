@@ -1715,6 +1715,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, fixed (F3):* a reveal made before the page listens, such as a cold load's route focus, reaches the page only as the part's steps. It then opened the part's first step, not the target's own; no current link targets that anchor. The target's own step is now preferred. A test revealing before the page mounts fails without it.
     - *NIT, fixed (F4):* the part's steps were taken in checklist order. Its declared order is kept now; the only shared part declares checklist order anyway.
     - Mutation left: preferring the target's step over the current one is equivalent, because the reveal's first event has already made the target's step current.
+  - **Test-suite review fixes (2026-10-02, before P2 lands; [findings](findings/TS-test-suite-review-2026-10-02.md)).** This closes the two open e2e failures above.
+    - **TS-H4, the stream seed (app).** The shell's attention and cycles reads ran alongside the snapshot, and the stream starts after the snapshot's sequence. A change between the two reads was therefore never delivered. It stayed missing until an unrelated event, because 4b removed the deployed release's 60 s safety refresh.
+      - Fix: `seededWorkspaceId(projection)` names the workspace whose snapshot has seeded the stream. `WorkspaceView`'s attention and cycles reads and the rail's count start only then. Pages already did, being rendered only after the snapshot.
+      - Test: `App.test.tsx` "never loses a stop opened between the shell reads and the snapshot that starts the stream". It failed before the fix.
+      - LOW, left: the workspace list (the rail's run and work-item counts) is still read before the snapshot, because choosing the workspace needs it. A change in that window shows at the next event that re-reads the snapshot, which almost every event kind does.
+    - **TS-M1, the parallel roadmap's conflict list.** A page's decision link names the item it last read for a subject. Needs you re-reads 0.4–2 s after a stop, so in that window the link named the resolved merge approval, and the inbox showed a dead end.
+      - App fix: `WorkspaceView` remembers the subject of every item it has listed. A resolved item's page now links "Open its current decision" when its subject has an open item, beside "Back to the inbox". It does not jump there on its own, so an operator reading an item that resolves is not moved. Test: `InboxPage.test.tsx`.
+      - Spec fix: `roadmaps.spec.ts` follows the work item's link once Needs you lists AQ-03's conflict.
+    - **TS-H5, the mobile merge approval (test).** The spec clicked a command and navigated at once, which aborted the command's request. Nine sites in five specs now use `sendCommand` (`e2e/support.ts`), which waits for the daemon's answer and asserts it.
+      - Under load, the same spec then failed later: after Resume automation the daemon reviews again, and the 5 s default wait was too short. That wait now allows 15 s, like the spec's other wait for the same state (TS-M15).
+    - **Verification (TMPDIR on tmpfs).**
+      - The full e2e suite and the walkthrough rehearsal pass: 21 tests plus the rehearsal.
+      - The mobile and roadmaps specs passed 25 of 25 runs (5 repeats, both projects) at load about 3.
+      - With 16 CPU burners (load 18–23) they passed 15 of 15. Before the Resume wait fix, the mobile spec failed 2 of 3 under that load, at the Resume step.
 
 ### R-D5
 

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
-import { expectSignedIn, git, openMergeDecision, submitSignIn } from './support';
+import { expectSignedIn, git, openMergeDecision, sendCommand, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 test.use({ actionTimeout: 15_000 });
@@ -161,7 +161,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
       .getByLabel('Guidance for the next run (optional)')
       .fill('E2E-AUTHORIZED-RECOVERY: Address the remaining regression.');
     await fitsPhone(page);
-    await decision.getByRole('button', { name: 'Authorize more remediation' }).click();
+    await sendCommand(page, decision.getByRole('button', { name: 'Authorize more remediation' }));
     await page.goto(workItemPage);
 
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
@@ -173,7 +173,11 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await cycle.getByRole('button', { name: 'Pause automation' }).click();
     await expect(cycle.getByText('Paused', { exact: true })).toBeVisible();
     await cycle.getByRole('button', { name: 'Resume automation' }).click();
-    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
+    // Resuming reviews the tree again before it awaits approval: a whole run, under load longer
+    // than the default 5 s (TS-M15).
+    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
 
     await cycle.getByRole('button', { name: 'Open current run' }).click();
     await expect(page.getByRole('heading', { name: 'Review run', exact: true })).toBeVisible();
@@ -205,7 +209,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     // A notification URL must survive login and open the item with the menu closed.
     await navigate(page, 'Account · e2e-admin');
     await menu.click();
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await sendCommand(page, page.getByRole('button', { name: 'Log out' }));
     await page.goto(itemUrl);
     await signIn(page);
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();

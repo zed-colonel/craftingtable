@@ -127,4 +127,29 @@ it('hosts the controls that resolve the selected item, and says when it has reso
   );
   expect(screen.queryByRole('region', { name: 'Decision' })).toBeNull();
   expect(screen.getByText(/This item is resolved/)).toBeTruthy();
+  expect(screen.queryByRole('link', { name: 'Open its current decision' })).toBeNull();
+});
+
+it('links a resolved item to the open item its subject has now, never to a dead end (TS-M1)', () => {
+  // A page linked the item from a list read before its cycle stopped again: by the time the inbox
+  // shows, the merge approval is resolved and the same cycle has a new stop.
+  const navigate = vi.fn();
+  render(
+    <InboxPage
+      workspaceId={workspaceId}
+      items={[
+        ...items,
+        item('conflict', { subjectKey: 'cycle:merge', code: 'integration-conflict' }),
+      ]}
+      loaded
+      selectedId="merge"
+      subjectOf={(id) => (id === 'merge' ? 'cycle:merge' : undefined)}
+      now={now}
+      onNavigate={navigate}
+      renderHost={() => null}
+    />,
+  );
+  expect(screen.getByText(/This item is resolved/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('link', { name: 'Open its current decision' }));
+  expect(navigate).toHaveBeenCalledWith({ name: 'inbox', workspaceId, itemId: 'conflict' });
 });

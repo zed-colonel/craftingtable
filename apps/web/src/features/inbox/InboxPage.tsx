@@ -20,6 +20,7 @@ export function InboxPage({
   items,
   loaded,
   selectedId,
+  subjectOf,
   now: fixedNow,
   onNavigate,
   renderHost,
@@ -28,6 +29,12 @@ export function InboxPage({
   items: readonly AttentionItemView[];
   loaded: boolean;
   selectedId?: string;
+  /**
+   * The subject of an item listed earlier, which may have resolved since. A page links the item
+   * it last read for a subject; when the subject has moved on to a new stop, the inbox offers the
+   * new one instead of a dead end (test-suite review TS-M1).
+   */
+  subjectOf?: (itemId: string) => string | undefined;
   /** A fixed time (tests); otherwise the ages tick on their own (R-D4 increment 4b). */
   now?: number;
   onNavigate: (route: Route) => void;
@@ -37,6 +44,12 @@ export function InboxPage({
   const ticking = useNow();
   const now = fixedNow ?? ticking;
   const selected = items.find((item) => item.id === selectedId);
+  const resolvedSubject =
+    selectedId !== undefined && selected === undefined ? subjectOf?.(selectedId) : undefined;
+  const current =
+    resolvedSubject === undefined
+      ? undefined
+      : items.find((item) => item.subjectKey === resolvedSubject);
   const link = (route: Route, label: ReactNode, className = 'text-button') => (
     <Link
       className={className}
@@ -66,7 +79,17 @@ export function InboxPage({
       </About>
       {selectedId !== undefined && selected === undefined && loaded && (
         <p className="empty-state" role="status">
-          This item is resolved. {link({ name: 'inbox', workspaceId }, 'Back to the inbox')}
+          This item is resolved.{' '}
+          {current !== undefined && (
+            <>
+              {link(
+                { name: 'inbox', workspaceId, itemId: current.id },
+                'Open its current decision',
+              )}
+              {' · '}
+            </>
+          )}
+          {link({ name: 'inbox', workspaceId }, 'Back to the inbox')}
         </p>
       )}
       {selected !== undefined && (

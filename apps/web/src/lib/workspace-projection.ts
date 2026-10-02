@@ -54,6 +54,18 @@ export const INITIAL_WORKSPACE_PROJECTION: WorkspaceProjectionState = {
   refreshFailed: false,
 };
 
+/**
+ * The workspace whose snapshot has seeded the event stream, if any. The stream starts after the
+ * snapshot's sequence, so a read begun before the snapshot arrived can miss a change that no
+ * event will ever report: reads the stream must keep current start only once this names their
+ * workspace (R-D4, test-suite review TS-H4). Pages already do, being rendered only then.
+ */
+export function seededWorkspaceId(
+  state: WorkspaceProjectionState,
+): WorkspaceSnapshotResponse['workspace']['id'] | undefined {
+  return state.snapshotStatus === 'ready' ? state.workspace?.id : undefined;
+}
+
 export type WorkspaceProjectionAction =
   | { readonly type: 'snapshot-requested' }
   | { readonly type: 'workspace-changed' }

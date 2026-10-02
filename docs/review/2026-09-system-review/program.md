@@ -888,6 +888,16 @@ independent review; every finding is fixed or its disposition is recorded in reg
     2. R-I2 is reopened for TS-H1 and TS-H2 and the related load findings.
     3. TS-H3 (the agent temporary-root sweep can delete the database) is a rule-7 blocker. It has not been material, so it will be fixed on `main` in a review pass after P2 merges (recorded on R-G5).
     4. TS-H7, TS-M2, TS-M6 and TS-M10 (untested merge, promotion and scheduler gates) go into that same review pass, not a new register item.
+  - **Operator decision 2026-10-02: land P2 first.** The bulk of the remediation runs after P2 merges. Before it lands, P2 fixes only what it introduced, or what keeps its gate from being trusted.
+  - **Done before landing (2026-10-02; recorded on R-D4):**
+    - TS-H4, the stream seed;
+    - TS-M1, a resolved item now links its subject's current item, and the spec waits for Needs you;
+    - TS-H5, `sendCommand` at nine e2e sites, plus the mobile Resume wait.
+  - **Verification.**
+    - The full e2e suite (21 tests) and the walkthrough rehearsal pass.
+    - The two formerly intermittent specs passed 25 of 25 runs at idle and 15 of 15 under 16 CPU burners (load 18–23).
+    - All 448 web tests pass.
+  - **Replays against a fresh `tsc -b` (closes TS-H6's doubt for this branch).** 43 of 45 report 0 changed. The two 2026-10-01 differences are LIVE-32's, and their records are identical to the previous gate's output.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

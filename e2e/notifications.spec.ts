@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { expectSignedIn, submitSignIn } from './support';
+import { expectSignedIn, sendCommand, submitSignIn } from './support';
 
 test('owners configure write-only Pushover credentials and test delivery on desktop and phone', async ({
   page,
@@ -43,7 +43,7 @@ test('owners configure write-only Pushover credentials and test delivery on desk
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
   await panel.scrollIntoViewIfNeeded();
-  await panel.getByRole('button', { name: 'Save notifications', exact: true }).click();
+  await sendCommand(page, panel.getByRole('button', { name: 'Save notifications', exact: true }));
   await page.reload();
   await expect(panel.getByLabel('Device name (optional)')).toHaveValue('iphone');
   await expect(panel.getByLabel('Enable notifications')).toBeChecked();

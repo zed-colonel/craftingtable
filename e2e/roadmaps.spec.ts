@@ -2,7 +2,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { expectSignedIn, git, openMergeDecision, openRoadmap, submitSignIn } from './support';
+import {
+  expectSignedIn,
+  git,
+  openMergeDecision,
+  openRoadmap,
+  sendCommand,
+  submitSignIn,
+} from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 for (const mode of ['sequential', 'parallel'] as const) {
@@ -184,6 +191,16 @@ for (const mode of ['sequential', 'parallel'] as const) {
           });
           await roadmap.getByRole('link', { name: /^AQ-03 ·/ }).click();
           const workItemPage = page.url();
+          // The page's own cycle reads are fresh, but its decision link comes from Needs you,
+          // which re-reads a moment after the stop: until then it names the resolved merge
+          // approval. Follow it once Needs you lists the conflict (TS-M1).
+          await expect(
+            page
+              .getByRole('region', { name: 'Needs you', exact: true })
+              .getByRole('listitem')
+              .filter({ hasText: 'AQ-03' })
+              .getByRole('link', { name: 'Integration conflict', exact: true }),
+          ).toBeVisible({ timeout: 15000 });
           // The conflict is decided in its inbox item; the work item links there (R-A6).
           await page
             .getByRole('region', { name: 'Automated cycle', exact: true })
@@ -206,7 +223,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
             .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
           await expect(conflicts).toBeVisible();
           const targetBefore = git(['rev-parse', 'revision-roadmap'], repository);
-          await conflicts.getByRole('button', { name: 'Launch', exact: true }).click();
+          await sendCommand(page, conflicts.getByRole('button', { name: 'Launch', exact: true }));
           await page.goto(workItemPage);
           await expect(
             page

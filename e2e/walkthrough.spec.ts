@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Browser, devices, expect, type Page, test } from '@playwright/test';
-import { E2E_USERNAME, git, openMergeDecision, setupStep, signIn } from './support';
+import { E2E_USERNAME, git, openMergeDecision, sendCommand, setupStep, signIn } from './support';
 
 /**
  * The UI walkthrough: seed one workspace with every kind of state the app can
@@ -432,7 +432,10 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await page
       .getByLabel('Answers and guidance')
       .fill('Investigate the available baseline evidence without approving it.');
-    await page.getByRole('button', { name: 'Start bounded investigation', exact: true }).click();
+    await sendCommand(
+      page,
+      page.getByRole('button', { name: 'Start bounded investigation', exact: true }),
+    );
     // The investigation's results are a new stop, with its own item.
     await page.goto(designPage);
     await expect(openDecision).toBeVisible({ timeout: 30_000 });
@@ -455,7 +458,10 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .getByLabel('Answers and guidance')
       .fill('I own the baseline decision. Use the pinned baseline.');
     await page.getByRole('combobox', { name: 'Next action', exact: true }).selectOption('continue');
-    await page.getByRole('button', { name: 'Continue design with evidence', exact: true }).click();
+    await sendCommand(
+      page,
+      page.getByRole('button', { name: 'Continue design with evidence', exact: true }),
+    );
     await page.goto(designPage);
     // A stop is decided in its inbox item; the work item links there (R-A6).
     const decisionLink = cycle.getByRole('link', { name: 'Open the decision', exact: true });
@@ -476,7 +482,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await exhausted
       .getByLabel('Guidance for the next run (optional)')
       .fill('E2E-AUTHORIZED-RECOVERY E2E-OPERATOR-QUESTION: Address the remaining regression.');
-    await exhausted.getByRole('button', { name: 'Authorize more remediation' }).click();
+    await sendCommand(page, exhausted.getByRole('button', { name: 'Authorize more remediation' }));
     await page.goto(workItemPage);
     // The next stop, its questions, is a new item.
     await expect(decisionLink).toHaveAttribute(
@@ -498,7 +504,10 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
         'E2E-AUTHORIZED-RECOVERY E2E-ANSWERED-QUESTION: Use the approved pinned baseline and retain every check.',
       );
     await walk.capture('inbox-guided-recovery', 'Needs you · answer implementation questions');
-    await decision.getByRole('button', { name: 'Continue with guidance', exact: true }).click();
+    await sendCommand(
+      page,
+      decision.getByRole('button', { name: 'Continue with guidance', exact: true }),
+    );
     await page.goto(workItemPage);
 
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({

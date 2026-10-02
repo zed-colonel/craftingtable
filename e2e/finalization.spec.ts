@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { expectSignedIn, git, submitSignIn } from './support';
+import { expectSignedIn, git, sendCommand, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 // New finalizations are staged (R-B10). 'remediate' exhausts the correctness stage's budget
@@ -167,7 +167,10 @@ for (const decision of ['remediate', 'staged'] as const) {
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
         await selection.scrollIntoViewIfNeeded();
-        await selection.getByRole('button', { name: 'Authorize selected stage batch' }).click();
+        await sendCommand(
+          page,
+          selection.getByRole('button', { name: 'Authorize selected stage batch' }),
+        );
         await page.goto(planPage);
       } else {
         await expect(

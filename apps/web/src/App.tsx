@@ -36,6 +36,7 @@ import {
 } from './lib/theme.js';
 import { useRoute } from './lib/use-route.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
+import { seededWorkspaceId } from './lib/workspace-projection.js';
 
 /**
  * Background refresh pacing (PERF-02). A transition's events arrive 0.3-6 s apart; a key is read
@@ -100,7 +101,11 @@ function AppShell() {
     authenticated ? activeWorkspaceId : undefined,
     expire,
   );
-  const attention = useAttention(authenticated ? activeWorkspaceId : undefined).data;
+  // The rail's count, read once the snapshot has seeded the stream, never alongside it (TS-H4).
+  const seeded = seededWorkspaceId(projection);
+  const attention = useAttention(
+    authenticated && seeded === activeWorkspaceId ? seeded : undefined,
+  ).data;
 
   // Signed out, or the session expired: nothing read for that session is shown again.
   useEffect(() => {

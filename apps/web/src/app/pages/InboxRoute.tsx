@@ -8,11 +8,14 @@ import { useGo, useWorkspaceScope } from '../session.js';
 export function InboxRoute({
   attention,
   loaded,
+  subjectOf,
   cycles,
   selectedId,
 }: {
   attention: readonly AttentionItemView[];
   loaded: boolean;
+  /** The subject of an item listed earlier, which may have resolved since (TS-M1). */
+  subjectOf: (itemId: string) => string | undefined;
   cycles: readonly WorkCycle[];
   selectedId?: string;
 }) {
@@ -23,6 +26,7 @@ export function InboxRoute({
       workspaceId={workspaceId}
       items={attention}
       loaded={loaded}
+      subjectOf={subjectOf}
       {...(selectedId === undefined ? {} : { selectedId })}
       onNavigate={go}
       renderHost={(item) => (

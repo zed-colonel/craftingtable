@@ -1,10 +1,10 @@
-import type { ReactElement } from 'react';
+import { type ReactElement, useCallback, useEffect, useRef } from 'react';
 import { NeedsYou } from '../components/NeedsYou.js';
 import { ConcurrencyImports } from '../features/planning/ConcurrencyImports.js';
 import { ProjectCards } from '../features/planning/ProjectCards.js';
 import { RoadmapPage, RoadmapsPage } from '../features/planning/RoadmapsPage.js';
 import type { Route } from '../lib/route.js';
-import type { WorkspaceProjectionState } from '../lib/workspace-projection.js';
+import { seededWorkspaceId, type WorkspaceProjectionState } from '../lib/workspace-projection.js';
 import { DashboardRoute } from './pages/DashboardRoute.js';
 import { ImportRoute } from './pages/ImportRoute.js';
 import { InboxRoute } from './pages/InboxRoute.js';
@@ -32,10 +32,20 @@ export function WorkspaceView({
   const { workspaceId, canMutate } = useWorkspaceScope();
   const { csrfToken } = useSession();
   const go = useGo();
-  const attentionQuery = useAttention(workspaceId);
-  const cyclesQuery = useCycles(workspaceId);
+  // Read once the snapshot has seeded the stream, never alongside it (TS-H4).
+  const seeded = seededWorkspaceId(projection) === workspaceId ? workspaceId : undefined;
+  const attentionQuery = useAttention(seeded);
+  const cyclesQuery = useCycles(seeded);
   const attention = attentionQuery.data?.items ?? [];
   const cycles = cyclesQuery.data?.cycles ?? [];
+  // Every item this workspace has listed, by id: a page links the item it last read, which may
+  // have resolved since; the inbox then offers the subject's current item (TS-M1).
+  const subjects = useRef(new Map<string, string>());
+  useEffect(() => {
+    for (const item of attentionQuery.data?.items ?? [])
+      subjects.current.set(item.id, item.subjectKey);
+  }, [attentionQuery.data]);
+  const subjectOf = useCallback((itemId: string) => subjects.current.get(itemId), []);
   if (projection.snapshotStatus === 'loading' || projection.snapshotStatus === 'idle')
     return <p className="empty-state">Loading durable workspace snapshot…</p>;
   if (projection.snapshotStatus === 'error')
@@ -116,6 +126,7 @@ export function WorkspaceView({
         <InboxRoute
           attention={attention}
           loaded={attentionQuery.data !== undefined}
+          subjectOf={subjectOf}
           cycles={cycles}
           {...(route.itemId === undefined ? {} : { selectedId: route.itemId })}
         />

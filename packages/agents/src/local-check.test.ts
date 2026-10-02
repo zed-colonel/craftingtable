@@ -142,9 +142,10 @@ it('kills the whole check process tree on timeout and after the check ends (AGT-
   const f = fixture();
   f.launch({ ...f.m, checkTimeoutMs: 1500 });
   // A stray descendant: `sleep` outlives its parent unless its group is signalled.
+  // It sleeps far past any bound below, so only the kill can end it in time.
   const spawnSleeper = (pidFile: string, then: string) => [
     '-e',
-    `const c=require("node:child_process").spawn("sleep",["60"],{stdio:"ignore"});require("node:fs").writeFileSync(${JSON.stringify(pidFile)},String(c.pid));${then}`,
+    `const c=require("node:child_process").spawn("sleep",["3600"],{stdio:"ignore"});require("node:fs").writeFileSync(${JSON.stringify(pidFile)},String(c.pid));${then}`,
   ];
   const running = (pid: number) => {
     try {
@@ -159,20 +160,24 @@ it('kills the whole check process tree on timeout and after the check ends (AGT-
       return false;
     }
   };
+  // Bounded by `expect.poll`'s scaled hang guard, not an idle-sized deadline (R-I2).
   const settled = async (pid: number) => {
-    const deadline = Date.now() + 3000;
-    while (running(pid) && Date.now() < deadline)
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    return !running(pid);
+    try {
+      await expect.poll(() => running(pid), { interval: 20 }).toBe(false);
+    } finally {
+      if (running(pid)) process.kill(pid, 'SIGKILL');
+    }
   };
   const timedOutPid = join(f.root, 'timed-out.pid');
   expect(f.execute(spawnSleeper(timedOutPid, 'setTimeout(()=>{},60000)')).status).toBe(1);
   expect(f.receipts()[0]).toMatchObject({ diagnostic: 'Check interrupted or timed out.' });
-  expect(await settled(Number(readFileSync(timedOutPid, 'utf8')))).toBe(true);
+  await settled(Number(readFileSync(timedOutPid, 'utf8')));
 
+  // A check that ends on its own, under the default limit: 1.5 s is not enough on a loaded host.
+  f.launch(f.m);
   const finishedPid = join(f.root, 'finished.pid');
   expect(f.execute(spawnSleeper(finishedPid, 'process.exit(0)')).status).toBe(0);
-  expect(await settled(Number(readFileSync(finishedPid, 'utf8')))).toBe(true);
+  await settled(Number(readFileSync(finishedPid, 'utf8')));
 });
 it('binds act to one repository workflow, pinned image, local storage and no automatic host secrets', () => {
   const f = fixture();
@@ -338,34 +343,47 @@ it('grants a stale workflow lock to one of several contenders reclaiming it at o
       join(lock, 'owner.json'),
       JSON.stringify({ identity: '999999999:1', runId: 'gone' }),
     );
-    const go = Date.now() + 1500;
     // Each winner holds 300 ms and exits without releasing, like a killed launcher, so
-    // acquisitions that honour the lock are at least 300 ms apart.
-    const results = await Promise.all(
-      Array.from(
-        { length: 10 },
-        (_, i) =>
-          new Promise<string>((done) => {
-            const p = spawn(
-              process.execPath,
-              [
-                '--input-type=module',
-                '-e',
-                `import { acquireLocalCiLock } from ${JSON.stringify(moduleUrl)};
-                 while (Date.now() < ${go}) {}
-                 await acquireLocalCiLock(${JSON.stringify(lock)}, 'r${i}', 400, 10).then(
-                   () => { const t = Date.now(); while (Date.now() < t + 300) {} process.stdout.write('held ' + t); },
-                   () => process.stdout.write('timeout'));`,
-              ],
-              { stdio: ['ignore', 'pipe', 'pipe'] },
-            );
-            let out = '';
-            p.stdout.on('data', (d) => (out += d));
-            p.stderr.on('data', (d) => (out += d));
-            p.once('close', () => done(out));
-          }),
-      ),
-    );
+    // acquisitions that honour the lock are at least 300 ms apart. All ten contend at once:
+    // each says it is ready and waits for one byte on stdin, sent only when all are (R-I2),
+    // rather than spinning until a start time that a loaded host may already have passed.
+    const contenders = Array.from({ length: 10 }, (_, i) => {
+      const p = spawn(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `import { readSync } from 'node:fs';
+           import { acquireLocalCiLock } from ${JSON.stringify(moduleUrl)};
+           process.stdout.write('ready\\n');
+           readSync(0, Buffer.alloc(1), 0, 1, null);
+           await acquireLocalCiLock(${JSON.stringify(lock)}, 'r${i}', 400, 10).then(
+             () => { const t = Date.now(); while (Date.now() < t + 300) {} process.stdout.write('held ' + t); },
+             () => process.stdout.write('timeout'));`,
+        ],
+        { stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+      let out = '';
+      let markReady!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        markReady = resolve;
+      });
+      p.stdout.on('data', (d) => {
+        out += d;
+        if (out.includes('ready\n')) markReady();
+      });
+      p.stderr.on('data', (d) => (out += d));
+      const done = new Promise<string>((resolve) =>
+        p.once('close', () => {
+          markReady();
+          resolve(out.replace('ready\n', ''));
+        }),
+      );
+      return { p, ready, done };
+    });
+    await Promise.all(contenders.map((c) => c.ready));
+    for (const c of contenders) c.p.stdin.end('g');
+    const results = await Promise.all(contenders.map((c) => c.done));
     const held = results
       .filter((r) => r.startsWith('held'))
       .map((r) => Number(r.split(' ')[1]))
@@ -674,7 +692,6 @@ esac
   const run = async (environment: Record<string, string>, checkTimeoutMs: number) => {
     const launcher = f.launch({ ...f.m, cargoExecutable: cargo, checkTimeoutMs });
     let output = '';
-    const started = Date.now();
     const outcome = await executeCheck({
       tool: 'cargo',
       manifestPath: launcher.manifestPath,
@@ -691,7 +708,7 @@ esac
       onOutput: (text) => (output += text),
       signal: new AbortController().signal,
     });
-    return { outcome, output, elapsed: Date.now() - started };
+    return { outcome, output };
   };
   const built = await run({ FAST: '1' }, 60_000);
   expect(built.outcome.exitCode, built.output + built.outcome.diagnostic).toBe(0);
@@ -705,8 +722,8 @@ esac
     packages: [],
   });
   expect(built.outcome.receipt).not.toHaveProperty('kind');
+  // The build sleeps 30 s; a signal exit (no exit code) is the time limit stopping it.
   const slow = await run({}, 500);
-  expect(slow.elapsed).toBeLessThan(10_000);
   expect(slow.outcome.receipt).toMatchObject({ success: false, exitCode: null });
   expect(slow.outcome.diagnostic).toContain('timed out');
   // Only builds are the daemon's to run; other commands record nothing.
@@ -1129,9 +1146,8 @@ it('reads only a regular file within its limit, never waiting on a FIFO or follo
   symlinkSync(join(root, 'file'), join(root, 'link'));
   // An agent can swap a file for a FIFO after it was listed; opening it must not wait.
   expect(spawnSync('mkfifo', [join(root, 'fifo')]).status).toBe(0);
-  const started = Date.now();
+  // Nothing ever writes to it, so a read that waited would never return.
   expect(await readRegular(join(root, 'fifo'), 1024)).toBeUndefined();
-  expect(Date.now() - started).toBeLessThan(2000);
   expect((await readRegular(join(root, 'file'), 1024))?.toString()).toBe('content');
   expect(await readRegular(join(root, 'large'), 1024)).toBeUndefined();
   expect(await readRegular(join(root, 'link'), 1024)).toBeUndefined();
@@ -1144,10 +1160,9 @@ it('a lock that is a FIFO, or too many locks, never block or exhaust the daemon 
   mkdirSync(join(shared, 'registry', 'index'), { recursive: true });
   // Untracked and not ignored, so it is listed; opening it must not wait for a writer.
   expect(spawnSync('mkfifo', [join(f.m.workspacePath, 'Cargo.lock')]).status).toBe(0);
-  const started = Date.now();
+  // Nothing ever writes to it, so a listing that waited would never finish.
   const { outcome, output } = await listCargoHome(f, shared, authority({}));
   expect(outcome.exitCode, output).toBe(0);
-  expect(Date.now() - started).toBeLessThan(10_000);
   expect(output).toContain('No Cargo.lock in the checked tree');
 });
 

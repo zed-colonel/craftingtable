@@ -1,6 +1,14 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type {
@@ -66,6 +74,8 @@ import { createTestContext, type TestContext } from './test-support.js';
 export const contexts: TestContext[] = [];
 export const directories: string[] = [];
 export async function cleanupExecutionFixtures(): Promise<void> {
+  // Closing a gate ends every check still waiting on it, before its daemon closes.
+  for (const gate of gates.splice(0)) closeSync(gate);
   const callbackErrors = launchCallbackErrors.splice(0);
   const closed = await Promise.allSettled(contexts.splice(0).map((context) => context.cleanup()));
   for (const directory of directories.splice(0)) {
@@ -74,6 +84,64 @@ export async function cleanupExecutionFixtures(): Promise<void> {
   // A failed `onLaunch` assertion is the test's own failure (AS F-9); then any cleanup error.
   if (callbackErrors.length) throw callbackErrors[0];
   for (const result of closed) if (result.status === 'rejected') throw result.reason;
+}
+
+/**
+ * A gate that checks wait on, so a check's progress is the test's to release rather than a
+ * sleep (R-I2, LF F4). `command` runs a check that records its process ID and then blocks
+ * until the test opens the gate; it exits 0 when released.
+ *
+ * The gate is a FIFO this process holds open for reading and writing, so a check opening it
+ * never blocks and a byte written before a check starts waits for it. Each check reads one
+ * byte, so `open(n)` releases n checks. Cleanup closes the gate, and every check still waiting
+ * then reads end of file and exits 3.
+ */
+export interface CheckGate {
+  readonly command: readonly string[];
+  open(count?: number): void;
+  /** Process IDs of the checks that have started. */
+  pids(): number[];
+}
+export function checkGate(): CheckGate {
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-check-gate-'));
+  directories.push(root);
+  const fifo = join(root, 'gate');
+  const started = join(root, 'pids');
+  execFileSync('mkfifo', [fifo]);
+  writeFileSync(started, '');
+  // O_RDWR: on Linux opening a FIFO this way never blocks, and the FIFO keeps a writer.
+  const gate = openSync(fifo, 'r+');
+  gates.push(gate);
+  const script = [
+    "const fs = require('node:fs');",
+    `fs.appendFileSync(${JSON.stringify(started)}, process.pid + '\\n');`,
+    `const gate = fs.openSync(${JSON.stringify(fifo)}, 'r');`,
+    'process.exit(fs.readSync(gate, Buffer.alloc(1), 0, 1, null) === 1 ? 0 : 3);',
+  ].join(' ');
+  return {
+    // `node` from PATH: a declared check's program with a path is taken from the reviewed commit.
+    command: ['node', '-e', script],
+    open: (count = 1) => {
+      writeSync(gate, Buffer.alloc(count));
+    },
+    pids: () => readFileSync(started, 'utf8').split('\n').filter(Boolean).map(Number),
+  };
+}
+const gates: number[] = [];
+
+/** Whether a process is still running (not gone, and not a zombie). */
+export function processRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3) !== 'Z';
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -18,6 +18,7 @@ import type { AgentLaunchRequest, PinnedCargoManifest } from '@craftingtable/age
 import type { DeclaredCheck } from '@craftingtable/domain';
 import { afterEach, expect, vi } from 'vitest';
 import {
+  checkGate,
   cleanupExecutionFixtures,
   commitFile,
   controlCycle,
@@ -29,6 +30,7 @@ import {
   implementationDone,
   itNeedsCargo,
   mutationHeaders,
+  processRunning,
   runLauncher,
   runToFinish,
   scopeReport,
@@ -37,6 +39,7 @@ import {
   startCycle,
   waitFor,
   waitUntil,
+  withinHangGuard,
   withoutDaemonChecks,
 } from './execution-test-support.js';
 import { CheckDefinitionChangedError } from './services/errors.js';
@@ -229,12 +232,10 @@ itNeedsCargo(
 itNeedsCargo(
   "a review's checks run in the background: its start returns at once, and a drain during them starts no agent (R-G13 increment 3)",
   async () => {
+    // The check waits on a gate, so it runs until the test opens it (R-I2, LF F4).
+    const gate = checkGate();
     const f = await scopedRuntimeFixture([
-      {
-        id: 'slow',
-        argv: ['node', '-e', 'setTimeout(() => {}, 4000)'],
-        definitionPaths: [],
-      },
+      { id: 'slow', argv: [...gate.command], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const launched = () => f.backend.launches.length;
@@ -255,6 +256,13 @@ itNeedsCargo(
       'starting',
     );
     expect(launched()).toBe(before);
+    // Its check is running: the reviewer starts only once the check ends.
+    await waitUntil(() => gate.pids().length === 1, 'the first check running');
+    expect(storage.execution.runs.find(f.state.workspaceId, first as never)?.status).toBe(
+      'starting',
+    );
+    expect(launched()).toBe(before);
+    gate.open();
     await waitFor(
       () => storage.execution.runs.find(f.state.workspaceId, first as never)?.status === 'waiting',
       'the reviewer started after its check',
@@ -282,15 +290,21 @@ itNeedsCargo(
     });
     expect(refused.statusCode).toBe(409);
     expect(refused.body).toContain('its adopted checks are running');
+    await waitUntil(() => gate.pids().length === 2, 'the second check running');
+    const check = gate.pids()[1]!;
     // The drain has recorded the interruption by the time it returns, before storage could
-    // close (R-G13 increment 3 review, H1).
-    const drainedAt = Date.now();
-    expect(await f.state.context.services.agentRunService.interruptForRestart()).toBe(1);
-    // The drain stopped the 4 s check rather than waiting for it.
-    expect(Date.now() - drainedAt).toBeLessThan(3000);
+    // close (R-G13 increment 3 review, H1). The gate stays shut, so a drain that waited for
+    // the check would never return: it stopped the check instead.
+    expect(
+      await withinHangGuard(
+        f.state.context.services.agentRunService.interruptForRestart(),
+        'the drain',
+      ),
+    ).toBe(1);
     expect(storage.execution.runs.find(f.state.workspaceId, second as never)?.status).toBe(
       'interrupted',
     );
+    await waitUntil(() => !processRunning(check), 'the stopped check to exit');
     expect(launched()).toBe(before + 1);
   },
 );
@@ -298,8 +312,10 @@ itNeedsCargo(
 itNeedsCargo(
   "pausing a cycle during its review's checks stops them at once and starts no reviewer (R-G13 increment 3 review)",
   async () => {
+    // The check waits on a gate the test never opens (R-I2, LF F4).
+    const gate = checkGate();
     const f = await scopedRuntimeFixture([
-      { id: 'slow', argv: ['node', '-e', 'setTimeout(() => {}, 8000)'], definitionPaths: [] },
+      { id: 'slow', argv: [...gate.command], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     f.backend.replyForRequest = async (request) => {
@@ -323,23 +339,17 @@ itNeedsCargo(
         ? storage.execution.runs.find(f.state.workspaceId, current.currentRunId as never)
         : undefined;
     };
-    const deadline = Date.now() + 20000;
-    while (reviewRun()?.status !== 'starting') {
-      if (Date.now() > deadline) throw new Error('the review never started its checks');
-      await services.workCycleService.tick();
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await waitFor(() => reviewRun()?.status === 'starting', 'the review starting its checks', {
+      step: () => services.workCycleService.tick(),
+    });
     const starting = reviewRun()!;
-    const pausedAt = Date.now();
+    await waitUntil(() => gate.pids().length === 1, 'the check running');
     await controlCycle(f.state, currentCycle(f.state, cycle), 'pause');
     const ended = () => storage.execution.runs.find(f.state.workspaceId, starting.id)?.status;
-    while (ended() === 'starting') {
-      if (Date.now() - pausedAt > 6000)
-        throw new Error('the paused review kept its checks running');
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    // Stopped well before the 8 s check would have finished, and no reviewer started.
+    // The gate stays shut, so only stopping the check can end the review.
+    await waitUntil(() => ended() !== 'starting', 'the paused review to end');
     expect(ended()).toBe('cancelled');
+    await waitUntil(() => !processRunning(gate.pids()[0]!), 'the stopped check to exit');
     expect(reviewsLaunched()).toBe(0);
     expect(services.checkRequestService.inFlight(starting.id)).toEqual([]);
   },
@@ -392,8 +402,10 @@ itNeedsCargo(
 itNeedsCargo(
   'a drain records a review whose checks outlast its grace, and counts it once (R-G13 increment 3 verification)',
   async () => {
+    // A check that never ends unless stopped: its gate is never opened (R-I2).
+    const gate = checkGate();
     const f = await scopedRuntimeFixture([
-      { id: 'endless', argv: ['node', '-e', 'setTimeout(() => {}, 30000)'], definitionPaths: [] },
+      { id: 'endless', argv: [...gate.command], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const services = f.state.context.services;
@@ -419,8 +431,10 @@ itNeedsCargo(
 itNeedsCargo(
   'a manual review whose worktree is retired during its checks starts no reviewer (R-G13 increment 3 verification)',
   async () => {
+    // The check ends when the test opens its gate, after the worktree is retired (R-I2).
+    const gate = checkGate();
     const f = await scopedRuntimeFixture([
-      { id: 'slow', argv: ['node', '-e', 'setTimeout(() => {}, 2500)'], definitionPaths: [] },
+      { id: 'slow', argv: [...gate.command], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const before = f.backend.launches.length;
@@ -437,6 +451,7 @@ itNeedsCargo(
     // An amendment retires the worktree while the checks run; amendments take no worktree hold.
     vi.spyOn(storage.amendments, 'retired').mockReturnValue(true);
     try {
+      gate.open();
       await waitFor(() => find()?.status !== 'starting', 'the launch ended after its checks');
       expect(find()?.status).toBe('cancelled');
       expect(find()?.outcomeSummary ?? '').toContain('retired by a reviewed amendment');
@@ -803,49 +818,72 @@ itNeedsCargo(
     // The agent's own requests: the daemon's runs before a review are tested on their own.
     withoutDaemonChecks(f.state);
     const checks = f.state.context.services.checkRequestService;
-    let peak = 0;
-    let replies = '';
+    // Every check waits on the gate, so none can finish before the test says (R-I2, TS-H2).
+    const gate = checkGate();
+    let runId = '';
+    let spool = '';
     f.backend.replyForRequest = (request) => {
-      const runId = request.buildEnvironment!.namespace!;
-      const spool = join(request.buildEnvironment!.binDirectory, '../requests');
-      replies = join(f.state.context.config.execution.checkLogRoot, runId, 'replies');
+      runId = request.buildEnvironment!.namespace!;
+      spool = join(request.buildEnvironment!.binDirectory, '../requests');
       // Forty requests at once, written as a launcher would.
       for (let i = 0; i < 40; i++) {
         const id = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
         writeFileSync(
           join(spool, `${id}.request`),
-          JSON.stringify({
-            version: 1,
-            tool: 'ct-check',
-            args: ['--', process.execPath, '-e', 'setTimeout(() => {}, 200)'],
-          }),
+          JSON.stringify({ version: 1, tool: 'ct-check', args: ['--', ...gate.command] }),
         );
       }
-      const release = (async () => {
-        const deadline = Date.now() + 30_000;
-        while (Date.now() < deadline) {
-          peak = Math.max(peak, checks.inFlight(runId).length);
-          let exits = 0;
-          try {
-            exits = readdirSync(replies).filter((n) => n.endsWith('.exit')).length;
-          } catch {
-            return; // The test has finished and removed its files.
-          }
-          if (exits === 40) return;
-          await new Promise((r) => setTimeout(r, 10));
-        }
-      })();
-      return { resultText: scopeReport(f.state, f.tree.executionScope!), release };
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
     };
-    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
-    const exits = readdirSync(replies)
-      .filter((n) => n.endsWith('.exit'))
-      .map((n) => JSON.parse(readFileSync(join(replies, n), 'utf8')));
-    // Never more than four at once; under load fewer may overlap, but more than one always do.
+    const started = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+      headers: mutationHeaders(f.state),
+      payload: { worktreeId: f.tree.id, role: 'review' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const run = started.json().run.id as string;
+    const status = () =>
+      f.state.context.storage.execution.runs.find(f.state.workspaceId, run as never)?.status;
+    // The turn ends at once; the run stays live while its checks run.
+    await waitFor(() => status() === 'waiting', 'turn');
+    const replies = join(f.state.context.config.execution.checkLogRoot, runId, 'replies');
+    const exits = () => {
+      try {
+        return readdirSync(replies)
+          .filter((n) => n.endsWith('.exit'))
+          .map((n) => JSON.parse(readFileSync(join(replies, n), 'utf8')));
+      } catch {
+        return []; // No check has answered yet.
+      }
+    };
+    // The daemon claims each request (renaming it) and queues, starts or refuses it in one
+    // pass. Nothing can finish, so once none is left unclaimed the bounds alone decide.
+    await waitUntil(
+      () => !readdirSync(spool).some((name) => name.endsWith('.request')),
+      'every request claimed',
+    );
+    expect(checks.inFlight(runId)).toHaveLength(4);
+    expect(exits().map((e) => e.diagnostic)).toEqual(
+      Array(4).fill(expect.stringContaining('Too many checks')),
+    );
+    // Released, the waiting checks run in turn, never more than four at once.
+    let peak = 0;
+    gate.open(36);
+    await waitUntil(() => {
+      peak = Math.max(peak, checks.inFlight(runId).length);
+      return exits().length === 40;
+    }, 'every check');
     expect(peak).toBeLessThanOrEqual(4);
-    expect(peak).toBeGreaterThan(1);
-    expect(exits.filter((e) => e.diagnostic?.includes('Too many checks'))).toHaveLength(4);
-    expect(exits.filter((e) => e.exitCode === 0)).toHaveLength(36);
+    expect(exits().filter((e) => e.exitCode === 0)).toHaveLength(36);
+    expect(gate.pids()).toHaveLength(36);
+    await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/runs/${run}/end`,
+      headers: mutationHeaders(f.state),
+      payload: {},
+    });
+    await waitFor(() => status() === 'finished', 'finish');
     expect(
       f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run),
     ).toHaveLength(36);

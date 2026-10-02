@@ -1,8 +1,15 @@
 import { readFileSync } from 'node:fs';
-import { expect, it } from 'vitest';
+import { expect, inject, it } from 'vitest';
 import { RAW_LINE_LIMIT_BYTES, TOOL_RESULT_LIMIT_BYTES } from '../bounded.js';
 import { CodexStreamNormalizer } from './normalize.js';
 import { type CodexAuthMode, codexCredentialRejection } from './provider-failure.js';
+
+declare module 'vitest' {
+  export interface ProvidedContext {
+    /** `CRAFTINGTABLE_TEST_TIMEOUT_SCALE`, 1 when unset (vitest.config.ts, R-I2). */
+    testTimeScale: number;
+  }
+}
 
 it('normalizes tool lifecycle once, ignores deltas and user echoes, and keeps final text and per-turn usage', () => {
   const normalizer = new CodexStreamNormalizer();
@@ -372,7 +379,9 @@ it('bounds the rejection match and shows no more of a key than the vendor does',
   const started = performance.now();
   expect(codexCredentialRejection(`${prefix} `.repeat(15_000))).toBeUndefined();
   expect(codexCredentialRejection(`${prefix}${'*'.repeat(1_000_000)}`)).toBeUndefined();
-  expect(performance.now() - started).toBeLessThan(1000);
+  // A genuine bound: a backtracking regression takes far longer than this on any host, and the
+  // bound is scaled with the suite's timeout for a slower or busier one (R-I2).
+  expect(performance.now() - started).toBeLessThan(5_000 * inject('testTimeScale'));
   expect(
     codexCredentialRejection(
       'unexpected status 401 Unauthorized: Incorrect API key provided: sk-abcdefghijklmnopqrst. url: https://chatgpt.com/backend-api/codex/responses',

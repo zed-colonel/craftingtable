@@ -117,8 +117,9 @@ describe('ClaudeCodeBackend', () => {
       executable,
       `#!${process.execPath}
 const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
-// A background shell in the session's process group.
-const shell = require('node:child_process').spawn('sleep', ['60'], { stdio: 'ignore' });
+// A background shell in the session's process group. It outlives any bound in this test, so
+// only ending the group ends it (R-I2: state, not elapsed time).
+const shell = require('node:child_process').spawn('sleep', ['3600'], { stdio: 'ignore' });
 require('node:fs').writeFileSync('background.pid', String(shell.pid));
 out({ type: 'system', subtype: 'init', session_id: 'limit-session', model: 'fake-model' });
 out({ type: 'system', subtype: 'task_started', task_id: 'sub-1', tool_use_id: 'toolu_1', description: 'Sub-agent' });
@@ -129,14 +130,14 @@ setInterval(() => out(limited), 50);
 `,
     );
     chmodSync(executable, 0o755);
-    const started = Date.now();
     const session = await new ClaudeCodeBackend({ executable, terminationGraceMs: 100 }).launch({
       cwd: directory,
       prompt: 'review',
       permissionMode: 'auto',
     });
+    // The fake never stops on its own, nor does its background shell: the items end only
+    // because the session was ended.
     const items = await collect(session.items);
-    expect(Date.now() - started).toBeLessThan(5000);
     const turns = items.flatMap((item) =>
       item.type === 'event' && item.event.kind === 'turn-completed' ? [item.event.payload] : [],
     );
@@ -149,16 +150,19 @@ setInterval(() => out(limited), 50);
     expect(exited?.type === 'exited' && exited.reason).toBeFalsy();
     // Nothing in the process group outlives the session.
     const background = Number(readFileSync(join(directory, 'background.pid'), 'utf8'));
-    await expect
-      .poll(() => {
-        try {
-          process.kill(background, 0);
-          return true;
-        } catch {
-          return false;
-        }
-      })
-      .toBe(false);
+    const alive = () => {
+      try {
+        process.kill(background, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      await expect.poll(alive).toBe(false);
+    } finally {
+      if (alive()) process.kill(background, 'SIGKILL');
+    }
   });
 
   it('terminates a process that ignores SIGTERM', async () => {
@@ -176,10 +180,9 @@ setInterval(() => out(limited), 50);
     });
     const collecting = collect(session.items);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const started = Date.now();
     session.kill();
+    // The fake ignores SIGTERM, so it ends only by the SIGKILL that follows the grace.
     const items = await collecting;
-    expect(Date.now() - started).toBeLessThan(5000);
     const exited = items.at(-1);
     expect(exited?.type === 'exited' && exited.signal).toBe('SIGKILL');
   });

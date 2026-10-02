@@ -11,6 +11,7 @@ import {
   type FormEvent,
   type ReactNode,
   type UIEvent,
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -45,6 +46,7 @@ import {
 import { ReviewFindings } from './ReviewFindings.js';
 import { defaultEffortLabel } from './ReasoningEffortField.js';
 import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
+import { eventBody, eventTitle } from './run-event-text.js';
 
 type EventGroup = 'messages' | 'tools' | 'notices' | 'system';
 
@@ -68,61 +70,6 @@ const GROUP_LABELS: Readonly<Record<EventGroup, string>> = {
 };
 
 const GROUPS: readonly EventGroup[] = ['messages', 'tools', 'notices', 'system'];
-
-function eventTitle(event: RunEventEnvelope): string {
-  switch (event.kind) {
-    case 'session-started':
-      return `Session started · ${event.payload.model}`;
-    case 'user-message':
-      return 'You';
-    case 'assistant-message':
-      return 'Agent';
-    case 'tool-call':
-      return `${event.payload.name}: ${event.payload.summary}`;
-    case 'tool-result':
-      return event.payload.isError ? 'Tool error' : 'Tool result';
-    case 'turn-completed':
-      return event.payload.outcome === 'success' ? 'Turn completed' : 'Turn ended with an error';
-    case 'notice':
-      return `Notice (${event.payload.category})`;
-    case 'stderr':
-      return 'Backend stderr';
-    case 'run-finished':
-      return `Run ${RUN_STATUS_LABELS[event.payload.status].toLowerCase()}`;
-  }
-}
-
-function eventBody(event: RunEventEnvelope): string | undefined {
-  switch (event.kind) {
-    case 'session-started':
-      return `${event.payload.backend} session ${event.payload.backendSessionId} (${
-        BILLING_LABELS[event.payload.billing]
-      }) in ${event.payload.cwd}`;
-    case 'user-message':
-    case 'assistant-message':
-    case 'stderr':
-      return event.payload.text;
-    case 'tool-call':
-      return JSON.stringify(event.payload.input, null, 2);
-    case 'tool-result':
-      return event.payload.content;
-    case 'turn-completed':
-      return `${event.payload.resultText}\n\nturns: ${event.payload.turns} · duration: ${(
-        event.payload.durationMs / 1000
-      ).toFixed(1)}s${
-        event.payload.costUsd === undefined
-          ? ''
-          : ` · cost so far: $${event.payload.costUsd.toFixed(2)}`
-      }${event.payload.tokenUsage === undefined ? '' : ` · tokens: ${event.payload.tokenUsage.totalTokens.toLocaleString()} (${event.payload.tokenUsage.inputTokens.toLocaleString()} input, ${event.payload.tokenUsage.cachedInputTokens.toLocaleString()} cached, ${event.payload.tokenUsage.outputTokens.toLocaleString()} output)`}`;
-    case 'notice':
-      return event.payload.message;
-    case 'run-finished':
-      return (
-        event.payload.message ??
-        (event.payload.exitCode === undefined ? undefined : `exit code ${event.payload.exitCode}`)
-      );
-  }
-}
 
 /** Tool traffic and the brief itself are collapsed; conversation stays open. */
 const COLLAPSED_KINDS = new Set<RunEventEnvelope['kind']>([
@@ -148,7 +95,17 @@ function FullOutput({ event }: { event: RunEventEnvelope }) {
   );
 }
 
-function RunEventItem({ event, expanded }: { event: RunEventEnvelope; expanded: boolean }) {
+/**
+ * One run event (R-D4 increment 4c, PERF-10). Memoized: an event already shown is not rendered
+ * again when another arrives, or when the page re-renders for anything else.
+ */
+const RunEventItem = memo(function RunEventItem({
+  event,
+  expanded,
+}: {
+  event: RunEventEnvelope;
+  expanded: boolean;
+}) {
   const body = eventBody(event);
   const collapsed = !expanded && COLLAPSED_KINDS.has(event.kind);
   return (
@@ -179,7 +136,7 @@ function RunEventItem({ event, expanded }: { event: RunEventEnvelope; expanded: 
       {!collapsed && <FullOutput event={event} />}
     </li>
   );
-}
+});
 
 export function RunPage({
   detail,

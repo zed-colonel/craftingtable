@@ -30,13 +30,14 @@ import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { revealElement } from '../../lib/reveal-element.js';
-import type { Route } from '../../lib/route.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { DependencyGraph, PhaseRequirements, phaseLabel } from './DependencyRequirements.js';
 import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
+import { useStableCallback } from '../../lib/use-stable-callback.js';
+import { MapNodeCard } from './MapNodeCard.js';
 export function CrossProjectPanel({
   workspaceId,
   definitionId,
@@ -70,10 +71,11 @@ export function CrossProjectPanel({
   const panelKey = roadmap ? `roadmap-${roadmap.id}` : definitionId;
   const runtimePanelId = `runtime-evidence-${panelKey}`;
   const nodeId = (key: string) => `map-node-${panelKey}-${encodeURIComponent(key)}`;
-  const trace = (key: string) => {
+  // The node cards are memoized; tracing keeps its identity (R-D4 increment 4c).
+  const trace = useStableCallback((key: string) => {
     setFocus(key);
     revealElement(`map-focus-${panelKey}`);
-  };
+  });
   const [editingRevision, setEditingRevision] = useState(roadmap?.definition.revision);
   const staleSettings = !!roadmap && (editingRevision ?? 0) < roadmap.definition.revision;
   const [target, setTarget] = useState(saved?.targetId ?? ''),
@@ -269,84 +271,16 @@ export function CrossProjectPanel({
       : overrideLevel === 'activity'
         ? ['development', 'verification', 'acceptance']
         : identities;
-  const scopeLink = (id: string): Route => ({
-    name: 'work-item',
-    workspaceId,
-    workItemId: id as import('@craftingtable/domain').WorkItemId,
-  });
   const nodeCard = (n: CrossProjectView['nodes'][number]) => (
-    <article className="cross-map-node" key={n.key}>
-      <p>
-        <strong>
-          {n.sourceId} · required state: {n.state}
-        </strong>
-        <br />
-        {n.title}
-      </p>
-      <p>{phaseLabel(n)}</p>
-      <p>
-        {n.status}
-        {n.priority && selection === 'prioritize-full' ? ' · Target priority' : ''}
-      </p>
-      {n.decisionCoverage?.map((coverage) => (
-        <p key={coverage.submissionId}>
-          {coverage.checkpoint}: approved early clauses satisfy this slice’s {coverage.phase} gate.
-          Full ADR obligations remain with later work.{' '}
-          <button
-            type="button"
-            onClick={() => revealElement(`${runtimePanelId}-submission-${coverage.submissionId}`)}
-          >
-            Review clause approval
-          </button>
-        </p>
-      ))}
-      {n.originalRequirements && (
-        <details>
-          <summary>Original imported prerequisites · preserved for audit</summary>
-          <ul>
-            {distinct(n.originalRequirements).map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-      <ActionBar label="Milestone actions">
-        <button type="button" className="secondary-button" onClick={() => trace(n.key)}>
-          Trace requirements
-        </button>
-        {n.workItemId && (
-          <Link route={scopeLink(n.workItemId)}>Open work item / advance scope</Link>
-        )}
-        {n.action === 'evidence' && (
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => revealElement(`${runtimePanelId}-evidence`)}
-          >
-            Submit or review checkpoint evidence
-          </button>
-        )}
-        {n.action === 'adopt' && (
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => revealElement(`map-adoption-${panelKey}`)}
-          >
-            Review scheduling proposals
-          </button>
-        )}
-      </ActionBar>
-      {n.blockers.length > 0 && (
-        <details>
-          <summary>{n.blockers.length} waiting requirements</summary>
-          <ul>
-            {distinct(n.blockers).map((b) => (
-              <li key={b}>{b}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </article>
+    <MapNodeCard
+      key={n.key}
+      node={n}
+      prioritized={selection === 'prioritize-full'}
+      workspaceId={workspaceId}
+      panelKey={panelKey}
+      runtimePanelId={runtimePanelId}
+      onTrace={trace}
+    />
   );
   const actions = view ? (
     <ActionBar label="Cross-project roadmap actions">

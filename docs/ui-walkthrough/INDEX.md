@@ -103,3 +103,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-02-app-split-before | `6c8bb41` | 2026-10-02 | 67 (1 phone only) | 1× |
 | 2026-10-02-app-split-after | `f4cd720` | 2026-10-02 | 67 (1 phone only) | 1× |
 | 2026-10-02-memo-rows-before | `6fdc194` | 2026-10-02 | 67 (1 phone only) | 1× |
+| 2026-10-02-memo-rows-after | `041a865` | 2026-10-02 | 67 (1 phone only) | 1× |

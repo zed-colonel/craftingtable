@@ -1,4 +1,4 @@
-import { ReverifyItem } from './ReverifyItem.js';
+import { type EntryCommand, RoadmapEntryRow } from './RoadmapEntryRow.js';
 import type {
   AttentionItemView,
   ExecutionScopeChoice,
@@ -8,13 +8,11 @@ import type {
   WorkspaceWorkItemListResponse,
 } from '@craftingtable/contracts';
 import {
-  CYCLE_STEPS,
   type CycleProfiles,
   cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_SCHEDULING,
   executionScopeKey,
-  phaseBlockerCode,
   type Roadmap,
   type RoadmapDefinition,
   type RoadmapEntry,
@@ -36,6 +34,7 @@ import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { revealElement } from '../../lib/reveal-element.js';
+import { useStableCallback } from '../../lib/use-stable-callback.js';
 import {
   roadmapSetupIds,
   SetupChecklist,
@@ -878,6 +877,11 @@ export function RoadmapPage({
       setBusy(false);
     }
   };
+  // The entry rows are memoized; their callbacks keep their identity (R-D4 increment 4c).
+  const openWorkItem = useStableCallback(onOpenWorkItem);
+  const entryCommand = useStableCallback((action: EntryCommand, entryId: string) => {
+    if (view) void command(view.roadmap, action, entryId);
+  });
   const alert = error && (
     <p role="alert" className="error-state">
       {error}
@@ -922,19 +926,6 @@ export function RoadmapPage({
     tab: part,
     ...(element === undefined ? {} : { focus: element }),
   });
-  // An element on another of the roadmap's pages is reached by navigating there; on this one
-  // (or inside the inbox, which shows every part) it is revealed in place.
-  const reveal = (tabPart: RoadmapTab, element: string) => (label: string) =>
-    // Inside an inbox item showing one part, the element is on the roadmap's own page.
-    shows(tabPart) && !part ? (
-      <button type="button" className="secondary-button" onClick={() => revealElement(element)}>
-        {label}
-      </button>
-    ) : (
-      <Link className="secondary-button" route={tabRoute(tabPart, element)}>
-        {label}
-      </Link>
-    );
   const runtimePanelId = `runtime-evidence-roadmap-${roadmap.id}`;
   // A single-project roadmap whose slices all come from one map revision.
   const mapScope = crossProject ? undefined : runtimeScope(roadmap);
@@ -1000,140 +991,28 @@ export function RoadmapPage({
       )}
     </ActionBar>
   );
-  const entryRow = (entry: RoadmapEntry) => {
-    const state = progress.find((p) => p.entryId === entry.id);
-    const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
-    return (
-      <li key={entry.id} id={`roadmap-entry-${roadmap.id}-${entry.id}`}>
-        <Link
-          route={{ name: 'work-item', workspaceId, workItemId: entry.workItemId }}
-          onClick={(event) => {
-            event.preventDefault();
-            onOpenWorkItem(entry.workItemId);
-          }}
-        >
-          {[entry.sourceId, entry.executionScope?.kind, entry.title]
-            .filter((part) => part !== undefined && part !== '')
-            .join(' · ')}
-        </Link>
-        <p>
-          <strong>
-            {state?.status === 'awaiting-merge'
-              ? entry.executionScope && entry.executionScope.kind !== 'slice'
-                ? 'Ready for scope acceptance'
-                : 'Awaiting merge approval'
-              : state?.status === 'paused'
-                ? 'Item paused'
-                : state?.status === 'capacity-blocked'
-                  ? 'Waiting for capacity'
-                  : state?.status === 'exclusion-blocked'
-                    ? 'Waiting for exclusion group'
-                    : state?.status === 'dependency-blocked'
-                      ? 'Waiting on prerequisites'
-                      : state?.status === 'needs-attention'
-                        ? 'Needs attention'
-                        : state?.status === 'completed'
-                          ? 'Completed'
-                          : state?.status === 'running'
-                            ? 'Running'
-                            : 'Queued'}
-          </strong>{' '}
-          · <code>{entry.integrationBranch}</code>
-        </p>
-        <p className="hint">{state?.reason}</p>
-        {entry.executionScope &&
-          state?.blockers?.some((b) =>
-            ['environment-approval', 'resource-unsupported'].includes(phaseBlockerCode(b)),
-          ) &&
-          reveal('setup', `${runtimePanelId}-native`)('Set up verification environment')}
-        {entry.executionScope &&
-          state?.blockers?.some((b) => b.kind === 'review') &&
-          reveal(
-            'setup',
-            `map-reviewers-roadmap-${roadmap.id}`,
-          )('Assign independent reviewer responsibilities')}
-        {entry.executionScope && entry.executionScope.kind !== 'slice' ? (
-          <p className="hint">
-            Independent review records scope evidence; it does not merge a branch.
-          </p>
-        ) : (
-          <StatusStrip
-            compact
-            facts={[
-              {
-                label: 'Integration merge',
-                value:
-                  (state?.effectiveAutomation ?? entry.automation ?? roadmap.definition.automation)
-                    ?.integrationMerge === 'automatic'
-                    ? 'Automatic when reviewed and ready'
-                    : 'Your approval required',
-              },
-              {
-                label: 'Conflicts',
-                value:
-                  (state?.effectiveAutomation ?? entry.automation ?? roadmap.definition.automation)
-                    ?.integrationConflicts === 'automatic'
-                    ? 'Automatic delegation'
-                    : 'Ask you',
-              },
-              ...(entry.exclusionGroups?.length
-                ? [{ label: 'Exclusion groups', value: entry.exclusionGroups.join(', ') }]
-                : []),
-            ]}
-          />
-        )}
-        {canMutate &&
-          roadmap.status === 'running' &&
-          roadmap.definition.scheduling?.mode === 'parallel' &&
-          state?.status !== 'completed' && (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={busy}
-              onClick={() =>
-                void command(
-                  roadmap,
-                  ['paused', 'needs-attention'].includes(state?.status ?? '') ? 'resume' : 'pause',
-                  entry.id,
-                )
-              }
-            >
-              {['paused', 'needs-attention'].includes(state?.status ?? '')
-                ? 'Resume item'
-                : 'Pause item'}
-            </button>
-          )}
-        <ReverifyItem
-          reverifiable={!!state?.reverifiable}
-          canMutate={canMutate}
-          busy={busy}
-          onReverify={() => void command(roadmap, 'reverify', entry.id)}
-        />
-        <details>
-          <summary>Bound plan and cycle settings</summary>
-          <p className="hint">
-            Plan version: <code>{entry.planVersionId}</code>
-            {attempt && <> · Execution revision {attempt.definitionRevision}</>}
-          </p>
-          <ul>
-            {CYCLE_STEPS.map((step) => (
-              <li key={step}>
-                {step}: {entry.profiles[step].backend} ·{' '}
-                <code>{entry.profiles[step].model ?? 'Backend default'}</code> ·{' '}
-                {entry.profiles[step].permissionMode}
-              </li>
-            ))}
-          </ul>
-          <p>
-            Zero blocking, major, or minor findings; at most {entry.policy.maxNits} nits. Up to{' '}
-            {entry.policy.maxRemediationRounds} remediation rounds, {entry.policy.maxRunMinutes}{' '}
-            minutes per step.
-          </p>
-          {entry.instructions && <pre className="roadmap-instructions">{entry.instructions}</pre>}
-        </details>
-      </li>
-    );
-  };
+  /** Each entry's progress and attempt, looked up once per read rather than once per row. */
+  const progressOf = new Map(progress.map((p) => [p.entryId, p]));
+  const attemptOf = new Map(roadmap.attempts.map((a) => [a.entryId, a]));
+  const entryRow = (entry: RoadmapEntry) => (
+    <RoadmapEntryRow
+      key={entry.id}
+      entry={entry}
+      state={progressOf.get(entry.id)}
+      attempt={attemptOf.get(entry.id)}
+      workspaceId={workspaceId}
+      roadmapId={roadmap.id}
+      roadmapStatus={roadmap.status}
+      automation={roadmap.definition.automation}
+      parallel={roadmap.definition.scheduling?.mode === 'parallel'}
+      canMutate={canMutate}
+      busy={busy}
+      setupInline={shows('setup') && !part}
+      runtimePanelId={runtimePanelId}
+      onOpenWorkItem={openWorkItem}
+      onCommand={entryCommand}
+    />
+  );
   const board = (
     <>
       <p role="status">

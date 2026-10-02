@@ -9,6 +9,7 @@ import {
   adoptCrossProject,
 } from '../../lib/cross-project-api.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
+import { phaseLabel } from './DependencyRequirements.js';
 vi.mock('../../lib/cross-project-api.js', () => ({
   previewCrossProject: vi.fn(),
   saveCrossProject: vi.fn(),
@@ -18,6 +19,11 @@ vi.mock('../../lib/execution-api.js', () => ({
   loadExecutionStatus: vi.fn(),
   loadRunProfiles: vi.fn(),
 }));
+// Each node card names its phase once, so the label's calls count the cards rendered (R-D4 4c).
+vi.mock('./DependencyRequirements.js', async (original) => {
+  const actual = await original<typeof import('./DependencyRequirements.js')>();
+  return { ...actual, phaseLabel: vi.fn(actual.phaseLabel) };
+});
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -335,4 +341,29 @@ it("reads the map's environment again after adopting, and re-offers the controls
         .disabled,
     ).toBe(false),
   );
+});
+
+// R-D4 increment 4c (PERF-10): a map read again renders only the milestones that changed.
+it("renders only the changed milestone's card when the map's preview is read again", async () => {
+  const { store, wrap } = testQueryStore();
+  setup(undefined, undefined, undefined, wrap);
+  fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
+  await screen.findByText('2 selected milestones');
+  const preview = await vi.mocked(previewCrossProject).mock.results[0]!.value;
+  vi.mocked(phaseLabel).mockClear();
+  // The same preview again: no card renders.
+  store.refreshNow([['cross-project', ws, id]]);
+  await waitFor(() => expect(previewCrossProject).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.getByText('2 selected milestones')).toBeTruthy());
+  expect(vi.mocked(phaseLabel)).toHaveBeenCalledTimes(0);
+  // One milestone's status changes: its card alone renders.
+  vi.mocked(previewCrossProject).mockResolvedValue({
+    ...preview,
+    nodes: preview.nodes.map((node: { key: string }) =>
+      node.key === 'slice:wi/WI-01/core:verified' ? { ...node, status: 'Under review' } : node,
+    ),
+  });
+  store.refreshNow([['cross-project', ws, id]]);
+  await screen.findByText('Under review');
+  expect(vi.mocked(phaseLabel)).toHaveBeenCalledTimes(1);
 });

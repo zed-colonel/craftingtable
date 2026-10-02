@@ -1542,6 +1542,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *NIT, left (F6):* `apply()` moves a commanded roadmap to the front of the list, so after a command the roadmaps behind it get new identities and their rows render once. The result is correct, and the cost is one render per command; it was not worth reordering the list for.
   - *LOW, fixed (F7):* the budget test hit the web project's 5 s default timeout under CPU oversubscription. It has its own 120 s timeout.
   - Speculative, not acted on: `useStableCallback` assigns during render. A discarded render could leave an uncommitted function in place, but the app has no transitions or Suspense, and the callback is only called from click handlers.
+- **E2E failures found by 4c's gate (2026-10-02), not caused by 4c; open.** Full e2e runs failed intermittently on three specs:
+  - `mobile.spec.ts`: the cycle never showed "Awaiting merge approval" within 15 s after an authorized remediation;
+  - `roadmaps.spec.ts` (parallel): the "Integration conflicts" region never listed `README.md` within 5 s;
+  - `package-imports.spec.ts`: after "Automation and agents" was chosen in the map's setup checklist, the Reviewers part was showing and the roadmap name field never appeared (120 s). The page snapshot has the automation settings disclosure focused, so the choice was overridden after it was made. That makes this one a step-selection race, not a slow server.
+
+  At e4c458f, 3 of 4 full runs failed. At 6fdc194 (before 4c), 3 of 3 failed on the same specs at the same steps. Each spec passes alone (mobile 4 of 4), and 4b's gate passed at 2dad83e. The live daemon was using about 35% of a CPU throughout, which 4b's gate did not have. The mechanism for the setup-step override is not yet found: `stepForFocus` maps the automation anchor correctly, and only a reveal's show-part event changes the chosen step.
 
 ### R-D5
 

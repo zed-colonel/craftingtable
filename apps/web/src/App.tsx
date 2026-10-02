@@ -192,7 +192,6 @@ export function App() {
   const [audit, setAudit] = useState<readonly AuditRecordSummary[]>([]);
   const [streamAfter, setStreamAfter] = useState(0);
   const [theme, setTheme] = useState<Theme>(() => currentTheme());
-  const [now, setNow] = useState(() => Date.now());
   const [projection, dispatch] = useReducer(
     reduceWorkspaceProjection,
     INITIAL_WORKSPACE_PROJECTION,
@@ -438,14 +437,6 @@ export function App() {
       }
     })();
   }, [establishSession]);
-
-  // Elapsed times on run rows tick without a stream event, while visible.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (!documentHidden()) setNow(Date.now());
-    }, 10_000);
-    return () => clearInterval(timer);
-  }, []);
 
   // `/` is a bookmark, not a page: it resolves to the last used workspace once
   // the workspace list is known.
@@ -1841,7 +1832,6 @@ export function App() {
             >
               <RunList
                 runs={liveRuns}
-                now={now}
                 onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
                 onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
               />
@@ -1864,7 +1854,6 @@ export function App() {
           <RunsPage
             runs={recentRuns?.runs ?? []}
             liveCount={recentRuns?.liveCount ?? 0}
-            now={now}
             onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
             onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
           />
@@ -1920,7 +1909,6 @@ export function App() {
             items={attentionItems}
             loaded={attentionLoaded}
             {...(route.itemId === undefined ? {} : { selectedId: route.itemId })}
-            now={now}
             onNavigate={go}
             renderHost={renderInboxHost}
           />

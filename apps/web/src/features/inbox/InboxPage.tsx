@@ -8,6 +8,7 @@ import { StatusStrip } from '../../components/StatusStrip.js';
 import { ATTENTION_CODE_LABELS } from '../../lib/attention-labels.js';
 import { Link, PathLink } from '../../lib/navigation.js';
 import type { Route } from '../../lib/route.js';
+import { useNow } from '../../lib/use-now.js';
 
 /**
  * The "Needs you" inbox (R-A5): every open attention item, most blocking first, and one
@@ -19,7 +20,7 @@ export function InboxPage({
   items,
   loaded,
   selectedId,
-  now,
+  now: fixedNow,
   onNavigate,
   renderHost,
 }: {
@@ -27,11 +28,14 @@ export function InboxPage({
   items: readonly AttentionItemView[];
   loaded: boolean;
   selectedId?: string;
-  now: number;
+  /** A fixed time (tests); otherwise the ages tick on their own (R-D4 increment 4b). */
+  now?: number;
   onNavigate: (route: Route) => void;
   /** The decisions that resolve this item. */
   renderHost: (item: AttentionItemView) => ReactNode;
 }) {
+  const ticking = useNow();
+  const now = fixedNow ?? ticking;
   const selected = items.find((item) => item.id === selectedId);
   const link = (route: Route, label: ReactNode, className = 'text-button') => (
     <Link

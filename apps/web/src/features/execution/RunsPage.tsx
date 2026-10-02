@@ -14,19 +14,23 @@ import {
   VERDICT_ACCENTS,
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
+import { useNow } from '../../lib/use-now.js';
 
 /** One row per run: enough to know what it is doing without opening it. */
 export function RunList({
   runs,
-  now,
+  now: fixedNow,
   onOpenRun,
   onOpenWorkItem,
 }: {
   runs: readonly RunOverview[];
-  now: number;
+  /** A fixed time (tests); otherwise the rows tick on their own (R-D4 increment 4b). */
+  now?: number;
   onOpenRun: (runId: AgentRunId) => void;
   onOpenWorkItem: (workItemId: WorkItemId) => void;
 }) {
+  const ticking = useNow();
+  const now = fixedNow ?? ticking;
   if (runs.length === 0) {
     return <p className="empty-state">No runs yet.</p>;
   }
@@ -106,7 +110,7 @@ export function RunsPage({
 }: {
   runs: readonly RunOverview[];
   liveCount: number;
-  now: number;
+  now?: number;
   onOpenRun: (runId: AgentRunId) => void;
   onOpenWorkItem: (workItemId: WorkItemId) => void;
 }) {
@@ -121,7 +125,12 @@ export function RunsPage({
         }
       />
       <Section title="Run history" label="Runs" count={runs.length}>
-        <RunList runs={runs} now={now} onOpenRun={onOpenRun} onOpenWorkItem={onOpenWorkItem} />
+        <RunList
+          runs={runs}
+          {...(now === undefined ? {} : { now })}
+          onOpenRun={onOpenRun}
+          onOpenWorkItem={onOpenWorkItem}
+        />
       </Section>
     </div>
   );

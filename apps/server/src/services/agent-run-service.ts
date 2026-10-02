@@ -71,6 +71,7 @@ import { composeBrief } from './brief.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { DaemonDrainingError, ExecutionRequestError, NotFoundError } from './errors.js';
 import {
+  requireNotRetired,
   requireTreeScope,
   resolveScope,
   scopeBrief,
@@ -107,6 +108,15 @@ export interface StartRunInput {
   /** Controller-authored rules for an automated step; never presented as operator text. */
   readonly controllerInstructions?: string;
   readonly parentRunId?: AgentRunId;
+}
+
+/** A question stop's investigation, as the cycle service launches it (R-C16). */
+export interface InvestigationLaunch {
+  readonly value: import('@craftingtable/domain').CycleInvestigation;
+  /** The run's `investigation/` context: the questions, the reports and the branch. */
+  readonly documents: readonly { readonly name: string; readonly content: string }[];
+  /** Refuses the launch once the cycle no longer holds this investigation. */
+  readonly check: () => void;
 }
 
 export interface RunCommandResult {
@@ -568,6 +578,58 @@ export class AgentRunService {
     );
   }
 
+  /**
+   * A question stop's read-only investigation (R-C16): beside the cycle, never its run. It
+   * starts from the stop's run, whose report and handoff it reads, and carries the
+   * investigation's id, which keeps it out of the worktree's lineage.
+   */
+  async startInvestigation(
+    context: CommandContext,
+    cycle: WorkCycle,
+    launch: InvestigationLaunch,
+    rules: string,
+  ): Promise<AgentRun> {
+    this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+    launch.check();
+    const { value } = launch;
+    return this.launchAuthorized(
+      cycle.workspaceId,
+      cycle.workItemId,
+      {
+        backend: value.profile.backend,
+        ...(value.profile.model === undefined ? {} : { model: value.profile.model }),
+        ...(value.profile.reasoningEffort
+          ? { reasoningEffort: value.profile.reasoningEffort }
+          : {}),
+        permissionMode: 'edit-only',
+        role: 'design',
+        worktreeId: cycle.worktreeId,
+        parentRunId: value.sourceRunId,
+        controllerInstructions: rules,
+        ...(value.instructions.trim() ? { stepGuidance: value.instructions } : {}),
+      },
+      { userId: context.user.id, ...(context.session ? { sessionId: context.session.id } : {}) },
+      undefined,
+      undefined,
+      { purpose: 'investigation', investigationId: value.id },
+      undefined,
+      launch,
+    );
+  }
+
+  /** Ends an investigation its cycle no longer holds; the run is read-only, so nothing is lost. */
+  cancelInvestigation(workspaceId: WorkspaceId, runId: AgentRunId, message: string): void {
+    const run = this.storage.execution.runs.find(workspaceId, runId);
+    if (!run?.profileSelection?.investigationId || isTerminalAgentRunStatus(run.status)) return;
+    const liveRun = this.liveRun(workspaceId, runId);
+    if (liveRun !== undefined) {
+      liveRun.cancelRequested = true;
+      liveRun.session.kill();
+      return;
+    }
+    this.finalize(workspaceId, runId, 'cancelled', { message });
+  }
+
   private requireCycleLaunchAuthority(cycle: WorkCycle): void {
     const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     const user = this.storage.users.findById(cycle.createdByUserId);
@@ -872,8 +934,28 @@ export class AgentRunService {
     cycle?: WorkCycle,
     profileSelection?: AgentRun['profileSelection'],
     preparation?: { value: import('@craftingtable/domain').DecisionPreparation; check: () => void },
+    investigation?: InvestigationLaunch,
   ): Promise<AgentRun> {
     if (this.draining) throw new DaemonDrainingError();
+    // Controller-run, read-only and deadline-bound (ADR-065, R-C16): a decision preparation or
+    // a question stop's investigation. Neither is a cycle's run, and each ends after one turn.
+    const controlled = preparation
+      ? {
+          runId: preparation.value.runId,
+          deadlineAt: preparation.value.deadlineAt,
+          check: preparation.check,
+          limit:
+            'Decision preparation reached its time limit. Review partial results and explicitly start another preparation if needed.',
+        }
+      : investigation
+        ? {
+            runId: investigation.value.runId,
+            deadlineAt: investigation.value.deadlineAt,
+            check: investigation.check,
+            limit:
+              'The investigation reached its time limit. Review its partial output and start another if needed.',
+          }
+        : undefined;
     await this.storageService?.waitForRunCleanup(input.worktreeId);
     const preparationTree = this.storage.roadmaps
       .list(workspaceId)
@@ -883,7 +965,7 @@ export class AgentRunService {
         'conflict',
         'Decision worktrees only permit their reserved read-only preparation run.',
       );
-    preparation?.check();
+    controlled?.check();
     if (this.storage.execution.merges.latest(workspaceId, input.worktreeId)?.status === 'reserved')
       throw new ExecutionRequestError(
         'conflict',
@@ -913,8 +995,11 @@ export class AgentRunService {
       if (worktree.status !== 'active') {
         throw new ExecutionRequestError('conflict', 'Worktree has been removed');
       }
-      requireTreeScope(tx, worktree, 'start');
+      // An investigation reads; the scope's start gates and its review-only rule do not apply.
+      if (investigation) requireNotRetired(tx, worktree);
+      else requireTreeScope(tx, worktree, 'start');
       if (
+        !investigation &&
         worktree.executionScope &&
         worktree.executionScope.kind !== 'slice' &&
         input.role !== 'review'
@@ -1025,7 +1110,8 @@ export class AgentRunService {
             prepared.worktree,
             cycle.integrationResolution,
           );
-        else if (input.role !== 'review') await this.branches?.validateLaunch(prepared.worktree);
+        else if (input.role !== 'review' && !investigation)
+          await this.branches?.validateLaunch(prepared.worktree);
         // A provider retry continues an interrupted review. A review that finished, and is
         // retried because the provider refused an approval review during it (R-C11), starts
         // afresh like any other review.
@@ -1087,7 +1173,8 @@ export class AgentRunService {
             'conflict',
             'Run launch permission changed during preparation.',
           );
-        requireTreeScope(this.storage, prepared.worktree, 'start');
+        if (investigation) requireNotRetired(this.storage, prepared.worktree);
+        else requireTreeScope(this.storage, prepared.worktree, 'start');
         if (cycle !== undefined) this.requireCycleLaunchAuthority(cycle);
         else {
           this.requireManualControl(workspaceId, input.worktreeId);
@@ -1100,10 +1187,10 @@ export class AgentRunService {
         )
           this.pendingCycleLaunches.delete(cycle.currentRunId);
       }
-      preparation?.check();
+      controlled?.check();
       // A drain can begin during Git preflight; no run record may start after it.
       if (this.draining) throw new DaemonDrainingError();
-      const runId = cycle?.currentRunId ?? preparation?.value.runId ?? asAgentRunId(randomUUID());
+      const runId = cycle?.currentRunId ?? controlled?.runId ?? asAgentRunId(randomUUID());
       starting.workspaceId = workspaceId;
       starting.runId = runId;
       this.startingLaunches.add(starting);
@@ -1115,12 +1202,15 @@ export class AgentRunService {
       // scratch failure does, never leaves a run starting (LIVE-31 review).
       const processTemporaryDirectory = this.processTemporaryDirectory(runId);
       const buildCacheDirectory = this.worktreeBuildCache(prepared.worktree);
-      const pinned = await this.runtimeEvidence?.prepare(
-        prepared.worktree,
-        runId,
-        runDirectory,
-        join(this.config.checkLogRoot, runId, 'replies'),
-      );
+      // A read-only investigation runs no commands: no pinned build environment or checks.
+      const pinned = investigation
+        ? undefined
+        : await this.runtimeEvidence?.prepare(
+            prepared.worktree,
+            runId,
+            runDirectory,
+            join(this.config.checkLogRoot, runId, 'replies'),
+          );
       const historical =
         cycle?.baselinePreparation?.status === 'prepared'
           ? await this.baselines?.materialize(cycle, runDirectory)
@@ -1157,6 +1247,19 @@ export class AgentRunService {
           ),
           { mode: 0o600 },
         );
+      }
+      if (investigation) {
+        const directory = join(runDirectory, 'investigation');
+        mkdirSync(directory, { recursive: true, mode: 0o700 });
+        for (const document of investigation.documents) {
+          const path = join(directory, document.name);
+          writeFileSync(path, document.content, { mode: 0o600 });
+          planDocuments.push({
+            filename: `investigation/${document.name}`,
+            role: 'supporting',
+            path,
+          });
+        }
       }
       if (cycle?.scopeRepair) {
         const path = join(planDirectory, 'craftingtable-scope-repair.json');
@@ -1391,7 +1494,7 @@ export class AgentRunService {
           : {}),
         ...(reviewArtifacts === undefined ? {} : { reviewContinuationArtifacts: reviewArtifacts }),
         resolvingIntegration: ownsIntegrationResolution(cycle),
-        planFinalization: !!prepared.worktree.planVersionId && !preparation,
+        planFinalization: !!prepared.worktree.planVersionId && !preparation && !investigation,
         temporaryDirectory,
         ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
         ...(pinned ? { launchers: true } : {}),
@@ -1476,9 +1579,11 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       if (this.draining) throw new DaemonDrainingError();
       const createdAt = this.now().toISOString();
       const run = this.storage.transaction((tx) => {
-        preparation?.check();
-        requireTreeScope(tx, prepared.worktree, 'start');
-        if (prepared.worktree.executionScope && prepared.worktree.workItemId) {
+        controlled?.check();
+        // An investigation holds no development capacity (R-C16).
+        if (investigation) requireNotRetired(tx, prepared.worktree);
+        else requireTreeScope(tx, prepared.worktree, 'start');
+        if (!investigation && prepared.worktree.executionScope && prepared.worktree.workItemId) {
           const scope = prepared.worktree.executionScope;
           reservePhase(
             tx,
@@ -1661,8 +1766,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           ...(pinned ? { pathPrefix: [pinned.binDirectory] } : {}),
           ...(cycle
             ? { deadlineAt: cycle.runDeadlineAt }
-            : preparation
-              ? { deadlineAt: preparation.value.deadlineAt, readOnly: true }
+            : controlled
+              ? { deadlineAt: controlled.deadlineAt, readOnly: true }
               : {}),
           prompt,
           ...(resume ? { resumeSessionId: resume.sessionId } : {}),
@@ -1683,14 +1788,14 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         try {
           session = cycle
             ? await this.launchCycleSession(backend, launch, cycle)
-            : preparation
+            : controlled
               ? await this.launchCycleSession(backend, launch, {
-                  currentRunId: preparation.value.runId,
-                  runDeadlineAt: preparation.value.deadlineAt,
+                  currentRunId: controlled.runId,
+                  runDeadlineAt: controlled.deadlineAt,
                 })
               : await backend.launch(launch);
           try {
-            preparation?.check();
+            controlled?.check();
           } catch (e) {
             session.kill();
             throw e;
@@ -1747,17 +1852,14 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           done: Promise.resolve(),
         };
         this.live.set(runId, liveRun);
-        if (preparation) {
+        if (controlled) {
           const timer = setTimeout(
             () => {
               liveRun.cancelRequested = true;
               session.kill();
-              this.finalize(workspaceId, runId, 'failed', {
-                message:
-                  'Decision preparation reached its time limit. Review partial results and explicitly start another preparation if needed.',
-              });
+              this.finalize(workspaceId, runId, 'failed', { message: controlled.limit });
             },
-            Math.max(1, Date.parse(preparation.value.deadlineAt) - this.now().getTime()),
+            Math.max(1, Date.parse(controlled.deadlineAt) - this.now().getTime()),
           );
           this.preparationTimers.set(runId, timer);
         }

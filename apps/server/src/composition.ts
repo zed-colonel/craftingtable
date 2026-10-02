@@ -367,7 +367,7 @@ export async function createServices(
       controllerPasses,
       operatorPresence,
       now,
-      (id) => workCycleService.isTransitioning(id),
+      (id, workspaceId) => workCycleService.holdsReminders(workspaceId, id),
     ),
     attention,
     controllerPasses,

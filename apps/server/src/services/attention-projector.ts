@@ -28,6 +28,7 @@ import type {
 } from '@craftingtable/storage';
 import type { ControllerPasses } from './attention-gates.js';
 import { preparedDecisionAccepted } from './decision-preparation-policy.js';
+import { investigationSummary } from './investigation.js';
 
 /**
  * Where a moved upstream pin is refreshed (LIVE-15): the owning roadmap's dependency
@@ -742,6 +743,14 @@ export class AttentionProjector implements WriteObserver {
         (!tree.executionScope || tree.executionScope.kind === 'slice')
           ? 'merge'
           : 'attention';
+      // A stop's investigation (R-C16): its item says so while it runs, and pages again
+      // with what it found once it ends.
+      const investigation = cycle.investigation;
+      const investigated = investigation
+        ? investigation.result
+          ? `\n${investigationSummary(investigation.result)}`
+          : '\nInvestigating: a read-only run is gathering evidence for these questions.'
+        : '';
       items.push({
         subjectKey: `cycle:${cycle.id}`,
         code: escalated ? 'recovery-not-converging' : attention.code,
@@ -752,8 +761,13 @@ export class AttentionProjector implements WriteObserver {
             ? escalated.reason
             : (requirements && attention.detail
                 ? attention.detail
-                : `${cycle.step}: ${cycle.reason}`) + held,
+                : `${cycle.step}: ${cycle.reason}`) +
+                held +
+                investigated,
         ),
+        ...(investigation?.result
+          ? { members: [`investigation:${investigation.id}:${investigation.result.outcome}`] }
+          : {}),
         path:
           !escalated && attention.code === 'upstream-pin-moved'
             ? (dependencyRefreshPath(ws, cycle.owner?.roadmapId) ?? path)

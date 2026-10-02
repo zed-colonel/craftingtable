@@ -1425,6 +1425,46 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - the actions for each stop;
     - the report parser.
 
+- **16a, second part (2026-10-02): the daemon starts, guards, reads back and announces an investigation.**
+  - **Start.** `POST …/cycles/:id/investigation` takes the expected version, an optional prompt, minutes (5–60, default 30) and a profile. The profile defaults to the cycle's Evidence investigation profile. The command refuses a stop with no questions to investigate, a live run on the worktree, a reserved merge or a removed worktree. It records `cycle.investigation` and launches the run.
+  - **The stop's questions** (`stopQuestions`):
+    - a slice's routed work-item questions, never a shared decision's;
+    - otherwise the items of the stop run's "## Open questions";
+    - nothing for design stops, a running cycle, a run still live, or a report that asks nothing.
+  - **Launch.** The run uses `launchAuthorized` with decision preparation's read-only mechanics, generalised as a "controlled" run: run id, deadline, check, read-only flag, cycle-style session and time-limit timer. It ends after its turn. It is the stop run's child, so its `handoff/` carries the report and lineage. The rules go in `controllerInstructions` and the operator's prompt in `stepGuidance`.
+  - **What the investigation skips.** It skips the predecessor gate, the scope's start gates, capacity reservation, the pinned build environment and the review-only rule on acceptance trees. A retired worktree is still refused (`requireNotRetired`).
+  - **Context.** `investigation/` holds:
+    - the questions;
+    - `context.json`: the stop, the lineage and its recorded check receipts;
+    - `branch.json` and `patch.diff`: commits and files against the merge base with the integration target, from the daemon's Git.
+  - **While it runs:**
+    - Eleven operator commands refuse it by name, with only `end-investigation` offered.
+    - `reconcile` only settles it, so no reassessment or other controller step runs beside it.
+    - The stop's item says "Investigating", and its reminders wait (`holdsReminders`, the notification hook now passes the workspace).
+    - The roadmap scheduler treats the entry as at work.
+    - Roadmap commands that act on its cycle work as follows. Stopping the roadmap ends the investigation, then stops the cycle. Pausing an item holds it and leaves the cycle at its stop. Resuming leaves it, because `resumable` is false while it is live. The recorded decision covers the stop's own commands; these are the roadmap's, and without this they would have failed partway.
+  - **End.** `POST …/investigation/end` cancels the run and records `cancelled` at once.
+  - **Read back.** When the run ends, `reconcile` writes the result:
+    - the parsed proposals;
+    - or why the report could not be read;
+    - or the failure, deadline or interruption.
+
+    The item then pages again once with a summary (a new member, `investigation:<id>:<outcome>`). The workspace-wide list leaves out the proposals (PERF-05).
+  - **Leaving the stop** (another status, or another current run) clears the record and cancels a run that is still live. The run is read-only, so ending it loses nothing.
+  - **Other newest-run readers.** The shared-decision inbox ignores investigation runs among the workspace's recent runs.
+  - **ADR-059 amended** (2026-10-02).
+  - **Replay check.** On a scratch copy of `replay/2026-10-01e`, EXO-04's cycle `b0de849a` (`remediation-exhausted`) offers `authorize-remediation`, `investigate`, `stop`, with its planning-amendment question as the one to investigate.
+  - **Tests:**
+    - `server-execution-investigation.test.ts`, end to end: the read-only launch and its context; the stop refused while it runs; the item and its paused reminders; proposals read back, then the operator's answer continuing from the stop's run; End investigation; the deadline; a run without a block; no offer at a design stop or a stop that asks nothing; and the roadmap's stop, item pause and item resume.
+    - A slice stop investigated without reserving capacity (`server-execution-plan-evidence.test.ts`).
+    - `services/investigation.test.ts`: the questions for each stop code.
+
+    Seventeen mutations of the daemon's parts each fail a test.
+  - **Not shown by a test:**
+    - skipping the predecessor gate and the scope's start gates: the fixtures cannot make those gates fail after a cycle has started (the capacity skip is shown);
+    - the shared-decision inbox ignoring investigation runs: it matters only when the stop's own report carries a recommendation, and no fixture's does. An assertion without one passed either way, so it was not kept.
+  - **Expectations changed:** the LIVE-33 test's stops now also offer `investigate`.
+
 ## Workstream D — Read side and browser performance (pain point 3)
 
 ### R-D1

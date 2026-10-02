@@ -1,3 +1,4 @@
+import { investigationLive } from './investigation.js';
 import {
   decisionBindingDigest,
   supportsArchitectureDecision,
@@ -1489,7 +1490,10 @@ export class RoadmapService {
         context,
       );
       for (const attempt of roadmap.attempts.filter((a) => a.status !== 'completed')) {
-        const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
+        let cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
+        // Stopping the roadmap ends its stops' investigations (R-C16); a pause leaves them.
+        if (cycle && action === 'stop' && investigationLive(cycle))
+          cycle = this.cycles.endInvestigation(context, workspaceId, cycle.id, cycle.version);
         if (
           cycle &&
           !['stopped', 'completed'].includes(cycle.status) &&
@@ -1506,6 +1510,8 @@ export class RoadmapService {
    * or its item resumes; the operator resolves it with the control it names (R-A7).
    */
   private resumable(cycle: WorkCycle): boolean {
+    // A stop's investigation holds it until it ends (R-C16).
+    if (investigationLive(cycle)) return false;
     // Unsettled shared decisions hold the stop, paused or not; resuming would review into it
     // again (LIVE-18). A report with open questions waits for guidance, not a resume.
     if (
@@ -1554,7 +1560,12 @@ export class RoadmapService {
           reason: 'Item paused by operator. Independent items may continue.',
         };
         roadmap = this.change(roadmap, { entryHolds: holds }, 'pause-entry', context);
-        if (cycle && ['running', 'needs-attention'].includes(cycle.status))
+        // A stop being investigated is already still; the hold covers it (R-C16).
+        if (
+          cycle &&
+          ['running', 'needs-attention'].includes(cycle.status) &&
+          !investigationLive(cycle)
+        )
           await this.cycles.control(context, workspaceId, cycle.id, 'pause', cycle.version);
         if (repairCycle && ['running', 'needs-attention'].includes(repairCycle.status))
           await this.cycles.control(
@@ -2078,8 +2089,12 @@ export class RoadmapService {
     const parallel = roadmap.definition.scheduling?.mode === 'parallel';
     let attempt =
       recoveryAttempt ?? roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
-    // A command on the cycle is in flight.
+    // A command on the cycle is in flight, or an investigation of its stop is at work (R-C16):
+    // the scheduler leaves the stop to it.
     if (attempt && this.cycles.isTransitioning(attempt.cycleId)) return MOVED;
+    const investigated =
+      attempt && this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+    if (investigated && investigationLive(investigated)) return MOVED;
     if (attempt) {
       const worktree = this.storage.execution.worktrees.find(
         roadmap.workspaceId,

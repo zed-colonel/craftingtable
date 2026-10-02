@@ -2,10 +2,12 @@ import {
   baselineEvidenceSchema,
   baselinePreviewSchema,
   controlWorkCycleRequestSchema,
+  endInvestigationRequestSchema,
   designRecoveryPreviewSchema,
   integrationResolutionRequestSchema,
   prepareBaselineRequestSchema,
   recoverDesignRequestSchema,
+  startInvestigationRequestSchema,
   scopeRepairPreviewSchema,
   scopeRepairRequestSchema,
   startWorkCycleRequestSchema,
@@ -196,6 +198,45 @@ export function registerWorkCycleRoutes(
         input.data,
       );
       return noStore(reply).send(workCycleResponseSchema.parse({ cycle: cycles.present(cycle) }));
+    },
+  );
+  // A question stop's read-only investigation (R-C16), and ending it.
+  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/investigation',
+    { config: { access: 'editor' } },
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const input = startInvestigationRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!input.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid investigation request');
+      const cycle = await cycles.startInvestigation(
+        context,
+        workspace.data,
+        request.params.cycleId,
+        input.data,
+      );
+      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+    },
+  );
+  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/investigation/end',
+    { config: { access: 'editor' } },
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const input = endInvestigationRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!input.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid investigation request');
+      const cycle = cycles.endInvestigation(
+        context,
+        workspace.data,
+        request.params.cycleId,
+        input.data.expectedVersion,
+      );
+      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
     },
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(

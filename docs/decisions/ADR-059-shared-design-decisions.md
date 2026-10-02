@@ -60,3 +60,40 @@ cannot be prepared, for example because the design backend is unavailable, the i
 stops as before. This
 happens at most once per operator-started investigation. An investigation without a
 classification, or one that classified nothing, still stops.
+
+## Amendment 2026-10-02: investigating any question stop (R-C16)
+
+Any stop that carries questions offers Investigate beside its own control. The stops are
+`work-item-questions`, `implementation-open-questions`, `review-open-questions`,
+`review-open-questions-at-limit`, `scope-review-open-questions`, `remediation-exhausted` when
+its report still asks something, and the work-item questions of `shared-decision-required`.
+Design stops keep Resolve design questions; shared ADR questions keep decision preparation.
+
+An investigation is a read-only run beside the cycle, never its current run. It uses decision
+preparation's launch (ADR-065): Codex's read-only sandbox with escalation denied, Claude
+restricted to reading tools, no MCP servers, and the session ends after its turn. It runs on
+the cycle's worktree at its current commit and reads:
+- the stop's questions;
+- the handoff from the run that asked them, and the lineage's recorded check receipts;
+- the branch's commits and diff against its integration target, which the daemon supplies;
+- the operator's prompt.
+
+The run carries `profileSelection.investigationId`. The worktree's lineage reads leave such a
+run out, so no resume, adoption or newest-run rule takes it for the cycle's work. Every
+live-run check includes it, because it holds the worktree while it runs.
+
+It returns one `craftingtable-investigation` block. For each question there is a proposed
+answer with the sources it rests on, or the reason the evidence does not settle it. The cycle
+stays at its stop and records the result on `cycle.investigation`. The operator answers through
+the stop's own control. Nothing continues automatically, even when every question has a
+proposed answer: an investigation gathers evidence for a decision and never makes it.
+
+While it runs:
+- the stop accepts no command but ending it;
+- its item says it is investigating, and its reminders wait;
+- it uses no remediation round and holds no development capacity, whatever the roadmap's state.
+
+Stopping the roadmap ends it; pausing or resuming an item leaves it running. It has the cycle's
+Evidence investigation profile and a 30-minute limit by default. A failure, the deadline or a
+restart ends it with an explicit retry; nothing retries or resumes it automatically. Leaving the
+stop clears its record and cancels a run that is still live.

@@ -721,6 +721,59 @@ it('a scoped review whose report is malformed is repaired and stops naming the f
   expect(currentCycle(state, cycle)).toEqual(stopped);
 });
 
+// R-C16 16a: a slice's question stop is investigated read-only, on its routed work-item
+// question, without the development capacity a slice's runs reserve.
+it('investigates a slice question stop without reserving its development capacity', async () => {
+  const f = await slicedFixture();
+  const { state, backend } = f;
+  const scope = f.scopes[0]!;
+  const tree = await scopeTree(f, scope);
+  const question = 'Should a planning amendment add a bounded-cost replay requirement?';
+  backend.replyForRequest = (request) => {
+    if (request.readOnly) return { resultText: 'Working.', release: new Promise<void>(() => {}) };
+    if (request.model === 'design-model') return designDone;
+    if (request.model !== 'review-model') return implementationDone;
+    const workflow = JSON.stringify({
+      version: 1,
+      questions: [{ question, destination: 'work-item' }],
+      resolved: [],
+      securityReview: { required: false, sources: [] },
+    });
+    return {
+      resultText: `\`\`\`craftingtable-workflow\n${workflow}\n\`\`\`\n\n## Open questions\n\n- ${question}\n\n## Review report\n\n${scopeReport(state, scope).replace('"findings":[]', `"findings":${JSON.stringify([structuredFinding])}`)}`,
+    };
+  };
+  const cycle = await startCycle(state, tree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review question');
+  expect(state.context.storage.phaseScheduling.active()).toHaveLength(0);
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/investigation`,
+    headers: mutationHeaders(state),
+    payload: { expectedVersion: currentCycle(state, cycle).version },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const investigation = currentCycle(state, cycle).investigation!;
+  await waitFor(() => backend.launches.some((launch) => launch.readOnly), 'investigation launch');
+  expect(
+    state.context.storage.execution.runs.find(state.workspaceId, investigation.runId)?.status,
+  ).toBe('running');
+  expect(state.context.storage.phaseScheduling.active()).toHaveLength(0);
+  expect(
+    readFileSync(
+      join(
+        state.context.config.execution.runsRoot,
+        investigation.runId,
+        'investigation',
+        'questions.md',
+      ),
+      'utf8',
+    ),
+  ).toContain(question);
+});
+
 // LIVE-33: EXO-04's review asked a question with its rounds spent. Continue with guidance went
 // down the remediation path, found the limit, and replaced the question with
 // remediation-exhausted (200 OK, the guidance dropped). The stop now says the rounds are spent,
@@ -763,7 +816,8 @@ it('a slice review question at the remediation limit keeps the question and the 
       (c) => c.id === cycle.id,
     )?.actions;
   };
-  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  // Each of these stops still asks its question, so each also offers Investigate (R-C16).
+  expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'stop']);
   const rewrite = (changes: Record<string, unknown>) => {
     const current = currentCycle(state, cycle);
     return state.context.storage.execution.cycles.replace(
@@ -794,15 +848,15 @@ it('a slice review question at the remediation limit keeps the question and the 
   expect(legacyRefused.statusCode).toBe(409);
   expect(legacyRefused.body).toContain('Authorize more remediation');
   expect(currentCycle(state, cycle)).toEqual(legacy);
-  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'stop']);
   rewrite({ attention: cycleAttention('shared-decision-required') });
-  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'stop']);
   rewrite({ status: 'paused', attention: cycleAttention('review-open-questions-at-limit') });
-  expect(await offered()).toEqual(['authorize-remediation', 'resume', 'stop']);
+  expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'resume', 'stop']);
   rewrite({ status: 'needs-attention' });
   // With a round left, the question stop is answered with guidance as before.
   rewrite({ attention: cycleAttention('work-item-questions'), additionalRemediationRounds: 1 });
-  expect(await offered()).toEqual(['resume', 'stop']);
+  expect(await offered()).toEqual(['resume', 'investigate', 'stop']);
   rewrite({
     attention: cycleAttention('review-open-questions-at-limit'),
     additionalRemediationRounds: 0,

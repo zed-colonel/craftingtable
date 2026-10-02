@@ -466,15 +466,20 @@ export function requireScopeOwnership(
       conflict('Finish or reconcile existing whole-item execution before using slices.');
   }
 }
+/** A worktree a reviewed amendment retired keeps its history but takes no more runs. */
+export function requireNotRetired(tx: Pick<StorageRepositories, 'amendments'>, tree: Worktree) {
+  if (tx.amendments.retired(tree.workspaceId, tree.id))
+    conflict(
+      'This worktree was retired by a reviewed amendment; its edits and history are retained. Use the replacement scope.',
+    );
+}
+
 export function requireTreeScope(
   tx: StorageRepositories,
   tree: Worktree,
   phase: 'start' | 'merge',
 ) {
-  if (tx.amendments.retired(tree.workspaceId, tree.id))
-    conflict(
-      'This worktree was retired by a reviewed amendment; its edits and history are retained. Use the replacement scope.',
-    );
+  requireNotRetired(tx, tree);
   if (!tree.workItemId) return;
   requireScopeOwnership(tx, tree.workspaceId, tree.workItemId, tree.executionScope, tree.id);
   if (!tree.executionScope) return;

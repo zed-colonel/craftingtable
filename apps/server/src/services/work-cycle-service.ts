@@ -12,12 +12,16 @@ import type {
   PrepareBaselineRequest,
   RecoverDesignRequest,
   ScopeRepairRequest,
+  StartInvestigationRequest,
   StartWorkCycleRequest,
 } from '@craftingtable/contracts';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
   type AgentRun,
   asAgentRunId,
+  type CycleInvestigation,
+  profileForPurpose,
+  stopCode,
   cycleActions,
   asAuditEventId,
   asEventId,
@@ -63,6 +67,14 @@ import { prioritizeRoadmapCycles } from './cycle-priority.js';
 import { designDependencyState } from './design-dependency-policy.js';
 import { currentCycleAttention } from './cycle-attention-policy.js';
 import { collectDesignRecovery } from './design-recovery.js';
+import {
+  investigationDocuments,
+  investigationLive,
+  investigationResult,
+  investigationRules,
+  questionsDigest,
+  stopQuestions,
+} from './investigation.js';
 import {
   ConcurrentModificationError,
   DaemonDrainingError,
@@ -180,6 +192,14 @@ function retryableControllerError(error: unknown): boolean {
 }
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
+/** The workspace-wide list leaves an investigation's proposals to the item's own read (PERF-05). */
+function withoutFindings(cycle: WorkCycle): WorkCycle {
+  const result = cycle.investigation?.result;
+  if (!result?.findings || !cycle.investigation) return cycle;
+  const { findings: _omitted, ...rest } = result;
+  return { ...cycle, investigation: { ...cycle.investigation, result: rest } };
+}
+
 export class WorkCycleService {
   validateAgentSelections(profiles: import('@craftingtable/domain').AgentSelections): void {
     for (const profile of Object.values(profiles)) {
@@ -254,7 +274,7 @@ export class WorkCycleService {
       filter.workItemId === undefined
         ? stored
             .filter((c) => !TERMINAL_CYCLE_STATUSES.has(c.status))
-            .map(({ designRecovery: _omitted, ...c }): WorkCycle => c)
+            .map(({ designRecovery: _omitted, ...c }): WorkCycle => withoutFindings(c))
         : stored.filter((c) => c.workItemId === filter.workItemId);
     return selected.map((c) => this.presented(tx, c));
   }
@@ -288,6 +308,7 @@ export class WorkCycleService {
       { ...c, ...(unsettled.length ? { unsettledDecisions: unsettled } : {}) },
       tx.execution.runs.latestIdForWorktree(c.workspaceId, c.worktreeId),
       reviewNeedsRounds(tx, c, currentRun),
+      { questions: !!stopQuestions(tx, c), live: investigationLive(c) },
     );
     const routes =
       c.status === 'needs-attention' &&
@@ -348,6 +369,7 @@ export class WorkCycleService {
         'conflict',
         'An idle scope review is required for source remediation.',
       );
+    this.requireNoInvestigation(source);
     const check = () => {
       delegation?.check();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -484,6 +506,7 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
+    this.requireNoInvestigation(cycle);
     if (
       !cycle.workItemId ||
       cycle.step !== 'design' ||
@@ -514,6 +537,208 @@ export class WorkCycleService {
       throw new ExecutionRequestError('conflict', 'A merge operation owns this worktree.');
     this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     return cycle;
+  }
+
+  /**
+   * Starts a read-only investigation of the stop's questions (R-C16). It runs beside the cycle,
+   * which keeps its stop: the operator answers through the stop's own control, with the
+   * proposals to start from. One at a time; nothing retries or continues it automatically.
+   */
+  async startInvestigation(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: StartInvestigationRequest,
+  ): Promise<WorkCycle> {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    if (cycle.version !== input.expectedVersion)
+      throw new ConcurrentModificationError('Cycle changed; refresh and try again.');
+    this.requireNoInvestigation(cycle);
+    const asked = stopQuestions(this.storage, cycle);
+    const code = stopCode(cycle);
+    if (!asked || code === undefined)
+      throw new ExecutionRequestError('conflict', 'This stop holds no questions to investigate.');
+    const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
+    if (tree?.status !== 'active')
+      throw new ExecutionRequestError('conflict', 'The worktree is no longer active.');
+    this.mutations.requireAvailable(cycle.worktreeId);
+    if (this.storage.execution.runs.liveForWorktree(workspaceId, cycle.worktreeId).length > 0)
+      throw new ExecutionRequestError(
+        'conflict',
+        'End the live session in this worktree before starting an investigation.',
+      );
+    if (this.storage.execution.merges.latest(workspaceId, cycle.worktreeId)?.status === 'reserved')
+      throw new ExecutionRequestError(
+        'conflict',
+        'Recover the reserved integration merge before starting an investigation.',
+      );
+    const selected = profileForPurpose(
+      effectiveCycleProfiles(this.storage, cycle),
+      'investigation',
+    );
+    const profile = input.profile ?? {
+      backend: selected.backend,
+      ...(selected.model === undefined ? {} : { model: selected.model }),
+      ...(selected.reasoningEffort ? { reasoningEffort: selected.reasoningEffort } : {}),
+    };
+    const startedAt = this.now();
+    const record: CycleInvestigation = {
+      id: randomUUID(),
+      runId: asAgentRunId(randomUUID()),
+      sourceRunId: asked.sourceRunId,
+      code,
+      questionsDigest: questionsDigest(asked.questions),
+      profile,
+      instructions: input.instructions,
+      minutes: input.minutes,
+      deadlineAt: new Date(startedAt.getTime() + input.minutes * 60_000).toISOString(),
+      startedAt: startedAt.toISOString(),
+      startedByUserId: context.user.id,
+    };
+    const documents = await investigationDocuments(
+      this.storage,
+      this.git,
+      cycle,
+      record,
+      asked.questions,
+    );
+    const updated = this.change(cycle, { investigation: record }, 'investigation-started', context);
+    const check = () => {
+      const current = this.storage.execution.cycles.find(workspaceId, id);
+      if (current?.investigation?.id !== record.id || current.investigation.result)
+        throw new ExecutionRequestError(
+          'conflict',
+          'The stop changed before the investigation started.',
+        );
+    };
+    try {
+      await this.runs.startInvestigation(
+        context,
+        updated,
+        { value: record, documents, check },
+        investigationRules(record),
+      );
+    } catch (error) {
+      // A launch that never recorded its run ends the investigation here; one that did is read
+      // back from its run like any other.
+      const current = this.storage.execution.cycles.find(workspaceId, id);
+      if (
+        current?.investigation?.id === record.id &&
+        !current.investigation.result &&
+        !this.storage.execution.runs.find(workspaceId, record.runId)
+      )
+        this.change(
+          current,
+          {
+            investigation: {
+              ...record,
+              result: {
+                endedAt: this.now().toISOString(),
+                outcome: 'failed',
+                message: (error instanceof Error
+                  ? error.message
+                  : 'The investigation did not start.'
+                ).slice(0, 4000),
+              },
+            },
+          },
+          'investigation-failed',
+        );
+      throw error;
+    }
+    return this.present(this.storage.execution.cycles.find(workspaceId, id) ?? updated);
+  }
+
+  /** Ends the stop's live investigation: the one command the stop accepts while it runs. */
+  endInvestigation(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    expectedVersion: number,
+  ): WorkCycle {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    if (cycle.version !== expectedVersion)
+      throw new ConcurrentModificationError('Cycle changed; refresh and try again.');
+    const investigation = cycle.investigation;
+    if (!investigation || investigation.result)
+      throw new ExecutionRequestError('conflict', 'No investigation of this stop is running.');
+    const run = this.storage.execution.runs.find(workspaceId, investigation.runId);
+    if (run && !isTerminalAgentRunStatus(run.status))
+      this.runs.cancelInvestigation(workspaceId, run.id, 'Ended by the operator.');
+    const ended =
+      run && isTerminalAgentRunStatus(run.status)
+        ? investigationResult(this.storage, run, this.now().toISOString())
+        : {
+            endedAt: this.now().toISOString(),
+            outcome: 'cancelled' as const,
+            message: 'Ended by the operator.',
+          };
+    return this.present(
+      this.change(
+        cycle,
+        { investigation: { ...investigation, result: ended } },
+        'investigation-ended',
+        context,
+      ),
+    );
+  }
+
+  /** Reads an investigation's ended run back into the cycle: its proposals, or why it failed. */
+  private settleInvestigation(cycle: WorkCycle): void {
+    const investigation = cycle.investigation;
+    if (!investigation || investigation.result) return;
+    const run = this.storage.execution.runs.find(cycle.workspaceId, investigation.runId);
+    const now = this.now();
+    if (!run) {
+      // The launch records its run before it starts; one that never did, by its deadline, is
+      // over (a launch it outlived would refuse itself on its check).
+      if (now.getTime() > Date.parse(investigation.deadlineAt))
+        this.change(cycle, {
+          investigation: {
+            ...investigation,
+            result: {
+              endedAt: now.toISOString(),
+              outcome: 'failed',
+              message: 'The investigation never started.',
+            },
+          },
+        });
+      return;
+    }
+    if (!isTerminalAgentRunStatus(run.status)) return;
+    this.change(
+      cycle,
+      {
+        investigation: {
+          ...investigation,
+          result: investigationResult(this.storage, run, now.toISOString()),
+        },
+      },
+      'investigation-finished',
+    );
+  }
+
+  /** While a stop's investigation runs, the stop accepts no command but ending it (R-C16). */
+  private requireNoInvestigation(cycle: WorkCycle): void {
+    if (investigationLive(cycle))
+      throw new ExecutionRequestError(
+        'conflict',
+        'An investigation of this stop is running. Wait for it, or end it, first.',
+      );
+  }
+
+  /**
+   * Reminders for this cycle's item wait: a command is preparing its transition, or an
+   * investigation is gathering what the operator needs to answer (R-C16).
+   */
+  holdsReminders(workspaceId: WorkspaceId, id: string): boolean {
+    if (this.isTransitioning(id)) return true;
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    return !!cycle && investigationLive(cycle);
   }
 
   previewDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: string) {
@@ -899,6 +1124,7 @@ export class WorkCycleService {
     agentOverride?: WorkCycle['finalizationAgentOverride'],
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+    this.requireNoInvestigation(cycle);
     finalizationForCycle(this.storage, cycle);
     if (
       this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
@@ -989,6 +1215,7 @@ export class WorkCycleService {
   ): Promise<WorkCycle> {
     const check = () => {
       this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+      this.requireNoInvestigation(cycle);
       finalizationForCycle(this.storage, cycle);
       this.mutations.requireAvailable(cycle.worktreeId);
       if (
@@ -1142,6 +1369,7 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
+    this.requireNoInvestigation(cycle);
     if (cycle.version !== input.expectedVersion)
       throw new ExecutionRequestError(
         'conflict',
@@ -1182,6 +1410,7 @@ export class WorkCycleService {
     agentOverride?: WorkCycle['finalizationAgentOverride'],
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+    this.requireNoInvestigation(cycle);
     finalizationForCycle(this.storage, cycle);
     if (
       !Number.isInteger(additionalRounds) ||
@@ -1208,6 +1437,7 @@ export class WorkCycleService {
   /** An approved amendment retires idle automation without deleting its branch or history. */
   retireForAmendment(context: CommandContext, cycle: WorkCycle, amendmentId: string): void {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+    this.requireNoInvestigation(cycle);
     this.mutations.requireAvailable(cycle.worktreeId);
     if (
       this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0 ||
@@ -1242,6 +1472,7 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
+    this.requireNoInvestigation(cycle);
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
     const unstarted =
       ['paused', 'needs-attention'].includes(cycle.status) &&
@@ -1336,6 +1567,7 @@ export class WorkCycleService {
     delegationCheck?.();
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
+    this.requireNoInvestigation(cycle);
     if (cycle.version !== expectedVersion)
       throw new ExecutionRequestError(
         'conflict',
@@ -1970,6 +2202,11 @@ export class WorkCycleService {
   }
 
   private async reconcile(cycle: WorkCycle): Promise<void> {
+    // A live investigation holds the stop: nothing else moves it until it is read back.
+    if (investigationLive(cycle)) {
+      this.settleInvestigation(cycle);
+      return;
+    }
     if (this.refreshing.has(cycle.id)) return;
     if (this.runs.isCleaningRun(cycle.worktreeId)) return;
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
@@ -2977,6 +3214,7 @@ export class WorkCycleService {
   ) {
     const check = () => {
       this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+      this.requireNoInvestigation(cycle);
       const value = finalizationForCycle(this.storage, cycle);
       this.mutations.requireAvailable(cycle.worktreeId);
       if (
@@ -3846,6 +4084,7 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
+    this.requireNoInvestigation(cycle);
     if (
       cycle.version !== input.expectedVersion ||
       !['paused', 'needs-attention'].includes(cycle.status)
@@ -4532,6 +4771,13 @@ export class WorkCycleService {
       !!cycle.outputRepair &&
       !('outputRepair' in fields) &&
       (nextStatus !== 'running' || context !== undefined);
+    // An investigation belongs to the stop it was started at (R-C16): leaving that stop, for
+    // another status or another run, ends it.
+    const investigationEnded =
+      !!cycle.investigation &&
+      !('investigation' in fields) &&
+      (!['needs-attention', 'paused'].includes(nextStatus) ||
+        (fields.currentRunId !== undefined && fields.currentRunId !== cycle.currentRunId));
     let changes: Partial<WorkCycle> = {
       ...fields,
       ...(attention ? { attention } : {}),
@@ -4574,7 +4820,9 @@ export class WorkCycleService {
       updatedAt: this.now().toISOString(),
     };
     const { attention: _cleared, ...unattended } = merged;
-    const updated: WorkCycle = attention ? merged : unattended;
+    const attended: WorkCycle = attention ? merged : unattended;
+    const { investigation: ended, ...uninvestigated } = attended;
+    const updated: WorkCycle = investigationEnded ? uninvestigated : attended;
     // A controller write that changes nothing is not a transition: no version, audit entry
     // or work-cycle-changed event (each event costs every open browser a refetch round).
     // Operator commands are always recorded, and a stale snapshot still fails below.
@@ -4590,6 +4838,13 @@ export class WorkCycleService {
         throw new ConcurrentModificationError('Cycle changed while this operation was in progress');
       this.record(tx, updated, action, context);
     });
+    // The run is read-only, so ending it loses nothing; left live, it would hold the worktree.
+    if (investigationEnded && ended && !ended.result)
+      this.runs.cancelInvestigation(
+        cycle.workspaceId,
+        ended.runId,
+        'The cycle left the stop this investigation was for.',
+      );
     this.notifier.notify();
     return updated;
   }

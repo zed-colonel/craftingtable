@@ -97,7 +97,9 @@ export class NotificationService {
     private readonly passes: ControllerPasses,
     private readonly presence: OperatorPresence,
     private readonly now: () => Date = () => new Date(),
-    private readonly cycleTransitioning: (id: string) => boolean = () => false,
+    /** A cycle whose item waits: a transition is being prepared, or an investigation runs. */
+    private readonly cycleTransitioning: (id: string, workspaceId: WorkspaceId) => boolean = () =>
+      false,
     options: NotificationServiceOptions = {},
   ) {
     this.settleMs = options.settleMs ?? NOTIFICATION_SETTLE_MS;
@@ -339,7 +341,8 @@ export class NotificationService {
     )
       return false;
     if (delivery.leaseUntil !== null && Date.parse(delivery.leaseUntil) > now) return false;
-    if (item.refs.cycleId && this.cycleTransitioning(item.refs.cycleId)) return false;
+    if (item.refs.cycleId && this.cycleTransitioning(item.refs.cycleId, item.workspaceId))
+      return false;
     const first = delivery.firstSentAt === null;
     // A set that gained a member pages from then on, through the same gates (R-A4 review).
     const since = Date.parse(delivery.since ?? item.openedAt);

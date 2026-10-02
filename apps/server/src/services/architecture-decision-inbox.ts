@@ -8,7 +8,11 @@ import {
   parseWorkflowReport,
   type ArchitectureDecisionInbox,
 } from '@craftingtable/contracts';
-import type { ConcurrencyDefinition, ExecutionScope } from '@craftingtable/domain';
+import {
+  type ConcurrencyDefinition,
+  type ExecutionScope,
+  isInvestigationRun,
+} from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import {
   architectureDecisionIssues,
@@ -74,7 +78,8 @@ export function architectureDecisionInbox(
       const r = tx.execution.runs.find(ws, c.currentRunId);
       return r ? [r] : [];
     }),
-    ...tx.execution.runs.listRecent(ws, 200),
+    // A stop's investigation works beside its cycle and recommends nothing (R-C16).
+    ...tx.execution.runs.listRecent(ws, 200).filter((run) => !isInvestigationRun(run)),
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const seenTrees = new Set<string>();
   for (const run of runs) {

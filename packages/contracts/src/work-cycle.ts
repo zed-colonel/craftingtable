@@ -112,6 +112,20 @@ export const recoverDesignRequestSchema = z.strictObject({
   attachments: z.array(designAttachmentSchema).max(4).default([]),
 });
 export type RecoverDesignRequest = z.infer<typeof recoverDesignRequestSchema>;
+/**
+ * Start a read-only investigation of a question stop (R-C16). The profile defaults to the
+ * cycle's Evidence investigation profile, the limit to 30 minutes.
+ */
+export const startInvestigationRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  instructions: z.string().max(8000).default(''),
+  minutes: z.number().int().min(5).max(60).default(30),
+  profile: finalizationAgentSelectionSchema.optional(),
+});
+export type StartInvestigationRequest = z.infer<typeof startInvestigationRequestSchema>;
+export const endInvestigationRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+});
 export const designRecoveryPreviewSchema = z.strictObject({
   decisionInbox: architectureDecisionInboxSchema.optional(),
   expectedVersion: z.number().int().positive(),

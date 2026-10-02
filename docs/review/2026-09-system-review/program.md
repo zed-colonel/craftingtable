@@ -857,6 +857,25 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - **Replays.** 43 of 45 report 0 changed; the two 2026-10-01 changes are LIVE-32's.
   - **Operator action after a deploy, for EXO-04:** Investigate the planning-amendment question before Authorize more remediation, if useful.
   - **Next:** R-D5.
+- **Pause point (2026-10-02, `remediation/p2` at a022c32; not merged or deployed).** The operator pauses here to deploy and to run an independent review, starting with the test suite.
+  - **Built since the deployed commit, 284f598.** There are 45 commits, each item reviewed and gated as recorded above and on the register:
+    - LIVE-31, LIVE-32 and LIVE-33;
+    - R-D4 increments 4a, 4b and 4c, and the setup-step race fix;
+    - R-C16, both halves;
+    - follow-ups on R-A7, R-C2, R-C3 and R-G13.
+  - **Deploy notes.**
+    - The schema is unchanged since the last deploy.
+    - Cycle and run records gain optional fields: `investigation`, and `profileSelection.investigationId`.
+    - The browser bundle changes, so open pages should be reloaded.
+  - **Operator actions after a deploy:**
+    - EXO-18: Authorize more remediation, one round (LIVE-32).
+    - EXO-04: Investigate its planning-amendment question if useful, then Authorize more remediation with the answer, with F-010 deferred (LIVE-33, R-C16).
+  - **Open:**
+    - Two e2e specs fail intermittently in full runs, recorded on R-D4: the mobile cycle's merge approval, and the parallel roadmap's conflict list.
+    - Server suites time out under load and pass rerun serially, at every gate.
+    - R-C16's untested backstops are listed on its register entry.
+    - These open items are the first inputs for the test-suite review.
+  - **Next, after the review:** fix or record its findings, then R-D5.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

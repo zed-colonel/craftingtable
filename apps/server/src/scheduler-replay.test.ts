@@ -47,9 +47,7 @@ const decisionsOf = (replay: Awaited<ReturnType<typeof replaySchedulerSnapshot>>
 
 const digest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
-it('records each roadmap entry’s decision for one pass without launching or writing', {
-  timeout: 20000,
-}, async () => {
+it('records each roadmap entry’s decision for one pass without launching or writing', async () => {
   const { state, input } = await parallelFixture();
   expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
   await roadmapControl(state, 'start');
@@ -100,9 +98,7 @@ it('records each roadmap entry’s decision for one pass without launching or wr
   expect(merging.cycles).toEqual([]);
 });
 
-it('replays a snapshot taken while a run is live as the next pass, not as a restart', {
-  timeout: 20000,
-}, async () => {
+it('replays a snapshot taken while a run is live as the next pass, not as a restart', async () => {
   const { state, input } = await parallelFixture();
   expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
   await roadmapControl(state, 'start');
@@ -127,7 +123,7 @@ it('replays a snapshot taken while a run is live as the next pass, not as a rest
   });
 });
 
-it('reports the entry a sequential roadmap acts on', { timeout: 20000 }, async () => {
+it('reports the entry a sequential roadmap acts on', async () => {
   const fixture = await roadmapFixture();
   const { state } = fixture;
   expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
@@ -139,7 +135,7 @@ it('reports the entry a sequential roadmap acts on', { timeout: 20000 }, async (
   });
 });
 
-it('reports the typed hold a pass records', { timeout: 20000 }, async () => {
+it('reports the typed hold a pass records', async () => {
   // The plan's branch settings moved: a parallel pass holds each entry, and says with what.
   const parallel = await parallelFixture();
   expect((await saveRoadmapRequest(parallel.state, parallel.input)).statusCode).toBe(200);

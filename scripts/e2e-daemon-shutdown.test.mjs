@@ -61,48 +61,42 @@ const built = existsSync(new URL('../packages/domain/dist/index.js', import.meta
 // asks for a graceful signal. The e2e daemon keeps its database in a temporary directory that
 // only its signal handlers remove, so a SIGKILL left 72 MB behind on every run (2026-09-28:
 // 202 directories, 7.5 GB of the user's /tmp quota, which then crashed headless Chrome).
-it.skipIf(!built)(
-  'the e2e daemon leaves no data directory when Playwright stops it',
-  async () => {
-    const daemon = config.webServer.find((server) => server.command.includes('e2e-entry'));
-    expect(daemon).toBeDefined();
-    const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-shutdown-'));
-    temporary.push(scratch);
-    const port = await freePort();
-    // Started as Playwright starts it: through a shell, in its own process group.
-    const child = spawn(daemon.command, {
-      cwd: daemon.cwd ?? REPOSITORY_ROOT,
-      shell: true,
-      detached: true,
-      stdio: 'ignore',
-      env: {
-        ...process.env,
-        ...daemon.env,
-        CRAFTINGTABLE_PORT: String(port),
-        TMPDIR: scratch,
-      },
-    });
-    running.push(child);
-    await waitForHealth(`http://127.0.0.1:${port}/api/health`, child, Date.now() + 45_000);
-    expect(
-      readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-')),
-    ).toHaveLength(1);
+it.skipIf(!built)('the e2e daemon leaves no data directory when Playwright stops it', async () => {
+  const daemon = config.webServer.find((server) => server.command.includes('e2e-entry'));
+  expect(daemon).toBeDefined();
+  const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-shutdown-'));
+  temporary.push(scratch);
+  const port = await freePort();
+  // Started as Playwright starts it: through a shell, in its own process group.
+  const child = spawn(daemon.command, {
+    cwd: daemon.cwd ?? REPOSITORY_ROOT,
+    shell: true,
+    detached: true,
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      ...daemon.env,
+      CRAFTINGTABLE_PORT: String(port),
+      TMPDIR: scratch,
+    },
+  });
+  running.push(child);
+  await waitForHealth(`http://127.0.0.1:${port}/api/health`, child, Date.now() + 45_000);
+  expect(readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-'))).toHaveLength(
+    1,
+  );
 
-    const graceful = daemon.gracefulShutdown;
-    process.kill(-child.pid, graceful?.signal ?? 'SIGKILL');
-    if (graceful) {
-      const timer = setTimeout(() => process.kill(-child.pid, 'SIGKILL'), graceful.timeout);
-      await closed(child);
-      clearTimeout(timer);
-    } else {
-      await closed(child);
-    }
-    // The daemon's own children leave with the group; give the file system a moment.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+  const graceful = daemon.gracefulShutdown;
+  process.kill(-child.pid, graceful?.signal ?? 'SIGKILL');
+  if (graceful) {
+    const timer = setTimeout(() => process.kill(-child.pid, 'SIGKILL'), graceful.timeout);
+    await closed(child);
+    clearTimeout(timer);
+  } else {
+    await closed(child);
+  }
+  // The daemon's own children leave with the group; give the file system a moment.
+  await new Promise((resolve) => setTimeout(resolve, 200));
 
-    expect(readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-'))).toEqual(
-      [],
-    );
-  },
-  90_000,
-);
+  expect(readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-'))).toEqual([]);
+});

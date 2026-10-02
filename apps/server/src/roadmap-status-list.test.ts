@@ -31,9 +31,7 @@ async function statusList(state: Ready) {
   return Object.fromEntries(list.entries.map((e) => [e.entryId, e]));
 }
 
-it('lists each open entry with what it waits on and who acts next (R-E3a, LIVE-08)', {
-  timeout: 20000,
-}, async () => {
+it('lists each open entry with what it waits on and who acts next (R-E3a, LIVE-08)', async () => {
   const { state, input } = await parallelFixture();
   expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
   await roadmapControl(state, 'start');

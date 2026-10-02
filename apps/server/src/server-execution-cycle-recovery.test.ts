@@ -169,9 +169,7 @@ describe('background-work completion recovery', () => {
     expect(currentCycle(state, cycle).resultContinuations).toBe(1);
   });
 
-  it('continues an interrupted stage remediation and still requires every stage review, with no automatic promotion', {
-    timeout: 15000,
-  }, async () => {
+  it('continues an interrupted stage remediation and still requires every stage review, with no automatic promotion', async () => {
     const fixture = await finalizationFixture();
     const { state, backend, root } = fixture;
     const defect = { ...structuredFinding, category: 'correctness' };
@@ -381,9 +379,6 @@ describe('collecting background review results', () => {
 
   it.each(['plain', 'guided', 'reserved'])(
     '%s resume of an interrupted finalization review can classify its artifacts',
-    {
-      timeout: 15000,
-    },
     async (mode) => {
       const fixture = await finalizationFixture();
       const { state, backend } = fixture;
@@ -539,9 +534,7 @@ describe('bounded model service recovery', () => {
     expect(runs[2]?.parentRunId).toBe(runs[1]?.id);
   });
 
-  it('bounds retries at three with 1/5/15 minute backoff and no remediation debit', {
-    timeout: 15000,
-  }, async () => {
+  it('bounds retries at three with 1/5/15 minute backoff and no remediation debit', async () => {
     let now = new Date('2026-09-22T12:00:00Z');
     const { state, backend, worktree } = await cycleFixture(
       [overloaded, overloaded, overloaded, overloaded],

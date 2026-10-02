@@ -546,4 +546,4 @@ it('changes future remediation and review models of a started roadmap cycle with
   expect(runs.slice(2)).toEqual(oldRuns);
   expect(cycle.remediationRounds).toBe(1);
   expect(cycle.additionalRemediationRounds).toBe(1);
-}, 15000);
+});

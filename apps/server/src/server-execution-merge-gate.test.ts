@@ -665,9 +665,7 @@ it('serializes operator merges for different items in the same repository', asyn
   ).toBe(1);
 });
 
-it('records completion before cleanup, exposes retry, and preserves edits added after integration', {
-  timeout: 15000,
-}, async () => {
+it('records completion before cleanup, exposes retry, and preserves edits added after integration', async () => {
   const realGit = createGitOperations({ gitExecutable: 'git' });
   let preserve = false;
   let calls = 0;

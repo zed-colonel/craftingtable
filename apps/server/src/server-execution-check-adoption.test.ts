@@ -186,7 +186,6 @@ async function runToMergeApproval(x: Awaited<ReturnType<typeof adoptionFixture>>
 
 itNeedsCargo(
   "a slice that changes its check's script is merged only with the operator's approval of the definitions, which adopts them at the merge commit",
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({ 'scripts/check.sh': IMPROVED });
     const cycle = await runToMergeApproval(x);
@@ -273,30 +272,25 @@ itNeedsCargo(
   },
 );
 
-itNeedsCargo(
-  'a slice that changes only the checks file is adopted at its merge too',
-  { timeout: 40000 },
-  async () => {
-    const x = await adoptionFixture({ [CHECK_DECLARATION_PATH]: checksFile(['script', 'again']) });
-    const cycle = await runToMergeApproval(x);
-    expect(cycle.attention?.refs).toEqual({ repositoryId: x.tree.repositoryId });
-    const diagnosis = await x.definitions();
-    expect(diagnosis.sliceChanged).toEqual([CHECK_DECLARATION_PATH]);
-    expect(diagnosis.merge).toMatchObject({
-      checks: [{ id: 'again', change: 'added' }],
-      definitions: [],
-    });
-    const merged = await x.merge({
-      adoptChecks: { proposalDigest: diagnosis.merge!.proposalDigest!, rationale: 'One more.' },
-    });
-    expect(merged.statusCode, merged.body).toBe(200);
-    expect(x.declarations()[0]!.checks.map((c) => c.id)).toEqual(['script', 'again']);
-  },
-);
+itNeedsCargo('a slice that changes only the checks file is adopted at its merge too', async () => {
+  const x = await adoptionFixture({ [CHECK_DECLARATION_PATH]: checksFile(['script', 'again']) });
+  const cycle = await runToMergeApproval(x);
+  expect(cycle.attention?.refs).toEqual({ repositoryId: x.tree.repositoryId });
+  const diagnosis = await x.definitions();
+  expect(diagnosis.sliceChanged).toEqual([CHECK_DECLARATION_PATH]);
+  expect(diagnosis.merge).toMatchObject({
+    checks: [{ id: 'again', change: 'added' }],
+    definitions: [],
+  });
+  const merged = await x.merge({
+    adoptChecks: { proposalDigest: diagnosis.merge!.proposalDigest!, rationale: 'One more.' },
+  });
+  expect(merged.statusCode, merged.body).toBe(200);
+  expect(x.declarations()[0]!.checks.map((c) => c.id)).toEqual(['script', 'again']);
+});
 
 itNeedsCargo(
   'a slice whose merge cannot adopt its checks file stops at approval, saying so',
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({ [CHECK_DECLARATION_PATH]: '{"version": 1, "checks": []}\n' });
     const cycle = await startCycle(x.f.state, x.tree.id);
@@ -316,7 +310,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'LIVE-30: checks adopted from a branch behind the integration branch stop the slice, and the stop says the slice did not change them',
-  { timeout: 40000 },
   async () => {
     let stale = '';
     const x = await adoptionFixture(
@@ -372,7 +365,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a commit on a side branch is not on the integration branch, and adoption warns',
-  { timeout: 20000 },
   async () => {
     const x = await adoptionFixture({});
     git(['branch', 'side', x.integration], x.root);
@@ -392,7 +384,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a roadmap never merges a slice that adopts definitions, and an adoption the merge commit does not propose is not recorded',
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({ 'scripts/check.sh': IMPROVED });
     await runToMergeApproval(x);
@@ -448,7 +439,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'an approval that names an adoption is refused when the merge adopts nothing',
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({});
     const cycle = await runToMergeApproval(x);
@@ -465,7 +455,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   "a roadmap that merges automatically leaves a slice that changes a check's definition to a person, whose approval adopts it",
-  { timeout: 60000 },
   async () => {
     const f = await supervisedMapFixture();
     const { state } = f;
@@ -575,7 +564,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   "the Checks panel's receipts say which ran an adopted check and who asked, and trust a requester only where the daemon recorded the receipt",
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({});
     const review = x.f.backend.replyForRequest!;
@@ -647,7 +635,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a definition the merge view cannot show in full is not adopted at merge (review F1)',
-  { timeout: 40000 },
   async () => {
     // Padding past what is shown, with the change at the end.
     const padded = `${IMPROVED}${'# padding line for the check script\n'.repeat(32_000)}echo hidden tail\n`;
@@ -673,30 +660,25 @@ itNeedsCargo(
   },
 );
 
-itNeedsCargo(
-  'text is cut at a character, never mid-way through one (review F1)',
-  { timeout: 20000 },
-  async () => {
-    const x = await adoptionFixture({});
-    // A three-byte character straddles the 64 KiB preview limit.
-    // `#!/bin/sh\n# ` is 12 bytes, so the euro sign starts at the limit's last byte.
-    const text = `${'a'.repeat(64 * 1024 - 13)}€ tail\n`;
-    commitOnBranch(x.root, x.integration, { 'scripts/check.sh': `#!/bin/sh\n# ${text}` });
-    const preview = await x.f.state.context.services.repositoryChecksService.preview(
-      x.f.auth,
-      x.ws,
-      x.tree.repositoryId,
-      x.integration,
-    );
-    expect(preview.definitions[0]).toMatchObject({ truncated: true });
-    expect(preview.definitions[0]!.text?.length).toBeGreaterThan(60 * 1024);
-    expect(preview.definitions[0]!.text?.endsWith('\uFFFD')).toBe(false);
-  },
-);
+itNeedsCargo('text is cut at a character, never mid-way through one (review F1)', async () => {
+  const x = await adoptionFixture({});
+  // A three-byte character straddles the 64 KiB preview limit.
+  // `#!/bin/sh\n# ` is 12 bytes, so the euro sign starts at the limit's last byte.
+  const text = `${'a'.repeat(64 * 1024 - 13)}€ tail\n`;
+  commitOnBranch(x.root, x.integration, { 'scripts/check.sh': `#!/bin/sh\n# ${text}` });
+  const preview = await x.f.state.context.services.repositoryChecksService.preview(
+    x.f.auth,
+    x.ws,
+    x.tree.repositoryId,
+    x.integration,
+  );
+  expect(preview.definitions[0]).toMatchObject({ truncated: true });
+  expect(preview.definitions[0]!.text?.length).toBeGreaterThan(60 * 1024);
+  expect(preview.definitions[0]!.text?.endsWith('\uFFFD')).toBe(false);
+});
 
 itNeedsCargo(
   'a slice whose checks cannot meet the gate as adopted is told to adopt from its own commit, and an unmet gate is not offered as an adoption (review F3)',
-  { timeout: 60000 },
   async () => {
     // The slice changes the script and stops naming it: the adopted check still runs it.
     const x = await adoptionFixture({
@@ -720,7 +702,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a run that wrote its own receipts cannot break the receipts list or claim adopted labels (review F4)',
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({});
     const cycle = await runToMergeApproval(x);
@@ -780,7 +761,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a slice whose adopted checks failed is not offered as an adoption, and the stop names the exit (review F3)',
-  { timeout: 40000 },
   async () => {
     // The slice adds a Cargo configuration and names it: the adopted check, which does not
     // name it, is refused by the runner, so the gate is unmet.
@@ -820,7 +800,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'an adoption made on the Repositories page while the merge ran refuses the merge adoption (review F6)',
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({ 'scripts/check.sh': IMPROVED });
     await runToMergeApproval(x);
@@ -858,7 +837,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a definition between 64 KiB and 1 MiB is shown whole and adopted at merge; one that is not UTF-8, or starts with a byte order mark, is shown as it is (verification)',
-  { timeout: 60000 },
   async () => {
     // 200 KiB, the change at the end: shown in full, with no trailing replacement character.
     const long = `${IMPROVED}${'# a long but readable check script line\n'.repeat(5000)}echo tail\n`;
@@ -882,29 +860,24 @@ itNeedsCargo(
   },
 );
 
-itNeedsCargo(
-  'a definition that is not UTF-8 is not adopted at merge (verification)',
-  { timeout: 40000 },
-  async () => {
-    const x = await adoptionFixture({
-      'scripts/check.sh': Buffer.concat([Buffer.from(IMPROVED), Buffer.from([0x23, 0xff, 0x0a])]),
-    });
-    const cycle = await startCycle(x.f.state, x.tree.id);
-    await waitFor(
-      () => currentCycle(x.f.state, cycle).status === 'needs-attention',
-      'definition stop',
-      25000,
-    );
-    expect(currentCycle(x.f.state, cycle).reason).toContain(
-      'scripts/check.sh is not short UTF-8 text, so it cannot be shown in full',
-    );
-    expect((await x.definitions()).merge!.definitions[0]!.proposed!.text).toBeUndefined();
-  },
-);
+itNeedsCargo('a definition that is not UTF-8 is not adopted at merge (verification)', async () => {
+  const x = await adoptionFixture({
+    'scripts/check.sh': Buffer.concat([Buffer.from(IMPROVED), Buffer.from([0x23, 0xff, 0x0a])]),
+  });
+  const cycle = await startCycle(x.f.state, x.tree.id);
+  await waitFor(
+    () => currentCycle(x.f.state, cycle).status === 'needs-attention',
+    'definition stop',
+    25000,
+  );
+  expect(currentCycle(x.f.state, cycle).reason).toContain(
+    'scripts/check.sh is not short UTF-8 text, so it cannot be shown in full',
+  );
+  expect((await x.definitions()).merge!.definitions[0]!.proposed!.text).toBeUndefined();
+});
 
 itNeedsCargo(
   'a byte order mark stays in the text the operator is shown (verification NEW-1)',
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({ 'scripts/check.sh': `﻿${ADOPTED}` });
     await runToMergeApproval(x).catch(() => undefined);
@@ -917,7 +890,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'an approval of a diff against an earlier adoption is refused before the merge (verification F6)',
-  { timeout: 40000 },
   async () => {
     const x = await adoptionFixture({ 'scripts/check.sh': IMPROVED });
     await runToMergeApproval(x);
@@ -944,7 +916,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'changed definitions past 4 MiB in all are not adopted at merge (verification NEW-3)',
-  { timeout: 60000 },
   async () => {
     const big = (n: number) =>
       `# part ${n}\n${'# padding for a large definition file\n'.repeat(23_000)}`;
@@ -968,7 +939,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a character that does not show, in a definition or a check, is not adopted at merge; the page warns of it (second verification NEW-A)',
-  { timeout: 60000 },
   async () => {
     // A tag space renders as nothing: the weakened grep reads like the adopted one.
     const x = await adoptionFixture({ 'scripts/check.sh': `${IMPROVED}# TODO\u{E0020}\n` });
@@ -997,7 +967,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a check whose command holds a character that does not show is not adopted at merge (second verification NEW-A)',
-  { timeout: 60000 },
   async () => {
     const x = await adoptionFixture({
       [CHECK_DECLARATION_PATH]: `${JSON.stringify({
@@ -1022,7 +991,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a visible letter outside ASCII is adopted at merge, and an approval must name the adoption it was shown against (second verification)',
-  { timeout: 60000 },
   async () => {
     const x = await adoptionFixture({ 'scripts/check.sh': `${IMPROVED}# naïve — fine\n` });
     await runToMergeApproval(x);

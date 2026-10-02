@@ -207,9 +207,7 @@ async function proposeAndAccept(
   });
 }
 
-it('prepares a decision while the roadmap runs, through the roadmap’s own writes (R-C3b)', {
-  timeout: 30000,
-}, async () => {
+it('prepares a decision while the roadmap runs, through the roadmap’s own writes (R-C3b)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   await roadmapControl(f.state, 'start');
@@ -233,9 +231,7 @@ it('prepares a decision while the roadmap runs, through the roadmap’s own writ
   expect(storedRoadmap(f.state).status).toBe('running');
 });
 
-it('approves one decision while another is still being prepared (R-C3b)', {
-  timeout: 30000,
-}, async () => {
+it('approves one decision while another is still being prepared (R-C3b)', async () => {
   const fixture = await decisionFixture();
   const { ws, tx } = fixture;
   expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
@@ -277,9 +273,7 @@ function grant(
   });
 }
 
-it('grants standing decision preparation while paused, and audits it (R-C3b)', {
-  timeout: 30000,
-}, async () => {
+it('grants standing decision preparation while paused, and audits it (R-C3b)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   const standing = { enabled: true, minutes: 10, maxConcurrent: 2 };
@@ -306,9 +300,7 @@ it('grants standing decision preparation while paused, and audits it (R-C3b)', {
   expect(storedRoadmap(f.state).decisionPreparationGrant?.enabled).toBe(false);
 });
 
-it('an applied planning amendment revokes the standing preparation grant (R-C3b)', {
-  timeout: 30000,
-}, async () => {
+it('an applied planning amendment revokes the standing preparation grant (R-C3b)', async () => {
   const f = await supervisedMapFixture(true);
   const ws = f.state.workspaceId;
   await adoptSupervisedMap(f);
@@ -350,9 +342,7 @@ it('an applied planning amendment revokes the standing preparation grant (R-C3b)
 const prepared = (fixture: Fixture) =>
   (storedRoadmap(fixture.f.state).decisionPreparations ?? []).map((p) => p.checkpointId);
 
-it('under the grant, the running roadmap prepares what its slices need, most-waited first (R-C3b)', {
-  timeout: 45000,
-}, async () => {
+it('under the grant, the running roadmap prepares what its slices need, most-waited first (R-C3b)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   const before = tx.runtimeEvidence.submissions(ws, f.parentScope.definitionId);
@@ -407,9 +397,7 @@ it('under the grant, the running roadmap prepares what its slices need, most-wai
   expect(storedRoadmap(f.state).status).toBe('running');
 });
 
-it('the grant skips accepted decisions and stops preparing once revoked (R-C3b)', {
-  timeout: 45000,
-}, async () => {
+it('the grant skips accepted decisions and stops preparing once revoked (R-C3b)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   // LOCAL-ADR-01 was prepared and accepted by hand.
@@ -437,9 +425,7 @@ it('the grant skips accepted decisions and stops preparing once revoked (R-C3b)'
   expect(prepared(fixture)).toEqual(['LOCAL-ADR-01', 'LOCAL-ADR-02']);
 });
 
-it('a decision item unblocks the slices that wait on it, counted as slices (R-C3b)', {
-  timeout: 30000,
-}, async () => {
+it('a decision item unblocks the slices that wait on it, counted as slices (R-C3b)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx, saved } = fixture;
   await roadmapControl(f.state, 'start');
@@ -462,9 +448,7 @@ async function grantAndStart(fixture: Fixture) {
   await roadmapControl(fixture.f.state, 'start');
 }
 
-it('a busy repository leaves a standing preparation for the next pass, not failed (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('a busy repository leaves a standing preparation for the next pass, not failed (R-C3b review)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   // A slice merge holds the repository when the first preparation would create its worktree.
@@ -484,9 +468,7 @@ it('a busy repository leaves a standing preparation for the next pass, not faile
   expect((storedRoadmap(f.state).decisionPreparations ?? []).filter((p) => p.failure)).toEqual([]);
 });
 
-it('a decision that cannot be reserved gives its place to the next, and waits before retrying (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('a decision that cannot be reserved gives its place to the next, and waits before retrying (R-C3b review)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   const roadmaps = f.state.context.services.roadmapService as unknown as {
@@ -515,9 +497,7 @@ it('a decision that cannot be reserved gives its place to the next, and waits be
   expect(refused).toBe(1);
 });
 
-it('skips a decision accepted without a preparation on this binding (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('skips a decision accepted without a preparation on this binding (R-C3b review)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
@@ -536,9 +516,7 @@ it('skips a decision accepted without a preparation on this binding (R-C3b revie
   expect(prepared(fixture)).toEqual(['LOCAL-ADR-02']);
 });
 
-it('prepares nothing for a grantor who may no longer prepare, and stops a launch the grant no longer covers (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('prepares nothing for a grantor who may no longer prepare, and stops a launch the grant no longer covers (R-C3b review)', async () => {
   const fixture = await decisionFixture();
   const { f, tx } = fixture;
   await grantAndStart(fixture);
@@ -588,9 +566,7 @@ it('prepares nothing for a grantor who may no longer prepare, and stops a launch
   expect(run?.status).not.toBe('finished');
 });
 
-it('a decision preparation takes no slice capacity, and goes once its decision is accepted (LIVE-16)', {
-  timeout: 45000,
-}, async () => {
+it('a decision preparation takes no slice capacity, and goes once its decision is accepted (LIVE-16)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   // Both decisions are prepared; only LOCAL-ADR-01, which the second slice alone waits on, is
@@ -671,9 +647,7 @@ const startedSlices = ({ ws, tx }: Fixture) =>
     .filter((w) => w.workspaceId === ws && w.executionScope?.kind === 'slice')
     .map((w) => w.executionScope!.sourceId);
 
-it('a slice whose merge needs a decision with no brief yet starts as before (R-C3b hold)', {
-  timeout: 30000,
-}, async () => {
+it('a slice whose merge needs a decision with no brief yet starts as before (R-C3b hold)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const { f, ws, tx } = fixture;
   // A preparation that asked about LOCAL-ADR-01 but wrote no brief: the decision has a card,
@@ -711,9 +685,7 @@ it('a slice whose merge needs a decision with no brief yet starts as before (R-C
   await waitFor(() => startedSlices(fixture).length === 1, 'the first slice starts');
 });
 
-it('holds a slice whose merge needs a prepared decision the operator has not approved, and starts it once approved (R-C3b, operator decision 2026-09-29)', {
-  timeout: 45000,
-}, async () => {
+it('holds a slice whose merge needs a prepared decision the operator has not approved, and starts it once approved (R-C3b, operator decision 2026-09-29)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const { f, ws, tx, saved } = fixture;
   expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
@@ -797,9 +769,7 @@ async function startsFirstSlice(fixture: Fixture) {
   await waitFor(() => startedSlices(fixture).length === 1, 'the first slice starts');
 }
 
-it('does not hold a slice on a brief limited to clauses of another slice, which approving would not settle (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('does not hold a slice on a brief limited to clauses of another slice, which approving would not settle (R-C3b review)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const other = fixture.f.scopes[1]!.sourceId;
   answerWith(fixture, {
@@ -811,18 +781,14 @@ it('does not hold a slice on a brief limited to clauses of another slice, which 
   await startsFirstSlice(fixture);
 });
 
-it('does not hold a slice on a brief the operator rejected (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('does not hold a slice on a brief the operator rejected (R-C3b review)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   await prepared1(fixture);
   await proposeAndAccept(fixture, 'LOCAL-ADR-01', 'rejected');
   await startsFirstSlice(fixture);
 });
 
-it('does not hold a slice on a decision that cannot be approved until later work is done (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('does not hold a slice on a decision that cannot be approved until later work is done (R-C3b review)', async () => {
   // LOCAL-ADR-01 needs LOCAL-ADR-02 accepted first, so its card cannot be approved: holding the
   // slice on it would ask the operator for something they cannot do yet.
   const fixture = await decisionFixture((source) => {
@@ -851,9 +817,7 @@ it('does not hold a slice on a decision that cannot be approved until later work
   await startsFirstSlice(fixture);
 });
 
-it('holds a slice on a brief limited to clauses that names it (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('holds a slice on a brief limited to clauses that names it (R-C3b review)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const own = fixture.f.scopes[0]!.sourceId;
   answerWith(fixture, {
@@ -868,9 +832,7 @@ it('holds a slice on a brief limited to clauses that names it (R-C3b review)', {
   expect(startedSlices(fixture)).toEqual([]);
 });
 
-it('keeps holding when the operator rejected another proposal, not the one made from this brief (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('keeps holding when the operator rejected another proposal, not the one made from this brief (R-C3b review)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const { f, ws } = fixture;
   const p = await prepared1(fixture);
@@ -899,9 +861,7 @@ it('keeps holding when the operator rejected another proposal, not the one made 
   expect(startedSlices(fixture)).toEqual([]);
 });
 
-it('keeps holding when the rejected proposal from this brief was limited to another slice (R-C3b review)', {
-  timeout: 45000,
-}, async () => {
+it('keeps holding when the rejected proposal from this brief was limited to another slice (R-C3b review)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const { f, ws, tx } = fixture;
   const p = await prepared1(fixture);
@@ -935,9 +895,7 @@ it('keeps holding when the rejected proposal from this brief was limited to anot
   expect(startedSlices(fixture)).toEqual([]);
 });
 
-it('a decision approved for some slices says which it is settled for and which still need it (LIVE-22)', {
-  timeout: 45000,
-}, async () => {
+it('a decision approved for some slices says which it is settled for and which still need it (LIVE-22)', async () => {
   // Both slices wait on LOCAL-ADR-01 at start. A clause-limited approval names only the first,
   // so the decision stays open for the second, and its item and card say so.
   const fixture = await decisionFixture();

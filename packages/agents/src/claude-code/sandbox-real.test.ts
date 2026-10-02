@@ -28,7 +28,6 @@ afterEach(() => {
 
 it.skipIf(!real)(
   'runs a command in the sandbox with a run-length scratch directory (LIVE-31)',
-  { timeout: 240_000 },
   async () => {
     const executable = resolveClaudeExecutable(process.env.CRAFTINGTABLE_CLAUDE_EXECUTABLE);
     expect(executable, 'claude on PATH').toBeDefined();

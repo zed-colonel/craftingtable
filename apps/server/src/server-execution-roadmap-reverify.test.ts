@@ -22,7 +22,6 @@ afterEach(cleanupExecutionFixtures);
  */
 itNeedsCargo(
   're-verifies stale verification evidence in place, or with a fresh attempt once its worktree is gone',
-  { timeout: 60000 },
   async () => {
     const f = await supervisedMapFixture(false, 'manual');
     const { state } = f,

@@ -432,9 +432,6 @@ function withWorkflowReport(text: string, options: Record<string, unknown> = {})
 
 itNeedsCargo(
   'schedules a distinct security review after a source-required review and retains exact candidate evidence',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(true);
     const original = f.backend.replyForRequest!;
@@ -475,7 +472,6 @@ itNeedsCargo(
 
 itNeedsCargo.each([true, false])(
   'runs a source-required security review on operator authority when no roadmap owns the slice cycle (runtime configured: %s)',
-  { timeout: 20000 },
   async (configured) => {
     const f = await slicedFixture();
     if (configured) configureLocalRuntime(f.auth, f.state, f.scopes[0]!.definitionId);
@@ -522,7 +518,6 @@ itNeedsCargo.each([true, false])(
 
 itNeedsCargo(
   'keeps a source-required security review of a single-project roadmap slice with the operator (LIVE-02 scope)',
-  { timeout: 20000 },
   async () => {
     // Only a cycle no roadmap owns is authorized by the operator who started it. A roadmap
     // that owns the slice but delegates no reviewer cannot authorize its security review.
@@ -574,7 +569,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'authorizes no controller review for a cross-project slice whose saved delegation cannot be read',
-  { timeout: 20000 },
   async () => {
     const f = await supervisedMapFixture(true);
     await adoptSupervisedMap(f);
@@ -617,7 +611,6 @@ itNeedsCargo.each([
   { name: 'another issue while a pin moved', extra: [OTHER_ISSUE], pinIssue: false, typed: false },
 ])(
   'a delegated checkpoint stale for $name stops as upstream-pin-moved only when the refresh is its exit (LIVE-21)',
-  { timeout: 20000 },
   async ({ extra, pinIssue, typed }) => {
     const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
       ...source,
@@ -763,7 +756,6 @@ itNeedsCargo.each([
   { kind: 'contract', valid: false },
 ] as const)(
   'delegated $kind checkpoint requires complete attestation: $valid',
-  { timeout: 20000 },
   async ({ kind, valid }) => {
     const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
       ...source,
@@ -978,9 +970,6 @@ itNeedsCargo.each([
 
 itNeedsCargo(
   'reassesses an older implementation question read-only and leaves a genuine operator question at its named destination',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(true);
     const original = f.backend.replyForRequest!;
@@ -1041,9 +1030,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'shows a reassessment that cannot be prepared once instead of retrying it on every controller pass',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(true);
     const original = present(f.backend.replyForRequest);
@@ -1088,9 +1074,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'repairs code findings before the separate security review without spending remediation on the review obligation',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(true);
     const original = f.backend.replyForRequest!;
@@ -1163,9 +1146,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'holds a technical checkpoint for its mapped prerequisite without launching repeated reviews',
-  {
-    timeout: 15000,
-  },
   async () => {
     const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
       ...source,
@@ -1227,9 +1207,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'holds specialist review while scheduling is paused and invalidates its receipt when policy or dependency inputs change',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(true);
     const original = f.backend.replyForRequest!;
@@ -1305,9 +1282,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'routes a classified review question into the shared ADR inbox without approving it',
-  {
-    timeout: 15000,
-  },
   async () => {
     const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
       ...source,
@@ -1509,9 +1483,7 @@ it('applies model-only roadmap choices without expiring accepted saved-plan evid
   ).toBe(409);
 });
 
-it('prepares a decision before gated development, keeps it proposal-only, and binds its report to the exact map', {
-  timeout: 20000,
-}, async () => {
+it('prepares a decision before gated development, keeps it proposal-only, and binds its report to the exact map', async () => {
   const f = await supervisedMapFixture(false, 'automatic', false, false, false, (source) => ({
     ...source,
     evidence_profiles: [
@@ -1724,9 +1696,6 @@ it('prepares a decision before gated development, keeps it proposal-only, and bi
 
 itNeedsCargo(
   'explicitly updates future delegation of started work without rewriting definitions, reports or accepted-plan evidence',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(true, 'manual', false, false, false, (source) => ({
       ...source,

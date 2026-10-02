@@ -38,4 +38,4 @@ it('terminates a hung observation within its bounded deadline', async () => {
   await expect(observeRustToolchain({ cargo: path, rustc: path }, dir)).rejects.toThrow(
     'Could not observe',
   );
-}, 10000);
+});

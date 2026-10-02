@@ -1372,9 +1372,7 @@ it('does not lose earlier cycle findings when an unrelated manual run is resumed
   expect(backend.launches).toHaveLength(4);
 });
 
-it('refreshes a phase wait when its blockers change and records nothing for a controller write that changes nothing', {
-  timeout: 10000,
-}, async () => {
+it('refreshes a phase wait when its blockers change and records nothing for a controller write that changes nothing', async () => {
   const { state, worktree } = await cycleFixture([
     designDone,
     implementationDone,
@@ -1603,9 +1601,7 @@ it("stops a cycle as agent-environment-unavailable when the agent's tools cannot
   ).toContain('agent-environment-unavailable');
 });
 
-it('finalizes an implementer’s tracked edits and staged new source before the first review', {
-  timeout: 15000,
-}, async () => {
+it('finalizes an implementer’s tracked edits and staged new source before the first review', async () => {
   const { state, backend, worktree } = await cycleFixture([
     designDone,
     implementationDone,
@@ -1640,9 +1636,7 @@ it('finalizes an implementer’s tracked edits and staged new source before the 
   expect(git(['log', '-1', '--format=%s'], worktree.path)).toContain('CraftingTable: finalize run');
 });
 
-it('hands dirty negative review findings directly to remediation', {
-  timeout: 15000,
-}, async () => {
+it('hands dirty negative review findings directly to remediation', async () => {
   const { state, backend, worktree } = await cycleFixture([
     designDone,
     implementationDone,
@@ -1681,9 +1675,7 @@ it('hands dirty negative review findings directly to remediation', {
   expect(git(['ls-files'], worktree.path)).not.toContain('.wal');
 });
 
-it('routes unclassified new files through bounded remediation without checkpointing them blindly', {
-  timeout: 15000,
-}, async () => {
+it('routes unclassified new files through bounded remediation without checkpointing them blindly', async () => {
   const { state, backend, worktree } = await cycleFixture([
     designDone,
     implementationDone,
@@ -1712,9 +1704,7 @@ it('routes unclassified new files through bounded remediation without checkpoint
   ]);
 });
 
-it('resumes an older dirty negative review directly into remediation', {
-  timeout: 15000,
-}, async () => {
+it('resumes an older dirty negative review directly into remediation', async () => {
   const real = createGitOperations({ gitExecutable: 'git' });
   let rejectOnce = true;
   const backend = new CycleBackend([
@@ -1833,7 +1823,6 @@ it('a stop during an automatic checkpoint cannot launch a late review', async ()
 
 it.each(['untracked artifact', 'index-only change'])(
   'requires cleanup and a fresh review after a positive review leaves an %s',
-  { timeout: 15000 },
   async (kind) => {
     const { state, backend, worktree } = await cycleFixture([
       designDone,

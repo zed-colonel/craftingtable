@@ -41,9 +41,7 @@ async function itemRoadmapControl(state: Ready, entryId: string, action: 'pause'
   });
 }
 describe('parallel roadmaps', () => {
-  it('forks only after the predecessor merge, refreshes a sibling, and requires three operator merges', {
-    timeout: 15000,
-  }, async () => {
+  it('forks only after the predecessor merge, refreshes a sibling, and requires three operator merges', async () => {
     const { state, backend, input, root } = await parallelFixture();
     const saved = await saveRoadmapRequest(state, input);
     expect(saved.statusCode, saved.body).toBe(200);
@@ -101,9 +99,7 @@ describe('parallel roadmaps', () => {
     expect(reasons.filter((r, i) => r === parallelReason && reasons[i - 1] !== r)).toHaveLength(1);
   });
 
-  it('treats list order as priority and retains awaiting-merge capacity', {
-    timeout: 15000,
-  }, async () => {
+  it('treats list order as priority and retains awaiting-merge capacity', async () => {
     const { state, input } = await parallelFixture();
     input.entries = [
       present(input.entries[1]),
@@ -127,9 +123,7 @@ describe('parallel roadmaps', () => {
     expect(response.body).toContain('capacity-blocked');
   });
 
-  it('holds exclusion groups until merge, then creates the sibling from the updated baseline', {
-    timeout: 15000,
-  }, async () => {
+  it('holds exclusion groups until merge, then creates the sibling from the updated baseline', async () => {
     const { state, input } = await parallelFixture();
     const entries = input.entries.map((e, i) => ({
       ...e,
@@ -152,9 +146,7 @@ describe('parallel roadmaps', () => {
     );
   });
 
-  it('isolates design questions, supports item pause, and resumes all other items after recovery', {
-    timeout: 15000,
-  }, async () => {
+  it('isolates design questions, supports item pause, and resumes all other items after recovery', async () => {
     const { state, backend, input } = await parallelFixture();
     backend.replyForRequest = (request) =>
       request.model === 'design-model'
@@ -188,9 +180,7 @@ describe('parallel roadmaps', () => {
     ).toBe('stopped');
   });
 
-  it('counts manual worktrees against repository capacity without adopting them', {
-    timeout: 15000,
-  }, async () => {
+  it('counts manual worktrees against repository capacity without adopting them', async () => {
     const { state, backend, input, worktree } = await parallelFixture({ keepWorktree: true });
     input.scheduling = { ...parallelScheduling, maxPerRepository: 1 };
     await saveRoadmapRequest(state, input);
@@ -203,9 +193,7 @@ describe('parallel roadmaps', () => {
     ).toBe('active');
   });
 
-  it('aborts an integration conflict and pauses only the affected sibling', {
-    timeout: 15000,
-  }, async () => {
+  it('aborts an integration conflict and pauses only the affected sibling', async () => {
     const { state, backend, input } = await parallelFixture();
     backend.onLaunch = (request) => {
       if (request.model !== 'implement-model') return;
@@ -241,9 +229,7 @@ describe('parallel roadmaps', () => {
     expect(merge.statusCode).toBe(409);
   });
 
-  it('bounds repeated integration changes without ever merging automatically', {
-    timeout: 15000,
-  }, async () => {
+  it('bounds repeated integration changes without ever merging automatically', async () => {
     const { state, input, root } = await parallelFixture();
     input.entries = input.entries.slice(0, 1);
     input.scheduling = { ...parallelScheduling, maxIntegrationRefreshes: 1 };
@@ -279,7 +265,6 @@ describe('parallel roadmaps', () => {
 
 it.each(['sequential', 'parallel'] as const)(
   'retries a %s roadmap entry after a concurrent cycle write instead of stopping for attention',
-  { timeout: 15000 },
   async (mode) => {
     const { state, input } = await parallelFixture();
     await saveRoadmapRequest(state, mode === 'parallel' ? input : roadmapInput(state));
@@ -307,9 +292,7 @@ it.each(['sequential', 'parallel'] as const)(
   },
 );
 
-it('parallel refresh cannot launch a review after stop supersedes in-flight Git', {
-  timeout: 15000,
-}, async () => {
+it('parallel refresh cannot launch a review after stop supersedes in-flight Git', async () => {
   const realGit = createGitOperations({ gitExecutable: 'git' });
   let entered: (() => void) | undefined;
   let release: (() => void) | undefined;
@@ -359,9 +342,7 @@ it('parallel refresh cannot launch a review after stop supersedes in-flight Git'
   expect(storedRoadmap(state).status).toBe('stopped');
 });
 
-it('parallel paused approvals still complete on merge and item controls retain HTTP protections', {
-  timeout: 15000,
-}, async () => {
+it('parallel paused approvals still complete on merge and item controls retain HTTP protections', async () => {
   const { state, input, backend } = await parallelFixture();
   await saveRoadmapRequest(state, input);
   await roadmapControl(state, 'start');
@@ -399,9 +380,7 @@ it('parallel paused approvals still complete on merge and item controls retain H
   expect(unauthorized.statusCode).toBe(403);
 });
 
-it('parallel scheduling cannot release successors from a manual completion of its unmerged attempt', {
-  timeout: 15000,
-}, async () => {
+it('parallel scheduling cannot release successors from a manual completion of its unmerged attempt', async () => {
   const { state, input } = await parallelFixture();
   await saveRoadmapRequest(state, input);
   await roadmapControl(state, 'start');
@@ -420,9 +399,7 @@ it('parallel scheduling cannot release successors from a manual completion of it
   );
 });
 
-it('reconciles a paused predecessor merge before selecting newly eligible work by priority', {
-  timeout: 15000,
-}, async () => {
+it('reconciles a paused predecessor merge before selecting newly eligible work by priority', async () => {
   const { state, input, second } = await parallelFixture({ independentThird: true });
   expect(
     (await saveRoadmapRequest(state, { ...input, entries: [input.entries[0]] })).statusCode,

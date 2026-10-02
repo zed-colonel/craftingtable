@@ -24,7 +24,6 @@ afterEach(cleanupExecutionFixtures);
 
 itNeedsCargo(
   'a checkpoint review is given the receipts and decisions its readiness counted (LIVE-07, LIVE-12)',
-  { timeout: 45000 },
   async () => {
     // local/AQ-01/a merges only after LOCAL-REVIEW, which needs another item's slice verified.
     const f = await supervisedMapFixture(true, 'automatic', true, false, false, (source) => ({

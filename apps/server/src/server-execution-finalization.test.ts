@@ -52,9 +52,7 @@ const reviews =
       : { resultText: stagedText(request, findings(request), questions ? { questions } : {}) };
 const STAGE_REVIEWS = FINALIZATION_STAGE_KINDS.map((kind) => `${kind}-review`);
 
-it('runs plan-scoped staged review and remediation, then requires explicit exact-commit promotion', {
-  timeout: 15000,
-}, async () => {
+it('runs plan-scoped staged review and remediation, then requires explicit exact-commit promotion', async () => {
   const fixture = await finalizationFixture();
   const { state, backend, root, integration } = fixture;
   const main = git(['rev-parse', 'main'], root);
@@ -120,9 +118,7 @@ it('runs plan-scoped staged review and remediation, then requires explicit exact
   ).toBeUndefined();
 });
 
-it('completes all five stages with no findings and promotes only the exact reviewed commit', {
-  timeout: 15000,
-}, async () => {
+it('completes all five stages with no findings and promotes only the exact reviewed commit', async () => {
   const fixture = await finalizationFixture();
   const { state, backend, root } = fixture;
   const value = await beginFinalization(fixture);
@@ -159,9 +155,7 @@ it('completes all five stages with no findings and promotes only the exact revie
   expect(git(['rev-parse', 'main'], root).trim()).not.toBe(value.targetSha);
 });
 
-it('stops finalization for genuine questions and never converts exhausted remediation into approval', {
-  timeout: 15000,
-}, async () => {
+it('stops finalization for genuine questions and never converts exhausted remediation into approval', async () => {
   const fixture = await finalizationFixture();
   const { state, backend, root } = fixture;
   const main = git(['rev-parse', 'main'], root);
@@ -190,9 +184,7 @@ it('stops finalization for genuine questions and never converts exhausted remedi
   expect(git(['rev-parse', 'main'], root)).toBe(main);
 });
 
-it('invalidates final promotion after integration drift and preserves the snapshot on stop', {
-  timeout: 10000,
-}, async () => {
+it('invalidates final promotion after integration drift and preserves the snapshot on stop', async () => {
   const fixture = await finalizationFixture();
   const { state, root } = fixture;
   const value = await beginFinalization(fixture);
@@ -226,9 +218,7 @@ it('invalidates final promotion after integration drift and preserves the snapsh
   ).toBe(true);
 });
 
-it('recovers finalization preparation only on explicit resume and preserves its reserved worktree', {
-  timeout: 15000,
-}, async () => {
+it('recovers finalization preparation only on explicit resume and preserves its reserved worktree', async () => {
   const realGit = createGitOperations({ gitExecutable: 'git' });
   let interrupted = false;
   const fixture = await finalizationFixture({
@@ -271,9 +261,7 @@ it('recovers finalization preparation only on explicit resume and preserves its 
   expect(backend.launches.map((r) => r.model)).toEqual(STAGE_REVIEWS);
 });
 
-it('holds integration merges while finalization is active or paused and releases them on stop', {
-  timeout: 10000,
-}, async () => {
+it('holds integration merges while finalization is active or paused and releases them on stop', async () => {
   const fixture = await finalizationFixture();
   const { state, repository, root } = fixture;
   const value = await beginFinalization(fixture);
@@ -306,9 +294,7 @@ it('holds integration merges while finalization is active or paused and releases
   expect(git(['rev-parse', 'revision'], root)).not.toBe(initial);
 });
 
-it('compacts finalization findings while preserving closure history and requiring reopened findings', {
-  timeout: 20000,
-}, async () => {
+it('compacts finalization findings while preserving closure history and requiring reopened findings', async () => {
   const fixture = await finalizationFixture();
   const { state, backend } = fixture;
   const history = Array.from({ length: 112 }, (_, index) => ({
@@ -379,7 +365,6 @@ it('compacts finalization findings while preserving closure history and requirin
 
 it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] as const)(
   'guides a rejected finalization report retry with %s evidence and expires attempt guidance',
-  { timeout: 20000 },
   async (scenario) => {
     const fixture = await finalizationFixture();
     const { state, backend, root } = fixture;
@@ -435,9 +420,7 @@ it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] a
   },
 );
 
-it('authorizes bounded extra finalization remediation, preserves stage counts, and rejects replay', {
-  timeout: 20000,
-}, async () => {
+it('authorizes bounded extra finalization remediation, preserves stage counts, and rejects replay', async () => {
   const fixture = await finalizationFixture();
   const { state, backend, root } = fixture;
   const initialMain = git(['rev-parse', 'main'], root);
@@ -551,9 +534,6 @@ it('authorizes bounded extra finalization remediation, preserves stage counts, a
 
 it.each(['questions', 'invalid', 'conflict'] as const)(
   'does not authorize extra remediation across a %s checkpoint',
-  {
-    timeout: 15000,
-  },
   async (checkpoint) => {
     const fixture = await finalizationFixture();
     const { state, backend } = fixture;
@@ -605,9 +585,7 @@ it.each(['questions', 'invalid', 'conflict'] as const)(
   },
 );
 
-it('requires CSRF and editor authority before authorizing finalization remediation', {
-  timeout: 10000,
-}, async () => {
+it('requires CSRF and editor authority before authorizing finalization remediation', async () => {
   const fixture = await finalizationFixture();
   const { state, backend } = fixture;
   backend.replyForRequest = reviews(() => [defect]);
@@ -646,7 +624,6 @@ it('requires CSRF and editor authority before authorizing finalization remediati
 
 it.each(['pause', 'revoke'] as const)(
   'rechecks finalization authorization after Git inspection when the operator chooses %s',
-  { timeout: 15000 },
   async (change) => {
     const realGit = createGitOperations({ gitExecutable: 'git' });
     let duringInspection: (() => Promise<void>) | undefined;

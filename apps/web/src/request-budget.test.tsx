@@ -523,4 +523,4 @@ it('reads only what each event changed, on the pages measured (R-D4 4c)', async 
   const measured = { dashboard, workItem, ownWorkItem, settings, roadmaps, repositories };
   // The reads behind each count, shown when the budget fails.
   expect(measured, `requests per event; the reads were ${JSON.stringify(reads)}`).toEqual(BUDGET);
-}, 120_000);
+});

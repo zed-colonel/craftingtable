@@ -34,9 +34,6 @@ afterEach(cleanupExecutionFixtures);
 
 itNeedsCargo.each([false, true])(
   'delegates independent findings into an editable slice and enforces every source ID (omitted: %s)',
-  {
-    timeout: 40000,
-  },
   async (omitFinding) => {
     const f = await supervisedMapFixture(false, 'manual');
     const { state } = f,

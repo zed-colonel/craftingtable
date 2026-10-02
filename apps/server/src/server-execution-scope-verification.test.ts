@@ -137,9 +137,6 @@ it('recovers parent review with durable guidance only after current verification
 
 itNeedsCargo(
   'repeats completed verification in its existing worktree with the assigned roadmap reviewer',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(false, 'manual'),
       { state } = f,
@@ -264,9 +261,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'recovers a verification defect, survives pause/restart, and preserves manual integration and parent approval',
-  {
-    timeout: 30000,
-  },
   async () => {
     const f = await supervisedMapFixture(false, 'manual', false, false, true);
     const { state } = f,
@@ -394,9 +388,7 @@ itNeedsCargo(
   },
 );
 
-it('reports the shared workstation limits and admits four scoped runs when configured', {
-  timeout: 15000,
-}, async () => {
+it('reports the shared workstation limits and admits four scoped runs when configured', async () => {
   const ids = ['local/AQ-01/a', 'local/AQ-01/b', 'local/AQ-01/c', 'local/AQ-01/d', 'local/AQ-01/e'];
   const f = await slicedFixture((source) => ({
     ...source,

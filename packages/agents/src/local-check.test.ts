@@ -374,7 +374,7 @@ it('grants a stale workflow lock to one of several contenders reclaiming it at o
     for (let i = 1; i < held.length; i++) if (held[i]! - held[i - 1]! < 300) overlaps++;
   }
   expect(overlaps).toBe(0);
-}, 120000);
+});
 it('does not reclaim a lock whose owner is alive with its recorded start time', async () => {
   const lock = join(mkdtempSync(join(tmpdir(), 'ct-act-live-')), 'act-y');
   roots.push(join(lock, '..'));
@@ -1136,7 +1136,7 @@ it('reads only a regular file within its limit, never waiting on a FIFO or follo
   expect(await readRegular(join(root, 'large'), 1024)).toBeUndefined();
   expect(await readRegular(join(root, 'link'), 1024)).toBeUndefined();
   expect(await readRegular(join(root, 'absent'), 1024)).toBeUndefined();
-}, 10_000);
+});
 
 it('a lock that is a FIFO, or too many locks, never block or exhaust the daemon (R-G13 review)', async () => {
   const f = fixture();
@@ -1149,7 +1149,7 @@ it('a lock that is a FIFO, or too many locks, never block or exhaust the daemon 
   expect(outcome.exitCode, output).toBe(0);
   expect(Date.now() - started).toBeLessThan(10_000);
   expect(output).toContain('No Cargo.lock in the checked tree');
-}, 20_000);
+});
 
 it('reads at most 64 locks and says how many it left out (R-G13 review)', async () => {
   const f = fixture();
@@ -1181,7 +1181,6 @@ const cachedItoa = join(
 );
 it.skipIf(!hostCargo || !existsSync(cachedItoa))(
   'a planted source, a rewritten download, or a lock and index rewritten to vouch for a planted crate never build in a check (R-G13 review)',
-  { timeout: 120_000 },
   async () => {
     const f = fixture();
     const shared = join(f.root, 'shared-cargo');
@@ -1901,7 +1900,6 @@ it.skipIf(!hostCargo).each([
       );
     }
   },
-  120_000,
 );
 
 const rustupProxy = hostCargo && realpathSync(hostCargo).endsWith('/rustup');
@@ -1920,7 +1918,6 @@ it.skipIf(!rustupProxy)(
     expect(refused.output).not.toContain('FAKE-CARGO');
     expect(refused.outcome.diagnostic).toContain('not a rustup-managed toolchain');
   },
-  120_000,
 );
 
 it.skipIf(!rustupProxy)(
@@ -1982,7 +1979,6 @@ it.skipIf(!rustupProxy)(
     expect(clippy.outcome.exitCode, clippy.output + clippy.outcome.diagnostic).toBe(0);
     expect(clippy.output).not.toMatch(/^WHO=/m);
   },
-  240_000,
 );
 
 /** An adopted check held to `definitionPaths`, run on the fixture's committed head. */
@@ -2046,7 +2042,6 @@ it.skipIf(!rustupProxy).each([
     const adopted = await declaredRun(p, ['sh', '-c', 'echo RAN'], [path]);
     expect(adopted.outcome.exitCode, adopted.output + adopted.outcome.diagnostic).toBe(0);
   },
-  120_000,
 );
 
 it.skipIf(!rustupProxy)(
@@ -2072,7 +2067,6 @@ it.skipIf(!rustupProxy)(
     expect(copied.output).not.toContain('FAKE-CARGO');
     expect(copied.outcome.diagnostic).toContain('not a rustup-managed toolchain');
   },
-  120_000,
 );
 
 it.skipIf(!rustupProxy)(
@@ -2125,7 +2119,6 @@ it.skipIf(!rustupProxy)(
     expect(run.output).toContain('the genuine binary ran');
     expect(run.outcome.receipt).toMatchObject({ success: false });
   },
-  240_000,
 );
 
 it.skipIf(!rustupProxy)(
@@ -2181,5 +2174,4 @@ it.skipIf(!rustupProxy)(
     ]);
     expect(target.outcome.diagnostic).toContain('--target is refused');
   },
-  240_000,
 );

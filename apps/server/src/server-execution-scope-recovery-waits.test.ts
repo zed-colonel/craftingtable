@@ -95,9 +95,6 @@ itNeedsCargo.each([
   'two slots held by work that waits on this slice',
 ] as const)(
   'automatic recovery that needs %s records why, or borrows it (LIVE-06)',
-  {
-    timeout: 45000,
-  },
   async (shape) => {
     const deadlock = shape !== 'a slot another item holds';
     const overLimit = shape === 'two slots held by work that waits on this slice';
@@ -190,7 +187,6 @@ itNeedsCargo.each([
 
 itNeedsCargo.each(['paused', 'running', 'running, review paused'] as const)(
   'an open repair the roadmap cannot adopt holds the review it came from: %s (R-I11 → R-C12)',
-  { timeout: 45000 },
   async (shape) => {
     const status = shape === 'paused' ? 'paused' : 'running';
     const { f, state, ws, tx, review, sourceEntryId } = await stoppedVerification();
@@ -261,7 +257,6 @@ itNeedsCargo.each(['paused', 'running', 'running, review paused'] as const)(
 
 itNeedsCargo(
   'an owning-slice question during a recovery round is one inbox item (R-C14, LIVE-13)',
-  { timeout: 45000 },
   async () => {
     const { f, state, ws, tx, sourceEntryId } = await stoppedVerification();
     const normal = f.backend.replyForRequest!;

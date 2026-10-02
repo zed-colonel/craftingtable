@@ -517,7 +517,7 @@ describe('interrupted merges (GIT-01)', () => {
           cwd: repo.repository,
         }).toString(),
       ).toBe('');
-    }, 15_000);
+    });
   }
 
   it('refuses a primary checkout with a pending merge distinctly from a dirty one', async () => {

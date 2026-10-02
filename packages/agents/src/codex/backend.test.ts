@@ -161,7 +161,7 @@ async function launch(
   return { session, items, done, messages };
 }
 async function waitFor(predicate: () => boolean) {
-  await expect.poll(predicate, { timeout: 5000, interval: 10 }).toBe(true);
+  await expect.poll(predicate, { interval: 10 }).toBe(true);
 }
 const turns = (items: AgentSessionItem[]) =>
   items.flatMap((item) =>

@@ -153,9 +153,6 @@ it('adopts exact map decisions separately, previews exclusions, guards HTTP auth
 });
 itNeedsCargo(
   'supervises slices, fresh verification and independent parent acceptance without completing an unproven target',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(),
       { state } = f,
@@ -272,9 +269,6 @@ itNeedsCargo(
 );
 itNeedsCargo(
   'keeps parent approval manual and preserves attempts across restart without relaunch',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(false, 'manual'),
       { state } = f,
@@ -311,9 +305,6 @@ itNeedsCargo(
 );
 itNeedsCargo(
   'pauses a verification question without authorizing implementation in the review snapshot',
-  {
-    timeout: 15000,
-  },
   async () => {
     const f = await supervisedMapFixture(true),
       { state } = f,
@@ -360,9 +351,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'refreshes a positive review awaiting manual parent acceptance without granting acceptance',
-  {
-    timeout: 30000,
-  },
   async () => {
     const f = await supervisedMapFixture(false, 'manual');
     const { state } = f,
@@ -415,9 +403,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'coordinates full-plan finalization with frozen map and runtime context and retains exact operator promotion',
-  {
-    timeout: 40000,
-  },
   async () => {
     const f = await supervisedMapFixture(false, 'automatic', true),
       { state } = f,
@@ -532,9 +517,6 @@ itNeedsCargo(
 );
 itNeedsCargo(
   'explicitly reuses unchanged integration code across definitions without transferring verification',
-  {
-    timeout: 20000,
-  },
   async () => {
     const f = await supervisedMapFixture(true),
       { state } = f,

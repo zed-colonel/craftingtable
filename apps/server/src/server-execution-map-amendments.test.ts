@@ -166,9 +166,6 @@ it('rebinds a reviewed replacement without carrying adoption or evidence and ret
 
 itNeedsCargo(
   'keeps live runs in their original context and retires idle attempts only after explicit amendment approval',
-  {
-    timeout: 15000,
-  },
   async () => {
     const f = await supervisedMapFixture(true),
       { state } = f,
@@ -268,9 +265,6 @@ itNeedsCargo(
 );
 itNeedsCargo(
   'reconciles stale reviews on the same binding while retaining integrated code and requiring independent acceptance again',
-  {
-    timeout: 25000,
-  },
   async () => {
     const f = await supervisedMapFixture(),
       { state } = f,
@@ -343,9 +337,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'queues affected completed scope reviews across restart and resumes them without repeating implementation',
-  {
-    timeout: 30000,
-  },
   async () => {
     const f = await supervisedMapFixture();
     const { state } = f,
@@ -429,7 +420,6 @@ itNeedsCargo(
 
 itNeedsCargo.each(['manual', 'roadmap'] as const)(
   'recovers an unstarted parent review through %s without losing its assignment',
-  { timeout: 30000 },
   async (mode) => {
     const f = await supervisedMapFixture(false, 'automatic', false, false, true);
     const { state } = f,

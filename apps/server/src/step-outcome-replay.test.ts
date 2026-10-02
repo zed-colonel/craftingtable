@@ -136,5 +136,5 @@ describe('controller golden replay (R-B2)', () => {
       writeFileSync(GOLDEN, `${JSON.stringify(replayed, null, 2)}\n`);
     }
     expect(replayed).toEqual(JSON.parse(readFileSync(GOLDEN, 'utf8')));
-  }, 60_000);
+  });
 });

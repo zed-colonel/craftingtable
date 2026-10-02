@@ -85,7 +85,6 @@ const afterA = { kind: 'slice' as const, id: 'local/AQ-01/a', state: 'merged' as
 
 itNeedsCargo(
   'asks for a decision once the work that needs it waits on nothing else (LIVE-10)',
-  { timeout: 45000 },
   async () => {
     // Slice b starts after slice a merges, and needs LOCAL-ADR-01.
     const m = await mapWith([decision('LOCAL-ADR-01')], {
@@ -111,7 +110,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'asks for evidence no review produces once work waits on it (R-C14 review)',
-  { timeout: 45000 },
   async () => {
     // A release checkpoint slice b needs to start: no slice review ever produces it.
     const m = await mapWith(
@@ -150,7 +148,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'asks for the decision a slice’s own checkpoint review waits on (R-C14 review)',
-  { timeout: 45000 },
   async () => {
     // Slice a's merge needs LOCAL-SEM, which its own review produces once LOCAL-ADR-01 is
     // accepted: the decision is the operator's, the review the controller's.

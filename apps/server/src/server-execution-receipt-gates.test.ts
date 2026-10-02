@@ -296,7 +296,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   "pausing a cycle during its review's checks stops them at once and starts no reviewer (R-G13 increment 3 review)",
-  { timeout: 40000 },
   async () => {
     const f = await scopedRuntimeFixture([
       { id: 'slow', argv: ['node', '-e', 'setTimeout(() => {}, 8000)'], definitionPaths: [] },
@@ -347,7 +346,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a restart ends a reviewer that launched during it, and records a review whose checks outlast its grace (R-G13 increment 3 verification)',
-  { timeout: 60000 },
   async () => {
     const f = await scopedRuntimeFixture([
       { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
@@ -392,7 +390,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a drain records a review whose checks outlast its grace, and counts it once (R-G13 increment 3 verification)',
-  { timeout: 60000 },
   async () => {
     const f = await scopedRuntimeFixture([
       { id: 'endless', argv: ['node', '-e', 'setTimeout(() => {}, 30000)'], definitionPaths: [] },
@@ -420,7 +417,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a manual review whose worktree is retired during its checks starts no reviewer (R-G13 increment 3 verification)',
-  { timeout: 40000 },
   async () => {
     const f = await scopedRuntimeFixture([
       { id: 'slow', argv: ['node', '-e', 'setTimeout(() => {}, 2500)'], definitionPaths: [] },
@@ -452,7 +448,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a drain counts only the reviews it stopped: one whose checks failed to run is not counted (R-G13 increment 3 verification)',
-  { timeout: 40000 },
   async () => {
     const f = await scopedRuntimeFixture([
       { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
@@ -485,7 +480,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a drain waits for a manual review still preparing its launch, and no run starts after it (R-G13 increment 3 verification)',
-  { timeout: 40000 },
   async () => {
     const f = await scopedRuntimeFixture([
       { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
@@ -537,7 +531,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a drain records a run whose launch outlasts its grace, and the session it gets is ended (R-G13 increment 3 verification)',
-  { timeout: 40000 },
   async () => {
     const f = await scopedRuntimeFixture([
       { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
@@ -856,7 +849,6 @@ itNeedsCargo(
       f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run),
     ).toHaveLength(36);
   },
-  90_000,
 );
 
 itNeedsCargo(
@@ -1142,7 +1134,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'check-definition-changed stops the cycle, and adopting the new definition then resuming passes a fresh review (R-G13 review)',
-  { timeout: 30000 },
   async () => {
     const adopted = '#!/bin/sh\necho adopted check\n';
     const weakened = '#!/bin/sh\necho weakened check\n';

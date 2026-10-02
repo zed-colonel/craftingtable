@@ -191,7 +191,7 @@ describe('route authorization sweep', () => {
     expect(routeAccessProblem(['GET'], '/api/workspaces/:workspaceId/x', 'member')).toBeUndefined();
   });
 
-  it('answers each kind of caller as every route declares', { timeout: 120_000 }, async () => {
+  it('answers each kind of caller as every route declares', async () => {
     const f = await sweepFixture();
     const failures: string[] = [];
     const check = (route: string, label: string, actual: number, ok: boolean, body: string) => {

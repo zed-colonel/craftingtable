@@ -162,9 +162,7 @@ describe('execution slices and parent acceptance', () => {
       db.close();
     }
   });
-  it('allows sibling cycles and persists their scope through roadmap reservations', {
-    timeout: 15000,
-  }, async () => {
+  it('allows sibling cycles and persists their scope through roadmap reservations', async () => {
     const f = await slicedFixture(),
       { state } = f;
     f.backend.replyForRequest = (request) =>
@@ -519,9 +517,7 @@ it('phase resource waits resume cycles automatically without consuming the execu
   );
   expect(currentCycle(state, cycle).phaseWait).toBeNull();
 });
-it('phase merge dependencies let an independent sibling integrate first and then refresh the waiting review', {
-  timeout: 20000,
-}, async () => {
+it('phase merge dependencies let an independent sibling integrate first and then refresh the waiting review', async () => {
   const f = await slicedFixture(
       (source) => ({
         ...source,
@@ -721,9 +717,7 @@ it('phase started milestones require a launched run, not a cycle queued for reso
 
 // The scenario tests report literal scope evidence; this is the one place the resolver's
 // derivation from the fixture maps is compared with those literals (R-I5, QA-06).
-it('derives from the fixture maps exactly the scope evidence the scenario tests report', {
-  timeout: 30000,
-}, async () => {
+it('derives from the fixture maps exactly the scope evidence the scenario tests report', async () => {
   const sliced = await slicedFixture();
   const supervised = await supervisedMapFixture(false, 'automatic', true);
   for (const f of [sliced, supervised]) {

@@ -123,9 +123,6 @@ function completeResolutionPredecessor(state: Ready, mergeSha: string) {
 
 it.each([false, true])(
   'delegates a pinned conflict resolution and requires fresh review without moving integration (incoming predecessor: %s)',
-  {
-    timeout: 15000,
-  },
   async (incomingPredecessor) => {
     const { state, backend, worktree, root, cycle, target } = await resolutionFixture();
     if (incomingPredecessor) completeResolutionPredecessor(state, target.trim());
@@ -173,9 +170,7 @@ it.each([false, true])(
   },
 );
 
-it('refuses resolution launch when a completed predecessor is only in the advanced integration branch, not the pinned merge', {
-  timeout: 15000,
-}, async () => {
+it('refuses resolution launch when a completed predecessor is only in the advanced integration branch, not the pinned merge', async () => {
   const realGit = createGitOperations({ gitExecutable: 'git' });
   const fixture = await resolutionFixture({
     ...realGit,
@@ -205,9 +200,7 @@ it('refuses resolution launch when a completed predecessor is only in the advanc
   expect(git(['rev-parse', 'MERGE_HEAD'], worktree.path).trim()).toBe(target.trim());
 });
 
-it('keeps blocked resolution edits for guided retries and safely abandons from the browser', {
-  timeout: 15000,
-}, async () => {
+it('keeps blocked resolution edits for guided retries and safely abandons from the browser', async () => {
   const { state, backend, worktree, cycle } = await resolutionFixture();
   backend.replyForRequest = () => ({
     resultText: 'Need a semantic choice.\n\n## Resolution status\nblocked',
@@ -262,9 +255,7 @@ it('keeps blocked resolution edits for guided retries and safely abandons from t
   expect(existsSync(join(worktree.path, 'keep.txt'))).toBe(true);
 });
 
-it('protects resolution commands with CSRF and version checks and refuses a stale integration target', {
-  timeout: 15000,
-}, async () => {
+it('protects resolution commands with CSRF and version checks and refuses a stale integration target', async () => {
   const { state, worktree, root, cycle } = await resolutionFixture();
   const csrf = await state.context.app.inject({
     method: 'POST',
@@ -283,7 +274,6 @@ it('protects resolution commands with CSRF and version checks and refuses a stal
 
 it.each(['preparing', 'committing'] as const)(
   'recovers the %s integration reservation without repeating a finished Git operation or launching before explicit resume',
-  { timeout: 15000 },
   async (phase) => {
     const real = createGitOperations({ gitExecutable: 'git' });
     let enter: (() => void) | undefined;
@@ -364,9 +354,7 @@ it.each(['preparing', 'committing'] as const)(
   },
 );
 
-it('stop during resolution preparation preserves ownership and supports explicit browser abandonment', {
-  timeout: 15000,
-}, async () => {
+it('stop during resolution preparation preserves ownership and supports explicit browser abandonment', async () => {
   const real = createGitOperations({ gitExecutable: 'git' });
   let enter: (() => void) | undefined;
   let release: (() => void) | undefined;
@@ -421,9 +409,7 @@ it('stop during resolution preparation preserves ownership and supports explicit
   expect((await controlCycle(state, currentCycle(state, cycle), 'stop')).status).toBe('stopped');
 });
 
-it('automatically integrates sequential entries while preserving a per-item manual checkpoint', {
-  timeout: 15000,
-}, async () => {
+it('automatically integrates sequential entries while preserving a per-item manual checkpoint', async () => {
   const fixture = await roadmapFixture();
   const { state, backend, root } = fixture;
   await useIntegration(fixture);
@@ -463,7 +449,7 @@ it('automatically integrates sequential entries while preserving a per-item manu
   );
 });
 
-it('keeps main protected from automatic roadmap merges', { timeout: 10000 }, async () => {
+it('keeps main protected from automatic roadmap merges', async () => {
   const { state, root } = await roadmapFixture();
   const main = git(['rev-parse', 'main'], root);
   await saveRoadmapRequest(state, {
@@ -476,9 +462,7 @@ it('keeps main protected from automatic roadmap merges', { timeout: 10000 }, asy
   expect(git(['rev-parse', 'main'], root)).toBe(main);
 });
 
-it('automatically resolves parallel integration conflicts and freshly reviews before integrating', {
-  timeout: 20000,
-}, async () => {
+it('automatically resolves parallel integration conflicts and freshly reviews before integrating', async () => {
   const fixture = await parallelFixture();
   const { state, backend, input, root } = fixture;
   await useIntegration(fixture);
@@ -525,9 +509,7 @@ it('automatically resolves parallel integration conflicts and freshly reviews be
   ).toBe('review');
 });
 
-it('reconciles a committed delegated merge after interruption without merging or reviewing twice', {
-  timeout: 15000,
-}, async () => {
+it('reconciles a committed delegated merge after interruption without merging or reviewing twice', async () => {
   const realGit = createGitOperations({ gitExecutable: 'git' });
   let calls = 0;
   const fixture = await roadmapFixture(undefined, {
@@ -589,9 +571,7 @@ it('reconciles a committed delegated merge after interruption without merging or
   ).toBe('completed');
 });
 
-it('keeps a started entry manual when queued defaults change to automatic integration', {
-  timeout: 15000,
-}, async () => {
+it('keeps a started entry manual when queued defaults change to automatic integration', async () => {
   const fixture = await roadmapFixture();
   const { state, backend } = fixture;
   await useIntegration(fixture);
@@ -667,9 +647,7 @@ function reviewReplies(backend: CycleBackend) {
         : implementationDone;
 }
 
-it('refreshes and merges a started manual entry once a delegation grant makes its integration automatic', {
-  timeout: 20000,
-}, async () => {
+it('refreshes and merges a started manual entry once a delegation grant makes its integration automatic', async () => {
   const fixture = await roadmapFixture();
   const { state, backend, root } = fixture;
   const ws = state.workspaceId;
@@ -706,9 +684,7 @@ it('refreshes and merges a started manual entry once a delegation grant makes it
   });
 });
 
-it('neither refreshes nor merges a started automatic entry once a delegation grant makes its integration manual', {
-  timeout: 20000,
-}, async () => {
+it('neither refreshes nor merges a started automatic entry once a delegation grant makes its integration manual', async () => {
   const fixture = await roadmapFixture();
   const { state, backend, root } = fixture;
   const ws = state.workspaceId;
@@ -746,9 +722,6 @@ it.each([
   ['holding the entry for a system stop', 'held'],
 ] as const)(
   'refreshes before the review of a cycle the operator resumed only while its roadmap is paused (R-C4): %s',
-  {
-    timeout: 20000,
-  },
   async (_name, roadmapState) => {
     // Cycle 6f1dfb47 (2026-09-20): the roadmap was paused, the operator resumed a stopped slice
     // with guidance, and the review then stopped because integration had advanced meanwhile.
@@ -861,9 +834,7 @@ it.each([
   },
 );
 
-it('cleans an interrupted reserved scratch worktree before retrying an uncommitted merge', {
-  timeout: 15000,
-}, async () => {
+it('cleans an interrupted reserved scratch worktree before retrying an uncommitted merge', async () => {
   const realGit = createGitOperations({ gitExecutable: 'git' });
   let interrupted = false;
   const fixture = await roadmapFixture(undefined, {

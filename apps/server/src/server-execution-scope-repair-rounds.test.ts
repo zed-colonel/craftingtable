@@ -86,7 +86,6 @@ async function stoppedParentReview() {
 
 itNeedsCargo(
   'operator rounds do not use the automatic allowance but still count as repeats',
-  { timeout: 45000 },
   async () => {
     const { state, tx, parent, sourceEntry, ownerEntry } = await stoppedParentReview();
     const roadmap = storedRoadmap(state);
@@ -144,168 +143,152 @@ itNeedsCargo(
   },
 );
 
-itNeedsCargo(
-  'a reservation that created its worktree is retried in place',
-  { timeout: 45000 },
-  async () => {
-    const { f, state, ws, tx, parent, input } = await stoppedParentReview();
-    const cycles = state.context.services.workCycleService as unknown as {
-      start: (...args: unknown[]) => unknown;
-    };
-    const spy = vi.spyOn(cycles, 'start').mockImplementationOnce(() => {
+itNeedsCargo('a reservation that created its worktree is retried in place', async () => {
+  const { f, state, ws, tx, parent, input } = await stoppedParentReview();
+  const cycles = state.context.services.workCycleService as unknown as {
+    start: (...args: unknown[]) => unknown;
+  };
+  const spy = vi.spyOn(cycles, 'start').mockImplementationOnce(() => {
+    throw new Error('simulated cycle creation failure');
+  });
+  const post = () =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
+      headers: mutationHeaders(state),
+      payload: input,
+    });
+  const first = await post();
+  expect(first.statusCode).toBe(500);
+  const reserved = storedRoadmap(state).attempts.filter((x) => x.recovery);
+  expect(reserved).toHaveLength(1);
+  expect(reserved[0]!.status).toBe('preparing');
+  expect(tx.execution.worktrees.find(ws, reserved[0]!.worktreeId)).toBeTruthy();
+  expect(tx.execution.cycles.find(ws, reserved[0]!.cycleId)).toBeUndefined();
+  spy.mockRestore();
+  // The roadmap waits for the operator's retry and does not start its own.
+  await state.context.services.roadmapService.tick();
+  expect(storedRoadmap(state).attempts.filter((x) => x.recovery)).toEqual(reserved);
+  // The operator refreshes the preview, as the UI does after a failure.
+  const refreshed = state.context.services.workCycleService.previewScopeRepair(
+    f.auth,
+    ws,
+    parent.id,
+  );
+  expect(refreshed.candidates[0]!.worktreeId).toBe(reserved[0]!.worktreeId);
+  const second = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
+    headers: mutationHeaders(state),
+    payload: { ...input, snapshotDigest: refreshed.snapshotDigest },
+  });
+  expect(second.statusCode, second.body).toBe(200);
+  const rounds = storedRoadmap(state).attempts.filter((x) => x.recovery);
+  expect(rounds).toHaveLength(1);
+  expect(rounds[0]!.id).toBe(reserved[0]!.id);
+  expect(second.json().cycle.id).toBe(reserved[0]!.cycleId);
+  expect(second.json().cycle.worktreeId).toBe(reserved[0]!.worktreeId);
+  expect(
+    tx.execution.worktrees
+      .listForWorkItem(ws, parent.workItemId!)
+      .filter((t) => t.executionScope?.kind === 'slice' && t.status === 'active'),
+  ).toHaveLength(1);
+});
+
+itNeedsCargo('an explicit pause on the source entry survives the request', async () => {
+  const { state, ws, parent, sourceEntry, input } = await stoppedParentReview();
+  // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
+  state.context.services.roadmapService['change'](storedRoadmap(state), {
+    entryHolds: { [sourceEntry.id]: { status: 'paused', reason: 'Operator paused this item.' } },
+  });
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
+    headers: mutationHeaders(state),
+    payload: input,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]?.status).toBe('paused');
+});
+
+itNeedsCargo('a request that fails before creating anything keeps the source hold', async () => {
+  const { state, ws, parent, sourceEntry, input } = await stoppedParentReview();
+  const hold = {
+    status: 'needs-attention' as const,
+    reason: 'Recovery needs your input.',
+    attention: roadmapAttention('entry-preparation-failed', { entryId: sourceEntry.id }),
+  };
+  // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
+  state.context.services.roadmapService['change'](storedRoadmap(state), {
+    entryHolds: { [sourceEntry.id]: hold },
+  });
+  await state.context.services.roadmapService.tick();
+  expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]).toMatchObject(hold);
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
+    headers: mutationHeaders(state),
+    payload: { ...input, snapshotDigest: 'f'.repeat(64) },
+  });
+  expect(response.statusCode, response.body).toBe(409);
+  expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toEqual([]);
+  // Nothing was created, so the stop the operator has not answered should remain.
+  expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]).toMatchObject(hold);
+});
+
+itNeedsCargo('a round whose request never finished holds its entry for the operator', async () => {
+  const { f, state, ws, parent, sourceEntry, input } = await stoppedParentReview();
+  // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
+  state.context.services.roadmapService['change'](storedRoadmap(state), {
+    entryHolds: {
+      [sourceEntry.id]: {
+        status: 'needs-attention',
+        reason: 'Recovery needs your input.',
+        attention: roadmapAttention('entry-preparation-failed', { entryId: sourceEntry.id }),
+      },
+    },
+  });
+  const spy = vi
+    .spyOn(state.context.services.workCycleService as unknown as { start: () => never }, 'start')
+    .mockImplementationOnce(() => {
       throw new Error('simulated cycle creation failure');
     });
-    const post = () =>
-      state.context.app.inject({
-        method: 'POST',
-        url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
-        headers: mutationHeaders(state),
-        payload: input,
-      });
-    const first = await post();
-    expect(first.statusCode).toBe(500);
-    const reserved = storedRoadmap(state).attempts.filter((x) => x.recovery);
-    expect(reserved).toHaveLength(1);
-    expect(reserved[0]!.status).toBe('preparing');
-    expect(tx.execution.worktrees.find(ws, reserved[0]!.worktreeId)).toBeTruthy();
-    expect(tx.execution.cycles.find(ws, reserved[0]!.cycleId)).toBeUndefined();
-    spy.mockRestore();
-    // The roadmap waits for the operator's retry and does not start its own.
-    await state.context.services.roadmapService.tick();
-    expect(storedRoadmap(state).attempts.filter((x) => x.recovery)).toEqual(reserved);
-    // The operator refreshes the preview, as the UI does after a failure.
-    const refreshed = state.context.services.workCycleService.previewScopeRepair(
-      f.auth,
-      ws,
-      parent.id,
-    );
-    expect(refreshed.candidates[0]!.worktreeId).toBe(reserved[0]!.worktreeId);
-    const second = await state.context.app.inject({
-      method: 'POST',
-      url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
-      headers: mutationHeaders(state),
-      payload: { ...input, snapshotDigest: refreshed.snapshotDigest },
-    });
-    expect(second.statusCode, second.body).toBe(200);
-    const rounds = storedRoadmap(state).attempts.filter((x) => x.recovery);
-    expect(rounds).toHaveLength(1);
-    expect(rounds[0]!.id).toBe(reserved[0]!.id);
-    expect(second.json().cycle.id).toBe(reserved[0]!.cycleId);
-    expect(second.json().cycle.worktreeId).toBe(reserved[0]!.worktreeId);
-    expect(
-      tx.execution.worktrees
-        .listForWorkItem(ws, parent.workItemId!)
-        .filter((t) => t.executionScope?.kind === 'slice' && t.status === 'active'),
-    ).toHaveLength(1);
-  },
-);
-
-itNeedsCargo(
-  'an explicit pause on the source entry survives the request',
-  { timeout: 45000 },
-  async () => {
-    const { state, ws, parent, sourceEntry, input } = await stoppedParentReview();
-    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-    state.context.services.roadmapService['change'](storedRoadmap(state), {
-      entryHolds: { [sourceEntry.id]: { status: 'paused', reason: 'Operator paused this item.' } },
-    });
-    const response = await state.context.app.inject({
-      method: 'POST',
-      url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
-      headers: mutationHeaders(state),
-      payload: input,
-    });
-    expect(response.statusCode, response.body).toBe(200);
-    expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]?.status).toBe('paused');
-  },
-);
-
-itNeedsCargo(
-  'a request that fails before creating anything keeps the source hold',
-  { timeout: 45000 },
-  async () => {
-    const { state, ws, parent, sourceEntry, input } = await stoppedParentReview();
-    const hold = {
-      status: 'needs-attention' as const,
-      reason: 'Recovery needs your input.',
-      attention: roadmapAttention('entry-preparation-failed', { entryId: sourceEntry.id }),
-    };
-    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-    state.context.services.roadmapService['change'](storedRoadmap(state), {
-      entryHolds: { [sourceEntry.id]: hold },
-    });
-    await state.context.services.roadmapService.tick();
-    expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]).toMatchObject(hold);
-    const response = await state.context.app.inject({
-      method: 'POST',
-      url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
-      headers: mutationHeaders(state),
-      payload: { ...input, snapshotDigest: 'f'.repeat(64) },
-    });
-    expect(response.statusCode, response.body).toBe(409);
-    expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toEqual([]);
-    // Nothing was created, so the stop the operator has not answered should remain.
-    expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]).toMatchObject(hold);
-  },
-);
-
-itNeedsCargo(
-  'a round whose request never finished holds its entry for the operator',
-  { timeout: 45000 },
-  async () => {
-    const { f, state, ws, parent, sourceEntry, input } = await stoppedParentReview();
-    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-    state.context.services.roadmapService['change'](storedRoadmap(state), {
-      entryHolds: {
-        [sourceEntry.id]: {
-          status: 'needs-attention',
-          reason: 'Recovery needs your input.',
-          attention: roadmapAttention('entry-preparation-failed', { entryId: sourceEntry.id }),
-        },
-      },
-    });
-    const spy = vi
-      .spyOn(state.context.services.workCycleService as unknown as { start: () => never }, 'start')
-      .mockImplementationOnce(() => {
-        throw new Error('simulated cycle creation failure');
-      });
-    const failed = await state.context.app.inject({
-      method: 'POST',
-      url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
-      headers: mutationHeaders(state),
-      payload: input,
-    });
-    spy.mockRestore();
-    expect(failed.statusCode).toBe(500);
-    // Several roadmap passes.
-    for (let i = 0; i < 3; i++) await state.context.services.roadmapService.tick();
-    const view = state.context.services.roadmapService
-      .list(f.auth, ws)
-      .find((v) => v.roadmap.id === storedRoadmap(state).id)!;
-    const progress = view.progress.find((p) => p.entryId === sourceEntry.id);
-    const outcome = {
-      roadmap: [view.roadmap.status, view.roadmap.reason, view.roadmap.attention],
-      holds: view.roadmap.entryHolds,
-      progress,
-      round: storedRoadmap(state).attempts.find((a) => a.recovery)?.status,
-      feed: (
-        await state.context.app.inject({
-          method: 'GET',
-          url: `/api/workspaces/${ws}/attention`,
-          headers: { cookie: state.cookie },
-        })
-      ).body,
-      // The stopped review's own attention is replaced by an automation wait.
-      parentWait: automatedScopeRecoveryWait(
-        state.context.storage,
-        state.context.storage.execution.cycles.find(ws, parent.id)!,
-      ),
-    };
-    // Nothing runs and nothing will until the operator repeats the command; the item must say so.
-    expect(progress?.status, JSON.stringify(outcome)).toBe('needs-attention');
-  },
-);
-itNeedsCargo('two overlapping requests create one round', { timeout: 45000 }, async () => {
+  const failed = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
+    headers: mutationHeaders(state),
+    payload: input,
+  });
+  spy.mockRestore();
+  expect(failed.statusCode).toBe(500);
+  // Several roadmap passes.
+  for (let i = 0; i < 3; i++) await state.context.services.roadmapService.tick();
+  const view = state.context.services.roadmapService
+    .list(f.auth, ws)
+    .find((v) => v.roadmap.id === storedRoadmap(state).id)!;
+  const progress = view.progress.find((p) => p.entryId === sourceEntry.id);
+  const outcome = {
+    roadmap: [view.roadmap.status, view.roadmap.reason, view.roadmap.attention],
+    holds: view.roadmap.entryHolds,
+    progress,
+    round: storedRoadmap(state).attempts.find((a) => a.recovery)?.status,
+    feed: (
+      await state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${ws}/attention`,
+        headers: { cookie: state.cookie },
+      })
+    ).body,
+    // The stopped review's own attention is replaced by an automation wait.
+    parentWait: automatedScopeRecoveryWait(
+      state.context.storage,
+      state.context.storage.execution.cycles.find(ws, parent.id)!,
+    ),
+  };
+  // Nothing runs and nothing will until the operator repeats the command; the item must say so.
+  expect(progress?.status, JSON.stringify(outcome)).toBe('needs-attention');
+});
+itNeedsCargo('two overlapping requests create one round', async () => {
   const { state, ws, tx, parent, input } = await stoppedParentReview();
   const post = () =>
     state.context.app.inject({
@@ -332,7 +315,6 @@ itNeedsCargo('two overlapping requests create one round', { timeout: 45000 }, as
 
 itNeedsCargo(
   'a second request during the first one’s worktree creation creates no second round',
-  { timeout: 45000 },
   async () => {
     const { state, ws, tx, parent, input } = await stoppedParentReview();
     const post = () =>
@@ -372,7 +354,6 @@ itNeedsCargo(
 
 itNeedsCargo(
   'a round a restart left half-prepared holds its entry until the operator repeats the request',
-  { timeout: 45000 },
   async () => {
     const { state, ws, tx, parent, sourceEntry, ownerEntry, input } = await stoppedParentReview();
     const roadmap = storedRoadmap(state);

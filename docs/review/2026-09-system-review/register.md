@@ -3093,7 +3093,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Checks that sleep gated on a FIFO, and the `< 3000 ms` drain assertion replaced by a state assertion.
     - Errors thrown in `onLaunch` collected and asserted after the wait.
   - **Operator decision 2026-10-02: tmpfs data directories.** Test daemons (vitest and e2e) keep their data directories under `$XDG_RUNTIME_DIR`. TMPDIR stays on disk for everything else, and production pragmas are unchanged. Reason: `synchronous=FULL` on the btrfs TMPDIR stalls the e2e daemon for 1–8 s per commit (TS-H8).
-  - **Done when (proposed by the review; the operator has not confirmed it):** three consecutive default parallel `pnpm test` runs pass at ambient load, with no serial rerun.
+  - **Done when (confirmed by the operator 2026-10-02, when the review pass was scheduled):** three consecutive default parallel `pnpm test` runs pass at ambient load, with no serial rerun.
+- **Review pass 2026-10-02 (branch `review-pass/a-r-i2` from `remediation/p2` 75243c6).**
+  - **Baseline at 75243c6.** One default `pnpm test` (2,082 tests, load 4.3 rising to 16 during the run): 26 failed in 15 files, 307 s. 24 were `Timed out waiting for …`, one of them the four-checks test's `turn` wait. The other 2 were per-test timeouts (15 s and 20 s) that did not say what the test was waiting for.
+  - **One scalable timeout (TS-H1, LF F2).** The 189 per-test numbers (173 `timeout:` options and 16 positional ones, 10 s to 240 s) are gone. `vitest.config.ts` sets one test and hook timeout, 240 s, for both projects, multiplied by `CRAFTINGTABLE_TEST_TIMEOUT_SCALE` (a positive factor, default 1). It is a hang guard: 240 s covers the slowest legitimate tests (the real Cargo builds the old numbers allowed 240 s, and a whole map at load 40, which LF measured at 81 s). `expect.poll` defaults to half of it. Tests read the scaled values through `inject('testTimeoutMs')` and `inject('testTimeScale')`.
 
 ### R-I3
 

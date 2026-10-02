@@ -43,9 +43,7 @@ afterEach(cleanupExecutionFixtures);
 const defect = { ...structuredFinding, category: 'correctness' };
 const committed = { resultText: 'Committed and checked.\n\n## Open questions\nnone' };
 
-it('an incomplete finalization review retains concerns and cannot close findings or supply a verdict', {
-  timeout: 15000,
-}, async () => {
+it('an incomplete finalization review retains concerns and cannot close findings or supply a verdict', async () => {
   const fixture = await finalizationFixture();
   const { state, backend } = fixture;
   let review = 0;
@@ -600,9 +598,7 @@ describe('completed plan and integration branch cleanup', () => {
 });
 
 describe('staged finalization', () => {
-  it('selects one optional batch, retains follow-ups and independently verifies before explicit promotion', {
-    timeout: 20000,
-  }, async () => {
+  it('selects one optional batch, retains follow-ups and independently verifies before explicit promotion', async () => {
     const fixture = await finalizationFixture();
     const { state, backend, root } = fixture;
     const input = stagedInput(fixture.legacyInput);
@@ -718,9 +714,7 @@ describe('staged finalization', () => {
     expect(readFileSync(join(root, 'simplified.txt'), 'utf8')).toContain('selected S-1');
   });
 
-  it('reopens correctness for a later nit regression and retains that stage’s spent budget', {
-    timeout: 25000,
-  }, async () => {
+  it('reopens correctness for a later nit regression and retains that stage’s spent budget', async () => {
     const alternate = new CycleBackend([], 'codex');
     const fixture = await finalizationFixture({ alternateBackend: alternate });
     const { state, backend } = fixture;
@@ -805,9 +799,7 @@ describe('staged finalization', () => {
     expect(alternate.launches.at(-1)?.prompt).toContain('final-review');
   });
 
-  it('requires an explicit plan adjustment and revalidation without waiving questions or failed checks', {
-    timeout: 20000,
-  }, async () => {
+  it('requires an explicit plan adjustment and revalidation without waiving questions or failed checks', async () => {
     const fixture = await finalizationFixture();
     const { state, backend } = fixture;
     let question = true;
@@ -905,9 +897,7 @@ describe('staged finalization', () => {
     expect(backend.launches.every((r) => /^Role: review$/m.test(r.prompt))).toBe(true);
   });
 
-  it('rejects incomplete final evidence and forbids stale or unapproved obligation substitutions', {
-    timeout: 15000,
-  }, async () => {
+  it('rejects incomplete final evidence and forbids stale or unapproved obligation substitutions', async () => {
     const fixture = await finalizationFixture();
     const { state, backend } = fixture;
     let fullChecks = false;
@@ -1070,9 +1060,7 @@ describe('staged finalization', () => {
   });
 });
 
-it('keeps all selected stage findings required when recovery temporarily focuses on a subset', {
-  timeout: 20000,
-}, async () => {
+it('keeps all selected stage findings required when recovery temporarily focuses on a subset', async () => {
   const fixture = await finalizationFixture();
   const { state, backend } = fixture;
   const fixed = new Set<string>();

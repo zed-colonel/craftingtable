@@ -47,7 +47,7 @@ itNeedsCargo.each([
   'split-owners',
   // One finding names its owner and another names none: still the operator's.
   'partly-named',
-] as const)('bounded roadmap scope recovery: %s', { timeout: 45000 }, async (outcome) => {
+] as const)('bounded roadmap scope recovery: %s', async (outcome) => {
   const f = await supervisedMapFixture(
     false,
     'automatic',
@@ -423,7 +423,6 @@ itNeedsCargo.each([
 
 itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
   'carries an operator repair round through with automatic recovery off: %s',
-  { timeout: 45000 },
   async (origin) => {
     const f = await supervisedMapFixture(false, 'automatic', false, false, true);
     const { state } = f,
@@ -602,7 +601,6 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
 
 itNeedsCargo(
   'refreshes an operator repair round from integration before its review (R-C4 with 18f0bb8)',
-  { timeout: 45000 },
   async () => {
     const f = await supervisedMapFixture(false, 'automatic', false, false, true);
     const { state } = f,

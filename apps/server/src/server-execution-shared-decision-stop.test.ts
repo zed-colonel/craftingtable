@@ -208,7 +208,6 @@ async function prepareAndAccept(fx: Fixture, checkpointId: string) {
 
 itNeedsCargo(
   'names every unsettled merge decision and refuses resumes until each is approved (LIVE-18)',
-  { timeout: 40000 },
   async () => {
     const fx = await fixture();
     const { f, tx, ws } = fx;
@@ -289,7 +288,6 @@ itNeedsCargo.each([
   ['the reviewer asked about a decision the merge does not need', withDecisionCheckpoints],
 ] as const)(
   'a sequential roadmap resumes past a paused shared-decision stop and leaves it in place when %s (LIVE-18)',
-  { timeout: 40000 },
   async (_case, map) => {
     // A single-project roadmap runs in sequence: a cycle whose resume is refused would fail the
     // whole roadmap's resume, so the roadmap must skip it instead. That holds too once nothing
@@ -359,7 +357,6 @@ itNeedsCargo.each([
 
 itNeedsCargo(
   'lets a resume through to the review that produces a decision prerequisite (LIVE-18 review)',
-  { timeout: 40000 },
   async () => {
     // LOCAL-ADR-02 requires LOCAL-REVIEW, a checkpoint only this slice's workflow review can
     // produce once LOCAL-ADR-01 is approved. Refusing the resume until LOCAL-ADR-02 is approved

@@ -85,9 +85,7 @@ async function importPlan(
   });
 }
 describe('package import HTTP flow', () => {
-  it('imports full plans and an inactive map, binds exact versions, and never launches work', {
-    timeout: 15000,
-  }, async () => {
+  it('imports full plans and an inactive map, binds exact versions, and never launches work', async () => {
     const r = await setup();
     const repositoryId = asSourceRepositoryId(randomUUID());
     r.context.storage.execution.sourceRepositories.insert({

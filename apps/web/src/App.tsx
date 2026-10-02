@@ -1317,7 +1317,6 @@ export function App() {
           })
         }
         csrfToken={authenticated.csrfToken}
-        refreshToken={refreshToken}
         onChanged={refreshNow}
         {...(inInbox
           ? {}
@@ -1376,7 +1375,6 @@ export function App() {
             worktree={worktree}
             csrfToken={authenticated.csrfToken}
             canMutate={canMutate}
-            refreshToken={refreshToken}
             onChanged={() => refreshNow()}
           />
         )}
@@ -1440,7 +1438,6 @@ export function App() {
         csrfToken={authenticated.csrfToken}
         canMutate={canMutate}
         itemStatus={workItem.workItem.status}
-        refreshToken={refreshToken}
         onChanged={() => refreshNow()}
         {...(inInbox
           ? {}
@@ -1480,7 +1477,6 @@ export function App() {
               csrfToken={authenticated.csrfToken}
               canMutate={canMutate}
               busy={executionBusy}
-              refreshToken={refreshToken}
               onChanged={refreshNow}
               inInbox
               onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
@@ -2003,7 +1999,6 @@ export function App() {
                   planVersionId={project.activeVersion.version.id}
                   csrfToken={authenticated.csrfToken}
                   editable={canMutate}
-                  refreshToken={refreshToken}
                   onChanged={() => refreshNow()}
                 />
               )
@@ -2033,7 +2028,6 @@ export function App() {
                   planVersionId={planVersion.version.id}
                   csrfToken={authenticated.csrfToken}
                   editable={canMutate}
-                  refreshToken={refreshToken}
                   onChanged={() => refreshNow()}
                 />
                 <FinalizationPanel
@@ -2104,7 +2098,6 @@ export function App() {
               planVersionId={workItem.workItem.planVersionId}
               csrfToken={authenticated.csrfToken}
               editable={false}
-              refreshToken={refreshToken}
               onChanged={() => refreshNow()}
               collapsible
               defaultOpen={!itemInProgress && workItem.workItem.status !== 'completed'}
@@ -2150,7 +2143,6 @@ export function App() {
             checks={{
               workspaceId: route.workspaceId,
               csrfToken: authenticated.csrfToken,
-              refreshToken,
             }}
           />
         )}

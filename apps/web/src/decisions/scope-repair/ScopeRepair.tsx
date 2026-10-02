@@ -1,8 +1,10 @@
 import type { ScopeRepairPreview } from '@craftingtable/contracts';
 import type { WorkCycle, WorktreeId } from '@craftingtable/domain';
 import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { distinct } from '../../lib/distinct.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { About } from '../../components/About.js';
 import { delegateScopeRepair, previewScopeRepair } from './scope-repair-api.js';
 
@@ -15,46 +17,54 @@ export function ScopeRepair({
   cycle,
   disabled,
   csrfToken,
-  refreshToken,
   onOpen,
   onStarted,
 }: {
   cycle: WorkCycle;
   disabled: boolean;
   csrfToken: string;
-  refreshToken: number;
   onOpen: (id: WorktreeId) => void;
   onStarted: (cycle: WorkCycle) => void;
 }) {
-  const [preview, setPreview] = useState<ScopeRepairPreview>();
-  const [error, setError] = useState<string>();
+  const [commandError, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState('');
   const [instructions, setInstructions] = useState('');
   const [rounds, setRounds] = useState(3);
   const [retry, setRetry] = useState(0);
-  const [refreshing, setRefreshing] = useState(true);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: current phase events refresh the preview.
+  // Read again on its work item's events (R-D4 increment 4b), and here when the cycle changes or
+  // the operator refreshes. The findings stay mounted meanwhile: unmounting collapses native
+  // disclosures and interrupts the operator's reading.
+  const store = useQueryStore();
+  const key = queryKeys.scopeRepair(cycle.workspaceId, cycle.workItemId ?? '', cycle.id);
+  const query = useQuery(key, () => previewScopeRepair(cycle));
+  const [refetching, setRefetching] = useState(false);
+  const mounted = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new cycle version or a refresh reads again.
   useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     let alive = true;
-    // Keep the findings mounted while revalidating. Unmounting collapses native
-    // disclosures and interrupts the operator's reading on every workspace event.
-    setRefreshing(true);
+    setRefetching(true);
     setError(undefined);
-    void previewScopeRepair(cycle)
-      .then((p) => {
-        if (alive) setPreview(p);
-      })
-      .catch((e) => {
-        if (alive) setError(e instanceof Error ? e.message : 'Could not load source recovery.');
-      })
-      .finally(() => {
-        if (alive) setRefreshing(false);
-      });
+    void store.refetch(key).finally(() => {
+      if (alive) setRefetching(false);
+    });
     return () => {
       alive = false;
     };
-  }, [cycle.id, cycle.version, refreshToken, retry]);
+  }, [cycle.version, retry]);
+  const preview: ScopeRepairPreview | undefined = query.data;
+  const refreshing = query.status !== 'ready' || refetching;
+  const error =
+    commandError ??
+    (!refetching && query.error !== undefined
+      ? query.error instanceof Error
+        ? query.error.message
+        : 'Could not load source recovery.'
+      : undefined);
   if (!preview && error)
     return (
       <div>

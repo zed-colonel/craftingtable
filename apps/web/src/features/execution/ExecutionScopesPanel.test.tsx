@@ -1,8 +1,9 @@
 import type { ExecutionScopeChoice, WorktreeSummary } from '@craftingtable/contracts';
 import type { WorkCycle, WorkItemId, WorkspaceId } from '@craftingtable/domain';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
+import { testQueryStore } from '../../lib/query-store-testing.js';
 import { createWorktree } from '../../lib/execution-api.js';
 import { ExecutionScopesPanel } from './ExecutionScopesPanel.js';
 vi.mock('../../lib/execution-scope-api.js', () => ({ loadExecutionScopes: vi.fn() }));
@@ -50,7 +51,6 @@ function view(
       csrfToken="csrf"
       canMutate
       itemStatus={itemStatus}
-      refreshToken={0}
       onChanged={vi.fn()}
       worktrees={trees}
       cycles={cycles}
@@ -95,6 +95,8 @@ it('offers fresh verification on a completed parent, as the daemon allows', asyn
     { repositoryId: 'repo', executionScope: { ...scope, kind: 'slice-verification' } },
     'csrf',
   );
+  // Its own command reads the slices again at once (R-D4 increment 4b).
+  await waitFor(() => expect(loadExecutionScopes).toHaveBeenCalledTimes(2));
 });
 it('still asks for admission before scoped work on a proposed item', async () => {
   view([], [], 'proposed');
@@ -140,7 +142,6 @@ it("links a slice's checkpoint to the inbox item that carries its merge, else pr
     csrfToken: 'csrf',
     canMutate: true,
     itemStatus: 'admitted' as const,
-    refreshToken: 0,
     onChanged: vi.fn(),
     worktrees: [slice],
   };
@@ -152,4 +153,32 @@ it("links a slice's checkpoint to the inbox item that carries its merge, else pr
   vi.mocked(loadExecutionScopes).mockResolvedValue(choices);
   render(<ExecutionScopesPanel {...props} />);
   expect(await screen.findByRole('region', { name: 'Checkpoint recovery' })).toBeDefined();
+});
+
+// R-D4 increment 4b: the slices re-read on their own work item's events, not on every event.
+it("re-reads its work item's slices when an event names the item, and not for another item's", async () => {
+  vi.mocked(loadExecutionScopes).mockResolvedValue({ choices: [] });
+  const { wrap, send } = testQueryStore();
+  render(
+    wrap(
+      <ExecutionScopesPanel
+        workspaceId={'ws' as WorkspaceId}
+        workItemId={'wi' as WorkItemId}
+        csrfToken="csrf"
+        canMutate
+        itemStatus="admitted"
+        onChanged={vi.fn()}
+        worktrees={[]}
+      />,
+    ),
+  );
+  await send('notifications-changed', { workspaceId: 'ws' });
+  expect(loadExecutionScopes).toHaveBeenCalledTimes(1);
+  await send('work-cycle-changed', { workspaceId: 'ws', workItemId: 'other' });
+  await send('repository-registered', { workspaceId: 'ws', repositoryId: 'repo' });
+  expect(loadExecutionScopes).toHaveBeenCalledTimes(1);
+  await send('work-cycle-changed', { workspaceId: 'ws', workItemId: 'wi' });
+  expect(loadExecutionScopes).toHaveBeenCalledTimes(2);
+  await send('roadmap-changed', { workspaceId: 'ws', payload: { roadmapId: 'r' } });
+  expect(loadExecutionScopes).toHaveBeenCalledTimes(3);
 });

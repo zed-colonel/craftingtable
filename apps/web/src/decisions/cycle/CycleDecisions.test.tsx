@@ -92,13 +92,7 @@ it('resumes a transient stop with the daemon command', async () => {
   const stopped = cycle({ attention: { code: 'step-time-limit', owner: 'operator' } });
   const onChanged = vi.fn();
   render(
-    <CycleContinuation
-      cycle={stopped}
-      csrfToken="csrf"
-      disabled={false}
-      refreshToken={0}
-      onChanged={onChanged}
-    />,
+    <CycleContinuation cycle={stopped} csrfToken="csrf" disabled={false} onChanged={onChanged} />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Resume automation' }));
   await waitFor(() => expect(onChanged).toHaveBeenCalled());
@@ -129,7 +123,6 @@ it('reviews a completed parent review again, with its instructions', async () =>
       cycle={cycle({ status: 'completed', executionScope: scope })}
       csrfToken="csrf"
       disabled={false}
-      refreshToken={0}
       onChanged={vi.fn()}
     />,
   );

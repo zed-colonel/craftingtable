@@ -10,7 +10,7 @@ import {
   type WorkItemStatus,
   type WorkspaceId,
 } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { About } from '../../components/About.js';
 import { blockerDestination } from '../../lib/blocker-destinations.js';
 import { Reasons } from '../../components/Reasons.js';
@@ -23,7 +23,9 @@ import {
   recordScopeEvidence,
 } from '../../lib/execution-scope-api.js';
 import { distinct } from '../../lib/distinct.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
 import { Link } from '../../lib/navigation.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 
 export function ExecutionScopesPanel({
   workspaceId,
@@ -32,7 +34,6 @@ export function ExecutionScopesPanel({
   csrfToken,
   canMutate,
   itemStatus,
-  refreshToken,
   onChanged,
   cycles = [],
   onOpenCycle,
@@ -48,35 +49,32 @@ export function ExecutionScopesPanel({
   csrfToken: string;
   canMutate: boolean;
   itemStatus: WorkItemStatus;
-  refreshToken: number;
   onChanged: () => void;
 }) {
   // The daemon's rule (execution-service createWorktree): scoped work needs an admitted or
   // completed parent. A completed parent still takes fresh verification and acceptance when
   // its evidence goes stale, for example after a decision is approved.
   const admitted = itemStatus === 'admitted' || itemStatus === 'completed';
-  const [choices, setChoices] = useState<ExecutionScopeChoice[]>([]);
+  // Read again on its work item's events and after its own commands (R-D4 increment 4b).
+  const store = useQueryStore();
+  const key = queryKeys.workItemScopes(workspaceId, workItemId);
+  const scopes = useQuery(key, () => loadExecutionScopes(workspaceId, workItemId));
+  const choices: readonly ExecutionScopeChoice[] = scopes.data?.choices ?? [];
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState<string>();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: journal events and commands explicitly refresh this projection.
-  useEffect(() => {
-    let alive = true;
-    void loadExecutionScopes(workspaceId, workItemId)
-      .then((r) => {
-        if (alive) setChoices(r.choices);
-      })
-      .catch((e) => {
-        if (alive) setError(e instanceof Error ? e.message : 'Could not load execution scopes.');
-      });
-    return () => {
-      alive = false;
-    };
-  }, [workspaceId, workItemId, refreshToken]);
+    [commandError, setError] = useState<string>();
+  const error =
+    commandError ??
+    (scopes.error !== undefined
+      ? scopes.error instanceof Error
+        ? scopes.error.message
+        : 'Could not load execution scopes.'
+      : undefined);
   const command = async (operation: () => Promise<unknown>) => {
     setBusy(true);
     setError(undefined);
     try {
       await operation();
+      store.refreshNow([key]);
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Scope operation failed.');

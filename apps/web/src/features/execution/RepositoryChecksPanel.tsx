@@ -4,10 +4,12 @@ import type {
   SourceRepositorySummary,
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+
 import { AdoptChecks, ChecksTable } from '../../decisions/checks/CheckAdoption.js';
 import { loadRepositoryCheckReceipts, loadRepositoryChecks } from '../../lib/execution-api.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
 import { shortSha } from '../../lib/execution-labels.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { visible } from '../../lib/visible-text.js';
 
 /** The element a check stop's inbox item opens (R-G13). */
@@ -128,36 +130,24 @@ export function RepositoryChecksPanel({
   repository,
   csrfToken,
   editable,
-  refreshToken,
 }: {
   workspaceId: WorkspaceId;
   repository: SourceRepositorySummary;
   csrfToken: string;
   editable: boolean;
-  refreshToken: number;
 }) {
-  const [data, setData] = useState<RepositoryChecksView>();
-  const [receipts, setReceipts] = useState<RepositoryCheckReceipts>();
-  const [error, setError] = useState<string>();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload on daemon journal changes.
-  useEffect(() => {
-    let alive = true;
-    void loadRepositoryChecks(workspaceId, repository.id)
-      .then((next) => {
-        if (alive) setData(next);
-      })
-      .catch((e) => {
-        if (alive) setError(String(e));
-      });
-    void loadRepositoryCheckReceipts(workspaceId, repository.id)
-      .then((next) => {
-        if (alive) setReceipts(next);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [workspaceId, repository.id, refreshToken]);
+  // Read again on the repository's and its runs' events (R-D4 increment 4b).
+  const store = useQueryStore();
+  const key = queryKeys.repositoryChecks(workspaceId, repository.id);
+  const checks = useQuery(key, () => loadRepositoryChecks(workspaceId, repository.id));
+  const receiptsQuery = useQuery(
+    queryKeys.repositoryCheckReceipts(workspaceId, repository.id),
+    () => loadRepositoryCheckReceipts(workspaceId, repository.id),
+  );
+  const data: RepositoryChecksView | undefined = checks.data;
+  const setData = (next: RepositoryChecksView) => store.set(key, next);
+  const receipts: RepositoryCheckReceipts | undefined = receiptsQuery.data;
+  const error = checks.error === undefined ? undefined : String(checks.error);
   const declarations = data?.declarations ?? [];
   const [current] = declarations;
   return (

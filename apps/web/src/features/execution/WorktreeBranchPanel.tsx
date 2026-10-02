@@ -1,50 +1,44 @@
 import type { WorktreeBranchStatusResponse, WorktreeSummary } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { changeWorktreeBranch, loadWorktreeBranchStatus } from '../../lib/branch-api.js';
 import { loadRepositoryBranches } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
 import { distinct } from '../../lib/distinct.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 
 export function WorktreeBranchPanel({
   workspaceId,
   worktree,
   csrfToken,
   canMutate,
-  refreshToken,
   onChanged,
 }: {
   workspaceId: WorkspaceId;
   worktree: WorktreeSummary;
   csrfToken: string;
   canMutate: boolean;
-  refreshToken: number;
   onChanged: () => void;
 }) {
-  const [data, setData] = useState<WorktreeBranchStatusResponse>();
+  // Read from Git: again on the worktree's events, each minute and after a command (R-D4 4b).
+  const store = useQueryStore();
+  const key = queryKeys.worktreeBranch(workspaceId, worktree.id);
+  const status = useQuery(key, () => loadWorktreeBranchStatus(workspaceId, worktree.id));
+  const data: WorktreeBranchStatusResponse | undefined = status.data;
   const [branches, setBranches] = useState<readonly string[]>([]);
   const [target, setTarget] = useState(worktree.integrationBranch ?? '');
   const [editing, setEditing] = useState(false);
   const [editingVersion, setEditingVersion] = useState(worktree.version);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const [reload, setReload] = useState(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: journal invalidations and explicit refreshes reload this projection.
-  useEffect(() => {
-    let active = true;
-    void loadWorktreeBranchStatus(workspaceId, worktree.id)
-      .then((next) => {
-        if (active) {
-          setData(next);
-        }
-      })
-      .catch((error: unknown) => {
-        if (active) setError(error instanceof Error ? error.message : 'Could not inspect worktree');
-      });
-    return () => {
-      active = false;
-    };
-  }, [workspaceId, worktree.id, refreshToken, reload]);
+  const [commandError, setError] = useState<string>();
+  const error =
+    commandError ??
+    (status.error === undefined
+      ? undefined
+      : status.error instanceof Error
+        ? status.error.message
+        : 'Could not inspect worktree');
   const mutate = (action: 'update' | 'retarget') => {
     if (!data) return;
     setBusy(true);
@@ -62,7 +56,7 @@ export function WorktreeBranchPanel({
       .then(() => {
         setEditing(false);
         onChanged();
-        setReload((v) => v + 1);
+        store.refreshNow([key]);
       })
       .catch((error: unknown) => {
         setError(error instanceof Error ? error.message : 'Branch operation failed');
@@ -111,7 +105,7 @@ export function WorktreeBranchPanel({
           className="text-button"
           disabled={busy}
           onClick={() => {
-            setReload((v) => v + 1);
+            store.refreshNow([key]);
             onChanged();
           }}
         >

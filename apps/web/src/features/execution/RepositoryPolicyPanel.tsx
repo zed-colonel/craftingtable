@@ -1,8 +1,10 @@
 import type { RepositoryPolicyEvidence } from '@craftingtable/contracts';
 import type { PlanVersionId, WorkspaceId } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { loadRepositoryPolicy, saveRepositoryPolicy } from '../../lib/branch-api.js';
 import { distinct } from '../../lib/distinct.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { About } from '../../components/About.js';
 
 const INTERPRETATION =
@@ -15,18 +17,22 @@ export function RepositoryPolicyPanel({
   planVersionId,
   csrfToken,
   editable,
-  refreshToken,
   onChanged,
 }: {
   workspaceId: WorkspaceId;
   planVersionId: PlanVersionId;
   csrfToken: string;
   editable: boolean;
-  refreshToken: number;
   onChanged: () => void;
 }) {
-  const [data, setData] = useState<RepositoryPolicyEvidence>();
-  const [error, setError] = useState<string>();
+  // Read from Git: again on its plan's events, each minute and on a refresh (R-D4 4b).
+  const store = useQueryStore();
+  const key = queryKeys.repositoryPolicy(workspaceId, planVersionId);
+  const policy = useQuery(key, () => loadRepositoryPolicy(workspaceId, planVersionId));
+  const data: RepositoryPolicyEvidence | undefined = policy.data;
+  const setData = (next: RepositoryPolicyEvidence) => store.set(key, next);
+  const [commandError, setError] = useState<string>();
+  const error = commandError ?? (policy.error === undefined ? undefined : String(policy.error));
   const [busy, setBusy] = useState(false),
     [editing, setEditing] = useState(false);
   const [version, setVersion] = useState(0),
@@ -38,20 +44,6 @@ export function RepositoryPolicyPanel({
   const [confirmed, setConfirmed] = useState(false);
   const [freezeObservation, setFreezeObservation] =
     useState<RepositoryPolicyEvidence['proposedFreeze']>();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload evidence on daemon journal changes.
-  useEffect(() => {
-    let alive = true;
-    void loadRepositoryPolicy(workspaceId, planVersionId)
-      .then((d) => {
-        if (alive) setData(d);
-      })
-      .catch((e) => {
-        if (alive) setError(String(e));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [workspaceId, planVersionId, refreshToken]);
   const begin = () => {
     if (!data) return;
     setVersion(data.policy?.version ?? 0);

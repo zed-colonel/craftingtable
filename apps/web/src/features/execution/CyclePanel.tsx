@@ -48,7 +48,6 @@ export function CyclePanel({
   admitted,
   onStart,
   csrfToken,
-  refreshToken = 0,
   onChanged,
   decisionItemFor,
   onOpenRun,
@@ -67,7 +66,6 @@ export function CyclePanel({
   admitted: boolean;
   onStart: (input: StartWorkCycleRequest) => void;
   csrfToken: string;
-  refreshToken?: number;
   /** A cycle command was recorded: reload what depends on it. */
   onChanged: () => void;
   /**
@@ -280,7 +278,6 @@ export function CyclePanel({
               csrfToken={csrfToken}
               canMutate={canMutate}
               busy={busy}
-              refreshToken={refreshToken}
               onChanged={onChanged}
               onOpenRun={onOpenRun}
               onOpenWorktree={(id) => {

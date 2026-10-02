@@ -26,7 +26,7 @@ export function RepositoriesPage({
   onRegister: (input: { rootPath: string; displayName?: string }) => void;
   onRetire: (repositoryId: SourceRepositoryId) => void;
   /** Loads and adopts each repository's declared checks (R-G13). */
-  checks?: { workspaceId: WorkspaceId; csrfToken: string; refreshToken: number };
+  checks?: { workspaceId: WorkspaceId; csrfToken: string };
 }) {
   const [rootPath, setRootPath] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -138,7 +138,6 @@ export function RepositoriesPage({
               repository={repository}
               csrfToken={checks.csrfToken}
               editable={canMutate}
-              refreshToken={checks.refreshToken}
             />
           ))}
         </Section>

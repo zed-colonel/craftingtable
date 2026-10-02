@@ -50,7 +50,6 @@ export function CycleDecision({
   csrfToken,
   canMutate,
   busy,
-  refreshToken,
   onChanged,
   onOpenRun,
   onOpenWorktree,
@@ -65,7 +64,6 @@ export function CycleDecision({
   csrfToken: string;
   canMutate: boolean;
   busy: boolean;
-  refreshToken: number;
   onChanged: () => void;
   onOpenRun: (id: AgentRunId) => void;
   /** Shows another worktree's cycle: a delegated repair's, once started. */
@@ -117,7 +115,6 @@ export function CycleDecision({
           cycle={cycle}
           disabled={disabled || liveRun}
           csrfToken={csrfToken}
-          refreshToken={refreshToken}
           onOpen={onOpenWorktree}
           onStarted={(repair) => {
             onOpenWorktree(repair.worktreeId as WorktreeId);
@@ -130,7 +127,6 @@ export function CycleDecision({
           cycle={cycle}
           csrfToken={csrfToken}
           disabled={disabled || liveRun}
-          refreshToken={refreshToken}
           onChanged={onChanged}
         />
       )}

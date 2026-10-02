@@ -84,7 +84,6 @@ function panel() {
       cycle={cycle}
       disabled={false}
       csrfToken="csrf"
-      refreshToken={0}
       onStarted={onStarted}
       onOpen={onOpen}
     />,
@@ -183,7 +182,6 @@ it('preserves expanded findings and draft guidance through slow, failed and newe
     cycle,
     disabled: false,
     csrfToken: 'csrf',
-    refreshToken: 0,
     onStarted: vi.fn(),
     onOpen: vi.fn(),
   };
@@ -200,7 +198,7 @@ it('preserves expanded findings and draft guidance through slow, failed and newe
       reject = fail;
     }),
   );
-  rerender(<ScopeRepair {...props} refreshToken={1} cycle={{ ...cycle, version: 6 }} />);
+  rerender(<ScopeRepair {...props} cycle={{ ...cycle, version: 6 }} />);
   await screen.findByText('Refreshing source recovery… Existing findings remain visible.');
   expect(screen.getByText('R2.F-003 · major · Semantic inventory').closest('details')).toBe(
     disclosure,

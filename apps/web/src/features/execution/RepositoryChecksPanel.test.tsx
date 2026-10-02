@@ -60,7 +60,6 @@ function renderPanel(editable = true) {
       repository={repository}
       csrfToken="csrf"
       editable={editable}
-      refreshToken={0}
     />,
   );
 }

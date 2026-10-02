@@ -96,13 +96,11 @@ export function CycleContinuation({
   cycle,
   csrfToken,
   disabled,
-  refreshToken,
   onChanged,
 }: {
   cycle: WorkCycle;
   csrfToken: string;
   disabled: boolean;
-  refreshToken: number;
   onChanged: () => void;
 }) {
   const { busy, error, run } = useCommand(onChanged);
@@ -116,7 +114,6 @@ export function CycleContinuation({
           key={cycle.id}
           cycle={cycle}
           disabled={locked}
-          refreshToken={refreshToken}
           onResume={(instructions) =>
             void run(() =>
               control(cycle, csrfToken, {

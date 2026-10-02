@@ -1,46 +1,56 @@
-import type { ExecutionScopeChoice } from '@craftingtable/contracts';
-import type { WorkCycle } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+import type { WorkCycle, WorkItemId } from '@craftingtable/domain';
+import { useEffect, useRef, useState } from 'react';
+import { queryKeys } from '../../lib/event-invalidations.js';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { About } from '../../components/About.js';
 
 export function ScopeReviewRecovery({
   cycle,
   disabled,
-  refreshToken,
   onResume,
 }: {
   cycle: WorkCycle;
   disabled: boolean;
-  refreshToken: number;
   onResume: (instructions: string) => void;
 }) {
   const [instructions, setInstructions] = useState('');
-  const [choices, setChoices] = useState<ExecutionScopeChoice[]>();
-  const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
-  const [refreshing, setRefreshing] = useState(true);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: daemon events refresh current phase gates.
+  // The work item's slices, shared with its page (R-D4 increment 4b): read again on its events,
+  // and here when the cycle changes or the operator retries, holding Resume until then.
+  const store = useQueryStore();
+  const key = cycle.workItemId
+    ? queryKeys.workItemScopes(cycle.workspaceId, cycle.workItemId)
+    : undefined;
+  const scopes = useQuery(key, () =>
+    loadExecutionScopes(cycle.workspaceId, cycle.workItemId as WorkItemId),
+  );
+  const [refetching, setRefetching] = useState(false);
+  const mounted = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new cycle version or a retry reads again.
   useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    if (key === undefined) return;
     let alive = true;
-    setRefreshing(true);
-    setError(undefined);
-    if (cycle.workItemId)
-      void loadExecutionScopes(cycle.workspaceId, cycle.workItemId)
-        .then((result) => {
-          if (alive) setChoices(result.choices);
-        })
-        .catch((e) => {
-          if (alive)
-            setError(e instanceof Error ? e.message : 'Could not load review requirements.');
-        })
-        .finally(() => {
-          if (alive) setRefreshing(false);
-        });
+    setRefetching(true);
+    void store.refetch(key).finally(() => {
+      if (alive) setRefetching(false);
+    });
     return () => {
       alive = false;
     };
-  }, [cycle.workspaceId, cycle.workItemId, cycle.version, refreshToken, retry]);
+  }, [cycle.version, retry]);
+  const choices = scopes.data?.choices;
+  const error =
+    !refetching && scopes.error !== undefined
+      ? scopes.error instanceof Error
+        ? scopes.error.message
+        : 'Could not load review requirements.'
+      : undefined;
+  const refreshing = key === undefined || scopes.status !== 'ready' || refetching;
   const scope = cycle.executionScope;
   const choice = choices?.find(
     (c) =>

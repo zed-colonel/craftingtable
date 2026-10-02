@@ -13,13 +13,14 @@ import {
 import { loadRepositories, loadRepositoryBranches } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
 import { distinct } from '../../lib/distinct.js';
+import { queryKeys } from '../../lib/event-invalidations.js';
+import { useQuery, useQueryStore } from '../../lib/query-store.js';
 
 export function PlanBranchPanel({
   workspaceId,
   planVersionId,
   csrfToken,
   editable,
-  refreshToken,
   onChanged,
   onOpenSettings,
   onCreateWorktree,
@@ -31,7 +32,6 @@ export function PlanBranchPanel({
   planVersionId: PlanVersionId;
   csrfToken: string;
   editable: boolean;
-  refreshToken: number;
   onChanged: () => void;
   onOpenSettings?: () => void;
   onCreateWorktree?: (repositoryId: SourceRepositoryId) => void;
@@ -42,8 +42,19 @@ export function PlanBranchPanel({
 }) {
   const integrationInputId = useId();
   const [editingVersion, setEditingVersion] = useState(0);
-  const [data, setData] = useState<PlanBranchSettingsResponse>();
-  const [repositories, setRepositories] = useState<readonly SourceRepositorySummary[]>([]);
+  // The plan's branches are shared with its finalizations and re-read from Git each minute; the
+  // repositories are the workspace's (R-D4 increment 4b).
+  const store = useQueryStore();
+  const branchesKey = queryKeys.planBranches(workspaceId, planVersionId);
+  const repositoriesKey = queryKeys.repositories(workspaceId);
+  const settingsQuery = useQuery(branchesKey, () =>
+    loadPlanBranchSettings(workspaceId, planVersionId),
+  );
+  const repositoriesQuery = useQuery(repositoriesKey, () => loadRepositories(workspaceId));
+  const data: PlanBranchSettingsResponse | undefined = settingsQuery.data;
+  const setData = (next: PlanBranchSettingsResponse) => store.set(branchesKey, next);
+  const repositories: readonly SourceRepositorySummary[] =
+    repositoriesQuery.data?.repositories ?? [];
   const [branches, setBranches] = useState<readonly string[]>([]);
   const [repositoryId, setRepositoryId] = useState('');
   const [target, setTarget] = useState('');
@@ -52,30 +63,16 @@ export function PlanBranchPanel({
   const [manualBranches, setManualBranches] = useState('');
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const [reload, setReload] = useState(0);
+  const [commandError, setError] = useState<string>();
+  const loadFailure = settingsQuery.error ?? repositoriesQuery.error;
+  const error =
+    commandError ??
+    (loadFailure === undefined
+      ? undefined
+      : loadFailure instanceof Error
+        ? loadFailure.message
+        : 'Could not load branch settings');
   const [evidence, setEvidence] = useState<Record<string, string>>({});
-  // biome-ignore lint/correctness/useExhaustiveDependencies: journal invalidations and explicit refreshes reload this projection.
-  useEffect(() => {
-    let active = true;
-    void Promise.all([
-      loadPlanBranchSettings(workspaceId, planVersionId),
-      loadRepositories(workspaceId),
-    ])
-      .then(([next, repos]) => {
-        if (!active) return;
-        setData(next);
-        setRepositories(repos.repositories);
-        setError(undefined);
-      })
-      .catch((error: unknown) => {
-        if (active)
-          setError(error instanceof Error ? error.message : 'Could not load branch settings');
-      });
-    return () => {
-      active = false;
-    };
-  }, [workspaceId, planVersionId, refreshToken, reload]);
   useEffect(() => {
     let active = true;
     setBranches([]);
@@ -122,7 +119,13 @@ export function PlanBranchPanel({
           <button
             type="button"
             className="text-button"
-            onClick={() => setReload((v) => v + 1)}
+            onClick={() =>
+              store.refreshNow([
+                branchesKey,
+                repositoriesKey,
+                queryKeys.repositoryPolicy(workspaceId, planVersionId),
+              ])
+            }
             disabled={busy}
           >
             Refresh branches
@@ -173,7 +176,6 @@ export function PlanBranchPanel({
           planVersionId={planVersionId}
           csrfToken={csrfToken}
           editable={editable}
-          refreshToken={refreshToken + reload}
           onChanged={onChanged}
         />
       )}

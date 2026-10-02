@@ -42,9 +42,7 @@ it('keeps guidance visible while verification is stale and submits only after fr
     .mockResolvedValueOnce({ choices: [choice(true)] })
     .mockResolvedValueOnce({ choices: [choice(false)] });
   const onResume = vi.fn();
-  render(
-    <ScopeReviewRecovery cycle={cycle} disabled={false} refreshToken={0} onResume={onResume} />,
-  );
+  render(<ScopeReviewRecovery cycle={cycle} disabled={false} onResume={onResume} />);
   await screen.findByText('Required slice wi/WI-01/implementation has not been verified.');
   expect(
     (screen.getByRole('button', { name: 'Resume scope review' }) as HTMLButtonElement).disabled,
@@ -65,9 +63,7 @@ it('keeps guidance visible while verification is stale and submits only after fr
 });
 it('does not enable recovery when requirements cannot be loaded', async () => {
   vi.mocked(loadExecutionScopes).mockRejectedValue(new Error('Requirements unavailable'));
-  render(
-    <ScopeReviewRecovery cycle={cycle} disabled={false} refreshToken={0} onResume={vi.fn()} />,
-  );
+  render(<ScopeReviewRecovery cycle={cycle} disabled={false} onResume={vi.fn()} />);
   await screen.findByRole('alert');
   expect(
     (screen.getByRole('button', { name: 'Resume scope review' }) as HTMLButtonElement).disabled,
@@ -88,9 +84,7 @@ it('offers an explicit fresh review with guidance for completed verification', a
     ],
   });
   const onResume = vi.fn();
-  render(
-    <ScopeReviewRecovery cycle={completed} disabled={false} refreshToken={0} onResume={onResume} />,
-  );
+  render(<ScopeReviewRecovery cycle={completed} disabled={false} onResume={onResume} />);
   await waitFor(() =>
     expect(
       (screen.getByRole('button', { name: 'Start fresh scope review' }) as HTMLButtonElement)
@@ -102,4 +96,30 @@ it('offers an explicit fresh review with guidance for completed verification', a
   });
   fireEvent.click(screen.getByRole('button', { name: 'Start fresh scope review' }));
   expect(onResume).toHaveBeenCalledWith('Recheck with the saved policy.');
+});
+
+// R-D4 increment 4b: the requirements are the work item's shared slices; a new cycle version
+// reads them again and holds Resume until they are back.
+it('reads the requirements again when the cycle changes, holding Resume meanwhile', async () => {
+  let answer!: (value: { choices: ExecutionScopeChoice[] }) => void;
+  vi.mocked(loadExecutionScopes)
+    .mockResolvedValueOnce({ choices: [choice(false)] })
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+  const resume = () =>
+    (screen.getByRole('button', { name: 'Resume scope review' }) as HTMLButtonElement).disabled;
+  const { rerender } = render(
+    <ScopeReviewRecovery cycle={cycle} disabled={false} onResume={vi.fn()} />,
+  );
+  await waitFor(() => expect(resume()).toBe(false));
+  rerender(
+    <ScopeReviewRecovery cycle={{ ...cycle, version: 3 }} disabled={false} onResume={vi.fn()} />,
+  );
+  await waitFor(() => expect(loadExecutionScopes).toHaveBeenCalledTimes(2));
+  expect(resume()).toBe(true);
+  answer({ choices: [choice(false)] });
+  await waitFor(() => expect(resume()).toBe(false));
 });

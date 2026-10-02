@@ -43,7 +43,6 @@ function show(cycle: WorkCycle, readOnly = false, inInbox = false) {
       csrfToken="csrf"
       canMutate
       busy={false}
-      refreshToken={0}
       onChanged={vi.fn()}
       onOpenRun={vi.fn()}
       onOpenWorktree={vi.fn() as (id: WorktreeId) => void}
@@ -111,7 +110,6 @@ it("in the inbox, shows the cycle's questions, its run and its shared decisions,
       csrfToken="csrf"
       canMutate
       busy={false}
-      refreshToken={0}
       onChanged={vi.fn()}
       onOpenRun={onOpenRun}
       onOpenWorktree={vi.fn() as (id: WorktreeId) => void}

@@ -58,8 +58,10 @@ export type Continuation = 'scope-review' | 'remediation' | 'guidance' | 'resume
 
 export function continuationOf(cycle: WorkCycle): Continuation | undefined {
   const actions = cycle.actions ?? [];
-  // A stop that waits on shared decisions is answered there, not here (LIVE-18).
-  if (actions.includes('open-shared-decisions')) return undefined;
+  // A stop that waits on shared decisions is answered there, not here (LIVE-18), and one being
+  // investigated takes no answer until the investigation ends (R-C16).
+  if (actions.includes('open-shared-decisions') || actions.includes('end-investigation'))
+    return undefined;
   // A parent or verification review is continued, or reviewed again, with instructions.
   if (cycle.executionScope && cycle.executionScope.kind !== 'slice')
     return ['paused', 'needs-attention', 'completed'].includes(cycle.status)
@@ -97,11 +99,14 @@ export function CycleContinuation({
   csrfToken,
   disabled,
   onChanged,
+  suggestion,
 }: {
   cycle: WorkCycle;
   csrfToken: string;
   disabled: boolean;
   onChanged: () => void;
+  /** Text the operator chose to start the answer from, e.g. an investigation's proposals. */
+  suggestion?: { readonly text: string; readonly nonce: number };
 }) {
   const { busy, error, run } = useCommand(onChanged);
   const kind = continuationOf(cycle);
@@ -127,8 +132,9 @@ export function CycleContinuation({
       {kind === 'remediation' && (
         <div id={`cycle-guidance-${cycle.id}`}>
           <CycleRemediationRecovery
-            key={`${cycle.id}:${cycle.version}`}
+            key={`${cycle.id}:${cycle.version}:${suggestion?.nonce ?? 0}`}
             cycle={cycle}
+            {...(suggestion ? { initialInstructions: suggestion.text } : {})}
             disabled={locked}
             onAuthorize={(grant) =>
               void run(() =>
@@ -140,8 +146,9 @@ export function CycleContinuation({
       )}
       {kind === 'guidance' && (
         <CycleGuidanceRecovery
-          key={cycle.id}
+          key={`${cycle.id}:${suggestion?.nonce ?? 0}`}
           cycle={cycle}
+          {...(suggestion ? { initialGuidance: suggestion.text } : {})}
           disabled={locked}
           onContinue={(instructions) =>
             void run(() => control(cycle, csrfToken, { action: 'resume', instructions }))

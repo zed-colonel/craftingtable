@@ -1508,6 +1508,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - two finalization guards read the cycle they were given, but `change()`'s version check protects them.
     - **Left for 16b:** the browser has no End button yet.
 
+- **16b (2026-10-02): the browser.** `CycleInvestigation` is in the stop's decision (`CycleDecision`), in its inbox item and on the work item.
+  - **Investigate these questions:** a form with an optional prompt, a time limit (5–60, default 30) and the agent. The cycle's Evidence investigation profile is preselected, and the agent can be changed in About.
+  - **While it runs:** "Investigating" until its deadline, with Open investigation run and End investigation. The stop's answer forms are hidden (`continuationOf` returns none while `end-investigation` is the only action).
+  - **When it ends:** the proposals, each with its answer and sources, or why it stays open. Use proposed answers fills the stop's own answer (Continue with guidance, or Authorize more remediation's guidance) for the operator to edit. Nothing is sent until the operator submits that control.
+  - A failure, an End or an interruption says so, and Investigate is offered again. Reminders are held by the daemon (16a).
+  - **Tests and mutations.** `CycleInvestigation.test.tsx` covers the form and its request, the live panel and End, the proposals and Use proposed answers for both stop controls, and a failure. Mutations of each part fail a test.
+  - **One equivalent mutation:** offering the form while live is unreachable, because the daemon never offers both actions.
+
 ## Workstream D — Read side and browser performance (pain point 3)
 
 ### R-D1

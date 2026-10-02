@@ -12,13 +12,16 @@ export function CycleRemediationRecovery({
   cycle,
   disabled,
   onAuthorize,
+  initialInstructions = '',
 }: {
   cycle: WorkCycle;
   disabled: boolean;
   onAuthorize: (input: CycleRemediationGrant) => void;
+  /** Where the guidance starts, e.g. an investigation's proposals (R-C16). */
+  initialInstructions?: string;
 }) {
   const [additionalRounds, setAdditionalRounds] = useState(1);
-  const [instructions, setInstructions] = useState('');
+  const [instructions, setInstructions] = useState(initialInstructions);
   const valid =
     Number.isInteger(additionalRounds) && additionalRounds >= 1 && additionalRounds <= 20;
   return (

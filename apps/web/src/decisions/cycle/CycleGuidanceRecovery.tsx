@@ -6,12 +6,15 @@ export function CycleGuidanceRecovery({
   cycle,
   disabled,
   onContinue,
+  initialGuidance = '',
 }: {
   cycle: WorkCycle;
   disabled: boolean;
   onContinue: (instructions: string) => void;
+  /** Where the answer starts, e.g. an investigation's proposals (R-C16). */
+  initialGuidance?: string;
 }) {
-  const [guidance, setGuidance] = useState('');
+  const [guidance, setGuidance] = useState(initialGuidance);
   const remaining = Math.max(0, remediationAllowance(cycle) - cycle.remediationRounds);
   return (
     <form

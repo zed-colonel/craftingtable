@@ -6,7 +6,9 @@ import { ScopeRepair } from '../scope-repair/ScopeRepair.js';
 import { WorkflowStatus } from '../../features/execution/WorkflowStatus.js';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import { Link } from '../../lib/navigation.js';
+import { useState } from 'react';
 import { CycleContinuation, continuationOf, ProviderRetry } from './CycleDecisions.js';
+import { CycleInvestigation } from './CycleInvestigation.js';
 
 /**
  * Which of a cycle's decisions apply, from its state and the daemon's returned actions: the
@@ -75,6 +77,8 @@ export function CycleDecision({
   inInbox?: boolean;
 }) {
   const disabled = busy || !canMutate;
+  // The answer the operator chose to start from, e.g. an investigation's proposals (R-C16).
+  const [suggestion, setSuggestion] = useState<{ text: string; nonce: number }>();
   const liveRun = runs.some(
     (run) =>
       run.worktreeId === cycle.worktreeId &&
@@ -122,12 +126,24 @@ export function CycleDecision({
           }}
         />
       )}
+      <CycleInvestigation
+        cycle={cycle}
+        backends={backends}
+        csrfToken={csrfToken}
+        disabled={disabled}
+        onChanged={onChanged}
+        onOpenRun={onOpenRun}
+        onUseAnswers={(text) =>
+          setSuggestion((current) => ({ text, nonce: (current?.nonce ?? 0) + 1 }))
+        }
+      />
       {applies.continuation && (
         <CycleContinuation
           cycle={cycle}
           csrfToken={csrfToken}
           disabled={disabled || liveRun}
           onChanged={onChanged}
+          {...(suggestion ? { suggestion } : {})}
         />
       )}
       {applies.design && canMutate && (

@@ -74,8 +74,14 @@ import { createTestContext, type TestContext } from './test-support.js';
 export const contexts: TestContext[] = [];
 export const directories: string[] = [];
 export async function cleanupExecutionFixtures(): Promise<void> {
-  // Closing a gate ends every check still waiting on it, before its daemon closes.
-  for (const gate of gates.splice(0)) closeSync(gate);
+  // A wait the ended test left running stops at its next step instead of stepping the next
+  // test's daemons (R-I2).
+  fixtureGeneration += 1;
+  // Ends every check waiting on a gate before its daemon closes, and any that would start.
+  for (const gate of gates.splice(0)) {
+    rmSync(gate.fifo, { force: true });
+    closeSync(gate.fd);
+  }
   const callbackErrors = launchCallbackErrors.splice(0);
   const closed = await Promise.allSettled(contexts.splice(0).map((context) => context.cleanup()));
   for (const directory of directories.splice(0)) {
@@ -93,8 +99,9 @@ export async function cleanupExecutionFixtures(): Promise<void> {
  *
  * The gate is a FIFO this process holds open for reading and writing, so a check opening it
  * never blocks and a byte written before a check starts waits for it. Each check reads one
- * byte, so `open(n)` releases n checks. Cleanup closes the gate, and every check still waiting
- * then reads end of file and exits 3.
+ * byte, so `open(n)` releases n checks. Cleanup first removes the FIFO, so a check that
+ * starts afterwards fails to open it, then closes it, so every check already waiting reads end
+ * of file and exits 3.
  */
 export interface CheckGate {
   readonly command: readonly string[];
@@ -111,7 +118,7 @@ export function checkGate(): CheckGate {
   writeFileSync(started, '');
   // O_RDWR: on Linux opening a FIFO this way never blocks, and the FIFO keeps a writer.
   const gate = openSync(fifo, 'r+');
-  gates.push(gate);
+  gates.push({ fifo, fd: gate });
   const script = [
     "const fs = require('node:fs');",
     `fs.appendFileSync(${JSON.stringify(started)}, process.pid + '\\n');`,
@@ -127,7 +134,7 @@ export function checkGate(): CheckGate {
     pids: () => readFileSync(started, 'utf8').split('\n').filter(Boolean).map(Number),
   };
 }
-const gates: number[] = [];
+const gates: { readonly fifo: string; readonly fd: number }[] = [];
 
 /** Whether a process is still running (not gone, and not a zombie). */
 export function processRunning(pid: number): boolean {
@@ -582,7 +589,8 @@ export async function registerAndWorktree(
  */
 export async function stepDaemons(steps = 1): Promise<void> {
   for (let step = 0; step < steps; step++)
-    for (const context of contexts) {
+    // A snapshot: a step a timed-out test left running must not reach the next test's daemons.
+    for (const context of [...contexts]) {
       if (freeRunning.has(context)) continue;
       const { services } = context;
       await services.agentRunService.quiesce();
@@ -627,11 +635,19 @@ export async function waitFor(
   options: WaitOptions = {},
 ): Promise<void> {
   const budget = options.steps ?? WAIT_STEPS;
-  const pending: PendingWait = { label, steps: 0, startedAt: Date.now() };
+  const pending: PendingWait = {
+    label,
+    steps: 0,
+    startedAt: Date.now(),
+    generation: fixtureGeneration,
+  };
   pendingWaits.add(pending);
   reportPendingWaitsOnFailure();
   try {
     for (;;) {
+      // Its test ended (it timed out here) and the fixtures were cleaned up: stop.
+      if (pending.generation !== fixtureGeneration)
+        throw new Error(`Abandoned waiting for ${label}: its test has ended`);
       throwLaunchCallbackError();
       if (predicate()) return;
       const stepped = options.step !== undefined || contexts.some((c) => !freeRunning.has(c));
@@ -644,6 +660,8 @@ export async function waitFor(
         );
       await (options.step ?? stepDaemons)();
       pending.steps += 1;
+      if (pending.generation !== fixtureGeneration)
+        throw new Error(`Abandoned waiting for ${label}: its test has ended`);
       throwLaunchCallbackError();
       if (predicate()) return;
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -704,8 +722,12 @@ function testTimeoutMs(): number {
 interface PendingWait {
   readonly label: string;
   readonly startedAt: number;
+  /** `fixtureGeneration` when the wait began: the test it belongs to. */
+  readonly generation: number;
   steps: number;
 }
+/** Counts `cleanupExecutionFixtures` calls, so each test's waits are told from the last's. */
+let fixtureGeneration = 0;
 const pendingWaits = new Set<PendingWait>();
 const failureReports = new Set<string>();
 /**
@@ -716,13 +738,15 @@ function reportPendingWaitsOnFailure(): void {
   const state = expect.getState();
   const test = `${state.testPath ?? ''}\u0000${state.currentTestName ?? ''}`;
   if (failureReports.has(test)) return;
+  const generation = fixtureGeneration;
   try {
     onTestFailed(({ task }) => {
       for (const wait of pendingWaits)
-        task.result?.errors?.push({
-          name: 'PendingWait',
-          message: `The test failed while waiting for ${wait.label}: ${wait.steps} steps in ${Date.now() - wait.startedAt} ms`,
-        });
+        if (wait.generation === generation)
+          task.result?.errors?.push({
+            name: 'PendingWait',
+            message: `The test failed while waiting for ${wait.label}: ${wait.steps} steps in ${Date.now() - wait.startedAt} ms`,
+          });
     });
     failureReports.add(test);
   } catch {

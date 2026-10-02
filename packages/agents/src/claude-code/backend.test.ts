@@ -69,6 +69,9 @@ async function collect(items: AsyncIterable<AgentSessionItem>): Promise<AgentSes
   return collected;
 }
 
+/** The backend's termination grace when none is given (`backend.ts`). */
+const DEFAULT_GRACE_MS = 5000;
+
 describe('ClaudeCodeBackend', () => {
   it('launches, delivers the prompt on stdin, accepts a follow-up, and ends cleanly', async () => {
     const fake = fakeClaude();
@@ -130,6 +133,7 @@ setInterval(() => out(limited), 50);
 `,
     );
     chmodSync(executable, 0o755);
+    const started = Date.now();
     const session = await new ClaudeCodeBackend({ executable, terminationGraceMs: 100 }).launch({
       cwd: directory,
       prompt: 'review',
@@ -138,6 +142,9 @@ setInterval(() => out(limited), 50);
     // The fake never stops on its own, nor does its background shell: the items end only
     // because the session was ended.
     const items = await collect(session.items);
+    // A genuine bound, not scaled: under the backend's 5 s default grace, so the session was
+    // ended with the 100 ms grace it was given (R-I2).
+    expect(Date.now() - started).toBeLessThan(DEFAULT_GRACE_MS);
     const turns = items.flatMap((item) =>
       item.type === 'event' && item.event.kind === 'turn-completed' ? [item.event.payload] : [],
     );
@@ -180,9 +187,13 @@ setInterval(() => out(limited), 50);
     });
     const collecting = collect(session.items);
     await new Promise((resolve) => setTimeout(resolve, 300));
+    const killed = Date.now();
     session.kill();
     // The fake ignores SIGTERM, so it ends only by the SIGKILL that follows the grace.
     const items = await collecting;
+    // A genuine bound, not scaled: under the 5 s default grace, so SIGKILL followed the
+    // 200 ms grace it was given (R-I2).
+    expect(Date.now() - killed).toBeLessThan(DEFAULT_GRACE_MS);
     const exited = items.at(-1);
     expect(exited?.type === 'exited' && exited.signal).toBe('SIGKILL');
   });

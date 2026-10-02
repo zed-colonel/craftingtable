@@ -1590,7 +1590,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-D4
 
-**Keyed query store and App.tsx split** · Phase P2 · Effort M-L · Status: open
+**Keyed query store and App.tsx split** · Phase P2 · Effort M-L · Status: done (2026-10-02; 07081fe..15d332b, not yet merged or deployed)
 
 - **Resolves:** [PERF-01](findings/PERF-browser-and-read-performance.md#perf-01-every-workspace-event-refetches-the-whole-page-computed-stale-scopes-are-ignored), [PERF-10](findings/PERF-browser-and-read-performance.md#perf-10-whole-tree-re-render-on-every-event-response-and-clock-tick-no-memoization-anywhere), [PERF-13](findings/PERF-browser-and-read-performance.md#perf-13-four-different-freshness-policies-on-one-page-produce-visibly-inconsistent-state-after-transitions), [UI-13](findings/UI-information-architecture.md#ui-13-apptsx-monolith-plus-a-second-self-fetching-architecture-ad-hoc-event-bus-and-stale-panels)
 - **Change:** A small in-repo query store (~200-300 lines: per-key subscriptions, single-flight, stale-while-revalidate, structural sharing, visibility-aware, one tested event->keys invalidation table); App.tsx reduced to auth, shell and route dispatch with one component per page owning its queries; window CustomEvents and self-polling removed; memoized row components; a useNow() hook instead of the global 10 s re-render. Record the store semantics in an ADR amendment; ask before adopting TanStack Query.
@@ -1729,6 +1729,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - The full e2e suite and the walkthrough rehearsal pass: 21 tests plus the rehearsal.
       - The mobile and roadmaps specs passed 25 of 25 runs (5 repeats, both projects) at load about 3.
       - With 16 CPU burners (load 18–23) they passed 15 of 15. Before the Resume wait fix, the mobile spec failed 2 of 3 under that load, at the Resume step.
+- **Done, 2026-10-02 (operator agreed).** Each part of the done-when is met:
+  - `App.tsx` is 288 lines, against about 300.
+  - The only timer left is the operator-approved minute re-read of Git-derived queries (decision 2026-10-01), which replaced the safety refresh.
+  - `request-budget.test.tsx` checks that unrelated events cause 0 requests on six pages.
+  - The two intermittent e2e specs that kept the item open are fixed above.
 
 ### R-D5
 
@@ -1737,6 +1742,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [CTRL-22](findings/CTRL-controller.md#ctrl-22-the-api-returns-projection-fields-mixed-into-the-domain-workcycle) (moved from R-A3), [PERF-09](findings/PERF-browser-and-read-performance.md#perf-09-git-subprocess-fan-out-on-refreshed-read-paths), [PERF-14](findings/PERF-browser-and-read-performance.md#perf-14-work-item-and-run-pages-are-assembled-from-15-independent-requests-with-duplicates-and-static-data), [PERF-16](findings/PERF-browser-and-read-performance.md#perf-16-no-compression-no-validators-etag-on-large-json-responses), [PERF-20](findings/PERF-browser-and-read-performance.md#perf-20-single-768-kb-bundle-no-code-splitting)
 - **Change:** Return cycles as `{cycle, projection}` so `nextAgentSelections`, `scopeReviewWait`, `mergeRequirementsWait` and rewritten `workflow.questions` stop posing as stored state (CTRL-22). One endpoint per page region evaluated in one read transaction and one map snapshot (work-item view, run view, roadmap list + roadmap progress, definitions by revision); gzip above ~8 KB and weak ETags with 304s; git-derived facts behind a cache keyed by resolved SHA; branch status fetched lazily; per-route code splitting.
 - **Done when:** A work-item page loads with <=3 requests and <100 ms server time on the live dataset.
+- **Stays in P2 (operator decision 2026-10-02):** it is next after the review pass.
 
 ### R-D6
 
@@ -2490,13 +2496,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G6
 
-**Redesign briefs around the task** · Phase P2 · Effort M · Status: open
+**Redesign briefs around the task** · Phase P3 (moved from P2, operator 2026-10-02) · Effort M · Status: open
 
 - **Resolves:** [AGT-50](findings/AGT-GIT-SEC-agents-git-security.md#agt-50-briefs-are-mostly-controller-protocol-boilerplate-the-task-itself-is-a-small-fraction), [AGT-53](findings/AGT-GIT-SEC-agents-git-security.md#agt-53-the-parents-final-message-is-inlined-verbatim-duplicating-the-handoff-and-breaking-brief-structure), [AGT-54](findings/AGT-GIT-SEC-agents-git-security.md#agt-54-structured-output-instructions-are-scattered-across-6-modules-and-conflict-for-some-roles), [AGT-56](findings/AGT-GIT-SEC-agents-git-security.md#agt-56-per-run-context-artifacts-are-oversized-and-copied-on-every-run), [AGT-57](findings/AGT-GIT-SEC-agents-git-security.md#agt-57-briefs-inherit-links-into-other-runs-scratch-and-plan-paths-that-later-expire), [AGT-58](findings/AGT-GIT-SEC-agents-git-security.md#agt-58-the-scope-section-repeats-the-goal-three-times-and-dumps-internal-id-json)
 - **Change:** Goal and acceptance criteria first; controller protocol in one module with role-specific structured-output instructions that do not conflict; reference the parent run via the handoff instead of inlining its final message; stop copying oversized context artifacts per run; no links into other runs' expiring scratch; scope section states the goal once.
 - **Done when:** Median brief size and the goal's share of it are tracked; goal share rises substantially from <5%.
 - **LIVE-26, fixed 2026-09-30:** the brief said CARGO_TARGET_DIR is the worktree's build cache and to keep build outputs there, while the daemon-run launchers (`ct-native`, the Cargo launcher, `ct-check`) build in a directory the daemon chooses, so WI-03's agent stopped to ask for a corrected manifest. The pinned-environment paragraph now says those builds use their own directory, that receipts do not depend on it, that CARGO_TARGET_DIR is for Cargo commands the agent runs directly, and not to edit the manifest or override it. Test: `server-execution-receipt-gates.test.ts` (the brief says so; it failed before the change).
   - **Independent review of 1016bf6 (2026-09-30, isolated worktree).** No HIGH or MEDIUM. Fixed (mutations B1, B2, killed): *LOW,* the sentence was false for a run with no worktree cache, whose CARGO_TARGET_DIR is the manifest's own `scratch/target`, and *LOW,* "CARGO_TARGET_DIR is for Cargo commands you run directly" described almost nothing, since the launcher is first on PATH and runs its non-build commands locally with the manifest's target: the paragraph now says the launcher's builds and CraftingTable's checks use a directory CraftingTable chooses, and the launcher's other Cargo commands the manifest's (the run's `scratch/target`), whatever CARGO_TARGET_DIR says. *LOW,* the Temporary files section still said to keep builds in the worktree cache; for a run with the launchers it now adds that they use their own directories. *NIT,* `ct-act` is listed. *NIT, disposition:* "do not override the build directory" is advice (`--target-dir` is not refused for dirty-tree builds, which no gate accepts); the test covers the run with a worktree cache only.
+- **Moved to P3 (operator decision 2026-10-02),** when P2 was re-scoped before landing. Only LIVE-26's brief fix was done in P2.
 
 ### R-G7
 
@@ -2554,6 +2561,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - security headers and a Host check are sent;
     - credentials are not readable from agent-writable locations, and old database copies are retired;
     - no route handler calls `authenticate` or `authorizeMutation`, and the route sweep still passes.
+- **Stays in P2 (operator decision 2026-10-02):** security work on a daemon whose session amounts to code execution.
 
 ### R-G10
 
@@ -2581,7 +2589,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G13
 
-**Declared per-repository checks** · Phase P2 · Effort M · Status: partial (increments 1 to 3 and 5; 4 open)
+**Declared per-repository checks** · Phase P2 (increments 1 to 3 and 5) / P3 (increment 4, moved by the operator 2026-10-02) · Effort M · Status: partial (increments 1 to 3 and 5; 4 open)
 
 - **Added 2026-09-28** (operator decision, after the R-G4 batch), for what R-G4 left open.
 - **Resolves:** the rest of [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification), and R-G4's residual gap on [SEC-01](findings/AGT-GIT-SEC-agents-git-security.md#sec-01-agents-can-forge-the-buildcheckcinative-receipts-that-gate-integration).
@@ -2850,6 +2858,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *NIT, fixed:* the note for an adopted text that cannot be shown names both reasons (not UTF-8, or the commit is gone).
   - *LOW, operator decision 2026-10-01: kept (availability):* the server's allowlist refuses at merge, anywhere in a changed definition, carriage returns (CRLF files), variation selectors (⚠️ and keycap emoji), zero-width joiners (family emoji), no-break spaces, a byte order mark, decomposed accents and some vowel signs. An em dash, smart quotes, `→ ✓ × ° € ©`, CJK, Hebrew and Arabic are allowed. A definition holding a refused character can still be adopted on the Repositories page, which marks and warns of it, then the slice resumed; what is refused is exactly what cannot be shown faithfully.
   - *Stated:* stop reasons elsewhere in the app echo paths unmarked; they decide nothing about adoption.
+- **Increment 4 moved to P3 (operator decision 2026-10-02),** when P2 was re-scoped before landing. Increments 1 to 3 and 5 landed in P2.
 
 ### R-G14
 
@@ -2972,7 +2981,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H4
 
-**Lighter evidence and definition storage** · Phase P2 · Effort M · Status: open
+**Lighter evidence and definition storage** · Phase P2 (increment 1) / P3 (the rest, moved by the operator 2026-10-02) · Effort M · Status: partial (increment 1 done 2026-09-30)
 
 - **Resolves:** [PERF-08](findings/PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview), [LIVE-29](findings/LIVE-live-run-2026-09-25.md#live-29-the-plans-evidence-view-grows-with-history-until-panels-across-the-app-stall-behind-it)
 - **Change:** Evidence submissions become a light index row plus a lazily decoded body; persist canonical digests at write time instead of canonicalizing whole definitions at read time.
@@ -2999,6 +3008,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW L5, fixed:* the heading said done although "about 1 MB" is not met; it now says done once the operator accepts 1.37 MB. The before walkthrough (`2026-09-30-decisions-before`, 34ca0e5) includes this change's evidence review.
   - **Fix found by the walkthrough, 2026-09-30.** At 4f0a7ad every closed review rendered "Loading the full record…", which said something was loading when nothing was, and kept the walkthrough's settle check from ever passing. The note now shows only while a record is being read, or after a read failed. `RuntimeEvidencePanel.test.tsx` checks that an unopened review says nothing (it failed at 4f0a7ad).
   - **Tests:** `runtime-evidence-view.test.ts` (the summary keeps everything except the bodies; the view's Git reads are asked once and other Git calls pass through), `server-execution-scope-evidence.test.ts` (the route: summaries in the view, the full record on demand, 404 for an unknown submission or definition, 401 without a session; storage reads per view do not grow with the number of submissions), `RuntimeEvidencePanel.test.tsx` (the record loads when the review opens; Accept waits for it). Each guard fails under a mutation: reading the binding per submission, sending full records, dropping the Git memo, keeping the decision text in the summary, accepting before the record loads, never loading it.
+- **The rest moved to P3 (operator decision 2026-10-02),** when P2 was re-scoped before landing. That is the storage change: a light index row plus a lazily decoded body, and canonical digests at write time. The done-when names the roadmap view and the cross-project preview, which increment 1 (the plan evidence view) did not change.
 
 ### R-H5
 
@@ -3098,11 +3108,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I4
 
-**Structural test/production and process-authority boundaries** · Phase P2 · Effort M · Status: open
+**Structural test/production and process-authority boundaries** · Phase P2 (in the review pass after P2 lands, operator 2026-10-02) · Effort M · Status: open
 
 - **Resolves:** [QA-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-04-checkscope-exemptions-are-filename-patterns-and-several-bypasses-are-open), [QA-07](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-07-the-testproduction-boundary-is-structural-only-in-packagesgit-everywhere-else-tests-and-test-support-compile-into-dist)
 - **Change:** Move test-support and fixtures out of compiled src trees everywhere (as packages/git already does); make check:scope reject builtin-module access via computed import/getBuiltinModule and stop exempting files by name pattern.
 - **Done when:** No *.test.js or test-support in dist; the known bypasses fail check:scope.
+- **Done in the review pass after P2 lands (operator decision 2026-10-02).** The test-suite review's findings extend it ([TS-M11, TS-M14, TS-H6](findings/TS-test-suite-review-2026-10-02.md)):
+  - `check:scope` passes a static import under `src/dist/`, a template-literal `import()` and `switch (x.reason)`.
+  - The links guard and the decision-boundary import rule pass with their detector disabled.
+  - The two server fixture stacks have drifted, and test teardown skips the daemon's `checkRequestService.closeAll()`.
+  - `local-check` launchers run built `dist/`.
 
 ### R-I5
 

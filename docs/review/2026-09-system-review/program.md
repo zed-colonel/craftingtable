@@ -898,6 +898,21 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - The two formerly intermittent specs passed 25 of 25 runs at idle and 15 of 15 under 16 CPU burners (load 18–23).
     - All 448 web tests pass.
   - **Replays against a fresh `tsc -b` (closes TS-H6's doubt for this branch).** 43 of 45 report 0 changed. The two 2026-10-01 differences are LIVE-32's, and their records are identical to the previous gate's output.
+- **P2 re-scoped before landing (operator decision 2026-10-02).** Landing the branch does not end P2. Each item is recorded on its register entry.
+  - **Closed:** R-D4, whose done-when is met and whose two e2e failures are fixed.
+  - **Stays in P2:**
+    - R-D5, next after the review pass;
+    - R-G9, auth hardening;
+    - R-I4, done in the review pass, which the test-suite findings extend.
+  - **Moved to P3:** R-G6 (briefs), R-G13 increment 4 (check-only manifests), and the rest of R-H4 (the storage change).
+  - **Still waiting on live data:**
+    - R-C3b's design-stop rate;
+    - the notification exit criterion (enable notifications, check that the push log, rail count and inbox agree, count false alarms);
+    - P1's R-G7 and R-H2 measurements.
+  - **Order after landing:**
+    1. The review pass on a branch from `main`: R-I2 with tmpfs test data directories, TS-H3, then the gate tests TS-H7, TS-M2, TS-M6 and TS-M10, and R-I4.
+    2. R-D5.
+    3. R-G9.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.
@@ -914,6 +929,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
 | R-F2 | Typed feature recognition instead of prose and magic identifiers. |
 | R-G10, R-G11, R-H5 | Git adapter robustness, supervisor loose ends, route rationalization. |
 | R-H6 (added 2026-09-24) | Journal cleanup of the empty registry tables. It needs a `workspace_events` rebuild, so it waits for R-H3's preservation tests and should share a rebuild with any other journal change. |
+| R-G6, R-G13 increment 4, R-H4 (rest) (moved from P2, 2026-10-02) | Briefs around the task; check-only manifests (AGT-08); evidence storage as an index row plus a lazily decoded body. |
 
 Exit criteria:
 - From the board, the operator can answer "what is this waiting on, and what does this decision

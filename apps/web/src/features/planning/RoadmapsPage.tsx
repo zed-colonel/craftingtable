@@ -89,6 +89,13 @@ const FINISHED: ReadonlySet<RoadmapStatus> = new Set(['completed', 'stopped']);
  * evidence and merge events) and on the slow safety refresh, never on a fixed 3 s poll
  * (PERF-06). One read at a time; a round during a read is caught by the next.
  */
+/** The first item per entry, by `entryId`. */
+function firstByEntry<T extends { readonly entryId: string }>(items: readonly T[]) {
+  const first = new Map<string, T>();
+  for (const item of items) if (!first.has(item.entryId)) first.set(item.entryId, item);
+  return first;
+}
+
 function useRoadmaps(workspaceId: WorkspaceId) {
   // The workspace's roadmaps, read again on the events that change them (R-D4) and shared with
   // every view that lists them.
@@ -991,9 +998,12 @@ export function RoadmapPage({
       )}
     </ActionBar>
   );
-  /** Each entry's progress and attempt, looked up once per read rather than once per row. */
-  const progressOf = new Map(progress.map((p) => [p.entryId, p]));
-  const attemptOf = new Map(roadmap.attempts.map((a) => [a.entryId, a]));
+  /**
+   * Each entry's progress and attempt, looked up once per read rather than once per row: the
+   * first per entry, as `find` gave (recovery rounds append attempts under their owner's entry).
+   */
+  const progressOf = firstByEntry(progress);
+  const attemptOf = firstByEntry(roadmap.attempts);
   const entryRow = (entry: RoadmapEntry) => (
     <RoadmapEntryRow
       key={entry.id}

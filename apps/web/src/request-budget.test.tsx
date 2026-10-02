@@ -15,10 +15,12 @@ import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
  * a change that reads more on an event fails here.
  */
 
-const { requests, count } = vi.hoisted(() => {
+const { requests, count, fixture } = vi.hoisted(() => {
   const requests: string[] = [];
   return {
     requests,
+    /** The work item's worktrees: none, or one, which mounts its branch panel. */
+    fixture: { worktrees: [] as unknown[] },
     count:
       <T extends (...args: never[]) => unknown>(name: string, fn: T) =>
       (...args: Parameters<T>) => {
@@ -97,6 +99,21 @@ const SNAPSHOT = {
   ],
   recentActivity: [],
 };
+const WORKTREE = {
+  id: 'tree-a',
+  workspaceId: WS,
+  repositoryId: 'repo-a',
+  projectId: 'project-a',
+  workItemId: ITEM,
+  branchName: 'ct/aq-01',
+  baseSha: '0'.repeat(40),
+  baseBranch: 'main',
+  path: '/data/worktrees/aq-01',
+  status: 'active',
+  createdAt: '2026-10-02T00:00:00.000Z',
+  createdByUserId: 'user-1',
+  version: 1,
+};
 const WORK_ITEM = {
   workItem: {
     id: ITEM,
@@ -119,6 +136,28 @@ const WORK_ITEM = {
   recommendedPredecessors: [],
   dependents: [],
 };
+const REPOSITORY = {
+  id: 'repo-a',
+  workspaceId: WS,
+  displayName: 'alpha',
+  rootPath: '/data/repos/alpha',
+  defaultBranch: 'main',
+  registeredHeadSha: '0'.repeat(40),
+  status: 'active',
+  registeredAt: '2026-10-02T00:00:00.000Z',
+  registeredByUserId: 'user-1',
+  version: 1,
+};
+/** The plan's branch settings, bound to the repository, which mounts its policy panel. */
+const PLAN_SETTINGS = {
+  workspaceId: WS,
+  planVersionId: 'version-a',
+  repositoryId: 'repo-a',
+  integrationBranch: 'main',
+  updatedAt: '2026-10-02T00:00:00.000Z',
+  updatedByUserId: 'user-1',
+  version: 1,
+};
 const never = () => new Promise<never>(() => undefined);
 
 vi.mock('./lib/api-client.js', async (original) => ({
@@ -138,15 +177,35 @@ vi.mock('./lib/execution-scope-api.js', async (original) => ({
 vi.mock('./lib/branch-api.js', async (original) => ({
   ...(await original<typeof import('./lib/branch-api.js')>()),
   loadPlanBranchSettings: count('plan-branches', async () => ({
+    settings: PLAN_SETTINGS,
     issues: [],
     missingEvidence: [],
   })),
-  loadWorktreeBranchStatus: count('worktree-branch', never),
-  loadRepositoryPolicy: count('repository-policy', never),
+  loadWorktreeBranchStatus: count('worktree-branch', async () => ({
+    worktree: fixture.worktrees[0],
+    reviewCurrent: false,
+    issues: [],
+  })),
+  loadRepositoryPolicy: count('repository-policy', async () => ({
+    kind: 'repository-policy-evidence-v1',
+    observedAt: '2026-10-02T00:00:00.000Z',
+    settingsVersion: 1,
+    issues: [],
+    manualApprovalBranches: [],
+    controls: [],
+    limitations: [],
+  })),
 }));
 vi.mock('./lib/notification-api.js', async (original) => ({
   ...(await original<typeof import('./lib/notification-api.js')>()),
-  loadNotifications: count('notifications', never),
+  loadNotifications: count('notifications', async () => ({
+    preferences: (await import('@craftingtable/domain')).DEFAULT_NOTIFICATION_PREFERENCES,
+    version: 1,
+    credentialsConfigured: false,
+    blockedReason: null,
+    retryAt: null,
+    records: [],
+  })),
 }));
 vi.mock('./lib/attention-api.js', async (original) => ({
   ...(await original<typeof import('./lib/attention-api.js')>()),
@@ -163,14 +222,26 @@ vi.mock('./lib/execution-api.js', async (original) => ({
     backends: [],
   })),
   loadRunProfiles: count('run-profiles', async () => ({ profiles: [] })),
-  loadRepositories: count('repositories', async () => ({ repositories: [] })),
+  loadRepositories: count('repositories', async () => ({ repositories: [REPOSITORY] })),
+  loadRepositoryChecks: count('repository-checks', async () => ({
+    repositoryId: 'repo-a',
+    declarations: [],
+  })),
+  loadRepositoryCheckReceipts: count('repository-check-receipts', async () => ({
+    repositoryId: 'repo-a',
+    runs: [],
+  })),
   loadWorkItemExecution: count('work-item-execution', async () => ({
     workItemId: ITEM,
-    worktrees: [],
+    worktrees: fixture.worktrees,
     runs: [],
     mergeGates: {},
   })),
   loadWorkspaceRuns: count('runs', async () => ({ runs: [], liveCount: 0 })),
+}));
+vi.mock('./lib/roadmap-api.js', async (original) => ({
+  ...(await original<typeof import('./lib/roadmap-api.js')>()),
+  loadRoadmaps: count('roadmaps', async () => ({ roadmaps: [] })),
 }));
 vi.mock('./lib/planning-api.js', async (original) => ({
   ...(await original<typeof import('./lib/planning-api.js')>()),
@@ -225,16 +296,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Requests each event kind causes on a page, once the page has settled. */
+/**
+ * Requests each event kind causes on a page. Each kind is measured on a page mounted afresh and
+ * settled, so no event's reads, and no timer (the visible tab's Git minute, 60 s after mount),
+ * fall into another's window, whatever the order of the kinds (R-D4 4c review F1).
+ */
 async function measure(path: string, settled: () => Promise<unknown>, own = false) {
-  window.history.replaceState(null, '', path);
-  render(<App />);
-  await settled();
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(5_000);
-  });
   const table: Record<string, number> = {};
   for (const kind of KINDS) {
+    window.history.replaceState(null, '', path);
+    render(<App />);
+    await settled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
     const onEvent = vi.mocked(useWorkspaceEventStream).mock.lastCall![2].onEvent;
     const before = requests.length;
     act(() => onEvent(eventOf(kind, own)));
@@ -243,6 +318,7 @@ async function measure(path: string, settled: () => Promise<unknown>, own = fals
     });
     table[kind] = requests.length - before;
     reads[`${path}${own ? ' (own)' : ''} ${kind}`] = requests.slice(before).sort();
+    cleanup();
   }
   return table;
 }
@@ -290,20 +366,20 @@ const BUDGET: Record<string, Record<string, number>> = {
     'work-item-admitted': 7,
     'work-item-removed-from-agenda': 7,
     'repository-registered': 1,
-    'repository-status-changed': 5,
-    'repository-evidence-changed': 1,
+    'repository-status-changed': 6,
+    'repository-evidence-changed': 2,
     'project-repository-bound': 1,
     'project-repository-binding-retired': 1,
     'source-repository-registered': 1,
-    'worktree-created': 3,
+    'worktree-created': 4,
     'worktree-removed': 4,
     'agent-run-started': 3,
-    'agent-run-status-changed': 3,
+    'agent-run-status-changed': 4,
     'workspace-updated': 2,
     'work-item-completed': 9,
-    'worktree-merged': 7,
-    'work-cycle-changed': 3,
-    'branches-changed': 3,
+    'worktree-merged': 9,
+    'work-cycle-changed': 4,
+    'branches-changed': 5,
   },
   ownWorkItem: {
     'runtime-evidence-changed': 7,
@@ -318,38 +394,133 @@ const BUDGET: Record<string, Record<string, number>> = {
     'work-item-admitted': 7,
     'work-item-removed-from-agenda': 7,
     'repository-registered': 1,
-    'repository-status-changed': 5,
-    'repository-evidence-changed': 1,
+    'repository-status-changed': 6,
+    'repository-evidence-changed': 2,
     'project-repository-bound': 1,
     'project-repository-binding-retired': 1,
     'source-repository-registered': 1,
-    'worktree-created': 7,
+    'worktree-created': 8,
     'worktree-removed': 8,
     'agent-run-started': 7,
-    'agent-run-status-changed': 7,
+    'agent-run-status-changed': 8,
     'workspace-updated': 2,
     'work-item-completed': 9,
-    'worktree-merged': 7,
-    'work-cycle-changed': 7,
-    'branches-changed': 7,
+    'worktree-merged': 9,
+    'work-cycle-changed': 8,
+    'branches-changed': 9,
+  },
+  settings: {
+    'runtime-evidence-changed': 3,
+    'scope-evidence-recorded': 3,
+    'scope-scheduling-authorized': 3,
+    'notifications-changed': 1,
+    'attention-changed': 4,
+    'roadmap-changed': 4,
+    'workspace-created': 2,
+    'project-created': 2,
+    'plan-version-imported': 2,
+    'work-item-admitted': 3,
+    'work-item-removed-from-agenda': 3,
+    'repository-registered': 0,
+    'repository-status-changed': 0,
+    'repository-evidence-changed': 0,
+    'project-repository-bound': 0,
+    'project-repository-binding-retired': 0,
+    'source-repository-registered': 0,
+    'worktree-created': 3,
+    'worktree-removed': 3,
+    'agent-run-started': 3,
+    'agent-run-status-changed': 3,
+    'workspace-updated': 2,
+    'work-item-completed': 4,
+    'worktree-merged': 3,
+    'work-cycle-changed': 3,
+    'branches-changed': 3,
+  },
+  roadmaps: {
+    'runtime-evidence-changed': 4,
+    'scope-evidence-recorded': 4,
+    'scope-scheduling-authorized': 4,
+    'notifications-changed': 0,
+    'attention-changed': 4,
+    'roadmap-changed': 5,
+    'workspace-created': 2,
+    'project-created': 2,
+    'plan-version-imported': 2,
+    'work-item-admitted': 4,
+    'work-item-removed-from-agenda': 4,
+    'repository-registered': 0,
+    'repository-status-changed': 0,
+    'repository-evidence-changed': 0,
+    'project-repository-bound': 0,
+    'project-repository-binding-retired': 0,
+    'source-repository-registered': 0,
+    'worktree-created': 4,
+    'worktree-removed': 4,
+    'agent-run-started': 3,
+    'agent-run-status-changed': 3,
+    'workspace-updated': 2,
+    'work-item-completed': 5,
+    'worktree-merged': 4,
+    'work-cycle-changed': 4,
+    'branches-changed': 4,
+  },
+  repositories: {
+    'runtime-evidence-changed': 3,
+    'scope-evidence-recorded': 3,
+    'scope-scheduling-authorized': 3,
+    'notifications-changed': 0,
+    'attention-changed': 3,
+    'roadmap-changed': 4,
+    'workspace-created': 2,
+    'project-created': 2,
+    'plan-version-imported': 2,
+    'work-item-admitted': 3,
+    'work-item-removed-from-agenda': 3,
+    'repository-registered': 3,
+    'repository-status-changed': 3,
+    'repository-evidence-changed': 3,
+    'project-repository-bound': 1,
+    'project-repository-binding-retired': 1,
+    'source-repository-registered': 1,
+    'worktree-created': 3,
+    'worktree-removed': 3,
+    'agent-run-started': 3,
+    'agent-run-status-changed': 5,
+    'workspace-updated': 2,
+    'work-item-completed': 4,
+    'worktree-merged': 5,
+    'work-cycle-changed': 5,
+    'branches-changed': 3,
   },
 };
 
-it('reads only what each event changed, on the dashboard and a work item page (R-D4 4c)', async () => {
-  const tables = {
-    dashboard: await measure('/workspaces/ws-a', () => screen.findByText('Alpha Project')),
-  };
-  cleanup();
-  const workItem = await measure(`/workspaces/ws-a/work-items/${ITEM}`, () =>
-    screen.findByRole('heading', { name: /AQ-01 · Alpha work item/ }),
+const heading = () => screen.findByRole('heading', { name: /AQ-01 · Alpha work item/ });
+
+/**
+ * The pages measured, and so the reads the budget covers: the dashboard (snapshot, workspaces,
+ * attention, cycles, audit, live runs), a work item with a worktree (its detail, worktrees and
+ * runs, cycles, slices, plan branches and the repository policy, the worktree's branch,
+ * repositories, profiles, agent backends), the settings (notifications, profiles, agent
+ * backends), the roadmaps list, and the repositories (each one's checks and receipts). Not
+ * measured: a roadmap's own views, its runtime evidence and the cross-project map.
+ */
+it('reads only what each event changed, on the pages measured (R-D4 4c)', async () => {
+  const dashboard = await measure('/workspaces/ws-a', () => screen.findByText('Alpha Project'));
+  fixture.worktrees = [WORKTREE];
+  const workItem = await measure(`/workspaces/ws-a/work-items/${ITEM}`, heading);
+  const ownWorkItem = await measure(`/workspaces/ws-a/work-items/${ITEM}`, heading, true);
+  fixture.worktrees = [];
+  const settings = await measure('/workspaces/ws-a/settings', () =>
+    screen.findByRole('heading', { name: 'Settings' }),
   );
-  cleanup();
-  const ownWorkItem = await measure(
-    `/workspaces/ws-a/work-items/${ITEM}`,
-    () => screen.findByRole('heading', { name: /AQ-01 · Alpha work item/ }),
-    true,
+  const roadmaps = await measure('/workspaces/ws-a/roadmaps', () =>
+    screen.findByRole('heading', { name: 'Roadmaps' }),
   );
-  const measured = { ...tables, workItem, ownWorkItem };
+  const repositories = await measure('/workspaces/ws-a/repositories', () =>
+    screen.findByRole('heading', { name: 'alpha' }),
+  );
+  const measured = { dashboard, workItem, ownWorkItem, settings, roadmaps, repositories };
   // The reads behind each count, shown when the budget fails.
   expect(measured, `requests per event; the reads were ${JSON.stringify(reads)}`).toEqual(BUDGET);
-});
+}, 120_000);

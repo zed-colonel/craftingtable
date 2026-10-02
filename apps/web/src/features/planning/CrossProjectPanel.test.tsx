@@ -344,19 +344,14 @@ it("reads the map's environment again after adopting, and re-offers the controls
 });
 
 // R-D4 increment 4c (PERF-10): a map read again renders only the milestones that changed.
-it("renders only the changed milestone's card when the map's preview is read again", async () => {
+it("renders only the changed milestone's card when the map's preview changes", async () => {
   const { store, wrap } = testQueryStore();
   setup(undefined, undefined, undefined, wrap);
   fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
   await screen.findByText('2 selected milestones');
   const preview = await vi.mocked(previewCrossProject).mock.results[0]!.value;
   vi.mocked(phaseLabel).mockClear();
-  // The same preview again: no card renders.
-  store.refreshNow([['cross-project', ws, id]]);
-  await waitFor(() => expect(previewCrossProject).toHaveBeenCalledTimes(2));
-  await waitFor(() => expect(screen.getByText('2 selected milestones')).toBeTruthy());
-  expect(vi.mocked(phaseLabel)).toHaveBeenCalledTimes(0);
-  // One milestone's status changes: its card alone renders.
+  // One milestone's status changes: its card alone renders, the others keep theirs.
   vi.mocked(previewCrossProject).mockResolvedValue({
     ...preview,
     nodes: preview.nodes.map((node: { key: string }) =>

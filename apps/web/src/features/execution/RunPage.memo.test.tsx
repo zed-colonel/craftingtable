@@ -1,5 +1,5 @@
 import type { AgentRunDetailResponse, RunEventEnvelope } from '@craftingtable/contracts';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { eventTitle } from './run-event-text.js';
 import { RunPage } from './RunPage.js';
@@ -84,4 +84,20 @@ it('renders only the new event when one arrives, and none when the page re-rende
   vi.mocked(eventTitle).mockClear();
   rerender(page(more, true));
   expect(vi.mocked(eventTitle)).toHaveBeenCalledTimes(0);
+});
+
+// R-D4 4c review F4: the feed's Expand toggle still reaches rows that are memoized.
+it('expands and collapses tool output already shown', () => {
+  const call = {
+    ...message(1),
+    kind: 'tool-call',
+    payload: { name: 'Bash', summary: 'ls', input: { command: 'ls' } },
+  } as unknown as RunEventEnvelope;
+  const { container } = render(page([call]));
+  expect(container.querySelector('.run-event-details')).not.toBeNull();
+  fireEvent.click(screen.getByLabelText('Expand tool output'));
+  expect(container.querySelector('.run-event-details')).toBeNull();
+  expect(container.querySelector('.run-event-body')?.textContent).toContain('"command": "ls"');
+  fireEvent.click(screen.getByLabelText('Expand tool output'));
+  expect(container.querySelector('.run-event-details')).not.toBeNull();
 });

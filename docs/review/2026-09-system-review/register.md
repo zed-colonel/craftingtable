@@ -1496,19 +1496,52 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *NIT, left:* an inbox item without a work item still reads repositories, agent backends and profiles (check adoption needs the repositories); StrictMode's development-only double mount reads ScopeReviewRecovery's and ScopeRepair's keys twice; `clear()` on a change of workspace drops pending invalidations of the kept keys (the workspace list is read again on the next event); a launch from an inbox item whose item resolves first does not navigate to the new run.
     - *Register corrected:* the page round did run on repository events (through the repository list and project scopes), and the agenda "difference" was not one (the page already filtered its listing).
 - **Increment 4c (2026-10-02): request budgets and memoized rows.** Walkthrough `2026-10-02-memo-rows-before` (6fdc194) and `…-memo-rows-after` (from the working tree that became the memoized-rows commit): every difference is within the captures' data and timing noise; none changes size.
-  - **Requests per event, before and after R-D4** (`request-budget.test.tsx`, new): the app renders a page with every read mocked and counted (and anything else caught at `fetch`); each of the 26 workspace event kinds is delivered through the stream, and the reads it causes are counted after the debounce. The same file run against 07081fe (before 4a) gives the before column. Summed over all 26 kinds:
+  - **Requests per event, before and after R-D4** (`request-budget.test.tsx`, new). The app renders a page with every read mocked and counted, and anything else caught at `fetch`. Each of the 26 workspace event kinds is delivered through the stream to a page mounted afresh and settled, and the reads it causes in the next 3 s are counted. Running the same file against 07081fe (before 4a) gives the before column. Summed over all 26 kinds:
 
     | Page | Before R-D4 | After | Change |
     |---|---|---|---|
     | Dashboard | 150 | 82 | −45% |
-    | Work item page, events about another item | 325 | 104 | −68% |
-    | Work item page, events about its own item | 325 | 128 | −61% |
+    | Work item page (with a worktree and branch settings), events about another item | 375 | 113 | −70% |
+    | Work item page, events about its own item | 375 | 137 | −63% |
+    | Settings | 152 | 57 | −63% |
+    | Roadmaps list | 113 | 68 | −40% |
+    | Repositories (one, with its checks) | 200 | 73 | −64% |
 
-    Before, every event but notification bookkeeping cost the dashboard 6 reads and a work item page 13 (its detail, worktrees, runs, cycles twice, scopes, branches, repositories twice, profiles, agent backends, snapshot, attention). After, a cycle event about another item costs the work item page 3 (the workspace's cycles, snapshot and list), one about its own item 7, and a repository registration 1 (the repositories). Today's table is the test's budget: any event that reads more fails it, showing the reads behind each count.
-  - **Memoized rows (PERF-10).** `RunEventItem` (the run feed; its title and body moved to `run-event-text.ts`), `RoadmapEntryRow` (extracted from the roadmap page's entry list; its status label in `roadmap-entry-status.ts`; each entry's progress and attempt looked up once per read rather than by `find` per row) and `MapNodeCard` (extracted from the cross-project map) are `React.memo`. Their callbacks keep their identity through `useStableCallback` (`lib/use-stable-callback.ts`), which always calls the latest function; a row's other props are values the store shares structurally, so an unchanged entry, event or milestone is the same object and its row is skipped. Rows that depend on the page's tab take the value (`setupInline`), not a function that renders.
-    - Rows rendered per update, measured by the tests with and without `memo`: a new event in a 200-event run 201 → 1, and a re-render for anything else 201 → 0; one changed entry in a 40-entry roadmap 40 → 1, and an unchanged read or a new parent callback → 0; one changed milestone in the fixture map 2 → 1 (scaling with the map's nodes).
-    - Tests: `RunPage.memo.test.tsx`, `RoadmapEntryRow.test.tsx` (through the real roadmap page and store: an unchanged read, one changed entry, a new parent callback, and a row calling the newest callback), a `CrossProjectPanel.test.tsx` case, and `use-stable-callback.test.tsx`. Mutations removing each `memo`, giving the rows the parent's callback, an unstable entry command or trace, and a stable callback that keeps its first function each fail a test.
+    Before, every event except notification bookkeeping cost the dashboard 6 reads, a work item page 15 and the Repositories page 8. The work item's 15 were its detail, worktrees, runs, cycles twice, scopes, plan branches, repository policy, the worktree's branch, repositories twice, profiles, agent backends, snapshot and attention. After:
+    - a cycle event about another item costs the work item page 4 (the workspace's cycles, snapshot and list, and the worktree's branch), and one about its own item 8;
+    - a repository registration costs it 1 (the repositories);
+    - a worktree event costs the Repositories page 3 and leaves its checks alone.
+
+    The measured values are now the test's budget: any event that reads more on these pages fails it and shows the reads behind each count. The budget covers only the reads these pages mount: the dashboard, a work item, the settings, the roadmaps list and the repositories. A roadmap's own views, its runtime evidence and the cross-project map are not measured.
+  - **Memoized rows (PERF-10).** These rows are now `React.memo`:
+    - `RunEventItem` (the run feed; its title and body moved to `run-event-text.ts`);
+    - `RoadmapEntryRow`, extracted from the roadmap page's entry list. Its status label is in `roadmap-entry-status.ts`, and each entry's progress and first attempt are looked up once per read rather than by `find` per row;
+    - `MapNodeCard`, extracted from the cross-project map.
+
+    Their callbacks keep their identity through `useStableCallback` (`lib/use-stable-callback.ts`), which always calls the latest function. A row's other props are values the store shares structurally, so an unchanged entry, event or milestone is the same object and its row is skipped. Rows that depend on the page's tab take the value (`setupInline`), not a function that renders.
+    - Rows rendered per update, measured by the tests with and without `memo`:
+      - a new event in a 200-event run: 201 → 1; a re-render for anything else: 201 → 0;
+      - one changed entry in a 40-entry roadmap: 40 → 1; a new parent callback: 40 → 0;
+      - one changed milestone in the fixture map: 2 → 1 (this scales with the map's nodes).
+
+      An unchanged read renders nothing with or without `memo`, because the store keeps the data's identity and does not notify; the store's own tests cover that.
+    - Tests: `RunPage.memo.test.tsx`, `RoadmapEntryRow.test.tsx`, `MapNodeCard.test.tsx`, a `CrossProjectPanel.test.tsx` case and `use-stable-callback.test.tsx`. `RoadmapEntryRow.test.tsx` goes through the real roadmap page and store for a changed entry, a new parent callback, a row calling the newest callback, a command carrying the roadmap's latest version, and the first attempt's revision. It also tests the row directly for each status label, busy, pause/resume/serial, automation precedence, and the setup reveal. The run feed's Expand toggle reaches rows already shown, and the milestone card's trace and reveals are tested.
+    - Mutations that each fail a test:
+      - removing each `memo`;
+      - giving the rows the parent's callback;
+      - an unstable entry command or trace;
+      - a stable callback that keeps its first function;
+      - a row comparator that ignores `expanded`.
     - Not done: the run feed is still unvirtualized (PERF-11) and the run page still downloads every event's raw line; both are R-D5 and PERF-11's.
+- **Independent review of increment 4c (2026-10-02).** An adversarial reviewer in an isolated worktree (detached at f1c8981, no live paths) found no defect in the memoized rows. It checked line by line that the extracted rows are equivalent to 6fdc194, that every rendered value is a prop, and that no store data is mutated in place. Its findings were about the evidence:
+  - *LOW, fixed (F1):* a 60 s Git refresh timer read fell into `worktree-removed`'s window, adding a phantom read to both work item totals (104 and 128 then). It would move to another kind if the kinds were reordered or the settle time changed. Each kind is now measured on a page mounted afresh, so no timer reaches a window.
+  - *LOW/MEDIUM, fixed (F2):* the budget saw only the panels its fixture mounted. The reviewer's mutation (worktree events also reading checks, policy, notifications, roadmaps and runtime) passed. The fixture now has a worktree, branch settings bound to a repository and one repository, and the settings, roadmaps list and Repositories pages are measured. Every read resolves, so none stays in flight and absorbs a later invalidation. That mutation, and checks or policy alone, now fail the budget. The register now names what is not measured.
+  - *LOW, fixed (F3):* two "an unchanged read renders no row" assertions passed without `memo`, since the store does not notify for identical data. They are removed and the claim corrected; the changed-entry and new-callback assertions test `memo`.
+  - *LOW, fixed (F4):* of the reviewer's 32 mutations of the rewritten rows, about 20 survived, most of them untested before 4c too. They covered busy, each status label, automation precedence, `parallel`, pause/resume, the revision, the reveal ids, the trace key, Expand on memoized run rows, and an entry command's roadmap. The new direct tests above catch each one, shown by mutation.
+  - *NIT, fixed (F5):* the attempt lookup became last-wins, while the page had shown an entry's first attempt. Recovery rounds append attempts under the owner's id. `firstByEntry` keeps the first, and a test with two attempts fails without it.
+  - *NIT, left (F6):* `apply()` moves a commanded roadmap to the front of the list, so after a command the roadmaps behind it get new identities and their rows render once. The result is correct, and the cost is one render per command; it was not worth reordering the list for.
+  - *LOW, fixed (F7):* the budget test hit the web project's 5 s default timeout under CPU oversubscription. It has its own 120 s timeout.
+  - Speculative, not acted on: `useStableCallback` assigns during render. A discarded render could leave an uncommitted function in place, but the app has no transitions or Suspense, and the callback is only called from click handlers.
 
 ### R-D5
 

@@ -136,14 +136,25 @@ export function useSetupStep(ids: SetupIds | undefined, needed: ReadonlySet<Setu
     if (!ids) return;
     const show = (event: Event) => {
       const { id, steps = [] } = (event as CustomEvent<ShowPart>).detail;
-      const part = SETUP_STEPS.filter((s) => steps.includes(s.key)).map((s) => s.key);
+      // The part's steps, in the order it declares them.
+      const part = steps.filter((step): step is SetupStep =>
+        SETUP_STEPS.some((s) => s.key === step),
+      );
+      const own = stepForFocus(id, ids);
       if (part.length === 0) {
-        const own = stepForFocus(id, ids);
         if (own) setChosen(own);
         return;
       }
-      // Its own step, from this reveal's first event, or the operator's choice is kept.
-      setChosen((current) => (current !== undefined && part.includes(current) ? current : part[0]));
+      // A step the part shows in is kept: the operator's choice, or the target's own from this
+      // reveal's first event. A page that missed that event (a route focus revealed before it
+      // listened) takes the target's own step, else the part's first (R-D4 4c gate review F3).
+      setChosen((current) =>
+        current !== undefined && part.includes(current)
+          ? current
+          : own !== undefined && part.includes(own)
+            ? own
+            : part[0],
+      );
     };
     window.addEventListener(SHOW_PART_EVENT, show);
     return () => window.removeEventListener(SHOW_PART_EVENT, show);

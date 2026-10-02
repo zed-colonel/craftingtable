@@ -148,3 +148,16 @@ it("shows a shared part's first step for a reveal from another step", async () =
   expect(shows('Automation part')).toBe(false);
   expect(document.activeElement?.id).toBe('shared-note');
 });
+
+// Review F3: a reveal made before the page listens (a cold load's route focus) reaches the page
+// only as the hidden shared part's steps; the target's own step is shown, not the part's first.
+it("shows a target's own step when only its shared part's reveal reaches the page", async () => {
+  const stop = revealElement('map-settings-d');
+  render(<MapSetup />);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(shows('Automation part')).toBe(true);
+  expect(shows('Reviewer part')).toBe(false);
+  stop();
+});

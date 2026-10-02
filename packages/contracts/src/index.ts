@@ -4,6 +4,7 @@ export * from './audit.js';
 export * from './auth.js';
 export * from './cross-project.js';
 export * from './design-report.js';
+export * from './investigation-report.js';
 export * from './execution.js';
 export * from './execution-scope.js';
 export * from './finalization.js';

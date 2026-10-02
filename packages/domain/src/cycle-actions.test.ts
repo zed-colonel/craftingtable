@@ -118,3 +118,64 @@ describe('cycle actions (R-A7)', () => {
     expect(cycleActions(cycle('completed'))).toEqual([]);
   });
 });
+
+describe('investigation actions (R-C16)', () => {
+  const questions = { questions: true, live: false };
+  it.each([
+    'work-item-questions',
+    'implementation-open-questions',
+    'review-open-questions',
+    'review-open-questions-at-limit',
+    'scope-review-open-questions',
+    'remediation-exhausted',
+    'shared-decision-required',
+  ] as const)("offers Investigate beside the stop's own control: %s", (code) => {
+    const own = cycleActions(cycle('needs-attention', code));
+    expect(cycleActions(cycle('needs-attention', code), undefined, false, questions)).toEqual([
+      ...own.slice(0, -1),
+      'investigate',
+      'stop',
+    ]);
+  });
+
+  it('offers it only at a question stop that holds questions, and at a pause taken there', () => {
+    expect(cycleActions(cycle('needs-attention', 'review-open-questions'))).not.toContain(
+      'investigate',
+    );
+    expect(
+      cycleActions(cycle('needs-attention', 'step-incomplete'), undefined, false, questions),
+    ).not.toContain('investigate');
+    expect(cycleActions(cycle('running'), undefined, false, questions)).toEqual(['pause', 'stop']);
+    expect(
+      cycleActions(cycle('paused', 'review-open-questions'), undefined, false, questions),
+    ).toEqual(['resume', 'investigate', 'stop']);
+    // Beside the grant at the round limit, and beside the shared decisions a stop waits on.
+    expect(
+      cycleActions(
+        cycle('needs-attention', 'review-open-questions-at-limit'),
+        undefined,
+        true,
+        questions,
+      ),
+    ).toEqual(['authorize-remediation', 'investigate', 'stop']);
+    const waiting = {
+      ...cycle('needs-attention', 'shared-decision-required'),
+      unsettledDecisions: ['ADR-1'],
+    } as WorkCycle;
+    expect(cycleActions(waiting, undefined, false, questions)).toEqual([
+      'open-shared-decisions',
+      'investigate',
+      'stop',
+    ]);
+  });
+
+  it('accepts only ending the investigation while it is live', () => {
+    const live = { questions: true, live: true };
+    expect(
+      cycleActions(cycle('needs-attention', 'review-open-questions'), undefined, true, live),
+    ).toEqual(['end-investigation']);
+    expect(cycleActions(cycle('paused', 'remediation-exhausted'), undefined, false, live)).toEqual([
+      'end-investigation',
+    ]);
+  });
+});

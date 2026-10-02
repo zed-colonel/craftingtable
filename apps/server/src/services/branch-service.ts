@@ -13,7 +13,6 @@ import {
   asAuditEventId,
   asEventId,
   type IntegrationResolution,
-  isTerminalAgentRunStatus,
   ownsIntegrationResolution,
   type PlanVersionId,
   type ProjectId,
@@ -677,11 +676,7 @@ export class BranchService {
     )
       conflict('Recover the reserved merge before changing branches');
     if (worktree.version !== expectedVersion) conflict('Worktree changed; refresh and try again');
-    if (
-      this.storage.execution.runs
-        .listForWorktree(worktree.workspaceId, worktree.id)
-        .some((run) => !isTerminalAgentRunStatus(run.status))
-    )
+    if (this.storage.execution.runs.liveForWorktree(worktree.workspaceId, worktree.id).length > 0)
       conflict('End all agent sessions before changing or updating this worktree');
     const cycle = this.storage.execution.cycles.activeForWorktree(
       worktree.workspaceId,

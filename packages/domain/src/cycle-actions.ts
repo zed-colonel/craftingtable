@@ -23,6 +23,10 @@ export const CYCLE_ACTIONS = [
   'approve-promotion',
   /** Go to the shared decisions a stop still waits on (LIVE-18); nothing is posted. */
   'open-shared-decisions',
+  /** Start a read-only investigation of the stop's questions (R-C16). */
+  'investigate',
+  /** End the live investigation; until then it is the only command the stop accepts. */
+  'end-investigation',
 ] as const;
 export type CycleAction = (typeof CYCLE_ACTIONS)[number];
 
@@ -109,6 +113,29 @@ const QUESTION_STOPS: ReadonlySet<string> = new Set([
   'remediation-exhausted',
 ]);
 
+/**
+ * Stops that carry questions an investigation can work on (R-C16). The daemon still checks
+ * that the stop holds questions: `remediation-exhausted` only sometimes does, and a
+ * `shared-decision-required` stop only for its work-item questions (its ADR questions keep
+ * decision preparation).
+ */
+export const INVESTIGATION_STOPS: ReadonlySet<CycleAttentionCode> = new Set<CycleAttentionCode>([
+  'work-item-questions',
+  'implementation-open-questions',
+  'review-open-questions',
+  'review-open-questions-at-limit',
+  'scope-review-open-questions',
+  'remediation-exhausted',
+  'shared-decision-required',
+]);
+
+/** The stop's code as its actions read it: a pause taken at a stop keeps that stop's. */
+export function stopCode(
+  cycle: Parameters<typeof effectiveCycleAttention>[0],
+): CycleAttentionCode | undefined {
+  return cycle.status === 'paused' ? cycle.attention?.code : effectiveCycleAttention(cycle)?.code;
+}
+
 export function cycleActions(
   cycle: Parameters<typeof effectiveCycleAttention>[0] &
     Pick<WorkCycle, 'status' | 'currentRunId'> &
@@ -119,14 +146,27 @@ export function cycleActions(
    * start a round then, so a question stop, stopped or paused, offers the grant (LIVE-33).
    */
   reviewNeedsRounds = false,
+  /**
+   * The stop's investigation (R-C16): whether the stop holds questions one can work on, and
+   * whether one is live. While it is live, ending it is the only command the stop accepts.
+   */
+  investigation: { readonly questions: boolean; readonly live: boolean } = {
+    questions: false,
+    live: false,
+  },
 ): readonly CycleAction[] {
+  const atStop = ['paused', 'needs-attention'].includes(cycle.status);
+  if (atStop && investigation.live) return ['end-investigation'];
+  // A pause taken at a stop keeps that stop's attention (as resumeRedirect reads it).
+  const code = stopCode(cycle);
+  const investigate: readonly CycleAction[] =
+    atStop && investigation.questions && code !== undefined && INVESTIGATION_STOPS.has(code)
+      ? ['investigate']
+      : [];
   // A stop that waits on unsettled shared decisions offers them instead of a resume the daemon
   // would refuse (LIVE-18); the list is the daemon's, read with the cycle.
-  if (['paused', 'needs-attention'].includes(cycle.status) && cycle.unsettledDecisions?.length)
-    return ['open-shared-decisions', 'stop'];
-  // A pause taken at a stop keeps that stop's attention (as resumeRedirect reads it).
-  const code =
-    cycle.status === 'paused' ? cycle.attention?.code : effectiveCycleAttention(cycle)?.code;
+  if (atStop && cycle.unsettledDecisions?.length)
+    return ['open-shared-decisions', ...investigate, 'stop'];
   const grantOnly =
     reviewNeedsRounds &&
     code !== undefined &&
@@ -136,7 +176,9 @@ export function cycleActions(
     case 'running':
       return ['pause', 'stop'];
     case 'paused':
-      return grantOnly ? ['authorize-remediation', 'resume', 'stop'] : ['resume', 'stop'];
+      return grantOnly
+        ? ['authorize-remediation', ...investigate, 'resume', 'stop']
+        : ['resume', ...investigate, 'stop'];
     case 'awaiting-merge': {
       // Pausing at the merge boundary holds a roadmap's automatic merge.
       return code === 'merge-approval'
@@ -148,9 +190,11 @@ export function cycleActions(
             : ['pause', 'stop'];
     }
     case 'needs-attention': {
-      if (grantOnly) return ['authorize-remediation', 'stop'];
+      if (grantOnly) return ['authorize-remediation', ...investigate, 'stop'];
       const redirect = resumeRedirect(cycle, latestRunId);
-      return redirect ? [redirect.action, 'stop'] : ['resume', 'stop'];
+      return redirect
+        ? [redirect.action, ...investigate, 'stop']
+        : ['resume', ...investigate, 'stop'];
     }
     default:
       return [];

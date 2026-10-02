@@ -175,14 +175,27 @@ export interface AgentRunRepository {
   insert(input: CreateAgentRunInput): AgentRun;
   find(workspaceId: WorkspaceId, runId: AgentRunId): AgentRun | undefined;
   listForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): readonly AgentRun[];
-  listForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): readonly AgentRun[];
+  /**
+   * The worktree's runs, newest first. A question stop's investigations (R-C16) are left out
+   * unless asked for: they work beside the cycle and are never part of its lineage.
+   */
+  listForWorktree(
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+    options?: { readonly investigations?: boolean },
+  ): readonly AgentRun[];
+  /** The worktree's live runs, investigations included: anything live holds the worktree. */
+  liveForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): readonly AgentRun[];
   /** A repository's newest runs, across its worktrees, newest first. */
   listRecentForRepository(
     workspaceId: WorkspaceId,
     repositoryId: SourceRepositoryId,
     limit: number,
   ): readonly AgentRun[];
-  /** The worktree's newest run, as `listForWorktree` orders them, without decoding it (R-A6). */
+  /**
+   * The worktree's newest run, as `listForWorktree` orders and filters them, without decoding
+   * it (R-A6).
+   */
   latestIdForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): AgentRun['id'] | undefined;
   /** Runs in a non-terminal status across every workspace; used at startup. */
   listLive(): readonly AgentRun[];

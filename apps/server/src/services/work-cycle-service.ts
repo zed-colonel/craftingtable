@@ -360,11 +360,7 @@ export class WorkCycleService {
           'conflict',
           'Review changed; refresh recovery before delegating fixes.',
         );
-      if (
-        this.storage.execution.runs
-          .listForWorktree(workspaceId, source.worktreeId)
-          .some((r) => !isTerminalAgentRunStatus(r.status))
-      )
+      if (this.storage.execution.runs.liveForWorktree(workspaceId, source.worktreeId).length > 0)
         throw new ExecutionRequestError(
           'conflict',
           'End the review session before delegating fixes.',
@@ -504,7 +500,7 @@ export class WorkCycleService {
     this.mutations.requireAvailable(cycle.worktreeId);
     const runs = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
     if (
-      runs.some((run) => !isTerminalAgentRunStatus(run.status)) ||
+      this.storage.execution.runs.liveForWorktree(workspaceId, cycle.worktreeId).length > 0 ||
       runs[0]?.id !==
         (this.storage.execution.runs.find(workspaceId, cycle.currentRunId)
           ? cycle.currentRunId
@@ -771,7 +767,7 @@ export class WorkCycleService {
       throw new ExecutionRequestError('conflict', 'This work item already has an active cycle');
     }
     const prior = this.storage.execution.runs.listForWorktree(workspaceId, input.worktreeId);
-    if (prior.some((run) => !isTerminalAgentRunStatus(run.status))) {
+    if (this.storage.execution.runs.liveForWorktree(workspaceId, input.worktreeId).length > 0) {
       throw new ExecutionRequestError(
         'conflict',
         'End the open agent sessions before starting automation',
@@ -923,7 +919,7 @@ export class WorkCycleService {
         'Pause finalization first; pending conflicts use their resolution controls.',
       );
     const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
-    if (runs.some((run) => !isTerminalAgentRunStatus(run.status)))
+    if (this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0)
       throw new ExecutionRequestError(
         'conflict',
         'End the current session before resuming with guidance.',
@@ -952,7 +948,7 @@ export class WorkCycleService {
       run.id !== cycle.currentRunId ||
       run.status !== 'finished' ||
       run.role !== 'review' ||
-      runs.some((r) => !isTerminalAgentRunStatus(r.status))
+      this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
     )
       return [];
     const turn = this.storage.execution.runEvents.latestOfKind(
@@ -1100,7 +1096,7 @@ export class WorkCycleService {
     const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
     const run = runs[0];
     if (
-      runs.some((r) => !isTerminalAgentRunStatus(r.status)) ||
+      this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0 ||
       run?.id !== cycle.currentRunId ||
       run.role !== 'review' ||
       run.status !== 'finished'
@@ -1214,9 +1210,7 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
     this.mutations.requireAvailable(cycle.worktreeId);
     if (
-      this.storage.execution.runs
-        .listForWorktree(cycle.workspaceId, cycle.worktreeId)
-        .some((r) => !['finished', 'failed', 'cancelled', 'interrupted'].includes(r.status)) ||
+      this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0 ||
       ownsIntegrationResolution(cycle) ||
       this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
         'reserved'
@@ -1283,7 +1277,7 @@ export class WorkCycleService {
       const runs = this.storage.execution.runs.listForWorktree(workspaceId, tree.id);
       if (
         (unstarted ? runs.length !== 0 : runs[0]?.id !== cycle.currentRunId) ||
-        runs.some((r) => !isTerminalAgentRunStatus(r.status))
+        this.storage.execution.runs.liveForWorktree(workspaceId, tree.id).length > 0
       )
         throw new ExecutionRequestError(
           'conflict',
@@ -1540,7 +1534,7 @@ export class WorkCycleService {
         !['implement', 'remediate', 'review'].includes(cycle.step) ||
         !run ||
         run.id !== cycle.currentRunId ||
-        allRuns.some((r) => !isTerminalAgentRunStatus(r.status))
+        this.storage.execution.runs.liveForWorktree(workspaceId, cycle.worktreeId).length > 0
       )
         throw new ExecutionRequestError(
           'conflict',
@@ -1598,7 +1592,7 @@ export class WorkCycleService {
         !cycle.executionScope ||
         cycle.executionScope.kind === 'slice' ||
         (run ? run.id !== cycle.currentRunId : allRuns.length !== 0) ||
-        allRuns.some((r) => !isTerminalAgentRunStatus(r.status))
+        this.storage.execution.runs.liveForWorktree(workspaceId, cycle.worktreeId).length > 0
       )
         throw new ExecutionRequestError(
           'conflict',
@@ -1650,9 +1644,9 @@ export class WorkCycleService {
       });
     }
     if (
-      allRuns.some(
-        (candidate) => candidate.id !== run?.id && !isTerminalAgentRunStatus(candidate.status),
-      )
+      this.storage.execution.runs
+        .liveForWorktree(workspaceId, cycle.worktreeId)
+        .some((candidate) => candidate.id !== run?.id)
     ) {
       throw new ExecutionRequestError(
         'conflict',
@@ -3004,7 +2998,7 @@ export class WorkCycleService {
       const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
       if (
         runs[0]?.id !== cycle.currentRunId ||
-        runs.some((r) => !isTerminalAgentRunStatus(r.status))
+        this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
       )
         throw new ExecutionRequestError(
           'conflict',
@@ -3400,9 +3394,7 @@ export class WorkCycleService {
           'Finalization was superseded or its authority was revoked.',
         );
       if (
-        this.storage.execution.runs
-          .listForWorktree(cycle.workspaceId, cycle.worktreeId)
-          .some((candidate) => !isTerminalAgentRunStatus(candidate.status))
+        this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
       )
         throw new ExecutionRequestError(
           'conflict',
@@ -3609,9 +3601,7 @@ export class WorkCycleService {
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (
       !worktree ||
-      this.storage.execution.runs
-        .listForWorktree(cycle.workspaceId, cycle.worktreeId)
-        .some((run) => !isTerminalAgentRunStatus(run.status))
+      this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
     )
       return false;
     const advanced = await this.branches.integrationAdvanced(
@@ -3749,9 +3739,7 @@ export class WorkCycleService {
       !head ||
       this.declaredReviews.has(key) ||
       this.abort.signal.aborted ||
-      this.storage.execution.runs
-        .listForWorktree(ws, cycle.worktreeId)
-        .some((run) => !isTerminalAgentRunStatus(run.status))
+      this.storage.execution.runs.liveForWorktree(ws, cycle.worktreeId).length > 0
     )
       return false;
     check();
@@ -3834,9 +3822,7 @@ export class WorkCycleService {
           'Resolution was superseded or delegation was revoked',
         );
       if (
-        this.storage.execution.runs
-          .listForWorktree(cycle.workspaceId, cycle.worktreeId)
-          .some((run) => !isTerminalAgentRunStatus(run.status))
+        this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
       )
         throw new ExecutionRequestError(
           'conflict',

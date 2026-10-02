@@ -90,6 +90,44 @@ export interface DesignRecovery {
   readonly sources: readonly DesignRecoverySource[];
   readonly attachments: readonly { readonly name: string; readonly content: string }[];
 }
+/** One question's result in an investigation's `craftingtable-investigation` block (R-C16). */
+export interface InvestigationFinding {
+  readonly question: string;
+  /** `proposed`: an answer with cited sources; `open`: why the evidence does not settle it. */
+  readonly status: 'proposed' | 'open';
+  readonly answer: string;
+  readonly sources: readonly string[];
+  readonly reason?: string;
+}
+/**
+ * A read-only investigation of a question stop (R-C16, ADR-059). Its run works beside the cycle
+ * and is never its current run: the cycle keeps its stop, and the operator answers through the
+ * stop's own control. Leaving the stop clears it.
+ */
+export interface CycleInvestigation {
+  /** The run's `profileSelection.investigationId`, which keeps it out of the cycle's lineage. */
+  readonly id: string;
+  readonly runId: AgentRunId;
+  /** The run whose report asked the questions. */
+  readonly sourceRunId: AgentRunId;
+  readonly code: import('./attention.js').CycleAttentionCode;
+  /** SHA-256 of the questions as the run was briefed with them. */
+  readonly questionsDigest: string;
+  readonly profile: FinalizationAgentSelection;
+  readonly instructions: string;
+  readonly minutes: number;
+  readonly deadlineAt: string;
+  readonly startedAt: string;
+  readonly startedByUserId: UserId;
+  /** Written when the run ends, with what the daemon read from its report. */
+  readonly result?: {
+    readonly endedAt: string;
+    readonly outcome: 'finished' | 'failed' | 'cancelled' | 'interrupted';
+    /** Why it failed, or why its report could not be read. */
+    readonly message?: string;
+    readonly findings?: readonly InvestigationFinding[];
+  };
+}
 export interface BaselinePreparation {
   readonly id: string;
   readonly contextDigest: string;
@@ -158,6 +196,8 @@ export interface WorkCycle {
   };
   readonly baselinePreparation?: BaselinePreparation;
   readonly designRecovery?: DesignRecovery;
+  /** A read-only investigation of the current question stop (R-C16). */
+  readonly investigation?: CycleInvestigation;
 
   readonly executionScope?: import('./execution-scope.js').ExecutionScope;
   readonly id: string;

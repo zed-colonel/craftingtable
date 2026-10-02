@@ -210,9 +210,7 @@ export function collectScopeRepair(tx: StorageRepositories, cycle: WorkCycle) {
         t.executionScope.kind !== 'slice' &&
         t.executionScope.definitionId === scope.definitionId &&
         t.executionScope.bindingRevision === scope.bindingRevision &&
-        tx.execution.runs
-          .listForWorktree(ws, t.id)
-          .some((run) => !isTerminalAgentRunStatus(run.status)),
+        tx.execution.runs.liveForWorktree(ws, t.id).length > 0,
     );
   const candidates = owners
     .filter((s) => scope.kind === 'parent-acceptance' || s.id === scope.sourceId)

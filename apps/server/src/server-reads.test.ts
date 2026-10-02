@@ -218,6 +218,9 @@ async function fixture() {
     workspaceId,
     user,
     items,
+    trees,
+    repositoryId,
+    projectId,
     finishedRun,
     liveRun,
     cycles: { history, paused, live },
@@ -293,6 +296,74 @@ describe('cycle reads (PERF-05)', () => {
     const f = await fixture();
     const response = await f.get(`/api/workspaces/${f.workspaceId}/cycles?workItemId=%20x`);
     expect(response.statusCode).toBe(400);
+  });
+});
+
+describe('worktree lineage reads (R-C16)', () => {
+  it("leaves a question stop's investigation out of the worktree's lineage, but not its live runs", async () => {
+    const f = await fixture();
+    const runs = f.context.storage.execution.runs;
+    const investigation = asAgentRunId('run-investigation');
+    runs.insert({
+      id: investigation,
+      workspaceId: f.workspaceId,
+      worktreeId: f.trees[0],
+      repositoryId: f.repositoryId,
+      projectId: f.projectId,
+      workItemId: f.items[0],
+      backend: 'claude-code',
+      role: 'design',
+      permissionMode: 'auto',
+      profileSelection: { purpose: 'investigation', investigationId: randomUUID() },
+      brief: 'Investigate the stop',
+      createdAt: '2026-09-20T11:00:00.000Z',
+      createdByUserId: f.user.id,
+    });
+    runs.transition({
+      workspaceId: f.workspaceId,
+      runId: investigation,
+      expectedStatuses: ['starting'],
+      toStatus: 'running',
+      occurredAt: '2026-09-20T11:00:00.000Z',
+    });
+    const ids = (list: readonly { id: string }[]) => list.map((r) => r.id);
+    // The newest run on the worktree is the investigation; the lineage reads skip it.
+    expect(ids(runs.listForWorktree(f.workspaceId, f.trees[0]))).toEqual([f.finishedRun]);
+    expect(runs.latestIdForWorktree(f.workspaceId, f.trees[0])).toBe(f.finishedRun);
+    expect(ids(runs.listForWorktree(f.workspaceId, f.trees[0], { investigations: true }))).toEqual([
+      investigation,
+      f.finishedRun,
+    ]);
+    // It still holds the worktree while it is live.
+    expect(ids(runs.liveForWorktree(f.workspaceId, f.trees[0]))).toEqual([investigation]);
+    runs.transition({
+      workspaceId: f.workspaceId,
+      runId: investigation,
+      expectedStatuses: ['running'],
+      toStatus: 'finished',
+      occurredAt: '2026-09-20T11:05:00.000Z',
+    });
+    expect(runs.liveForWorktree(f.workspaceId, f.trees[0])).toEqual([]);
+    // The cycle's own investigation-purpose runs (a design recovery's, a reassessment) carry
+    // no investigation id and stay in the lineage.
+    const recovery = asAgentRunId('run-design-recovery');
+    runs.insert({
+      id: recovery,
+      workspaceId: f.workspaceId,
+      worktreeId: f.trees[1],
+      repositoryId: f.repositoryId,
+      projectId: f.projectId,
+      workItemId: f.items[1],
+      backend: 'claude-code',
+      role: 'design',
+      permissionMode: 'auto',
+      profileSelection: { purpose: 'investigation' },
+      brief: 'Investigate the design questions',
+      createdAt: '2026-09-20T11:00:00.000Z',
+      createdByUserId: f.user.id,
+    });
+    expect(runs.latestIdForWorktree(f.workspaceId, f.trees[1])).toBe(recovery);
+    expect(ids(runs.listForWorktree(f.workspaceId, f.trees[1]))).toEqual([recovery, f.liveRun]);
   });
 });
 

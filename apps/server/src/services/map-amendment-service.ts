@@ -37,8 +37,6 @@ import { activeRuntime, currentScopeReceipt, acceptedEvidence } from './runtime-
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 const hash = (value: unknown) =>
   createHash('sha256').update(canonicalDefinition(value)).digest('hex');
-const live = (status: string) =>
-  !['finished', 'failed', 'cancelled', 'interrupted'].includes(status);
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
@@ -227,9 +225,7 @@ export class MapAmendmentService {
       c,
       attempts.filter((a) => a.disposition === 'retire').map((a) => a.worktreeId),
     );
-    const activeRuns = trees
-      .flatMap((t) => this.storage.execution.runs.listForWorktree(ws, t.id))
-      .filter((run) => live(run.status));
+    const activeRuns = trees.flatMap((t) => this.storage.execution.runs.liveForWorktree(ws, t.id));
     if (this.storage.phaseScheduling.active().some((p) => trees.some((t) => t.id === p.worktreeId)))
       blockers.push('Wait for current phase resource reservations to finish.');
     for (const run of activeRuns)

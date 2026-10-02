@@ -16,6 +16,7 @@ import {
 } from './agent-profiles.js';
 import { cycleAttentionSchema } from './attention.js';
 import { designDependencySchema, designReportSchema } from './design-report.js';
+import { investigationFindingSchema } from './investigation-report.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import { finalizationProgressSchema } from './finalization-progress.js';
 import {
@@ -248,6 +249,29 @@ export const workCycleSchema = z
         facts: z.string().max(128000),
         sources: z.array(designRecoverySourceSchema).max(32),
         attachments: z.array(designAttachmentSchema).max(4),
+      })
+      .optional(),
+    investigation: z
+      .strictObject({
+        id: z.uuid(),
+        runId: agentRunIdSchema,
+        sourceRunId: agentRunIdSchema,
+        code: z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
+        questionsDigest: z.string().regex(/^[0-9a-f]{64}$/),
+        profile: finalizationAgentSelectionSchema,
+        instructions: z.string().max(8000),
+        minutes: z.number().int().min(5).max(60),
+        deadlineAt: z.iso.datetime(),
+        startedAt: z.iso.datetime(),
+        startedByUserId: userIdSchema,
+        result: z
+          .strictObject({
+            endedAt: z.iso.datetime(),
+            outcome: z.enum(['finished', 'failed', 'cancelled', 'interrupted']),
+            message: z.string().max(4000).optional(),
+            findings: z.array(investigationFindingSchema).max(40).optional(),
+          })
+          .optional(),
       })
       .optional(),
     workflow: cycleWorkflowSchema.optional(),

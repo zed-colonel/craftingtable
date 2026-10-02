@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -6,6 +7,7 @@ import {
   startAgentRunResponseSchema,
 } from '@craftingtable/contracts';
 import {
+  asAgentRunId,
   asPlanVersionId,
   asProjectId,
   asWorkItemDependencyId,
@@ -295,6 +297,42 @@ it('never opens the merge gate for a failed, cancelled or interrupted review wit
   for (const status of ['failed', 'cancelled', 'interrupted'] as const) {
     expect(mergeGateFor(storedWorktree, [{ ...run, status }]).mergeable).toBe(false);
   }
+});
+
+it("holds the merge while a stop's investigation is live, and is not superseded by it after (R-C16)", async () => {
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  const id = await runToFinish(state, worktree.id, {
+    role: 'review',
+    instructions: 'VERDICT-MERGEABLE',
+  });
+  const review = state.context.storage.execution.runs.find(state.workspaceId, id);
+  const storedWorktree = state.context.storage.execution.worktrees.find(
+    state.workspaceId,
+    worktree.id,
+  );
+  if (review === undefined || storedWorktree === undefined) throw new Error('Missing fixtures');
+  const investigation = {
+    ...review,
+    id: asAgentRunId('investigation-run'),
+    role: 'design' as const,
+    verdict: undefined,
+    createdAt: new Date(Date.parse(review.createdAt) + 1000).toISOString(),
+    profileSelection: { purpose: 'investigation' as const, investigationId: randomUUID() },
+  };
+  expect(mergeGateFor(storedWorktree, [{ ...investigation, status: 'running' }, review])).toEqual({
+    mergeable: false,
+    reason: 'run-live',
+  });
+  expect(
+    mergeGateFor(storedWorktree, [{ ...investigation, status: 'finished' }, review]).mergeable,
+  ).toBe(true);
+  // Any other later run still supersedes the review.
+  const { profileSelection: _selection, ...manual } = investigation;
+  expect(mergeGateFor(storedWorktree, [{ ...manual, status: 'finished' }, review])).toMatchObject({
+    mergeable: false,
+    reason: 'superseded-by-later-run',
+  });
 });
 
 describe('plan integration branches', () => {

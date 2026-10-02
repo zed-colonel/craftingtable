@@ -835,9 +835,7 @@ export class AgentRunService {
    * waiting keeps its process alive, so it must be ended first.
    */
   private requireNoLiveRun(workspaceId: WorkspaceId, worktreeId: WorktreeId): void {
-    const live = this.storage.execution.runs
-      .listForWorktree(workspaceId, worktreeId)
-      .some((run) => !isTerminalAgentRunStatus(run.status));
+    const live = this.storage.execution.runs.liveForWorktree(workspaceId, worktreeId).length > 0;
     if (live)
       throw new ExecutionRequestError(
         'conflict',

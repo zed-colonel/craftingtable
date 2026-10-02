@@ -31,6 +31,7 @@ export const profileSelectionSchema = z.strictObject({
   assignmentId: z.uuid().optional(),
   delegationId: z.uuid().optional(),
   preparationId: z.uuid().optional(),
+  investigationId: z.uuid().optional(),
 });
 export const applyRoadmapAgentsSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),

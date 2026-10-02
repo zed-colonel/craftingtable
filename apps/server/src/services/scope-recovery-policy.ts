@@ -71,9 +71,7 @@ export function scopeRecoveryDecision(
           t.executionScope.kind !== 'slice' &&
           t.executionScope.definitionId === entry.executionScope?.definitionId &&
           t.executionScope.bindingRevision === entry.executionScope?.bindingRevision &&
-          tx.execution.runs
-            .listForWorktree(ws, t.id)
-            .some((r) => !isTerminalAgentRunStatus(r.status)),
+          tx.execution.runs.liveForWorktree(ws, t.id).length > 0,
       )
   )
     return { waiting: true };

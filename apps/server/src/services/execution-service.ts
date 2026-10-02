@@ -45,6 +45,7 @@ import {
   asSourceRepositoryId,
   asWorktreeId,
   evaluateCycleCompletion,
+  isInvestigationRun,
   isTerminalAgentRunStatus,
   mergeAdoptsChecks,
   type MergeOperation,
@@ -105,15 +106,17 @@ export function mergeGateFor(worktree: Worktree, runs: readonly AgentRun[]): Mer
   if (worktree.status !== 'active') {
     return { mergeable: false, reason: 'worktree-removed' };
   }
-  const forWorktree = runs
+  const all = runs
     .filter((run) => run.worktreeId === worktree.id)
     .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt));
-  if (forWorktree.some((run) => !isTerminalAgentRunStatus(run.status))) {
-    const live = forWorktree.find((run) => !isTerminalAgentRunStatus(run.status));
+  // A live investigation holds the worktree; a finished one changed nothing (R-C16).
+  if (all.some((run) => !isTerminalAgentRunStatus(run.status))) {
+    const live = all.find((run) => !isTerminalAgentRunStatus(run.status));
     return live?.role === 'review' && live.verdict === undefined
       ? { mergeable: false, reason: 'review-pending', reviewRunId: live.id }
       : { mergeable: false, reason: 'run-live' };
   }
+  const forWorktree = all.filter((run) => !isInvestigationRun(run));
   const latest = forWorktree[0];
   const latestReview = forWorktree.find((run) => run.role === 'review');
   if (latestReview === undefined) {
@@ -1319,9 +1322,7 @@ export class ExecutionService {
         return {
           worktree: found,
           repository: repo,
-          liveRuns: tx.execution.runs
-            .listForWorktree(workspaceId, worktreeId)
-            .filter((run) => !isTerminalAgentRunStatus(run.status)),
+          liveRuns: tx.execution.runs.liveForWorktree(workspaceId, worktreeId),
         };
       });
       if (worktree.status === 'removed') {
@@ -1439,9 +1440,7 @@ export class ExecutionService {
       );
       if (
         !repository ||
-        this.storage.execution.runs
-          .listForWorktree(workspaceId, worktreeId)
-          .some((run) => !isTerminalAgentRunStatus(run.status))
+        this.storage.execution.runs.liveForWorktree(workspaceId, worktreeId).length > 0
       )
         return false;
       return this.branches.duringMerge(repository.rootPath, async () => {
@@ -1685,7 +1684,9 @@ export class ExecutionService {
             }
             const gate = mergeGateFor(
               worktree,
-              this.storage.execution.runs.listForWorktree(workspaceId, worktreeId),
+              this.storage.execution.runs.listForWorktree(workspaceId, worktreeId, {
+                investigations: true,
+              }),
             );
             if (!gate.mergeable || !gate.reviewRunId)
               throw new ExecutionRequestError('conflict', MERGE_GATE_MESSAGES[gate.reason]);

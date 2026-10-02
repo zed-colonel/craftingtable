@@ -157,6 +157,14 @@ export const TERMINAL_AGENT_RUN_STATUSES = [
   'interrupted',
 ] as const satisfies readonly AgentRunStatus[];
 
+/**
+ * A question stop's read-only investigation (R-C16). It works beside its cycle: it holds the
+ * worktree while live, but it changes nothing and never stands in the worktree's lineage.
+ */
+export function isInvestigationRun(run: Pick<AgentRun, 'profileSelection'>): boolean {
+  return run.profileSelection?.investigationId !== undefined;
+}
+
 export function isTerminalAgentRunStatus(status: AgentRunStatus): boolean {
   return (TERMINAL_AGENT_RUN_STATUSES as readonly AgentRunStatus[]).includes(status);
 }
@@ -210,6 +218,11 @@ export interface AgentRun {
     readonly assignmentId?: string;
     readonly delegationId?: string;
     readonly preparationId?: string;
+    /**
+     * A question stop's read-only investigation (R-C16): the run works beside its cycle, so
+     * the worktree's lineage reads leave it out.
+     */
+    readonly investigationId?: string;
   };
   readonly id: AgentRunId;
   readonly workspaceId: WorkspaceId;

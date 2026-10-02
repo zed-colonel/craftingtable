@@ -1390,7 +1390,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C16
 
-**Investigate: dispatch a read-only investigation from any question stop** · Phase P2 · Effort M · Status: open (design approved 2026-10-01)
+**Investigate: dispatch a read-only investigation from any question stop** · Phase P2 · Effort M · Status: in progress (16a being built)
 
 - **Added 2026-10-01** from [LIVE-33](findings/LIVE-live-run-2026-09-25.md#live-33-continue-with-guidance-on-a-review-whose-rounds-were-spent-dropped-the-guidance-and-replaced-the-question-with-remediation-exhausted) (operator decision the same day: record it, and bring a design before building). On EXO-04 the operator wanted an agent to investigate the implications of a review's question before answering it. Only two kinds of question can dispatch one today: a design step's (Resolve design questions → investigate, design recovery, with R-C3a's automatic continuation) and a shared ADR decision's (decision preparation, R-C3b). A question from an implementation or review step (`work-item-questions`, `review-open-questions`, `review-open-questions-at-limit`, `scope-review-open-questions`, and questions carried on a `remediation-exhausted` stop) offers only an answer: Continue with guidance or Authorize more remediation. So the operator answers from the question's text alone, or writes the investigation into guidance meant for the next implementation or review run.
 - **Change (to design):** one Investigate action on every question stop, alongside the stop's own control. It launches a read-only run on the cycle's worktree at its current commit, briefed with the stop's questions, the source run's report and the operator's prompt. The run gathers evidence, answers or frames each question with sources, and proposes a resolution. It changes no source, merges nothing, uses no remediation round, and never makes the decision (ADR-059's rule for design investigations). When it ends, the cycle returns to the same stop with the investigation attached to its questions, and the stop's control (Continue with guidance, Authorize more remediation, or the shared-decision flow) carries the operator's answer as before.
@@ -1409,6 +1409,21 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - Decided: the investigation run carries `profileSelection.investigationId`, an optional field in the run's existing JSON (no migration). It equals `cycle.investigation.id`.
   - The run repository's worktree listings leave marked runs out by default. The live-run checks and the runs list read a listing that includes them, and every stop command refuses while the cycle's investigation is live.
   - Chosen over filtering at each call site, a pattern a new call site could forget, and over a separate worktree per investigation, which would reverse "on the cycle's own worktree".
+
+- **16a, first part (2026-10-02): the record, the run marker and the lineage boundary.**
+  - `WorkCycle.investigation` (`CycleInvestigation`) and `AgentRun.profileSelection.investigationId` are optional fields in existing JSON, with no migration. The cycle's contract pins both, and the persisted-record pin compiles against the domain types.
+  - `craftingtable-investigation` reports: `parseInvestigationReport` reads one block. Each question gets a proposed answer with its sources, or the reason it stays open.
+  - Actions: `investigate` sits beside the stop's own control on the seven question stops, when the daemon says the stop holds questions (`INVESTIGATION_STOPS`). `end-investigation` is the only action while one is live.
+  - Lineage boundary:
+    - `listForWorktree` and `latestIdForWorktree` leave marked runs out; `liveForWorktree` includes them.
+    - Every live-run check in the daemon (25 sites) reads `liveForWorktree`. `run-lineage.test.ts` scans the daemon's sources and fails on a live check against the lineage listing, chained or through a variable.
+    - The merge gate counts a live investigation as holding the worktree, but a finished one never supersedes the review.
+  - Tests that fail without each part:
+    - the storage reads, where an investigation-purpose run without an id, like a design recovery's, stays in the lineage;
+    - the scan;
+    - the merge gate;
+    - the actions for each stop;
+    - the report parser.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

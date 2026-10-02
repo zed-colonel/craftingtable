@@ -7,6 +7,7 @@ import {
   isTerminalAgentRunStatus,
   type SourceRepository,
   type SourceRepositoryId,
+  TERMINAL_AGENT_RUN_STATUSES,
   type WorkItemId,
   type WorkspaceAgentProfile,
   type WorkspaceId,
@@ -454,6 +455,16 @@ class SqliteWorktreeRepository implements WorktreeRepository {
   }
 }
 
+/**
+ * A question stop's investigation works beside its cycle (R-C16): the worktree's lineage reads
+ * (its newest run, its runs in order) leave it out, so no rule that adopts or resumes the
+ * newest run ever sees it. `liveForWorktree` includes it: it still holds the worktree.
+ */
+const LINEAGE = `
+             AND (profile_selection_json IS NULL
+                  OR json_extract(profile_selection_json, '$.investigationId') IS NULL)`;
+const TERMINAL = TERMINAL_AGENT_RUN_STATUSES.map((status) => `'${status}'`).join(', ');
+
 class SqliteAgentRunRepository implements AgentRunRepository {
   constructor(
     private readonly database: Database.Database,
@@ -539,12 +550,29 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     ).map(mapAgentRun);
   }
 
-  listForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): readonly AgentRun[] {
+  listForWorktree(
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+    options: { readonly investigations?: boolean } = {},
+  ): readonly AgentRun[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM agent_runs
+           WHERE workspace_id = ? AND worktree_id = ?${options.investigations ? '' : LINEAGE}
+           ORDER BY created_at DESC, rowid DESC`,
+        )
+        .all(workspaceId, worktreeId) as AgentRunRow[]
+    ).map(mapAgentRun);
+  }
+
+  liveForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): readonly AgentRun[] {
     return (
       this.database
         .prepare(
           `SELECT * FROM agent_runs
            WHERE workspace_id = ? AND worktree_id = ?
+             AND status NOT IN (${TERMINAL})
            ORDER BY created_at DESC, rowid DESC`,
         )
         .all(workspaceId, worktreeId) as AgentRunRow[]
@@ -558,7 +586,7 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     const row = this.database
       .prepare(
         `SELECT id FROM agent_runs
-         WHERE workspace_id = ? AND worktree_id = ?
+         WHERE workspace_id = ? AND worktree_id = ?${LINEAGE}
          ORDER BY created_at DESC, rowid DESC
          LIMIT 1`,
       )

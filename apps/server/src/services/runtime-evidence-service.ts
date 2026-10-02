@@ -557,11 +557,7 @@ export class RuntimeEvidenceService {
       .listActive(ws)
       .filter((t) => t.executionScope?.definitionId === id);
     for (const tree of trees) {
-      if (
-        tx.execution.runs
-          .listForWorktree(ws, tree.id)
-          .some((r) => !['finished', 'failed', 'cancelled', 'interrupted'].includes(r.status))
-      )
+      if (tx.execution.runs.liveForWorktree(ws, tree.id).length > 0)
         issues.push(`Wait for or end the live session in ${tree.branchName}.`);
       const cycle = tx.execution.cycles.activeForWorktree(ws, tree.id);
       if (cycle && ['running', 'queued'].includes(cycle.status))

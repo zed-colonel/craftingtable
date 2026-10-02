@@ -1,20 +1,20 @@
-import { useState } from 'react';
 import { remediationAllowance, type WorkCycle } from '@craftingtable/domain';
 import { About } from '../../components/About.js';
+import { type AnswerDraft, answerFieldId, useAnswerDraft } from './answer-draft.js';
 
 export function CycleGuidanceRecovery({
   cycle,
   disabled,
   onContinue,
-  initialGuidance = '',
+  answer,
 }: {
   cycle: WorkCycle;
   disabled: boolean;
   onContinue: (instructions: string) => void;
-  /** Where the answer starts, e.g. an investigation's proposals (R-C16). */
-  initialGuidance?: string;
+  /** The stop's answer as its decision holds it (R-C16); the form's own state otherwise. */
+  answer?: AnswerDraft;
 }) {
-  const [guidance, setGuidance] = useState(initialGuidance);
+  const [guidance, setGuidance] = useAnswerDraft(answer);
   const remaining = Math.max(0, remediationAllowance(cycle) - cycle.remediationRounds);
   return (
     <form
@@ -43,6 +43,7 @@ export function CycleGuidanceRecovery({
           required
           rows={5}
           maxLength={16000}
+          id={answerFieldId(cycle.id)}
           value={guidance}
           disabled={disabled}
           onChange={(event) => setGuidance(event.target.value)}

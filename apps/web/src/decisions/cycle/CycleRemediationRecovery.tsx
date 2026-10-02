@@ -2,6 +2,7 @@ import type { AuthorizeWorkCycleRemediationRequest } from '@craftingtable/contra
 import { remediationAllowance, type WorkCycle } from '@craftingtable/domain';
 import { useState } from 'react';
 import { About } from '../../components/About.js';
+import { type AnswerDraft, answerFieldId, useAnswerDraft } from './answer-draft.js';
 
 export type CycleRemediationGrant = Pick<
   AuthorizeWorkCycleRemediationRequest,
@@ -12,16 +13,16 @@ export function CycleRemediationRecovery({
   cycle,
   disabled,
   onAuthorize,
-  initialInstructions = '',
+  answer,
 }: {
   cycle: WorkCycle;
   disabled: boolean;
   onAuthorize: (input: CycleRemediationGrant) => void;
-  /** Where the guidance starts, e.g. an investigation's proposals (R-C16). */
-  initialInstructions?: string;
+  /** The stop's answer as its decision holds it (R-C16); the form's own state otherwise. */
+  answer?: AnswerDraft;
 }) {
   const [additionalRounds, setAdditionalRounds] = useState(1);
-  const [instructions, setInstructions] = useState(initialInstructions);
+  const [instructions, setInstructions] = useAnswerDraft(answer);
   const valid =
     Number.isInteger(additionalRounds) && additionalRounds >= 1 && additionalRounds <= 20;
   return (
@@ -53,6 +54,7 @@ export function CycleRemediationRecovery({
       <label className="field">
         Guidance for the next run (optional)
         <textarea
+          id={answerFieldId(cycle.id)}
           value={instructions}
           maxLength={16000}
           disabled={disabled}

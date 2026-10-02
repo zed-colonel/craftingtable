@@ -70,23 +70,36 @@ const runs = [
 const backends = [
   { kind: 'claude-code', label: 'Claude Code', available: true, models: [] },
 ] as never;
-function show(cycle: WorkCycle, actions: readonly CycleAction[], liveRuns = runs) {
-  const onOpenRun = vi.fn();
-  render(
+function decision(
+  cycle: WorkCycle,
+  actions: readonly CycleAction[],
+  options: {
+    liveRuns?: readonly AgentRunSummary[];
+    canMutate?: boolean;
+    backends?: typeof backends;
+    onOpenRun?: (id: string) => void;
+    onChanged?: () => void;
+  } = {},
+) {
+  return (
     <CycleDecision
       inInbox
       cycle={{ ...cycle, actions }}
-      runs={liveRuns}
+      runs={options.liveRuns ?? runs}
       readOnly={false}
-      backends={backends}
+      backends={options.backends ?? backends}
       csrfToken="csrf"
-      canMutate
+      canMutate={options.canMutate ?? true}
       busy={false}
-      onChanged={vi.fn()}
-      onOpenRun={onOpenRun}
+      onChanged={options.onChanged ?? vi.fn()}
+      onOpenRun={options.onOpenRun ?? vi.fn()}
       onOpenWorktree={vi.fn() as (id: WorktreeId) => void}
-    />,
+    />
   );
+}
+function show(cycle: WorkCycle, actions: readonly CycleAction[], liveRuns = runs) {
+  const onOpenRun = vi.fn();
+  render(decision(cycle, actions, { liveRuns, onOpenRun }));
   return { onOpenRun };
 }
 const posted = (path: string) =>
@@ -99,6 +112,9 @@ it("offers Investigate beside the stop's own control, and starts it with a promp
   show(base, ['continue-with-guidance', 'investigate', 'stop']);
   expect(screen.getByRole('form', { name: 'Continue with guidance' })).toBeTruthy();
   const form = screen.getByRole('form', { name: 'Investigate these questions' });
+  expect((within(form).getByLabelText('Time limit (minutes)') as HTMLInputElement).value).toBe(
+    '30',
+  );
   fireEvent.change(within(form).getByLabelText('What to look into (optional)'), {
     target: { value: 'Check the format spec.' },
   });
@@ -199,4 +215,228 @@ it('fills the remediation grant at the round limit, and shows a failure with ano
   expect(within(panel).getByText(/reached its time limit/)).toBeTruthy();
   expect(within(panel).queryByRole('button', { name: 'Use proposed answers' })).toBeNull();
   expect(screen.getByRole('form', { name: 'Investigate these questions' })).toBeTruthy();
+});
+
+// R-C16 16b review: the stop's answer is the operator's draft. Proposals are added to it, the
+// draft survives the form being hidden while another investigation runs, and it never follows
+// the operator to another cycle (H1, M1, M2, M3).
+it("keeps the operator's draft, and adds each investigation's proposals to it once", () => {
+  const questions = ['continue-with-guidance', 'investigate', 'stop'] as const;
+  const second = {
+    ...finished,
+    findings: [{ ...finished.findings![0]!, answer: 'Use CSV.' }],
+  } as typeof finished;
+  const live = [
+    ...runs,
+    { id: 'inv-run', worktreeId: 'wt-1', status: 'running' },
+  ] as unknown as AgentRunSummary[];
+  const view = render(
+    decision({ ...base, investigation: { ...record, result: finished } }, questions),
+  );
+  const field = () => screen.getByLabelText('Answers and recovery guidance') as HTMLTextAreaElement;
+  fireEvent.change(field(), { target: { value: 'My draft.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
+  expect(field().value.startsWith('My draft.\n\nFrom the investigation')).toBe(true);
+  expect(field().value).toContain('Use JSON lines. (Sources: docs/format.md:12)');
+  expect(screen.getByText('Added to your answer below. Edit it before you send it.')).toBeTruthy();
+  expect(document.activeElement).toBe(field());
+  fireEvent.change(field(), { target: { value: `${field().value}\nMy edit.` } });
+  const edited = field().value;
+  // Another investigation runs, with the form hidden, and ends with new proposals.
+  view.rerender(
+    decision({ ...base, investigation: { ...record, id: 'second' } }, ['end-investigation'], {
+      liveRuns: live,
+    }),
+  );
+  expect(screen.queryByLabelText('Answers and recovery guidance')).toBeNull();
+  view.rerender(
+    decision({ ...base, investigation: { ...record, id: 'second', result: second } }, questions),
+  );
+  expect(field().value).toBe(edited);
+  fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
+  expect(field().value.startsWith(edited)).toBe(true);
+  expect(field().value.match(/Use CSV\./g)).toHaveLength(1);
+  // Another cycle has its own answer.
+  view.rerender(
+    decision({ ...base, id: 'c2', investigation: { ...record, result: second } }, questions),
+  );
+  expect(field().value).toBe('');
+  expect(vi.mocked(request)).not.toHaveBeenCalled();
+});
+
+it('offers Use proposed answers only where a form takes them, a scope review included (M4)', () => {
+  const scoped = {
+    ...base,
+    step: 'review',
+    executionScope: {
+      kind: 'parent-acceptance',
+      definitionId: 'd',
+      bindingRevision: 1,
+      sourceId: 'P',
+    },
+    attention: { code: 'scope-review-open-questions', owner: 'operator' },
+    investigation: { ...record, result: finished },
+  } as unknown as WorkCycle;
+  show(scoped, ['resume', 'investigate', 'stop']);
+  fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
+  expect(
+    (screen.getByLabelText('Additional review guidance') as HTMLTextAreaElement).value,
+  ).toContain('Use JSON lines.');
+  cleanup();
+  // A paused stop with no answer form: the proposals show, with nothing to fill.
+  show({ ...base, status: 'paused', investigation: { ...record, result: finished } }, [
+    'resume',
+    'investigate',
+    'stop',
+  ]);
+  expect(screen.getByText('Use JSON lines.')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Use proposed answers' })).toBeNull();
+});
+
+it('cuts proposals to what the control accepts (L1)', () => {
+  const long = {
+    ...finished,
+    findings: Array.from({ length: 6 }, (_, i) => ({
+      question: `Question ${i}?`,
+      status: 'proposed' as const,
+      answer: 'x'.repeat(3000),
+      sources: ['a.md:1'],
+    })),
+  } as typeof finished;
+  show({ ...base, investigation: { ...record, result: long } }, [
+    'continue-with-guidance',
+    'investigate',
+    'stop',
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
+  const value = (screen.getByLabelText('Answers and recovery guidance') as HTMLTextAreaElement)
+    .value;
+  expect(value.length).toBeLessThanOrEqual(16_000);
+  expect(value.endsWith('(cut to fit; the full proposals are above)')).toBe(true);
+});
+
+it('starts from the cycle investigation profile, refuses an unavailable agent or a bad limit, and trims the prompt (M5)', () => {
+  const profiled = {
+    ...base,
+    nextAgentSelections: {
+      design: { backend: 'claude-code', model: 'design-model' },
+      implement: { backend: 'claude-code' },
+      review: { backend: 'claude-code' },
+      remediate: { backend: 'claude-code' },
+      investigation: { backend: 'claude-code', model: 'investigation-model' },
+    },
+  } as unknown as WorkCycle;
+  show(profiled, ['continue-with-guidance', 'investigate', 'stop']);
+  const form = screen.getByRole('form', { name: 'Investigate these questions' });
+  expect(within(form).getByText(/Agent: Claude Code · investigation-model/)).toBeTruthy();
+  const start = within(form).getByRole('button', {
+    name: 'Start investigation',
+  }) as HTMLButtonElement;
+  fireEvent.change(within(form).getByLabelText('Time limit (minutes)'), {
+    target: { value: '70' },
+  });
+  expect(start.disabled).toBe(true);
+  fireEvent.change(within(form).getByLabelText('Time limit (minutes)'), { target: { value: '4' } });
+  expect(start.disabled).toBe(true);
+  fireEvent.change(within(form).getByLabelText('Time limit (minutes)'), {
+    target: { value: '30' },
+  });
+  fireEvent.change(within(form).getByLabelText('What to look into (optional)'), {
+    target: { value: '  Check X.  ' },
+  });
+  fireEvent.click(start);
+  expect(posted('/cycles/c1/investigation')).toEqual([
+    {
+      expectedVersion: 3,
+      instructions: 'Check X.',
+      minutes: 30,
+      profile: { backend: 'claude-code', model: 'investigation-model' },
+    },
+  ]);
+  cleanup();
+  render(
+    decision(base, ['continue-with-guidance', 'investigate', 'stop'], {
+      backends: [
+        { kind: 'claude-code', label: 'Claude Code', available: false, models: [] },
+      ] as never,
+    }),
+  );
+  expect(screen.getByText(/unavailable on this workstation/)).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Start investigation' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});
+
+it('retries from the last investigation, shows its outcome and deadline, and needs mutate rights (L2, M5)', async () => {
+  const failed = {
+    ...record,
+    instructions: 'Check the format spec.',
+    minutes: 20,
+    result: { endedAt: finished.endedAt, outcome: 'failed', message: 'Launch failed.' },
+  } as NonNullable<WorkCycle['investigation']>;
+  show({ ...base, investigation: failed }, ['continue-with-guidance', 'investigate', 'stop']);
+  expect(screen.getByText(/The investigation failed\. Launch failed\./)).toBeTruthy();
+  const form = screen.getByRole('form', { name: 'Investigate these questions' });
+  expect(
+    (within(form).getByLabelText('What to look into (optional)') as HTMLTextAreaElement).value,
+  ).toBe('Check the format spec.');
+  expect((within(form).getByLabelText('Time limit (minutes)') as HTMLInputElement).value).toBe(
+    '20',
+  );
+  cleanup();
+  // A record still live shows End, with its deadline's date, whatever the actions.
+  render(
+    decision(
+      { ...base, investigation: { ...record, deadlineAt: '2099-10-02T12:30:00.000Z' } },
+      ['stop'],
+      {
+        canMutate: false,
+      },
+    ),
+  );
+  expect(screen.getByRole('status').textContent).toContain('2099');
+  expect(
+    (screen.getByRole('button', { name: 'End investigation' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  cleanup();
+  render(
+    decision(
+      { ...base, investigation: { ...record, result: finished } },
+      ['continue-with-guidance', 'investigate', 'stop'],
+      {
+        canMutate: false,
+      },
+    ),
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Use proposed answers' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole('button', { name: 'Start investigation' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.submit(screen.getByRole('form', { name: 'Investigate these questions' }));
+  expect(posted('/cycles/c1/investigation')).toEqual([]);
+  cleanup();
+  // A failed command is shown; a successful one refreshes.
+  vi.mocked(request).mockRejectedValueOnce(new Error('Boom.'));
+  const onChanged = vi.fn();
+  render(decision({ ...base, investigation: record }, ['end-investigation'], { onChanged }));
+  fireEvent.click(screen.getByRole('button', { name: 'End investigation' }));
+  expect((await screen.findByRole('alert')).textContent).toBe('Boom.');
+  expect(onChanged).not.toHaveBeenCalled();
+  vi.mocked(request).mockResolvedValueOnce({ cycle: base } as never);
+  fireEvent.click(screen.getByRole('button', { name: 'End investigation' }));
+  await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+});
+
+it('shows nothing without a record or an offer, and no form unless one is offered', () => {
+  show(base, ['continue-with-guidance', 'stop']);
+  expect(screen.queryByRole('region', { name: 'Investigation' })).toBeNull();
+  cleanup();
+  show({ ...base, investigation: { ...record, result: finished } }, [
+    'continue-with-guidance',
+    'stop',
+  ]);
+  expect(screen.getByRole('region', { name: 'Investigation' })).toBeTruthy();
+  expect(screen.queryByRole('form', { name: 'Investigate these questions' })).toBeNull();
 });

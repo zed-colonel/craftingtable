@@ -55,13 +55,16 @@ export function CycleInvestigation({
   disabled: boolean;
   onChanged: () => void;
   onOpenRun: (id: AgentRunId) => void;
-  onUseAnswers: (text: string) => void;
+  /** Adds the proposals to the stop's answer; absent where no form takes one. */
+  onUseAnswers?: (text: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [used, setUsed] = useState(false);
   const actions = cycle.actions ?? [];
   const record = cycle.investigation;
-  const live = actions.includes('end-investigation') || (!!record && !record.result);
+  // The record says whether it runs; the daemon offers only End while it does.
+  const live = !!record && !record.result;
   const offered = actions.includes('investigate');
   if (!record && !offered && !live) return null;
   const run = async (command: () => Promise<unknown>) => {
@@ -85,9 +88,10 @@ export function CycleInvestigation({
       {live && record && (
         <>
           <p role="status">
-            Investigating: a read-only run is gathering evidence for these questions, until{' '}
-            {new Date(record.deadlineAt).toLocaleTimeString()}. The stop’s other controls wait for
-            it.
+            {Date.parse(record.deadlineAt) > Date.now()
+              ? `Investigating: a read-only run is gathering evidence for these questions, until ${new Date(record.deadlineAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.`
+              : 'Investigating: the run has passed its time limit and is being ended.'}{' '}
+            The stop’s other controls wait for it.
           </p>
           <p className="inline-actions">
             <button
@@ -118,15 +122,17 @@ export function CycleInvestigation({
           </p>
           {findings.length > 0 && (
             <ol className="stack">
-              {findings.map((finding) => (
-                <li key={finding.question}>
+              {findings.map((finding, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: findings are a fixed list; questions may repeat.
+                <li key={index}>
                   <strong>{finding.question}</strong>
                   {finding.status === 'proposed' ? (
                     <>
                       <p>{finding.answer}</p>
                       <ul>
-                        {finding.sources.map((source) => (
-                          <li key={source}>
+                        {finding.sources.map((source, index) => (
+                          // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list; sources may repeat.
+                          <li key={index}>
                             <code>{source}</code>
                           </li>
                         ))}
@@ -142,12 +148,15 @@ export function CycleInvestigation({
             </ol>
           )}
           <p className="inline-actions">
-            {findings.length > 0 && (
+            {findings.length > 0 && onUseAnswers && (
               <button
                 type="button"
                 className="primary-button"
                 disabled={locked}
-                onClick={() => onUseAnswers(proposedAnswers(findings))}
+                onClick={() => {
+                  onUseAnswers(proposedAnswers(findings));
+                  setUsed(true);
+                }}
               >
                 Use proposed answers
               </button>
@@ -160,12 +169,14 @@ export function CycleInvestigation({
               Open investigation run
             </button>
           </p>
+          {used && <p role="status">Added to your answer below. Edit it before you send it.</p>}
         </>
       )}
       {offered && !live && (
         <InvestigateForm
           key={`${cycle.id}:${cycle.version}`}
           cycle={cycle}
+          {...(record ? { previous: record } : {})}
           backends={backends}
           disabled={locked}
           onStart={(input) => void run(() => startInvestigation(cycle, input, csrfToken))}
@@ -178,24 +189,31 @@ export function CycleInvestigation({
 
 function InvestigateForm({
   cycle,
+  previous,
   backends,
   disabled,
   onStart,
 }: {
   cycle: WorkCycle;
+  /** The last investigation of this stop: another try starts from what it asked. */
+  previous?: Investigation;
   backends: ExecutionStatusResponse['backends'];
   disabled: boolean;
   onStart: (input: { instructions: string; minutes: number; profile: AgentSelection }) => void;
 }) {
-  const [instructions, setInstructions] = useState('');
-  const [minutes, setMinutes] = useState(30);
-  const [profile, setProfile] = useState<AgentSelection>(() =>
-    selectionsForPurpose(
-      cycle.nextAgentSelections ?? agentSelections(cycle.profiles),
-      'investigation',
-    ),
+  const [instructions, setInstructions] = useState(previous?.instructions ?? '');
+  const [minutes, setMinutes] = useState(previous?.minutes ?? 30);
+  const [profile, setProfile] = useState<AgentSelection>(
+    () =>
+      previous?.profile ??
+      selectionsForPurpose(
+        cycle.nextAgentSelections ?? agentSelections(cycle.profiles),
+        'investigation',
+      ),
   );
-  const valid = Number.isInteger(minutes) && minutes >= 5 && minutes <= 60;
+  const backend = backends.find((b) => b.kind === profile.backend);
+  const available = backend?.available === true;
+  const valid = Number.isInteger(minutes) && minutes >= 5 && minutes <= 60 && available;
   return (
     <form
       aria-label="Investigate these questions"
@@ -236,6 +254,10 @@ function InvestigateForm({
           onChange={(event) => setMinutes(event.target.valueAsNumber)}
         />
       </label>
+      <p>
+        Agent: {backend?.label ?? profile.backend} · {profile.model || 'Backend default'}
+        {available ? '' : ' (unavailable on this workstation; choose another below)'}
+      </p>
       <About label="About the investigation agent">
         <p>
           It uses the cycle’s Evidence investigation profile unless you choose another here. It

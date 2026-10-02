@@ -259,6 +259,9 @@ export function CyclePanel({
           {decisionItem ? (
             <p className="attention-banner" role="status">
               This stop is decided in Needs you.{' '}
+              {active.investigation && !active.investigation.result
+                ? 'An investigation of its questions is running; the stop waits for it. '
+                : ''}
               <Link
                 route={{
                   name: 'inbox',

@@ -13,6 +13,7 @@ import {
 } from './CycleRemediationRecovery.js';
 import { ProviderRecovery } from './ProviderRecovery.js';
 import { ScopeReviewRecovery } from './ScopeReviewRecovery.js';
+import type { AnswerDraft } from './answer-draft.js';
 
 type ControlBody =
   | { readonly action: 'pause' | 'stop' | 'retry-provider' }
@@ -99,14 +100,14 @@ export function CycleContinuation({
   csrfToken,
   disabled,
   onChanged,
-  suggestion,
+  answer,
 }: {
   cycle: WorkCycle;
   csrfToken: string;
   disabled: boolean;
   onChanged: () => void;
-  /** Text the operator chose to start the answer from, e.g. an investigation's proposals. */
-  suggestion?: { readonly text: string; readonly nonce: number };
+  /** The stop's answer as its decision holds it, which the forms share (R-C16). */
+  answer?: AnswerDraft;
 }) {
   const { busy, error, run } = useCommand(onChanged);
   const kind = continuationOf(cycle);
@@ -118,6 +119,7 @@ export function CycleContinuation({
         <ScopeReviewRecovery
           key={cycle.id}
           cycle={cycle}
+          {...(answer ? { answer } : {})}
           disabled={locked}
           onResume={(instructions) =>
             void run(() =>
@@ -132,9 +134,9 @@ export function CycleContinuation({
       {kind === 'remediation' && (
         <div id={`cycle-guidance-${cycle.id}`}>
           <CycleRemediationRecovery
-            key={`${cycle.id}:${cycle.version}:${suggestion?.nonce ?? 0}`}
+            key={`${cycle.id}:${cycle.version}`}
             cycle={cycle}
-            {...(suggestion ? { initialInstructions: suggestion.text } : {})}
+            {...(answer ? { answer } : {})}
             disabled={locked}
             onAuthorize={(grant) =>
               void run(() =>
@@ -146,9 +148,9 @@ export function CycleContinuation({
       )}
       {kind === 'guidance' && (
         <CycleGuidanceRecovery
-          key={`${cycle.id}:${suggestion?.nonce ?? 0}`}
+          key={cycle.id}
           cycle={cycle}
-          {...(suggestion ? { initialGuidance: suggestion.text } : {})}
+          {...(answer ? { answer } : {})}
           disabled={locked}
           onContinue={(instructions) =>
             void run(() => control(cycle, csrfToken, { action: 'resume', instructions }))

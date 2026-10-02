@@ -1,12 +1,19 @@
 import type { AgentRunSummary, ExecutionStatusResponse } from '@craftingtable/contracts';
-import type { AgentRunId, WorkCycle, WorktreeId } from '@craftingtable/domain';
+import { useState } from 'react';
+import {
+  type AgentRunId,
+  effectiveCycleAttention,
+  type WorkCycle,
+  type WorktreeId,
+} from '@craftingtable/domain';
 import { DesignQuestions } from '../design/DesignQuestions.js';
 import { IntegrationConflict } from '../integration/IntegrationConflict.js';
 import { ScopeRepair } from '../scope-repair/ScopeRepair.js';
 import { WorkflowStatus } from '../../features/execution/WorkflowStatus.js';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import { Link } from '../../lib/navigation.js';
-import { useState } from 'react';
+import { revealElement } from '../../lib/reveal-element.js';
+import { answerFieldId, appendAnswer } from './answer-draft.js';
 import { CycleContinuation, continuationOf, ProviderRetry } from './CycleDecisions.js';
 import { CycleInvestigation } from './CycleInvestigation.js';
 
@@ -77,8 +84,15 @@ export function CycleDecision({
   inInbox?: boolean;
 }) {
   const disabled = busy || !canMutate;
-  // The answer the operator chose to start from, e.g. an investigation's proposals (R-C16).
-  const [suggestion, setSuggestion] = useState<{ text: string; nonce: number }>();
+  // One answer draft per stop: the cycle, the run it stopped on and why (R-C16 16b review).
+  // It survives the stop's form being hidden while an investigation runs, never follows the
+  // operator to another cycle or stop, and proposals are added to it, never put in its place.
+  const stop = `${cycle.id}:${cycle.currentRunId}:${effectiveCycleAttention(cycle)?.code ?? cycle.status}`;
+  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
+  const answer = {
+    value: drafts[stop] ?? '',
+    onChange: (value: string) => setDrafts((current) => ({ ...current, [stop]: value })),
+  };
   const liveRun = runs.some(
     (run) =>
       run.worktreeId === cycle.worktreeId &&
@@ -133,9 +147,18 @@ export function CycleDecision({
         disabled={disabled}
         onChanged={onChanged}
         onOpenRun={onOpenRun}
-        onUseAnswers={(text) =>
-          setSuggestion((current) => ({ text, nonce: (current?.nonce ?? 0) + 1 }))
-        }
+        {...(applies.continuation && applies.continuation !== 'resume'
+          ? {
+              // Only where a form takes the answer: guidance, a grant or a scope review's.
+              onUseAnswers: (text: string) => {
+                setDrafts((current) => ({
+                  ...current,
+                  [stop]: appendAnswer(current[stop] ?? '', text),
+                }));
+                revealElement(answerFieldId(cycle.id));
+              },
+            }
+          : {})}
       />
       {applies.continuation && (
         <CycleContinuation
@@ -143,7 +166,7 @@ export function CycleDecision({
           csrfToken={csrfToken}
           disabled={disabled || liveRun}
           onChanged={onChanged}
-          {...(suggestion ? { suggestion } : {})}
+          answer={answer}
         />
       )}
       {applies.design && canMutate && (

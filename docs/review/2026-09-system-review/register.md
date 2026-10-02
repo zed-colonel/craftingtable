@@ -1513,9 +1513,33 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **While it runs:** "Investigating" until its deadline, with Open investigation run and End investigation. The stop's answer forms are hidden (`continuationOf` returns none while `end-investigation` is the only action).
   - **When it ends:** the proposals, each with its answer and sources, or why it stays open. Use proposed answers fills the stop's own answer (Continue with guidance, or Authorize more remediation's guidance) for the operator to edit. Nothing is sent until the operator submits that control.
   - A failure, an End or an interruption says so, and Investigate is offered again. Reminders are held by the daemon (16a).
-  - **Tests and mutations.** `CycleInvestigation.test.tsx` covers the form and its request, the live panel and End, the proposals and Use proposed answers for both stop controls, and a failure. Mutations of each part fail a test.
+  - **Tests and mutations.** `CycleInvestigation.test.tsx` covers the form and its request, the live panel and End, the proposals and Use proposed answers for both stop controls, and a failure. This line originally said mutations of each part fail a test; the review below showed that was not true, and the tests were extended.
   - **One equivalent mutation:** offering the form while live is unreachable, because the daemon never offers both actions.
-  - **Walkthrough** `2026-10-02-investigate-before` (2274769) and `…-after` (bd6cccf). Only `27-inbox-guided-recovery` changes size, on desktop and phone: the implementation-questions item gains its Investigation section, with the form, between the run and Continue with guidance. The work item page leaves that stop to its item, and the walkthrough's remediation stop asks nothing, so neither changes. Every other difference is capture noise (timestamps, ids, the sidebar's scroll position).
+  - **Walkthrough** `2026-10-02-investigate-before` (2274769) and `…-after` (22bf7c6, the code of bd6cccf). Only `27-inbox-guided-recovery` changes size, on desktop and phone: the implementation-questions item gains its Investigation section, with the form, between the run and Continue with guidance. The work item page leaves that stop to its item, and the walkthrough's remediation stop asks nothing, so neither changes. Every other difference is capture noise (timestamps, ids, the sidebar's scroll position).
+
+- **Independent review of 16b (2026-10-02, worktree at fe78333, no live paths).**
+  - **Sound:** the offers match the daemon, the request matches the contract, and the read-only gating holds. The answer-filling path lost the operator's text.
+  - **Rework.** `CycleDecision` now holds one answer draft per stop: the cycle, the run it stopped on, and its stop code (`answer-draft.ts`). Guidance, the remediation grant and the scope review's guidance are all controlled by it.
+  - *HIGH, fixed (H1):* after a second investigation, the answer form came back holding the first investigation's proposals, and the operator's edits were gone. The suggestion was sticky state applied by remounting the form. Use proposed answers now adds to the draft once; nothing is reapplied.
+  - *MEDIUM, fixed:*
+    - **M1:** starting an investigation threw away a typed draft. The draft is kept while the form is hidden.
+    - **M2:** Use replaced the operator's text. It now adds the proposals after it.
+    - **M3:** proposals followed the operator to another cycle or stop. Drafts are per stop.
+    - **M4:** Use was offered where no form takes it. It now shows only for guidance, a grant or a scope review; scope reviews are now filled too.
+    - **M5:** the register's mutation claim was false, with 16 of 20 surviving. The claim is corrected above.
+  - *LOW, fixed:*
+    - **L1:** proposals are cut to the control's 16,000 characters, with a note.
+    - **L2:** a retry starts from the last investigation's prompt, limit and agent.
+    - **L4:** findings and sources use index keys, since questions and sources may repeat.
+    - **L5:** Use moves focus to the answer and says "Added to your answer below".
+    - **L6:** the work item page's "decided in Needs you" banner says when an investigation is running. This fix is not tested.
+    - **L7:** the chosen agent is shown outside About, and Start is held when it is unavailable.
+  - *LOW, left (L3):* the remediation form's attempt count still resets on a version change. Its guidance no longer does, because it is in the draft.
+  - *NIT, fixed:*
+    - the deadline shows its date, and says when it has passed;
+    - "live" is read from the record alone, so the daemon's `end-investigation` and the record cannot disagree in the browser;
+    - the walkthrough commit above now matches the index.
+  - **Tests:** the reviewer's reproductions of H1, M1, M2, M3 and M4 now fail without the fix, as do L1, L2, L5, L7 and each surviving mutation it listed. 25 mutations were run: all are caught but one, which is now unreachable (live from actions alone; "live" is read from the record).
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

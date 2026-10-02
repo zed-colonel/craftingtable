@@ -4,17 +4,21 @@ import { queryKeys } from '../../lib/event-invalidations.js';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { About } from '../../components/About.js';
+import { type AnswerDraft, answerFieldId, useAnswerDraft } from './answer-draft.js';
 
 export function ScopeReviewRecovery({
   cycle,
   disabled,
   onResume,
+  answer,
 }: {
   cycle: WorkCycle;
   disabled: boolean;
   onResume: (instructions: string) => void;
+  /** The stop's answer as its decision holds it (R-C16); the form's own state otherwise. */
+  answer?: AnswerDraft;
 }) {
-  const [instructions, setInstructions] = useState('');
+  const [instructions, setInstructions] = useAnswerDraft(answer);
   const [retry, setRetry] = useState(0);
   // The work item's slices, shared with its page (R-D4 increment 4b): read again on its events,
   // and here when the cycle changes or the operator retries, holding Resume until then.
@@ -138,6 +142,7 @@ export function ScopeReviewRecovery({
       <label className="field">
         Additional review guidance
         <textarea
+          id={answerFieldId(cycle.id)}
           value={instructions}
           maxLength={16000}
           disabled={disabled}

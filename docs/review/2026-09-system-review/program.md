@@ -823,6 +823,24 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - e2e 21 and the walkthrough rehearsal pass; the scope check passes.
   - Replays: 43 of 45 report 0 changed, and the two 2026-10-01 changes are LIVE-32's.
   - The mobile and parallel-roadmap e2e failures stay open for the operator's planned test-suite review.
+- **R-C16 increment 16a built (2026-10-02, `remediation/p2` 69458a2..58cd9a6; not merged or deployed).** This is the daemon half of Investigate.
+  - Operator decision the same day: a run marker keeps an investigation out of the worktree's lineage, recorded on R-C16.
+  - **What it does.** A question stop's investigation is a read-only run beside the cycle, from the stop's run, with:
+    - the questions;
+    - the lineage's check receipts;
+    - the branch's commits and diff, which the daemon supplies.
+
+    The stop refuses its other commands while it runs. Its item says so and its reminders wait. Its proposals are read back onto the cycle, and the item pages once; the cycle stays at the stop for the operator to answer. Roadmap stop ends it; item pause and resume leave it. ADR-059 is amended.
+  - **Replay check.** On a scratch copy of 2026-10-01e, EXO-04's `remediation-exhausted` stop offers Investigate with its amendment question.
+  - **Independent review.** No HIGH findings; the read-only boundary held.
+    - Four MEDIUM findings: stale routed questions, the design brief, a stop frozen until the deadline when no run was recorded, and test gaps. All are fixed, the last in part.
+    - LOW findings are fixed or dispositioned on R-C16, with the remaining untested backstops listed.
+  - **Gate at 58cd9a6.**
+    - Format, lint, typecheck and build pass.
+    - Tests: 265 files, 2,067 tests; 11 tests in 7 server files timed out under load, and all 7 files (173 tests) passed rerun serially.
+    - E2e 21 and the walkthrough rehearsal pass; the scope check passes.
+  - **Replays.** 43 of 45 report 0 changed; the two 2026-10-01 changes are LIVE-32's.
+  - **Deploy note.** No schema change, but the cycle and run records gain optional fields. The browser has no Investigate yet: that is 16b, next.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

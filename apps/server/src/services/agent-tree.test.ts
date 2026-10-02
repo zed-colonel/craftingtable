@@ -48,6 +48,21 @@ function scratch(): string {
   roots.push(root);
   return root;
 }
+/**
+ * Makes `levels` nested directories named `name` below `cwd`, as a command can with relative
+ * `mkdir` and `cd`, then runs `then` in the deepest one. Each `mkdir -p` names at most 500
+ * levels, a relative path well under PATH_MAX, so a tree of 1,100 levels takes 3 processes,
+ * not 1,100: forking one per level took 9-19 s and timed the tests out under load (R-I2).
+ */
+function deepTree(cwd: string, levels: number, name: string, then = ''): void {
+  const chunk = (count: number) => Array(count).fill(name).join('/');
+  const steps: string[] = [];
+  for (let left = levels; left > 0; left -= 500) {
+    const path = chunk(Math.min(500, left));
+    steps.push(`mkdir -p ${path} && cd ${path} || exit 1`);
+  }
+  execFileSync('sh', ['-c', [...steps, then].join('\n')], { cwd });
+}
 
 it('removes what an agent left whatever its modes: read-only directories, mode-000 entries (LIVE-31 review)', async () => {
   const root = scratch();
@@ -93,14 +108,7 @@ it('removes a tree deeper than a path can name, with a read-only directory at it
   const own = join(root, 'own');
   mkdirSync(own);
   // What a command can make with relative mkdir and cd: 1100 levels, 5500 bytes, past PATH_MAX.
-  execFileSync(
-    'sh',
-    [
-      '-c',
-      'for i in $(seq 1 1100); do mkdir aaaa && cd aaaa || exit 1; done; touch f; chmod 500 .',
-    ],
-    { cwd: own },
-  );
+  deepTree(own, 1100, 'aaaa', 'touch f; chmod 500 .');
   await expect(removeAgentTree(own)).resolves.toBeUndefined();
   expect(existsSync(own)).toBe(false);
 });
@@ -134,15 +142,7 @@ it('holds a bounded number of descriptors whatever the depth (LIVE-31 verificati
   const root = scratch();
   const own = join(root, 'own');
   mkdirSync(own);
-  const levels = AGENT_TREE_MAX_DEPTH * 4 + 76;
-  execFileSync(
-    'sh',
-    [
-      '-c',
-      `for i in $(seq 1 ${levels}); do mkdir aaaa && cd aaaa || exit 1; done; touch f; chmod 500 .`,
-    ],
-    { cwd: own },
-  );
+  deepTree(own, AGENT_TREE_MAX_DEPTH * 4 + 76, 'aaaa', 'touch f; chmod 500 .');
   // A process allowed fewer descriptors than the tree has levels, and that cannot raise it.
   const limit = AGENT_TREE_MAX_DEPTH + 100;
   expect(removeInChild(['prlimit', `--nofile=${limit}:${limit}`], own)).toBe('removed');
@@ -157,11 +157,7 @@ it('removes a tree a stopped removal left with its subtrees moved up, past the b
   // its own move, itself deeper than the bound.
   const levels = AGENT_TREE_MAX_DEPTH + 44;
   mkdirSync(join(own, '.removing-0'));
-  execFileSync(
-    'sh',
-    ['-c', `for i in $(seq 1 ${levels}); do mkdir a && cd a || exit 1; done; touch f`],
-    { cwd: join(own, '.removing-0') },
-  );
+  deepTree(join(own, '.removing-0'), levels, 'a', 'touch f');
   await expect(removeAgentTree(own)).resolves.toBeUndefined();
   expect(existsSync(own)).toBe(false);
 });

@@ -1390,7 +1390,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C16
 
-**Investigate: dispatch a read-only investigation from any question stop** · Phase P2 · Effort M · Status: in progress (16a being built)
+**Investigate: dispatch a read-only investigation from any question stop** · Phase P2 · Effort M · Status: done (2026-10-02; not merged or deployed)
 
 - **Added 2026-10-01** from [LIVE-33](findings/LIVE-live-run-2026-09-25.md#live-33-continue-with-guidance-on-a-review-whose-rounds-were-spent-dropped-the-guidance-and-replaced-the-question-with-remediation-exhausted) (operator decision the same day: record it, and bring a design before building). On EXO-04 the operator wanted an agent to investigate the implications of a review's question before answering it. Only two kinds of question can dispatch one today: a design step's (Resolve design questions → investigate, design recovery, with R-C3a's automatic continuation) and a shared ADR decision's (decision preparation, R-C3b). A question from an implementation or review step (`work-item-questions`, `review-open-questions`, `review-open-questions-at-limit`, `scope-review-open-questions`, and questions carried on a `remediation-exhausted` stop) offers only an answer: Continue with guidance or Authorize more remediation. So the operator answers from the question's text alone, or writes the investigation into guidance meant for the next implementation or review run.
 - **Change (to design):** one Investigate action on every question stop, alongside the stop's own control. It launches a read-only run on the cycle's worktree at its current commit, briefed with the stop's questions, the source run's report and the operator's prompt. The run gathers evidence, answers or frames each question with sources, and proposes a resolution. It changes no source, merges nothing, uses no remediation round, and never makes the decision (ADR-059's rule for design investigations). When it ends, the cycle returns to the same stop with the investigation attached to its questions, and the stop's control (Continue with guidance, Authorize more remediation, or the shared-decision flow) carries the operator's answer as before.
@@ -1551,6 +1551,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - The stop key used `effectiveCycleAttention`, which is undefined when paused, so a pause taken at the stop hid its draft. It now uses `stopCode`, which is how the daemon reads a stop.
   - *NIT, fixed:* a draft is cleared once sent, so it is not offered again if the same stop recurs.
   - **Test gaps closed:** a new run at the same stop, a stop that only resumes, the whitespace and trim edges, and focus for the grant and the scope review. Thirteen mutations of these fixes are each caught. The web test setup clears drafts between tests.
+
+- **Walkthrough after the review fixes:** `2026-10-02-investigate-review-after` (11856dd). Against `…-investigate-after`, only `27-inbox-guided-recovery` changes size, on desktop and phone: the form now shows its agent ("Agent: Claude Code · Backend default"). Every other difference is capture noise.
+- **Done, 2026-10-02.** Each part of the done-when is met:
+  - every question stop offers Investigate;
+  - an investigation leaves the worktree, the allowance and the stop unchanged, and attaches its report to the questions (`server-execution-investigation.test.ts`);
+  - a replay of EXO-04's 2026-10-01e stop offers it;
+  - tests cover each question code and the read-only boundary: the launch is `readOnly`, and the agents' read-only arguments have their own tests.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

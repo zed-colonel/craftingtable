@@ -841,6 +841,22 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - E2e 21 and the walkthrough rehearsal pass; the scope check passes.
   - **Replays.** 43 of 45 report 0 changed; the two 2026-10-01 changes are LIVE-32's.
   - **Deploy note.** No schema change, but the cycle and run records gain optional fields. The browser has no Investigate yet: that is 16b, next.
+- **R-C16 increment 16b built; R-C16 done (2026-10-02, `remediation/p2` bd6cccf..; not merged or deployed).** This is the browser half of Investigate.
+  - **What it does.** In the stop's decision, in its inbox item and on the work item:
+    - an Investigate form with an optional prompt, a time limit and the agent;
+    - while it runs, "Investigating" with End, and the stop's answer forms hidden;
+    - when it ends, the proposals, with their sources or why each stays open. Use proposed answers adds them, once, to the stop's own answer for the operator to edit.
+
+    Answer drafts are held per stop for the browser session and cleared once sent.
+  - **Review.** The independent review found one HIGH and four MEDIUM data-loss or wrong-target issues in Use proposed answers. They were reworked into one answer draft per stop. A verification review confirmed the fixes and found one MEDIUM (drafts lost on leaving the page) and five LOW issues, all fixed. All are recorded on R-C16.
+  - **Walkthrough.** `2026-10-02-investigate-before` (2274769), `…-after` and `…-investigate-review-after`: the implementation-questions item in Needs you gains the Investigation section.
+  - **Gate at 11856dd.**
+    - Format, lint, typecheck and build pass.
+    - Tests: 267 files, 2,080 tests; 17 tests in 10 server files timed out under load, and all 10 files (201 tests) passed rerun serially.
+    - E2e 21 and the walkthrough rehearsal pass; the scope check passes.
+  - **Replays.** 43 of 45 report 0 changed; the two 2026-10-01 changes are LIVE-32's.
+  - **Operator action after a deploy, for EXO-04:** Investigate the planning-amendment question before Authorize more remediation, if useful.
+  - **Next:** R-D5.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

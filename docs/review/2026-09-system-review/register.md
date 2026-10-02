@@ -1515,6 +1515,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - A failure, an End or an interruption says so, and Investigate is offered again. Reminders are held by the daemon (16a).
   - **Tests and mutations.** `CycleInvestigation.test.tsx` covers the form and its request, the live panel and End, the proposals and Use proposed answers for both stop controls, and a failure. Mutations of each part fail a test.
   - **One equivalent mutation:** offering the form while live is unreachable, because the daemon never offers both actions.
+  - **Walkthrough** `2026-10-02-investigate-before` (2274769) and `…-after` (bd6cccf). Only `27-inbox-guided-recovery` changes size, on desktop and phone: the implementation-questions item gains its Investigation section, with the form, between the run and Continue with guidance. The work item page leaves that stop to its item, and the walkthrough's remediation stop asks nothing, so neither changes. Every other difference is capture noise (timestamps, ids, the sidebar's scroll position).
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

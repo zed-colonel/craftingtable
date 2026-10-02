@@ -105,3 +105,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-02-memo-rows-before | `6fdc194` | 2026-10-02 | 67 (1 phone only) | 1× |
 | 2026-10-02-memo-rows-after | `03aec1d` | 2026-10-02 | 67 (1 phone only) | 1× |
 | 2026-10-02-investigate-before | `2274769` | 2026-10-02 | 67 (1 phone only) | 1× |
+| 2026-10-02-investigate-after | `22bf7c6` | 2026-10-02 | 67 (1 phone only) | 1× |

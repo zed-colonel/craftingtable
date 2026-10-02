@@ -1495,6 +1495,7 @@ export class AgentRunService {
         ...(reviewArtifacts === undefined ? {} : { reviewContinuationArtifacts: reviewArtifacts }),
         resolvingIntegration: ownsIntegrationResolution(cycle),
         planFinalization: !!prepared.worktree.planVersionId && !preparation && !investigation,
+        ...(investigation ? { investigation: true } : {}),
         temporaryDirectory,
         ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
         ...(pinned ? { launchers: true } : {}),
@@ -1977,6 +1978,13 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       ...(requestId === undefined ? {} : { requestId }),
     });
     const run = this.requireRun(workspaceId, runId);
+    // An investigation answers in its one turn; a message would change the report the daemon
+    // reads back (R-C16 review).
+    if (run.profileSelection?.investigationId)
+      throw new ExecutionRequestError(
+        'conflict',
+        'An investigation takes no messages. End it, or start another with a new prompt.',
+      );
     this.requireManualControl(workspaceId, run.worktreeId, runId);
     const tree = this.storage.execution.worktrees.find(workspaceId, run.worktreeId);
     if (!tree) throw new NotFoundError();

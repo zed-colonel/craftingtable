@@ -80,6 +80,11 @@ export interface BriefInput {
   readonly stepGuidance?: string;
   /** Controller-authored rules for this automated step. */
   readonly controllerInstructions?: string;
+  /**
+   * A question stop's read-only investigation (R-C16): it runs as a design-role run, but its
+   * role is to investigate, and the controller's rules say what it returns.
+   */
+  readonly investigation?: boolean;
   /** The run this one continues from, with its final message. */
   readonly parentRun?: BriefParentRun;
 }
@@ -127,6 +132,13 @@ const REVIEW_REPORT_INSTRUCTIONS = [
   'Set complete to true only once you have consolidated the entire review. A mergeable',
   'report requires exitGate.met=true and no open blocking or major findings.',
   'Only when this brief has a "Controller-owned execution scope" section, also add the top-level scopeEvidence field it shows; otherwise omit scopeEvidence.',
+].join('\n');
+
+const INVESTIGATION_ROLE = [
+  'You are investigating the questions a stopped step asked, for the operator who must answer them.',
+  'This is read-only: you read and report; you do not design, implement, review, commit or decide.',
+  'Nothing runs after you: the operator reads your final message. Follow the step rules below',
+  'for what it must contain.',
 ].join('\n');
 
 const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
@@ -235,7 +247,7 @@ export function composeBrief(input: BriefInput): string {
       );
   }
   sections.push(
-    `## Your role\n\n${input.resolvingIntegration ? 'Resolve the daemon-prepared integration merge in this worktree. Stage intended changes and verify the combined behavior. Do not commit, switch branches, start another merge, abort the merge, or move any branch. The daemon owns completion. Follow the pinned resolution instructions below.' : ROLE_INSTRUCTIONS[input.role]}`,
+    `## Your role\n\n${input.investigation ? INVESTIGATION_ROLE : input.resolvingIntegration ? 'Resolve the daemon-prepared integration merge in this worktree. Stage intended changes and verify the combined behavior. Do not commit, switch branches, start another merge, abort the merge, or move any branch. The daemon owns completion. Follow the pinned resolution instructions below.' : ROLE_INSTRUCTIONS[input.role]}`,
   );
   if (input.role === 'review' && !input.resolvingIntegration) {
     sections.push(

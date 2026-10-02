@@ -774,6 +774,75 @@ it('investigates a slice question stop without reserving its development capacit
   ).toContain(question);
 });
 
+// R-C16 review M1: a later report's question replaces an earlier report's routed one; the
+// investigation is briefed with the stop's own question, never the stale one.
+it("investigates the stop run's own question, not one an earlier report routed", async () => {
+  const f = await slicedFixture();
+  const { state, backend } = f;
+  const scope = f.scopes[0]!;
+  const tree = await scopeTree(f, scope);
+  const old = 'OLD: should the replay requirement go to a planning amendment?';
+  const current = 'NEW: which retention window should the projection keep?';
+  backend.replyForRequest = (request) => {
+    if (request.readOnly) return { resultText: 'Working.', release: new Promise<void>(() => {}) };
+    if (request.model === 'design-model') return designDone;
+    if (request.model === 'remediate-model')
+      return { resultText: `Remediated.\n\n## Open questions\n\n- ${current}` };
+    if (request.model !== 'review-model') return implementationDone;
+    const workflow = JSON.stringify({
+      version: 1,
+      questions: [{ question: old, destination: 'work-item' }],
+      resolved: [],
+      securityReview: { required: false, sources: [] },
+    });
+    return {
+      resultText: `\`\`\`craftingtable-workflow\n${workflow}\n\`\`\`\n\n## Open questions\n\n- ${old}\n\n## Review report\n\n${scopeReport(state, scope).replace('"findings":[]', `"findings":${JSON.stringify([structuredFinding])}`)}`,
+    };
+  };
+  const cycle = await startCycle(state, tree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review question');
+  expect(currentCycle(state, cycle).workflow?.questions).toEqual([
+    { question: old, destination: 'work-item' },
+  ]);
+  const answered = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action: 'resume',
+      expectedVersion: currentCycle(state, cycle).version,
+      instructions: 'Defer it to a planning amendment.',
+    },
+  });
+  expect(answered.statusCode, answered.body).toBe(200);
+  await waitFor(
+    () => currentCycle(state, cycle).attention?.code === 'implementation-open-questions',
+    'the remediation question',
+  );
+  // The stored routing still holds the earlier question.
+  expect(currentCycle(state, cycle).workflow?.questions[0]?.question).toBe(old);
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/investigation`,
+    headers: mutationHeaders(state),
+    payload: { expectedVersion: currentCycle(state, cycle).version },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const investigation = currentCycle(state, cycle).investigation!;
+  await waitFor(() => backend.launches.some((launch) => launch.readOnly), 'investigation launch');
+  const questions = readFileSync(
+    join(
+      state.context.config.execution.runsRoot,
+      investigation.runId,
+      'investigation',
+      'questions.md',
+    ),
+    'utf8',
+  );
+  expect(questions).toContain(current);
+  expect(questions).not.toContain(old);
+});
+
 // LIVE-33: EXO-04's review asked a question with its rounds spent. Continue with guidance went
 // down the remediation path, found the limit, and replaced the question with
 // remediation-exhausted (200 OK, the guidance dropped). The stop now says the rounds are spent,

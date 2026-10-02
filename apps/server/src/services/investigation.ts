@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { parseInvestigationReport } from '@craftingtable/contracts';
+import { parseInvestigationReport, parseWorkflowReport } from '@craftingtable/contracts';
 import {
   type AgentRun,
   type AgentRunId,
@@ -13,6 +13,7 @@ import {
 import type { GitOperations } from '@craftingtable/git';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { runLineage } from './run-handoff.js';
+import { operatorQuestionRoutes } from './workflow-policy.js';
 
 /**
  * A question stop's read-only investigation (R-C16, ADR-059, ADR-065). It reads the stop's
@@ -33,12 +34,14 @@ export interface StopQuestions {
 }
 
 /**
- * The questions an investigation can work on at this stop, or none. A slice's report routes
- * its questions (`cycle.workflow`): the work item's are investigated, a shared decision's keep
- * decision preparation. Any other step asks them in its report's "## Open questions".
+ * The questions an investigation can work on at this stop, or none, read from the stop's own
+ * run: never from questions an earlier report routed, which a later report may have replaced
+ * (R-C16 review M1). A slice report's workflow block routes its questions: the work item's are
+ * investigated, and a shared decision's keep decision preparation. Otherwise the report asks
+ * them in its "## Open questions", unless that section names an ADR a shared decision answers.
  */
 export function stopQuestions(
-  tx: Pick<StorageRepositories, 'execution'>,
+  tx: StorageRepositories,
   cycle: WorkCycle,
 ): StopQuestions | undefined {
   if (cycle.status !== 'needs-attention' && cycle.status !== 'paused') return undefined;
@@ -46,30 +49,53 @@ export function stopQuestions(
   if (code === undefined || !INVESTIGATION_STOPS.has(code)) return undefined;
   const run = tx.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
   if (!run || !isTerminalAgentRunStatus(run.status)) return undefined;
-  const routed = cycle.workflow?.questions ?? [];
-  if (routed.length || code === 'shared-decision-required') {
-    const questions = routed
-      .filter((q) => q.destination === 'work-item')
-      .map((q) => q.question)
-      .slice(0, MAX_QUESTIONS);
-    return questions.length ? { sourceRunId: run.id, questions } : undefined;
-  }
-  const questions = openQuestions(finalText(tx, run));
-  return questions.length ? { sourceRunId: run.id, questions } : undefined;
+  const text = finalText(tx, run);
+  const routed =
+    cycle.executionScope?.kind === 'slice' ? operatorQuestionRoutes(tx, cycle, text) : [];
+  const questions =
+    parseWorkflowReport(text).status === 'complete'
+      ? routed.filter((q) => q.destination === 'work-item').map((q) => q.question)
+      : routed.some((q) => q.destination === 'shared-decision')
+        ? []
+        : openQuestions(text);
+  return questions.length
+    ? { sourceRunId: run.id, questions: questions.slice(0, MAX_QUESTIONS) }
+    : undefined;
 }
 
-/** The items of a report's single "## Open questions" section; its text if it has no list. */
+/**
+ * The items of a report's single "## Open questions" section; its text if it has no list.
+ * Fenced blocks are text, as `openQuestionsCheckpoint` reads them: a fenced heading neither
+ * opens nor ends the section. Indented lines, sub-bullets included, belong to their item.
+ */
 export function openQuestions(text: string): readonly string[] {
   if (openQuestionsCheckpoint(text) !== 'questions') return [];
-  const section = /^## Open questions[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(text)?.[1];
-  if (!section?.trim()) return [];
+  let fence: string | undefined;
+  let collecting = false;
+  const body: { line: string; fenced: boolean }[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    const fenced = fence !== undefined || marker !== undefined;
+    if (marker !== undefined) {
+      if (fence === undefined) fence = marker;
+      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
+    } else if (!fenced && /^## /.test(line)) {
+      collecting = /^## Open questions[ \t]*$/.test(line);
+      continue;
+    }
+    if (collecting) body.push({ line, fenced });
+  }
   const items: string[] = [];
-  for (const line of section.split(/\r?\n/)) {
-    const item = /^\s{0,3}(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
+  for (const { line, fenced } of body) {
+    const item = fenced ? null : /^ ?(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
     if (item) items.push(item[1]!.trim());
     else if (items.length && line.trim()) items[items.length - 1] += `\n${line.trim()}`;
   }
-  const questions = items.length ? items : [section.trim()];
+  const whole = body
+    .map((b) => b.line)
+    .join('\n')
+    .trim();
+  const questions = items.length ? items : whole ? [whole] : [];
   return questions.filter((q) => q.trim()).slice(0, MAX_QUESTIONS);
 }
 

@@ -3,7 +3,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { workCycleResponseSchema, workCyclesResponseSchema } from '@craftingtable/contracts';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
-import { asAgentRunEventId, cycleAttention, type WorkCycle } from '@craftingtable/domain';
+import {
+  asAgentRunEventId,
+  asAgentRunId,
+  cycleAttention,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   cleanupExecutionFixtures,
@@ -20,6 +25,7 @@ import {
   roadmapInput,
   saveRoadmapRequest,
   startCycle,
+  stepDaemons,
   storedRoadmap,
   waitFor,
 } from './execution-test-support.js';
@@ -145,6 +151,10 @@ describe('question stop investigations (R-C16)', () => {
     expect(launch.prompt).toContain('craftingtable-investigation');
     expect(launch.prompt).toContain('investigation/questions.md');
     expect(launch.prompt).toContain('Check the format spec.');
+    // Briefed as an investigation, not as the design step it runs as (review M2).
+    expect(launch.prompt).toContain('You are investigating the questions a stopped step asked');
+    expect(launch.prompt).not.toContain('craftingtable-design');
+    expect(launch.prompt).not.toContain('You are exploring and designing');
     const run = state.context.storage.execution.runs.find(state.workspaceId, record.runId);
     expect(run).toMatchObject({
       parentRunId: stopped.currentRunId,
@@ -171,6 +181,18 @@ describe('question stop investigations (R-C16)', () => {
       expectedVersion: currentCycle(state, cycle).version,
     });
     expect(again.statusCode).toBe(409);
+    const grant = await post(state, `/cycles/${cycle.id}/control`, {
+      action: 'authorize-remediation',
+      expectedVersion: currentCycle(state, cycle).version,
+      additionalRounds: 1,
+      instructions: '',
+    });
+    expect(grant.statusCode).toBe(409);
+    expect(grant.body).toContain('investigation of this stop is running');
+    // Its one turn is its report: no message may add another (review LOW).
+    const message = await post(state, `/runs/${record.runId}/messages`, { text: 'Also check X.' });
+    expect(message.statusCode).toBe(409);
+    expect(message.body).toContain('takes no messages');
     const manual = await post(state, `/work-items/${state.workItemId}/runs`, {
       worktreeId: f.worktree.id,
       role: 'implement',
@@ -276,6 +298,14 @@ describe('question stop investigations (R-C16)', () => {
       () =>
         state.context.storage.execution.runs.find(state.workspaceId, runId)?.status === 'cancelled',
       'investigation cancelled',
+    );
+    // The operator's own End is no news: the item does not page again for it.
+    await stepDaemons(2);
+    const item = state.context.storage.attention
+      .open(state.workspaceId)
+      .find((i) => i.subjectKey === `cycle:${cycle.id}`);
+    expect(item?.members ?? []).not.toContain(
+      `investigation:${started.investigation!.id}:cancelled`,
     );
     // The stop takes its commands again; ending twice is refused.
     expect((await presented(state, cycle)).actions).toContain('investigate');
@@ -419,5 +449,107 @@ describe('question stop investigations (R-C16)', () => {
         'cancelled',
       'investigation cancelled',
     );
+  });
+
+  it('refuses an unavailable backend before recording anything, and settles a run that never started or never ended', async () => {
+    let now = new Date('2026-10-02T12:00:00Z');
+    const f = await atQuestionStop(() => now);
+    const { state, cycle } = f;
+    const before = currentCycle(state, cycle);
+    const refused = await post(state, `/cycles/${cycle.id}/investigation`, {
+      expectedVersion: before.version,
+      profile: { backend: 'codex' },
+    });
+    expect(refused.statusCode, refused.body).toBe(503);
+    expect(currentCycle(state, cycle)).toEqual(before);
+
+    // A record whose launch never recorded its run (a restart in between) is over at once,
+    // not at its deadline (review M3).
+    const record = {
+      id: randomUUID(),
+      runId: randomUUID(),
+      sourceRunId: before.currentRunId,
+      code: 'implementation-open-questions',
+      questionsDigest: '0'.repeat(64),
+      profile: { backend: 'claude-code' },
+      instructions: '',
+      minutes: 30,
+      deadlineAt: new Date(now.getTime() + 30 * 60_000).toISOString(),
+      startedAt: now.toISOString(),
+      startedByUserId: before.createdByUserId,
+    } as NonNullable<WorkCycle['investigation']>;
+    const write = (investigation: NonNullable<WorkCycle['investigation']>) => {
+      const current = currentCycle(state, cycle);
+      state.context.storage.execution.cycles.replace(
+        { ...current, version: current.version + 1, investigation },
+        current.version,
+      );
+    };
+    write(record);
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'never started');
+    expect(currentCycle(state, cycle).investigation?.result).toMatchObject({
+      outcome: 'failed',
+      message: expect.stringContaining('did not start'),
+    });
+
+    // A run left unfinished with no process, well past its deadline, is closed.
+    const source = state.context.storage.execution.runs.find(
+      state.workspaceId,
+      before.currentRunId,
+    )!;
+    const stuck = asAgentRunId(randomUUID());
+    state.context.storage.execution.runs.insert({
+      id: stuck,
+      workspaceId: state.workspaceId,
+      worktreeId: source.worktreeId,
+      repositoryId: source.repositoryId,
+      projectId: source.projectId,
+      ...(source.workItemId ? { workItemId: source.workItemId } : {}),
+      parentRunId: source.id,
+      backend: 'claude-code',
+      role: 'design',
+      permissionMode: 'edit-only',
+      profileSelection: { purpose: 'investigation', investigationId: randomUUID() },
+      brief: 'Investigate.',
+      createdAt: now.toISOString(),
+      createdByUserId: source.createdByUserId,
+    });
+    write({
+      ...record,
+      id: state.context.storage.execution.runs.find(state.workspaceId, stuck)!.profileSelection!
+        .investigationId!,
+      runId: stuck,
+    });
+    // Before its deadline it waits on the run.
+    await stepDaemons(3);
+    expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
+    now = new Date(now.getTime() + 33 * 60_000);
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'closed');
+    expect(currentCycle(state, cycle).investigation?.result).toMatchObject({
+      outcome: 'cancelled',
+      message: expect.stringContaining('outlived its time limit'),
+    });
+  });
+
+  it('waits for a launch in flight before reading back a record that has no run yet', async () => {
+    const f = await atQuestionStop();
+    const { state, cycle } = f;
+    f.script({ resultText: report(), release: new Promise<void>(() => {}) });
+    const pending = post(state, `/cycles/${cycle.id}/investigation`, {
+      expectedVersion: currentCycle(state, cycle).version,
+    });
+    // Catch the moment the record is written and its run is not yet, and run the controller.
+    let observed = false;
+    for (let i = 0; i < 2000 && !observed; i += 1) {
+      const record = currentCycle(state, cycle).investigation;
+      if (record && !state.context.storage.execution.runs.find(state.workspaceId, record.runId)) {
+        observed = true;
+        await state.context.services.workCycleService.tick();
+        expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
+      } else await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(observed).toBe(true);
+    expect((await pending).statusCode).toBe(200);
+    expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
   });
 });

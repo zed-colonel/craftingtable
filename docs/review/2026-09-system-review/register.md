@@ -1465,6 +1465,49 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - the shared-decision inbox ignoring investigation runs: it matters only when the stop's own report carries a recommendation, and no fixture's does. An assertion without one passed either way, so it was not kept.
   - **Expectations changed:** the LIVE-33 test's stops now also offer `investigate`.
 
+- **Independent review of 16a (2026-10-02, worktree at 3b1951d, no live paths).**
+  - **Verdict.** No HIGH findings; the read-only boundary holds. The reviewer checked:
+    - Claude runs restricted to its reading tools; Codex runs in its read-only sandbox with approvals denied.
+    - The profile cannot loosen read-only.
+    - The timer and a restart end the run, and nothing resumes it.
+    - Every reader of a worktree's runs takes the lineage or the live list as intended.
+  - *MEDIUM, fixed (M1):* the investigation was briefed with stale questions. `stopQuestions` took a slice's stored `workflow.questions`, which only a complete workflow block replaces. A later report without one (a remediation asking a new question) left the old routed question. That brief also disagreed with the routes the browser shows. It now reads only the stop run's own report: the workflow block's work-item questions, or the report's "## Open questions", unless that section names an ADR that a shared decision answers. The reviewer's slice reproduction is now a test, and it fails with the stored questions.
+  - *MEDIUM, fixed (M2):* the brief carried the design role's instructions: propose an approach, add a `craftingtable-design` block, "hands your final message to the implement run". These conflicted with the investigation's rules. The brief now has its own investigation role. A test checks the prompt has no design text.
+  - *MEDIUM, fixed (M3):* a record whose launch never recorded its run held the stop and its reminders until the deadline, up to 60 minutes; this happened after a restart between the record and the run. The cycle service now knows which launches are in flight. A record with neither a run nor a launch in flight fails at once ("did not start"). A run left unfinished two minutes past its deadline, with no process, is closed. Tests: a record without a run; a stuck run, which waits before its deadline and is closed after it; and a launch in flight, whose record is not read back while the launch is pending.
+  - *MEDIUM, fixed in part (M4):* there were test gaps on the race guards. Each part below is now tested and shown by mutation:
+    - the guards on the control and grant commands;
+    - the backend check;
+    - messages refused;
+    - End without a new page;
+    - the launch in flight;
+    - the missing and stuck runs.
+
+    Left untested and recorded:
+    - reconcile returning after settling (it holds reassessment);
+    - the launch's own checks inside and after the insert;
+    - clearing on a new current run or a changed stop code (backstops; every command path is guarded);
+    - the scheduler's MOVED;
+    - the predecessor, scope-start, pinned-environment and plan-finalization skips;
+    - End after the run finished but before settling.
+  - *LOW, fixed:*
+    - A message to the investigation run (`/runs/:id/messages`) is refused; its one turn is its report.
+    - The profile's backend is checked before anything is recorded, so an unavailable one returns 503 and leaves the stop unchanged.
+    - The operator's own End no longer pages again.
+    - A change of the stop's attention code ends the record.
+    - The question parser treats fenced text as text, and sub-bullets as part of their question.
+    - The roadmap's item pause and resume skip a repair cycle that is being investigated.
+    - The finalization view lists investigation runs.
+  - *LOW, left:* the roadmap's MOVED for an entry being investigated ends its wait record, so the operator-wait measurement (R-C1) starts a new wait after it. The time spent investigating is not counted as operator wait. That is arguably right, and it was not worth a new wait code.
+  - *NIT:*
+    - **Fixed:** design-recovery previews (GETs) are no longer refused while an investigation runs. The guard sits on its two commands.
+    - **Left, the scan test is shallow:** `run-lineage.test.ts` is a tripwire for the common shapes, not a boundary. The boundary is the lineage listing's default exclusion plus `liveForWorktree`. The reviewer read every current site by hand and found no live check on the lineage list.
+    - **Left, minor costs and records:**
+      - `presented()` reads the stop's report twice;
+      - `holdsReminders` decodes the cycle;
+      - the run records `permissionMode: 'edit-only'`, while the read-only flag is the launch's;
+      - two finalization guards read the cycle they were given, but `change()`'s version check protects them.
+    - **Left for 16b:** the browser has no End button yet.
+
 ## Workstream D — Read side and browser performance (pain point 3)
 
 ### R-D1

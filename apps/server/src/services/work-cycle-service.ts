@@ -192,6 +192,9 @@ function retryableControllerError(error: unknown): boolean {
 }
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
+/** How long past its deadline an unfinished investigation run is closed (R-C16 review M3). */
+const STUCK_INVESTIGATION_MS = 2 * 60_000;
+
 /** The workspace-wide list leaves an investigation's proposals to the item's own read (PERF-05). */
 function withoutFindings(cycle: WorkCycle): WorkCycle {
   const result = cycle.investigation?.result;
@@ -213,6 +216,8 @@ export class WorkCycleService {
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
   private readonly ending = new Set<string>();
+  /** Investigations whose launch is in flight (R-C16): settling waits for them. */
+  private readonly launchingInvestigations = new Set<string>();
   private readonly transitioning = new Set<string>();
 
   isTransitioning(id: string): boolean {
@@ -506,7 +511,6 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
-    this.requireNoInvestigation(cycle);
     if (
       !cycle.workItemId ||
       cycle.step !== 'design' ||
@@ -583,6 +587,11 @@ export class WorkCycleService {
       ...(selected.model === undefined ? {} : { model: selected.model }),
       ...(selected.reasoningEffort ? { reasoningEffort: selected.reasoningEffort } : {}),
     };
+    if (!this.runs.hasBackend(profile.backend))
+      throw new ExecutionRequestError(
+        'unavailable',
+        'The investigation profile’s agent backend is not available on this workstation.',
+      );
     const startedAt = this.now();
     const record: CycleInvestigation = {
       id: randomUUID(),
@@ -604,7 +613,15 @@ export class WorkCycleService {
       record,
       asked.questions,
     );
-    const updated = this.change(cycle, { investigation: record }, 'investigation-started', context);
+    // Settling waits for this launch; a record with neither a run nor a launch is over (M3).
+    this.launchingInvestigations.add(record.id);
+    let updated: WorkCycle;
+    try {
+      updated = this.change(cycle, { investigation: record }, 'investigation-started', context);
+    } catch (error) {
+      this.launchingInvestigations.delete(record.id);
+      throw error;
+    }
     const check = () => {
       const current = this.storage.execution.cycles.find(workspaceId, id);
       if (current?.investigation?.id !== record.id || current.investigation.result)
@@ -647,6 +664,8 @@ export class WorkCycleService {
           'investigation-failed',
         );
       throw error;
+    } finally {
+      this.launchingInvestigations.delete(record.id);
     }
     return this.present(this.storage.execution.cycles.find(workspaceId, id) ?? updated);
   }
@@ -691,25 +710,35 @@ export class WorkCycleService {
   private settleInvestigation(cycle: WorkCycle): void {
     const investigation = cycle.investigation;
     if (!investigation || investigation.result) return;
+    if (this.launchingInvestigations.has(investigation.id)) return;
     const run = this.storage.execution.runs.find(cycle.workspaceId, investigation.runId);
     const now = this.now();
     if (!run) {
-      // The launch records its run before it starts; one that never did, by its deadline, is
-      // over (a launch it outlived would refuse itself on its check).
-      if (now.getTime() > Date.parse(investigation.deadlineAt))
-        this.change(cycle, {
-          investigation: {
-            ...investigation,
-            result: {
-              endedAt: now.toISOString(),
-              outcome: 'failed',
-              message: 'The investigation never started.',
-            },
+      // No launch is in flight and none recorded its run: the daemon restarted, or the launch
+      // failed before its record. Either way it is over, now (R-C16 review M3).
+      this.change(cycle, {
+        investigation: {
+          ...investigation,
+          result: {
+            endedAt: now.toISOString(),
+            outcome: 'failed',
+            message: 'The investigation did not start. Start another if needed.',
           },
-        });
+        },
+      });
       return;
     }
-    if (!isTerminalAgentRunStatus(run.status)) return;
+    if (!isTerminalAgentRunStatus(run.status)) {
+      // Its timer ends a live run at the deadline; a run left unfinished well past it, with no
+      // process to end, is closed so the stop does not wait on it.
+      if (now.getTime() > Date.parse(investigation.deadlineAt) + STUCK_INVESTIGATION_MS)
+        this.runs.cancelInvestigation(
+          cycle.workspaceId,
+          run.id,
+          'The investigation outlived its time limit.',
+        );
+      return;
+    }
     this.change(
       cycle,
       {
@@ -766,6 +795,7 @@ export class WorkCycleService {
     input: PrepareBaselineRequest,
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
+    this.requireNoInvestigation(cycle);
     if (!this.baselines || !this.branches)
       throw new ExecutionRequestError('unavailable', 'Baseline preparation unavailable.');
     const service = this.baselines;
@@ -835,6 +865,7 @@ export class WorkCycleService {
     input: RecoverDesignRequest,
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
+    this.requireNoInvestigation(cycle);
     if (cycle.version !== input.expectedVersion)
       throw new ExecutionRequestError('conflict', 'Cycle changed; refresh design recovery.');
     const preview = this.storage.readTransaction((tx) => collectDesignRecovery(tx, cycle));
@@ -4777,7 +4808,8 @@ export class WorkCycleService {
       !!cycle.investigation &&
       !('investigation' in fields) &&
       (!['needs-attention', 'paused'].includes(nextStatus) ||
-        (fields.currentRunId !== undefined && fields.currentRunId !== cycle.currentRunId));
+        (fields.currentRunId !== undefined && fields.currentRunId !== cycle.currentRunId) ||
+        (attention !== undefined && attention.code !== cycle.investigation.code));
     let changes: Partial<WorkCycle> = {
       ...fields,
       ...(attention ? { attention } : {}),

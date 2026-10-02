@@ -527,8 +527,9 @@ export class FinalizationService {
             }
           : undefined;
       })(),
+      // Every run on the worktree, a stop's investigations included (R-C16).
       runs: this.storage.execution.runs
-        .listForWorktree(value.workspaceId, value.worktreeId)
+        .listForWorktree(value.workspaceId, value.worktreeId, { investigations: true })
         .map(({ brief: _brief, ...run }) => run),
       mergeRecoveryPending:
         this.storage.execution.merges.latest(value.workspaceId, value.worktreeId)?.status ===

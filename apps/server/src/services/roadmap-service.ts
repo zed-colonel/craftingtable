@@ -1567,7 +1567,11 @@ export class RoadmapService {
           !investigationLive(cycle)
         )
           await this.cycles.control(context, workspaceId, cycle.id, 'pause', cycle.version);
-        if (repairCycle && ['running', 'needs-attention'].includes(repairCycle.status))
+        if (
+          repairCycle &&
+          ['running', 'needs-attention'].includes(repairCycle.status) &&
+          !investigationLive(repairCycle)
+        )
           await this.cycles.control(
             context,
             workspaceId,
@@ -1611,7 +1615,7 @@ export class RoadmapService {
           )
         )
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
-        if (repairCycle?.status === 'paused')
+        if (repairCycle?.status === 'paused' && !investigationLive(repairCycle))
           await this.cycles.control(
             context,
             workspaceId,

@@ -52,26 +52,20 @@ describe('the questions an investigation works on (R-C16)', () => {
     });
   });
 
-  it("takes a slice's routed work-item questions, never a shared decision's", () => {
+  it("reads the stop run's own report, not questions an earlier report routed (review M1)", () => {
     const workflow = {
       reassessments: 0,
-      questions: [
-        { question: 'Pick an ADR option?', destination: 'shared-decision', checkpointId: 'ADR-1' },
-        { question: 'Which format?', destination: 'work-item' },
-      ],
+      questions: [{ question: 'An earlier question?', destination: 'work-item' }],
     } as WorkCycle['workflow'];
     expect(
-      stopQuestions(store(asked), cycle('shared-decision-required', { workflow }))?.questions,
-    ).toEqual(['Which format?']);
-    const decisionsOnly = {
-      reassessments: 0,
-      questions: [workflow!.questions[0]!],
-    } as WorkCycle['workflow'];
+      stopQuestions(store(asked), cycle('implementation-open-questions', { workflow }))?.questions,
+    ).toEqual(['Which format?', 'Which release?']);
     expect(
-      stopQuestions(store(asked), cycle('shared-decision-required', { workflow: decisionsOnly })),
+      stopQuestions(
+        store('Stopped.\n\n## Open questions\nnone'),
+        cycle('remediation-exhausted', { workflow }),
+      ),
     ).toBeUndefined();
-    // A shared-decision stop never falls back to the report's text.
-    expect(stopQuestions(store(asked), cycle('shared-decision-required'))).toBeUndefined();
   });
 
   it('offers nothing without questions, at another stop, while running or before the run ends', () => {
@@ -99,6 +93,18 @@ describe('the questions an investigation works on (R-C16)', () => {
       'Should the cache be shared?',
     ]);
     expect(openQuestions('No section here.')).toEqual([]);
+    // Fenced text is text (review LOW): a fenced template, a fenced heading, and sub-bullets.
+    const fence = '```';
+    expect(
+      openQuestions(
+        `Template:\n${fence}md\n## Open questions\n- quoted\n${fence}\n\n## Open questions\n- Real?`,
+      ),
+    ).toEqual(['Real?']);
+    expect(
+      openQuestions(
+        `## Open questions\n- First?\n  ${fence}\n  ## not a heading\n  ${fence}\n- Second?\n  - option a\n  - option b`,
+      ),
+    ).toEqual([`First?\n${fence}\n## not a heading\n${fence}`, 'Second?\n- option a\n- option b']);
     expect(openQuestions('## Open questions\nnone')).toEqual([]);
   });
 });

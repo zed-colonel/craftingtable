@@ -765,7 +765,8 @@ export class AttentionProjector implements WriteObserver {
                 held +
                 investigated,
         ),
-        ...(investigation?.result
+        // The operator's own End is no news; anything else the run ended with pages.
+        ...(investigation?.result && investigation.result.outcome !== 'cancelled'
           ? { members: [`investigation:${investigation.id}:${investigation.result.outcome}`] }
           : {}),
         path:

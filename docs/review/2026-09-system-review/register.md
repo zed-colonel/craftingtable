@@ -1542,12 +1542,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *NIT, left (F6):* `apply()` moves a commanded roadmap to the front of the list, so after a command the roadmaps behind it get new identities and their rows render once. The result is correct, and the cost is one render per command; it was not worth reordering the list for.
   - *LOW, fixed (F7):* the budget test hit the web project's 5 s default timeout under CPU oversubscription. It has its own 120 s timeout.
   - Speculative, not acted on: `useStableCallback` assigns during render. A discarded render could leave an uncommitted function in place, but the app has no transitions or Suspense, and the callback is only called from click handlers.
-- **E2E failures found by 4c's gate (2026-10-02), not caused by 4c; open.** Full e2e runs failed intermittently on three specs:
+- **E2E failures found by 4c's gate (2026-10-02), not caused by 4c; one fixed, two open.** Full e2e runs failed intermittently on three specs:
   - `mobile.spec.ts`: the cycle never showed "Awaiting merge approval" within 15 s after an authorized remediation;
   - `roadmaps.spec.ts` (parallel): the "Integration conflicts" region never listed `README.md` within 5 s;
   - `package-imports.spec.ts`: after "Automation and agents" was chosen in the map's setup checklist, the Reviewers part was showing and the roadmap name field never appeared (120 s). The page snapshot has the automation settings disclosure focused, so the choice was overridden after it was made. That makes this one a step-selection race, not a slow server.
 
   At e4c458f, 3 of 4 full runs failed. At 6fdc194 (before 4c), 3 of 3 failed on the same specs at the same steps. Each spec passes alone (mobile 4 of 4), and 4b's gate passed at 2dad83e. The live daemon was using about 35% of a CPU throughout, which 4b's gate did not have. The mechanism for the setup-step override is not yet found: `stepForFocus` maps the automation anchor correctly, and only a reveal's show-part event changes the chosen step.
+  - **Setup-step race, fixed (2026-10-02).** This was a real defect, not the test. Choosing a checklist step calls `revealElement` on the step's anchor at once, before React commits the choice. The automation anchor (`map-settings-…`) sits in a part shared by Reviewers and Automation, and that part is still hidden at that moment. A part named only its first step (`data-setup-step={steps[0]}`), so the reveal asked for Reviewers, and that request landed after the operator's choice.
+    - In a real browser the commit usually happens first, so the spec passed. Under load, with the 335-milestone map rendering, it sometimes doesn't. jsdom always takes the late order, so a unit test reproduces it every time. Instrumented e2e logs showed the usual browser order; the failure snapshot matched the late one.
+    - Fix: a part names all its steps; the reveal passes them all (`ShowPart.steps`). A shared part's reveal keeps the chosen step if the part shows in it, else shows the part's first step, as before.
+    - Tests in `setup-steps.test.tsx`: the real checklist choosing Automation from Bindings; a step chosen and a shared element revealed in one event; and a reveal from another step still showing the first. The first two failed before the fix. Mutations caught: the part naming only its first step, the chosen step ignored, the reveal passing one step, and the last step instead of the first.
+    - After the fix the package-imports spec passed in all of 4 full e2e runs, after failing in 2 of 7.
+  - **Still open:** the mobile and parallel-roadmap failures, which recurred in 2 of the 4 runs. They are left for the test-suite review.
 
 ### R-D5
 

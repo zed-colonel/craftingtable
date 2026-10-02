@@ -1,15 +1,17 @@
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useEffect, useState } from 'react';
 import { afterEach, expect, it } from 'vitest';
 import { revealElement, SHOW_PART_EVENT, type ShowPart } from '../../lib/reveal-element.js';
 import {
   mapSetupIds,
   roadmapSetupIds,
+  SetupChecklist,
   type SetupStep,
   SetupStepPart,
   SetupStepProvider,
   stepForFocus,
   stepForPath,
+  useSetupStep,
 } from './setup-steps.js';
 
 afterEach(cleanup);
@@ -18,7 +20,7 @@ function Setup({ initial }: { initial?: SetupStep }) {
   const [step, setStep] = useState<SetupStep | undefined>(initial);
   useEffect(() => {
     const show = (event: Event) => {
-      const next = (event as CustomEvent<ShowPart>).detail.step as SetupStep | undefined;
+      const next = (event as CustomEvent<ShowPart>).detail.steps?.[0] as SetupStep | undefined;
       if (next) setStep(next);
     };
     window.addEventListener(SHOW_PART_EVENT, show);
@@ -78,4 +80,71 @@ it('names the step of each setup focus an item or link opens', () => {
   expect(stepForPath('/workspaces/ws/roadmaps/r2/setup#runtime-evidence-roadmap-r2', 'r1')).toBe(
     undefined,
   );
+});
+
+/** A map's setup page: the real checklist and step state, and a part two steps share. */
+const MAP = mapSetupIds('d');
+const NONE = new Set<never>();
+function MapSetup() {
+  const [shown, setShown] = useSetupStep(MAP, NONE);
+  return (
+    <SetupStepProvider value={shown}>
+      <SetupChecklist ids={MAP} shown={shown} onSelect={setShown} />
+      <button
+        type="button"
+        onClick={() => {
+          setShown('automation');
+          revealElement('shared-note');
+        }}
+      >
+        Automation, then its note
+      </button>
+      <SetupStepPart step="bindings">
+        <p id="map-bindings-d">Bindings</p>
+      </SetupStepPart>
+      <SetupStepPart step={['reviewers', 'automation']}>
+        <details id="map-settings-d">
+          <summary>Settings</summary>
+          <p id="shared-note">A note both steps show</p>
+          <SetupStepPart step="reviewers">
+            <p>Reviewer part</p>
+          </SetupStepPart>
+          <SetupStepPart step="automation">
+            <p>Automation part</p>
+          </SetupStepPart>
+        </details>
+      </SetupStepPart>
+    </SetupStepProvider>
+  );
+}
+const shows = (text: string) => screen.getByText(text).closest('[hidden]') === null;
+
+// Found by R-D4 4c's gate: choosing a step reveals its anchor before the choice renders, while
+// the part holding the anchor is still hidden. The part is shared with another step, and the
+// reveal used to show the part's first step, replacing the operator's choice.
+it("keeps the operator's chosen step when its anchor is in a part another step shares", () => {
+  render(<MapSetup />);
+  expect(shows('Bindings')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Automation and agents' }));
+  expect(shows('Automation part')).toBe(true);
+  expect(shows('Reviewer part')).toBe(false);
+  expect(shows('Bindings')).toBe(false);
+});
+
+it('keeps a step just chosen when a reveal lands in a part it shares', () => {
+  render(<MapSetup />);
+  fireEvent.click(screen.getByRole('button', { name: 'Automation, then its note' }));
+  expect(shows('Automation part')).toBe(true);
+  expect(shows('Reviewer part')).toBe(false);
+});
+
+it("shows a shared part's first step for a reveal from another step", async () => {
+  render(<MapSetup />);
+  await act(async () => {
+    revealElement('shared-note');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(shows('Reviewer part')).toBe(true);
+  expect(shows('Automation part')).toBe(false);
+  expect(document.activeElement?.id).toBe('shared-note');
 });

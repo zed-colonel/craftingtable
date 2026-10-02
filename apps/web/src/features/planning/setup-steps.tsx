@@ -38,7 +38,7 @@ export function SetupStepPart({
   return (
     <div
       id={id}
-      data-setup-step={steps[0]}
+      data-setup-step={steps.join(' ') || undefined}
       hidden={selected !== undefined && !steps.includes(selected)}
     >
       {children}
@@ -124,7 +124,9 @@ export function stepForPath(path: string, roadmapId: string): SetupStep | undefi
 /**
  * The page's selected step: the one chosen, else the first `needed`, else the bindings. A
  * reveal of an element in another step, from a link, an inbox item or a notification, shows
- * that step first.
+ * that step first. A part several steps share keeps whichever of them is chosen, even one
+ * chosen in the same event, before it renders: choosing a step reveals its anchor at once, and
+ * the anchor's part may still be hidden (R-D4 4c gate).
  */
 export function useSetupStep(ids: SetupIds | undefined, needed: ReadonlySet<SetupStep>) {
   const [chosen, setChosen] = useState<SetupStep>();
@@ -133,9 +135,15 @@ export function useSetupStep(ids: SetupIds | undefined, needed: ReadonlySet<Setu
   useEffect(() => {
     if (!ids) return;
     const show = (event: Event) => {
-      const { id, step } = (event as CustomEvent<ShowPart>).detail;
-      const next = SETUP_STEPS.find((s) => s.key === step)?.key ?? stepForFocus(id, ids);
-      if (next) setChosen(next);
+      const { id, steps = [] } = (event as CustomEvent<ShowPart>).detail;
+      const part = SETUP_STEPS.filter((s) => steps.includes(s.key)).map((s) => s.key);
+      if (part.length === 0) {
+        const own = stepForFocus(id, ids);
+        if (own) setChosen(own);
+        return;
+      }
+      // Its own step, from this reveal's first event, or the operator's choice is kept.
+      setChosen((current) => (current !== undefined && part.includes(current) ? current : part[0]));
     };
     window.addEventListener(SHOW_PART_EVENT, show);
     return () => window.removeEventListener(SHOW_PART_EVENT, show);

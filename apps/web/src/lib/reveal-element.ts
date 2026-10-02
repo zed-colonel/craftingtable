@@ -15,12 +15,13 @@ const USER_INPUT = ['wheel', 'keydown', 'pointerdown', 'touchstart'] as const;
  */
 /**
  * Asks a page that shows one part at a time, a roadmap's setup (R-E2), to show the part that
- * holds a target: by the target's id, or by the step of a hidden part it is already in.
+ * holds a target: by the target's id, or by the steps of a hidden part it is already in.
  */
 export const SHOW_PART_EVENT = 'craftingtable:show-part';
 export interface ShowPart {
   readonly id: string;
-  readonly step?: string;
+  /** Every step the hidden part shows in; any of them shows the target. */
+  readonly steps?: readonly string[];
 }
 const showPart = (detail: ShowPart) =>
   window.dispatchEvent(new CustomEvent<ShowPart>(SHOW_PART_EVENT, { detail }));
@@ -35,7 +36,7 @@ export function revealElement(id: string): () => void {
     if (!element) return false;
     const hidden = element.closest('[data-setup-step][hidden]');
     if (hidden) {
-      showPart({ id, step: hidden.getAttribute('data-setup-step') ?? '' });
+      showPart({ id, steps: (hidden.getAttribute('data-setup-step') ?? '').split(' ') });
       return false;
     }
     for (let node: HTMLElement | null = element; node; node = node.parentElement)

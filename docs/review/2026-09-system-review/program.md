@@ -814,6 +814,15 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - **Replays.** 43 of 45 report 0 changed; the two 2026-10-01 changes are LIVE-32's.
   - **Done-when met:** unrelated events read nothing on the measured pages, and long lists render only the rows that changed.
   - **Next:** R-C16 (16a/16b), then R-D5.
+- **Setup-step race fixed (2026-10-02, `remediation/p2` dbee5ce..e482882; not merged or deployed).** The operator decided to track down the map-page e2e failure before R-C16. It was a real defect on every setup page. Choosing a checklist step reveals its anchor before the choice renders. The Automation anchor shares a part with Reviewers, and the part named only its first step, so the reveal replaced the operator's choice with Reviewers whenever the anchor was already mounted.
+  - Fixed: a part names all its steps, and a shared part's reveal keeps the chosen step, else the target's own, else its first.
+  - The independent review (one MEDIUM on the register's explanation, two LOW, one NIT) is fixed and recorded on R-D4.
+  - Gate at e482882:
+    - format, lint, typecheck and build pass;
+    - 261 test files, 2,035 tests; 16 tests in 7 server files timed out under load, and all 7 files (138 tests) passed rerun serially;
+    - e2e 21 and the walkthrough rehearsal pass; the scope check passes.
+  - Replays: 43 of 45 report 0 changed, and the two 2026-10-01 changes are LIVE-32's.
+  - The mobile and parallel-roadmap e2e failures stay open for the operator's planned test-suite review.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

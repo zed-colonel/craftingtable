@@ -1405,6 +1405,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **While it runs.** The stop's commands are refused except End investigation (the run holds the worktree, as any live run does); the inbox item shows Investigating and its reminders pause; a notification says when it finished or failed. It holds no development capacity and is allowed whatever the roadmap's state, as a preparation is.
   - **Increments.** 16a, daemon: the record, start and end commands, the read-only launch and context files, the block's parser, the guards (commands, adoption, one at a time), the finished notification, and an ADR-059 amendment. 16b, browser: the action in the inbox and on the work item, the running state, the proposals and Use proposed answers, and paused reminders. Each with tests that fail without it and an independent review.
 
+- **Operator decision, 2026-10-02: a run marker keeps an investigation out of the cycle's lineage.** Mapping 16a found that purpose `investigation` already marks the cycle's own design-recovery and reassessment runs, so it cannot be what excludes an investigation. About 20 call sites read "the worktree's newest run": resume and its adoption of a newer manual run, Continue with guidance, authorize remediation, scope evidence, branch status, the shared-decision inbox and the every-run replay. A newer investigation run would shadow the run that asked the questions, and Resume would adopt it as the cycle's design step.
+  - Decided: the investigation run carries `profileSelection.investigationId`, an optional field in the run's existing JSON (no migration). It equals `cycle.investigation.id`.
+  - The run repository's worktree listings leave marked runs out by default. The live-run checks and the runs list read a listing that includes them, and every stop command refuses while the cycle's investigation is live.
+  - Chosen over filtering at each call site, a pattern a new call site could forget, and over a separate worktree per investigation, which would reverse "on the cycle's own worktree".
+
 ## Workstream D — Read side and browser performance (pain point 3)
 
 ### R-D1

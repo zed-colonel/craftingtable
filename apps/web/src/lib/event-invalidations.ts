@@ -46,7 +46,50 @@ export const queryKeys = {
   /** A plan's repository policy and its integration commit, read from Git. */
   repositoryPolicy: (workspaceId: string, planVersionId: string) =>
     ['repository-policy', workspaceId, planVersionId] as const,
+  /** The workspaces the user belongs to. */
+  workspaces: () => ['workspaces'] as const,
+  /** The workspace's summaries, projects and recent activity. */
+  snapshot: (workspaceId: string) => ['snapshot', workspaceId] as const,
+  /** What needs the operator: the inbox and the rail count. */
+  attention: (workspaceId: string) => ['attention', workspaceId] as const,
+  /** The workspace's cycles that have not ended. */
+  cycles: (workspaceId: string) => ['cycles', workspaceId] as const,
+  /** The owner's audit log. */
+  audit: (workspaceId: string) => ['audit', workspaceId] as const,
+  /** The live runs (the dashboard) or the recent ones (the runs page). */
+  runs: (workspaceId: string, scope: string) => ['runs', workspaceId, scope] as const,
+  /** The agenda under one filter. */
+  agenda: (workspaceId: string, filter: string) => ['agenda', workspaceId, filter] as const,
+  /** A project, and its plan versions beneath it. */
+  project: (workspaceId: string, projectId: string) => ['project', workspaceId, projectId] as const,
+  planVersion: (workspaceId: string, projectId: string, planVersionId: string) =>
+    ['project', workspaceId, projectId, 'plan-version', planVersionId] as const,
+  /** One run's detail. */
+  run: (workspaceId: string, runId: string) => ['run', workspaceId, runId] as const,
+  /** A work item's own detail, worktrees and runs, and cycles in full. */
+  workItemDetail: (workspaceId: string, workItemId: string) =>
+    ['work-item', workspaceId, workItemId, 'detail'] as const,
+  workItemExecution: (workspaceId: string, workItemId: string) =>
+    ['work-item', workspaceId, workItemId, 'execution'] as const,
+  workItemCycles: (workspaceId: string, workItemId: string) =>
+    ['work-item', workspaceId, workItemId, 'cycles'] as const,
+  /** Git and the agent backends the daemon found; read again on each visit. */
+  executionStatus: () => ['execution-status'] as const,
+  /** The workspace's agent profiles; a save sets them. */
+  runProfiles: (workspaceId: string) => ['run-profiles', workspaceId] as const,
+  /** The user's signed-in sessions. */
+  sessions: () => ['sessions'] as const,
 } satisfies Record<string, (...ids: string[]) => QueryKey>;
+
+/** Reads that belong to no workspace, which a change of workspace keeps. */
+const UNSCOPED_FAMILIES: ReadonlySet<string> = new Set([
+  'workspaces',
+  'execution-status',
+  'sessions',
+]);
+export function workspaceScoped(key: QueryKey): boolean {
+  return !UNSCOPED_FAMILIES.has(key[0] ?? '');
+}
 
 const all = (family: string, workspaceId: string): QueryKey => [family, workspaceId];
 
@@ -82,7 +125,72 @@ const roadmapViews = (workspaceId: string): QueryKey[] => [
  * no row is an error, so a new event kind cannot go unmapped.
  */
 export function invalidationsFor(event: WorkspaceEventEnvelope): QueryKey[] {
-  return [...roadmapAndPlanKeys(event), ...panelKeys(event)];
+  return [...roadmapAndPlanKeys(event), ...panelKeys(event), ...pageKeys(event)];
+}
+
+/**
+ * The pages' own reads (R-D4 increment 4b-3). The snapshot, agenda and projects keep the page
+ * round's rule (every event but repository and notification bookkeeping), narrowed to the
+ * project an event names; cycles, attention, runs and the audit log each by what changes them.
+ */
+function pageKeys(event: WorkspaceEventEnvelope): QueryKey[] {
+  const ws = event.workspaceId;
+  const snapshot = queryKeys.snapshot(ws);
+  const cycles = queryKeys.cycles(ws);
+  const attention = queryKeys.attention(ws);
+  const audit = queryKeys.audit(ws);
+  const project =
+    event.projectId === undefined ? all('project', ws) : queryKeys.project(ws, event.projectId);
+  const run = event.runId === undefined ? all('run', ws) : queryKeys.run(ws, event.runId);
+  const summary = [snapshot, all('agenda', ws), project];
+  switch (event.kind) {
+    case 'notifications-changed':
+      return [];
+    case 'workspace-created':
+    case 'workspace-updated':
+      return [queryKeys.workspaces(), snapshot, audit];
+    case 'repository-registered':
+    case 'repository-status-changed':
+    case 'repository-evidence-changed':
+    case 'source-repository-registered':
+      return [audit];
+    case 'project-repository-bound':
+    case 'project-repository-binding-retired':
+      return [project, audit];
+    case 'project-created':
+    case 'plan-version-imported':
+      return [...summary, audit];
+    case 'work-item-admitted':
+    case 'work-item-removed-from-agenda':
+    case 'scope-scheduling-authorized':
+    case 'scope-evidence-recorded':
+      return [...summary, cycles, audit];
+    // A completion changes how much work waits on each item.
+    case 'work-item-completed':
+      return [...summary, cycles, attention, audit];
+    case 'runtime-evidence-changed':
+      return [snapshot, cycles, audit];
+    case 'roadmap-changed':
+      return [snapshot, cycles, attention, audit];
+    case 'attention-changed':
+      return [snapshot, attention, audit];
+    case 'work-cycle-changed':
+      return [...summary, cycles, audit];
+    case 'worktree-created':
+    case 'worktree-removed':
+    case 'worktree-merged':
+    case 'branches-changed':
+      return [...summary, cycles, all('run', ws), audit];
+    case 'agent-run-started':
+    case 'agent-run-status-changed':
+      return [...summary, cycles, all('runs', ws), run, audit];
+    default: {
+      const unmapped: never = event;
+      throw new Error(
+        `Workspace event ${(unmapped as { kind: string }).kind} has no invalidation row`,
+      );
+    }
+  }
 }
 
 /**

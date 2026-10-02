@@ -255,9 +255,14 @@ vi.mock('./lib/api-client.js', () => ({
   loadWorkspaceSnapshot: (id: string) => {
     snapshotCalls.push(id);
     if (id !== 'workspace-a') return pendingSnapshotB.promise;
+    // Each read of A is later in the journal than the one before, as on the daemon.
+    const snapshot = {
+      ...SNAPSHOT_A,
+      asOfSequence: SNAPSHOT_A.asOfSequence + snapshotCalls.length,
+    };
     return snapshotAGate === undefined
-      ? Promise.resolve(SNAPSHOT_A)
-      : snapshotAGate.then(() => SNAPSHOT_A);
+      ? Promise.resolve(snapshot)
+      : snapshotAGate.then(() => snapshot);
   },
   loadWorkspaceAudit: (id: string) => {
     auditCalls.push(id);
@@ -344,8 +349,10 @@ vi.mock('./lib/execution-api.js', () => ({
   loadExecutionStatus: () => Promise.resolve({ git: { available: true }, backends: [] }),
   loadRunProfiles: () => Promise.resolve({ profiles: [] }),
   loadRepositories: () => Promise.resolve({ repositories: [] }),
-  loadWorkItemExecution: (_workspaceId: string, workItemId: string) =>
-    Promise.resolve({ workItemId, worktrees: [], runs: [], mergeGates: {} }),
+  loadWorkItemExecution: (_workspaceId: string, workItemId: string) => {
+    readCalls.push('execution');
+    return Promise.resolve({ workItemId, worktrees: [], runs: [], mergeGates: {} });
+  },
   loadWorkspaceRuns: () => Promise.resolve({ runs: [], liveCount: 0 }),
   loadRepositoryBranches: () => Promise.resolve({ branches: [] }),
   loadRun: () => new Promise(() => undefined),
@@ -372,7 +379,10 @@ vi.mock('./lib/planning-api.js', () => ({
   loadProjects: () => new Promise(() => undefined),
   loadProject: (workspaceId: string) => Promise.resolve(projectDetailFor(workspaceId)),
   loadPlanVersion: () => new Promise(() => undefined),
-  loadWorkItem: (workspaceId: string) => Promise.resolve(workItemDetailFor(workspaceId)),
+  loadWorkItem: (workspaceId: string) => {
+    readCalls.push('work-item');
+    return Promise.resolve(workItemDetailFor(workspaceId));
+  },
   loadImportAttempts: () => new Promise(() => undefined),
   loadArtifactText: () => planning.artifact.promise,
   admitWorkItem: () => planning.admit.promise,
@@ -638,6 +648,53 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
     }
   });
 
+  // R-D4 increment 4b: each page reads its own data, on the events that name it.
+  it("reads a work item's page again only for events that name its item (R-D4 done-when)", async () => {
+    window.history.pushState(null, '', '/workspaces/workspace-a/work-items/item-workspace-a');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderApp();
+    await screen.findByRole('heading', { name: /AQ-01 · Alpha work item/ });
+    await settle();
+    const count = (name: string) => readCalls.filter((call) => call === name).length;
+    const [item, execution] = [count('work-item'), count('execution')];
+    const onEvent = vi.mocked(useWorkspaceEventStream).mock.lastCall![2].onEvent;
+    for (const unrelated of [
+      streamEvent(40, 'work-cycle-changed', { workItemId: 'item-other' }),
+      streamEvent(41, 'notifications-changed', { payload: { action: 'delivery' } }),
+      streamEvent(42, 'repository-registered', { repositoryId: 'repo' }),
+    ])
+      act(() => onEvent(unrelated));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect([count('work-item'), count('execution')]).toEqual([item, execution]);
+    act(() => onEvent(streamEvent(43, 'work-cycle-changed', { workItemId: 'item-workspace-a' })));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect([count('work-item'), count('execution')]).toEqual([item + 1, execution + 1]);
+  });
+
+  it('refreshes what its own command changed, at once, and nothing else (R-D4 increment 4b)', async () => {
+    window.history.pushState(null, '', '/workspaces/workspace-a/work-items/item-workspace-a');
+    renderApp();
+    await screen.findByRole('heading', { name: /AQ-01 · Alpha work item/ });
+    await settle();
+    const count = (name: string) => readCalls.filter((call) => call === name).length;
+    const before = {
+      item: count('work-item'),
+      snapshot: snapshotCalls.length,
+      attention: count('attention'),
+    };
+    fireEvent.click(screen.getByRole('button', { name: 'Admit into agenda' }));
+    await act(async () => {
+      planning.admit.resolve(undefined);
+    });
+    await waitFor(() => expect(count('work-item')).toBe(before.item + 1));
+    expect(snapshotCalls.length).toBe(before.snapshot + 1);
+    expect(count('attention')).toBe(before.attention);
+  });
+
   it('reads nothing while the tab is hidden and catches up once when shown', async () => {
     const initial = await loaded();
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
@@ -858,6 +915,49 @@ describe('in-flight results across a workspace change (CT03-R2R3)', () => {
     expect(screen.queryByRole('button', { name: 'Importing…' })).toBeNull();
     // A failed import never navigates, but a leaked success would; the import
     // page for B must still be the one on screen.
+    expect(window.location.pathname).toBe('/workspaces/workspace-b/import');
+  });
+  it('never opens a project imported into the previous workspace (R-D4 increment 4b)', async () => {
+    await loadWorkspaceA();
+
+    window.history.pushState(null, '', '/workspaces/workspace-a/import');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await screen.findByRole('heading', { name: 'Import plan' });
+
+    fireEvent.change(screen.getByLabelText('Project name'), {
+      target: { value: 'Alpha import' },
+    });
+    for (const [label, name] of [
+      ['Implementation plan (required)', 'plan.md'],
+      ['Work breakdown (required)', 'breakdown.yaml'],
+    ] as const) {
+      const input = screen.getByLabelText(label) as HTMLInputElement;
+      Object.defineProperty(input, 'files', {
+        configurable: true,
+        value: [new File(['x'], name, { type: 'text/plain' })],
+      });
+      fireEvent.change(input);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Import plan bundle' }));
+    expect(screen.getByRole('button', { name: 'Importing…' })).toBeDefined();
+
+    switchToB();
+    pendingSnapshotB.resolve(SNAPSHOT_B);
+    await screen.findByText('Beta Project');
+
+    // Stand on workspace B's import page, where a leaked outcome would render.
+    window.history.pushState(null, '', '/workspaces/workspace-b/import');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await screen.findByRole('heading', { name: 'Import plan' });
+
+    planning.import.resolve({
+      importAttemptId: 'attempt-a',
+      outcome: 'succeeded',
+      projectId: 'project-workspace-a',
+      planVersionId: 'plan-workspace-a',
+      diagnostics: [],
+    });
+    await settle();
     expect(window.location.pathname).toBe('/workspaces/workspace-b/import');
   });
 });

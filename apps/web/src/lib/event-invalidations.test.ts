@@ -3,7 +3,12 @@ import {
   workspaceEventEnvelopeSchema,
 } from '@craftingtable/contracts';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { GIT_DERIVED_FAMILIES, invalidationsFor, queryKeys } from './event-invalidations.js';
+import {
+  GIT_DERIVED_FAMILIES,
+  invalidationsFor,
+  queryKeys,
+  workspaceScoped,
+} from './event-invalidations.js';
 import { createQueryStore } from './query-store.js';
 
 beforeEach(() => vi.useFakeTimers());
@@ -188,4 +193,98 @@ it('re-reads branches, repositories, checks and policy on the events that change
   for (const [family, kinds] of Object.entries(rows))
     for (const kind of KINDS)
       expect(touches(kind, family), `${kind} -> ${family}`).toBe(kinds.includes(kind));
+});
+
+// R-D4 increment 4b-3: the pages' own reads. Each family is checked against every event kind.
+it("re-reads each page's data on the events that change it, and on nothing else", () => {
+  const touches = (kind: string, family: string) =>
+    invalidationsFor(
+      event(kind, {
+        repositoryId: 'repo',
+        workItemId: 'w1',
+        projectId: 'p1',
+        runId: 'run-1',
+        payload: { roadmapId: 'r', definitionId: 'd', planVersionId: 'v' },
+      }),
+    ).some((key) => key[0] === family);
+  const summary = [
+    'project-created',
+    'plan-version-imported',
+    'work-item-admitted',
+    'work-item-removed-from-agenda',
+    'work-item-completed',
+    'scope-scheduling-authorized',
+    'scope-evidence-recorded',
+    'worktree-created',
+    'worktree-removed',
+    'work-cycle-changed',
+    'worktree-merged',
+    'branches-changed',
+    'agent-run-started',
+    'agent-run-status-changed',
+  ];
+  const audited = KINDS.filter((kind) => kind !== 'notifications-changed');
+  const rows: Record<string, readonly string[]> = {
+    workspaces: ['workspace-created', 'workspace-updated'],
+    snapshot: [
+      ...summary,
+      'workspace-created',
+      'workspace-updated',
+      'runtime-evidence-changed',
+      'roadmap-changed',
+      'attention-changed',
+    ],
+    agenda: summary,
+    project: [...summary, 'project-repository-bound', 'project-repository-binding-retired'],
+    cycles: [
+      ...summary.filter((kind) => !['project-created', 'plan-version-imported'].includes(kind)),
+      'runtime-evidence-changed',
+      'roadmap-changed',
+    ],
+    attention: ['attention-changed', 'work-item-completed', 'roadmap-changed'],
+    audit: audited,
+    runs: ['agent-run-started', 'agent-run-status-changed'],
+    run: [
+      'agent-run-started',
+      'agent-run-status-changed',
+      'worktree-created',
+      'worktree-removed',
+      'worktree-merged',
+      'branches-changed',
+    ],
+  };
+  for (const [family, kinds] of Object.entries(rows))
+    for (const kind of KINDS)
+      expect(touches(kind, family), `${kind} -> ${family}`).toBe(kinds.includes(kind));
+  // Nothing marks the per-session or static reads stale: commands and visits read them.
+  for (const family of ['execution-status', 'run-profiles', 'sessions'])
+    for (const kind of KINDS) expect(touches(kind, family), `${kind} -> ${family}`).toBe(false);
+});
+
+it("narrows a project's and a run's reads to the ones an event names", () => {
+  const own = invalidationsFor(
+    event('agent-run-status-changed', { projectId: 'p1', runId: 'run-1', payload: {} }),
+  );
+  expect(own).toEqual(
+    expect.arrayContaining([queryKeys.project(ws, 'p1'), queryKeys.run(ws, 'run-1')]),
+  );
+  expect(own).not.toEqual(expect.arrayContaining([['project', ws]]));
+  expect(own).not.toEqual(expect.arrayContaining([['run', ws]]));
+  // A plan version sits beneath its project.
+  expect(queryKeys.planVersion(ws, 'p1', 'v1').slice(0, 3)).toEqual(queryKeys.project(ws, 'p1'));
+  // Without identifiers, every project's and run's reads.
+  expect(invalidationsFor(event('worktree-merged', { payload: {} }))).toEqual(
+    expect.arrayContaining([
+      ['project', ws],
+      ['run', ws],
+    ]),
+  );
+});
+
+it('keeps reads that belong to no workspace when the workspace changes', () => {
+  expect(workspaceScoped(queryKeys.workspaces())).toBe(false);
+  expect(workspaceScoped(queryKeys.executionStatus())).toBe(false);
+  expect(workspaceScoped(queryKeys.sessions())).toBe(false);
+  expect(workspaceScoped(queryKeys.snapshot(ws))).toBe(true);
+  expect(workspaceScoped(queryKeys.workItem(ws, 'w1'))).toBe(true);
 });

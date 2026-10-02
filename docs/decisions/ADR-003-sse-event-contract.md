@@ -90,10 +90,15 @@ debounce and max-wait as before, one read per key at a time with at most one
 follow-up; a hidden page defers them until shown. The data stays while a key
 re-reads and after a failed re-read, and an unchanged result keeps its identity,
 so nothing re-renders. A command's response may be written into its key; a
-stream event the browser cannot read makes every key stale; sign-out and a
-change of workspace forget everything. No query is polled except the Git-derived
-ones (a plan's branches), read again each minute while the tab is visible,
-because a branch can move outside the daemon and no event says so.
+stream event the browser cannot read makes every key stale; sign-out forgets
+everything, and a change of workspace everything of the other workspace (the
+workspace list, the daemon's agent backends and the user's sessions belong to
+none and stay). No query is polled except the Git-derived ones (a plan's
+branches, a map's environment, a worktree's branch and a plan's repository
+policy), read again each minute while the tab is visible, because a branch can
+move outside the daemon and no event says so. Since increment 4b each page reads
+its own keys and a command refreshes the keys it changed; the app shell reads
+only the workspace list, the snapshot and the attention count.
 
 ## Alternatives considered
 

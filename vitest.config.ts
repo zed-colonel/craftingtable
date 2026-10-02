@@ -1,5 +1,6 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vitest/config';
+import { testDataRoot } from './apps/server/src/test-data-root.ts';
 
 const fromHere = (path: string): string => fileURLToPath(new URL(path, import.meta.url));
 
@@ -37,7 +38,9 @@ const timeouts = {
   // `expect.poll` waits on a real process: a hang guard too, half the test's, so it names its
   // assertion before the test is timed out.
   expect: { poll: { timeout: testTimeoutMs / 2 } },
-  provide: { testTimeoutMs, testTimeScale },
+  // Where test daemons keep their data (TS-H8), decided once for the run; packages/storage
+  // reads it here because its test support cannot import the server's.
+  provide: { testTimeoutMs, testTimeScale, testDataRoot: testDataRoot() },
 };
 
 export default defineConfig({

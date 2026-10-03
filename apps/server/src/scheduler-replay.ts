@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +9,7 @@ import {
   CodexBackend,
 } from '@craftingtable/agents';
 import {
+  type CycleOwner,
   effectiveCycleAttention,
   effectiveHoldAttention,
   effectiveRoadmapAttention,
@@ -63,10 +65,19 @@ export interface SchedulerEntryDecision {
     | 'not-scheduled';
   /** The command the pass issued, or the roadmap write it made. */
   readonly action?: string;
+  /** The issued command's arguments (`commandArguments`). Absent in older goldens. */
+  readonly args?: CommandArguments;
   /** The typed code of a wait or hold, where one exists. */
   readonly code?: string;
   readonly reason?: string;
 }
+/**
+ * What an intercepted command was asked to do, as a golden can pin it (GR F-3): ids, branch
+ * names, kinds, numbers and digests of free text. It leaves out what is the same on every call
+ * (the caller, the workspace), what the pass mints afresh (a reserved attempt's worktree, cycle
+ * and attempt ids), callbacks, and free text itself.
+ */
+export type CommandArguments = Readonly<Record<string, unknown>>;
 export interface SchedulerRoadmapPass {
   readonly roadmapId: string;
   readonly before: string;
@@ -75,6 +86,7 @@ export interface SchedulerRoadmapPass {
   readonly reason?: string;
   /** A command the pass issued outside any entry, e.g. the completion check. */
   readonly action?: string;
+  readonly args?: CommandArguments;
   /** Open repairs the pass adopted as operator-requested rounds. */
   readonly adopted?: number;
 }
@@ -94,6 +106,11 @@ export interface CheckpointReadiness {
   }[];
 }
 export interface SchedulerReplay {
+  /**
+   * The golden's shape: 2 since R-I10's review pass, whose entries and roadmaps carry command
+   * arguments. Absent (1) in older goldens, whose check then leaves arguments out.
+   */
+  readonly format?: number;
   readonly roadmaps: readonly SchedulerRoadmapPass[];
   readonly entries: readonly SchedulerEntryDecision[];
   readonly cycles: readonly CheckpointReadiness[];
@@ -126,12 +143,28 @@ export function schedulerRecords(replay: SchedulerReplay): ReplayRecord[] {
   ];
 }
 
-/** Compares a scheduler replay with its golden (`controller:replay --scheduler --check`). */
+/**
+ * Compares a scheduler replay with its golden (`controller:replay --scheduler --check`). What a
+ * golden predates is left out of both sides, and the check says so.
+ */
 export function checkSchedulerReplay(
   golden: SchedulerReplay,
   replay: SchedulerReplay,
 ): ReplayCheck {
-  return compareRecords(schedulerRecords(golden), schedulerRecords(replay));
+  const withArguments = (golden.format ?? 1) >= 2;
+  const comparable = (records: SchedulerReplay): SchedulerReplay =>
+    withArguments
+      ? records
+      : {
+          ...records,
+          roadmaps: records.roadmaps.map(({ args: _args, ...roadmap }) => roadmap),
+          entries: records.entries.map(({ args: _args, ...entry }) => entry),
+        };
+  return compareRecords(
+    schedulerRecords(comparable(golden)),
+    schedulerRecords(comparable(replay)),
+    withArguments ? [] : ['command arguments (the golden predates them)'],
+  );
 }
 
 /**
@@ -144,22 +177,139 @@ class ReplayIntercept extends ConcurrentModificationError {
   }
 }
 
+/** Free text pinned without being recorded. */
+const digest = (text: string | undefined) =>
+  text ? `sha256:${createHash('sha256').update(text).digest('hex').slice(0, 16)}` : undefined;
+/** A cycle owner without its attempt id, which a reservation in this pass mints afresh. */
+const ownerArguments = (owner: CycleOwner | null | undefined) =>
+  owner && {
+    roadmapId: owner.roadmapId,
+    entryId: owner.entryId,
+    definitionRevision: owner.definitionRevision,
+  };
+/** Drops the fields a command was not given, so absent and undefined compare alike. */
+const given = (fields: Record<string, unknown>): CommandArguments =>
+  Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+
+/** One intercepted command: the decision it stands for, and its recorded arguments. */
+type Command<F> = F extends (...args: infer A) => unknown
+  ? {
+      readonly decision: SchedulerEntryDecision['decision'];
+      readonly args: (args: A) => CommandArguments;
+    }
+  : never;
+type Commands<S> = { readonly [M in keyof S]?: Command<S[M]> };
+
 const INTERCEPTED = {
   workCycleService: {
-    start: 'start',
-    delegateScopeRepair: 'recover',
-    repeatScopeReview: 'advance',
-    control: 'advance',
-    resolveIntegration: 'advance',
-    refreshIntegration: 'advance',
-  },
+    start: {
+      decision: 'start',
+      args: ([, , workItemId, input, , allowScopeReview, owner]) =>
+        given({
+          workItemId,
+          profiles: input.profiles,
+          policy: input.policy,
+          instructions: digest(input.instructions),
+          allowScopeReview,
+          owner: ownerArguments(owner),
+        }),
+    },
+    delegateScopeRepair: {
+      decision: 'recover',
+      args: ([, , cycleId, input, delegation]) =>
+        given({
+          cycleId,
+          expectedVersion: input.expectedVersion,
+          snapshotDigest: input.snapshotDigest,
+          sourceId: input.sourceId,
+          maxRemediationRounds: input.maxRemediationRounds,
+          instructions: digest(input.instructions),
+          owner: ownerArguments(delegation?.owner),
+          profiles: delegation?.profiles,
+          policy: delegation?.policy,
+        }),
+    },
+    repeatScopeReview: {
+      decision: 'advance',
+      args: ([, , cycleId, expectedVersion, guidance]) =>
+        given({ cycleId, expectedVersion, guidance: digest(guidance) }),
+    },
+    control: {
+      decision: 'advance',
+      args: ([, , cycleId, action, expectedVersion, guidance]) =>
+        given({ cycleId, action, expectedVersion, guidance: digest(guidance) }),
+    },
+    resolveIntegration: {
+      decision: 'advance',
+      args: ([, , cycleId, input]) =>
+        given({
+          cycleId,
+          action: input.action,
+          expectedVersion: input.expectedVersion,
+          profile: input.profile,
+          instructions: digest(input.instructions),
+        }),
+    },
+    refreshIntegration: {
+      decision: 'advance',
+      args: ([cycle, parent, launching]) =>
+        given({ cycleId: cycle.id, cycleVersion: cycle.version, runId: parent?.id, launching }),
+    },
+  } satisfies Commands<ServiceSet['workCycleService']>,
   executionService: {
-    createWorktree: 'start',
-    mergeWorktree: 'advance',
-    recordScopeReceipt: 'advance',
-  },
-  runtimeEvidenceService: { assertSubjectsCurrent: 'complete' },
+    createWorktree: {
+      decision: 'start',
+      args: ([, , workItemId, input]) =>
+        given({
+          workItemId,
+          repositoryId: input.repositoryId,
+          branchName: input.branchName,
+          executionScope: input.executionScope,
+        }),
+    },
+    mergeWorktree: {
+      decision: 'advance',
+      args: ([, , worktreeId, input, , delegation, finalApproval]) =>
+        given({
+          worktreeId,
+          targetBranch: input?.targetBranch,
+          adoptChecks: input?.adoptChecks && {
+            proposalDigest: input.adoptChecks.proposalDigest,
+            declarationId: input.adoptChecks.declarationId,
+            rationale: digest(input.adoptChecks.rationale),
+          },
+          roadmapId: delegation?.roadmapId,
+          definitionRevision: delegation?.definitionRevision,
+          finalApproval,
+        }),
+    },
+    recordScopeReceipt: {
+      decision: 'advance',
+      args: ([, , worktreeId, expectedWorktreeVersion]) =>
+        given({ worktreeId, expectedWorktreeVersion }),
+    },
+  } satisfies Commands<ServiceSet['executionService']>,
+  runtimeEvidenceService: {
+    assertSubjectsCurrent: {
+      decision: 'complete',
+      args: ([, definitionId, bindingRevision, subjects]) =>
+        given({ definitionId, bindingRevision, subjects }),
+    },
+  } satisfies Commands<ServiceSet['runtimeEvidenceService']>,
 } as const;
+
+/** The arguments the replay records for an intercepted call. Exported for its test. */
+export function commandArguments(
+  service: keyof typeof INTERCEPTED,
+  method: string,
+  args: readonly unknown[],
+): CommandArguments {
+  const command = (
+    INTERCEPTED[service] as Record<string, { args: (a: never) => CommandArguments }>
+  )[method];
+  if (!command) throw new Error(`${service}.${method} is not intercepted`);
+  return command.args(args as never);
+}
 
 export async function replaySchedulerSnapshot(
   snapshot: string,
@@ -199,8 +349,12 @@ export async function replaySchedulerDecisions(
       CRAFTINGTABLE_VERIFICATION_CAPACITY: capacity('local-verification'),
     });
     let issued: Issued | undefined;
-    const record = (command: string, decision: SchedulerEntryDecision['decision']) => {
-      issued ??= { command, decision };
+    const record = (
+      command: string,
+      decision: SchedulerEntryDecision['decision'],
+      args?: CommandArguments,
+    ) => {
+      issued ??= { command, decision, ...(args ? { args } : {}) };
     };
     // Backends with the default models, so settings validate as on the host; none can launch,
     // because every start is intercepted and no controller worker runs. Git is present for
@@ -228,7 +382,7 @@ export async function replaySchedulerDecisions(
     const cycles = checkpointReadiness(storage);
     intercept(services, record);
     const observed = new Map<string, SchedulerEntryDecision>();
-    const passActions = new Map<string, string>();
+    const passActions = new Map<string, Issued>();
     services.roadmapService.observeScheduling({
       entry: (roadmap, entry, outcome) => {
         const key = `${roadmap.id}/${entry.id}`;
@@ -242,7 +396,7 @@ export async function replaySchedulerDecisions(
         issued = undefined;
       },
       passEnded: (roadmapId) => {
-        if (issued) passActions.set(roadmapId, issued.command);
+        if (issued) passActions.set(roadmapId, issued);
         issued = undefined;
       },
     });
@@ -252,7 +406,7 @@ export async function replaySchedulerDecisions(
     for (const prior of before) {
       const after = storage.roadmaps.find(prior.workspaceId, prior.id) ?? prior;
       const attention = effectiveRoadmapAttention(after);
-      const action = passActions.get(prior.id);
+      const issuedByPass = passActions.get(prior.id);
       const adopted = after.attempts.filter(
         (a) =>
           a.recovery?.requestedByUserId &&
@@ -265,7 +419,8 @@ export async function replaySchedulerDecisions(
         after: after.status,
         ...(attention ? { code: attention.code } : {}),
         ...(after.status !== prior.status ? { reason: after.reason } : {}),
-        ...(action ? { action } : {}),
+        ...(issuedByPass ? { action: issuedByPass.command } : {}),
+        ...(issuedByPass?.args ? { args: issuedByPass.args } : {}),
         ...(adopted ? { adopted } : {}),
       });
       for (const entry of prior.definition.entries) {
@@ -319,7 +474,7 @@ export async function replaySchedulerDecisions(
         .filter((item) => !item.scopeKey.startsWith('roadmap-pass:'))
         .map((item) => ({ subjectKey: item.subjectKey, code: item.code })),
     ].sort((a, b) => `${a.subjectKey}/${a.code}`.localeCompare(`${b.subjectKey}/${b.code}`));
-    return { roadmaps, entries, cycles, status, attention };
+    return { format: 2, roadmaps, entries, cycles, status, attention };
   } finally {
     storage.close();
   }
@@ -342,6 +497,7 @@ function describe(
 interface Issued {
   readonly command: string;
   readonly decision: SchedulerEntryDecision['decision'];
+  readonly args?: CommandArguments;
 }
 
 function decide(
@@ -355,6 +511,7 @@ function decide(
     return describe(roadmap, entry, {
       decision: issued.decision,
       action: issued.command,
+      ...(issued.args ? { args: issued.args } : {}),
       ...(issued.command.startsWith('git:') ? { code: 'replay-stopped-at-git' } : {}),
     });
   switch (outcome.kind) {
@@ -447,18 +604,20 @@ function changedAttempts(
 
 function intercept(
   services: ServiceSet,
-  record: (command: string, decision: SchedulerEntryDecision['decision']) => void,
+  record: (
+    command: string,
+    decision: SchedulerEntryDecision['decision'],
+    args: CommandArguments,
+  ) => void,
 ): void {
   for (const [service, methods] of Object.entries(INTERCEPTED))
-    for (const [method, decision] of Object.entries(methods)) {
-      const target = services[service as keyof typeof INTERCEPTED] as unknown as Record<
-        string,
-        unknown
-      >;
+    for (const [method, { decision }] of Object.entries(methods)) {
+      const name = service as keyof typeof INTERCEPTED;
+      const target = services[name] as unknown as Record<string, unknown>;
       target[method] = (...args: unknown[]) => {
         const command =
           method === 'control' && typeof args[3] === 'string' ? `control:${args[3]}` : method;
-        record(command, decision);
+        record(command, decision, commandArguments(name, method, args));
         throw new ReplayIntercept(command);
       };
     }

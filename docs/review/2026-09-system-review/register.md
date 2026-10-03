@@ -2278,7 +2278,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   No gate or stop depended on any of these. Local CI ran 99 times with no Docker collision seen (LIVE-17).
 - **Test-suite review, 2026-10-02 ([TS-M5](findings/TS-test-suite-review-2026-10-02.md)): the receipt triggers are now tested.**
   - **The gap.** No test ran UPDATE or DELETE on `run_check_receipts`. Deleting both schema-33 triggers ('Check receipts are immutable') passed the whole node project (211 files, 1,747 tests).
-  - **Test.** `packages/storage/src/run-check-receipts.test.ts`, on a raw connection to a migrated database: an UPDATE of a receipt's record or sequence and a DELETE of one row or of the table each fail with 'Check receipts are immutable', the stored row is unchanged, and the run's next receipt is still inserted. The row is stored without its parents (foreign keys off for the insert only), since the triggers are what is tested. Deleting both triggers, or only the delete trigger, fails it.
+  - **Test.** `packages/storage/src/run-check-receipts.test.ts`, on a raw connection to a migrated database: an UPDATE of a receipt's record, sequence, run or workspace and a DELETE of one row or of the table each fail with 'Check receipts are immutable', the stored row is unchanged, and the run's next receipt is still inserted. The row is stored without its parents (foreign keys off for the insert only), since the triggers are what is tested. Deleting both triggers, or only the delete trigger, fails it, and so does narrowing the update trigger to `UPDATE OF record_json, sequence` (a later migration could recreate it so without changing 0033's checksum), which would let a receipt be moved to another run (review LOW-1).
 
 ### R-G5
 

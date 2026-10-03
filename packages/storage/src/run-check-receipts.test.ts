@@ -38,6 +38,9 @@ describe('daemon check receipts (schema 33, R-G4)', () => {
       for (const [sql, ...parameters] of [
         ['UPDATE run_check_receipts SET record_json = ? WHERE run_id = ?', receipt(2), 'run-1'],
         ['UPDATE run_check_receipts SET sequence = 2'],
+        // Re-parenting a receipt to another run or workspace is an update like any other.
+        ['UPDATE run_check_receipts SET run_id = ?', 'run-2'],
+        ['UPDATE run_check_receipts SET workspace_id = ?', 'workspace-2'],
         ['DELETE FROM run_check_receipts WHERE run_id = ?', 'run-1'],
         ['DELETE FROM run_check_receipts'],
       ] as const)

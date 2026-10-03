@@ -24,7 +24,7 @@ const manifest = (snapshots) => ({ root: 'review/replay', snapshots });
 const snapshot = (overrides = {}) => ({
   id: '2026-01-01',
   sha256: HASH,
-  cases: [{ mode: 'golden', golden: 'golden.json' }],
+  cases: [{ mode: 'golden', golden: 'golden.json', goldenSha256: HASH }],
   ...overrides,
 });
 
@@ -42,6 +42,7 @@ describe('validateManifest', () => {
               {
                 mode: 'every-run',
                 golden: 'every-run-golden-abc.json',
+                goldenSha256: HASH,
                 expected: [{ key: 'c/r', nowSha256: HASH, reason: 'LIVE-1' }],
               },
             ],
@@ -58,7 +59,9 @@ describe('validateManifest', () => {
     expect(validateManifest(manifest([snapshot({ id: '../2026' })])).join(' ')).toMatch(/"id"/);
     expect(
       validateManifest(
-        manifest([snapshot({ cases: [{ mode: 'golden', golden: '../golden.json' }] })]),
+        manifest([
+          snapshot({ cases: [{ mode: 'golden', golden: '../golden.json', goldenSha256: HASH }] }),
+        ]),
       ).join(' '),
     ).toMatch(/"golden"/);
   });
@@ -75,12 +78,13 @@ describe('validateManifest', () => {
         snapshot({
           id: '2026-01-05',
           cases: [
-            { mode: 'golden', golden: 'a.json' },
-            { mode: 'golden', golden: 'b.json' },
+            { mode: 'golden', golden: 'a.json', goldenSha256: HASH },
+            { mode: 'golden', golden: 'b.json', goldenSha256: HASH },
             { mode: 'record', golden: 'c.json' },
             {
               mode: 'scheduler',
               golden: 'd.json',
+              goldenSha256: HASH,
               expected: [
                 { key: 'k', nowSha256: HASH, reason: 'why' },
                 { key: 'k', nowSha256: 'short', reason: '' },
@@ -98,6 +102,7 @@ describe('validateManifest', () => {
       'snapshot 2026-01-04: "sha256" must be the snapshot\'s SHA-256 (64 hex digits).',
       'snapshot 2026-01-04: "cases" must be a non-empty list, or "withoutGolden" must say why not.',
       'snapshot 2026-01-05 cases[1]: mode golden is listed twice.',
+      'snapshot 2026-01-05 cases[2]: "goldenSha256" must be the golden\'s SHA-256 (64 hex digits).',
       'snapshot 2026-01-05 cases[2]: "mode" must be one of golden, every-run, scheduler, evidence-view.',
       'snapshot 2026-01-05 cases[3] expected[1]: key k listed twice.',
       'snapshot 2026-01-05 cases[3] expected[1]: "nowSha256" must be the SHA-256 of the record\'s new value.',
@@ -117,10 +122,7 @@ describe('matchExpected', () => {
     expect(
       matchExpected({ changed: [{ key: 'c/r1', nowSha256: OTHER }], missing: [] }, expected)
         .unexpected,
-    ).toEqual([
-      `changed c/r1 to a value other than the expected one (now ${OTHER})`,
-      'expected change did not happen: c/r1 (LIVE-32)',
-    ]);
+    ).toEqual([`changed c/r1 to a value other than the expected one (now ${OTHER})`]);
   });
 
   it('counts each difference: a repeated, unlisted or missing record is unexpected', () => {
@@ -182,7 +184,7 @@ describe('main', () => {
    * A corpus of one snapshot with a golden and a scheduler case, and a fake runner: `tsc -b`
    * exits `build`, and each replay writes `reports[mode]` and exits as its report says.
    */
-  function gate({ build = 0, reports = {}, manifestOf = (m) => m, files = {} } = {}) {
+  function gate({ build = 0, reports = {}, manifestOf = (m) => m, files = {}, argv = [] } = {}) {
     const root = scratch();
     const data = join(root, 'data');
     const directory = join(data, 'review', 'replay', '2026-01-01');
@@ -201,10 +203,11 @@ describe('main', () => {
             snapshot({
               sha256: sha256(content),
               cases: [
-                { mode: 'golden', golden: 'golden.json' },
+                { mode: 'golden', golden: 'golden.json', goldenSha256: sha256('[]') },
                 {
                   mode: 'scheduler',
                   golden: 'scheduler-golden.json',
+                  goldenSha256: sha256('[]'),
                   expected: [{ key: 'entry:r/e', nowSha256: HASH, reason: 'LIVE-1' }],
                 },
               ],
@@ -218,9 +221,12 @@ describe('main', () => {
       calls.push([command, ...args]);
       if (args.includes('tsc')) return { status: build };
       const copy = args[2];
-      // The replay reads a private copy, never the corpus.
+      const golden = args[args.indexOf('--check') + 1];
+      // The replay reads private copies, never the corpus.
       expect(copy).not.toBe(source);
       expect(readFileSync(copy, 'utf8')).toBe(content);
+      expect(golden.startsWith(directory)).toBe(false);
+      expect(readFileSync(golden, 'utf8')).toBe('[]');
       const mode = args.includes('--scheduler') ? 'scheduler' : 'golden';
       const report = reports[mode] ?? {
         records: 2,
@@ -234,7 +240,7 @@ describe('main', () => {
       return { status: report.changed.length || report.missing.length ? 1 : 0 };
     };
     const lines = [];
-    const exit = main(['--manifest', manifestFile, '--out', join(root, 'out')], {
+    const exit = main(['--manifest', manifestFile, '--out', join(root, 'out'), ...argv], {
       env: { XDG_DATA_HOME: data },
       run,
       log: (line) => lines.push(line),
@@ -243,14 +249,13 @@ describe('main', () => {
   }
 
   it('builds, replays each case on a copy with argument arrays, and exits 0 when all is expected', async () => {
-    const { exit, calls, lines, directory, root } = gate();
+    const { exit, calls, lines, root } = gate();
     expect(await exit).toBe(0);
     expect(calls[0]).toEqual(['pnpm', 'exec', 'tsc', '-b']);
     expect(calls.slice(1).map((call) => call.filter((arg) => !arg.startsWith('/')))).toEqual([
       ['pnpm', '-s', 'controller:replay', '--check', '--report'],
       ['pnpm', '-s', 'controller:replay', '--scheduler', '--check', '--report'],
     ]);
-    expect(calls[2]).toContain(join(directory, 'scheduler-golden.json'));
     expect(lines.at(-1)).toMatch(
       /^1 of 2 comparisons report 0 changed; 1 differ only as expected; 0 failed\./,
     );
@@ -301,13 +306,39 @@ describe('main', () => {
         snapshots: [
           {
             ...m.snapshots[0],
-            cases: [...m.snapshots[0].cases, { mode: 'every-run', golden: 'absent.json' }],
+            cases: [
+              ...m.snapshots[0].cases,
+              { mode: 'every-run', golden: 'absent.json', goldenSha256: HASH },
+            ],
           },
         ],
       }),
     });
     expect(await missing.exit).toBe(1);
     expect(missing.lines.join('\n')).toMatch(/golden missing: absent\.json/);
+
+    // A golden re-recorded in place no longer matches the manifest's hash.
+    const rerecorded = gate({ files: { 'scheduler-golden.json': '[{"changed":true}]' } });
+    expect(await rerecorded.exit).toBe(1);
+    expect(rerecorded.calls).toHaveLength(2);
+    expect(rerecorded.lines.join('\n')).toMatch(
+      /scheduler: UNEXPECTED golden scheduler-golden\.json SHA-256 is .*, not the manifest's/,
+    );
+  });
+
+  it('fails a run that compares nothing', async () => {
+    const empty = gate({ argv: ['--only', ','] });
+    expect(await empty.exit).toBe(2);
+    expect(empty.calls).toEqual([]);
+    const withoutGolden = gate({
+      argv: ['--only', '2026-01-02'],
+      manifestOf: (m) => ({
+        ...m,
+        snapshots: [...m.snapshots, { id: '2026-01-02', withoutGolden: 'None recorded.' }],
+      }),
+    });
+    expect(await withoutGolden.exit).toBe(1);
+    expect(withoutGolden.lines.join('\n')).toMatch(/Nothing was compared/);
   });
 
   it('exits 2 on an invalid manifest, before building anything', async () => {

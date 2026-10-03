@@ -9,8 +9,9 @@
  * a path relative to `$XDG_DATA_HOME` (default `~/.local/share`): the snapshots hold real plans
  * and agent output and never enter the repository. For each snapshot the gate:
  *
- *   1. copies it into a private temporary directory and checks the copy's SHA-256, so the
- *      corpus itself is never opened;
+ *   1. copies it and its goldens into a private temporary directory and checks each copy's
+ *      SHA-256 against the manifest, so the corpus itself is never opened and a re-recorded
+ *      golden is a manifest change;
  *   2. runs `pnpm controller:replay <copy> [--every-run | --scheduler | --evidence-view]
  *      --check <golden> --report <file>` for each of its cases;
  *   3. matches each changed record against the case's expected changes, by record key and
@@ -114,8 +115,10 @@ export function validateManifest(manifest) {
         errors.push(`${caseAt} must be an object.`);
         return;
       }
-      for (const key of keysOutside(replayCase, ['mode', 'golden', 'expected']))
+      for (const key of keysOutside(replayCase, ['mode', 'golden', 'goldenSha256', 'expected']))
         errors.push(`${caseAt}: unknown field "${key}".`);
+      if (!isText(replayCase.goldenSha256) || !SHA256.test(replayCase.goldenSha256))
+        errors.push(`${caseAt}: "goldenSha256" must be the golden's SHA-256 (64 hex digits).`);
       if (!Object.hasOwn(MODES, replayCase.mode))
         errors.push(`${caseAt}: "mode" must be one of ${Object.keys(MODES).join(', ')}.`);
       else if (modes.has(replayCase.mode))
@@ -178,8 +181,10 @@ export function matchExpected(report, expected = []) {
       );
   }
   for (const key of report.missing) unexpected.push(`missing ${key}`);
+  // A record that changed to another value is reported once, above.
+  const reported = new Set(report.changed.map((change) => change.key));
   const absent = expected
-    .filter((change) => !seen.has(change.key))
+    .filter((change) => !reported.has(change.key))
     .map((change) => `expected change did not happen: ${change.key} (${change.reason})`);
   return { matched, unexpected: [...unexpected, ...absent] };
 }
@@ -278,6 +283,7 @@ function parseArgs(argv) {
     else if (flag === '--out') options.out = resolve(value);
     else options.only = new Set(value.split(',').filter(Boolean));
   }
+  if (options.only?.size === 0) return { error: '--only names no snapshot.' };
   return { options };
 }
 
@@ -373,11 +379,24 @@ export async function main(
         continue;
       }
       for (const replayCase of snapshot.cases) {
-        const golden = join(directory, replayCase.golden);
         const name = `${snapshot.id}-${replayCase.mode}`;
         const row = { snapshot: snapshot.id, mode: replayCase.mode };
-        if (!existsSync(golden)) {
+        if (!existsSync(join(directory, replayCase.golden))) {
           rows.push({ ...row, ok: false, problems: [`golden missing: ${replayCase.golden}`] });
+          continue;
+        }
+        // The golden is pinned too: a re-recorded golden is a manifest change, not a silent one.
+        const golden = join(scratch, replayCase.golden);
+        copyFileSync(join(directory, replayCase.golden), golden);
+        const goldenDigest = await sha256File(golden);
+        if (goldenDigest !== replayCase.goldenSha256) {
+          rows.push({
+            ...row,
+            ok: false,
+            problems: [
+              `golden ${replayCase.golden} SHA-256 is ${goldenDigest}, not the manifest's`,
+            ],
+          });
           continue;
         }
         const reportFile = join(out, `${name}.report.json`);
@@ -434,6 +453,10 @@ export async function main(
   log(
     `${clean} of ${rows.length} comparisons report 0 changed; ${rows.length - clean - failed} differ only as expected; ${failed} failed. ${((Date.now() - started) / 1000).toFixed(0)} s. Output: ${out}`,
   );
+  if (rows.length === 0) {
+    log('Nothing was compared: the selected snapshots have no goldens.');
+    return 1;
+  }
   return failed ? 1 : 0;
 }
 

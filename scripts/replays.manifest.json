@@ -8,15 +8,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "38a00584aee666bd39eb9f5a41d1f07bed1bdba1273a7ad1e0ac29f6b177a781"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-a4aa12d.json"
+          "golden": "every-run-golden-a4aa12d.json",
+          "goldenSha256": "c13f64f6c22ddb47a8080163eeffafc21f1d4ef5fd9386324bb08bf150ef096a"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-85ad226.json"
+          "golden": "scheduler-golden-85ad226.json",
+          "goldenSha256": "7e2c0b4aaa5c8d6f4f4f4d656423f9bee07797957bbada3fbd7a431179f0e36e"
         }
       ]
     },
@@ -26,15 +29,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "4afa9d9bc6937b11c49f120a8c00228023debce397ed17153be49a645926987f"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-d81db74.json"
+          "golden": "every-run-golden-d81db74.json",
+          "goldenSha256": "b5db0405be9da726e2581e89664ae3ce45004ca2587467b362395c233d4b9ecd"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-cb86fba.json"
+          "golden": "scheduler-golden-cb86fba.json",
+          "goldenSha256": "b81d6fe8229b6917284150c34a1d1b5d611c098f1860c58231c71a4afa81c7dc"
         }
       ]
     },
@@ -44,15 +50,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "fefce4152d36ef4c30505c45cad23d831f2acf051c657e192b44e0f87866af5b"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-ac08291.json"
+          "golden": "every-run-golden-ac08291.json",
+          "goldenSha256": "b6d05857aec80ff3d2e021f94509f7873566121b63701089a465983c2d39250a"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-6b4ae21.json"
+          "golden": "scheduler-golden-6b4ae21.json",
+          "goldenSha256": "a4dc7f288facf9a94360a8f4092a0c4fd891d6920697a866904c6997917fc67c"
         }
       ]
     },
@@ -62,15 +71,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "0b1dd0e9bd07968a4aa9379f9f673a8333a6d5fe496e59aea9d9dd48d646b4ef"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-8146974.json"
+          "golden": "every-run-golden-8146974.json",
+          "goldenSha256": "701cbdd0aeb2cf9a93668c7a66bd1029995b642f237026159032d357ffc07a3b"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-8146974.json"
+          "golden": "scheduler-golden-8146974.json",
+          "goldenSha256": "9cf5fb68142e3ed598f74c3db5c01c9b4ec16206a39f3591afdeba3be6f4e9d2"
         }
       ]
     },
@@ -80,15 +92,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "e8138db90140665e46a4ad5e91ea201b3d71412bbdf4df0c99f1d02ac96bbeff"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-c547ede.json"
+          "golden": "every-run-golden-c547ede.json",
+          "goldenSha256": "a4deb0d405dc74d70b5207fbc1031c376d6cc92413418268b3e3c8783afdc7a0"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-cb86fba.json"
+          "golden": "scheduler-golden-cb86fba.json",
+          "goldenSha256": "13e74c3b4dda86eeacffddef3b7e0b99406a78cd293eef32f82d3e021e96b98f"
         }
       ]
     },
@@ -98,15 +113,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "90398240586e610a1481e1d2c9b3bc11d84412cbaf3a70b2c8015341ab771638"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-fccce06.json"
+          "golden": "every-run-golden-fccce06.json",
+          "goldenSha256": "2681726829b172be4acdc9081d3281d9381bbccfd76b9867568df5dba4c0775f"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-1f82ffb.json"
+          "golden": "scheduler-golden-1f82ffb.json",
+          "goldenSha256": "372808bfbb107ee84d1a7292ac00dae86f2e50057848c825baf83dd52c4c58fd"
         }
       ]
     },
@@ -116,15 +134,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "6c5df401c33fb45a9240805e7c02bd1f72356f2e0756ef1e05f874fdf2d07f52"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-79937d4.json"
+          "golden": "every-run-golden-79937d4.json",
+          "goldenSha256": "77357a4c28a9ab683f71f50746289ad8020e79b55a8e546119a84a8e08dd8a7a"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-79937d4.json"
+          "golden": "scheduler-golden-79937d4.json",
+          "goldenSha256": "30143f2a30b4adede0fcd92559188eff69fca026754d720e09efa342b1cb7b42"
         }
       ]
     },
@@ -134,15 +155,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "e524873c1c17f785a286e1a1a17239df427cde77321505391f439d6992aed796"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-3a290e2.json"
+          "golden": "every-run-golden-3a290e2.json",
+          "goldenSha256": "2c1ce7f67d720c29ba693e62967718c3de268ad4943b3b087118b3ccd7f0affa"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-6b4ae21.json"
+          "golden": "scheduler-golden-6b4ae21.json",
+          "goldenSha256": "50445a30c59b655f720a4aa50ee197baf18473892ba7178ec31ec5750252b797"
         }
       ]
     },
@@ -152,19 +176,23 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "dcb675746fd836574eea0ea4587fe48eaa2b29b6b373a78180ecf0a63f588e03"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-9f4da08.json"
+          "golden": "every-run-golden-9f4da08.json",
+          "goldenSha256": "57349fff140ad0267cac7860cdb67e283faf3a969cc574bdf6cb0db00fbecb6d"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-9f4da08.json"
+          "golden": "scheduler-golden-9f4da08.json",
+          "goldenSha256": "52d2ada617db335b78b25aa17d829c25a045ed539bf8c14ff13b4daf6db5773f"
         },
         {
           "mode": "evidence-view",
-          "golden": "evidence-view-golden-4f0a7ad.json"
+          "golden": "evidence-view-golden-4f0a7ad.json",
+          "goldenSha256": "8d1d27417c6140a19a5b62cc8c8400bf7e52da2fc8791234f1452f365c7175df"
         }
       ]
     },
@@ -174,19 +202,23 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "47c6086ca13b20740031afa2b52cdbec923efd4753c2cf487335fa3effbf2c4d"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-baca24e.json"
+          "golden": "every-run-golden-baca24e.json",
+          "goldenSha256": "152c07a7915c9a276c154c5f6f757cd5af141ed719c306092206f4600806365c"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-baca24e.json"
+          "golden": "scheduler-golden-baca24e.json",
+          "goldenSha256": "1d6c4a36d0b7c99ca2783466ef64f68fdd4a732ea8492cce3461f41d0dfd92f6"
         },
         {
           "mode": "evidence-view",
-          "golden": "evidence-view-golden-4f0a7ad.json"
+          "golden": "evidence-view-golden-4f0a7ad.json",
+          "goldenSha256": "56cc402b2d401bbdefee135d0d4947ab0d99feaf9c28c1f92acc7afc23a234af"
         }
       ]
     },
@@ -196,19 +228,23 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "8ef2dfde6e91007981dea0046054af7de1a51fac9279ad1b4c0e7a47faa1d050"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-baca24e.json"
+          "golden": "every-run-golden-baca24e.json",
+          "goldenSha256": "0db6104336775072e069742c8b207c8f369feddd6adf06f088a9778e3fe03007"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-baca24e.json"
+          "golden": "scheduler-golden-baca24e.json",
+          "goldenSha256": "b595c28e6256b2e05bdb1f0bfaad82f6b9f0d685933ef9be240d3e94994521c8"
         },
         {
           "mode": "evidence-view",
-          "golden": "evidence-view-golden-45c05c2.json"
+          "golden": "evidence-view-golden-45c05c2.json",
+          "goldenSha256": "925d9684ca65c209f62af8104e01cc82861cbe21da64c5de5e0cc6298847ee8f"
         }
       ]
     },
@@ -219,6 +255,7 @@
         {
           "mode": "golden",
           "golden": "golden.json",
+          "goldenSha256": "2a6e042301152ac9ae1fd776118c7ea9f408aabcaa1d4fe58900d4dd17d6aafe",
           "expected": [
             {
               "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/86d9061f-8441-4698-a8e9-5a8aa353ad9a",
@@ -230,6 +267,7 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-baca24e.json",
+          "goldenSha256": "a20eebaf6701cdfeb80232c11ed4fbd8e85e850a0ebada59513a87c932ed9c8b",
           "expected": [
             {
               "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/53fd4990-d550-4b42-810b-f39e7050bb76",
@@ -245,7 +283,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-baca24e.json"
+          "golden": "scheduler-golden-baca24e.json",
+          "goldenSha256": "834dab0b1e483adb33c3f3d7ad89a62914aa4dff83956db748cda874201ca5ad"
         }
       ]
     },
@@ -263,15 +302,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "819a0d2165d5777a2bf72b6e73f4777e2f9566132a560c01e1ed30f83f4050ec"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-0b09307.json"
+          "golden": "every-run-golden-0b09307.json",
+          "goldenSha256": "aee3502d20f8c8a023edc61f6bf1710b1bc4d286347df5e4a9d8f007ff1e4a45"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-0b09307.json"
+          "golden": "scheduler-golden-0b09307.json",
+          "goldenSha256": "f80b9d0ded7ba9f7dd8ab5d436f6d032174c7eb478068a690fee3cf5b63c5633"
         }
       ]
     },
@@ -281,15 +323,18 @@
       "cases": [
         {
           "mode": "golden",
-          "golden": "golden.json"
+          "golden": "golden.json",
+          "goldenSha256": "05261ac2c9b5cfa96d347ac1d13f56627e269da0ef7a7fe51247b2ef1cfef756"
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-55d47fc.json"
+          "golden": "every-run-golden-55d47fc.json",
+          "goldenSha256": "0de7bd6a563de97fc5cba83a3aeba9e649e0540dbfa6fbc0e20c2e406804dd48"
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-55d47fc.json"
+          "golden": "scheduler-golden-55d47fc.json",
+          "goldenSha256": "04d3534cab614ac9d82e59471f2f2feb88f3b890539916036cf2e72acac0fed4"
         }
       ]
     }

@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { canonicalDefinition } from '@craftingtable/domain';
 
 /**
  * The `--check` comparison every `controller:replay` mode shares (R-I10). A replay and its golden
@@ -30,9 +29,22 @@ export interface ReplayCheck {
   readonly notCompared: readonly string[];
 }
 
-/** JSON with sorted keys and no undefined fields: the form two records are compared in. */
+/**
+ * JSON with keys sorted by code point and no undefined fields: the form two records are
+ * compared in. The order does not depend on the locale, so a manifest's pinned hash of a new
+ * value is the same on every host.
+ */
 export function canonicalJson(value: unknown): string {
-  return canonicalDefinition(JSON.parse(JSON.stringify(value ?? null)));
+  return canonical(JSON.parse(JSON.stringify(value ?? null)));
+}
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object')
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
+      .join(',')}}`;
+  return JSON.stringify(value);
 }
 
 export function compareRecords(

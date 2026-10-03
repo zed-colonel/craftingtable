@@ -164,17 +164,21 @@ export function schedulerRecords(replay: SchedulerReplay): ReplayRecord[] {
 
 /**
  * Compares a scheduler replay with its golden (`controller:replay --scheduler --check`). What a
- * golden predates is left out of both sides, and the check says so.
+ * golden predates is left out of both sides, and the check says so. A format-2 golden is
+ * compared in full: one that lacks status lists or attention has none, and differs if the
+ * replay has some.
  */
 export function checkSchedulerReplay(
   golden: SchedulerReplay,
   replay: SchedulerReplay,
 ): ReplayCheck {
   const withArguments = (golden.format ?? 1) >= 2;
+  const withStatus = withArguments || !!golden.status;
+  const withAttention = withArguments || !!golden.attention;
   const comparable = ({ status, attention, ...records }: SchedulerReplay): SchedulerReplay => ({
     ...records,
-    ...(golden.status ? { status } : {}),
-    ...(golden.attention ? { attention } : {}),
+    ...(withStatus ? { status } : {}),
+    ...(withAttention ? { attention } : {}),
     ...(withArguments
       ? {}
       : {
@@ -187,8 +191,8 @@ export function checkSchedulerReplay(
     schedulerRecords(comparable(replay)),
     [
       ...(withArguments ? [] : ['command arguments (the golden predates them)']),
-      ...(golden.status ? [] : ['status lists (the golden predates them)']),
-      ...(golden.attention ? [] : ['attention (the golden predates it)']),
+      ...(withStatus ? [] : ['status lists (the golden predates them)']),
+      ...(withAttention ? [] : ['attention (the golden predates it)']),
     ],
   );
 }

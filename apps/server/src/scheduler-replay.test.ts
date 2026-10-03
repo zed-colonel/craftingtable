@@ -427,12 +427,24 @@ it('compares each status list’s header, and attention items as a multiset', ()
   });
   expect(checkSchedulerReplay(twice, twice)).toMatchObject({ changed: [], missing: [] });
   // A golden recorded before status lists and attention compares the rest, and says so.
-  expect(
-    checkSchedulerReplay({ format: 2, roadmaps: [], entries: [], cycles: [] }, twice),
-  ).toMatchObject({
+  expect(checkSchedulerReplay({ roadmaps: [], entries: [], cycles: [] }, twice)).toMatchObject({
     changed: [],
-    notCompared: ['status lists (the golden predates them)', 'attention (the golden predates it)'],
+    notCompared: [
+      'command arguments (the golden predates them)',
+      'status lists (the golden predates them)',
+      'attention (the golden predates it)',
+    ],
   });
+  // A format-2 golden without them has none: the replay's lists and items are new records.
+  expect(
+    checkSchedulerReplay({ format: 2, roadmaps: [], entries: [], cycles: [] }, twice).changed.map(
+      (c) => c.key,
+    ),
+  ).toEqual([
+    'attention:cycle:c/remediation-exhausted',
+    'attention:cycle:c/remediation-exhausted#2',
+    'statuslist:r',
+  ]);
 });
 
 it('reports the typed hold a pass records', async () => {

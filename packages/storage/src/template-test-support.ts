@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, linkSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, linkSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { openDatabase } from './database.js';
@@ -23,6 +23,31 @@ export function migrationSetKey(migrations: readonly MigrationDefinition[]): str
     .slice(0, 16);
 }
 
+/** Errors with which a filesystem refuses hard links. */
+const NO_HARD_LINKS = new Set(['EPERM', 'EXDEV', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK']);
+
+/**
+ * Gives the whole file `built` the name `path`, keeping a file another build already put there.
+ * A hard link does that in one step and never replaces. A filesystem that refuses hard links
+ * gets an atomic rename instead, so `path` never shows a partly written file (an exclusive copy
+ * would), at the cost that a build racing another may replace its template: two lazy builds of
+ * one migration set at once, which needs a migration changed during a watch-mode run.
+ */
+export function publishOnce(
+  built: string,
+  path: string,
+  link: (from: string, to: string) => void = linkSync,
+): void {
+  try {
+    link(built, path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? '';
+    if (code === 'EEXIST') return;
+    if (!NO_HARD_LINKS.has(code)) throw error;
+    if (!existsSync(path)) renameSync(built, path);
+  }
+}
+
 /**
  * The path of a database migrated through `migrations`, in `directory`, built on first use
  * (TS-M13, R-I2). Test daemons copy it instead of migrating a fresh database each, which cost
@@ -30,8 +55,8 @@ export function migrationSetKey(migrations: readonly MigrationDefinition[]): str
  *
  * The file is keyed by the migration set, so a changed or added migration gets a new template.
  * It is checkpointed and closed before it gets its final name, so a copy is a whole database
- * with no write-ahead log beside it. The final name is a hard link that never replaces an
- * existing file: when two workers build the same template at once, the first one's stays and
+ * with no write-ahead log beside it. The final name never replaces an existing file
+ * (`publishOnce`): when two workers build the same template at once, the first one's stays and
  * every copy is of that one.
  */
 export function migratedTemplate(
@@ -49,11 +74,7 @@ export function migratedTemplate(
     } finally {
       database.close();
     }
-    try {
-      linkSync(building, path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    }
+    publishOnce(building, path);
   } finally {
     for (const leftover of [building, `${building}-wal`, `${building}-shm`])
       rmSync(leftover, { force: true });

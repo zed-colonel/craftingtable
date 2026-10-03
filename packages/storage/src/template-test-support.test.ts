@@ -17,10 +17,11 @@ import { DEFAULT_MIGRATIONS_DIRECTORY, discoverMigrations } from './migrations.j
 import {
   migratedTemplate,
   migrationLedger,
+  publishOnce,
   readTemplate,
   templateLedger,
 } from './template-test-support.js';
-import { sweepEndedRuns } from './template-test-support-setup.js';
+import { pidNamespace, sweepEndedRuns } from './template-test-support-setup.js';
 import { temporaryStorage, testDataRoot } from './test-support.js';
 
 const scratch: string[] = [];
@@ -92,15 +93,49 @@ it('builds a new template when a migration is added or edited, and reuses one fo
   );
 });
 
-it("removes the template directories of ended runs, never a running one's (TS-M13)", () => {
+it("removes the template directories of ended runs in its PID namespace, never a running one's or another namespace's (TS-M13)", () => {
   const root = scratchDirectory(testDataRoot());
+  const names = (paths: string[]) => paths.map((path) => path.slice(root.length + 1)).toSorted();
   // Above the kernel's largest process ID (2^22), so no process has it.
-  const ended = join(root, `craftingtable-template-test-${2 ** 22 + 1}-AbC123`);
-  const running = join(root, `craftingtable-template-test-${process.pid}-dEf456`);
+  const gone = 2 ** 22 + 1;
+  const ended = join(root, `craftingtable-template-test-111-${gone}-AbC123`);
+  const running = join(root, `craftingtable-template-test-111-${process.pid}-dEf456`);
+  // Its process IDs are not this namespace's, so it cannot be told ended.
+  const sandboxed = join(root, `craftingtable-template-test-222-${gone}-JkL012`);
   const other = join(root, 'craftingtable-server-test-GhI789');
-  for (const directory of [ended, running, other]) mkdirSync(directory);
-  sweepEndedRuns(root);
-  expect(readdirSync(root).toSorted()).toEqual(
-    [running, other].map((path) => path.slice(root.length + 1)).toSorted(),
-  );
+  for (const directory of [ended, running, sandboxed, other]) mkdirSync(directory);
+  sweepEndedRuns(root, undefined);
+  expect(readdirSync(root).toSorted()).toEqual(names([ended, running, sandboxed, other]));
+  sweepEndedRuns(root, '111');
+  expect(readdirSync(root).toSorted()).toEqual(names([running, sandboxed, other]));
 });
+
+it('publishes a template without replacing one, and by rename where hard links are refused (TS-M13)', () => {
+  const directory = scratchDirectory(testDataRoot());
+  const file = (name: string, text: string) => {
+    writeFileSync(join(directory, name), text);
+    return join(directory, name);
+  };
+  const refuse = (code: string) => () => {
+    throw Object.assign(new Error(code), { code });
+  };
+  const path = join(directory, 'template.sqlite');
+  publishOnce(file('first', 'first'), path);
+  publishOnce(file('second', 'second'), path);
+  expect(readFileSync(path, 'utf8')).toBe('first');
+
+  const linkless = join(directory, 'linkless.sqlite');
+  publishOnce(file('third', 'third'), linkless, refuse('EXDEV'));
+  publishOnce(file('fourth', 'fourth'), linkless, refuse('EPERM'));
+  expect(readFileSync(linkless, 'utf8')).toBe('third');
+  expect(() => publishOnce(file('fifth', 'fifth'), linkless, refuse('EACCES'))).toThrow('EACCES');
+});
+
+it.skipIf(pidNamespace() === undefined)(
+  "names this run's template directory by its PID namespace and process (TS-M13)",
+  () => {
+    expect(inject('testTemplateDirectory').split('/').at(-1)).toMatch(
+      new RegExp(`^craftingtable-template-test-${pidNamespace()}-\\d+-`),
+    );
+  },
+);

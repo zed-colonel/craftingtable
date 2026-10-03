@@ -6,10 +6,12 @@
  *
  * 1. No runtime dependency on the Exo Stack (ActionQueue, WorldInterface, Exoskeleton) in any
  *    workspace manifest or in any module of `apps/` and `packages/`, tests included.
- * 2. Capability modules (`child_process`, Git and vendor-agent libraries) are imported only by
- *    the named adapter modules, and only those load a module by a name they compute
- *    (`import(expression)`, `require`, `createRequire`, `process.getBuiltinModule`): a computed
- *    name is a capability import this check cannot read.
+ * 2. Capability modules (`child_process`, `cluster`, `worker_threads`, `vm`, Git and
+ *    vendor-agent libraries) are imported only by the named adapter modules, and only those load
+ *    a module by a name they compute (`import(expression)`, `require`, `createRequire`,
+ *    `process.getBuiltinModule`, a computed `process[name]` or `Reflect` on `process`) or run code
+ *    from text (`eval`, `Function`): a computed name is a capability import this check cannot
+ *    read.
  * 3. The planning package stays pure: no filesystem, process, network, database, or UI imports,
  *    and no module of a sibling package other than the domain and the contracts.
  * 4. The domain package depends on nothing but itself.
@@ -56,6 +58,8 @@ export const FORBIDDEN_CAPABILITY_PATTERNS = [
   /^node:child_process$/i,
   /^child_process$/i,
   /^(node:)?cluster$/i,
+  /^(node:)?worker_threads$/i,
+  /^(node:)?vm$/i,
   /^execa$/i,
   /^cross-spawn$/i,
   /^shelljs$/i,
@@ -279,6 +283,41 @@ const LOADER_NAMES = new Set(['getBuiltinModule', 'createRequire']);
 const PROCESS_LOADERS = new Set(['binding', '_linkedBinding', 'dlopen']);
 
 /**
+ * How a use of `process` reaches a loader, if it does: a loader member (`process.binding`,
+ * through casts and parentheses too), a member it computes (`process[name]`), or `process`
+ * handed to `Reflect` (`Reflect.get(process, name)`).
+ */
+function processLoader(node) {
+  let outer = node;
+  while (
+    (outer.parent?.kind === SyntaxKind.ParenthesizedExpression ||
+      outer.parent?.kind === SyntaxKind.AsExpression ||
+      outer.parent?.kind === SyntaxKind.SatisfiesExpression ||
+      outer.parent?.kind === SyntaxKind.NonNullExpression ||
+      outer.parent?.kind === SyntaxKind.TypeAssertionExpression) &&
+    outer.parent.expression === outer
+  )
+    outer = outer.parent;
+  const parent = outer.parent;
+  if (parent?.kind === SyntaxKind.PropertyAccessExpression && parent.expression === outer)
+    return PROCESS_LOADERS.has(parent.name.text) ? `process.${parent.name.text}` : undefined;
+  if (parent?.kind === SyntaxKind.ElementAccessExpression && parent.expression === outer) {
+    const name = parent.argumentExpression;
+    if (!isLiteral(name)) return 'process[…]';
+    return PROCESS_LOADERS.has(name.text) ? `process.${name.text}` : undefined;
+  }
+  if (
+    parent?.kind === SyntaxKind.CallExpression &&
+    parent.arguments.includes(outer) &&
+    parent.expression.kind === SyntaxKind.PropertyAccessExpression &&
+    parent.expression.expression.kind === SyntaxKind.Identifier &&
+    parent.expression.expression.text === 'Reflect'
+  )
+    return 'Reflect on process';
+  return undefined;
+}
+
+/**
  * One module's imports and computed loads, from its syntax tree. `require` identifiers are
  * returned for the caller to resolve: a local function called `require` is not module loading.
  */
@@ -342,13 +381,18 @@ function readModule(sourceFile) {
         )
           loads.push({ node, what: 'module.require' });
         else if (LOADER_NAMES.has(node.text)) loads.push({ node, what: node.text });
-        else if (
-          node.text === 'process' &&
-          node.parent?.kind === SyntaxKind.PropertyAccessExpression &&
-          node.parent.expression === node &&
-          PROCESS_LOADERS.has(node.parent.name.text)
+        else if (node.text === 'process' && !isMemberName(node)) {
+          const what = processLoader(node);
+          if (what !== undefined) loads.push({ node, what });
+        } else if (
+          // Code run from text: `eval(…)`, `Function(…)`, `new Function(…)`.
+          (node.text === 'eval' && !isMemberName(node) && !isDeclaredName(node)) ||
+          (node.text === 'Function' &&
+            (node.parent?.kind === SyntaxKind.CallExpression ||
+              node.parent?.kind === SyntaxKind.NewExpression) &&
+            node.parent.expression === node)
         )
-          loads.push({ node, what: `process.${node.parent.name.text}` });
+          loads.push({ node, what: node.text });
         break;
       case SyntaxKind.ElementAccessExpression:
         if (isLiteral(node.argumentExpression) && LOADER_NAMES.has(node.argumentExpression.text))

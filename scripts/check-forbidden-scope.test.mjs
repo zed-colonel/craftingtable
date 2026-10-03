@@ -443,6 +443,40 @@ describe('the fail-open gaps the independent review found', () => {
     );
   });
 
+  /** Code run from text, and `process` reached around a name (LOW-6). */
+  it('catches eval, Function, workers, vm and computed access to process', () => {
+    const root = workspace({
+      'apps/server/src/reflect.ts':
+        "export const a = Reflect.get(process, 'getBuiltin' + 'Module');\n",
+      'apps/server/src/indexed.ts':
+        "const k = ['getBuiltin', 'Module'].join('');\nexport const b = (process as any)[k]('node:child_process');\n",
+      'apps/server/src/cast.ts':
+        "export const c = (process as any).binding('spawn_sync');\nexport const d = (process!).dlopen;\n",
+      'apps/server/src/text.ts': [
+        'export const e = new Function(\'return import("node:child_process")\');',
+        "export const f = eval('1');",
+        '',
+      ].join('\n'),
+      'apps/server/src/worker.ts':
+        "import { Worker } from 'node:worker_threads';\nexport const w = () => new Worker('1', { eval: true });\n",
+      'apps/server/src/context.ts': "import vm from 'node:vm';\nexport { vm };\n",
+      'apps/server/src/fine.ts':
+        "export const env = process.env.HOME;\nexport const g = process['argv'];\n",
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        computed('apps/server/src/reflect.ts', 1, 'Reflect on process'),
+        computed('apps/server/src/indexed.ts', 2, 'process[…]'),
+        computed('apps/server/src/cast.ts', 1, 'process.binding'),
+        computed('apps/server/src/cast.ts', 2, 'process.dlopen'),
+        computed('apps/server/src/text.ts', 1, 'Function'),
+        computed('apps/server/src/text.ts', 2, 'eval'),
+        capability('apps/server/src/worker.ts', 'node:worker_threads'),
+        capability('apps/server/src/context.ts', 'node:vm'),
+      ].sort(),
+    );
+  });
+
   /** Only what tests reach, and nothing production reaches, is test support (HIGH-1). */
   it('checks a module that neither an entry nor a test reaches', () => {
     const root = workspace({

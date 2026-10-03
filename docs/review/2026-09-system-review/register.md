@@ -2279,7 +2279,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G5
 
-**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: done (2026-09-28); test-suite review follow-up (TS-H3, TS-M4) done on `review-pass/c-r-g5` (2026-10-02), awaiting review and integration
+**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: done (2026-09-28); test-suite review follow-up (TS-H3, TS-M4) done in the test-suite review pass (2026-10-02), independently reviewed twice
 
 - **Resolves:** [SEC-02](findings/AGT-GIT-SEC-agents-git-security.md#sec-02-agent-confinement-is-cooperative-in-practice-inherited-desktop-environment-routine-sandbox-escalation-docker-socket), [SEC-03](findings/AGT-GIT-SEC-agents-git-security.md#sec-03-daemon-git-calls-execute-repository-controlled-hooks-and-config-the-existing-hardening-is-unused), [AGT-14](findings/AGT-GIT-SEC-agents-git-security.md#agt-14-supervised-agents-inherit-the-operators-personal-claudecodex-configuration-hooks-plugins-skills-memory-mcp), [GIT-08](findings/AGT-GIT-SEC-agents-git-security.md#git-08-daemon-authored-commits-and-merges-run-repository-hooks-outside-agent-supervision)
 - **Change:** Build the child environment from an allowlist in one place; run agents with isolated Claude/Codex configuration (no operator hooks, plugins, skills, memory or MCP unless declared); lay out the sandbox so ordinary commits and loopback tests need no escalation; disable repository hooks/fsmonitor for daemon Git operations; snapshot protected refs before/after each run and flag unexpected moves.
@@ -2558,7 +2558,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *"interrupts active work … hold / ignore-term":* the test waited for the fake to record `turn/start`, which it does before it notifies or replies. A `kill()` before the session had processed `turn/started` found no active turn and terminated without sending `turn/interrupt`. The held modes now report an agent message after `turn/started`, and the test waits for it in the session's items (notifications are processed in order, so the turn is active). It asserts that the session sent one `turn/interrupt` (a spy on `CodexRpc.request`), not that a starved fake read it. The independent reviewer's reproductions fail the old test and pass the new one: a 200 ms pause after the fake records `turn/start`, and a fake starved 1.5 s after its reply. A `kill()` that never interrupts fails it.
     - *Every other test in the file:* `launch()` gave the adapter a 300 ms request budget, which a loaded host can spend starting the fake's node process. At load 27–32, "passes the run overlay …" hung for 120 s, and "retains a structured temporary failure …" and "asks for a new sign-in …" failed. A fake that takes 400 ms to start failed 28 of the 30 tests. The adapter's own default (30 s) now applies. Only the modes that wait for a request to time out (`timeout`, `steer-timeout`, `usage-timeout`, `no-inventory`) keep a short budget, 2 s × the test time scale. With the 400 ms start, all 30 pass.
     - **Result:** twelve consecutive runs of the file at load 17–27 all passed (16–23 s each, against about 13 s before).
-  - **Status (2026-10-02): TS-H3 and TS-M4 done on `review-pass/c-r-g5`**, awaiting review and integration.
+  - **Status (2026-10-02): TS-H3 and TS-M4 done** in the test-suite review pass, independently reviewed twice.
 
 ### R-G6
 

@@ -1582,23 +1582,39 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **What it covers.** The scripted backend changes nothing, so the test pins the daemon's own side: the context files, the launch and the read-back. The agents' read-only arguments have their own tests. A real CLI or sandbox regression would be caught only by the daemon check proposed next.
   - **Proposed, awaiting operator decision (TS-M3, RC F-7): a daemon check that an investigation left the worktree unchanged.** Not built.
     - **Record at start.** In `startInvestigation`, after the reserved-merge guard (`work-cycle-service.ts` ~580) and before the record is written, read `git.inspectWorktreeChanges(tree.path)`. It already returns HEAD, branch, a fingerprint of the diff against HEAD, and the untracked paths. Store them on the record as `worktree: { headSha, branch, fingerprint, untrackedDigest }`.
-    - **Compare at read-back.** Inspect again before `investigationResult` is written: in `settleInvestigation` (~747) and in `endInvestigation` once the run has ended (~693). Settling is synchronous today, so the inspection runs first, and the cycle is read again before `change`. A record without `worktree` (started before the check) is not compared.
+    - **Compare at read-back, once the agent's process has exited (review M-1).** Inspect again before `investigationResult` is written, in `settleInvestigation` (~747).
+      - Compare only once the run is terminal and no agent is still exiting in the worktree (the guard's `requireNoTerminatingAgent`). Until then, the record stays open.
+      - **End.** Today, when the run is still live, End (`endInvestigation`, ~691-697) cancels it and writes `cancelled` at once. Nothing would be compared, and the process may still be writing after the cancel returns. That is RC F-7's own scenario: the operator sees the agent editing and presses End. Under the proposal, End only requests the cancellation, and the next settle pass, after the process exits, writes `cancelled` or the mismatch. The stop's commands stay refused for that short wait, as they are while the run is live.
+      - **Ordering.** Settling is synchronous today, so the inspection runs first, and the cycle is read again before `change`.
+      - **Older records.** A record without `worktree` (started before the check) is not compared.
     - **On a mismatch.** The result carries a typed `code: 'worktree-changed'` with outcome `failed`, the HEAD before and after, and the first changed paths (bounded).
       - The stop is unchanged, and no new recovery panel or attention code is added (program rule 1).
-      - The stop's existing inbox item pages once, through its existing member, `investigation:<id>:worktree-changed`, with a summary that names the change.
+      - The stop's existing inbox item pages once with a summary that names the change. Its member, `investigation:<id>:worktree-changed`, is a new member value: today's pattern is `investigation:<id>:<outcome>`.
+      - It pages even after the operator's own End. Today a `cancelled` outcome never pages (`attention-projector.ts` ~768-770, "The operator's own End is no news"), and the mismatch is exactly the news.
       - The browser branches on the code, never on the message (rule 4).
       - The daemon never resets the tree. The change may be the operator's own: an edit made while the investigation ran is indistinguishable from the agent's, so the summary says the worktree changed while it ran, not that the agent changed it.
+    - **What `inspectWorktreeChanges` would miss (review L-2).** It reads untracked files with `ls-files --others --exclude-standard` (ignored files are skipped), fingerprints only the tracked diff, and knows untracked files by path alone (`packages/git/src/operations.ts` ~1440-1500). So it would not see:
+      - new contents in an untracked file that was already there;
+      - writes to ignored paths (`.env`, build configuration);
+      - anything under `.git`: hooks, config, and refs other than HEAD. For a linked worktree, the hooks and config are the main repository's.
+
+      This unit's test is stricter on ignored paths (it lists them with `status --ignored`), but it too compares paths, not contents.
+      - **To close the gap:** digest the contents of untracked and ignored files, bounded by size and count. When the bound is passed, the result records "too large to compare" rather than a pass. Also digest the repository's `config` and `hooks/`, and its refs.
+      - The operator decides how far to go. Hashing ignored trees such as `node_modules` costs time on every investigation.
     - **Schema and contract.**
       - `CycleInvestigation` (`packages/domain/src/work-cycle.ts` ~107) gains an optional `worktree` and an optional `result.code`.
       - The contract's `investigation` object (`packages/contracts/src/work-cycle.ts` ~268) gains the same, both optional, so stored records keep reading under R-H3's guard. No migration: the record is in the cycle's JSON.
     - **Tests it would need:**
       - a scripted backend whose `onLaunch` writes or commits on a read-only request, which settles as `worktree-changed` and pages the item;
+      - the same, with End pressed while the run is live and the process exiting afterwards: compared after the exit, and paged;
       - a record without `worktree`, which settles as today;
       - the contract accepting an old record.
     - **For the operator to decide:**
-      1. Build it or not.
-      2. Whether the stop's own commands (Continue with guidance, Authorize more remediation) stay open after a mismatch, the recommendation, or are refused until the operator acknowledges it.
-      3. Whether the proposals of a changed tree are still offered to Use proposed answers. The recommendation is to show them, without the Use button.
+      1. Build it or not, and how far the comparison reaches (L-2 above).
+      2. **After a mismatch, the stop's own commands** (Continue with guidance, Authorize more remediation). No recommendation; the options and their risks:
+         - *(a) They stay open.* The operator continues at once, having been told. The risk is RC F-7's own failure: Continue with guidance builds on edits nobody reviewed.
+         - *(b) They are refused until the operator acknowledges the change, or the tree matches the record again.* This is safer, but it adds a step. The acknowledgement must be a command on the existing stop, never a new panel (rule 1).
+      3. Whether the proposals of a changed tree are still offered to Use proposed answers, or only shown.
   - **TS-M8, a refused answer keeps its draft.** This is the 16b data-loss class: answers were lost twice in review. `CycleDecisions.test.tsx` now covers Continue with guidance, the remediation grant and the scope review, each with the stop's session draft (`useStopDraft`). When the control command is refused:
     - the field keeps its text;
     - the error shows;

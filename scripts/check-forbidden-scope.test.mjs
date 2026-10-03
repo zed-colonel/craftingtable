@@ -64,9 +64,9 @@ const VITEST_CONFIG = `export default {
  * (unless the files give one, or `null` for none), a vitest config, and the repository's kind
  * of `.gitignore`, all in a temporary directory.
  */
-function workspace(files) {
-  const root = mkdtempSync(join(tmpdir(), 'craftingtable-scope-'));
-  roots.push(root);
+function workspace(files, { root: given, git = true } = {}) {
+  const root = given ?? mkdtempSync(join(tmpdir(), 'craftingtable-scope-'));
+  if (given === undefined) roots.push(root);
   const all = {
     'package.json': '{"name":"scratch"}',
     'vitest.config.ts': VITEST_CONFIG,
@@ -84,7 +84,7 @@ function workspace(files) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), content);
   }
-  expect(spawnSync('git', ['init', '-q'], { cwd: root }).status).toBe(0);
+  if (git) expect(spawnSync('git', ['init', '-q'], { cwd: root }).status).toBe(0);
   return root;
 }
 
@@ -633,4 +633,35 @@ describe('the gaps the verification review found', () => {
       expect(findings).toEqual([capability('packages/devpkg/src/index.ts', 'node:child_process')]);
     },
   );
+});
+
+describe('when the check cannot read the workspace (L-2)', () => {
+  const script = fileURLToPath(new URL('./check-forbidden-scope.mjs', import.meta.url));
+  const spawning = "import { spawn } from 'node:child_process';\nexport { spawn };\n";
+  /** The command's failure: non-zero, said plainly, with no stack trace. */
+  const refused = (root, env = process.env) => {
+    const run = spawnSync(process.execPath, [script, root], { encoding: 'utf8', env });
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('Forbidden-scope check could not run: ');
+    expect(run.stderr).not.toMatch(/TypeError|\n\s+at /);
+    return run.stderr;
+  };
+
+  it('fails, not passes, when Git lists nothing under apps/ and packages/', () => {
+    // A root inside a directory its enclosing repository ignores.
+    const outer = mkdtempSync(join(tmpdir(), 'craftingtable-scope-'));
+    roots.push(outer);
+    writeFileSync(join(outer, '.gitignore'), 'inner/\n');
+    expect(spawnSync('git', ['init', '-q'], { cwd: outer }).status).toBe(0);
+    const root = join(outer, 'inner');
+    workspace({ 'apps/server/src/index.ts': spawning }, { root, git: false });
+    expect(refused(root)).toContain('no TypeScript project');
+  });
+
+  it('says so when the root is not a Git checkout, or Git is not on PATH', () => {
+    const outside = workspace({ 'apps/server/src/index.ts': spawning }, { git: false });
+    expect(refused(outside)).toContain('git ls-files');
+    const checkout = workspace({ 'apps/server/src/index.ts': spawning });
+    expect(refused(checkout, { ...process.env, PATH: '/nonexistent' })).toContain('needs git');
+  });
 });

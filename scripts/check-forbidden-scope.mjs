@@ -767,6 +767,9 @@ function isLocalFunction(declaration, project) {
     : node?.initializer !== undefined;
 }
 
+/** A reason the check cannot run at all: said plainly, and the command fails (L-2). */
+class CheckError extends Error {}
+
 /**
  * Every file under `apps/` and `packages/` that Git tracks or would add (not ignored), so a
  * file no TypeScript project compiles is still checked, and ignored build output is not.
@@ -777,8 +780,14 @@ function workspaceFiles(root) {
     ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...APPLICATION_GROUPS],
     { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
   );
+  if (listed.error !== undefined)
+    throw new CheckError(
+      `check:scope needs git on PATH to list the workspace's files (${listed.error.message}).`,
+    );
   if (listed.status !== 0)
-    throw new Error(`check:scope lists the workspace's files with git: ${listed.stderr.trim()}`);
+    throw new CheckError(
+      `git ls-files could not list the workspace's files: ${(listed.stderr ?? '').trim()}`,
+    );
   return [...new Set(listed.stdout.split('\0').filter(Boolean))]
     .map((path) => join(root, path))
     .filter((path) => existsSync(path))
@@ -834,6 +843,10 @@ function readWorkspace(root) {
         if (project !== undefined && !owner.has(file)) owner.set(file, project);
       }
     }
+    if (projects.length === 0)
+      throw new CheckError(
+        `found no TypeScript project under apps/ or packages/ (Git listed ${files.length} files there): nothing would be checked.`,
+      );
     const modules = new Map();
     for (const [file, project] of owner) {
       if (isDeclarationFile(file) || !inRoot(file)) continue;
@@ -847,6 +860,8 @@ function readWorkspace(root) {
         imports: new Set(),
       });
     }
+    if (modules.size === 0)
+      throw new CheckError('found no module to check under apps/ or packages/.');
     // Resolve every literal specifier and every `require`, one compiler call per project.
     const byProject = new Map();
     for (const module of modules.values()) {
@@ -1059,7 +1074,14 @@ if (isMain) {
     process.argv[2] === undefined
       ? resolve(dirname(fileURLToPath(import.meta.url)), '..')
       : resolve(process.argv[2]);
-  const findings = runCheck(root);
+  let findings;
+  try {
+    findings = runCheck(root);
+  } catch (error) {
+    if (!(error instanceof CheckError)) throw error;
+    console.error(`Forbidden-scope check could not run: ${error.message}`);
+    process.exit(2);
+  }
   if (findings.length > 0) {
     console.error('Forbidden-scope check failed:');
     for (const finding of findings) {

@@ -92,7 +92,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
 | [R-I3](#r-i3) | P1 | S-M | done (2531715) | Systematic authorization tests |
-| [R-I4](#r-i4) | P2 | M | open | Structural test/production and process-authority boundaries |
+| [R-I4](#r-i4) | P2 | M | done (test-suite review pass, 2026-10-02) | Structural test/production and process-authority boundaries |
 | [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 done in the test-suite review pass (2026-10-02) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
@@ -3448,7 +3448,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I4
 
-**Structural test/production and process-authority boundaries** · Phase P2 (in the review pass on `remediation/p2`, operator 2026-10-02) · Effort M · Status: open
+**Structural test/production and process-authority boundaries** · Phase P2 (in the review pass on `remediation/p2`, operator 2026-10-02) · Effort M · Status: done (the test-suite review pass, 2026-10-02)
 
 - **Resolves:** [QA-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-04-checkscope-exemptions-are-filename-patterns-and-several-bypasses-are-open), [QA-07](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-07-the-testproduction-boundary-is-structural-only-in-packagesgit-everywhere-else-tests-and-test-support-compile-into-dist)
 - **Change:** Move test-support and fixtures out of compiled src trees everywhere (as packages/git already does); make check:scope reject builtin-module access via computed import/getBuiltinModule and stop exempting files by name pattern.
@@ -3507,6 +3507,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **`createDaemon`.** `composition.ts` builds a daemon over storage it now owns: its services, its server and its `close()`. The close stops the server and its workers, awaits `checkRequestService.closeAll()`, then closes the storage. `createRuntime` (production, `index.ts`, `e2e-entry.ts`, `restart.test.ts`) keeps its own steps around it: the Cargo home sync, opening the storage, the run log and closing the storage if the start fails. Its behaviour is unchanged. `createTestContext` no longer lists the 24 services for `buildServer` by hand, and no longer copies the close. It passes its seams as overrides, and runs the record checks (R-A3, R-H3) in `beforeStorageCloses`, which runs once the daemon has stopped and before its storage closes.
   - **The leak (ARCH F8d).** A failed record check threw before the data directory was removed, so every such failure left one behind. The cleanup now removes the directory in a `finally`, then throws what the checks found. A daemon whose services fail to start closes its storage and removes its directory too. New test: `test-support.test.ts` stores an event of an unknown kind, then expects the cleanup to reject, the directory to be gone, and the server and storage to be closed. It failed before the fix: the directory remained. `map-test-support.test.ts` no longer removes the directory by hand.
   - **F8c and F8e.** The test cleanup awaited `closeAll` by hand since the TS-H8 work. Now it awaits it because it is the daemon's own close. `cleanupExecutionFixtures` already used `Promise.allSettled`, and it removes the fixture repositories before rethrowing.
+- **Advanced 2026-10-02: `check:scope` fails test code built into `dist` (TS-M14, QA-07).**
+  - **Rule 6.** It reads every project of a package production runs (an app, or a workspace package an app reaches through production dependencies) that does not set `noEmit`. A clean `tsc -b` writes each module such a project compiles into `dist`. Each one is a finding if it is a test, if it imports the test runner (`vitest`, `@vitest/*`), or if only tests import it. A package only `devDependencies` reach (a test stack) is exempt, as it is from the manifest rule above.
+  - **Unit I's last gap is closed.** Every module such a build emits is a production entry, so it is checked as production whoever imports it. That includes a module loaded only through a path built at runtime and imported by a test: it was test support and went unchecked. Now its capability imports are findings, and rule 6 names it with the fix: move it to `test/`, or name it with `new URL(…, import.meta.url)` from the module that loads it.
+    - Still classified by the graph alone: the browser app, which `tsc` does not emit (vite bundles what `index.html` loads), and a test-only package.
+  - **Self-tests.** The throwaway workspaces' tests and test support moved to `test/`, as in the real tree. A new self-test plants four cases: a test left in `src` that vitest still includes, a module only tests import, a production module that imports vitest, and a worker loaded by a runtime path that its test imports. Each is a finding; a test project's support is not.
+    - Six mutants of the rule each fail the self-tests: no built set, no test finding, a broken runner pattern, built modules not counted as entries, every package treated as built, and no support finding.
+  - **The real tree.** No findings. It reads 462 production, 281 test and 17 test-support modules. `pnpm check:scope` took 2.0 s at load 4.
+- **Done (2026-10-02, the test-suite review pass).** The done-when is met.
+  - **"No `*.test.js` or test-support in `dist`."** A clean `tsc -b` emits none of either, and rule 6 fails the check if a build would.
+  - **"The known bypasses fail `check:scope`."** Unit I's 14 planted bypasses and the 13 fail-open plants of the independent review fail. So does test code built into `dist`.
+  - **The test-suite review's extensions** (TS-M11, TS-M14, TS-H6) are done: the `src/dist/` import, template-literal `import()` and `switch (x.reason)` bypasses; the links and decision-boundary guards' self-tests; one fixture stack with the daemon's own teardown; `local-check` children run from source.
+  - **Left to other items, as recorded above.** Rule 5 misses aliases and destructure renames (R-A3's branded `Prose`). The links guard misses GR F-5's shapes (R-E1), and the boundary import rule misses dynamic and extensionless imports (R-A6). The browser's `window` and `self` aliases of the global object are not checked.
 
 ### R-I5
 

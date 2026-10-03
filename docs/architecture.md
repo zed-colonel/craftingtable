@@ -32,7 +32,9 @@ production, whatever its name.
 Each package's tests and test support live in its `test/` directory, beside `src/`, as in
 `packages/git`: `tsconfig.json` compiles `src` alone into `dist`, and `tsconfig.test.json`
 type-checks `test` without emitting (`pnpm typecheck` runs each). So nothing a test needs is
-built into `dist` or shipped with a release. A test reaches the code it tests by a relative
+built into `dist` or shipped with a release, and `pnpm check:scope` fails a test, a module that
+imports vitest, or a module only tests import, that a production package's build would emit;
+every module such a build emits is checked as production. A test reaches the code it tests by a relative
 path into `src` (`../src/x.js`); the daemon's tests also use the storage and planning
 packages' test support. The browser app's tests stay beside its components: vite builds only
 what `index.html` loads.

@@ -21,6 +21,8 @@
  *    regex, equality or `switch` test of a `reason` or `message` against prose (program rule 4,
  *    R-A3). Stops carry typed codes; `packages/domain/src/attention-legacy.ts` is the one
  *    place that maps text written by earlier releases to codes.
+ * 6. Nothing test-only is built into a production package's `dist` (R-I4): no test, no module
+ *    that imports the test runner, and no module that only tests import.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -37,8 +39,12 @@
  *   `vitest.config.ts`, read from its syntax tree. **Test support** is every module that only
  *   tests reach on the resolved import graph. Everything else is production, whatever its name:
  *   a module reached from a production entry (a module nothing imports, or a package's
- *   manifest entry) is production even when it is called `…-test-support.ts`. Until test
- *   support moves out of `src` (R-I4, unit K), this graph is what separates it.
+ *   manifest entry) is production even when it is called `…-test-support.ts`.
+ * - **What a build ships** is production too: every module a project of a package production
+ *   runs compiles without `noEmit`, which a clean `tsc -b` writes into `dist`. Tests and their
+ *   support live in each package's `test/`, which only a `noEmit` project compiles (R-I4,
+ *   TS-M14). So a test, a module importing the test runner, or one only tests import, built
+ *   into `dist`, is a finding (rule 6), and such a module is checked as production.
  *
  * Exported functions are tested in check-forbidden-scope.test.mjs on throwaway workspaces.
  */
@@ -927,12 +933,34 @@ function readWorkspace(root) {
 }
 
 /**
+ * What a build ships (R-I4): every module a project of a package production runs compiles and
+ * emits (no `noEmit`), mapped to where it is emitted. A clean `tsc -b` writes exactly these
+ * into the packages' `dist`.
+ */
+function builtModules(root, projects, modules) {
+  const running = productionPackages(workspaceManifests(root));
+  const built = new Map();
+  for (const project of projects) {
+    const { noEmit, outDir } = project.compilerOptions;
+    if (noEmit === true) continue;
+    for (const file of project.rootFiles)
+      if (modules.has(file) && running.has(placeOf(root, file)))
+        built.set(file, outDir === undefined ? 'its own directory' : posix(relative(root, outDir)));
+  }
+  return built;
+}
+
+/**
  * Which modules are production: everything reached on the import graph from a production
  * entry. An entry is the manifest entry of a package production runs (`productionPackages`),
- * the module a page loads, or a module that is not a test and that no module imports (an application entry, a launcher's target, or dead code). What only tests and
- * vitest's setup modules reach is test support; what nothing reaches is production too.
+ * the module a page loads, a module a production build emits (`builtModules`), or a module
+ * that is not a test and that no module imports (an application entry, a launcher's target, or
+ * dead code). What only tests and vitest's setup modules reach is test support; what nothing
+ * reaches is production too. `onlyTestsReach` is what tests alone would reach if built modules
+ * were not entries; among built modules it is test support in `dist`, which `buildFindings`
+ * reports.
  */
-function productionModules(root, projects, modules, tests) {
+function productionModules(root, projects, modules, tests, built) {
   const testFiles = new Set(
     [...modules.keys()].filter((file) => isTestEntry(posix(relative(root, file)), tests)),
   );
@@ -970,18 +998,53 @@ function productionModules(root, projects, modules, tests) {
     }
     return reached;
   };
-  const fromEntries = reach(entries);
+  const fromTests = reach(testFiles);
+  const supportOutside = (fromEntries) =>
+    new Set([...fromTests].filter((file) => !fromEntries.has(file) && !testFiles.has(file)));
+  // What tests alone reach among the modules a build ships: by the graph it is test support.
+  const onlyTestsReach = supportOutside(reach(entries));
+  // A module a production build ships is production, whoever imports it (R-I4): so a module
+  // loaded only through a path built at runtime, and imported by a test, is checked too.
+  const fromEntries = reach([...entries, ...[...built.keys()].filter((f) => !testFiles.has(f))]);
   // Fail closed: test support is what tests reach and no entry does. Whatever neither reaches
   // (a module that imports itself, a cycle nothing else imports) is checked as production.
-  const support = new Set(
-    [...reach(testFiles)].filter((file) => !fromEntries.has(file) && !testFiles.has(file)),
-  );
+  const support = supportOutside(fromEntries);
   const production = new Set(
     [...modules.keys()].filter(
       (file) => fromEntries.has(file) || (!testFiles.has(file) && !support.has(file)),
     ),
   );
-  return { production, tests: testFiles };
+  return { production, tests: testFiles, onlyTestsReach };
+}
+
+const TEST_RUNNER = /^(?:vitest|@vitest\/[^/]+)(?:\/.*)?$/;
+
+/**
+ * Nothing test-only in what a production build ships (R-I4, TS-M14): no test, no module that
+ * imports the test runner, and no module only tests import. Tests and their support live in
+ * each package's `test/`, which no production build emits.
+ */
+function buildFindings(root, modules, classified, built) {
+  const findings = [];
+  for (const [file, outDir] of built) {
+    const path = posix(relative(root, file));
+    if (classified.tests.has(file)) {
+      findings.push(
+        `${path}: a test, built into ${outDir}; tests live in the package's test/ directory`,
+      );
+      continue;
+    }
+    for (const { specifier } of modules.get(file).references)
+      if (TEST_RUNNER.test(specifier))
+        findings.push(
+          `${path}: imports the test runner "${specifier}" and is built into ${outDir}`,
+        );
+    if (classified.onlyTestsReach.has(file))
+      findings.push(
+        `${path}: only tests import it, yet it is built into ${outDir}; move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it`,
+      );
+  }
+  return findings;
 }
 
 /** The workspace package (`packages/storage`) or top-level directory a path is in. */
@@ -1049,7 +1112,9 @@ export function inspectWorkspace(root) {
   const absoluteRoot = realpathSync(resolve(root));
   const findings = manifestFindings(absoluteRoot);
   const { projects, modules, tests } = readWorkspace(absoluteRoot);
-  const classified = productionModules(absoluteRoot, projects, modules, tests);
+  const built = builtModules(absoluteRoot, projects, modules);
+  const classified = productionModules(absoluteRoot, projects, modules, tests, built);
+  findings.push(...buildFindings(absoluteRoot, modules, classified, built));
   const classes = new Map();
   for (const module of modules.values()) {
     const production = classified.production.has(module.file);
@@ -1091,6 +1156,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, nothing test-only built into dist.`,
   );
 }

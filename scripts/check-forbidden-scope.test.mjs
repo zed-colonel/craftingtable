@@ -45,12 +45,8 @@ const VITEST_CONFIG = `export default {
     projects: [
       {
         test: {
-          include: [
-            'packages/*/src/**/*.test.ts',
-            'packages/*/test/**/*.test.ts',
-            'apps/server/src/**/*.test.ts',
-          ],
-          globalSetup: ['packages/storage/src/global-setup.ts'],
+          include: ['packages/*/test/**/*.test.ts', 'apps/server/test/**/*.test.ts'],
+          globalSetup: ['packages/storage/test/global-setup.ts'],
         },
       },
       { test: { include: ['apps/web/src/**/*.test.tsx'], setupFiles: ['apps/web/src/setup.ts'] } },
@@ -177,11 +173,11 @@ describe('what the boundaries allow', () => {
   it('passes tests, test support, typed codes, local names and the legacy mapping', () => {
     const root = workspace({
       // Tests and what only tests import may spawn, whatever their names.
-      'apps/server/src/run.test.ts':
+      'apps/server/test/run.test.ts':
         "import { spawn } from 'node:child_process';\nimport { helper } from './helper.js';\nexport { spawn, helper };\n",
-      'apps/server/src/helper.ts':
+      'apps/server/test/helper.ts':
         "import { execFile } from 'node:child_process';\nexport const helper = execFile;\n",
-      'packages/storage/src/global-setup.ts':
+      'packages/storage/test/global-setup.ts':
         "import { spawnSync } from 'node:child_process';\nexport default () => spawnSync('true');\n",
       'apps/web/src/setup.ts':
         "export const message = 'x';\nif (message.startsWith('Daemon')) {}\n",
@@ -234,19 +230,19 @@ it('takes tests only from vitest’s test blocks, less what they exclude', () =>
   const root = workspace({
     'vitest.config.ts': `export default {
   test: {
-    include: ['apps/server/src/**/*.test.ts'],
-    exclude: ['apps/server/src/slow/**'],
-    coverage: { include: ['apps/server/src/**'] },
+    include: ['apps/server/test/**/*.test.ts'],
+    exclude: ['apps/server/test/slow/**'],
+    coverage: { include: ['apps/server/test/**'] },
   },
 };
 `,
-    'apps/server/src/run.test.ts': spawning,
-    'apps/server/src/slow/run.test.ts': spawning,
+    'apps/server/test/run.test.ts': spawning,
+    'apps/server/test/slow/run.test.ts': spawning,
     'apps/server/src/service.ts': spawning,
   });
   expect(runCheck(root).sort()).toEqual(
     [
-      capability('apps/server/src/slow/run.test.ts', 'node:child_process'),
+      capability('apps/server/test/slow/run.test.ts', 'node:child_process'),
       capability('apps/server/src/service.ts', 'node:child_process'),
     ].sort(),
   );
@@ -281,14 +277,14 @@ describe('the package boundaries', () => {
     const root = workspace({
       'packages/domain/package.json':
         '{"name":"@craftingtable/domain","devDependencies":{"exoskeleton":"1","execa":"9"}}',
-      'packages/domain/src/a.test.ts': "import q from '@exo/action-queue';\nexport { q };\n",
+      'packages/domain/test/a.test.ts': "import q from '@exo/action-queue';\nexport { q };\n",
       'apps/web/src/a.ts': 'export const a = " \0";\n',
     });
     expect(runCheck(root).sort()).toEqual(
       [
         'packages/domain/package.json: forbidden dependency "exoskeleton"',
         'packages/domain/package.json: forbidden capability dependency "execa"',
-        'packages/domain/src/a.test.ts: forbidden import "@exo/action-queue"',
+        'packages/domain/test/a.test.ts: forbidden import "@exo/action-queue"',
         'apps/web/src/a.ts: contains a NUL byte',
       ].sort(),
     );
@@ -317,7 +313,8 @@ describe('the bypasses the unit review found', () => {
       'apps/server/src/index.ts':
         "export const worker = new URL('./worker.js', import.meta.url);\n",
       'apps/server/src/worker.ts': spawning,
-      'apps/server/src/worker.test.ts': "import { spawn } from './worker.js';\nexport { spawn };\n",
+      'apps/server/test/worker.test.ts':
+        "import { spawn } from '../src/worker.js';\nexport { spawn };\n",
       // Node's loader, declared ambiently or reached through CommonJS's module object.
       'apps/server/src/ambient.ts':
         "declare const require: (name: string) => unknown;\nexport const cp = require('child_process');\n",
@@ -408,13 +405,66 @@ describe('the fail-open gaps the independent review found', () => {
         devDependencies: { '@craftingtable/test-stack': 'workspace:*' },
       }),
       'apps/server/src/index.ts': 'export const a = 1;\n',
-      'apps/server/src/run.test.ts':
+      'apps/server/test/run.test.ts':
         "import { spawn } from '@craftingtable/test-stack';\nexport { spawn };\n",
     });
     const { findings, classes } = inspectWorkspace(root);
     expect(findings).toEqual([capability('packages/runner/src/index.ts', 'node:child_process')]);
     expect(classes.get('packages/storage/test/support.ts')).toBe('test-support');
     expect(classes.get('packages/test-stack/src/index.ts')).toBe('test-support');
+  });
+
+  /**
+   * Nothing test-only in what a production build ships (R-I4, TS-M14): a test, a module that
+   * imports the test runner, or one only tests import, compiled into a production package's
+   * `dist`. Such a module is checked as production, which closes unit I's last gap: one loaded
+   * only through a path built at runtime, and imported by a test.
+   */
+  it('fails tests and test support that a production build would ship', () => {
+    const spawning = "import { spawn } from 'node:child_process';\nexport { spawn };\n";
+    const root = workspace({
+      'vitest.config.ts': `export default {
+  test: { include: ['packages/*/src/**/*.test.ts', 'packages/*/test/**/*.test.ts', 'apps/server/test/**/*.test.ts'] },
+};
+`,
+      'apps/server/package.json': JSON.stringify({
+        name: '@craftingtable/server',
+        dependencies: { '@craftingtable/storage': 'workspace:*' },
+      }),
+      'packages/storage/package.json': JSON.stringify({ name: '@craftingtable/storage' }),
+      // Left in `src` by a move, and still included by vitest.
+      'packages/storage/src/store.test.ts': "import { seed } from './seed.js';\nexport { seed };\n",
+      // Only tests import it.
+      'packages/storage/src/seed.ts': 'export const seed = 1;\n',
+      'packages/storage/test/seed.test.ts':
+        "import { seed } from '../src/seed.js';\nexport { seed };\n",
+      // Production imports a module that imports the test runner.
+      'apps/server/src/index.ts':
+        "import { expect } from './expect.js';\nexport const worker = 'worker.js';\nexport { expect };\n",
+      'apps/server/src/expect.ts': "import { expect } from 'vitest';\nexport { expect };\n",
+      // Loaded only by a path built at runtime (the string above), and imported by its test.
+      'apps/server/src/worker.ts': spawning,
+      'apps/server/test/worker.test.ts':
+        "import { spawn } from '../src/worker.js';\nexport { spawn };\n",
+      // Test support in a test project: not built, so not a finding.
+      'apps/server/test/support.ts': spawning,
+      'apps/server/test/support.test.ts':
+        "import { spawn } from './support.js';\nexport { spawn };\n",
+    });
+    const onlyTests = (path, outDir) =>
+      `${path}: only tests import it, yet it is built into ${outDir}; move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it`;
+    const { findings, classes } = inspectWorkspace(root);
+    expect(findings.sort()).toEqual(
+      [
+        "packages/storage/src/store.test.ts: a test, built into packages/storage/dist; tests live in the package's test/ directory",
+        onlyTests('packages/storage/src/seed.ts', 'packages/storage/dist'),
+        'apps/server/src/expect.ts: imports the test runner "vitest" and is built into apps/server/dist',
+        onlyTests('apps/server/src/worker.ts', 'apps/server/dist'),
+        capability('apps/server/src/worker.ts', 'node:child_process'),
+      ].sort(),
+    );
+    expect(classes.get('apps/server/src/worker.ts')).toBe('production');
+    expect(classes.get('apps/server/test/support.ts')).toBe('test-support');
   });
 
   /** Forms the self-tests did not plant, so a checker that dropped them still passed (MEDIUM-3). */
@@ -611,7 +661,7 @@ describe('the gaps the verification review found', () => {
         }),
         // A test reaches the package's source by path, so only production's import makes it
         // production.
-        'apps/server/src/devpkg.test.ts':
+        'apps/server/test/devpkg.test.ts':
           "import { spawn } from '../../../packages/devpkg/src/index.js';\nexport { spawn };\n",
         'apps/server/src/usedev.ts':
           "import { spawn } from '@craftingtable/devpkg';\nexport { spawn };\n",

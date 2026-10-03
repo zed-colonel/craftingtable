@@ -1591,6 +1591,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       1. Build it or not.
       2. Whether the stop's own commands (Continue with guidance, Authorize more remediation) stay open after a mismatch, the recommendation, or are refused until the operator acknowledges it.
       3. Whether the proposals of a changed tree are still offered to Use proposed answers. The recommendation is to show them, without the Use button.
+  - **TS-M8, a refused answer keeps its draft.** This is the 16b data-loss class: answers were lost twice in review. `CycleDecisions.test.tsx` now covers Continue with guidance, the remediation grant and the scope review, each with the stop's session draft (`useStopDraft`). When the control command is refused:
+    - the field keeps its text;
+    - the error shows;
+    - `onChanged` is not called;
+    - the draft is still there when the decision mounts again.
+
+    A later successful submit clears it.
+    - **Mutant.** CD (`onChanged` in `finally`) survived the web project. It now fails all three cases, and the web project.
+    - **Where it is tested.** The scope review is tested through `CycleContinuation`, which owns its command. `ScopeReviewRecovery` sends nothing itself, so its test file is unchanged.
+    - **NIT, recorded (RC F-3):** drafts are held in module memory for the browser session, so a reload or a discarded phone tab loses them. That is the 16b design.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
+import { useStopDraft } from './answer-draft.js';
 import { CycleContinuation, continuationOf } from './CycleDecisions.js';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
@@ -139,3 +140,91 @@ it('reviews a completed parent review again, with its instructions', async () =>
     expectedVersion: 3,
   });
 });
+
+// TS-M8 (R-C16 16b, which lost answers twice in review): only a sent answer is cleared. A
+// refused command (the cycle moved on while the operator wrote) keeps the operator's draft, in
+// the field and in the stop's session draft, for each continuation that takes one.
+const parentScope = {
+  kind: 'parent-acceptance' as const,
+  definitionId: 'map',
+  bindingRevision: 1,
+  sourceId: 'wi/WI-01',
+};
+it.each([
+  {
+    form: 'guidance',
+    stopped: cycle({ attention: { code: 'implementation-open-questions', owner: 'operator' } }),
+    field: 'Answers and recovery guidance',
+    submit: 'Continue with guidance',
+    body: { action: 'resume', instructions: 'Use JSON lines.' },
+  },
+  {
+    form: 'remediation grant',
+    stopped: cycle({
+      step: 'review',
+      remediationRounds: DEFAULT_COMPLETION_POLICY.maxRemediationRounds,
+      attention: { code: 'remediation-exhausted', owner: 'operator' },
+    }),
+    field: 'Guidance for the next run (optional)',
+    submit: 'Authorize more remediation',
+    body: { action: 'authorize-remediation', additionalRounds: 1, instructions: 'Use JSON lines.' },
+  },
+  {
+    form: 'scope review',
+    stopped: cycle({ step: 'review', executionScope: parentScope }),
+    field: 'Additional review guidance',
+    submit: 'Resume scope review',
+    body: { action: 'resume', instructions: 'Use JSON lines.' },
+  },
+])(
+  'keeps the $form draft when its command is refused, and clears it once sent',
+  async ({ stopped, field, submit, body }) => {
+    vi.mocked(loadExecutionScopes).mockResolvedValue({
+      choices: [
+        {
+          scope: parentScope,
+          phases: [{ phase: 'accept', blockers: [] }],
+        } as unknown as ExecutionScopeChoice,
+      ],
+    });
+    const onChanged = vi.fn();
+    // The stop's decision holds its answer for the session, as `CycleDecision` does.
+    function Decision() {
+      const answer = useStopDraft(`${stopped.id}:${stopped.currentRunId}:stop`);
+      return (
+        <CycleContinuation
+          cycle={stopped}
+          csrfToken="csrf"
+          disabled={false}
+          onChanged={onChanged}
+          answer={answer}
+        />
+      );
+    }
+    const text = () => (screen.getByLabelText(field) as HTMLTextAreaElement).value;
+    const send = async () => {
+      const button = screen.getByRole('button', { name: submit }) as HTMLButtonElement;
+      await waitFor(() => expect(button.disabled).toBe(false));
+      fireEvent.click(button);
+    };
+    const view = render(<Decision />);
+    fireEvent.change(screen.getByLabelText(field), { target: { value: 'Use JSON lines.' } });
+    vi.mocked(request).mockRejectedValueOnce(new Error('Cycle changed; refresh and try again.'));
+    await send();
+    await screen.findByText('Cycle changed; refresh and try again.');
+    expect(posted()).toEqual([
+      { url: '/api/workspaces/ws/cycles/c1/control', body: { ...body, expectedVersion: 3 } },
+    ]);
+    expect(text()).toBe('Use JSON lines.');
+    expect(onChanged).not.toHaveBeenCalled();
+    // Coming back to the stop (another page, the inbox) still shows it.
+    view.unmount();
+    render(<Decision />);
+    expect(text()).toBe('Use JSON lines.');
+    // Sent: the stop's answer is not offered again.
+    vi.mocked(request).mockResolvedValueOnce({});
+    await send();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(text()).toBe('');
+  },
+);

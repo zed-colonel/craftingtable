@@ -6,7 +6,8 @@ import { importPlanBundle } from './planning-api.js';
 
 const refuses = {
   parse(value: unknown): { ok: true } {
-    if ((value as { ok?: unknown }).ok !== true) throw new Error('contract: ok must be true');
+    if ((value as { ok?: unknown } | undefined)?.ok !== true)
+      throw new Error('contract: ok must be true');
     return { ok: true };
   },
 };
@@ -28,6 +29,15 @@ it('says in the console when a successful answer breaks its contract, and still 
   await expect(request('/api/example', refuses)).rejects.toThrow('contract: ok must be true');
   expect(consoleError).toHaveBeenCalledTimes(1);
   expect(String(consoleError.mock.calls[0]?.[0])).toContain('/api/example');
+});
+
+it('says nothing when a successful answer could not be read, as when a navigation abandons it', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('{"ok": tr', { status: 200 })),
+  );
+  await expect(request('/api/example', refuses)).rejects.toThrow('contract: ok must be true');
+  expect(consoleError).not.toHaveBeenCalled();
 });
 
 it('says nothing when the answer keeps its contract, or when the daemon refuses the request', async () => {

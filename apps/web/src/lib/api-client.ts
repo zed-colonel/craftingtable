@@ -78,12 +78,15 @@ export async function request<T>(
  * Reads a successful answer through its contract. An answer the contract refuses is a defect
  * between the daemon and the app, not a state a page can explain, so it is also said in the
  * browser console, where the e2e suite fails on it (TS-M15); the read fails as before.
+ * `body` is undefined when it could not be read, as when a navigation abandons the read
+ * partway: that read fails without a word, since nothing broke the contract.
  */
 export function parseAnswer<T>(url: string, schema: ResponseSchema<T>, body: unknown): T {
   try {
     return schema.parse(body);
   } catch (error) {
-    console.error(`The daemon's answer to ${url} does not match its contract.`, error);
+    if (body !== undefined)
+      console.error(`The daemon's answer to ${url} does not match its contract.`, error);
     throw error;
   }
 }

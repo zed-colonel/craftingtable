@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { asAgentRunId, type ExecutionScope } from '@craftingtable/domain';
-import { expect } from 'vitest';
+import { afterEach, expect } from 'vitest';
 import { openDaemonStorage } from './persisted-records.js';
 
 import {
   adoptSupervisedMap,
   branchCommand,
+  cleanupExecutionFixtures,
   commitFile,
   implementationDone,
+  itNeedsCargo,
   mutationHeaders,
   roadmapControl,
   roadmapId,
@@ -38,6 +40,18 @@ export type ScopeRecoveryOutcome =
   | 'accepted-named-owner'
   | 'split-owners'
   | 'partly-named';
+
+/**
+ * Registers a group of outcomes as the tests `bounded roadmap scope recovery: <outcome>`, with
+ * the execution fixtures' cleanup after each. Each `server-execution-scope-recovery-*` file
+ * that runs outcomes is one call, so the hook, the name and the Cargo condition stay alike.
+ */
+export function boundedScopeRecoveryTests(outcomes: readonly ScopeRecoveryOutcome[]): void {
+  afterEach(cleanupExecutionFixtures);
+  itNeedsCargo.each(outcomes)('bounded roadmap scope recovery: %s', async (outcome) => {
+    await boundedScopeRecovery(outcome);
+  });
+}
 
 /** Drives a supervised map to its first parent finding, enables recovery and runs it to `outcome`. */
 export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promise<void> {

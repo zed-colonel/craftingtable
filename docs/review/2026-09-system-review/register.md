@@ -3216,6 +3216,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **Interrupted runs.** A run killed before its teardown left its template directory on the tmpfs. The directory now names the run's process (`craftingtable-template-test-<pid>-XXXXXX`), and the setup removes those whose process has ended. A concurrent run's process is alive, so its directory is kept. A test covers both; with every run treated as ended, it fails.
     - **Templates read in memory.** The tests read a template's ledger and tables from its bytes (`readTemplate`, `templateLedger`) instead of from scratch copies: opening it in place would add a write-ahead log beside a file other workers copy.
     - **The pragma test** in `database.test.ts` runs on a new file: a copy's header already records WAL, so it could not show that the open sets it.
+    - **One registration for the outcome files.** The four outcome files repeated the same hook, test name and Cargo condition. `boundedScopeRecoveryTests(outcomes)` in `scope-recovery-test-support.ts` registers them, and each file is one call with its outcomes; the test names are unchanged.
 
 ### R-I3
 

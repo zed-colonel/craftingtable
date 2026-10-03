@@ -2279,7 +2279,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G5
 
-**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: done (2026-09-28)
+**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: done (2026-09-28); test-suite review follow-up (TS-H3, TS-M4) done on `review-pass/c-r-g5` (2026-10-02), awaiting review and integration
 
 - **Resolves:** [SEC-02](findings/AGT-GIT-SEC-agents-git-security.md#sec-02-agent-confinement-is-cooperative-in-practice-inherited-desktop-environment-routine-sandbox-escalation-docker-socket), [SEC-03](findings/AGT-GIT-SEC-agents-git-security.md#sec-03-daemon-git-calls-execute-repository-controlled-hooks-and-config-the-existing-hardening-is-unused), [AGT-14](findings/AGT-GIT-SEC-agents-git-security.md#agt-14-supervised-agents-inherit-the-operators-personal-claudecodex-configuration-hooks-plugins-skills-memory-mcp), [GIT-08](findings/AGT-GIT-SEC-agents-git-security.md#git-08-daemon-authored-commits-and-merges-run-repository-hooks-outside-agent-supervision)
 - **Change:** Build the child environment from an allowlist in one place; run agents with isolated Claude/Codex configuration (no operator hooks, plugins, skills, memory or MCP unless declared); lay out the sandbox so ordinary commits and loopback tests need no escalation; disable repository hooks/fsmonitor for daemon Git operations; snapshot protected refs before/after each run and flag unexpected moves.
@@ -2493,7 +2493,6 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Test that a non-run entry survives a restart.
   - **Related.** No test excludes the daemon's variables from the Codex environment ([TS-M4](findings/TS-test-suite-review-2026-10-02.md)).
   - **Operator decision 2026-10-02.** This is a rule-7 blocker, but it has not been material: the live root is the default `<data>/t`. It will be fixed in the review pass, not before P2 lands. Revised the same day: the review pass runs on `remediation/p2`, the deployed line, and `main` is only fast-forwarded.
-  - **Status (2026-10-02): in progress on `review-pass/c-r-g5`.**
   - **The sweep removes run directories only (done).**
     - At a start, `recoverInterrupted` removes an entry of the root only when its name is one `processTemporaryDirectory` gives (`^[0-9a-f]{12}$`, six random bytes in hex) and `lstat` shows a directory, so a link is never followed or removed.
     - Everything else stays: files (a 12-hex one included), other directories, links, and upper-case or longer names. One warning names what was left: the root, the count, and up to 20 names.
@@ -2521,6 +2520,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
     - **Tests.** `config.test.ts`: "refuses an agents' temporary root that holds the database or files of the operator's" (`/`, `/tmp`, `/var/tmp`, `/var`, the home, `/home`, the daemon's home; `<data>/state`, inside it, `<data>`, above it; accepted: `<data>/t`, `/tmp/cte-x`, `/var/tmp/ct`, directories under both homes, the default under a home) and "compares … through links" (a link to the database's directory and a path beneath that link, the data directory named through a link, a link to `/tmp`; a link to a directory of its own is accepted). Both fail on the base.
   - **The variable is documented (done).** `docs/operations.md`: a `t/<12 hex>/` row in "Data location", and a paragraph after the agent-environment one in "Running the daemon": what the root is, its default, the 60-byte limit on each run's directory, what a start removes and that it warns about the rest, the refusals, and that two daemons must not share a root. The last is not enforced: a start sweeps every run-named directory, so a second daemon on the same root removes the first one's live runs' directories (RC F-1's dev-daemon scenario); the default `<data>/t` differs per data directory.
+  - **TS-M4: the Codex environment's exclusion is tested (done; test only).** `codex/backend.test.ts`, "starts the probe and the run's app-server from named variables only, plus the run overlay": mirroring Claude's increment 1 test, the adapter gets an environment carrying D-Bus, Wayland, X11, `XDG_RUNTIME_DIR`, an SSH agent, Hyprland, a daemon variable (`CRAFTINGTABLE_DATA_DIR`) and an undeclared name. A new fake mode records the variable names each process starts with. Both the configuration probe and the run's app-server see exactly the named variables, the declared one, the vendor's key and the overlay, with the run's directory ahead of PATH.
+    - **Mutations** (each reverted): the review's CX, spreading `options.env ?? process.env` into `codexEnvironment`'s result, fails the new test in the whole `packages/agents` project (15 files, 180 tests: only this one failed) and in a serial rerun of the file. Spreading `process.env` at only the probe's caller (`backend.ts`) or only the session's (`session.ts`) fails it too. Before the test, CX survived the project.
+  - **Status (2026-10-02): TS-H3 and TS-M4 done on `review-pass/c-r-g5`**, awaiting review and integration.
 
 ### R-G6
 

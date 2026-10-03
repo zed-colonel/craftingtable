@@ -12,6 +12,7 @@ const mode = process.env.FAKE_MODE;
 const emit = value => process.stdout.write(JSON.stringify(value) + '\\n');
 const trace = value => fs.appendFileSync('rpc.jsonl', JSON.stringify(value) + '\\n');
 trace({args: process.argv.slice(2), pid: process.pid});
+if (mode === 'env-names') trace({envNames: Object.keys(process.env).sort(), path: process.env.PATH, args: process.argv.slice(2)});
 if (mode === 'scratch') trace({temporaryPaths: [process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]});
 if (mode === 'ignore-term') process.on('SIGTERM', () => {});
 if (mode === 'shutdown-error') process.on('SIGTERM', () => process.exit(2));
@@ -411,6 +412,76 @@ it('passes the run overlay the daemon computed into the app-server child environ
   expect(messages()).toContainEqual({
     temporaryPaths: [scratch, scratch, scratch, `${scratch}/target`],
   });
+});
+
+it("starts the probe and the run's app-server from named variables only, plus the run overlay (TS-M4, R-G5, SEC-02)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'craftingtable-codex-'));
+  directories.push(cwd);
+  const executable = join(cwd, 'codex');
+  writeFileSync(executable, FAKE);
+  chmodSync(executable, 0o755);
+  const session = await new CodexBackend({
+    executable,
+    // What the daemon's own environment carries beside the named variables.
+    env: {
+      FAKE_MODE: 'env-names',
+      HOME: '/home/operator',
+      PATH: '/usr/bin',
+      LANG: 'C.UTF-8',
+      LC_TIME: 'C',
+      OPENAI_API_KEY: 'key',
+      DISPLAY: ':0',
+      WAYLAND_DISPLAY: 'wayland-1',
+      DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
+      XDG_RUNTIME_DIR: '/run/user/1000',
+      SSH_AUTH_SOCK: '/run/user/1000/ssh',
+      HYPRLAND_INSTANCE_SIGNATURE: 'x',
+      CRAFTINGTABLE_DATA_DIR: '/srv/craftingtable',
+      OPERATOR_DECLARED: 'yes',
+      OPERATOR_SECRET: 'no',
+    },
+    allowEnvironment: ['FAKE_MODE', 'OPERATOR_DECLARED'],
+    terminationGraceMs: 50,
+    requestTimeoutMs: 300,
+  }).launch({
+    cwd,
+    prompt: 'first',
+    permissionMode: 'auto',
+    environment: { CRAFTINGTABLE_RUN_NAMESPACE: 'run', TMPDIR: '/scratch' },
+    pathPrefix: ['/run/bin'],
+  });
+  sessions.push(session);
+  const items: AgentSessionItem[] = [];
+  const done = (async () => {
+    for await (const item of session.items) items.push(item);
+  })();
+  await waitFor(() => turns(items).length === 1);
+  session.end();
+  await done;
+  const started = readFileSync(join(cwd, 'rpc.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { envNames?: string[]; path?: string; args?: string[] })
+    .filter((line) => line.envNames !== undefined);
+  const expected = {
+    envNames: [
+      'CRAFTINGTABLE_RUN_NAMESPACE',
+      'FAKE_MODE',
+      'HOME',
+      'LANG',
+      'LC_TIME',
+      'OPENAI_API_KEY',
+      'OPERATOR_DECLARED',
+      'PATH',
+      'TMPDIR',
+    ],
+    path: '/run/bin:/usr/bin',
+  };
+  // Both processes: the configuration probe (no per-name switches) and the run's app-server.
+  expect(started).toEqual([
+    { ...expected, args: expect.not.arrayContaining(['-c']) },
+    { ...expected, args: expect.arrayContaining(['-c']) },
+  ]);
 });
 
 it('retains a structured temporary failure through terminal process cleanup', async () => {

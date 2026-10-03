@@ -3172,6 +3172,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Free-running waits: 18, at most 165 polls and 2.3 s. Only the hang guard bounds these.
     - `waitUntil` waits: 14, at most 90 polls and 2.3 s ("every check").
     - The cost of the margin: a wait that can never hold fails after about 10 s idle (1,000 × the 10 ms poll plus cheap steps), as measured above.
+  - **After the independent review's fixes.** The whole web project passed (347 tests, 17 s, load 12.7), and so did the whole node project (1,737 passed, 1 skipped, 228 s, load 11.7 → 11.8). One more default parallel `pnpm test` passed with no serial rerun: 2,084 passed, 1 skipped, 0 failed, 240 s. Its 1-minute load went from 11.0 to 12.4, and its 5-minute load reached 17.2. It peaked at 95 MB of tmpfs and left no test directory behind.
 
 ### R-I3
 

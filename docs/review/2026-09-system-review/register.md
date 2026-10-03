@@ -3079,6 +3079,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     
     The test checks that the two tables together run from schema 1 without a gap. A test cannot stop an edit to a deployed row made together with its file; the split makes such an edit visible in the diff.
   - **Proposed, awaiting operator decision: a deploy-time migration preflight.** Before it switches `current`, `scripts/deploy-daemon.mjs` would run the migration-status check (`inspectMigrationStatus`) on the live database with the new release's migrations, and stop with the current release still running on a checksum or name mismatch. The tests pin the files only in the repository; this check would also catch a release whose files differ from the live ledger. Not built.
+  - **Line endings (review NIT-1).** `.gitattributes` marks `packages/storage/migrations/*.sql` as `-text`. A checkout that converts line endings (`core.autocrlf`) therefore cannot change the files' bytes or checksums.
 
 ### R-H4
 

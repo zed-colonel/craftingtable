@@ -77,6 +77,21 @@ export function loadLocalCiConfig(path: string | undefined): LocalCiConfig | und
   return c;
 }
 /**
+ * A child of this module runs what its parent runs (TS-H6). Built, that is `dist/`. From
+ * source (the tests), plain `node` would resolve the workspace's packages to their last build,
+ * or to nothing, so the child first loads `source-hooks.ts`, which resolves them to source.
+ */
+export const SOURCE_HOOKS: string | undefined = import.meta.url.endsWith('.ts')
+  ? new URL('./source-hooks.ts', import.meta.url).href
+  : undefined;
+/** A launcher's expression importing the module at `url`, after the source hooks if any. */
+function launcherImport(url: string): string {
+  const load = `import(${JSON.stringify(url)})`;
+  return SOURCE_HOOKS === undefined
+    ? load
+    : `import(${JSON.stringify(SOURCE_HOOKS)}).then(()=>${load})`;
+}
+/**
  * Writes the run's check launchers. With a spool, each only asks the daemon to run the check
  * (R-G4); `limitMs` bounds its wait for the daemon's answer.
  */
@@ -94,8 +109,8 @@ export function prepareLocalCheckLaunchers(
   for (const name of ['ct-check', 'ct-act', 'ct-native']) {
     const path = join(bin, name);
     const call = spool
-      ? `import(${JSON.stringify(spoolModule)}).then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(spool.replies)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
-      : `import(${JSON.stringify(import.meta.url)}).then(m=>m.runLocalCheck(${JSON.stringify(manifest)},${JSON.stringify(digest)},${JSON.stringify(name)},process.argv.slice(2)))`;
+      ? `${launcherImport(spoolModule)}.then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(spool.replies)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
+      : `${launcherImport(import.meta.url)}.then(m=>m.runLocalCheck(${JSON.stringify(manifest)},${JSON.stringify(digest)},${JSON.stringify(name)},process.argv.slice(2)))`;
     writeFileSync(
       path,
       `#!${process.execPath}\n${call}.catch(e=>{console.error(e.message);process.exitCode=1;});\n`,
@@ -777,16 +792,14 @@ export async function cleanupLocalCiManifest(path: string, digest: string): Prom
   const m = JSON.parse(raw) as PinnedCargoManifest;
   if (!m.localCi) return;
   // A separate helper keeps slow Docker requests off the daemon event loop.
-  const moduleUrl = import.meta.url.endsWith('.ts')
-    ? new URL('../dist/local-check.js', import.meta.url).href
-    : import.meta.url;
   await new Promise<void>((resolveResult, reject) => {
     const child = spawn(
       process.execPath,
       [
+        ...(SOURCE_HOOKS === undefined ? [] : [`--import=${SOURCE_HOOKS}`]),
         '--input-type=module',
         '-e',
-        `import { cleanupLocalCi } from ${JSON.stringify(moduleUrl)}; cleanupLocalCi(${JSON.stringify(m.localCi)}, ${JSON.stringify(m.runId)});`,
+        `import { cleanupLocalCi } from ${JSON.stringify(import.meta.url)}; cleanupLocalCi(${JSON.stringify(m.localCi)}, ${JSON.stringify(m.runId)});`,
       ],
       { shell: false, stdio: 'ignore' },
     );

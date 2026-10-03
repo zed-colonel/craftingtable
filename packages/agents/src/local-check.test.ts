@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { afterEach, expect, it } from 'vitest';
@@ -30,6 +31,7 @@ import {
   localActArguments,
   localCiLockPath,
   prepareLocalCheckLaunchers,
+  SOURCE_HOOKS,
 } from './local-check.js';
 import {
   cargoManifestDigest as hash,
@@ -102,6 +104,28 @@ function fixture() {
       .map((l) => JSON.parse(l));
   return { root, m, directory, launcher, launch, execute, receipts };
 }
+/**
+ * TS-H6: a child launched from source ran the workspace's packages from `dist/`, so a fresh
+ * checkout failed these tests and an edit without a rebuild was tested stale. The child now
+ * resolves them to their source, as the tests do.
+ */
+it('runs a launched child against the source under test, not a build', () => {
+  const child = spawnSync(
+    process.execPath,
+    [
+      ...(SOURCE_HOOKS === undefined ? [] : [`--import=${SOURCE_HOOKS}`]),
+      '--input-type=module',
+      '-e',
+      `const m = await import(${JSON.stringify(new URL('./local-check.ts', import.meta.url).href)});
+       console.log(import.meta.resolve('@craftingtable/domain'), typeof m.runLocalCheck);`,
+    ],
+    { cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8' },
+  );
+  expect(child.stderr).not.toContain('Error');
+  expect(child.stdout.trim()).toBe(
+    `${new URL('../../domain/src/index.ts', import.meta.url).href} function`,
+  );
+});
 it('retains passing contract checks, failures and dirty-commit provenance without claiming current integration', () => {
   const f = fixture();
   const success = f.execute([
@@ -352,6 +376,7 @@ it('grants a stale workflow lock to one of several contenders reclaiming it at o
       const p = spawn(
         process.execPath,
         [
+          ...(SOURCE_HOOKS === undefined ? [] : [`--import=${SOURCE_HOOKS}`]),
           '--input-type=module',
           '-e',
           `import { readSync } from 'node:fs';

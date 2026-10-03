@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'n
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type Browser, devices, type Page } from '@playwright/test';
+import { type Browser, devices, type Locator, type Page } from '@playwright/test';
 import {
   E2E_USERNAME,
   expect,
@@ -155,22 +155,29 @@ class Walkthrough {
     return file;
   }
 
-  async capture(name: string, title: string, setup?: (page: Page) => Promise<void>): Promise<void> {
+  /** `landmark` must show on both viewports, so a page that rendered nothing fails the walk. */
+  async capture(
+    name: string,
+    title: string,
+    landmark: Landmark,
+    setup?: (page: Page) => Promise<void>,
+  ): Promise<void> {
     const file = this.nextFile(name);
     const url = this.desktop.url();
     if (setup) await setup(this.desktop);
-    await settled(this.desktop);
+    await settled(this.desktop, landmark);
     await this.photograph(this.desktop, 'desktop', file);
     await this.phone.goto(url);
-    await settled(this.phone);
+    await settled(this.phone, landmark);
     if (setup) await setup(this.phone);
     await this.photograph(this.phone, 'phone', file);
     this.shots.push({ file, title, path: pathOf(url), viewports: 'both' });
   }
 
   /** A scene that only exists on the phone layout, photographed as it stands. */
-  async capturePhoneOnly(name: string, title: string): Promise<void> {
+  async capturePhoneOnly(name: string, title: string, landmark: Landmark): Promise<void> {
     const file = this.nextFile(name);
+    await settled(this.phone, landmark);
     await this.photograph(this.phone, 'phone', file);
     this.shots.push({ file, title, path: pathOf(this.phone.url()), viewports: 'phone' });
   }
@@ -208,13 +215,48 @@ class Walkthrough {
 }
 
 /**
+ * What shows that a page rendered its own content, not only the app's frame or an empty
+ * shell (TS-M15, E2E F6): its main heading, or a region of it where the heading does not
+ * name the scene.
+ */
+type Landmark = (page: Page) => Locator;
+const heading =
+  (name: string | RegExp): Landmark =>
+  (page) =>
+    page.getByRole('heading', { level: 1, name, exact: typeof name === 'string' });
+const region =
+  (name: string): Landmark =>
+  (page) =>
+    page.getByRole('region', { name, exact: true });
+const navigation =
+  (name: string): Landmark =>
+  (page) =>
+    page.getByRole('navigation', { name, exact: true });
+
+/**
  * The page has rendered its data. The event stream keeps a connection open for
  * the life of the page, so "network idle" never arrives; wait for the loading
- * placeholders to leave instead, then a beat for fonts and layout.
+ * placeholders to leave and the page's landmark to show instead. A photograph then
+ * waits a beat for fonts and layout; a rehearsal takes none, so it never waits on time.
  */
-async function settled(page: Page): Promise<void> {
+async function settled(page: Page, landmark?: Landmark): Promise<void> {
   await expect(page.getByText(/^(Loading|Checking session|Opening your workspace)/)).toHaveCount(0);
-  await page.waitForTimeout(400);
+  if (landmark) await expect(landmark(page)).toBeVisible();
+  if (RECORDING) await page.waitForTimeout(400);
+}
+
+/**
+ * Opens design recovery in a design decision, unless it is open already (the desktop keeps
+ * it open between scenes). Its section shows either the button or the open form, so the
+ * check waits for one of them rather than reading the page before it has rendered.
+ */
+async function openDesignRecovery(page: Page): Promise<void> {
+  const recovery = page.getByRole('region', { name: 'Resolve design questions', exact: true });
+  const open = recovery.getByRole('button', { name: 'Resolve design questions', exact: true });
+  const opened = recovery.getByRole('heading', { name: 'Resolve design questions', exact: true });
+  await expect(open.or(opened)).toBeVisible();
+  if (await open.isVisible()) await open.click();
+  await expect(opened).toBeVisible();
 }
 
 function pathOf(url: string): string {
@@ -246,7 +288,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await phone.goto('/');
     await expect(phone.getByLabel('Username')).toBeVisible();
     const walk = new Walkthrough(page, phone, directory);
-    await walk.capture('login', 'Sign in');
+    await walk.capture('login', 'Sign in', heading('Sign in to CraftingTable'));
     await signIn(page);
     await signIn(phone);
 
@@ -256,11 +298,11 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await create.getByLabel('Name', { exact: true }).fill('Walkthrough');
     await create.getByRole('button', { name: 'Create workspace' }).click();
     await expect(page.getByRole('heading', { name: 'Walkthrough', exact: true })).toBeVisible();
-    await walk.capture('dashboard-empty', 'Dashboard of a new workspace');
+    await walk.capture('dashboard-empty', 'Dashboard of a new workspace', heading('Walkthrough'));
 
     // ---- Import a plan bundle -------------------------------------------------------------
     await navigate(page, 'Import plan');
-    await walk.capture('import-plan', 'Import plan');
+    await walk.capture('import-plan', 'Import plan', heading('Import plan'));
     await page.getByLabel('Project name').fill('ActionQueue');
     await page
       .getByLabel('Implementation plan')
@@ -270,7 +312,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
       .setInputFiles(new URL('aq-cont-1-work-breakdown.yaml', FIXTURES).pathname);
     await page.getByRole('button', { name: 'Import plan bundle' }).click();
     await expect(page.getByRole('heading', { name: /Work items \(14\)/ })).toBeVisible();
-    await walk.capture('project-imported', 'Project after import');
+    await walk.capture('project-imported', 'Project after import', heading(/^ActionQueue/));
 
     // ---- Repositories and branch settings -------------------------------------------------
     await navigate(page, 'Repositories');
@@ -282,30 +324,40 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await page.getByLabel('Display name (optional)').fill('ActionQueue upstream');
     await page.getByRole('button', { name: 'Register', exact: true }).click();
     await expect(page.getByText(upstream, { exact: true })).toBeVisible();
-    await walk.capture('repositories', 'Repositories');
+    await walk.capture('repositories', 'Repositories', heading('Repositories'));
 
     await navigate(page, 'Projects');
-    await walk.capture('projects', 'Projects');
+    await walk.capture('projects', 'Projects', heading('Projects'));
     await page.getByRole('button', { name: 'ActionQueue', exact: true }).click();
     const branches = page.getByRole('region', { name: 'Repository & branches', exact: true });
-    await walk.capture('project-branch-form', 'Project · configure branches', async (p) => {
-      const region = p.getByRole('region', { name: 'Repository & branches', exact: true });
-      await region.getByRole('button', { name: 'Configure branches' }).click();
-      await region
-        .getByRole('combobox', { name: 'Repository', exact: true })
-        .selectOption({ label: 'Walkthrough repository' });
-      await region
-        .getByRole('combobox', { name: 'Branch action', exact: true })
-        .selectOption('create');
-      await region.getByLabel('Integration branch', { exact: true }).fill('revision');
-      await region.getByRole('combobox', { name: 'Create from branch' }).selectOption('main');
-    });
+    await walk.capture(
+      'project-branch-form',
+      'Project · configure branches',
+      heading(/^ActionQueue/),
+      async (p) => {
+        const region = p.getByRole('region', { name: 'Repository & branches', exact: true });
+        await region.getByRole('button', { name: 'Configure branches' }).click();
+        await region
+          .getByRole('combobox', { name: 'Repository', exact: true })
+          .selectOption({ label: 'Walkthrough repository' });
+        await region
+          .getByRole('combobox', { name: 'Branch action', exact: true })
+          .selectOption('create');
+        await region.getByLabel('Integration branch', { exact: true }).fill('revision');
+        await region.getByRole('combobox', { name: 'Create from branch' }).selectOption('main');
+      },
+    );
     await branches.getByRole('button', { name: 'Save branch settings' }).click();
     await expect(branches.getByText('revision', { exact: true })).toBeVisible();
-    await walk.capture('repository-policy-form', 'Project · adopt repository policy', async (p) => {
-      await p.getByRole('button', { name: 'Record repository policy', exact: true }).click();
-      await expect(p.getByRole('form', { name: 'Adopt repository policy' })).toBeVisible();
-    });
+    await walk.capture(
+      'repository-policy-form',
+      'Project · adopt repository policy',
+      heading(/^ActionQueue/),
+      async (p) => {
+        await p.getByRole('button', { name: 'Record repository policy', exact: true }).click();
+        await expect(p.getByRole('form', { name: 'Adopt repository policy' })).toBeVisible();
+      },
+    );
     await page
       .getByRole('checkbox', {
         name: 'I adopt this interpretation and the displayed freeze, where selected, for this plan.',
@@ -313,15 +365,16 @@ test('captures every page of the app on desktop and phone viewports', async ({
       .check();
     await page.getByRole('button', { name: 'Adopt repository policy', exact: true }).click();
     await expect(page.getByText(/Adopted revision 1/)).toBeVisible();
-    await walk.capture('project', 'Project with branches configured');
+    await walk.capture('project', 'Project with branches configured', heading(/^ActionQueue/));
 
     // ---- Plan version and finalization setup ---------------------------------------------
     await page.getByRole('button', { name: 'v1', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Plan version 1', exact: true })).toBeVisible();
-    await walk.capture('plan-version', 'Plan version');
+    await walk.capture('plan-version', 'Plan version', heading('Plan version 1'));
     await walk.capture(
       'plan-version-finalization-setup',
       'Plan version · finalization setup',
+      heading('Plan version 1'),
       async (p) => {
         await p
           .getByRole('region', { name: 'Finalize integration', exact: true })
@@ -336,18 +389,22 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await page.getByRole('button', { name: 'ActionQueue', exact: true }).click();
     await page.getByRole('button', { name: 'AQ-01', exact: true }).click();
     await expect(page.getByRole('heading', { name: /AQ-01 ·/ })).toBeVisible();
-    await walk.capture('work-item-proposed', 'Work item · proposed');
+    await walk.capture('work-item-proposed', 'Work item · proposed', heading(/^AQ-01 · /));
     await page.getByRole('button', { name: 'Admit into agenda' }).click();
     await page.getByRole('button', { name: 'Create worktree' }).click();
     await expect(page.getByRole('heading', { name: 'Worktrees (1)' })).toBeVisible();
-    await walk.capture('work-item-worktree', 'Work item · worktree ready to delegate');
+    await walk.capture(
+      'work-item-worktree',
+      'Work item · worktree ready to delegate',
+      heading(/^AQ-01 · /),
+    );
     await page.getByLabel(/Instructions for this run/).fill('Walkthrough smoke run');
     await page.getByRole('button', { name: /Launch implement run/ }).click();
     await expect(page.getByRole('heading', { name: /Implement run/ })).toBeVisible();
     const feed = page.getByTestId('run-feed');
     await expect(feed.getByText('fake agent finished turn 1', { exact: true })).toBeVisible();
     await expect(page.getByText('Awaiting your input').first()).toBeVisible();
-    await walk.capture('run-waiting', 'Run · waiting for the operator');
+    await walk.capture('run-waiting', 'Run · waiting for the operator', heading(/^Implement run/));
     await page.getByLabel('Message to the agent').fill('Check the boundary behavior too.');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(feed.getByText('fake agent finished turn 2', { exact: true })).toBeVisible();
@@ -358,8 +415,8 @@ test('captures every page of the app on desktop and phone viewports', async ({
         .getByRole('region', { name: 'Run outcome' })
         .getByRole('heading', { name: 'Final outcome' }),
     ).toBeVisible();
-    await walk.capture('run-finished', 'Run · finished with an outcome');
-    await walk.capture('run-diff', 'Run · diff', async (p) => {
+    await walk.capture('run-finished', 'Run · finished with an outcome', heading(/^Implement run/));
+    await walk.capture('run-diff', 'Run · diff', heading(/^Implement run/), async (p) => {
       await p.getByRole('button', { name: 'View diff', exact: true }).click();
       await expect(p.getByTestId('diff-text')).toBeVisible();
     });
@@ -367,11 +424,16 @@ test('captures every page of the app on desktop and phone viewports', async ({
     // ---- Work item: automated cycle to merge approval ---------------------------------------
     await page.getByRole('button', { name: 'Work item', exact: true }).click();
     const cycle = page.getByRole('region', { name: 'Automated cycle', exact: true });
-    await walk.capture('work-item-cycle-setup', 'Work item · cycle setup', async (p) => {
-      const region = p.getByRole('region', { name: 'Automated cycle', exact: true });
-      await region.getByText('Set up a cycle', { exact: true }).click();
-      await expect(region.getByLabel('Allowed nits')).toBeVisible();
-    });
+    await walk.capture(
+      'work-item-cycle-setup',
+      'Work item · cycle setup',
+      heading(/^AQ-01 · /),
+      async (p) => {
+        const region = p.getByRole('region', { name: 'Automated cycle', exact: true });
+        await region.getByText('Set up a cycle', { exact: true }).click();
+        await expect(region.getByLabel('Allowed nits')).toBeVisible();
+      },
+    );
     await cycle.getByLabel('Allowed nits').fill('1');
     await cycle.getByLabel('Maximum remediation rounds').fill('0');
     await cycle
@@ -379,12 +441,17 @@ test('captures every page of the app on desktop and phone viewports', async ({
       .fill('MOBILE-FINDINGS DESIGN-QUESTIONS CYCLE-EXTRA-REMEDIATION SERVICE-RETRY');
     await cycle.getByRole('button', { name: 'Start automated cycle' }).click();
     await expect(cycle.getByRole('region', { name: 'Model service recovery' })).toBeVisible();
-    await walk.capture('work-item-provider-recovery', 'Work item · bounded model service retry');
+    await walk.capture(
+      'work-item-provider-recovery',
+      'Work item · bounded model service retry',
+      heading(/^AQ-01 · /),
+    );
     await cycle.getByRole('button', { name: 'Open current run' }).click();
     await expect(page.getByRole('region', { name: 'Model service recovery' })).toBeVisible();
     await walk.capture(
       'run-provider-recovery',
       'Run · model service failure and recovery controls',
+      region('Model service recovery'),
     );
     await page.getByRole('button', { name: 'Work item', exact: true }).click();
     await cycle.getByRole('button', { name: 'Retry now', exact: true }).click();
@@ -396,6 +463,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'work-item-design-questions',
       'Work item · design needs answers, decided in Needs you',
+      heading(/^AQ-01 · /),
     );
     await openDecision.click();
     const designDecision = page.getByRole('region', { name: 'Decision' });
@@ -405,6 +473,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'work-item-design-recovery',
       'Needs you · design recovery and evidence',
+      region('Decision'),
       async (p) => {
         await p.getByRole('button', { name: 'Resolve design questions', exact: true }).click();
         await expect(p.getByLabel('Answers and guidance')).toBeVisible();
@@ -413,9 +482,9 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'work-item-baseline-preparation',
       'Needs you · historical sources and explicit baseline preparation',
+      region('Decision'),
       async (p) => {
-        const recovery = p.getByRole('button', { name: 'Resolve design questions', exact: true });
-        if (await recovery.isVisible()) await recovery.click();
+        await openDesignRecovery(p);
         await p.getByRole('button', { name: 'Prepare baseline evidence', exact: true }).click();
         await expect(p.getByLabel('Historical commit or local ref')).toBeVisible();
       },
@@ -432,9 +501,9 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'work-item-baseline-prepared',
       'Needs you · prepared historical baseline and retained evidence',
+      region('Decision'),
       async (p) => {
-        const recovery = p.getByRole('button', { name: 'Resolve design questions', exact: true });
-        if (await recovery.isVisible()) await recovery.click();
+        await openDesignRecovery(p);
         await expect(p.getByText(/Sources prepared ·/)).toBeVisible();
       },
     );
@@ -455,13 +524,13 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'work-item-investigation-results',
       'Needs you · recorded investigation evidence',
+      region('Decision'),
       async (p) => {
         await p.getByText('Investigation results and evidence', { exact: true }).click();
         await expect(p.getByRole('heading', { name: 'Final outcome', exact: true })).toBeVisible();
       },
     );
-    const resolve = page.getByRole('button', { name: 'Resolve design questions', exact: true });
-    if (await resolve.isVisible()) await resolve.click();
+    await openDesignRecovery(page);
     await page.getByRole('button', { name: 'Refresh available evidence', exact: true }).click();
     await page
       .getByLabel('Answers and guidance')
@@ -479,6 +548,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'work-item-remediation-recovery',
       'Work item · exhausted remediation allowance, decided in Needs you',
+      heading(/^AQ-01 · /),
     );
     const workItemPage = page.url();
     const exhaustedItem = (await decisionLink.getAttribute('href')) ?? '';
@@ -487,7 +557,11 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await expect(
       exhausted.getByRole('button', { name: 'Authorize more remediation' }),
     ).toBeVisible();
-    await walk.capture('inbox-remediation-recovery', 'Needs you · authorize more remediation');
+    await walk.capture(
+      'inbox-remediation-recovery',
+      'Needs you · authorize more remediation',
+      region('Decision'),
+    );
     await exhausted
       .getByLabel('Guidance for the next run (optional)')
       .fill('E2E-AUTHORIZED-RECOVERY E2E-OPERATOR-QUESTION: Address the remaining regression.');
@@ -501,6 +575,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'work-item-guided-recovery',
       'Work item · implementation questions, decided in Needs you',
+      heading(/^AQ-01 · /),
     );
     await decisionLink.click();
     const decision = page.getByRole('region', { name: 'Decision' });
@@ -511,7 +586,11 @@ test('captures every page of the app on desktop and phone viewports', async ({
       .fill(
         'E2E-AUTHORIZED-RECOVERY E2E-ANSWERED-QUESTION: Use the approved pinned baseline and retain every check.',
       );
-    await walk.capture('inbox-guided-recovery', 'Needs you · answer implementation questions');
+    await walk.capture(
+      'inbox-guided-recovery',
+      'Needs you · answer implementation questions',
+      region('Decision'),
+    );
     await sendCommand(
       page,
       decision.getByRole('button', { name: 'Continue with guidance', exact: true }),
@@ -519,12 +598,16 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await page.goto(workItemPage);
 
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
-    await walk.capture('work-item-awaiting-merge', 'Work item · cycle awaiting merge approval');
+    await walk.capture(
+      'work-item-awaiting-merge',
+      'Work item · cycle awaiting merge approval',
+      heading(/^AQ-01 · /),
+    );
     // The merge approval is an inbox item whose decision is the merge itself (R-A6).
     const awaitingMerge = page.url();
     expect(await attentionAgrees(page)).toBe(1);
     await navigate(page, 'Needs you');
-    await walk.capture('inbox', 'Needs you · one merge approval');
+    await walk.capture('inbox', 'Needs you · one merge approval', heading('Needs you'));
     await page
       .getByRole('region', { name: 'Open items' })
       .getByRole('link', { name: 'Merge approval' })
@@ -532,33 +615,48 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await expect(
       page.getByRole('region', { name: 'Decision' }).getByRole('button', { name: 'Merge…' }),
     ).toBeVisible();
-    await walk.capture('inbox-item', 'Needs you · the merge approval');
+    await walk.capture('inbox-item', 'Needs you · the merge approval', region('Decision'));
     await page.goto(awaitingMerge);
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     // The work item links to the merge's inbox item, where it is decided (R-A6).
     await expect(page.getByText(/This merge is decided in Needs you/)).toBeVisible();
-    await walk.capture('work-item-merge-form', 'Work item · the merge, decided in Needs you');
+    await walk.capture(
+      'work-item-merge-form',
+      'Work item · the merge, decided in Needs you',
+      heading(/^AQ-01 · /),
+    );
     await cycle.getByRole('button', { name: 'Open current run' }).click();
     await expect(page.getByRole('heading', { name: 'Review run', exact: true })).toBeVisible();
-    await walk.capture('run-review', 'Review run with findings', async (p) => {
-      const findings = p.getByRole('group', { name: 'Review findings', exact: true });
-      if (!(await findings.getByText('F-001', { exact: true }).isVisible()))
-        await findings.locator('summary').click();
-      await expect(findings.getByText('F-001', { exact: true })).toBeVisible();
-    });
+    await walk.capture(
+      'run-review',
+      'Review run with findings',
+      heading('Review run'),
+      async (p) => {
+        // A disclosure: open it unless it is open already.
+        const findings = p.getByRole('group', { name: 'Review findings', exact: true });
+        await expect(findings).toBeVisible();
+        if (!(await findings.evaluate((details) => (details as HTMLDetailsElement).open)))
+          await findings.locator('summary').click();
+        await expect(findings.getByText('F-001', { exact: true })).toBeVisible();
+      },
+    );
     await page.getByRole('button', { name: 'Work item', exact: true }).click();
     const mergeForm = await openMergeDecision(page);
-    await walk.capture('inbox-merge-form', 'Needs you · merge confirmation');
+    await walk.capture('inbox-merge-form', 'Needs you · merge confirmation', region('Decision'));
     await mergeForm.getByRole('button', { name: 'Merge', exact: true }).click();
     await expect(page.getByText('This item is resolved.')).toBeVisible();
     await page.goto(awaitingMerge);
     await expect(cycle.getByText(/Previous cycle: Completed/)).toBeVisible();
-    await walk.capture('work-item-completed', 'Work item · completed by merge');
+    await walk.capture(
+      'work-item-completed',
+      'Work item · completed by merge',
+      heading(/^AQ-01 · /),
+    );
 
     // ---- Roadmap ---------------------------------------------------------------------------
     await navigate(page, 'Roadmaps');
-    await walk.capture('roadmaps-empty', 'Roadmaps · none yet');
-    await walk.capture('roadmap-editor', 'Roadmaps · editor', async (p) => {
+    await walk.capture('roadmaps-empty', 'Roadmaps · none yet', heading('Roadmaps'));
+    await walk.capture('roadmap-editor', 'Roadmaps · editor', heading('Roadmaps'), async (p) => {
       await p.getByRole('button', { name: 'New roadmap', exact: true }).click();
       const editor = p.getByRole('region', { name: 'Roadmap editor' });
       await editor.getByLabel('Roadmap name').fill('AQ sequential');
@@ -581,20 +679,29 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await editor.getByRole('button', { name: 'Save roadmap', exact: true }).click();
     const roadmap = page.getByRole('region', { name: 'AQ sequential', exact: true });
     await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
-    await walk.capture('roadmap-draft', 'Roadmaps · saved draft');
+    await walk.capture('roadmap-draft', 'Roadmaps · saved draft', region('AQ sequential'));
     const roadmapUrl = page.url();
     await navigate(page, 'Settings');
-    await walk.capture('roadmap-agent-profiles', 'Future roadmap agent profiles', async (p) => {
-      await p.getByRole('button', { name: 'Edit future run profiles' }).click();
-      await p
-        .getByRole('region', { name: 'Roadmap agent profiles' })
-        .getByText(/Specialist overrides ·/)
-        .click();
-    });
+    await walk.capture(
+      'roadmap-agent-profiles',
+      'Future roadmap agent profiles',
+      heading('Settings'),
+      async (p) => {
+        await p.getByRole('button', { name: 'Edit future run profiles' }).click();
+        await p
+          .getByRole('region', { name: 'Roadmap agent profiles' })
+          .getByText(/Specialist overrides ·/)
+          .click();
+      },
+    );
     await page.goto(roadmapUrl);
     await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();
     await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
-    await walk.capture('roadmap-running', 'Roadmaps · running, first item awaiting merge');
+    await walk.capture(
+      'roadmap-running',
+      'Roadmaps · running, first item awaiting merge',
+      region('AQ sequential'),
+    );
 
     // ---- Cross-project map -----------------------------------------------------------------
     for (const [file, name] of [
@@ -611,19 +718,25 @@ test('captures every page of the app on desktop and phone viewports', async ({
       await expect(panel.getByText('Plan validated:', { exact: false })).toBeVisible();
       await panel.getByLabel('New project name').fill(name);
       if (name === 'Exoskeleton') {
-        await walk.capture('import-zip-preview', 'Import plan · ZIP preview', async (p) => {
-          if (await p.getByRole('button', { name: 'Import ZIP archive', exact: true }).isVisible())
+        await walk.capture(
+          'import-zip-preview',
+          'Import plan · ZIP preview',
+          heading('Import plan'),
+          async (p) => {
+            // Choosing the ZIP form again keeps a preview the desktop already made.
             await p.getByRole('button', { name: 'Import ZIP archive', exact: true }).click();
-          const region = p.getByRole('region', { name: 'Import plan ZIP' });
-          if (!(await region.getByText('Plan validated:', { exact: false }).isVisible())) {
-            await region
-              .getByLabel('Planning ZIP (up to 8 MiB)')
-              .setInputFiles(fileURLToPath(new URL(file, CONCURRENCY)));
-            await region.getByRole('button', { name: 'Preview ZIP', exact: true }).click();
-            await expect(region.getByText('Plan validated:', { exact: false })).toBeVisible();
-            await region.getByLabel('New project name').fill(name);
-          }
-        });
+            const region = p.getByRole('region', { name: 'Import plan ZIP' });
+            await expect(region).toBeVisible();
+            if (!(await region.getByText('Plan validated:', { exact: false }).isVisible())) {
+              await region
+                .getByLabel('Planning ZIP (up to 8 MiB)')
+                .setInputFiles(fileURLToPath(new URL(file, CONCURRENCY)));
+              await region.getByRole('button', { name: 'Preview ZIP', exact: true }).click();
+              await expect(region.getByText('Plan validated:', { exact: false })).toBeVisible();
+              await region.getByLabel('New project name').fill(name);
+            }
+          },
+        );
       }
       await panel.getByRole('button', { name: 'Import reviewed plan ZIP' }).click();
       await expect(panel.getByText('Import: succeeded', { exact: true })).toBeVisible();
@@ -733,6 +846,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmaps-shared-decision-review',
       'Roadmaps · shared decision, automatic references and explicit approval',
+      region('Imported map'),
       async (p: Page) => {
         await selectTarget(p);
         await setupStep(p, 'Shared architecture decisions');
@@ -745,6 +859,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmaps-dependency-refresh',
       'Roadmaps · explicit dependency refresh preview',
+      region('Imported map'),
       async (p: Page) => {
         await selectTarget(p);
         await setupStep(p, 'Dependency environment');
@@ -760,12 +875,14 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmaps-cross-project',
       'Roadmaps · imported map and cross-project supervisor',
+      region('Imported map'),
       selectTarget,
     );
 
     await walk.capture(
       'roadmaps-reviewer-responsibilities',
       'Roadmaps · direct reviewer responsibility assignment',
+      region('Imported map'),
       async (p: Page) => {
         await selectTarget(p);
         const supervisor = p.getByRole('region', {
@@ -787,6 +904,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmaps-verification-environments',
       'Roadmaps · native approval and Kata readiness',
+      region('Imported map'),
       async (p: Page) => {
         await selectTarget(p);
         await p
@@ -802,6 +920,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmaps-upstream-transitions',
       'Roadmaps · when each application moves to current upstream pins',
+      region('Imported map'),
       async (p: Page) => {
         await selectTarget(p);
         await setupStep(p, 'Dependency environment');
@@ -819,6 +938,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmaps-dependency-graph',
       'Roadmaps · EXO integration requirements and WI providers',
+      region('Imported map'),
       async (p: Page) => {
         await selectTarget(p);
         const supervisor = p.getByRole('region', {
@@ -852,6 +972,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmap-future-delegation',
       'Roadmaps · explicit future delegation',
+      heading('Cross-project roadmap'),
       async (p) => {
         await p.getByRole('button', { name: 'Change future delegation', exact: true }).click();
         const form = p
@@ -867,6 +988,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmap-decision-preparation',
       'Roadmaps · independent architecture preparation',
+      heading('Cross-project roadmap'),
       async (p) => {
         await p.getByRole('button', { name: 'Prepare architecture decision', exact: true }).click();
         await p
@@ -881,6 +1003,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'roadmap-recovery-delegation',
       'Roadmaps · bounded independent review recovery',
+      heading('Cross-project roadmap'),
       async (p: Page) => {
         await setupStep(p, 'Reviewer responsibilities and delegation');
         const recovery = p.getByRole('region', {
@@ -904,13 +1027,25 @@ test('captures every page of the app on desktop and phone viewports', async ({
     const roadmapPages = page.getByRole('navigation', { name: 'Roadmap pages', exact: true });
     await roadmapPages.getByRole('link', { name: 'Board', exact: true }).click();
     await expect(page.getByRole('group', { name: 'Roadmap controls' })).toBeVisible();
-    await walk.capture('roadmap-board', 'Roadmap · board and controls');
+    await walk.capture(
+      'roadmap-board',
+      'Roadmap · board and controls',
+      heading('Cross-project roadmap'),
+    );
     await roadmapPages.getByRole('link', { name: 'History', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Saved revisions', exact: true })).toBeVisible();
-    await walk.capture('roadmap-history', 'Roadmap · revisions and amendments');
+    await walk.capture(
+      'roadmap-history',
+      'Roadmap · revisions and amendments',
+      region('Saved revisions'),
+    );
     await navigate(page, 'Roadmaps');
     await expect(page.getByRole('region', { name: 'Active roadmaps', exact: true })).toBeVisible();
-    await walk.capture('roadmaps-list', 'Roadmaps · every roadmap and imported map');
+    await walk.capture(
+      'roadmaps-list',
+      'Roadmaps · every roadmap and imported map',
+      region('Active roadmaps'),
+    );
 
     await navigate(page, 'Projects');
     await page.getByRole('button', { name: 'WorldInterface', exact: true }).click();
@@ -921,34 +1056,39 @@ test('captures every page of the app on desktop and phone viewports', async ({
         .getByRole('heading', { name: /wi\/WI-01/ })
         .first(),
     ).toBeVisible();
-    await walk.capture('work-item-slices', 'Work item · execution slices from a map');
+    await walk.capture(
+      'work-item-slices',
+      'Work item · execution slices from a map',
+      region('Execution slices and parent acceptance'),
+    );
 
     // ---- Lists and settings ------------------------------------------------------------------
     await navigate(page, 'Work items');
     await expect(page.getByRole('heading', { name: 'Work items', exact: true })).toBeVisible();
-    await walk.capture('agenda', 'Agenda · in agenda');
+    await walk.capture('agenda', 'Agenda · in agenda', heading('Work items'));
     await page.getByRole('tab', { name: 'All', exact: true }).click();
-    await walk.capture('agenda-all', 'Agenda · every item');
+    await walk.capture('agenda-all', 'Agenda · every item', heading('Work items'));
     await navigate(page, 'Runs');
     await expect(page.getByRole('heading', { name: 'Runs', exact: true })).toBeVisible();
-    await walk.capture('runs', 'Runs');
+    await walk.capture('runs', 'Runs', heading('Runs'));
     await navigate(page, 'Dashboard');
     await expect(page.getByRole('heading', { name: 'Walkthrough', exact: true })).toBeVisible();
-    await walk.capture('dashboard', 'Dashboard with work in flight');
+    await walk.capture('dashboard', 'Dashboard with work in flight', heading('Walkthrough'));
     await attentionAgrees(page);
     await navigate(page, 'Needs you');
-    await walk.capture('inbox-roadmap', 'Needs you · with a roadmap running');
+    await walk.capture('inbox-roadmap', 'Needs you · with a roadmap running', heading('Needs you'));
     await navigate(page, 'Dashboard');
     await phone.getByRole('button', { name: 'Menu', exact: true }).click();
     await expect(phone.getByRole('navigation', { name: 'Primary' })).toBeVisible();
-    await walk.capturePhoneOnly('menu-open', 'Phone navigation menu');
+    await walk.capturePhoneOnly('menu-open', 'Phone navigation menu', navigation('Primary'));
     await navigate(page, 'Settings');
     await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Change workstation capacity' })).toBeEnabled();
-    await walk.capture('settings', 'Workspace settings');
+    await walk.capture('settings', 'Workspace settings', heading('Settings'));
     await walk.capture(
       'workspace-agent-profiles',
       'Workspace defaults and specialist inheritance',
+      heading('Settings'),
       async (p) => {
         await p.getByRole('button', { name: 'Edit workspace defaults' }).click();
         await p
@@ -964,20 +1104,26 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capture(
       'agent-recommendations',
       'Model recommendations mapped to UI fields',
+      heading('Settings'),
       async (p) => {
         await p.getByText('Suggested models and where to set them').click();
       },
     );
     await page.getByText('Suggested models and where to set them').click();
-    await walk.capture('execution-capacity', 'Unified execution capacity controls', async (p) => {
-      await p.getByRole('button', { name: 'Change workstation capacity' }).click();
-    });
+    await walk.capture(
+      'execution-capacity',
+      'Unified execution capacity controls',
+      heading('Settings'),
+      async (p) => {
+        await p.getByRole('button', { name: 'Change workstation capacity' }).click();
+      },
+    );
     await navigate(page, `Account · ${E2E_USERNAME}`);
     await expect(page.getByRole('heading', { name: 'Account', exact: true })).toBeVisible();
-    await walk.capture('account', 'Account');
+    await walk.capture('account', 'Account', heading('Account'));
     await navigate(page, 'Workspaces');
     await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
-    await walk.capture('workspaces', 'Workspaces');
+    await walk.capture('workspaces', 'Workspaces', heading('Workspaces'));
 
     walk.writeIndex(label, commit);
   } finally {

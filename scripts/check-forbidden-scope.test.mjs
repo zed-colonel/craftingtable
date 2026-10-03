@@ -397,7 +397,8 @@ describe('the fail-open gaps the independent review found', () => {
         include: ['.'],
       }),
       'packages/storage/test/support.ts': spawning,
-      'packages/storage/test/store.test.ts': "import { spawn } from './support.js';\nexport { spawn };\n",
+      'packages/storage/test/store.test.ts':
+        "import { spawn } from './support.js';\nexport { spawn };\n",
       ...stack('test-stack'),
       ...stack('runner'),
       'apps/server/package.json': JSON.stringify({
@@ -413,6 +414,33 @@ describe('the fail-open gaps the independent review found', () => {
     expect(findings).toEqual([capability('packages/runner/src/index.ts', 'node:child_process')]);
     expect(classes.get('packages/storage/test/support.ts')).toBe('test-support');
     expect(classes.get('packages/test-stack/src/index.ts')).toBe('test-support');
+  });
+
+  /** Forms the self-tests did not plant, so a checker that dropped them still passed (MEDIUM-3). */
+  it('catches import-equals, import types, process loaders and lowercase prose', () => {
+    const root = workspace({
+      'apps/server/src/equals.ts': "import cp = require('node:child_process');\nexport { cp };\n",
+      'apps/server/src/types.ts':
+        "export type Spawn = typeof import('node:child_process').spawn;\n",
+      'apps/server/src/natives.ts': [
+        "export const a = process.binding('spawn_sync');",
+        "export const b = process.dlopen({ exports: {} }, '/x.node');",
+        "export const c = process['getBuiltinModule']('node:child_process');",
+        '',
+      ].join('\n'),
+      'apps/server/src/lower.ts':
+        "export const f = (x: { reason: string }) => x.reason === 'daemon restarted';\n",
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        capability('apps/server/src/equals.ts', 'node:child_process'),
+        capability('apps/server/src/types.ts', 'node:child_process'),
+        computed('apps/server/src/natives.ts', 1, 'process.binding'),
+        computed('apps/server/src/natives.ts', 2, 'process.dlopen'),
+        computed('apps/server/src/natives.ts', 3, 'getBuiltinModule'),
+        prose('apps/server/src/lower.ts', 1),
+      ].sort(),
+    );
   });
 
   /** Only what tests reach, and nothing production reaches, is test support (HIGH-1). */

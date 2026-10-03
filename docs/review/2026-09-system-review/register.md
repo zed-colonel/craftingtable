@@ -3495,7 +3495,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Imports.** 334 relative specifiers in 179 files crossed the move and were rewritten: `./x.js` became `../src/x.js`, and the server's deep paths into another package's `src/…-test-support.js` now point into its `test/`. Paths to `fixtures/` keep their depth, so they are unchanged.
     - `vitest.config.ts` now includes `apps/server/test` and `packages/*/test`, and no longer any package's `src`. Its `globalSetup` is `packages/storage/test/template-test-support-setup.ts`.
     - Tests that named their own directory now name `src`: `run-lineage`'s source scan, `agent-tree`'s child module, and the `local-check`, `check-spool` and `source-hooks` children.
-  - **Not moved.** The browser app's tests and its two support modules stay where they are: `apps/web` emits nothing with `tsc`, and vite bundles only what `index.html` loads. `e2e-entry.ts`, `test-data-root.ts` and `test-daemon-storage.ts` stay in `src` too: Playwright's e2e daemon (`e2e:start`) runs them, so they are production modules of that entry, and they import no test code.
+  - **Not moved.** The browser app's tests and its two support modules stay where they are: `apps/web` emits nothing with `tsc`, and vite bundles only what `index.html` loads. `e2e-entry.ts`, `test-data-root.ts` and `test-daemon-storage.ts` stayed in `src` in this commit. The independent review's M1 later moved them, with `e2e-environment.ts`, to `test/e2e/` (below).
   - **Verified.** Every `dist` and `tsconfig.tsbuildinfo` was deleted, then `tsc -b` emitted 1,136 files. None is a test or test support, and none imports vitest. At the base, the same build also emitted the 212 moved modules, among them `execution-test-support.js`, which imports vitest at runtime. `vitest list` names the same 2,164 tests as at the base: the same projects, full names and multiplicities, with paths mapped from `src/` to `test/`.
   - **A clean `dist`.** `tsc -b` never deletes an output whose source is gone, so a development checkout keeps stale ones until its `dist` is deleted (`packages/storage/dist/repository-test-support.js` was one). A release is not affected: `pnpm deploy:daemon` builds in a fresh `git worktree add` of the commit, where no `dist` exists yet.
 - **Advanced 2026-10-02: one fixture stack for the daemon's tests (TS-M14, ARCH F7).**
@@ -3528,9 +3528,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - A type-only import of vitest is still a finding: the declarations a build emits would name the runner too.
       - A module that an otherwise unused production module imports is not "only tests": the build emits its importer.
       - `createDaemon` still lists the 24 server dependencies by name; it is now the only copy.
-      - The e2e daemon's `e2e-entry.ts`, `test-data-root.ts` and `test-daemon-storage.ts` stay in `src`, so the build emits them. Moving them means changing how `playwright.config.ts` starts the daemon (`src/e2e-entry.ts`), which this pass leaves to the e2e work.
+      - The e2e daemon's modules stayed in `src` at this point. The independent review's M1 moved them (below).
+- **Advanced 2026-10-02 (independent review M1): the e2e harness leaves `src`, and rule 6 starts only from declared entries.**
+  - **The defect.** A clean `tsc -b` still emitted `e2e-entry.js`, `e2e-environment.js`, `test-data-root.js` and `test-daemon-storage.js` into `apps/server/dist`. `e2e-entry` bootstraps a fixed admin password, and Playwright runs it from source. Rule 6 missed them for two reasons: a module nothing imports counted as a production entry, and `e2e:start` named `e2e-entry`.
+  - **The move.** The four modules moved with `git mv` to `apps/server/test/e2e/`. The server's `tsconfig.test.json` type-checks that directory, and no build emits it.
+    - These now name the new paths: `e2e:start`; the Playwright `webServer` command (that one line only, with the coordinator's leave); `vitest.config.ts`; and the test support's imports.
+    - `scripts/e2e-daemon-shutdown.test.mjs` starts the daemon from the new path and passes.
+    - A clean build emits 1,120 files, 16 fewer.
+  - **Rule 6 changed at the root.** It now starts only from the entries the workspace declares: a production package's manifest (`main`, `exports`, `bin` and its scripts) and the pages. A module nothing imports no longer counts as an entry. A declared entry in a package's `test/` (now `e2e:start`) counts as a test.
+    - So a built module is a finding when only tests and such harnesses reach it. It is also a finding when no declared entry and no test reaches it: dead code, or a harness nothing declares.
+    - Classification is unchanged: such a module is still checked as production.
+    - **What it cannot tell.** A harness that a manifest script starts from `src` is a declared entry, just as the operator's CLI is. Harnesses belong in `test/`, and the rule's comment says so.
+    - **Triple-slash references.** A `/// <reference types="vitest" />` in a built module is a finding, as a type-only import is.
+    - **Self-tests.** The throwaway projects now set `noEmit`, except in the tests that plant rule 6 cases, which build and declare their entries. The new rule 6 plants: an unimported harness in `src`; what only that harness and a test reach; what only a `test/` harness reaches; and a triple-slash reference. Four more mutants each fail them: no unreached finding, no `test/` harness, unimported modules counted as entries again, and no triple-slash check.
+    - The real tree passes.
 - **Done (2026-10-02, the test-suite review pass).** The done-when is met.
-  - **"No `*.test.js` or test-support in `dist`."** A clean `tsc -b` emits none of either, and rule 6 fails the check if a build would.
+  - **"No `*.test.js` or test-support in `dist`."** A clean `tsc -b` emits 1,120 files: no test, no test support and no e2e harness. None is named as a test, and none imports a test runner.
+    - Rule 6 fails the check if a build would emit any of these: a test; a module that imports a test runner or references its types; or a module no declared entry reaches.
+    - The one case it cannot tell is a harness that a manifest script starts from `src`.
   - **"The known bypasses fail `check:scope`."** Unit I's 14 planted bypasses and the 13 fail-open plants of the independent review fail. So does test code built into `dist`.
   - **The test-suite review's extensions** (TS-M11, TS-M14, TS-H6) are done: the `src/dist/` import, template-literal `import()` and `switch (x.reason)` bypasses; the links and decision-boundary guards' self-tests; one fixture stack with the daemon's own teardown; `local-check` children run from source.
   - **Left to other items, as recorded above.** Rule 5 misses aliases and destructure renames (R-A3's branded `Prose`). The links guard misses GR F-5's shapes (R-E1), and the boundary import rule misses dynamic and extensionless imports (R-A6). The browser's `window` and `self` aliases of the global object are not checked.

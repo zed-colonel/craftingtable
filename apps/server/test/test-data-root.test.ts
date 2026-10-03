@@ -7,8 +7,8 @@ import {
   migrationLedger,
   templateLedger,
 } from '../../../packages/storage/test/template-test-support.js';
-import { TEST_DAEMON_RESERVE_GIB } from '../src/test-daemon-storage.js';
-import { chooseTestDataRoot } from '../src/test-data-root.js';
+import { TEST_DAEMON_RESERVE_GIB } from './e2e/test-daemon-storage.js';
+import { chooseTestDataRoot } from './e2e/test-data-root.js';
 import { createTestContext, type TestContext, testDataRoot } from './test-support.js';
 
 const roots: string[] = [];

@@ -11,20 +11,26 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-/** A server-like project: compiles `src` to `dist`, as the workspace's packages do. */
-const PACKAGE_TSCONFIG = JSON.stringify({
-  compilerOptions: {
-    target: 'ES2023',
-    module: 'NodeNext',
-    moduleResolution: 'NodeNext',
-    rootDir: 'src',
-    outDir: 'dist',
-    strict: true,
-    skipLibCheck: true,
-    types: [],
-  },
-  include: ['src'],
-});
+/**
+ * A server-like project: compiles `src` to `dist`, as the workspace's packages do. Without
+ * `emit` it sets `noEmit`: rules 1-5 read it the same either way, and rule 6, which reads only
+ * what a build ships, is planted with `{ emit: true }` and declared entries.
+ */
+const packageTsconfig = (emit) =>
+  JSON.stringify({
+    compilerOptions: {
+      target: 'ES2023',
+      module: 'NodeNext',
+      moduleResolution: 'NodeNext',
+      rootDir: 'src',
+      outDir: 'dist',
+      ...(emit ? {} : { noEmit: true }),
+      strict: true,
+      skipLibCheck: true,
+      types: [],
+    },
+    include: ['src'],
+  });
 /** The browser app's shape: bundler resolution, no emit. */
 const WEB_TSCONFIG = JSON.stringify({
   compilerOptions: {
@@ -60,7 +66,7 @@ const VITEST_CONFIG = `export default {
  * (unless the files give one, or `null` for none), a vitest config, and the repository's kind
  * of `.gitignore`, all in a temporary directory.
  */
-function workspace(files, { root: given, git = true } = {}) {
+function workspace(files, { root: given, git = true, emit = false } = {}) {
   const root = given ?? mkdtempSync(join(tmpdir(), 'craftingtable-scope-'));
   if (given === undefined) roots.push(root);
   const all = {
@@ -72,7 +78,7 @@ function workspace(files, { root: given, git = true } = {}) {
     const [group, name] = path.split('/');
     if (group !== 'apps' && group !== 'packages') continue;
     all[`${group}/${name}/tsconfig.json`] =
-      `${group}/${name}` === 'apps/web' ? WEB_TSCONFIG : PACKAGE_TSCONFIG;
+      `${group}/${name}` === 'apps/web' ? WEB_TSCONFIG : packageTsconfig(emit);
   }
   Object.assign(all, files);
   for (const [path, content] of Object.entries(all)) {
@@ -422,35 +428,53 @@ describe('the fail-open gaps the independent review found', () => {
    */
   it('fails tests and test support that a production build would ship', () => {
     const spawning = "import { spawn } from 'node:child_process';\nexport { spawn };\n";
-    const root = workspace({
-      'vitest.config.ts': `export default {
+    const root = workspace(
+      {
+        'vitest.config.ts': `export default {
   test: { include: ['packages/*/src/**/*.test.ts', 'packages/*/test/**/*.test.ts', 'apps/server/test/**/*.test.ts'] },
 };
 `,
-      'apps/server/package.json': JSON.stringify({
-        name: '@craftingtable/server',
-        dependencies: { '@craftingtable/storage': 'workspace:*' },
-      }),
-      'packages/storage/package.json': JSON.stringify({ name: '@craftingtable/storage' }),
-      // Left in `src` by a move, and still included by vitest.
-      'packages/storage/src/store.test.ts': "import { seed } from './seed.js';\nexport { seed };\n",
-      // Only tests import it.
-      'packages/storage/src/seed.ts': 'export const seed = 1;\n',
-      'packages/storage/test/seed.test.ts':
-        "import { seed } from '../src/seed.js';\nexport { seed };\n",
-      // Production imports a module that imports the test runner.
-      'apps/server/src/index.ts':
-        "import { expect } from './expect.js';\nexport const worker = 'worker.js';\nexport { expect };\n",
-      'apps/server/src/expect.ts': "import { expect } from 'vitest';\nexport { expect };\n",
-      // Loaded only by a path built at runtime (the string above), and imported by its test.
-      'apps/server/src/worker.ts': spawning,
-      'apps/server/test/worker.test.ts':
-        "import { spawn } from '../src/worker.js';\nexport { spawn };\n",
-      // Test support in a test project: not built, so not a finding.
-      'apps/server/test/support.ts': spawning,
-      'apps/server/test/support.test.ts':
-        "import { spawn } from './support.js';\nexport { spawn };\n",
-    });
+        'apps/server/package.json': JSON.stringify({
+          name: '@craftingtable/server',
+          main: './dist/index.js',
+          // A harness a script starts from the package's test/ (the e2e daemon).
+          scripts: { 'e2e:start': 'tsx test/e2e/entry.ts' },
+          dependencies: { '@craftingtable/storage': 'workspace:*' },
+        }),
+        'packages/storage/package.json': JSON.stringify({ name: '@craftingtable/storage' }),
+        // Left in `src` by a move, and still included by vitest.
+        'packages/storage/src/store.test.ts':
+          "import { seed } from './seed.js';\nexport { seed };\n",
+        // Only tests import it.
+        'packages/storage/src/seed.ts': 'export const seed = 1;\n',
+        'packages/storage/test/seed.test.ts':
+          "import { seed } from '../src/seed.js';\nexport { seed };\n",
+        // Production imports a module that imports the test runner.
+        'apps/server/src/index.ts':
+          "import { expect } from './expect.js';\nexport const worker = 'worker.js';\nexport { expect };\n",
+        'apps/server/src/expect.ts': "import { expect } from 'vitest';\nexport { expect };\n",
+        // Loaded only by a path built at runtime (the string above), and imported by its test.
+        'apps/server/src/worker.ts': spawning,
+        'apps/server/test/worker.test.ts':
+          "import { spawn } from '../src/worker.js';\nexport { spawn };\n",
+        // A harness nothing declares, which nothing imports: not an entry to rule 6, so it and
+        // what only it and tests reach are findings.
+        'apps/server/src/harness.ts':
+          "import { reserve } from './reserve.js';\nexport { reserve };\n",
+        'apps/server/src/reserve.ts': 'export const reserve = 1;\n',
+        'apps/server/test/reserve.test.ts':
+          "import { reserve } from '../src/reserve.js';\nexport { reserve };\n",
+        // What only the test/ harness reaches.
+        'apps/server/test/e2e/entry.ts':
+          "import { root } from '../../src/root.js';\nexport { root };\n",
+        'apps/server/src/root.ts': 'export const root = 1;\n',
+        // Test support in a test project: not built, so not a finding.
+        'apps/server/test/support.ts': spawning,
+        'apps/server/test/support.test.ts':
+          "import { spawn } from './support.js';\nexport { spawn };\n",
+      },
+      { emit: true },
+    );
     const onlyTests = (path, outDir) =>
       `${path}: only tests import it, yet it is built into ${outDir}; move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it`;
     const { findings, classes } = inspectWorkspace(root);
@@ -461,6 +485,9 @@ describe('the fail-open gaps the independent review found', () => {
         'apps/server/src/expect.ts: imports the test runner "vitest" and is built into apps/server/dist',
         onlyTests('apps/server/src/worker.ts', 'apps/server/dist'),
         capability('apps/server/src/worker.ts', 'node:child_process'),
+        "apps/server/src/harness.ts: no declared entry reaches it, yet it is built into apps/server/dist; import it from production, name it with new URL(…, import.meta.url) from the module that loads it, or move it to the package's test/ directory",
+        onlyTests('apps/server/src/reserve.ts', 'apps/server/dist'),
+        onlyTests('apps/server/src/root.ts', 'apps/server/dist'),
       ].sort(),
     );
     expect(classes.get('apps/server/src/worker.ts')).toBe('production');
@@ -469,39 +496,51 @@ describe('the fail-open gaps the independent review found', () => {
 
   /** Code review: a test vitest no longer runs, other runners, and a build that compiles test/. */
   it('fails stray tests, other test runners, and a production project compiling test/', () => {
-    const root = workspace({
-      'apps/server/package.json': JSON.stringify({
-        name: '@craftingtable/server',
-        dependencies: { '@craftingtable/storage': 'workspace:*', '@craftingtable/contracts': '*' },
-      }),
-      'packages/storage/package.json': JSON.stringify({ name: '@craftingtable/storage' }),
-      // Left in `src`, outside vitest's include, and importing no runner itself.
-      'packages/storage/src/stray.test.ts': "import { help } from './help.js';\nexport { help };\n",
-      'packages/storage/src/help.ts': 'export const help = 1;\n',
-      'apps/server/src/index.ts': "import { check } from './runner.js';\nexport { check };\n",
-      'apps/server/src/runner.ts':
-        "import { test } from 'node:test';\nexport const check = test;\n",
-      'packages/contracts/package.json': JSON.stringify({ name: '@craftingtable/contracts' }),
-      'packages/contracts/tsconfig.json': JSON.stringify({
-        compilerOptions: {
-          module: 'NodeNext',
-          moduleResolution: 'NodeNext',
-          rootDir: '.',
-          outDir: 'dist',
-          types: [],
-        },
-        include: ['src', 'test'],
-      }),
-      'packages/contracts/src/index.ts': 'export const a = 1;\n',
-      'packages/contracts/test/support.ts': 'export const s = 1;\n',
-      'packages/contracts/test/a.test.ts': "import { s } from './support.js';\nexport { s };\n",
-    });
+    const root = workspace(
+      {
+        'apps/server/package.json': JSON.stringify({
+          name: '@craftingtable/server',
+          main: './dist/index.js',
+          dependencies: {
+            '@craftingtable/storage': 'workspace:*',
+            '@craftingtable/contracts': '*',
+          },
+        }),
+        'packages/storage/package.json': JSON.stringify({ name: '@craftingtable/storage' }),
+        // Left in `src`, outside vitest's include, and importing no runner itself.
+        'packages/storage/src/stray.test.ts':
+          "import { help } from './help.js';\nexport { help };\n",
+        'packages/storage/src/help.ts': 'export const help = 1;\n',
+        'apps/server/src/index.ts': "import { check } from './runner.js';\nexport { check };\n",
+        'apps/server/src/runner.ts':
+          '/// <reference types="vitest" />\nimport { test } from \'node:test\';\nexport const check = test;\n',
+        'packages/contracts/package.json': JSON.stringify({
+          name: '@craftingtable/contracts',
+          main: './dist/src/index.js',
+        }),
+        'packages/contracts/tsconfig.json': JSON.stringify({
+          compilerOptions: {
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            rootDir: '.',
+            outDir: 'dist',
+            types: [],
+          },
+          include: ['src', 'test'],
+        }),
+        'packages/contracts/src/index.ts': 'export const a = 1;\n',
+        'packages/contracts/test/support.ts': 'export const s = 1;\n',
+        'packages/contracts/test/a.test.ts': "import { s } from './support.js';\nexport { s };\n",
+      },
+      { emit: true },
+    );
     const keepOut = "keep the package's test/ directory out of its production tsconfig.json";
     expect(runCheck(root).sort()).toEqual(
       [
         "packages/storage/src/stray.test.ts: named as a test, though vitest does not run it, built into packages/storage/dist; tests live in the package's test/ directory",
         "packages/storage/src/help.ts: only tests import it, yet it is built into packages/storage/dist; move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it",
         'apps/server/src/runner.ts: imports the test runner "node:test" and is built into apps/server/dist',
+        'apps/server/src/runner.ts: references the test runner\'s types "vitest" and is built into apps/server/dist',
         `packages/contracts/test/a.test.ts: a test built into packages/contracts/dist; ${keepOut}`,
         `packages/contracts/test/support.ts: only tests import it, yet it is built into packages/contracts/dist; ${keepOut}`,
       ].sort(),

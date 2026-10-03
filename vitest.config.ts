@@ -1,6 +1,6 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vitest/config';
-import { chooseTestDataRoot } from './apps/server/src/test-data-root.ts';
+import { chooseTestDataRoot } from './apps/server/test/e2e/test-data-root.ts';
 
 const fromHere = (path: string): string => fileURLToPath(new URL(path, import.meta.url));
 

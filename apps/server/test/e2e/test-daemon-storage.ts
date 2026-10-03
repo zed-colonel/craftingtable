@@ -1,6 +1,6 @@
-import type { ServerConfig } from './config.js';
-import type { openDaemonStorage } from './persisted-records.js';
-import { initialStorageSettings } from './services/storage-service.js';
+import type { ServerConfig } from '../../src/config.js';
+import type { openDaemonStorage } from '../../src/persisted-records.js';
+import { initialStorageSettings } from '../../src/services/storage-service.js';
 
 /**
  * The free-space reserve of a test daemon, in GiB (TS-H8). Test daemons keep their data on the

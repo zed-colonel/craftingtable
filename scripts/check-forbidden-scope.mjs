@@ -22,8 +22,11 @@
  *    R-A3). Stops carry typed codes; `packages/domain/src/attention-legacy.ts` is the one
  *    place that maps text written by earlier releases to codes.
  * 6. Nothing test-only is built into a production package's `dist` (R-I4): no test (one
- *    vitest runs, or one named as a test), no module that imports a test runner, and no module
- *    that only tests import.
+ *    vitest runs, or one named as a test), no module that imports a test runner or references
+ *    its types, and only modules a declared entry (a production package's manifest, a page)
+ *    reaches. An entry in a package's `test/` (the e2e daemon a script starts) is a test to
+ *    it. The one thing it cannot tell: a harness a manifest script starts from `src` is a
+ *    declared entry like the operator's CLI; harnesses live in `test/`.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -44,8 +47,8 @@
  * - **What a build ships** is production too: every module a project of a package production
  *   runs compiles without `noEmit`, which a clean `tsc -b` writes into `dist`. Tests and their
  *   support live in each package's `test/`, which only a `noEmit` project compiles (R-I4,
- *   TS-M14). So a test, a module importing the test runner, or one only tests import, built
- *   into `dist`, is a finding (rule 6), and such a module is checked as production.
+ *   TS-M14). So a test, a module importing the test runner, or one no declared entry reaches,
+ *   built into `dist`, is a finding (rule 6), and such a module is checked as production.
  *
  * Exported functions are tested in check-forbidden-scope.test.mjs on throwaway workspaces.
  */
@@ -957,9 +960,9 @@ function builtModules(root, projects, modules) {
  * the module a page loads, a module a production build emits (`builtModules`), or a module
  * that is not a test and that no module imports (an application entry, a launcher's target, or
  * dead code). What only tests and vitest's setup modules reach is test support; what nothing
- * reaches is production too. `onlyTestsReach` is what tests alone would reach if built modules
- * were not entries; among built modules it is test support in `dist`, which `buildFindings`
- * reports.
+ * reaches is production too. For rule 6, `onlyTestsReach` is what tests and `test/` harnesses
+ * reach and no declared entry does, and `unreached` what neither reaches: among built modules,
+ * each is a finding of `buildFindings`.
  */
 function productionModules(root, projects, modules, tests, built) {
   const testFiles = new Set(
@@ -967,14 +970,18 @@ function productionModules(root, projects, modules, tests, built) {
   );
   const imported = new Set();
   for (const module of modules.values()) for (const target of module.imports) imported.add(target);
-  const entries = [...modules.keys()].filter((file) => !imported.has(file) && !testFiles.has(file));
+  const unimported = [...modules.keys()].filter(
+    (file) => !imported.has(file) && !testFiles.has(file),
+  );
+  // The entries the workspace declares: production packages' manifests, and pages.
+  const declared = [];
   const manifests = workspaceManifests(root);
   const running = productionPackages(manifests);
   for (const { directory, manifest } of manifests) {
     for (const entry of running.has(directory) ? manifestEntries(manifest) : []) {
       // A manifest names the build output; its module is the source the project compiles.
       const source = sourceModule(resolve(root, directory, entry), projects, modules);
-      if (source !== undefined) entries.push(source);
+      if (source !== undefined) declared.push(source);
     }
     // The browser app's entry is the module its `index.html` loads (vite's entry).
     let html = '';
@@ -985,7 +992,7 @@ function productionModules(root, projects, modules, tests, built) {
     }
     for (const [, source] of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/g)) {
       const path = join(root, directory, source.startsWith('/') ? `.${source}` : source);
-      if (modules.has(path)) entries.push(path);
+      if (modules.has(path)) declared.push(path);
     }
   }
   const reach = (from) => {
@@ -999,20 +1006,31 @@ function productionModules(root, projects, modules, tests, built) {
     }
     return reached;
   };
-  // A built module named as a test that vitest does not run (one left in `src` by a move) is a
-  // test to rule 6, so a module only it imports is not hidden behind it as an entry.
+  const entries = [...unimported, ...declared];
+  // Rule 6 starts only from the entries the workspace declares, never from a module merely
+  // because nothing imports it: an unimported module in `src` is dead code or a harness, and
+  // the build would ship it. A built module named as a test that vitest does not run (one left
+  // in `src` by a move) is a test to it, and so is a declared entry in a package's `test/`
+  // (the e2e daemon a manifest script starts): what only they reach is test-only.
   const strayTests = new Set(
     [...built.keys()].filter((file) => !testFiles.has(file) && TEST_NAME.test(file)),
   );
-  const fromTests = reach([...testFiles, ...strayTests]);
+  const harnesses = new Set(
+    declared.filter((file) => TEST_DIRECTORY.test(posix(relative(root, file)))),
+  );
+  const testOnly = (file) => testFiles.has(file) || strayTests.has(file) || harnesses.has(file);
+  const fromTests = reach([...testFiles, ...strayTests, ...harnesses]);
   const supportOutside = (fromEntries) =>
-    new Set(
-      [...fromTests].filter(
-        (file) => !fromEntries.has(file) && !testFiles.has(file) && !strayTests.has(file),
-      ),
-    );
+    new Set([...fromTests].filter((file) => !fromEntries.has(file) && !testOnly(file)));
+  const fromDeclared = reach(declared.filter((file) => !harnesses.has(file)));
   // What tests alone reach among the modules a build ships: by the graph it is test support.
-  const onlyTestsReach = supportOutside(reach(entries.filter((file) => !strayTests.has(file))));
+  const onlyTestsReach = supportOutside(fromDeclared);
+  // What a build ships that neither a declared entry nor a test reaches.
+  const unreached = new Set(
+    [...built.keys()].filter(
+      (file) => !fromDeclared.has(file) && !fromTests.has(file) && !strayTests.has(file),
+    ),
+  );
   // A module a production build ships is production, whoever imports it (R-I4): so a module
   // loaded only through a path built at runtime, and imported by a test, is checked too.
   const fromEntries = reach([...entries, ...[...built.keys()].filter((f) => !testFiles.has(f))]);
@@ -1024,13 +1042,15 @@ function productionModules(root, projects, modules, tests, built) {
       (file) => fromEntries.has(file) || (!testFiles.has(file) && !support.has(file)),
     ),
   );
-  return { production, tests: testFiles, strayTests, onlyTestsReach };
+  return { production, tests: testFiles, strayTests, onlyTestsReach, unreached };
 }
 
 /** The test runners: vitest, and the two a test might reach for instead. */
 const TEST_RUNNER = /^(?:vitest|@vitest\/[^/]+|@playwright\/test|node:test)(?:\/.*)?$/;
 /** A module named as a test (`x.test.ts`, `x.spec.tsx`), whether or not vitest runs it. */
 const TEST_NAME = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+/** A package's `test/` directory, where its tests and test support live (R-I4). */
+const TEST_DIRECTORY = /^(?:apps|packages)\/[^/]+\/test\//;
 
 /**
  * Nothing test-only in what a production build ships (R-I4, TS-M14): no test, no module that
@@ -1042,7 +1062,7 @@ function buildFindings(root, modules, classified, built) {
   for (const [file, outDir] of built) {
     const path = posix(relative(root, file));
     // Already in `test/`: the fix is the production project, which must not compile it.
-    const keepOut = /^(?:apps|packages)\/[^/]+\/test\//.test(path)
+    const keepOut = TEST_DIRECTORY.test(path)
       ? "keep the package's test/ directory out of its production tsconfig.json"
       : undefined;
     if (classified.tests.has(file) || classified.strayTests.has(file)) {
@@ -1054,11 +1074,21 @@ function buildFindings(root, modules, classified, built) {
       );
       continue;
     }
+    // A `/// <reference types="vitest" />` names the runner as an import type does.
+    for (const { fileName } of modules.get(file).sourceFile.typeReferenceDirectives ?? [])
+      if (TEST_RUNNER.test(fileName))
+        findings.push(
+          `${path}: references the test runner's types "${fileName}" and is built into ${outDir}`,
+        );
     for (const { specifier } of modules.get(file).references)
       if (TEST_RUNNER.test(specifier))
         findings.push(
           `${path}: imports the test runner "${specifier}" and is built into ${outDir}`,
         );
+    if (classified.unreached.has(file))
+      findings.push(
+        `${path}: no declared entry reaches it, yet it is built into ${outDir}; import it from production, name it with new URL(…, import.meta.url) from the module that loads it, or move it to the package's test/ directory`,
+      );
     if (classified.onlyTestsReach.has(file))
       findings.push(
         `${path}: only tests import it, yet it is built into ${outDir}; ${keepOut ?? "move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it"}`,
@@ -1176,6 +1206,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, nothing test-only built into dist.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

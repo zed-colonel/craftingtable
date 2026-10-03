@@ -14,7 +14,7 @@ import type { PasswordHasher } from '../src/security/password-hasher.js';
 import type { NotificationTransport } from '../src/services/notification-transport.js';
 import type { RunLog } from '../src/services/agent-run-service.js';
 import type { WorkspaceEventStreamHooks } from '../src/services/workspace-event-stream-service.js';
-import { seedTestDaemonStorage } from '../src/test-daemon-storage.js';
+import { seedTestDaemonStorage } from './e2e/test-daemon-storage.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {

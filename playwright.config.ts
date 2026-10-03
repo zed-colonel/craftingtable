@@ -127,7 +127,7 @@ export default defineConfig({
       // `exec` makes the daemon the process Playwright waits for. Started through pnpm, pnpm
       // left at the stop signal, Playwright took the command as finished and killed the group,
       // and the daemon died partway through removing its data directory (R-I5, R-I9).
-      command: 'exec node --import tsx src/e2e-entry.ts',
+      command: 'exec node --import tsx test/e2e/e2e-entry.ts',
       cwd: SERVER_DIRECTORY,
       url: SERVER_HEALTH_URL,
       reuseExistingServer: false,

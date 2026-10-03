@@ -16,7 +16,7 @@ export interface TemporaryStorage {
 
 declare module 'vitest' {
   export interface ProvidedContext {
-    /** Where test daemons keep their data (`apps/server/src/test-data-root.ts`, TS-H8). */
+    /** Where test daemons keep their data (`apps/server/test/e2e/test-data-root.ts`, TS-H8). */
     testDataRoot: string;
   }
 }

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { configFromEnv } from '../src/config.js';
-import { e2eEnvironment } from '../src/e2e-environment.js';
+import { e2eEnvironment } from './e2e/e2e-environment.js';
 
 it('passes the gate’s workstation capacity through to the e2e daemon (R-I9 review)', () => {
   const config = configFromEnv(

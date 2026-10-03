@@ -1,9 +1,9 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { createRuntime } from './composition.js';
-import { configFromEnv } from './config.js';
+import { createRuntime } from '../../src/composition.js';
+import { configFromEnv } from '../../src/config.js';
 import { e2eEnvironment } from './e2e-environment.js';
-import { openDaemonStorage } from './persisted-records.js';
+import { openDaemonStorage } from '../../src/persisted-records.js';
 import { seedTestDaemonStorage } from './test-daemon-storage.js';
 import { chooseTestDataRoot } from './test-data-root.js';
 

@@ -1,9 +1,10 @@
 import { constants, copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inject } from 'vitest';
+import { discoverMigrations, type MigrationDefinition } from './migrations.js';
 import { acceptAnyRecord } from './records.js';
 import { openCraftingTableStorage } from './storage.js';
-import { migratedTemplate } from './test-template.js';
+import { migratedTemplate } from './template-test-support.js';
 import type { CraftingTableStorage } from './types.js';
 
 export interface TemporaryStorage {
@@ -31,18 +32,23 @@ export function testDataRoot(): string {
   return root;
 }
 
+// The migration files, read once per test file: test modules are imported afresh for each
+// file, so a migration changed during a watch-mode run is still seen by the next file.
+let migrations: readonly MigrationDefinition[] | undefined;
+
 /**
  * Puts a copy of this run's migrated template at `databasePath` (TS-M13, R-I2), so the open
  * that follows finds the schema current and migrates nothing. The template is built once per
- * run by `test-template-setup.ts`, and again for a changed migration set. Tests of migrating
- * itself open a database that does not exist yet instead.
+ * run by `template-test-support-setup.ts`, and again for a changed migration set. Tests of
+ * migrating itself open a database that does not exist yet instead.
  */
 export function copyMigratedTemplate(databasePath: string): void {
   const directory = inject('testTemplateDirectory');
   if (typeof directory !== 'string')
-    throw new Error('vitest.config.ts runs no test-template-setup for this project');
+    throw new Error('vitest.config.ts runs no template-test-support-setup for this project');
+  migrations ??= discoverMigrations();
   mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
-  copyFileSync(migratedTemplate(directory), databasePath, constants.COPYFILE_EXCL);
+  copyFileSync(migratedTemplate(directory, migrations), databasePath, constants.COPYFILE_EXCL);
 }
 
 /**
@@ -52,8 +58,14 @@ export function copyMigratedTemplate(databasePath: string): void {
 export function temporaryStorage(options: { readonly fresh?: boolean } = {}): TemporaryStorage {
   const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-storage-test-'));
   const databasePath = join(directory, 'state', 'craftingtable.sqlite');
-  if (!options.fresh) copyMigratedTemplate(databasePath);
-  const storage = openCraftingTableStorage(databasePath, acceptAnyRecord);
+  let storage: CraftingTableStorage;
+  try {
+    if (!options.fresh) copyMigratedTemplate(databasePath);
+    storage = openCraftingTableStorage(databasePath, acceptAnyRecord);
+  } catch (error) {
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
   return {
     directory,
     databasePath,

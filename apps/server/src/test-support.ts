@@ -94,8 +94,14 @@ export async function createTestContext(
   });
   // A copy of the run's migrated template, not a migration of its own (TS-M13). It holds no
   // settings, so the test reserve below is still the daemon's first-boot save.
-  copyMigratedTemplate(config.databasePath);
-  const storage = openDaemonStorage(config.databasePath);
+  let storage: ReturnType<typeof openDaemonStorage>;
+  try {
+    copyMigratedTemplate(config.databasePath);
+    storage = openDaemonStorage(config.databasePath);
+  } catch (error) {
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
   seedTestDaemonStorage(storage, config);
   const services = await createServices(storage, config, {
     notificationTransport: options.notificationTransport ?? {

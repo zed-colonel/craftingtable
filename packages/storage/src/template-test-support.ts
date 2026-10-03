@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, linkSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { openDatabase } from './database.js';
@@ -7,7 +7,7 @@ import { discoverMigrations, type MigrationDefinition, runMigrations } from './m
 
 declare module 'vitest' {
   export interface ProvidedContext {
-    /** This run's directory of migrated template databases (`test-template-setup.ts`). */
+    /** This run's directory of migrated template databases (`template-test-support-setup.ts`). */
     testTemplateDirectory: string;
   }
 }
@@ -30,8 +30,9 @@ export function migrationSetKey(migrations: readonly MigrationDefinition[]): str
  *
  * The file is keyed by the migration set, so a changed or added migration gets a new template.
  * It is checkpointed and closed before it gets its final name, so a copy is a whole database
- * with no write-ahead log beside it. Two workers that build the same template at once each
- * build their own file and rename it into place; the copies are identical.
+ * with no write-ahead log beside it. The final name is a hard link that never replaces an
+ * existing file: when two workers build the same template at once, the first one's stays and
+ * every copy is of that one.
  */
 export function migratedTemplate(
   directory: string,
@@ -48,7 +49,11 @@ export function migratedTemplate(
     } finally {
       database.close();
     }
-    renameSync(building, path);
+    try {
+      linkSync(building, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
   } finally {
     for (const leftover of [building, `${building}-wal`, `${building}-shm`])
       rmSync(leftover, { force: true });
@@ -56,16 +61,38 @@ export function migratedTemplate(
   return path;
 }
 
-/** The migration ledger of a database, read in place without migrating it. */
-export function migrationLedger(
-  databasePath: string,
-): readonly { version: number; name: string; checksum: string; applied_at: string }[] {
+type LedgerRow = { version: number; name: string; checksum: string; applied_at: string };
+const LEDGER = 'SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version';
+
+/** The migration ledger of a live database, read in place without migrating it. */
+export function migrationLedger(databasePath: string): readonly LedgerRow[] {
   const database = new Database(databasePath, { readonly: true, fileMustExist: true });
   try {
-    return database
-      .prepare('SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version')
-      .all() as { version: number; name: string; checksum: string; applied_at: string }[];
+    return database.prepare(LEDGER).all() as LedgerRow[];
   } finally {
     database.close();
   }
+}
+
+/**
+ * Runs a read-only query on a template without opening the file: a reader opened in place
+ * would add a write-ahead log beside it while other workers copy it. The template is
+ * checkpointed, so its bytes are the whole database; in memory it is read as a rollback-journal
+ * database (header bytes 18-19), since an in-memory database has no log.
+ */
+export function readTemplate<T>(templatePath: string, query: string): T[] {
+  const bytes = readFileSync(templatePath);
+  bytes[18] = 1;
+  bytes[19] = 1;
+  const database = new Database(bytes, { readonly: true });
+  try {
+    return database.prepare(query).all() as T[];
+  } finally {
+    database.close();
+  }
+}
+
+/** The migration ledger of a template (`readTemplate`). */
+export function templateLedger(templatePath: string): readonly LedgerRow[] {
+  return readTemplate<LedgerRow>(templatePath, LEDGER);
 }

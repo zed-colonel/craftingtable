@@ -13,7 +13,8 @@ afterEach(() => {
 
 describe('SQLite operating mode', () => {
   it('enables and verifies the required pragmas on a real file', () => {
-    const temporary = temporaryStorage();
+    // A new file, not the migrated template's copy, whose header already records WAL.
+    const temporary = temporaryStorage({ fresh: true });
     temporaries.push(temporary);
     const database = new Database(temporary.databasePath);
     expect(configureDatabase(database)).toEqual({

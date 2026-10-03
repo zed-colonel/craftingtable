@@ -79,6 +79,8 @@ it('records each roadmap entry’s decision for one pass without launching or wr
       args: {
         workItemId: input.entries[0]!.workItemId,
         repositoryId: storedRoadmap(state).definition.entries[0]!.repositoryId,
+        // The pass reserved the attempt itself, so its worktree id is new on every replay.
+        worktreeId: '(minted)',
       },
     },
     [second]: wait,
@@ -92,16 +94,21 @@ it('records each roadmap entry’s decision for one pass without launching or wr
   copyFileSync(source, copy);
   await replaySchedulerDecisions(copy, copyDirectory, new Date());
   const replayed = openDaemonStorage(copy);
+  let reserved: string | undefined;
   try {
-    expect(replayed.roadmaps.find(state.workspaceId, storedRoadmap(state).id)?.attempts).toEqual([
-      expect.objectContaining({ entryId: first, status: 'preparing' }),
-    ]);
+    const attempts = replayed.roadmaps.find(state.workspaceId, storedRoadmap(state).id)?.attempts;
+    expect(attempts).toEqual([expect.objectContaining({ entryId: first, status: 'preparing' })]);
+    reserved = attempts?.[0]?.worktreeId;
     expect(replayed.execution.worktrees.listActive(state.workspaceId)).toEqual([]);
     expect(replayed.execution.cycles.listForWorkspace(state.workspaceId)).toEqual([]);
     expect(replayed.execution.runs.listRecent(state.workspaceId, 10)).toEqual([]);
   } finally {
     replayed.close();
   }
+  // A snapshot that already holds the reservation: its worktree id is recorded, not "(minted)".
+  expect(
+    decisionsOf(await replaySchedulerSnapshot(copy, new Date()))[first]?.args?.worktreeId,
+  ).toBe(reserved);
 
   // At the merge boundary the pass leaves the first item to the operator's merge approval,
   // and says so with a typed wait (R-C12) instead of returning silently.
@@ -156,6 +163,7 @@ it('reports the entry a sequential roadmap acts on', async () => {
       args: {
         workItemId: state.workItemId,
         repositoryId: storedRoadmap(state).definition.entries[0]!.repositoryId,
+        worktreeId: '(minted)',
       },
     },
     [entryIds[1]!]: {
@@ -167,14 +175,16 @@ it('reports the entry a sequential roadmap acts on', async () => {
   });
 });
 
-it('records each command’s arguments as ids, kinds and digests, never free text or minted ids', () => {
+it('records each command’s arguments as ids, kinds and digests, never free text, minted ids as (minted)', () => {
   // GR F-3: a start with the wrong guidance or profile, or a control with the wrong action,
-  // must change the golden; the caller, callbacks, fresh reservation ids and text must not.
+  // must change the golden; the caller, callbacks and text must not. A reservation id the
+  // snapshot holds is recorded; one the pass minted reads "(minted)", so a re-check is stable.
+  const known = new Set(['worktree-9', 'cycle-9', 'attempt-9']);
   const context = { userId: 'operator-user' };
   const check = () => undefined;
   const owner = {
     roadmapId: 'roadmap-1',
-    attemptId: 'fresh-attempt',
+    attemptId: 'attempt-9',
     entryId: 'entry-1',
     definitionRevision: 3,
   };
@@ -191,18 +201,20 @@ it('records each command’s arguments as ids, kinds and digests, never free tex
         context,
         'ws-1',
         'item-1',
-        { worktreeId: 'fresh-worktree', profiles, policy, instructions: text },
+        { worktreeId: 'worktree-9', profiles, policy, instructions: text },
         'fresh-cycle',
         true,
         owner,
       ],
       {
         workItemId: 'item-1',
+        worktreeId: 'worktree-9',
         profiles,
         policy,
         instructions: pinned,
+        cycleId: '(minted)',
         allowScopeReview: true,
-        owner: { roadmapId: 'roadmap-1', entryId: 'entry-1', definitionRevision: 3 },
+        owner,
       },
     ],
     [
@@ -221,8 +233,8 @@ it('records each command’s arguments as ids, kinds and digests, never free tex
         },
         {
           worktreeId: 'fresh-worktree',
-          cycleId: 'fresh-cycle',
-          owner,
+          cycleId: 'cycle-9',
+          owner: { ...owner, attemptId: 'fresh-attempt' },
           profiles,
           policy,
           check,
@@ -236,7 +248,9 @@ it('records each command’s arguments as ids, kinds and digests, never free tex
         sourceId: 'wi/WI-1/domain',
         maxRemediationRounds: 2,
         instructions: pinned,
-        owner: { roadmapId: 'roadmap-1', entryId: 'entry-1', definitionRevision: 3 },
+        repairWorktreeId: '(minted)',
+        repairCycleId: 'cycle-9',
+        owner: { ...owner, attemptId: '(minted)' },
         profiles,
         policy,
       },
@@ -296,6 +310,7 @@ it('records each command’s arguments as ids, kinds and digests, never free tex
           bindingRevision: 2,
           sourceId: 'wi/WI-1/domain',
         },
+        worktreeId: '(minted)',
       },
     ],
     [
@@ -334,12 +349,47 @@ it('records each command’s arguments as ids, kinds and digests, never free tex
     ],
   ];
   for (const [service, method, args, expected] of calls) {
-    const recorded = commandArguments(service, method, args);
+    const recorded = commandArguments(service, method, args, known);
     expect(recorded, `${service}.${method}`).toEqual(expected);
     expect(JSON.stringify(recorded), `${service}.${method}`).not.toMatch(
       /SECRET|fresh-|operator-user|ws-1/,
     );
   }
+});
+
+it('compares attention kinds and actions against a golden that records them', () => {
+  // GR F-8: a change to what an inbox item offers must change the golden.
+  const item = {
+    subjectKey: 'cycle:c',
+    code: 'review-needs-attention',
+    kind: 'attention',
+    actions: ['acknowledge'],
+  };
+  const golden: SchedulerReplay = {
+    format: 2,
+    roadmaps: [],
+    entries: [],
+    cycles: [],
+    status: [],
+    attention: [item],
+  };
+  const replay: SchedulerReplay = { ...golden, attention: [{ ...item, actions: [] }] };
+  expect(checkSchedulerReplay(golden, replay).changed.map((c) => c.key)).toEqual([
+    'attention:cycle:c/review-needs-attention',
+  ]);
+  const { kind: _kind, actions: _actions, ...unrecorded } = item;
+  expect(
+    checkSchedulerReplay(
+      { roadmaps: [], entries: [], cycles: [], status: [], attention: [unrecorded] },
+      replay,
+    ),
+  ).toMatchObject({
+    changed: [],
+    notCompared: [
+      'command arguments (the golden predates them)',
+      'attention kinds and actions (the golden predates them)',
+    ],
+  });
 });
 
 it('compares command arguments only against a golden that records them', () => {
@@ -378,7 +428,10 @@ it('compares command arguments only against a golden that records them', () => {
   expect(checkSchedulerReplay(older, elsewhere)).toMatchObject({
     changed: [],
     missing: [],
-    notCompared: ['command arguments (the golden predates them)'],
+    notCompared: [
+      'command arguments (the golden predates them)',
+      'attention kinds and actions (the golden predates them)',
+    ],
   });
   expect(
     checkSchedulerReplay(older, { ...elsewhere, entries: [{ ...entry, action: 'start' }] }).changed,

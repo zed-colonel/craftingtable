@@ -14,6 +14,7 @@ import {
   effectiveHoldAttention,
   effectiveRoadmapAttention,
   phaseBlockerCode,
+  startedAttempts,
   type Roadmap,
   type RoadmapEntry,
   type RoadmapStatusList,
@@ -113,7 +114,8 @@ export interface CheckpointReadiness {
 export interface SchedulerReplay {
   /**
    * The golden's shape: 2 since R-I10's review pass, whose entries and roadmaps carry command
-   * arguments. Absent (1) in older goldens, whose check then leaves arguments out.
+   * arguments and whose attention items carry their kind and actions. Absent (1) in older
+   * goldens, whose check then leaves those out.
    */
   readonly format?: number;
   readonly roadmaps: readonly SchedulerRoadmapPass[];
@@ -128,6 +130,9 @@ export interface SchedulerReplay {
   readonly attention?: readonly {
     readonly subjectKey: string;
     readonly code: string;
+    /** `merge` or `attention`, and the controls the item offers (GR F-8). Format 2. */
+    readonly kind?: string;
+    readonly actions?: readonly string[];
     readonly blocks?: number;
   }[];
 }
@@ -149,10 +154,11 @@ export function schedulerRecords(replay: SchedulerReplay): ReplayRecord[] {
     ...replay.entries.map((e) => ({ key: `entry:${e.roadmapId}/${e.entryId}`, value: e })),
     ...replay.cycles.map((c) => ({ key: `cycle:${c.cycleId}`, value: c })),
     ...[...attention].flatMap(([key, items]) =>
-      // Items under one key differ at most in `blocks`; order them so the pairing is stable.
+      // Items under one key differ only in their details; order them (by code point, not
+      // locale) so the pairing is stable.
       items
         .map((item) => ({ item, canonical: canonicalJson(item) }))
-        .sort((a, b) => a.canonical.localeCompare(b.canonical))
+        .sort((a, b) => (a.canonical < b.canonical ? -1 : a.canonical > b.canonical ? 1 : 0))
         .map(({ item }, index) => ({ key: index ? `${key}#${index + 1}` : key, value: item })),
     ),
     ...(replay.status ?? []).flatMap(({ entries, ...header }) => [
@@ -184,13 +190,23 @@ export function checkSchedulerReplay(
       : {
           roadmaps: records.roadmaps.map(({ args: _args, ...roadmap }) => roadmap),
           entries: records.entries.map(({ args: _args, ...entry }) => entry),
+          ...(withAttention && attention
+            ? {
+                attention: attention.map(({ kind: _kind, actions: _actions, ...item }) => item),
+              }
+            : {}),
         }),
   });
   return compareRecords(
     schedulerRecords(comparable(golden)),
     schedulerRecords(comparable(replay)),
     [
-      ...(withArguments ? [] : ['command arguments (the golden predates them)']),
+      ...(withArguments
+        ? []
+        : [
+            'command arguments (the golden predates them)',
+            ...(withAttention ? ['attention kinds and actions (the golden predates them)'] : []),
+          ]),
       ...(withStatus ? [] : ['status lists (the golden predates them)']),
       ...(withAttention ? [] : ['attention (the golden predates it)']),
     ],
@@ -210,43 +226,107 @@ class ReplayIntercept extends ConcurrentModificationError {
 /** Free text pinned without being recorded. */
 const digest = (text: string | undefined) =>
   text ? `sha256:${createHash('sha256').update(text).digest('hex').slice(0, 16)}` : undefined;
-/** A cycle owner without its attempt id, which a reservation in this pass mints afresh. */
-const ownerArguments = (owner: CycleOwner | null | undefined) =>
-  owner && {
-    roadmapId: owner.roadmapId,
-    entryId: owner.entryId,
-    definitionRevision: owner.definitionRevision,
-  };
 /** Drops the fields a command was not given, so absent and undefined compare alike. */
 const given = (fields: Record<string, unknown>): CommandArguments =>
   Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+/**
+ * An id the pass may have minted (a reservation's attempt, worktree or cycle): recorded when the
+ * snapshot already holds it, `(minted)` when the pass made it up, so a re-check stays stable.
+ */
+type IdOf = (id: string | undefined) => string | undefined;
+const MINTED = '(minted)';
+
+/**
+ * How a recorded command treats one parameter, or one field of an object parameter. Every
+ * parameter, and every field of a command's own input objects, is declared, so a new parameter
+ * or input field does not compile until someone decides whether the golden records it.
+ * `identity` records a domain record (a cycle, a run) by its id and version only.
+ */
+type Use = 'recorded' | 'digest' | 'id-or-minted' | 'identity' | 'dropped';
+type FieldUses<P> = { readonly [K in keyof P]-?: Use };
+type ParameterUse<P> =
+  NonNullable<P> extends (...args: never[]) => unknown
+    ? 'dropped'
+    : NonNullable<P> extends readonly unknown[]
+      ? Use
+      : NonNullable<P> extends object
+        ? FieldUses<NonNullable<P>> | 'recorded' | 'identity' | 'dropped'
+        : Use;
+type Coverage<A extends readonly unknown[]> = { readonly [I in keyof A]-?: ParameterUse<A[I]> };
 
 /** One intercepted command: the decision it stands for, and its recorded arguments. */
 type Command<F> = F extends (...args: infer A) => unknown
   ? {
       readonly decision: SchedulerEntryDecision['decision'];
-      readonly args: (args: A) => CommandArguments;
+      readonly covers: Coverage<A>;
+      readonly args: (args: A, id: IdOf) => CommandArguments;
     }
   : never;
 type Commands<S> = { readonly [M in keyof S]?: Command<S[M]> };
+
+const OWNER = {
+  roadmapId: 'recorded',
+  attemptId: 'id-or-minted',
+  entryId: 'recorded',
+  definitionRevision: 'recorded',
+} as const;
+const ownerArguments = (owner: CycleOwner | null | undefined, id: IdOf) =>
+  owner && { ...owner, attemptId: id(owner.attemptId) };
 
 const INTERCEPTED = {
   workCycleService: {
     start: {
       decision: 'start',
-      args: ([, , workItemId, input, , allowScopeReview, owner]) =>
+      covers: [
+        'dropped',
+        'dropped',
+        'recorded',
+        {
+          worktreeId: 'id-or-minted',
+          profiles: 'recorded',
+          policy: 'recorded',
+          instructions: 'digest',
+        },
+        'id-or-minted',
+        'recorded',
+        OWNER,
+      ],
+      args: ([, , workItemId, input, reservedId, allowScopeReview, owner], id) =>
         given({
           workItemId,
+          worktreeId: id(input.worktreeId),
           profiles: input.profiles,
           policy: input.policy,
           instructions: digest(input.instructions),
+          cycleId: id(reservedId),
           allowScopeReview,
-          owner: ownerArguments(owner),
+          owner: ownerArguments(owner, id),
         }),
     },
     delegateScopeRepair: {
       decision: 'recover',
-      args: ([, , cycleId, input, delegation]) =>
+      covers: [
+        'dropped',
+        'dropped',
+        'recorded',
+        {
+          expectedVersion: 'recorded',
+          snapshotDigest: 'recorded',
+          sourceId: 'recorded',
+          maxRemediationRounds: 'recorded',
+          instructions: 'digest',
+        },
+        {
+          worktreeId: 'id-or-minted',
+          cycleId: 'id-or-minted',
+          owner: 'recorded',
+          profiles: 'recorded',
+          policy: 'recorded',
+          check: 'dropped',
+          attach: 'dropped',
+        },
+      ],
+      args: ([, , cycleId, input, delegation], id) =>
         given({
           cycleId,
           expectedVersion: input.expectedVersion,
@@ -254,23 +334,48 @@ const INTERCEPTED = {
           sourceId: input.sourceId,
           maxRemediationRounds: input.maxRemediationRounds,
           instructions: digest(input.instructions),
-          owner: ownerArguments(delegation?.owner),
+          repairWorktreeId: id(delegation?.worktreeId),
+          repairCycleId: id(delegation?.cycleId),
+          owner: ownerArguments(delegation?.owner, id),
           profiles: delegation?.profiles,
           policy: delegation?.policy,
         }),
     },
     repeatScopeReview: {
       decision: 'advance',
+      covers: ['dropped', 'dropped', 'recorded', 'recorded', 'digest', 'dropped', 'dropped'],
       args: ([, , cycleId, expectedVersion, guidance]) =>
         given({ cycleId, expectedVersion, guidance: digest(guidance) }),
     },
     control: {
       decision: 'advance',
+      covers: [
+        'dropped',
+        'dropped',
+        'recorded',
+        'recorded',
+        'recorded',
+        'digest',
+        'dropped',
+        'dropped',
+      ],
       args: ([, , cycleId, action, expectedVersion, guidance]) =>
         given({ cycleId, action, expectedVersion, guidance: digest(guidance) }),
     },
     resolveIntegration: {
       decision: 'advance',
+      covers: [
+        'dropped',
+        'dropped',
+        'recorded',
+        {
+          action: 'recorded',
+          expectedVersion: 'recorded',
+          profile: 'recorded',
+          instructions: 'digest',
+        },
+        'dropped',
+      ],
       args: ([, , cycleId, input]) =>
         given({
           cycleId,
@@ -282,6 +387,7 @@ const INTERCEPTED = {
     },
     refreshIntegration: {
       decision: 'advance',
+      covers: ['identity', 'identity', 'recorded'],
       args: ([cycle, parent, launching]) =>
         given({ cycleId: cycle.id, cycleVersion: cycle.version, runId: parent?.id, launching }),
     },
@@ -289,16 +395,34 @@ const INTERCEPTED = {
   executionService: {
     createWorktree: {
       decision: 'start',
-      args: ([, , workItemId, input]) =>
+      covers: [
+        'dropped',
+        'dropped',
+        'recorded',
+        { repositoryId: 'recorded', branchName: 'recorded', executionScope: 'recorded' },
+        'dropped',
+        { id: 'id-or-minted', check: 'dropped' },
+      ],
+      args: ([, , workItemId, input, , reservation], id) =>
         given({
           workItemId,
           repositoryId: input.repositoryId,
           branchName: input.branchName,
           executionScope: input.executionScope,
+          worktreeId: id(reservation?.id),
         }),
     },
     mergeWorktree: {
       decision: 'advance',
+      covers: [
+        'dropped',
+        'dropped',
+        'recorded',
+        { targetBranch: 'recorded', adoptChecks: 'recorded' },
+        'dropped',
+        { roadmapId: 'recorded', definitionRevision: 'recorded', check: 'dropped' },
+        'recorded',
+      ],
       args: ([, , worktreeId, input, , delegation, finalApproval]) =>
         given({
           worktreeId,
@@ -315,6 +439,7 @@ const INTERCEPTED = {
     },
     recordScopeReceipt: {
       decision: 'advance',
+      covers: ['dropped', 'dropped', 'recorded', 'recorded', { check: 'dropped' }],
       args: ([, , worktreeId, expectedWorktreeVersion]) =>
         given({ worktreeId, expectedWorktreeVersion }),
     },
@@ -322,23 +447,34 @@ const INTERCEPTED = {
   runtimeEvidenceService: {
     assertSubjectsCurrent: {
       decision: 'complete',
+      covers: ['dropped', 'recorded', 'recorded', 'recorded'],
       args: ([, definitionId, bindingRevision, subjects]) =>
         given({ definitionId, bindingRevision, subjects }),
     },
   } satisfies Commands<ServiceSet['runtimeEvidenceService']>,
 } as const;
 
-/** The arguments the replay records for an intercepted call. Exported for its test. */
+/**
+ * The arguments the replay records for an intercepted call. `known` holds the ids the snapshot
+ * already had, so a reused reservation's ids are recorded and fresh ones read `(minted)`.
+ * Exported for its test.
+ */
 export function commandArguments(
   service: keyof typeof INTERCEPTED,
   method: string,
   args: readonly unknown[],
+  known: ReadonlySet<string> = new Set(),
 ): CommandArguments {
   const command = (
-    INTERCEPTED[service] as Record<string, { args: (a: never) => CommandArguments }>
+    INTERCEPTED[service] as Record<
+      string,
+      { args: (a: never, id: IdOf) => CommandArguments } | undefined
+    >
   )[method];
   if (!command) throw new Error(`${service}.${method} is not intercepted`);
-  return command.args(args as never);
+  return command.args(args as never, (id) =>
+    id === undefined ? undefined : known.has(id) ? id : MINTED,
+  );
 }
 
 export async function replaySchedulerSnapshot(
@@ -370,6 +506,14 @@ export async function replaySchedulerDecisions(
     // evidence is bound to them.
     const capacity = (key: string) => String(storage.phaseScheduling.capacity(key));
     const before = storage.roadmaps.list().filter((r) => r.status !== 'draft');
+    // The reservation ids the snapshot already holds; anything else a command names, the pass
+    // minted (`commandArguments`).
+    const known = new Set(
+      storage.roadmaps
+        .list()
+        .flatMap((roadmap) => startedAttempts(roadmap))
+        .flatMap((attempt) => [attempt.id, attempt.worktreeId, attempt.cycleId]),
+    );
     const config = configFromEnv({
       CRAFTINGTABLE_DATA_DIR: dataDir,
       CRAFTINGTABLE_PUBLIC_ORIGIN: 'http://127.0.0.1:5173',
@@ -410,7 +554,7 @@ export async function replaySchedulerDecisions(
       restartRecovery: false,
     });
     const cycles = checkpointReadiness(storage);
-    intercept(services, record);
+    intercept(services, record, known);
     const observed = new Map<string, SchedulerEntryDecision>();
     const passActions = new Map<string, Issued>();
     services.roadmapService.observeScheduling({
@@ -496,13 +640,20 @@ export async function replaySchedulerDecisions(
           .map((item) => ({
             subjectKey: item.subjectKey,
             code: item.code,
+            kind: item.kind,
+            actions: item.actions ?? [],
             ...(item.blocks === undefined ? {} : { blocks: item.blocks }),
           })),
       ),
       ...storage.attention
         .open()
         .filter((item) => !item.scopeKey.startsWith('roadmap-pass:'))
-        .map((item) => ({ subjectKey: item.subjectKey, code: item.code })),
+        .map((item) => ({
+          subjectKey: item.subjectKey,
+          code: item.code,
+          kind: item.kind,
+          actions: item.actions ?? [],
+        })),
     ].sort((a, b) => `${a.subjectKey}/${a.code}`.localeCompare(`${b.subjectKey}/${b.code}`));
     return { format: 2, roadmaps, entries, cycles, status, attention };
   } finally {
@@ -639,6 +790,7 @@ function intercept(
     decision: SchedulerEntryDecision['decision'],
     args: CommandArguments,
   ) => void,
+  known: ReadonlySet<string>,
 ): void {
   for (const [service, methods] of Object.entries(INTERCEPTED))
     for (const [method, { decision }] of Object.entries(methods)) {
@@ -647,7 +799,7 @@ function intercept(
       target[method] = (...args: unknown[]) => {
         const command =
           method === 'control' && typeof args[3] === 'string' ? `control:${args[3]}` : method;
-        record(command, decision, commandArguments(name, method, args));
+        record(command, decision, commandArguments(name, method, args, known));
         throw new ReplayIntercept(command);
       };
     }

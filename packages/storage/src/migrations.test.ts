@@ -38,16 +38,25 @@ function databasePath(): string {
   return join(directory, 'craftingtable.sqlite');
 }
 
+interface PinnedMigration {
+  readonly version: number;
+  readonly name: string;
+  readonly checksum: string;
+}
+
 /**
- * Every deployed migration's name and SHA-256, as literals (TS-M5). The daemon refuses to start
- * when an applied migration's checksum no longer matches its file, so a deployed migration is
- * never edited: a change is a new migration. Rows are only ever appended: a migration's row is
- * added in the commit that adds it, and a row whose migration has been deployed is never changed
- * or removed. Only a migration that no daemon has applied yet may still be revised, with its
- * own newest row. The rows below match the live daemon's ledger as of 2026-10-02.
+ * Every migration a deployed daemon has applied: its name and SHA-256, as literals (TS-M5). The
+ * daemon refuses to start when an applied migration's checksum no longer matches its file, so
+ * these rows are frozen: a row here is never changed or removed, and a change to a deployed
+ * migration is a new migration. Rows are only ever appended, by moving them unchanged from
+ * `PENDING_MIGRATIONS` in the commit that records the deploy which applied them.
+ *
+ * Deployed through schema 36: e0d33b8 applied 0036 on 2026-09-30 at 00:31 UTC (program.md,
+ * post-deploy batch 2026-09-30), and no later deploy changed a migration. The rows match the live
+ * daemon's ledger as of 2026-10-02.
  */
 // biome-ignore format: one row per migration, appended in order.
-const DEPLOYED_MIGRATIONS: readonly { version: number; name: string; checksum: string }[] = [
+const DEPLOYED_MIGRATIONS: readonly PinnedMigration[] = [
   { version: 1, name: 'ct02-foundation', checksum: '42ade0fefd2174cd79e9c2e2035eb40ce34379dca61f8654618619f6c4483273' },
   { version: 2, name: 'ct03-planning', checksum: '6d2789c5f283cbd3e2fe639b32c58617c049c3bb561a928b099836ad34464247' },
   { version: 3, name: 'ct04a2a-repository-model', checksum: '526df194257806b2a2e9582da8df8058ad86e819d52eae6b9b2525f972123bc4' },
@@ -86,17 +95,26 @@ const DEPLOYED_MIGRATIONS: readonly { version: number; name: string; checksum: s
   { version: 36, name: 'repository-check-declarations', checksum: '0af2441a2ab015ac5d284c169da1f2912bf7383a3d1b88c76288cce04c1090d2' },
 ];
 
+/**
+ * Migrations added since the last deploy, pinned the same way. A pending row may be re-pinned
+ * together with its file while no daemon has applied it; the deploy that applies it moves it to
+ * `DEPLOYED_MIGRATIONS`, unchanged.
+ */
+const PENDING_MIGRATIONS: readonly PinnedMigration[] = [];
+
+const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];
+
 /** The versions whose file is missing, unpinned, or differs from its row in name or checksum. */
 function migrationDrift(directory?: string): number[] {
   const discovered = discoverMigrations(directory);
   const versions = new Set([
     ...discovered.map((migration) => migration.version),
-    ...DEPLOYED_MIGRATIONS.map((migration) => migration.version),
+    ...PINNED_MIGRATIONS.map((migration) => migration.version),
   ]);
   return [...versions]
     .filter((version) => {
       const file = discovered.find((migration) => migration.version === version);
-      const pinned = DEPLOYED_MIGRATIONS.find((migration) => migration.version === version);
+      const pinned = PINNED_MIGRATIONS.find((migration) => migration.version === version);
       return file?.name !== pinned?.name || file?.checksum !== pinned?.checksum;
     })
     .toSorted((left, right) => left - right);
@@ -108,20 +126,24 @@ describe('ordered SQL migrations', () => {
     const database = openDatabase(path);
     const migrations = discoverMigrations();
     expect(runMigrations(database, migrations)).toEqual({
-      currentVersion: DEPLOYED_MIGRATIONS.length,
-      supportedVersion: DEPLOYED_MIGRATIONS.length,
+      currentVersion: PINNED_MIGRATIONS.length,
+      supportedVersion: PINNED_MIGRATIONS.length,
       pendingVersions: [],
     });
     const rows = database
       .prepare(`SELECT version, name, checksum FROM schema_migrations ORDER BY version`)
       .all() as { version: number; name: string; checksum: string }[];
     // The ledger records the pinned checksums, not ones computed from today's files.
-    expect(rows).toEqual(DEPLOYED_MIGRATIONS);
+    expect(rows).toEqual(PINNED_MIGRATIONS);
     database.close();
   });
 
   it('matches every migration file to its pinned checksum (TS-M5)', () => {
     expect(migrationDrift()).toEqual([]);
+    // Deployed rows come first, from schema 1 without a gap, and pending ones follow them.
+    expect(PINNED_MIGRATIONS.map((migration) => migration.version)).toEqual(
+      PINNED_MIGRATIONS.map((_, index) => index + 1),
+    );
   });
 
   it('fails the pinned table when any migration file is edited, even by a comment (TS-M5)', () => {
@@ -131,7 +153,7 @@ describe('ordered SQL migrations', () => {
     // The copy starts pinned, so each edit below is the only drift.
     expect(migrationDrift(directory)).toEqual([]);
     const files = readdirSync(directory).toSorted();
-    expect(files).toHaveLength(DEPLOYED_MIGRATIONS.length);
+    expect(files).toHaveLength(PINNED_MIGRATIONS.length);
     for (const [index, file] of files.entries()) {
       const path = join(directory, file);
       const sql = readFileSync(path, 'utf8');
@@ -139,7 +161,7 @@ describe('ordered SQL migrations', () => {
       expect(migrationDrift(directory), file).toEqual([index + 1]);
       writeFileSync(path, sql);
     }
-    // A new migration fails it too, until its row is appended.
+    // A new migration fails it too, until its row is added to PENDING_MIGRATIONS.
     writeFileSync(join(directory, `${String(files.length + 1).padStart(4, '0')}-next.sql`), '');
     expect(migrationDrift(directory)).toEqual([files.length + 1]);
   });

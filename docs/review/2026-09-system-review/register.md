@@ -3073,6 +3073,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Test-suite review, 2026-10-02 ([TS-M5](findings/TS-test-suite-review-2026-10-02.md)): every deployed migration's checksum is pinned.**
   - **The gap.** `migrations.test.ts` compared the ledger with checksums computed from the current files, so editing a deployed migration passed every test and the live daemon would then refuse to start (`checksum-mismatch`). Only 0001–0004 had literal hashes, in their own migration tests. Deleting the schema-33 receipt triggers passed the whole node project.
   - **Test.** `migrations.test.ts` holds an append-only table, `DEPLOYED_MIGRATIONS`, of each migration's version, name and SHA-256 as literals, 0001–0036. They match the live daemon's ledger (read from a copy, 2026-10-02). The discovered files must match it exactly, and the clean chain's ledger is compared with it rather than with the files. A self-test edits each of the 36 files in a copy of the directory by one comment line and expects exactly that version to fail; an unpinned new file fails too, until its row is appended. Deleting the schema-33 triggers now fails four storage tests: three here and `run-check-receipts.test.ts` (R-G4).
+  - **Deployed and pending rows (review LOW-2).** The single table could not tell a deployed migration from one still in review, so editing a file together with its row passed. It is now two tables:
+    - `DEPLOYED_MIGRATIONS` holds 0001–0036 and is frozen. e0d33b8 applied 0036 on 2026-09-30 (program.md, post-deploy batch 2026-09-30), and no migration file has changed since that deploy.
+    - `PENDING_MIGRATIONS` is empty. A pending row may change with its file until a deploy applies it; the commit that records that deploy moves the row, unchanged.
+    
+    The test checks that the two tables together run from schema 1 without a gap. A test cannot stop an edit to a deployed row made together with its file; the split makes such an edit visible in the diff.
+  - **Proposed, awaiting operator decision: a deploy-time migration preflight.** Before it switches `current`, `scripts/deploy-daemon.mjs` would run the migration-status check (`inspectMigrationStatus`) on the live database with the new release's migrations, and stop with the current release still running on a checksum or name mismatch. The tests pin the files only in the repository; this check would also catch a release whose files differ from the live ledger. Not built.
 
 ### R-H4
 

@@ -81,9 +81,12 @@ export function loadLocalCiConfig(path: string | undefined): LocalCiConfig | und
  * source (the tests), plain `node` would resolve the workspace's packages to their last build,
  * or to nothing, so the child first loads `source-hooks.ts`, which resolves them to source.
  */
-export const SOURCE_HOOKS: string | undefined = import.meta.url.endsWith('.ts')
+const SOURCE_HOOKS: string | undefined = import.meta.url.endsWith('.ts')
   ? new URL('./source-hooks.ts', import.meta.url).href
   : undefined;
+/** The `node` arguments that give a child of this module the source hooks, if it needs them. */
+export const SOURCE_HOOK_ARGUMENTS: readonly string[] =
+  SOURCE_HOOKS === undefined ? [] : [`--import=${SOURCE_HOOKS}`];
 /** A launcher's expression importing the module at `url`, after the source hooks if any. */
 function launcherImport(url: string): string {
   const load = `import(${JSON.stringify(url)})`;
@@ -796,7 +799,7 @@ export async function cleanupLocalCiManifest(path: string, digest: string): Prom
     const child = spawn(
       process.execPath,
       [
-        ...(SOURCE_HOOKS === undefined ? [] : [`--import=${SOURCE_HOOKS}`]),
+        ...SOURCE_HOOK_ARGUMENTS,
         '--input-type=module',
         '-e',
         `import { cleanupLocalCi } from ${JSON.stringify(import.meta.url)}; cleanupLocalCi(${JSON.stringify(m.localCi)}, ${JSON.stringify(m.runId)});`,

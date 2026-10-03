@@ -31,7 +31,7 @@ import {
   localActArguments,
   localCiLockPath,
   prepareLocalCheckLaunchers,
-  SOURCE_HOOKS,
+  SOURCE_HOOK_ARGUMENTS,
 } from './local-check.js';
 import {
   cargoManifestDigest as hash,
@@ -113,7 +113,7 @@ it('runs a launched child against the source under test, not a build', () => {
   const child = spawnSync(
     process.execPath,
     [
-      ...(SOURCE_HOOKS === undefined ? [] : [`--import=${SOURCE_HOOKS}`]),
+      ...SOURCE_HOOK_ARGUMENTS,
       '--input-type=module',
       '-e',
       `const m = await import(${JSON.stringify(new URL('./local-check.ts', import.meta.url).href)});
@@ -376,7 +376,7 @@ it('grants a stale workflow lock to one of several contenders reclaiming it at o
       const p = spawn(
         process.execPath,
         [
-          ...(SOURCE_HOOKS === undefined ? [] : [`--import=${SOURCE_HOOKS}`]),
+          ...SOURCE_HOOK_ARGUMENTS,
           '--input-type=module',
           '-e',
           `import { readSync } from 'node:fs';

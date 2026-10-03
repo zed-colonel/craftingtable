@@ -2498,6 +2498,28 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - At a start, `recoverInterrupted` removes an entry of the root only when its name is one `processTemporaryDirectory` gives (`^[0-9a-f]{12}$`, six random bytes in hex) and `lstat` shows a directory, so a link is never followed or removed.
     - Everything else stays: files (a 12-hex one included), other directories, links, and upper-case or longer names. One warning names what was left: the root, the count, and up to 20 names.
     - **Test.** `server-execution-cycles-temp-directories.test.ts`, "sweeps only run directories…": the root holds a run directory, a database-like file, two directories with contents, a 12-hex file, a link named like a run to one of those directories, and upper-case, 13- and 11-character directories. After the sweep only the run directory is gone, and one warning names the other eight. On the base it fails: the sweep deleted all of them.
+  - **The configuration refuses a root that overlaps what others own (done).**
+    - **How "overlapping" is read** (for the operator to confirm):
+      - The root may not be `/`, `/tmp`, `/var/tmp` or a home (`$HOME` and the daemon's own home directory), nor a directory above one. `/var/tmp` was added: it is the same kind of shared directory as `/tmp`.
+      - A directory of its own *inside* a home or `/tmp` stays allowed: the default `<data>/t` is under the home, and the e2e daemon's root is `mkdtempSync('/tmp/cte-')`.
+      - The root may not overlap the database's directory (`<data>/state`, which holds `craftingtable.sqlite` and `pre-migration/`) in either direction: equal, above, or inside it. The data directory itself was already refused, as above the runs root; it now gets the database message.
+      - Paths are compared as written and, where they exist, through their links (the deepest existing part resolved, the rest appended), so a link to `<data>/state`, or a data directory named through a link, is caught. The check against the runs, worktree, check-log and Cargo-home roots uses the same comparison now.
+    - **Probe** (`configFromEnv` with a real data directory under `$HOME`, a scratch script, not committed). Base → now:
+
+      | Root | Base | Now |
+      |---|---|---|
+      | `<data>/state` | accepted | refused (database's directory) |
+      | `<data>` | refused (other roots) | refused (database's directory) |
+      | `$HOME` | refused (other roots, as the data directory is under it) | refused (directory of its own) |
+      | `/` | refused (other roots) | refused (directory of its own) |
+      | `/tmp` | accepted | refused (directory of its own) |
+      | `/var/tmp` | accepted | refused (directory of its own) |
+      | `/tmp/cte-x` | accepted | accepted |
+      | `<data>/t` | accepted | accepted |
+      | `$HOME/x` | accepted | accepted |
+      | a link to `<data>/state` | accepted | refused (database's directory) |
+
+    - **Tests.** `config.test.ts`: "refuses an agents' temporary root that holds the database or files of the operator's" (`/`, `/tmp`, `/var/tmp`, `/var`, the home, `/home`, the daemon's home; `<data>/state`, inside it, `<data>`, above it; accepted: `<data>/t`, `/tmp/cte-x`, `/var/tmp/ct`, directories under both homes, the default under a home) and "compares … through links" (a link to the database's directory and a path beneath that link, the data directory named through a link, a link to `/tmp`; a link to a directory of its own is accepted). Both fail on the base.
 
 ### R-G6
 

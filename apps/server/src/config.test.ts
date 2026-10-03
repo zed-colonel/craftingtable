@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { configFromEnv, retiredSettings } from './config.js';
 
@@ -108,6 +111,67 @@ describe('configFromEnv', () => {
       }),
     ).toThrow(/overlap/);
     expect(() => configFromEnv({ CRAFTINGTABLE_DIFF_LIMIT_BYTES: '10' })).toThrow(/DIFF_LIMIT/);
+  });
+
+  it("refuses an agents' temporary root that holds the database or files of the operator's (TS-H3, R-G5)", () => {
+    const data = '/srv/ct/data';
+    const home = '/home/someone';
+    const root = (value: string) =>
+      configFromEnv({
+        CRAFTINGTABLE_DATA_DIR: data,
+        HOME: home,
+        CRAFTINGTABLE_AGENT_TMP_ROOT: value,
+      }).execution.agentTemporaryRoot;
+    // At or above the system's shared temporary directories, a home, or the file system.
+    for (const refused of ['/', '/tmp', '/var/tmp', '/var', home, '/home', homedir()])
+      expect(() => root(refused), refused).toThrow(/directory of its own/);
+    // The database's directory, at, above or inside it, and the data directory.
+    for (const refused of [`${data}/state`, `${data}/state/t`, data, '/srv'])
+      expect(() => root(refused), refused).toThrow(
+        /AGENT_TMP_ROOT must lie outside the database's directory/,
+      );
+    // A directory of its own stays allowed, beneath a home or /tmp included: the default
+    // `<data>/t` is under the home, and the e2e daemon's is `/tmp/cte-…`.
+    for (const accepted of [
+      `${data}/t`,
+      '/tmp/cte-x',
+      '/var/tmp/ct',
+      `${home}/x`,
+      `${homedir()}/x`,
+    ])
+      expect(root(accepted)).toBe(accepted);
+    expect(
+      configFromEnv({ HOME: home, CRAFTINGTABLE_DATA_DIR: `${home}/.local/share/craftingtable` })
+        .execution.agentTemporaryRoot,
+    ).toBe(`${home}/.local/share/craftingtable/t`);
+  });
+
+  it("compares an agents' temporary root through links where its path exists (TS-H3, R-G5)", () => {
+    const base = mkdtempSync(join(tmpdir(), 'craftingtable-config-'));
+    try {
+      const data = join(base, 'data');
+      mkdirSync(join(data, 'state'), { recursive: true });
+      // Links to the database's directory, and to the data directory.
+      symlinkSync(join(data, 'state'), join(base, 'state-link'));
+      symlinkSync(data, join(base, 'data-link'));
+      symlinkSync('/tmp', join(base, 'tmp-link'));
+      const root = (value: string, dataDir = data) =>
+        configFromEnv({ CRAFTINGTABLE_DATA_DIR: dataDir, CRAFTINGTABLE_AGENT_TMP_ROOT: value })
+          .execution.agentTemporaryRoot;
+      for (const refused of [join(base, 'state-link'), join(base, 'state-link', 'not-yet')])
+        expect(() => root(refused), refused).toThrow(/database's directory/);
+      // The data directory named through a link, the root by its real path.
+      expect(() => root(join(data, 'state'), join(base, 'data-link'))).toThrow(
+        /database's directory/,
+      );
+      expect(() => root(join(base, 'tmp-link'))).toThrow(/directory of its own/);
+      // A link to a directory of its own is that directory.
+      mkdirSync(join(base, 'agents'));
+      symlinkSync(join(base, 'agents'), join(base, 'agents-link'));
+      expect(root(join(base, 'agents-link'))).toBe(join(base, 'agents-link'));
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it('rejects malformed ports, lifetimes, origins, and relative data directories', () => {

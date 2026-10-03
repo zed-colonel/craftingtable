@@ -1,6 +1,6 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Worktree, run, Git, and agent-backend settings for the execution loop. */
@@ -51,6 +51,9 @@ export interface ExecutionConfig {
    * Code's command sandbox makes Unix sockets in its TMPDIR, whose paths hold at most 107 bytes,
    * so the directory must be short: `<data>/t`, or `CRAFTINGTABLE_AGENT_TMP_ROOT` where the data
    * directory's path is long (each run's is this plus 13 bytes, and must be at most 60).
+   * A start removes the run directories it holds (12 hex characters), and nothing else; it may
+   * not be `/`, `/tmp`, `/var/tmp` or a home, nor above one, nor overlap the database's
+   * directory or another of the daemon's roots (TS-H3).
    */
   readonly agentTemporaryRoot: string;
 }
@@ -86,6 +89,8 @@ export const SERVER_VERSION = '0.3.0';
 export const SESSION_COOKIE_NAME = 'craftingtable_session';
 export const CSRF_HEADER_NAME = 'x-craftingtable-csrf';
 
+/** The data directory's subdirectory holding the database and its pre-migration copies. */
+const DATABASE_DIRECTORY = 'state';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const HOSTNAME_PATTERN =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
@@ -132,6 +137,42 @@ function equalOrWithin(candidate: string, parent: string): boolean {
 
 function pathsOverlap(left: string, right: string): boolean {
   return equalOrWithin(left, right) || equalOrWithin(right, left);
+}
+
+/** `path` with the links of its existing part resolved, and the rest as written. */
+function resolvedAsFarAsExists(path: string): string {
+  const rest: string[] = [];
+  for (let existing = path; ; existing = dirname(existing)) {
+    try {
+      return join(realpathSync(existing), ...rest);
+    } catch {
+      if (dirname(existing) === existing) return path;
+      rest.unshift(basename(existing));
+    }
+  }
+}
+
+/** Equal or within, as written or through the links of what exists (TS-H3). */
+function equalOrWithinResolved(candidate: string, parent: string): boolean {
+  return (
+    equalOrWithin(candidate, parent) ||
+    equalOrWithin(resolvedAsFarAsExists(candidate), resolvedAsFarAsExists(parent))
+  );
+}
+
+function pathsOverlapResolved(left: string, right: string): boolean {
+  return equalOrWithinResolved(left, right) || equalOrWithinResolved(right, left);
+}
+
+/**
+ * Directories other files share, which an agents' temporary root may lie inside but never be
+ * nor contain (TS-H3): the file system's root, the shared temporary directories, the homes.
+ */
+function sharedDirectories(env: NodeJS.ProcessEnv): string[] {
+  const homes = [env.HOME, homedir()].filter(
+    (home): home is string => home !== undefined && isAbsolute(home),
+  );
+  return [...new Set(['/', '/tmp', '/var/tmp', ...homes.map((home) => resolve(home))])];
 }
 
 function boundedInteger(
@@ -201,9 +242,21 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
   const agentTemporaryRoot = env.CRAFTINGTABLE_AGENT_TMP_ROOT ?? join(dataDir, 't');
   if (!isNormalizedAbsolutePath(agentTemporaryRoot))
     throw new Error('CRAFTINGTABLE_AGENT_TMP_ROOT must be a normalized absolute path');
+  // A start sweeps the run directories it holds (LIVE-31): it may share nothing it could
+  // mistake for one, nor what it could reach through a mistake (TS-H3).
+  for (const shared of sharedDirectories(env))
+    if (equalOrWithinResolved(shared, agentTemporaryRoot))
+      throw new Error(
+        `CRAFTINGTABLE_AGENT_TMP_ROOT must be a directory of its own, not ${shared} or a directory above it`,
+      );
+  const databaseDirectory = join(dataDir, DATABASE_DIRECTORY);
+  if (pathsOverlapResolved(agentTemporaryRoot, databaseDirectory))
+    throw new Error(
+      `CRAFTINGTABLE_AGENT_TMP_ROOT must lie outside the database's directory ${databaseDirectory}`,
+    );
   if (
     [runsRoot, worktreeRoot, checkLogRoot, cargoHome].some((root) =>
-      pathsOverlap(agentTemporaryRoot, root),
+      pathsOverlapResolved(agentTemporaryRoot, root),
     )
   )
     throw new Error("Agents' temporary directories must lie outside the daemon's other roots");
@@ -376,7 +429,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     host,
     port,
     dataDir,
-    databasePath: join(dataDir, 'state', 'craftingtable.sqlite'),
+    databasePath: join(dataDir, DATABASE_DIRECTORY, 'craftingtable.sqlite'),
     publicOrigin,
     secureCookies: publicOriginUrl.protocol === 'https:',
     lanExposed,

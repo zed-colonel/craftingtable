@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { submitSignIn } from './support';
+import { expect, submitSignIn, test } from './support';
 
 test('storage settings, cleanup preview and private backups work on desktop and phone', async ({
   page,

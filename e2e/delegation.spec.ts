@@ -2,8 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, test } from '@playwright/test';
-import { git, openMergeDecision, openOwnWorkspace } from './support';
+import { expect, git, openMergeDecision, openOwnWorkspace, test } from './support';
 
 /**
  * The first useful loop, driven from the browser: register a repository, open

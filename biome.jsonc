@@ -29,6 +29,31 @@
       }
     }
   },
+  "overrides": [
+    {
+      // Every spec takes `test` and `expect` from e2e/support.ts, whose fixture fails it on browser
+      // errors (TS-M15). Only names that carry no fixture may come from Playwright directly; a
+      // namespace or default import is refused too.
+      "includes": ["e2e/**/*.spec.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@playwright/test": {
+                    "allowImportNames": ["devices", "Browser", "BrowserContext", "Locator", "Page"],
+                    "message": "Import test and expect from ./support: its fixture fails a spec on browser errors."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "actions": {
       "source": {

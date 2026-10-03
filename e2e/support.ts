@@ -1,5 +1,106 @@
 import { execFileSync } from 'node:child_process';
-import { expect, type Locator, type Page } from '@playwright/test';
+import {
+  type BrowserContext,
+  test as base,
+  expect,
+  type Locator,
+  type Page,
+} from '@playwright/test';
+
+/** An HTTP answer a spec causes on purpose, such as a refused sign-in. */
+export interface ExpectedFailure {
+  readonly method: string;
+  /** The request's path, without its query. */
+  readonly path: string;
+  readonly status: number;
+}
+
+/**
+ * Failures every spec meets. Each needs its reason.
+ * - `GET /api/auth/session` answered 401: a page opened while signed out asks the daemon for
+ *   its session, and that answer is how the app knows to show the sign-in page.
+ */
+const EXPECTED_EVERYWHERE: readonly ExpectedFailure[] = [
+  { method: 'GET', path: '/api/auth/session', status: 401 },
+];
+
+const matches = (failure: ExpectedFailure, method: string, path: string, status: number) =>
+  failure.method === method && failure.path === path && failure.status === status;
+
+/**
+ * Fails a spec on what the browser reports as an error on any page it watches (TS-M15,
+ * E2E F6): an uncaught exception (`pageerror`; React reports a render error it cannot recover
+ * from this way, since the app has no error boundary), a `console.error` call, or an HTTP
+ * answer of 400 or more that the spec did not expect.
+ *
+ * Chrome also logs a console error of its own, with no arguments, for each failed load; it
+ * is judged by its response's status, a code, never by its text. A request the browser
+ * dropped (a navigation leaving a read or the event stream behind, or a spec's `route.abort`)
+ * is not an error: whatever the page should have shown, the spec asserts.
+ */
+export class BrowserErrors {
+  private readonly errors: string[] = [];
+  private readonly loadLogs: { readonly where: string; readonly url: string }[] = [];
+  private readonly failedUrls = new Set<string>();
+  private readonly expected: ExpectedFailure[] = [...EXPECTED_EVERYWHERE];
+
+  /** Watches every page of `context`, open now or opened later. */
+  watch(context: BrowserContext): void {
+    for (const page of context.pages()) this.watchPage(page);
+    context.on('page', (page) => this.watchPage(page));
+  }
+
+  /** Accepts an HTTP failure the calling spec causes on purpose. */
+  expectFailure(failure: ExpectedFailure): void {
+    this.expected.push(failure);
+  }
+
+  private watchPage(page: Page): void {
+    page.on('pageerror', (error) =>
+      this.errors.push(`uncaught on ${page.url()}: ${error.stack ?? error.message}`),
+    );
+    page.on('console', (message) => {
+      if (message.type() !== 'error') return;
+      const where = `console.error on ${page.url()}: ${message.text()}`;
+      // The browser's own log of a failed load names the resource and passes no arguments.
+      if (message.args().length === 0 && message.location().url)
+        this.loadLogs.push({ where, url: message.location().url });
+      else this.errors.push(where);
+    });
+    page.on('requestfailed', (request) => this.failedUrls.add(request.url()));
+    page.on('response', (response) => {
+      const status = response.status();
+      if (status < 400) return;
+      this.failedUrls.add(response.url());
+      const method = response.request().method();
+      const path = new URL(response.url()).pathname;
+      if (!this.expected.some((failure) => matches(failure, method, path, status)))
+        this.errors.push(`${method} ${path} answered ${status} on ${page.url()}`);
+    });
+  }
+
+  /** Fails the test with every error seen so far. */
+  expectNone(): void {
+    const unexplained = this.loadLogs
+      .filter((log) => !this.failedUrls.has(log.url))
+      .map((log) => log.where);
+    expect([...this.errors, ...unexplained], 'the browser reported errors').toEqual([]);
+  }
+}
+
+/** Every spec's `test`: it fails on browser errors in its own context's pages. */
+export const test = base.extend<{ browserErrors: BrowserErrors }>({
+  browserErrors: [
+    async ({ context }, use) => {
+      const errors = new BrowserErrors();
+      errors.watch(context);
+      await use(errors);
+      errors.expectNone();
+    },
+    { auto: true },
+  ],
+});
+export { expect };
 
 /**
  * Helpers shared by the browser specs (R-I5, QA-05). The e2e daemon bootstraps this admin

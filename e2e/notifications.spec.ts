@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { expectSignedIn, sendCommand, submitSignIn } from './support';
+import { expect, expectSignedIn, sendCommand, submitSignIn, test } from './support';
 
 test('owners configure write-only Pushover credentials and test delivery on desktop and phone', async ({
   page,

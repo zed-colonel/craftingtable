@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { expectSignedIn, openWorkspaceNamed, submitSignIn } from './support';
+import { expect, expectSignedIn, openWorkspaceNamed, submitSignIn, test } from './support';
 
 const EVENT_ROUTE = '**/api/workspaces/*/events*';
 
@@ -10,13 +9,14 @@ async function signIn(page: import('@playwright/test').Page): Promise<void> {
   await openWorkspaceNamed(page, 'Default workspace');
 }
 
-test('authenticated snapshot, replay, outage recovery, and logout', async ({ page }) => {
-  const pageErrors: string[] = [];
-  page.on('pageerror', (error) => pageErrors.push(String(error)));
-
+test('authenticated snapshot, replay, outage recovery, and logout', async ({
+  page,
+  browserErrors,
+}) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Sign in to CraftingTable' })).toBeVisible();
 
+  browserErrors.expectFailure({ method: 'POST', path: '/api/auth/login', status: 401 });
   await submitSignIn(page, 'incorrect password');
   await expect(page.getByRole('alert')).toContainText('Sign-in failed');
 
@@ -53,10 +53,10 @@ test('authenticated snapshot, replay, outage recovery, and logout', async ({ pag
 
   await page.getByRole('button', { name: 'Log out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to CraftingTable' })).toBeVisible();
+  browserErrors.expectFailure({ method: 'GET', path: '/api/workspaces', status: 401 });
   const protectedStatus = await page.evaluate(async () => {
     const response = await fetch('/api/workspaces');
     return response.status;
   });
   expect(protectedStatus).toBe(401);
-  expect(pageErrors).toEqual([]);
 });

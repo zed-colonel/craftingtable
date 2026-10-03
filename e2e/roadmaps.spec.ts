@@ -1,14 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, test } from '@playwright/test';
 import {
+  expect,
   expectSignedIn,
   git,
   openMergeDecision,
   openRoadmap,
   sendCommand,
   submitSignIn,
+  test,
 } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);

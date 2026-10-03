@@ -2,8 +2,17 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'n
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type Browser, devices, expect, type Page, test } from '@playwright/test';
-import { E2E_USERNAME, git, openMergeDecision, sendCommand, setupStep, signIn } from './support';
+import { type Browser, devices, type Page } from '@playwright/test';
+import {
+  E2E_USERNAME,
+  expect,
+  git,
+  openMergeDecision,
+  sendCommand,
+  setupStep,
+  signIn,
+  test,
+} from './support';
 
 /**
  * The UI walkthrough: seed one workspace with every kind of state the app can
@@ -212,7 +221,11 @@ function pathOf(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, '');
 }
 
-test('captures every page of the app on desktop and phone viewports', async ({ page, browser }) => {
+test('captures every page of the app on desktop and phone viewports', async ({
+  page,
+  browser,
+  browserErrors,
+}) => {
   const { label, directory, commit } = captureDirectory();
   if (RECORDING) rmSync(directory, { recursive: true, force: true });
   const repository = initRepository('craftingtable-walkthrough-repo-', {
@@ -225,6 +238,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
   });
   const applicationRepositories: string[] = [];
   const phone = await newPhonePage(browser);
+  browserErrors.watch(phone.context());
   try {
     // ---- Sign-in on both viewports ---------------------------------------------------
     await page.goto('/');

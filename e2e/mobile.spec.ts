@@ -1,8 +1,16 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, type Page, test } from '@playwright/test';
-import { expectSignedIn, git, openMergeDecision, sendCommand, submitSignIn } from './support';
+import type { Page } from '@playwright/test';
+import {
+  expect,
+  expectSignedIn,
+  git,
+  openMergeDecision,
+  sendCommand,
+  submitSignIn,
+  test,
+} from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 

@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
-import { expect, type Page, test } from '@playwright/test';
-import { openOwnWorkspace, signIn } from './support';
+import type { Page } from '@playwright/test';
+import { expect, openOwnWorkspace, signIn, test } from './support';
 
 /**
  * CT03-A61, A63, A64, A65, and the browser-refresh half of A50.
@@ -29,9 +29,6 @@ async function importAqBundle(page: Page, projectName = 'ActionQueue — AQ-CONT
 }
 
 test('imports AQ-CONT-1, admits AQ-01, and survives a refresh', async ({ page }) => {
-  const pageErrors: string[] = [];
-  page.on('pageerror', (error) => pageErrors.push(String(error)));
-
   await openOwnWorkspace(page, 'Planning import workspace');
   await importAqBundle(page);
 
@@ -90,8 +87,6 @@ test('imports AQ-CONT-1, admits AQ-01, and survives a refresh', async ({ page })
     'true',
   );
   await expect(page.getByRole('button', { name: 'AQ-01', exact: true }).first()).toBeVisible();
-
-  expect(pageErrors).toEqual([]);
 });
 
 test('distinguishes duplicate and failed import outcomes', async ({ page }) => {

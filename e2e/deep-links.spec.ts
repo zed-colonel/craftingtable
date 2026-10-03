@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { openOwnWorkspace } from './support';
+import { expect, openOwnWorkspace, test } from './support';
 
 /**
  * R-E1: a deep link lands on its target once the page settles, and in-app links and Back

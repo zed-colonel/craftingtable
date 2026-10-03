@@ -1,8 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, test } from '@playwright/test';
-import { expectSignedIn, git, sendCommand, submitSignIn } from './support';
+import { expect, expectSignedIn, git, sendCommand, submitSignIn, test } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 // New finalizations are staged (R-B10). 'remediate' exhausts the correctness stage's budget

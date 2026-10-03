@@ -3,8 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test as base, expect } from '@playwright/test';
-import { expectSignedIn, setupStep, submitSignIn } from './support';
+import { test as base, expect, expectSignedIn, setupStep, submitSignIn } from './support';
 
 const test = base.extend<{ upstreamRepository: string }>({
   upstreamRepository: async ({ browserName }, use) => {
@@ -48,11 +47,6 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   page,
   upstreamRepository,
 }, info) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => {
-    errors.push(String(e));
-    console.error('Browser page error:', String(e));
-  });
   await page.goto('/');
   await submitSignIn(page);
   await expectSignedIn(page);
@@ -564,5 +558,4 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
   await expect(amendments).toBeVisible();
-  expect(errors).toEqual([]);
 });

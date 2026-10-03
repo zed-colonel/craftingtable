@@ -20,7 +20,7 @@ const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 const HASH = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
 
-const manifest = (snapshots) => ({ root: 'review/replay', snapshots });
+const manifest = (snapshots) => ({ root: 'review/replay', schedulerFormat: 1, snapshots });
 const snapshot = (overrides = {}) => ({
   id: '2026-01-01',
   sha256: HASH,
@@ -70,6 +70,8 @@ describe('validateManifest', () => {
     const errors = validateManifest({
       root: 'review',
       extra: true,
+      schedulerFormat: 3,
+      ignored: [{ id: 'x' }],
       snapshots: [
         snapshot({ sha256: 'abc' }),
         snapshot(),
@@ -96,6 +98,8 @@ describe('validateManifest', () => {
     });
     expect(errors).toEqual([
       'Unknown manifest field "extra".',
+      '"schedulerFormat" must be 1 or 2: the scheduler golden format the gate requires.',
+      '"ignored" must list directories as { "id", "reason" }.',
       'snapshot 2026-01-01: "sha256" must be the snapshot\'s SHA-256 (64 hex digits).',
       'snapshot 2026-01-01: listed twice.',
       'snapshot 2026-01-03: a snapshot without a golden has no cases and no "sha256".',
@@ -176,6 +180,28 @@ describe('classifyCase', () => {
     expect(classifyCase({ status: 0, report: older }).problems).toEqual([
       'replay wrote no check report',
     ]);
+    // Both sides empty compares nothing.
+    expect(classifyCase({ status: 0, report: { ...clean, records: 0 } }).problems).toEqual([
+      'the replay compared no records',
+    ]);
+  });
+
+  it('holds a scheduler golden to the manifest’s format', () => {
+    const scheduler = (goldenFormat, schedulerFormat) =>
+      classifyCase({
+        status: 0,
+        report: { ...clean, ...(goldenFormat ? { goldenFormat } : {}) },
+        mode: 'scheduler',
+        schedulerFormat,
+      });
+    expect(scheduler(1, 1)).toMatchObject({ ok: true, goldenFormat: 1 });
+    expect(scheduler(2, 2)).toMatchObject({ ok: true, goldenFormat: 2 });
+    expect(scheduler(1, 2).problems).toEqual([
+      'the scheduler golden is format 1; the manifest requires format 2',
+    ]);
+    expect(scheduler(undefined, 1).problems).toEqual([
+      'the scheduler report does not say its golden format',
+    ]);
   });
 });
 
@@ -192,11 +218,20 @@ describe('main', () => {
    * A corpus of one snapshot with a golden and a scheduler case, and a fake runner: `tsc -b`
    * exits `build`, and each replay writes `reports[mode]` and exits as its report says.
    */
-  function gate({ build = 0, reports = {}, manifestOf = (m) => m, files = {}, argv = [] } = {}) {
+  function gate({
+    build = 0,
+    reports = {},
+    manifestOf = (m) => m,
+    files = {},
+    argv = [],
+    goldenFormat = 1,
+    directories = [],
+  } = {}) {
     const root = scratch();
     const data = join(root, 'data');
     const directory = join(data, 'review', 'replay', '2026-01-01');
     mkdirSync(directory, { recursive: true });
+    for (const name of directories) mkdirSync(join(data, 'review', 'replay', name));
     const content = 'not really sqlite';
     const source = join(directory, 'snapshot.sqlite');
     writeFileSync(source, content);
@@ -245,7 +280,10 @@ describe('main', () => {
         notCompared: [],
       };
       if (report === 'none') return { status: 1 };
-      writeFileSync(args[args.indexOf('--report') + 1], JSON.stringify(report));
+      writeFileSync(
+        args[args.indexOf('--report') + 1],
+        JSON.stringify(mode === 'scheduler' ? { goldenFormat, ...report } : report),
+      );
       return { status: report.changed.length || report.missing.length ? 1 : 0 };
     };
     const lines = [];
@@ -266,11 +304,44 @@ describe('main', () => {
       ['pnpm', '-s', 'controller:replay', '--scheduler', '--check', '--report'],
     ]);
     expect(lines.at(-1)).toMatch(
-      /^1 of 2 comparisons report 0 changed; 1 differ only as expected; 0 failed\./,
+      /^1 of 2 comparisons report 0 changed; 1 differ only as expected; 0 failed\..* Commit: [0-9a-f]{12} \((clean|dirty: \d+ changed paths)\)\./,
+    );
+    expect(lines).toContain(
+      `Replay corpus: ${join(root, 'data', 'review', 'replay')} ($XDG_DATA_HOME)`,
+    );
+    // A format-1 scheduler golden passes under "schedulerFormat": 1, and the run says loudly
+    // that command arguments went uncompared.
+    expect(lines.join('\n')).toMatch(
+      /command arguments NOT compared: 1 scheduler goldens predate them \(format 1\)\. Operator: install format-2 goldens/,
     );
     // The copy is gone; the output directory keeps each case's report.
     expect(existsSync(calls[1][3])).toBe(false);
     expect(existsSync(join(root, 'out', '2026-01-01-scheduler.report.json'))).toBe(true);
+  });
+
+  it('fails a format-1 scheduler golden once the manifest requires format 2', async () => {
+    const required = gate({ manifestOf: (m) => ({ ...m, schedulerFormat: 2 }) });
+    expect(await required.exit).toBe(1);
+    expect(required.lines.join('\n')).toMatch(
+      /2026-01-01 scheduler: UNEXPECTED the scheduler golden is format 1; the manifest requires format 2/,
+    );
+    const installed = gate({ manifestOf: (m) => ({ ...m, schedulerFormat: 2 }), goldenFormat: 2 });
+    expect(await installed.exit).toBe(0);
+    expect(installed.lines.join('\n')).not.toMatch(/NOT compared/);
+  });
+
+  it('fails on a snapshot directory the manifest does not name', async () => {
+    const unlisted = gate({ directories: ['2026-02-01'] });
+    expect(await unlisted.exit).toBe(1);
+    expect(unlisted.lines.join('\n')).toMatch(
+      /UNEXPECTED snapshot directory 2026-02-01 is not in the manifest/,
+    );
+    const ignored = gate({
+      directories: ['scratch'],
+      manifestOf: (m) => ({ ...m, ignored: [{ id: 'scratch', reason: 'Not a snapshot.' }] }),
+    });
+    expect(await ignored.exit).toBe(0);
+    expect(ignored.lines).toContain('ignored directory: scratch: Not a snapshot.');
   });
 
   it('exits 1 on an unexpected change, a missing record or a crash', async () => {

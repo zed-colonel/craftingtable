@@ -414,7 +414,12 @@ it('compares command arguments only against a golden that records them', () => {
     ...golden,
     entries: [{ ...entry, args: { workItemId: 'item-1', repositoryId: 'repo-2' } }],
   };
-  expect(checkSchedulerReplay(golden, golden)).toMatchObject({ changed: [], notCompared: [] });
+  // The check names the golden's format, which the gate holds to its manifest.
+  expect(checkSchedulerReplay(golden, golden)).toMatchObject({
+    changed: [],
+    notCompared: [],
+    goldenFormat: 2,
+  });
   expect(checkSchedulerReplay(golden, elsewhere).changed.map((c) => c.key)).toEqual(['entry:r/e']);
   // A golden recorded before arguments were: the rest still compares, and the check says so.
   const { args: _args, ...unrecorded } = entry;
@@ -426,6 +431,7 @@ it('compares command arguments only against a golden that records them', () => {
     attention: [],
   };
   expect(checkSchedulerReplay(older, elsewhere)).toMatchObject({
+    goldenFormat: 1,
     changed: [],
     missing: [],
     notCompared: [

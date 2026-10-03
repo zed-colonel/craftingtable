@@ -197,7 +197,7 @@ export function checkSchedulerReplay(
             : {}),
         }),
   });
-  return compareRecords(
+  const check = compareRecords(
     schedulerRecords(comparable(golden)),
     schedulerRecords(comparable(replay)),
     [
@@ -211,6 +211,7 @@ export function checkSchedulerReplay(
       ...(withAttention ? [] : ['attention (the golden predates it)']),
     ],
   );
+  return { ...check, goldenFormat: golden.format ?? 1 };
 }
 
 /**

@@ -32,6 +32,8 @@ export interface ReplayCheck {
   readonly duplicates: readonly string[];
   /** Parts of the replay the golden predates, which this check could not compare. */
   readonly notCompared: readonly string[];
+  /** A scheduler golden's format (`SchedulerReplay.format`), which the gate checks. */
+  readonly goldenFormat?: number;
 }
 
 /** Whether a check found any difference: `controller:replay --check` exits 1 when it did. */

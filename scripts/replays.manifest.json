@@ -1,6 +1,7 @@
 {
   "description": "The replay gate (R-I10): every live snapshot and its goldens, relative to $XDG_DATA_HOME. Run with pnpm replays (scripts/replays.mjs).",
   "root": "craftingtable-review/replay",
+  "schedulerFormat": 1,
   "snapshots": [
     {
       "id": "2026-09-23",

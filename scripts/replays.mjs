@@ -17,6 +17,11 @@
  *   3. matches each changed record against the case's expected changes, by record key and
  *      the SHA-256 of the record's new canonical value, each with its reason.
  *
+ * The manifest's `schedulerFormat` is the oldest scheduler golden format it accepts: while it is
+ * 1, format-1 goldens pass without their command arguments compared, and the summary says so;
+ * at 2, a format-1 golden fails. A directory under the root that the manifest neither lists nor
+ * `ignored` fails the run, so a new snapshot cannot sit there unreplayed.
+ *
  * It first runs `tsc -b`, because the workspace packages resolve to their compiled `dist`
  * (TS-H6): without a build, "0 changed" could describe stale code. It exits 0 only when every
  * case ran, every change was expected, no record went missing and every expected change
@@ -34,6 +39,7 @@ import {
   mkdirSync,
   mkdtempSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
 } from 'node:fs';
@@ -52,6 +58,11 @@ export const MODES = {
   'evidence-view': ['--evidence-view'],
 };
 
+/**
+ * Scheduler golden formats (`SchedulerReplay.format`): 2 records command arguments and attention
+ * kinds and actions. The manifest's `schedulerFormat` is the oldest the gate accepts.
+ */
+const SCHEDULER_FORMATS = [1, 2];
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -66,8 +77,31 @@ const isObject = (value) => !!value && typeof value === 'object' && !Array.isArr
 export function validateManifest(manifest) {
   const errors = [];
   if (!isObject(manifest)) return ['The manifest must be a JSON object.'];
-  for (const key of keysOutside(manifest, ['description', 'root', 'snapshots']))
+  for (const key of keysOutside(manifest, [
+    'description',
+    'root',
+    'schedulerFormat',
+    'ignored',
+    'snapshots',
+  ]))
     errors.push(`Unknown manifest field "${key}".`);
+  if (!SCHEDULER_FORMATS.includes(manifest.schedulerFormat))
+    errors.push(
+      `"schedulerFormat" must be ${SCHEDULER_FORMATS.join(' or ')}: the scheduler golden format the gate requires.`,
+    );
+  const ignored = manifest.ignored ?? [];
+  if (
+    !Array.isArray(ignored) ||
+    ignored.some(
+      (entry) =>
+        !isObject(entry) ||
+        keysOutside(entry, ['id', 'reason']).length > 0 ||
+        !isText(entry.id) ||
+        !NAME.test(entry.id) ||
+        !isText(entry.reason),
+    )
+  )
+    errors.push('"ignored" must list directories as { "id", "reason" }.');
   const root = manifest.root;
   if (
     !isText(root) ||
@@ -189,8 +223,11 @@ export function matchExpected(report, expected = []) {
   return { matched, unexpected: [...unexpected, ...absent] };
 }
 
-/** One case's row in the summary, from how its replay exited and what it reported. */
-export function classifyCase({ status, signal, report, expected }) {
+/**
+ * One case's row in the summary, from how its replay exited and what it reported. A scheduler
+ * case also checks its golden's format against the manifest's `schedulerFormat`.
+ */
+export function classifyCase({ status, signal, report, expected, mode, schedulerFormat = 1 }) {
   if (signal) return { ok: false, problems: [`replay ended by signal ${signal}`] };
   if (status === 2) return { ok: false, problems: ['replay usage error (exit 2)'] };
   if (status !== 0 && status !== 1)
@@ -207,6 +244,18 @@ export function classifyCase({ status, signal, report, expected }) {
     report.changed.length > 0 || report.missing.length > 0 || report.duplicates.length > 0;
   const problems = [...unexpected, ...report.duplicates.map((key) => `duplicate key: ${key}`)];
   if (differs !== (status === 1)) problems.push(`replay exit ${status} disagrees with its report`);
+  // Both sides empty would compare nothing and pass.
+  if (!(report.records > 0)) problems.push('the replay compared no records');
+  let goldenFormat;
+  if (mode === 'scheduler') {
+    goldenFormat = report.goldenFormat;
+    if (!Number.isInteger(goldenFormat))
+      problems.push('the scheduler report does not say its golden format');
+    else if (goldenFormat < schedulerFormat)
+      problems.push(
+        `the scheduler golden is format ${goldenFormat}; the manifest requires format ${schedulerFormat}`,
+      );
+  }
   return {
     ok: problems.length === 0,
     records: report.records,
@@ -214,6 +263,7 @@ export function classifyCase({ status, signal, report, expected }) {
     missing: report.missing.length,
     expected: matched.length,
     notCompared: report.notCompared ?? [],
+    ...(goldenFormat === undefined ? {} : { goldenFormat }),
     problems,
   };
 }
@@ -293,6 +343,37 @@ function parseArgs(argv) {
   return { options };
 }
 
+/**
+ * Directories under the corpus root that the manifest neither replays, lists without a golden,
+ * nor ignores with a reason: each is a problem, so a new snapshot cannot sit there unreplayed.
+ */
+export function unlistedDirectories(corpus, manifest) {
+  let entries;
+  try {
+    entries = readdirSync(corpus, { withFileTypes: true });
+  } catch (error) {
+    return [`cannot list the corpus ${corpus}: ${error.code ?? error.message}`];
+  }
+  const named = new Set([
+    ...manifest.snapshots.map((snapshot) => snapshot.id),
+    ...(manifest.ignored ?? []).map((entry) => entry.id),
+  ]);
+  return entries
+    .filter((entry) => entry.isDirectory() && !named.has(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+    .map((name) => `snapshot directory ${name} is not in the manifest (list it, or ignore it)`);
+}
+
+/** The commit the gate replays, and whether the checkout has changes beyond it. */
+function describeCheckout() {
+  const git = (args) =>
+    spawnSync('git', args, { cwd: REPOSITORY_ROOT, encoding: 'utf8' }).stdout?.trim() ?? '';
+  const head = git(['rev-parse', '--short=12', 'HEAD']) || 'unknown';
+  const changed = git(['status', '--porcelain']).split('\n').filter(Boolean).length;
+  return changed ? `${head} (dirty: ${changed} changed paths)` : `${head} (clean)`;
+}
+
 /** `$XDG_DATA_HOME`, or its default when unset or not absolute (as the XDG spec says). */
 export function dataHome(env) {
   const configured = env.XDG_DATA_HOME;
@@ -339,7 +420,11 @@ export async function main(
   const corpus = join(dataHome(env), manifest.root);
   const out = options.out ?? mkdtempSync(join(tmpdir(), 'craftingtable-replays-'));
   mkdirSync(out, { recursive: true, mode: 0o700 });
-  log(`Replay corpus: $XDG_DATA_HOME/${manifest.root}`);
+  const checkout = describeCheckout();
+  log(`Commit: ${checkout}`);
+  log(
+    `Replay corpus: ${corpus}${dataHome(env) === env.XDG_DATA_HOME ? ' ($XDG_DATA_HOME)' : ' (default data home)'}`,
+  );
   log(`Output: ${out}`);
 
   // The packages resolve to their compiled output: build first, or the replay runs stale code.
@@ -437,6 +522,8 @@ export async function main(
             signal: result.signal,
             report,
             expected: replayCase.expected ?? [],
+            mode: replayCase.mode,
+            schedulerFormat: manifest.schedulerFormat,
           }),
         });
       }
@@ -454,15 +541,26 @@ export async function main(
       log(`${row.snapshot} ${row.mode}: UNEXPECTED ${problem}`);
   }
   for (const line of skipped) log(`not replayed (no golden): ${line}`);
+  for (const entry of manifest.ignored ?? [])
+    log(`ignored directory: ${entry.id}: ${entry.reason}`);
+  // A snapshot directory the manifest does not name would otherwise go unreplayed unseen.
+  const unlisted = unlistedDirectories(corpus, manifest);
+  for (const problem of unlisted) log(`UNEXPECTED ${problem}`);
+  const older = rows.filter((row) => row.goldenFormat !== undefined && row.goldenFormat < 2);
+  if (older.length)
+    log(
+      `\ncommand arguments NOT compared: ${older.length} scheduler goldens predate them (format 1). Operator: install format-2 goldens and set "schedulerFormat": 2 in the manifest.\n`,
+    );
   const clean = rows.filter((row) => row.ok && row.changed === 0 && row.missing === 0).length;
   const failed = rows.filter((row) => !row.ok).length;
   log(
-    `${clean} of ${rows.length} comparisons report 0 changed; ${rows.length - clean - failed} differ only as expected; ${failed} failed. ${((Date.now() - started) / 1000).toFixed(0)} s. Output: ${out}`,
+    `${clean} of ${rows.length} comparisons report 0 changed; ${rows.length - clean - failed} differ only as expected; ${failed} failed. ${((Date.now() - started) / 1000).toFixed(0)} s. Commit: ${checkout}. Output: ${out}`,
   );
   if (rows.length === 0) {
     log('Nothing was compared: the selected snapshots have no goldens.');
     return 1;
   }
+  if (unlisted.length) return 1;
   return failed ? 1 : 0;
 }
 

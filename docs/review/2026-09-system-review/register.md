@@ -1807,6 +1807,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - a key and an element dropped at nested levels: the result has no stale key, and unchanged parts keep their identity;
     - a store re-read that drops an optional field notifies, with the field gone.
   - QS6 now fails both tests, and QS5 (an array that shrinks) fails the first.
+  - **Fixed, from the unit review (N-1): an own `__proto__` key.** `JSON.parse` makes `__proto__` a plain own key, and free-form JSON can carry one: a run's JSON values, audit metadata. `merged[name] = …` set the merged object's prototype instead of copying the key. With `{x: 1}` before and `{"__proto__": {}}` after, the old object came back with its stale `x`.
+    - **Fix.** `replaceEqualDeep` now defines each key as data and reads the previous value only from its own keys (`Object.hasOwn`).
+    - **Test.** A test in `query-store.test.ts` fails without the fix.
 
 ### R-D5
 

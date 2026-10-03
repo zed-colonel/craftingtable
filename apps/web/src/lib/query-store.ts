@@ -321,8 +321,17 @@ export function replaceEqualDeep<T>(previous: unknown, next: T): T {
   const merged: Record<string, unknown> = {};
   let same = keys.length === Object.keys(before).length;
   for (const name of keys) {
-    merged[name] = replaceEqualDeep(before[name], after[name]);
-    if (!(name in before) || merged[name] !== before[name]) same = false;
+    // Own keys only, each defined as data: an own `__proto__` (as `JSON.parse` makes one) is a
+    // key like any other, never the prototype (TS-M9 review N-1).
+    const had = Object.hasOwn(before, name);
+    const value = replaceEqualDeep(had ? before[name] : undefined, after[name]);
+    Object.defineProperty(merged, name, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    if (!had || value !== before[name]) same = false;
   }
   return (same ? previous : merged) as T;
 }

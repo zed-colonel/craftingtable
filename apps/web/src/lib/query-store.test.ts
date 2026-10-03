@@ -338,6 +338,26 @@ describe('replaceEqualDeep', () => {
     const shorter = replaceEqualDeep([1, 2], [1]);
     expect(shorter).toEqual([1]);
   });
+
+  // TS-M9 review N-1: free-form JSON (audit metadata, a run's JSON values) may carry an own
+  // `__proto__` key, which `JSON.parse` creates as a plain property. It is data like any other.
+  it('copies an own __proto__ key as data, never as the prototype', () => {
+    const previous = { x: 1 };
+    const next = JSON.parse('{"__proto__":{"y":2}}') as Record<string, unknown>;
+    const merged = replaceEqualDeep(previous, next) as Record<string, unknown>;
+    expect(merged).not.toBe(previous);
+    expect(Object.keys(merged)).toEqual(['__proto__']);
+    expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(merged, '__proto__')?.value).toEqual({ y: 2 });
+    expect('x' in merged).toBe(false);
+    // An empty one was taken for the prototype it equals, so the old object came back, stale.
+    const empty = replaceEqualDeep(previous, JSON.parse('{"__proto__":{}}'));
+    expect(empty).not.toBe(previous);
+    expect(Object.keys(empty)).toEqual(['__proto__']);
+    // Unchanged, it keeps its identity like any other key.
+    const again = JSON.parse('{"__proto__":{"y":2}}') as Record<string, unknown>;
+    expect(replaceEqualDeep(next, again)).toBe(next);
+  });
 });
 
 describe('a re-read that drops an optional field (TS-M9)', () => {

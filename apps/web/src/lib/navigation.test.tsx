@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Link, NavigationProvider, PathLink, useRevealRouteFocus } from './navigation.js';
 import type { Route } from './route.js';
+import { asyncWaitMs } from '../test-time.js';
 
 afterEach(cleanup);
 const workspaceId = asWorkspaceId('workspace-1');
@@ -113,7 +114,7 @@ it('reveals a route focus even when its panel mounts after the page (R-E1, UI-08
     fireEvent.click(screen.getByRole('button', { name: 'Load' }));
   });
   const target = await screen.findByText('Capacity controls');
-  await vi.waitFor(() => expect(document.activeElement).toBe(target));
+  await vi.waitFor(() => expect(document.activeElement).toBe(target), { timeout: asyncWaitMs() });
   expect((target.closest('details') as HTMLDetailsElement).open).toBe(true);
 });
 

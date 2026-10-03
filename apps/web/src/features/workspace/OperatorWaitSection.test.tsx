@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
 import { OperatorWaitSection } from './OperatorWaitSection.js';
+import { asyncWaitMs } from '../../test-time.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
   cleanup();
@@ -36,7 +37,7 @@ it('shows the week of operator wait and the costliest stops, reloading only on a
   expect(vi.mocked(request).mock.calls[0]?.[0]).toBe('/api/workspaces/ws/operator-wait?days=7');
   rerender(<OperatorWaitSection workspaceId="ws" refreshKey="a:running" />);
   rerender(<OperatorWaitSection workspaceId="ws" refreshKey="a:needs-attention" />);
-  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2), { timeout: asyncWaitMs() });
 });
 
 it('reloads a stale report when the tab becomes visible again', async () => {
@@ -53,7 +54,7 @@ it('reloads a stale report when the tab becomes visible again', async () => {
   await screen.findByText('Nothing waited on you in the last 7 days.');
   vi.mocked(request).mockResolvedValue({ ...report, to: new Date().toISOString() });
   document.dispatchEvent(new Event('visibilitychange'));
-  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2), { timeout: asyncWaitMs() });
   // A fresh report is not reloaded again.
   document.dispatchEvent(new Event('visibilitychange'));
   await new Promise((resolve) => setTimeout(resolve, 20));

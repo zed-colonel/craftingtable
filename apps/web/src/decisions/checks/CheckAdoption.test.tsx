@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
 import { CheckAdoption } from './CheckAdoption.js';
+import { asyncWaitMs } from '../../test-time.js';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -129,7 +130,7 @@ it('says the slice did not change a definition behind its adoption, and adopts f
     target: { value: 'WI-05 extended the isolation check.' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Adopt checks at 7777777777' }));
-  await vi.waitFor(() => expect(onAdopted).toHaveBeenCalled());
+  await vi.waitFor(() => expect(onAdopted).toHaveBeenCalled(), { timeout: asyncWaitMs() });
   const adopt = vi
     .mocked(request)
     .mock.calls.find(([url]) => String(url).endsWith('/checks/adopt'))!;

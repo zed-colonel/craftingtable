@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
 import { CycleDecision } from './CycleDecision.js';
+import { asyncWaitMs } from '../../test-time.js';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn(() => new Promise(() => {})) }));
 afterEach(() => {
@@ -426,7 +427,7 @@ it('retries from the last investigation, shows its outcome and deadline, and nee
   expect(onChanged).not.toHaveBeenCalled();
   vi.mocked(request).mockResolvedValueOnce({ cycle: base } as never);
   fireEvent.click(screen.getByRole('button', { name: 'End investigation' }));
-  await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1), { timeout: asyncWaitMs() });
 });
 
 it('shows nothing without a record or an offer, and no form unless one is offered', () => {
@@ -493,7 +494,7 @@ it('keeps a stop draft across leaving and coming back, and clears it once sent',
   vi.mocked(request).mockResolvedValueOnce({ cycle: base } as never);
   render(decision(at, questions));
   fireEvent.click(screen.getByRole('button', { name: 'Continue with guidance' }));
-  await vi.waitFor(() => expect(field().value).toBe(''));
+  await vi.waitFor(() => expect(field().value).toBe(''), { timeout: asyncWaitMs() });
 });
 
 it('offers no proposals to a stop that only resumes, and focuses the grant and scope review fields', () => {

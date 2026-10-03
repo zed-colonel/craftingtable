@@ -75,8 +75,9 @@ export default defineConfig({
         test: {
           name: 'web',
           environment: 'jsdom',
-          // Components in jsdom. The slowest, request-budget, took 12-15 s at load 8-13.
-          ...timeouts(60_000),
+          // Components in jsdom. The slowest, request-budget, took 12-15 s at load 8-13 and
+          // 81 s at load 60-75 (the web project under 48 CPU burners).
+          ...timeouts(120_000),
           include: ['apps/web/src/**/*.test.tsx'],
           // Nothing a query store caches outlives its test (R-D4).
           setupFiles: ['apps/web/src/test-setup.ts'],

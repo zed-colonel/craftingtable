@@ -8,7 +8,7 @@ const SERVER_DIRECTORY = fileURLToPath(new URL('./apps/server/', import.meta.url
 
 // The suite owns these ports so it runs alongside an operator daemon or `pnpm dev`
 // on the usual 4600/5173. They must stay in step with the defaults in
-// `apps/server/src/e2e-entry.ts`.
+// `apps/server/test/e2e/e2e-environment.ts`.
 const SERVER_PORT = 4610;
 const WEB_PORT = 5183;
 const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;

@@ -217,7 +217,7 @@ export { expect };
 
 /**
  * Helpers shared by the browser specs (R-I5, QA-05). The e2e daemon bootstraps this admin
- * (`apps/server/src/e2e-entry.ts`).
+ * (`apps/server/test/e2e/e2e-entry.ts`).
  */
 export const E2E_USERNAME = 'e2e-admin';
 export const E2E_PASSWORD = 'correct horse battery staple';

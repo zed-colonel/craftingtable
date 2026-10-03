@@ -168,13 +168,15 @@ function throwLaunchCallbackError(): void {
 }
 
 /**
- * Fixture Git's environment (ARCH F7): the Git package's hermetic one, with only `PATH` taken
- * from the test process, so an inherited `GIT_DIR`, `GIT_INDEX_FILE` or `GIT_WORK_TREE` cannot
- * redirect a fixture's writes, and no operator configuration is read.
+ * Fixture Git's environment (ARCH F7): the Git package's hermetic one, with only `PATH` and
+ * `HOME` (for Git shims that need it) taken from the test process, so an inherited `GIT_DIR`,
+ * `GIT_INDEX_FILE` or `GIT_WORK_TREE` cannot redirect a fixture's writes, and no operator
+ * configuration is read (`GIT_CONFIG_GLOBAL` stays `/dev/null`).
  */
 export const GIT_ENV = {
   ...FIXTURE_GIT_ENVIRONMENT,
   PATH: process.env.PATH ?? '',
+  ...(process.env.HOME === undefined ? {} : { HOME: process.env.HOME }),
   GIT_AUTHOR_NAME: 'T',
   GIT_AUTHOR_EMAIL: 't@example.invalid',
   GIT_COMMITTER_NAME: 'T',

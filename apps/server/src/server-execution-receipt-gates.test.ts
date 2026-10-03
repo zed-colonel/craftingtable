@@ -55,11 +55,37 @@ const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 async function scopedRuntimeFixture(
   checks?: DeclaredCheck[] | null,
   definitionDigests?: Record<string, string>,
+  /** More slices of `local/AQ-01`, for tests that need more scoped worktrees at once. */
+  extraSlices: readonly string[] = [],
 ) {
   const f = await slicedFixture((source) => ({
     ...source,
-    slices: source.slices.map((s) => ({ ...s, mode: 'implementation' })),
-    work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
+    slices: [
+      ...source.slices,
+      ...extraSlices.map((id) => ({
+        ...source.slices[0]!,
+        id,
+        title: id,
+        scope: `Complete ${id}`,
+      })),
+    ].map((s) => ({ ...s, mode: 'implementation' })),
+    work_items: source.work_items.map((w) => ({
+      ...w,
+      repository: 'local',
+      ...(w.id === 'local/AQ-01'
+        ? {
+            required_slices: [...w.required_slices, ...extraSlices],
+            acceptance_requires: [
+              ...w.acceptance_requires,
+              ...extraSlices.map((id) => ({
+                kind: 'slice' as const,
+                id,
+                state: 'verified' as const,
+              })),
+            ],
+          }
+        : {}),
+    })),
   }));
   const svc = f.state.context.services.runtimeEvidenceService;
   if (checks !== null) declareFixtureChecks(f.state, checks, definitionDigests);
@@ -808,6 +834,87 @@ itNeedsCargo(
     expect(build.error).toBeUndefined();
     expect(JSON.parse(build.receipts)).toMatchObject({ success: true, recordedBy: 'daemon' });
     expect(() => f.svc.assertRun(f.tree, run)).not.toThrow();
+  },
+);
+
+itNeedsCargo(
+  'the daemon runs at most eight checks at once across its runs (R-G4 review)',
+  async () => {
+    const f = await scopedRuntimeFixture(undefined, undefined, ['local/AQ-01/c']);
+    // The agents' own requests: the daemon's runs before a review are tested on their own.
+    withoutDaemonChecks(f.state);
+    const checks = f.state.context.services.checkRequestService;
+    // Every check waits on the gate, so none finishes before the test says (R-I2).
+    const gate = checkGate();
+    // Three scoped runs at once need three development slots.
+    f.state.context.storage.phaseScheduling.setCapacity('local-development', 3);
+    const third = { ...f.scopes[0]!, sourceId: 'local/AQ-01/c' };
+    const trees = [f.tree, await scopeTree(f, f.scopes[1]!), await scopeTree(f, third)];
+    for (const tree of trees.slice(1)) commitFile(tree.path, 'slice.txt', 'slice implementation');
+    const served: { runId: string; spool: string }[] = [];
+    f.backend.replyForRequest = (request) => {
+      const runId = request.buildEnvironment!.namespace!;
+      const spool = join(request.buildEnvironment!.binDirectory, '../requests');
+      served.push({ runId, spool });
+      // Four per run, as many as one run may run at once: twelve in all, against eight.
+      for (let i = 0; i < 4; i++)
+        writeFileSync(
+          join(spool, `00000000-0000-4000-8000-${String(i).padStart(12, '0')}.request`),
+          JSON.stringify({ version: 1, tool: 'ct-check', args: ['--', ...gate.command] }),
+        );
+      // The report is not what this tests: the runs stay live, waiting, while their checks run.
+      return { resultText: 'Checks requested.' };
+    };
+    const runs: string[] = [];
+    for (const tree of trees) {
+      const started = await f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+        headers: mutationHeaders(f.state),
+        payload: { worktreeId: tree.id, role: 'review' },
+      });
+      expect(started.statusCode, started.body).toBe(200);
+      runs.push(started.json().run.id as string);
+    }
+    const status = (run: string) =>
+      f.state.context.storage.execution.runs.find(f.state.workspaceId, run as never)?.status;
+    await waitFor(() => runs.every((run) => status(run) === 'waiting'), 'three turns');
+    expect(served).toHaveLength(3);
+    // Once every request is claimed, the bounds alone decide what runs.
+    await waitUntil(
+      () => served.every(({ spool }) => !readdirSync(spool).some((n) => n.endsWith('.request'))),
+      'every request claimed',
+    );
+    const running = () => served.map(({ runId }) => checks.inFlight(runId).length);
+    const total = () => running().reduce((sum, n) => sum + n, 0);
+    expect(total()).toBe(8);
+    expect(Math.max(...running())).toBeLessThanOrEqual(4);
+    // Released, the rest run as slots free, never more than eight at once.
+    let peak = 0;
+    gate.open(12);
+    const exits = ({ runId }: { runId: string }) => {
+      try {
+        return readdirSync(
+          join(f.state.context.config.execution.checkLogRoot, runId, 'replies'),
+        ).filter((n) => n.endsWith('.exit')).length;
+      } catch {
+        return 0;
+      }
+    };
+    await waitUntil(() => {
+      peak = Math.max(peak, total());
+      return served.every((run) => exits(run) === 4);
+    }, 'every check');
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(gate.pids()).toHaveLength(12);
+    for (const run of runs)
+      await f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/runs/${run}/end`,
+        headers: mutationHeaders(f.state),
+        payload: {},
+      });
+    await waitFor(() => runs.every((run) => status(run) === 'finished'), 'every run finished');
   },
 );
 

@@ -3155,6 +3155,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Each step of a wait now races the time left on the hang guard. A step that never returns therefore fails with "Hung waiting for <label>: step N did not return within the … hang guard", where before it ran to the test timeout. With `CRAFTINGTABLE_TEST_TIMEOUT_SCALE=0.02` it was caught in 2.4 s. The earlier note that the guard "catches a step that never returns" is true only from this fix on.
     - `cleanupExecutionFixtures` now collects callback errors after the daemons have closed. An error raised during the close belongs to the test that ended, not to the next test's first wait.
     - The node project passed afterwards: 1,736 passed, 1 skipped, 244 s, load up to 16.
+  - **The daemon-wide check bound has a test (TS-H2, review M2).** `runningInDaemon: 1000` survived the whole node project, because the four-checks test uses one run. A new gated test runs three scoped reviews at once: a third slice is added through `scopedRuntimeFixture`'s `extraSlices`, with 3 development slots. Each review asks for 4 checks that wait on one gate, 12 in all. Once every request is claimed, exactly 8 run, and no run has more than 4. Released, the checks never exceed 8 at once, and all 12 run. The mutant now fails with "expected 12 to be 8". The test takes about 1 s.
 
 ### R-I3
 

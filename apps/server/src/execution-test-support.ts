@@ -82,12 +82,15 @@ export async function cleanupExecutionFixtures(): Promise<void> {
     rmSync(gate.fifo, { force: true });
     closeSync(gate.fd);
   }
-  const callbackErrors = launchCallbackErrors.splice(0);
   const closed = await Promise.allSettled(contexts.splice(0).map((context) => context.cleanup()));
+  // Collected after the daemons close: a launch failing while they close is this test's too,
+  // not the next test's.
+  const callbackErrors = launchCallbackErrors.splice(0);
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
-  // A failed `onLaunch` assertion is the test's own failure (AS F-9); then any cleanup error.
+  // A failed backend-callback assertion is the test's own failure (AS F-9); then any cleanup
+  // error.
   if (callbackErrors.length) throw callbackErrors[0];
   for (const result of closed) if (result.status === 'rejected') throw result.reason;
 }
@@ -152,8 +155,9 @@ export function processRunning(pid: number): boolean {
 }
 
 /**
- * Errors thrown by `CycleBackend.onLaunch` callbacks, oldest first (AS F-9). A launch the
- * test means to fail throws from `failLaunch` instead, which is not collected.
+ * Errors thrown by the test's `CycleBackend` callbacks (`onLaunch`, `replyForRequest`), oldest
+ * first (AS F-9). A launch the test means to fail throws from `failLaunch` instead, which is
+ * not collected.
  */
 const launchCallbackErrors: unknown[] = [];
 function throwLaunchCallbackError(): void {
@@ -626,8 +630,9 @@ export interface WaitOptions {
  * A wait is bounded by steps, not by time (R-I2, TS-H1): it fails after `steps` steps, which is
  * a controller that stopped converging. Only daemons with `workers: true` cannot be stepped;
  * when every open daemon runs free, a step is one poll and only the hang guard bounds the wait.
- * The hang guard (`waitHangGuardMs`) catches a step that never returns or a free-running loop
- * that never gets there, and names the wait.
+ * The hang guard (`waitHangGuardMs`) bounds the whole wait, including a step that never
+ * returns (each step races the time left), and a free-running loop that never gets there; it
+ * names the wait.
  */
 export async function waitFor(
   predicate: () => boolean,
@@ -658,7 +663,13 @@ export async function waitFor(
         throw new Error(
           `Hung waiting for ${label}: ${pending.steps} steps in ${elapsed} ms, past the ${waitHangGuardMs()} ms hang guard`,
         );
-      await (options.step ?? stepDaemons)();
+      // A step that never returns is caught too, and named (R-I2).
+      await settlesWithin(
+        (options.step ?? stepDaemons)(),
+        waitHangGuardMs() - elapsed,
+        () =>
+          `Hung waiting for ${label}: step ${pending.steps + 1} did not return within the ${waitHangGuardMs()} ms hang guard`,
+      );
       pending.steps += 1;
       if (pending.generation !== fixtureGeneration)
         throw new Error(`Abandoned waiting for ${label}: its test has ended`);
@@ -681,14 +692,18 @@ export function waitUntil(predicate: () => boolean, label: string): Promise<void
 }
 
 /** Fails with the label if the promise has not settled within the hang guard (R-I2). */
-export async function withinHangGuard<T>(promise: Promise<T>, label: string): Promise<T> {
+export function withinHangGuard<T>(promise: Promise<T>, label: string): Promise<T> {
+  return settlesWithin(
+    promise,
+    waitHangGuardMs(),
+    () => `Hung waiting for ${label}: past the ${waitHangGuardMs()} ms hang guard`,
+  );
+}
+
+async function settlesWithin<T>(promise: Promise<T>, ms: number, message: () => string) {
   let timer: NodeJS.Timeout | undefined;
   const guard = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () =>
-        reject(new Error(`Hung waiting for ${label}: past the ${waitHangGuardMs()} ms hang guard`)),
-      waitHangGuardMs(),
-    );
+    timer = setTimeout(() => reject(new Error(message())), Math.max(0, ms));
   });
   try {
     return await Promise.race([promise, guard]);
@@ -887,9 +902,17 @@ export class CycleBackend extends ScriptedBackend {
       request.resumeSessionId !== undefined && request.prompt.startsWith(OUTPUT_REPAIR_PROMPT);
     if (repair) this.repairs += 1;
     const previous = repair ? this.lastReply.get(request.cwd) : undefined;
-    const reply = previous ??
-      (await this.replyForRequest?.(request)) ??
-      this.outputs[this.scripted++] ?? { resultText: 'No scripted result' };
+    let reply: ScriptedReply | undefined = previous;
+    if (reply === undefined)
+      try {
+        reply = await this.replyForRequest?.(request);
+      } catch (error) {
+        // As for `onLaunch`: an `expect` failing in a reply script fails the test with its
+        // own message, not with whatever the absorbed launch failure later breaks (AS F-9).
+        launchCallbackErrors.push(error);
+        throw error;
+      }
+    reply ??= this.outputs[this.scripted++] ?? { resultText: 'No scripted result' };
     this.lastReply.set(request.cwd, reply);
     this.repliesForNextRun = [reply];
     return super.launch(request);

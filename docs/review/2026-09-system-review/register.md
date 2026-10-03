@@ -3150,6 +3150,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Test daemons (vitest and e2e) now start with a 1 GiB free-space reserve, the smallest the settings allow, instead of the production 5 GiB, which would refuse launches on a small tmpfs. `initialStorageSettings(config, overrides)` is extracted from `StorageService` for this; the default is unchanged. The volume-loss test's own 1 GiB setting went with it.
     - `test-data-root.test.ts` asserts that the run's root is `$XDG_RUNTIME_DIR` whenever that is set, that a test daemon lives there, and that it has the 1 GiB reserve. With the seeding disabled, the reserve test and the volume-loss test both failed.
   - **The web project has its own base (TS-H1, review L3).** Both projects still use one mechanism: a base scaled by `CRAFTINGTABLE_TEST_TIMEOUT_SCALE`, with half of it for `expect.poll`. The node project's base stays 240 s. The jsdom web project's is 60 s: its slowest test, `request-budget`, took 12–15 s at load 8–13, and it had needed its own 120 s before.
+  - **Backend callback errors, the hang guard on a step, and errors raised while closing (AS F-9, TS-H1; review M1, L1, L5).**
+    - Errors from `replyForRequest` (117 assignments) are now collected like those from `onLaunch`. Before, a mutant (`toHaveLength(3)` in `server-execution-scope-findings`, line 220) failed with an unrelated downstream error ("expected undefined to deeply equal [ ObjectContaining… ]"). It now fails with its own assertion: "expected [ … ] to have a length of 3 but got 2".
+    - Each step of a wait now races the time left on the hang guard. A step that never returns therefore fails with "Hung waiting for <label>: step N did not return within the … hang guard", where before it ran to the test timeout. With `CRAFTINGTABLE_TEST_TIMEOUT_SCALE=0.02` it was caught in 2.4 s. The earlier note that the guard "catches a step that never returns" is true only from this fix on.
+    - `cleanupExecutionFixtures` now collects callback errors after the daemons have closed. An error raised during the close belongs to the test that ended, not to the next test's first wait.
+    - The node project passed afterwards: 1,736 passed, 1 skipped, 244 s, load up to 16.
 
 ### R-I3
 

@@ -11,7 +11,7 @@ import {
   stepController,
   storedCycle,
 } from './cycle-test-support.js';
-import { operatorWaitReport } from './services/operator-wait-service.js';
+import { OperatorWaitService, operatorWaitReport } from './services/operator-wait-service.js';
 
 /** R-C1: operator wait is measured from the cycle audit trail and shown on the dashboard. */
 
@@ -56,6 +56,21 @@ describe('operator wait (R-C1)', () => {
         .statusCode,
     ).toBe(400);
     expect((await f.context.app.inject({ method: 'GET', url })).statusCode).toBe(401);
+  });
+
+  it('reports a window of exactly the requested days, from one reading of the clock', async () => {
+    const f = await createCycleFixture({ workers: false });
+    fixtures.push(f);
+    // A clock that moves on every reading, as a busy host's does between two calls.
+    let ms = Date.parse('2026-09-20T00:00:00.000Z');
+    const service = new OperatorWaitService(
+      f.context.storage,
+      f.context.services.workspaceService,
+      () => new Date(ms++),
+    );
+    const auth = f.context.services.authService.authenticate(f.headers.cookie!.split('=')[1]!)!;
+    const report = service.report(auth, f.workspaceId, 7);
+    expect(Date.parse(report.to) - Date.parse(report.from)).toBe(7 * 86_400_000);
   });
 
   it('reads the state each cycle was in at the window start, and nothing older', async () => {

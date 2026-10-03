@@ -28,9 +28,11 @@ export class OperatorWaitService {
 
   report(context: AuthContext, workspaceId: WorkspaceId, days: number): OperatorWaitReport {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor', 'viewer']);
+    // One reading of the clock, so the window is exactly `days` long.
+    const to = this.now();
     return operatorWaitReport(this.storage, workspaceId, {
-      from: new Date(this.now().getTime() - days * 86_400_000),
-      to: this.now(),
+      from: new Date(to.getTime() - days * 86_400_000),
+      to,
     });
   }
 }

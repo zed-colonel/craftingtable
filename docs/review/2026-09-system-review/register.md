@@ -3217,6 +3217,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **Templates read in memory.** The tests read a template's ledger and tables from its bytes (`readTemplate`, `templateLedger`) instead of from scratch copies: opening it in place would add a write-ahead log beside a file other workers copy.
     - **The pragma test** in `database.test.ts` runs on a new file: a copy's header already records WAL, so it could not show that the open sets it.
     - **One registration for the outcome files.** The four outcome files repeated the same hook, test name and Cargo condition. `boundedScopeRecoveryTests(outcomes)` in `scope-recovery-test-support.ts` registers them, and each file is one call with its outcomes; the test names are unchanged.
+  - **A one-millisecond flake found while verifying.** In the second verification run, `operator-wait` failed with "expected 604800001 to be 604800000". `OperatorWaitService.report` read the clock twice, once for each end of the window, so a millisecond that passed between the reads made the window 1 ms longer than the days asked for; the dashboard's report had the same off-by-one. It now reads the clock once. A new test gives the service a clock that moves on every reading: it failed with the same message before the fix and passes after.
 
 ### R-I3
 

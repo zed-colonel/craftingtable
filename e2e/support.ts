@@ -17,6 +17,54 @@ export interface ExpectedFailure {
 }
 
 const SESSION = '/api/auth/session';
+const LOGIN = '/api/auth/login';
+const LOGOUT = '/api/auth/logout';
+
+/**
+ * Where a browser context stands with the daemon. It starts signed out; a logout begins when
+ * its request is sent, so reads already under way may be refused before its answer arrives.
+ */
+type SessionState = 'signed-out' | 'signed-in' | 'logged-out';
+
+/** How many of a document's fetches have no answer yet: `countFetches` keeps it. */
+interface FetchCount {
+  e2eFetchesInFlight?: number;
+}
+
+/**
+ * In every document of a watched context, before its own scripts: counts the fetches it has
+ * sent that have no answer yet, so `settle` can wait for them. The count lives in the
+ * document, so a navigation, which abandons the old document's fetches without a network
+ * event, starts it again at zero. The event streams are not fetches and are not counted.
+ */
+const countFetches = (): void => {
+  const count = window as FetchCount;
+  count.e2eFetchesInFlight = 0;
+  const send = window.fetch.bind(window);
+  window.fetch = (...args: Parameters<typeof fetch>) => {
+    count.e2eFetchesInFlight = (count.e2eFetchesInFlight ?? 0) + 1;
+    return send(...args).finally(() => {
+      count.e2eFetchesInFlight = (count.e2eFetchesInFlight ?? 1) - 1;
+    });
+  };
+};
+
+/**
+ * In the page: resolves after three animation frames and then a macrotask, so work queued by
+ * the last answers and events (a render, an effect, a short timer) has run. A hidden page
+ * draws no frames, so it waits for the macrotask alone.
+ */
+const nextFrames = (): Promise<void> =>
+  new Promise<void>((resolve) => {
+    let frames = 3;
+    const step = (): void => {
+      frames -= 1;
+      if (frames === 0) setTimeout(resolve, 0);
+      else requestAnimationFrame(step);
+    };
+    if (document.visibilityState === 'visible') requestAnimationFrame(step);
+    else setTimeout(resolve, 0);
+  });
 
 /**
  * Fails a spec on what the browser reports as an error on any page it watches (TS-M15,
@@ -25,11 +73,12 @@ const SESSION = '/api/auth/session';
  * `console.assert`, an HTTP answer of 400 or more, or a request that got no answer, unless
  * the spec declared it with `expectFailure`.
  *
- * Two failures need no declaration, each for its reason:
+ * Some failures need no declaration, each for its reason:
  * - `GET /api/auth/session` answered 401 while the context is signed out: a page opened then
  *   asks the daemon for its session, and that answer is how the app knows to show the sign-in
- *   page. Once a sign-in succeeds, a 401 there is a lost session, and an error, until the
- *   context logs out.
+ *   page. Once a sign-in succeeds, a 401 there is a lost session, and an error.
+ * - Any 401 once the context has sent a logout, until it signs in again: reads under way when
+ *   the session ended, and the signed-out page's own session probe.
  * - A request Chrome cancelled (`net::ERR_ABORTED`): a navigation, reload or closing page
  *   leaves reads and the event stream behind. Whatever the page should have shown, the spec
  *   asserts.
@@ -42,20 +91,33 @@ export class BrowserErrors {
   private readonly loadLogs: { readonly where: string; readonly url: string }[] = [];
   private readonly failedUrls = new Set<string>();
   private readonly expected: ExpectedFailure[] = [];
-  private readonly signedIn = new WeakSet<BrowserContext>();
+  private readonly sessions = new WeakMap<BrowserContext, SessionState>();
+  private readonly pages = new Set<Page>();
 
-  /** Watches every page of `context`, open now or opened later. */
-  watch(context: BrowserContext): void {
+  /**
+   * Watches every page of `context`, open now or opened later. Call it before the pages
+   * load anything: their fetches are counted from the next document on.
+   */
+  async watch(context: BrowserContext): Promise<void> {
+    await context.addInitScript(countFetches);
     for (const page of context.pages()) this.watchPage(page);
     context.on('page', (page) => this.watchPage(page));
   }
 
-  /** Accepts a failure the calling spec causes on purpose, from now on. */
-  expectFailure(failure: ExpectedFailure): void {
+  /**
+   * Accepts a failure the calling spec causes on purpose, until the returned function is
+   * called. End it where the spec stops causing the failure, so a later one is still caught.
+   */
+  expectFailure(failure: ExpectedFailure): () => void {
     this.expected.push(failure);
+    return () => {
+      const index = this.expected.indexOf(failure);
+      if (index >= 0) this.expected.splice(index, 1);
+    };
   }
 
   private watchPage(page: Page): void {
+    this.pages.add(page);
     page.on('pageerror', (error) =>
       this.errors.push(`uncaught on ${page.url()}: ${error.stack ?? error.message}`),
     );
@@ -66,6 +128,10 @@ export class BrowserErrors {
       if (message.args().length === 0 && message.location().url)
         this.loadLogs.push({ where, url: message.location().url });
       else this.errors.push(where);
+    });
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === LOGOUT)
+        this.sessions.set(page.context(), 'logged-out');
     });
     page.on('requestfailed', (request) => {
       this.failedUrls.add(request.url());
@@ -78,14 +144,14 @@ export class BrowserErrors {
       const { pathname } = new URL(response.url());
       const status = response.status();
       if (status < 400) {
-        if ((method === 'POST' && pathname === '/api/auth/login') || pathname === SESSION)
-          this.signedIn.add(page.context());
-        if (method === 'POST' && pathname === '/api/auth/logout')
-          this.signedIn.delete(page.context());
+        if ((method === 'POST' && pathname === LOGIN) || pathname === SESSION)
+          this.sessions.set(page.context(), 'signed-in');
         return;
       }
       this.failedUrls.add(response.url());
-      if (pathname === SESSION && status === 401 && !this.signedIn.has(page.context())) return;
+      const session = this.sessions.get(page.context()) ?? 'signed-out';
+      if (status === 401 && session === 'logged-out') return;
+      if (status === 401 && session === 'signed-out' && pathname === SESSION) return;
       this.judge(page, method, response.url(), status, `answered ${status}`);
     });
   }
@@ -109,6 +175,22 @@ export class BrowserErrors {
     if (!declared) this.errors.push(`${method} ${pathname} ${what} on ${page.url()}`);
   }
 
+  /**
+   * Lets what the pages started before the test ended finish, so its errors are judged too:
+   * every fetch a page's document sent gets its answer (within the suite's one wait), then
+   * each open page runs the work those answers queued.
+   */
+  async settle(): Promise<void> {
+    const open = [...this.pages].filter((page) => !page.isClosed());
+    for (const page of open)
+      await expect
+        .poll(() => page.evaluate(() => (window as FetchCount).e2eFetchesInFlight ?? 0), {
+          message: `the fetches ${page.url()} sent before the test ended got their answers`,
+        })
+        .toBe(0);
+    await Promise.all(open.map((page) => page.evaluate(nextFrames).catch(() => undefined)));
+  }
+
   /** Fails the test with every error seen so far. */
   expectNone(): void {
     const unexplained = this.loadLogs
@@ -123,8 +205,9 @@ export const test = base.extend<{ browserErrors: BrowserErrors }>({
   browserErrors: [
     async ({ context }, use) => {
       const errors = new BrowserErrors();
-      errors.watch(context);
+      await errors.watch(context);
       await use(errors);
+      await errors.settle();
       errors.expectNone();
     },
     { auto: true },

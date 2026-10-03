@@ -280,7 +280,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
   });
   const applicationRepositories: string[] = [];
   const phone = await newPhonePage(browser);
-  browserErrors.watch(phone.context());
+  await browserErrors.watch(phone.context());
   try {
     // ---- Sign-in on both viewports ---------------------------------------------------
     await page.goto('/');

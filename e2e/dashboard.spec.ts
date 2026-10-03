@@ -16,9 +16,14 @@ test('authenticated snapshot, replay, outage recovery, and logout', async ({
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Sign in to CraftingTable' })).toBeVisible();
 
-  browserErrors.expectFailure({ method: 'POST', path: '/api/auth/login', status: 401 });
+  const refusedSignIn = browserErrors.expectFailure({
+    method: 'POST',
+    path: '/api/auth/login',
+    status: 401,
+  });
   await submitSignIn(page, 'incorrect password');
   await expect(page.getByRole('alert')).toContainText('Sign-in failed');
+  refusedSignIn();
 
   await signIn(page);
   await expect(page.getByRole('status')).toHaveText('Live');
@@ -39,7 +44,7 @@ test('authenticated snapshot, replay, outage recovery, and logout', async ({
   await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
   await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
 
-  browserErrors.expectFailure({
+  const abortedStream = browserErrors.expectFailure({
     method: 'GET',
     path: /^\/api\/workspaces\/[^/]+\/events$/,
     status: 'dropped',
@@ -54,11 +59,12 @@ test('authenticated snapshot, replay, outage recovery, and logout', async ({
 
   await page.unroute(EVENT_ROUTE);
   await expect(page.getByRole('status')).toHaveText('Live');
+  abortedStream();
   await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Log out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to CraftingTable' })).toBeVisible();
-  browserErrors.expectFailure({ method: 'GET', path: '/api/workspaces', status: 401 });
+  // Signed out, the daemon refuses the read: a 401 after a logout needs no declaration.
   const protectedStatus = await page.evaluate(async () => {
     const response = await fetch('/api/workspaces');
     return response.status;

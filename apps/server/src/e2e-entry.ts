@@ -3,18 +3,24 @@ import { join } from 'node:path';
 import { createRuntime } from './composition.js';
 import { configFromEnv } from './config.js';
 import { e2eEnvironment } from './e2e-environment.js';
-import { testDataRoot } from './test-data-root.js';
+import { openDaemonStorage } from './persisted-records.js';
+import { seedTestDaemonStorage } from './test-daemon-storage.js';
+import { chooseTestDataRoot } from './test-data-root.js';
 
 const E2E_USERNAME = 'e2e-admin';
 const E2E_PASSWORD = 'correct horse battery staple';
 // On tmpfs (TS-H8): a commit's fsync on a disk TMPDIR stalled this daemon for seconds.
-const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-e2e-'));
+const directory = mkdtempSync(join(chooseTestDataRoot(), 'craftingtable-e2e-'));
 // Agents' own short temporary directories (LIVE-31): the data directory's path is too long.
 const agents = mkdtempSync('/tmp/cte-');
 const config = configFromEnv({
   ...e2eEnvironment(directory, process.env),
   CRAFTINGTABLE_AGENT_TMP_ROOT: agents,
 });
+// The tmpfs is small: the e2e daemon takes the test daemons' reserve, not the production 5 GiB.
+const seeding = openDaemonStorage(config.databasePath);
+seedTestDaemonStorage(seeding, config);
+seeding.close();
 const runtime = await createRuntime(config, {
   logger: true,
   overrides: { notificationTransport: { send: async () => ({ status: 'accepted' }) } },

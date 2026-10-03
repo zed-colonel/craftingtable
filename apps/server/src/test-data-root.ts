@@ -1,40 +1,39 @@
-import { accessSync, constants, statfsSync, statSync } from 'node:fs';
+import { accessSync, constants, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute } from 'node:path';
 
 /**
- * Free space the test data root must have: a daemon refuses to launch a run with less than its
- * default 5 GiB reserve free, so the root leaves 1 GiB beyond it for the tests' own data.
- */
-export const TEST_DATA_MIN_FREE_BYTES = 6 * 1024 ** 3;
-
-/**
  * Where test daemons keep their data directories (TS-H8, operator decision 2026-10-02):
- * `$XDG_RUNTIME_DIR`, the user's tmpfs, when it names a directory this user can write with
- * `TEST_DATA_MIN_FREE_BYTES` free; otherwise the temporary directory. A daemon commits with
- * `synchronous=FULL`, and with its data directory on a disk TMPDIR each fsync stalled it for up
- * to seconds under load. Only daemon data directories move: TMPDIR stays on disk for everything
- * else (fixture repositories, scratch files), and the production pragmas are unchanged.
+ * `$XDG_RUNTIME_DIR`, the user's tmpfs, when it names a directory this user can write. A
+ * daemon commits with `synchronous=FULL`, and with its data directory on a disk TMPDIR each
+ * fsync stalled it for up to seconds under load. Only daemon data directories move: TMPDIR
+ * stays on disk for everything else (fixture repositories, scratch files), and the production
+ * pragmas are unchanged. The tmpfs is small, so test daemons take a small free-space reserve
+ * (`test-daemon-storage.ts`).
  *
- * Used by the vitest daemons (`test-support.ts` and the tests that open a daemon database
- * themselves) and by the e2e daemon (`e2e-entry.ts`). `vitest.config.ts` provides its value to
- * `packages/storage`, whose test support cannot import this module.
+ * Decided once per run, never per daemon: `vitest.config.ts` provides it to every test
+ * (`testDataRoot()` in the test supports), and the e2e daemon decides it once at start. A
+ * fallback to TMPDIR is said, not silent.
  */
-export function testDataRoot(
+export function chooseTestDataRoot(
   env: NodeJS.ProcessEnv = process.env,
-  freeBytes: (path: string) => number = (path) => {
-    const fs = statfsSync(path);
-    return fs.bavail * fs.bsize;
-  },
+  warn: (message: string) => void = (message) => console.warn(message),
 ): string {
   const runtime = env.XDG_RUNTIME_DIR;
-  if (runtime !== undefined && isAbsolute(runtime))
-    try {
-      accessSync(runtime, constants.W_OK | constants.X_OK);
-      if (statSync(runtime).isDirectory() && freeBytes(runtime) >= TEST_DATA_MIN_FREE_BYTES)
-        return runtime;
-    } catch {
-      /* not a directory this user can use */
-    }
-  return tmpdir();
+  let problem = 'is not set';
+  if (runtime !== undefined && runtime !== '') {
+    problem = `(${runtime}) is not an absolute directory this user can write`;
+    if (isAbsolute(runtime))
+      try {
+        accessSync(runtime, constants.W_OK | constants.X_OK);
+        if (statSync(runtime).isDirectory()) return runtime;
+      } catch {
+        /* not a directory this user can use */
+      }
+  }
+  const fallback = tmpdir();
+  warn(
+    `Test daemon data directories go to ${fallback}, not tmpfs: XDG_RUNTIME_DIR ${problem} (TS-H8).`,
+  );
+  return fallback;
 }

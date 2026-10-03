@@ -13,8 +13,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { type CraftingTableRuntime, createRuntime } from './composition.js';
 import { CSRF_HEADER_NAME, configFromEnv } from './config.js';
 import { buildMultipartBody } from './multipart-test-support.js';
-import { FastTestPasswordHasher, TEST_PASSWORD, TEST_USERNAME } from './test-support.js';
-import { testDataRoot } from './test-data-root.js';
+import {
+  FastTestPasswordHasher,
+  TEST_PASSWORD,
+  TEST_USERNAME,
+  testDataRoot,
+} from './test-support.js';
 
 const runtimes: CraftingTableRuntime[] = [];
 const directories: string[] = [];

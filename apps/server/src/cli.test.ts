@@ -15,7 +15,7 @@ import {
   SCHEMA_VALIDATION_EXIT_CODE,
 } from './cli.js';
 import { acquireInstanceLock } from './instance-lock.js';
-import { testDataRoot } from './test-data-root.js';
+import { testDataRoot } from './test-support.js';
 
 describe('CLI argument parsing', () => {
   it('accepts bootstrap and database commands', () => {

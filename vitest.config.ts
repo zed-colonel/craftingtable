@@ -1,6 +1,6 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vitest/config';
-import { testDataRoot } from './apps/server/src/test-data-root.ts';
+import { chooseTestDataRoot } from './apps/server/src/test-data-root.ts';
 
 const fromHere = (path: string): string => fileURLToPath(new URL(path, import.meta.url));
 
@@ -16,12 +16,12 @@ const alias = {
 };
 
 /**
- * The suite's one test timeout (R-I2, TS-H1). It is a hang guard, never a budget: tests are
- * bounded by what they assert and by controller steps, not by time sized on an idle machine.
- * It covers the slowest legitimate test, a real Cargo build or a whole roadmap at load 40,
- * with room to spare. A slower or busier host raises it with
- * `CRAFTINGTABLE_TEST_TIMEOUT_SCALE` (a positive factor, default 1). Tests read the scaled
- * values through `inject`.
+ * One scalable test timeout per project (R-I2, TS-H1), not per-test numbers. It is a hang
+ * guard, never a budget: tests are bounded by what they assert and by controller steps, not by
+ * time sized on an idle machine. Each project's base covers its slowest legitimate test with
+ * room to spare (the node project: a real Cargo build or a whole roadmap at load 40). A slower
+ * or busier host raises every guard with `CRAFTINGTABLE_TEST_TIMEOUT_SCALE` (a positive factor,
+ * default 1). Tests read the scaled values through `inject`.
  */
 const testTimeScale = (() => {
   const raw = process.env.CRAFTINGTABLE_TEST_TIMEOUT_SCALE;
@@ -31,16 +31,21 @@ const testTimeScale = (() => {
     throw new Error(`CRAFTINGTABLE_TEST_TIMEOUT_SCALE must be a positive number, not "${raw}"`);
   return scale;
 })();
-const testTimeoutMs = Math.round(240_000 * testTimeScale);
-const timeouts = {
-  testTimeout: testTimeoutMs,
-  hookTimeout: testTimeoutMs,
-  // `expect.poll` waits on a real process: a hang guard too, half the test's, so it names its
-  // assertion before the test is timed out.
-  expect: { poll: { timeout: testTimeoutMs / 2 } },
-  // Where test daemons keep their data (TS-H8), decided once for the run; packages/storage
-  // reads it here because its test support cannot import the server's.
-  provide: { testTimeoutMs, testTimeScale, testDataRoot: testDataRoot() },
+// Where test daemons keep their data (TS-H8): decided once for the whole run, and said when it
+// is not the runtime tmpfs. Tests read it with `testDataRoot()`.
+const testDataRoot = chooseTestDataRoot();
+/**
+ * One guard per project from one mechanism: a base scaled by `testTimeScale`. `expect.poll`
+ * waits get half of it, so they name their assertion before the test is timed out.
+ */
+const timeouts = (baseMs: number) => {
+  const testTimeoutMs = Math.round(baseMs * testTimeScale);
+  return {
+    testTimeout: testTimeoutMs,
+    hookTimeout: testTimeoutMs,
+    expect: { poll: { timeout: testTimeoutMs / 2 } },
+    provide: { testTimeoutMs, testTimeScale, testDataRoot },
+  };
 };
 
 export default defineConfig({
@@ -54,7 +59,8 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
-          ...timeouts,
+          // The daemon's tests: real repositories, real checks and whole maps.
+          ...timeouts(240_000),
           include: [
             'packages/*/src/**/*.test.ts',
             'packages/*/test/**/*.test.ts',
@@ -69,7 +75,8 @@ export default defineConfig({
         test: {
           name: 'web',
           environment: 'jsdom',
-          ...timeouts,
+          // Components in jsdom. The slowest, request-budget, took 12-15 s at load 8-13.
+          ...timeouts(60_000),
           include: ['apps/web/src/**/*.test.tsx'],
           // Nothing a query store caches outlives its test (R-D4).
           setupFiles: ['apps/web/src/test-setup.ts'],

@@ -4,6 +4,7 @@ import type { AgentBackend } from '@craftingtable/agents';
 import { CYCLE_ATTENTION } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { FastifyInstance } from 'fastify';
+import { inject } from 'vitest';
 import { createServices, type ServiceSet } from './composition.js';
 import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from './config.js';
 import { groupedIssues } from './db-verify.js';
@@ -12,7 +13,24 @@ import type { PasswordHasher } from './security/password-hasher.js';
 import { buildServer } from './server.js';
 import type { NotificationTransport } from './services/notification-transport.js';
 import type { WorkspaceEventStreamHooks } from './services/workspace-event-stream-service.js';
-import { testDataRoot } from './test-data-root.js';
+import { seedTestDaemonStorage } from './test-daemon-storage.js';
+
+declare module 'vitest' {
+  export interface ProvidedContext {
+    /** Where test daemons keep their data, chosen once for the run (TS-H8). */
+    testDataRoot: string;
+  }
+}
+
+/**
+ * Where test daemons keep their data directories (TS-H8): the root `vitest.config.ts` chose
+ * once for the run with `chooseTestDataRoot`, the user's runtime tmpfs when there is one.
+ */
+export function testDataRoot(): string {
+  const root = inject('testDataRoot');
+  if (typeof root !== 'string') throw new Error('vitest.config.ts provides no testDataRoot');
+  return root;
+}
 
 export const TEST_USERNAME = 'test-user';
 export const TEST_PASSWORD = 'correct horse battery staple';
@@ -74,6 +92,7 @@ export async function createTestContext(
     ...options.env,
   });
   const storage = openDaemonStorage(config.databasePath);
+  seedTestDaemonStorage(storage, config);
   const services = await createServices(storage, config, {
     notificationTransport: options.notificationTransport ?? {
       send: async () => ({ status: 'accepted' }),

@@ -4,8 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createServices } from './composition.js';
 import { configFromEnv } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
-import { FastTestPasswordHasher } from './test-support.js';
-import { testDataRoot } from './test-data-root.js';
+import { FastTestPasswordHasher, testDataRoot } from './test-support.js';
 
 const directories: string[] = [];
 

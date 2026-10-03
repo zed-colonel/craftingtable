@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createCycleFixture, startCycle, stepController } from './cycle-test-support.js';
 import { formatVerification, verifyDatabase } from './db-verify.js';
 import { verified } from './persisted-records.js';
-import { testDataRoot } from './test-data-root.js';
+import { testDataRoot } from './test-support.js';
 
 const directories: string[] = [];
 afterEach(() => {

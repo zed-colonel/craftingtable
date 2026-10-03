@@ -41,6 +41,33 @@ import {
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
+/**
+ * A data directory's first storage settings: the default policy, with `overrides` (test
+ * daemons on a small tmpfs take a smaller free-space reserve, TS-H8), and its prepared roots.
+ */
+export function initialStorageSettings(
+  config: ServerConfig,
+  overrides: Partial<StoragePolicy> = {},
+): StoredStorageSettings {
+  const policy: StoragePolicy = {
+    worktreeRoot: config.execution.worktreeRoot,
+    runsRoot: config.execution.runsRoot,
+    backupRoot: join(config.dataDir, 'backups'),
+    autoCleanBuildCaches: true,
+    scratchRetentionDays: 30,
+    minimumFreeGiB: 5,
+    dailyBackups: true,
+    backupsToKeep: 7,
+    ...overrides,
+  };
+  const roots = {
+    worktreeRoot: prepareRoot(policy.worktreeRoot),
+    runsRoot: prepareRoot(policy.runsRoot),
+    backupRoot: prepareRoot(policy.backupRoot),
+  };
+  return { version: 1, policy, roots, mergeRoot: roots.worktreeRoot };
+}
+
 /** Host-owned placement and maintenance. Cleanup accepts controller previews, never browser paths. */
 export class StorageService {
   private settings: StoredStorageSettings;
@@ -74,22 +101,7 @@ export class StorageService {
       storagePolicySchema.parse(previous.policy);
       this.settings = previous;
     } else {
-      const policy: StoragePolicy = {
-        worktreeRoot: config.execution.worktreeRoot,
-        runsRoot: config.execution.runsRoot,
-        backupRoot: join(config.dataDir, 'backups'),
-        autoCleanBuildCaches: true,
-        scratchRetentionDays: 30,
-        minimumFreeGiB: 5,
-        dailyBackups: true,
-        backupsToKeep: 7,
-      };
-      const roots = {
-        worktreeRoot: prepareRoot(policy.worktreeRoot),
-        runsRoot: prepareRoot(policy.runsRoot),
-        backupRoot: prepareRoot(policy.backupRoot),
-      };
-      this.settings = { version: 1, policy, roots, mergeRoot: roots.worktreeRoot };
+      this.settings = initialStorageSettings(config);
       storage.transaction((tx) => tx.maintenance.saveSettings(this.settings));
     }
     // Seed pre-feature runs once, without reinterpreting their paths on later settings changes.

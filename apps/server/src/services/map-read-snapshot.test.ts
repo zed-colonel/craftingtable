@@ -4,7 +4,7 @@ import { asWorkItemId, asWorkspaceId } from '@craftingtable/domain';
 import { expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../persisted-records.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
-import { testDataRoot } from '../test-data-root.js';
+import { testDataRoot } from '../test-support.js';
 
 it('shares repeated projection reads but sees changed authority in the next snapshot', () => {
   const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-projection-'));

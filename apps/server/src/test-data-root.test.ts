@@ -2,8 +2,9 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { TEST_DATA_MIN_FREE_BYTES, testDataRoot } from './test-data-root.js';
-import { createTestContext, type TestContext } from './test-support.js';
+import { TEST_DAEMON_RESERVE_GIB } from './test-daemon-storage.js';
+import { chooseTestDataRoot } from './test-data-root.js';
+import { createTestContext, type TestContext, testDataRoot } from './test-support.js';
 
 const roots: string[] = [];
 const contexts: TestContext[] = [];
@@ -15,30 +16,39 @@ afterEach(async () => {
   }
 });
 
-it('puts test data directories in XDG_RUNTIME_DIR when it is a writable directory (TS-H8)', () => {
+it('chooses XDG_RUNTIME_DIR when it is a writable directory, and says when it falls back (TS-H8)', () => {
   const runtime = mkdtempSync(join(tmpdir(), 'ct-runtime-'));
   roots.push(runtime);
-  const plenty = () => TEST_DATA_MIN_FREE_BYTES;
-  expect(testDataRoot({ XDG_RUNTIME_DIR: runtime }, plenty)).toBe(runtime);
-  // Too little free space for a daemon to launch runs above its reserve.
-  expect(testDataRoot({ XDG_RUNTIME_DIR: runtime }, () => TEST_DATA_MIN_FREE_BYTES - 1)).toBe(
-    tmpdir(),
-  );
-  // Anything else falls back to the temporary directory.
-  expect(testDataRoot({})).toBe(tmpdir());
-  expect(testDataRoot({ XDG_RUNTIME_DIR: 'relative/run' })).toBe(tmpdir());
-  expect(testDataRoot({ XDG_RUNTIME_DIR: join(runtime, 'absent') }, plenty)).toBe(tmpdir());
+  const warnings: string[] = [];
+  const choose = (env: NodeJS.ProcessEnv) => chooseTestDataRoot(env, (m) => warnings.push(m));
+  expect(choose({ XDG_RUNTIME_DIR: runtime })).toBe(runtime);
+  expect(warnings).toEqual([]);
+  // Anything else falls back to the temporary directory, with one warning each time.
+  expect(choose({})).toBe(tmpdir());
+  expect(choose({ XDG_RUNTIME_DIR: 'relative/run' })).toBe(tmpdir());
+  expect(choose({ XDG_RUNTIME_DIR: join(runtime, 'absent') })).toBe(tmpdir());
   writeFileSync(join(runtime, 'file'), '');
-  expect(testDataRoot({ XDG_RUNTIME_DIR: join(runtime, 'file') }, plenty)).toBe(tmpdir());
+  expect(choose({ XDG_RUNTIME_DIR: join(runtime, 'file') })).toBe(tmpdir());
+  expect(warnings).toHaveLength(4);
+  expect(warnings[0]).toContain('XDG_RUNTIME_DIR is not set');
+  expect(warnings[1]).toContain('relative/run');
   // Not writable; root may write anyway, so this holds only for other users.
   chmodSync(runtime, 0o500);
-  if (process.getuid?.() !== 0)
-    expect(testDataRoot({ XDG_RUNTIME_DIR: runtime }, plenty)).toBe(tmpdir());
+  if (process.getuid?.() !== 0) expect(choose({ XDG_RUNTIME_DIR: runtime })).toBe(tmpdir());
 });
 
-it('gives a test daemon its data directory under the test data root (TS-H8)', async () => {
-  const context = await createTestContext();
-  contexts.push(context);
-  expect(dirname(context.directory)).toBe(testDataRoot());
-  expect(context.config.databasePath.startsWith(`${context.directory}/`)).toBe(true);
-});
+it.skipIf(!process.env.XDG_RUNTIME_DIR)(
+  "keeps this run's test daemons in XDG_RUNTIME_DIR, with the test reserve (TS-H8)",
+  async () => {
+    // Decided once by vitest.config.ts, so it cannot change during the run.
+    expect(testDataRoot()).toBe(process.env.XDG_RUNTIME_DIR);
+    const context = await createTestContext();
+    contexts.push(context);
+    expect(dirname(context.directory)).toBe(process.env.XDG_RUNTIME_DIR);
+    expect(context.config.databasePath.startsWith(`${context.directory}/`)).toBe(true);
+    // The production 5 GiB reserve would refuse launches on a small tmpfs.
+    expect(context.storage.maintenance.settings()?.policy.minimumFreeGiB).toBe(
+      TEST_DAEMON_RESERVE_GIB,
+    );
+  },
+);

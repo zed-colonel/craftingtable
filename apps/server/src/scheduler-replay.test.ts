@@ -16,7 +16,7 @@ import {
 } from './execution-test-support.js';
 import { openDaemonStorage } from './persisted-records.js';
 import { replaySchedulerDecisions, replaySchedulerSnapshot } from './scheduler-replay.js';
-import { testDataRoot } from './test-data-root.js';
+import { testDataRoot } from './test-support.js';
 
 /**
  * The scheduler replay (R-I10) runs one real roadmap pass over a copy of a snapshot and

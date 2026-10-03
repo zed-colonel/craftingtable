@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { acquireInstanceLock, type InstanceLock, InstanceLockedError } from './instance-lock.js';
-import { testDataRoot } from './test-data-root.js';
+import { testDataRoot } from './test-support.js';
 
 describe('instance lock', () => {
   const held: InstanceLock[] = [];

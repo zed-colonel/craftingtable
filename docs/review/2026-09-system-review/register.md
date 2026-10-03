@@ -3063,6 +3063,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Audit appends outside a transaction.** Storage cleanup appends audit records outside a transaction, so a refused record would have stayed committed. `audit.append` now runs in its own transaction, which is a savepoint inside a caller's.
   - Tests are in `records.test.ts`. The retired-draft upcaster now checks for the key rather than its truthiness.
 - **Amended 2026-09-24 (operator decision): the guard stays fail-closed.** A record that breaks its contract, or that comes back from its own write in a historical shape, fails the write. There is no log-and-allow period.
+- **Test-suite review, 2026-10-02 ([TS-M5](findings/TS-test-suite-review-2026-10-02.md)): the daemon's guard is now shown refusing.**
+  - **The gap.** The rollback tests in `records.test.ts` use a test guard, and no test wrote an out-of-contract record through `openDaemonStorage`. Disabling `contractRecordGuard` (`if (issues.length && false)`) passed the whole node project (211 files, 1,747 tests).
+  - **Test.** `persisted-records.test.ts`: through the daemon's storage, one transaction saves a roadmap, appends an audit record and then updates the roadmap with a scope-recovery grant of 21 rounds (the contract allows 20; SQLite stores it as JSON without a check). The write fails with `InvalidRecordError` naming the field, and nothing from the transaction persists: no roadmap, definition or audit record. The same transaction at 20 rounds commits. The guard mutant fails it.
+  - **Not used: the over-long run summary RC F-4 suggested.** The run repository reads a written run back through `readWritten` before guarding it, so an over-long summary is refused as a historical shape (`HistoricalRecordWriteError`) whether or not the contract guard runs; it could not tell the guard mutant apart.
 
 ### R-H4
 

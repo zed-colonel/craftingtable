@@ -837,6 +837,75 @@ itNeedsCargo(
   },
 );
 
+/**
+ * A review run whose agent asked for one check running `command`, live and waiting while its
+ * check runs. For the tests of what closing the daemon waits for.
+ */
+async function runWithOneCheck(command: readonly string[]) {
+  const f = await scopedRuntimeFixture();
+  // The agent's own request: the daemon's runs before a review are tested on their own.
+  withoutDaemonChecks(f.state);
+  let runId = '';
+  f.backend.replyForRequest = (request) => {
+    runId = request.buildEnvironment!.namespace!;
+    writeFileSync(
+      join(request.buildEnvironment!.binDirectory, '../requests', `${CHECK_ID}.request`),
+      JSON.stringify({ version: 1, tool: 'ct-check', args: ['--', ...command] }),
+    );
+    return { resultText: 'Check requested.' };
+  };
+  const started = await f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+    headers: mutationHeaders(f.state),
+    payload: { worktreeId: f.tree.id, role: 'review' },
+  });
+  expect(started.statusCode, started.body).toBe(200);
+  const run = started.json().run.id as string;
+  await waitFor(
+    () =>
+      f.state.context.storage.execution.runs.find(f.state.workspaceId, run as never)?.status ===
+      'waiting',
+    'turn',
+  );
+  return { f, runId, checks: f.state.context.services.checkRequestService };
+}
+const CHECK_ID = '00000000-0000-4000-8000-000000000000';
+
+itNeedsCargo(
+  'closing the daemon waits for the checks of a run that just ended, and their logs (R-I2, TS-M14)',
+  async () => {
+    const gate = checkGate();
+    const { f, runId, checks } = await runWithOneCheck(gate.command);
+    await waitUntil(() => gate.pids().length === 1, 'the check running');
+    // A run that ends closes its checks without anyone awaiting it, as the run service does.
+    void checks.close(runId);
+    await withinHangGuard(checks.closeAll(), 'the daemon closing');
+    // Closed only once the stopped check has exited and its log is written.
+    expect(processRunning(gate.pids()[0]!)).toBe(false);
+    expect(
+      existsSync(join(f.state.context.config.execution.checkLogRoot, runId, `${CHECK_ID}.log`)),
+    ).toBe(true);
+  },
+);
+
+itNeedsCargo(
+  'closing the daemon does not wait without bound for a check that outlives its stop (R-I2)',
+  async () => {
+    // The check starts a process in a session of its own, which the stop cannot reach and
+    // which keeps the check's output open: the check never reports that it ended. That process
+    // waits on the gate, which the test's cleanup closes.
+    const gate = checkGate();
+    const escapes = `require('node:child_process').spawn('setsid', ${JSON.stringify(gate.command)}, { stdio: 'inherit' }); setInterval(() => {}, 1000);`;
+    const { runId, checks } = await runWithOneCheck(['node', '-e', escapes]);
+    await waitUntil(() => gate.pids().length === 1, 'the escaped process running');
+    void checks.close(runId);
+    await withinHangGuard(checks.closeAll(), 'the daemon closing');
+    // Closed although the stop has not finished: the escaped process still holds the output.
+    expect(processRunning(gate.pids()[0]!)).toBe(true);
+  },
+);
+
 itNeedsCargo(
   'the daemon runs at most eight checks at once across its runs (R-G4 review)',
   async () => {
@@ -889,9 +958,8 @@ itNeedsCargo(
     const total = () => running().reduce((sum, n) => sum + n, 0);
     expect(total()).toBe(8);
     expect(Math.max(...running())).toBeLessThanOrEqual(4);
-    // Released, the rest run as slots free, never more than eight at once.
-    let peak = 0;
-    gate.open(12);
+    // Released one at a time: each time a check ends, the next starts in its slot, and the
+    // count is checked once the daemon has settled, never by sampling.
     const exits = ({ runId }: { runId: string }) => {
       try {
         return readdirSync(
@@ -901,11 +969,17 @@ itNeedsCargo(
         return 0;
       }
     };
-    await waitUntil(() => {
-      peak = Math.max(peak, total());
-      return served.every((run) => exits(run) === 4);
-    }, 'every check');
-    expect(peak).toBeLessThanOrEqual(8);
+    const ended = () => served.reduce((sum, run) => sum + exits(run), 0);
+    for (let released = 1; released <= 12; released++) {
+      gate.open(1);
+      const expected = Math.min(8, 12 - released);
+      await waitUntil(
+        () => ended() === released && total() >= expected,
+        `check ${released} ended and the next started`,
+      );
+      expect(total()).toBe(expected);
+      expect(Math.max(...running())).toBeLessThanOrEqual(4);
+    }
     expect(gate.pids()).toHaveLength(12);
     for (const run of runs)
       await f.state.context.app.inject({

@@ -164,6 +164,12 @@ export const CHECK_LIMITS = {
   waitingPerRun: 32,
   logBytesPerRun: 256 * 1024 * 1024,
   logBytesPerCheck: 2 * 1024 * 1024,
+  /**
+   * How long closing the daemon waits for the checks of runs that ended just before. A stopped
+   * check is killed 1 s after its stop; a process that escaped the check's group can keep it
+   * from ever reporting its end, and must not hold the daemon's shutdown.
+   */
+  stoppingWaitMs: 5_000,
 } as const;
 
 /**
@@ -339,8 +345,18 @@ export class CheckRequestService {
     this.closed = true;
     await Promise.all([...this.runs.keys()].map((runId) => this.close(runId)));
     // Runs that ended just before are still stopping their checks, which write their logs as
-    // they stop: the daemon is closed only once they have.
-    await Promise.allSettled([...this.closing]);
+    // they stop: the daemon closes once they have, or once the wait for them runs out.
+    const stopping = [...this.closing];
+    if (!stopping.length) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outlasted = await Promise.race([
+      Promise.allSettled(stopping).then(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(true), this.limits.stoppingWaitMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (outlasted) this.log.warn('Closing with checks still stopping', { runs: this.closing.size });
   }
 
   private serve(runId: string): void {

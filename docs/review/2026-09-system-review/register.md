@@ -2520,6 +2520,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       | a link to `<data>/state` | accepted | refused (database's directory) |
 
     - **Tests.** `config.test.ts`: "refuses an agents' temporary root that holds the database or files of the operator's" (`/`, `/tmp`, `/var/tmp`, `/var`, the home, `/home`, the daemon's home; `<data>/state`, inside it, `<data>`, above it; accepted: `<data>/t`, `/tmp/cte-x`, `/var/tmp/ct`, directories under both homes, the default under a home) and "compares … through links" (a link to the database's directory and a path beneath that link, the data directory named through a link, a link to `/tmp`; a link to a directory of its own is accepted). Both fail on the base.
+  - **The variable is documented (done).** `docs/operations.md`: a `t/<12 hex>/` row in "Data location", and a paragraph after the agent-environment one in "Running the daemon": what the root is, its default, the 60-byte limit on each run's directory, what a start removes and that it warns about the rest, the refusals, and that two daemons must not share a root. The last is not enforced: a start sweeps every run-named directory, so a second daemon on the same root removes the first one's live runs' directories (RC F-1's dev-daemon scenario); the default `<data>/t` differs per data directory.
 
 ### R-G6
 

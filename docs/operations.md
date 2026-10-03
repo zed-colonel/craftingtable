@@ -10,6 +10,7 @@ state/craftingtable.sqlite   the database (WAL mode; use a consistent SQLite bac
 worktrees/<repo>/<item>-<id> linked Git worktrees created for runs
 runs/<runId>/brief.md        the brief handed to the agent, plus plan/ and handoff/ documents
 runs/<runId>/scratch/        disposable build output and temporary test files
+t/<12 hex>/                  each live run's agent process TMPDIR (CRAFTINGTABLE_AGENT_TMP_ROOT)
 backups/database/           private, consistent SQLite snapshots
 ```
 
@@ -244,6 +245,22 @@ using Codex. Tool status reports executable availability, not authentication hea
 `CRAFTINGTABLE_CODEX_EXECUTABLE` overrides discovery and `CRAFTINGTABLE_CODEX_MODELS`
 replaces its model picker list. Codex app-server behavior was verified with CLI 0.153.4. The adapter communicates
 over local stdio; do not start a separate app-server listener for CraftingTable.
+
+Each run's agent process gets its own private temporary directory, `<12 hex characters>/`
+beneath the agents' temporary root (LIVE-31): `<data>/t` by default, or
+`CRAFTINGTABLE_AGENT_TMP_ROOT`, a normalized absolute path. Claude Code's command sandbox makes
+Unix sockets there, whose paths hold at most 107 bytes, so the root must be short: each run's
+directory is the root plus 13 bytes and must be at most 60, or Claude runs do not start (a
+typed `agent-environment-unavailable` stop). Set the variable only where the data directory's path is
+too long, to a directory used for nothing else. The directory goes when its run ends, and
+each start removes what a stopped daemon left: only directories named as a run's (12
+lowercase hex characters, never through a link). Anything else in the root stays, and the
+start logs one warning naming it (TS-H3). The daemon refuses to start with a root that is
+`/`, `/tmp`, `/var/tmp` or a home directory, or above one (a directory of its own inside them is
+fine), that overlaps the database's directory `<data>/state` or the data directory, or that
+overlaps the worktree, runs, check-log or Cargo-home roots. Links are resolved for the part of
+each path that exists. Two daemons must not share one root: each start sweeps the other's live
+runs' directories.
 
 The daemon runs the checks agents ask for with `ct-check` itself, each in a transient systemd user unit
 (`craftingtable-check-<instance>-<request>.service`) with a read-only file system except the run's own

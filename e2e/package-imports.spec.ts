@@ -48,7 +48,6 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   page,
   upstreamRepository,
 }, info) => {
-  test.setTimeout(120000);
   const errors: string[] = [];
   page.on('pageerror', (e) => {
     errors.push(String(e));
@@ -352,9 +351,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await page.getByRole('button', { name: 'WorldInterface', exact: true }).click();
   await page.getByRole('button', { name: 'WI-01', exact: true }).first().click();
   const scopes = page.getByRole('region', { name: 'Execution slices and parent acceptance' });
-  await expect(scopes.getByRole('heading', { name: /wi\/WI-01/ }).first()).toBeVisible({
-    timeout: 15000,
-  });
+  await expect(scopes.getByRole('heading', { name: /wi\/WI-01/ }).first()).toBeVisible();
   await expect(scopes.getByText('wi must use an exact aq upstream pin.').first()).toBeVisible();
   for (const button of await scopes.getByRole('button').all()) await expect(button).toBeDisabled();
   await expect

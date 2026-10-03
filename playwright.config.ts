@@ -22,8 +22,37 @@ const SERVER_HEALTH_URL = `${SERVER_ORIGIN}/api/health`;
 const INSTALLATION_SPECS = ['**/storage.spec.ts'];
 const WALKTHROUGH = !!process.env.CRAFTINGTABLE_WALKTHROUGH;
 
+/**
+ * One scalable timeout for the suite (TS-M15), as `vitest.config.ts` has for the unit tests
+ * (R-I2, TS-H1). Specs wait on state with Playwright's retrying `expect`, never on time, and
+ * they pass no `timeout:` of their own: a number sized on an idle machine fails under load,
+ * which slows each step of a run, not the number of steps. Every wait gets one bound, a step,
+ * and a test gets a fixed number of steps; both are hang guards, not budgets. A slower or
+ * busier host raises them all with `CRAFTINGTABLE_TEST_TIMEOUT_SCALE` (a positive factor,
+ * default 1), the variable the unit tests read.
+ */
+const TIME_SCALE = (() => {
+  const raw = process.env.CRAFTINGTABLE_TEST_TIMEOUT_SCALE;
+  if (raw === undefined || raw === '') return 1;
+  const scale = Number(raw);
+  if (!Number.isFinite(scale) || scale <= 0)
+    throw new Error(`CRAFTINGTABLE_TEST_TIMEOUT_SCALE must be a positive number, not "${raw}"`);
+  return scale;
+})();
+/**
+ * One wait: an assertion, an action or a navigation. The longest is a whole agent run or
+ * cycle stage under load (at load 34-37, waits for run progress sized at 20-30 s failed).
+ */
+const STEP_TIMEOUT_MS = Math.round(60_000 * TIME_SCALE);
+/** One spec. The longest, package imports and finalization, took 35-65 s at load 4. */
+const TEST_TIMEOUT_MS = 5 * STEP_TIMEOUT_MS;
+/** The walkthrough is one test that seeds and visits every page: about 3 minutes at load 4-29. */
+const WALKTHROUGH_TIMEOUT_MS = 15 * STEP_TIMEOUT_MS;
+
 export default defineConfig({
   testDir: './e2e',
+  timeout: TEST_TIMEOUT_MS,
+  expect: { timeout: STEP_TIMEOUT_MS },
   // Every spec works in its own workspace (R-I9, `openOwnWorkspace` in e2e/support.ts), so
   // specs and their tests run in parallel. They still share one daemon, whose workstation
   // capacity is raised below so parallel specs do not queue behind each other's cycles.
@@ -33,6 +62,9 @@ export default defineConfig({
   use: {
     baseURL: WEB_URL,
     screenshot: 'only-on-failure',
+    // Also the default for contexts a spec opens itself (the walkthrough's phone).
+    actionTimeout: STEP_TIMEOUT_MS,
+    navigationTimeout: STEP_TIMEOUT_MS,
   },
   projects: [
     {
@@ -83,6 +115,7 @@ export default defineConfig({
           {
             name: 'walkthrough',
             testMatch: '**/walkthrough.spec.ts',
+            timeout: WALKTHROUGH_TIMEOUT_MS,
             use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
           },
         ]
@@ -97,7 +130,7 @@ export default defineConfig({
       cwd: SERVER_DIRECTORY,
       url: SERVER_HEALTH_URL,
       reuseExistingServer: false,
-      timeout: 30_000,
+      timeout: STEP_TIMEOUT_MS,
       // Playwright otherwise SIGKILLs the group, and the daemon's temporary data directory,
       // which only its signal handlers remove, stays behind on every run.
       gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
@@ -116,7 +149,7 @@ export default defineConfig({
       command: `pnpm --filter @craftingtable/web exec vite --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
       url: WEB_URL,
       reuseExistingServer: false,
-      timeout: 30_000,
+      timeout: STEP_TIMEOUT_MS,
       env: { CRAFTINGTABLE_DEV_API_TARGET: SERVER_ORIGIN },
     },
   ],

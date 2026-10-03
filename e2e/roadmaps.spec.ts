@@ -16,7 +16,6 @@ for (const mode of ['sequential', 'parallel'] as const) {
   test(`builds and supervises a ${mode} roadmap through explicit merges`, async ({
     page,
   }, info) => {
-    test.setTimeout(90_000);
     const repository = mkdtempSync(join(tmpdir(), 'craftingtable-roadmap-e2e-'));
     try {
       git(['init', '--initial-branch=main', '.'], repository);
@@ -163,9 +162,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
       }
       await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
       await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();
-      await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
-        timeout: 20000,
-      });
+      await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
       expect(git(['rev-parse', 'revision-roadmap'], repository)).toBe(initial);
       for (const sourceId of sourceIds) {
         await roadmap.getByRole('link', { name: new RegExp(`^${sourceId} ·`) }).click();
@@ -175,20 +172,16 @@ for (const mode of ['sequential', 'parallel'] as const) {
         const itemPage = page.url();
         const form = await openMergeDecision(page);
         await form.getByRole('button', { name: 'Merge', exact: true }).click();
-        await expect(page.getByText('This item is resolved.')).toBeVisible({ timeout: 15000 });
+        await expect(page.getByText('This item is resolved.')).toBeVisible();
         await page.goto(itemPage);
-        await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible({
-          timeout: 15000,
-        });
+        await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible();
         await navigate('Roadmaps');
         await openRoadmap(page, `AQ ${mode}`);
         if (mode === 'parallel' && sourceId === 'AQ-02') {
           // The entry's own state label; the status list repeats the state beside its reason.
           await expect(
             roadmap.getByRole('strong').filter({ hasText: /^Needs attention$/ }),
-          ).toBeVisible({
-            timeout: 15000,
-          });
+          ).toBeVisible();
           await roadmap.getByRole('link', { name: /^AQ-03 ·/ }).click();
           const workItemPage = page.url();
           // The page's own cycle reads are fresh, but its decision link comes from Needs you,
@@ -200,7 +193,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
               .getByRole('listitem')
               .filter({ hasText: 'AQ-03' })
               .getByRole('link', { name: 'Integration conflict', exact: true }),
-          ).toBeVisible({ timeout: 15000 });
+          ).toBeVisible();
           // The conflict is decided in its inbox item; the work item links there (R-A6).
           await page
             .getByRole('region', { name: 'Automated cycle', exact: true })
@@ -229,7 +222,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
             page
               .getByRole('region', { name: 'Automated cycle', exact: true })
               .getByText('Awaiting merge approval', { exact: true }),
-          ).toBeVisible({ timeout: 20000 });
+          ).toBeVisible();
           await expect(conflicts.getByText('completed', { exact: true })).toBeVisible();
           expect(git(['rev-parse', 'revision-roadmap'], repository)).toBe(targetBefore);
           await navigate('Roadmaps');
@@ -238,12 +231,11 @@ for (const mode of ['sequential', 'parallel'] as const) {
         if (sourceId !== sourceIds.at(-1))
           await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toHaveCount(
             mode === 'parallel' && sourceId === 'AQ-01' ? 2 : 1,
-            { timeout: 20000 },
           );
       }
       await expect(
         roadmap.getByText('All roadmap entries are completed.', { exact: true }),
-      ).toBeVisible({ timeout: 10000 });
+      ).toBeVisible();
       expect(git(['rev-parse', 'revision-roadmap'], repository)).not.toBe(initial);
       expect(git(['rev-parse', 'main'], repository)).toBe(initial);
       await expect

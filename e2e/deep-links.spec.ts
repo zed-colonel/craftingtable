@@ -8,7 +8,6 @@ import { openOwnWorkspace } from './support';
 test('a settings deep link lands on its section, and links and Back never reload the document', async ({
   page,
 }) => {
-  test.setTimeout(60_000);
   await openOwnWorkspace(page, 'Deep links workspace');
   await page.waitForURL(/\/workspaces\/[^/]+$/);
   const workspace = new URL(page.url()).pathname.split('/')[2];

@@ -112,7 +112,6 @@ async function newPhonePage(browser: Browser): Promise<Page> {
   // 1× keeps a capture small; WALKTHROUGH_SCALE=2 for crisp review.
   const deviceScaleFactor = process.env.WALKTHROUGH_SCALE === '2' ? 2 : 1;
   const context = await browser.newContext({ ...phone, deviceScaleFactor });
-  context.setDefaultTimeout(20_000);
   return context.newPage();
 }
 
@@ -214,8 +213,6 @@ function pathOf(url: string): string {
 }
 
 test('captures every page of the app on desktop and phone viewports', async ({ page, browser }) => {
-  test.setTimeout(600_000);
-  page.setDefaultTimeout(20_000);
   const { label, directory, commit } = captureDirectory();
   if (RECORDING) rmSync(directory, { recursive: true, force: true });
   const repository = initRepository('craftingtable-walkthrough-repo-', {
@@ -367,9 +364,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .getByLabel(/Instructions/)
       .fill('MOBILE-FINDINGS DESIGN-QUESTIONS CYCLE-EXTRA-REMEDIATION SERVICE-RETRY');
     await cycle.getByRole('button', { name: 'Start automated cycle' }).click();
-    await expect(cycle.getByRole('region', { name: 'Model service recovery' })).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(cycle.getByRole('region', { name: 'Model service recovery' })).toBeVisible();
     await walk.capture('work-item-provider-recovery', 'Work item · bounded model service retry');
     await cycle.getByRole('button', { name: 'Open current run' }).click();
     await expect(page.getByRole('region', { name: 'Model service recovery' })).toBeVisible();
@@ -383,7 +378,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     // A design stop is decided in its inbox item; the work item links there (R-A6).
     const designPage = page.url();
     const openDecision = cycle.getByRole('link', { name: 'Open the decision', exact: true });
-    await expect(openDecision).toBeVisible({ timeout: 30_000 });
+    await expect(openDecision).toBeVisible();
     await walk.capture(
       'work-item-design-questions',
       'Work item · design needs answers, decided in Needs you',
@@ -438,11 +433,11 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     );
     // The investigation's results are a new stop, with its own item.
     await page.goto(designPage);
-    await expect(openDecision).toBeVisible({ timeout: 30_000 });
+    await expect(openDecision).toBeVisible();
     await openDecision.click();
-    await expect(page.getByText('Investigation results and evidence', { exact: true })).toBeVisible(
-      { timeout: 30_000 },
-    );
+    await expect(
+      page.getByText('Investigation results and evidence', { exact: true }),
+    ).toBeVisible();
     await walk.capture(
       'work-item-investigation-results',
       'Needs you · recorded investigation evidence',
@@ -465,7 +460,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await page.goto(designPage);
     // A stop is decided in its inbox item; the work item links there (R-A6).
     const decisionLink = cycle.getByRole('link', { name: 'Open the decision', exact: true });
-    await expect(decisionLink).toBeVisible({ timeout: 30_000 });
+    await expect(decisionLink).toBeVisible();
     await expect(cycle.getByRole('button', { name: 'Resume automation' })).toHaveCount(0);
     await walk.capture(
       'work-item-remediation-recovery',
@@ -488,7 +483,6 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await expect(decisionLink).toHaveAttribute(
       'href',
       new RegExp(`^(?!${exhaustedItem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$)`),
-      { timeout: 30_000 },
     );
     await walk.capture(
       'work-item-guided-recovery',
@@ -510,9 +504,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     );
     await page.goto(workItemPage);
 
-    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     await walk.capture('work-item-awaiting-merge', 'Work item · cycle awaiting merge approval');
     // The merge approval is an inbox item whose decision is the merge itself (R-A6).
     const awaitingMerge = page.url();
@@ -587,9 +579,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     });
     await page.goto(roadmapUrl);
     await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();
-    await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     await walk.capture('roadmap-running', 'Roadmaps · running, first item awaiting merge');
 
     // ---- Cross-project map -----------------------------------------------------------------

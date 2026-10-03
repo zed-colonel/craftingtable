@@ -93,7 +93,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
 | [R-I3](#r-i3) | P1 | S-M | done (2531715) | Systematic authorization tests |
 | [R-I4](#r-i4) | P2 | M | open | Structural test/production and process-authority boundaries |
-| [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d) | E2E and fixture reliability |
+| [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 in progress in the test-suite review pass (2026-10-02) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
@@ -3493,7 +3493,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I5
 
-**E2E and fixture reliability** · Phase P1 · Effort S-M · Status: done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d)
+**E2E and fixture reliability** · Phase P1 · Effort S-M · Status: done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 in progress in the test-suite review pass (2026-10-02)
 
 - **Resolves:** [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs), [QA-06](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-06-the-fixture-derives-expected-scope-evidence-from-the-production-resolver-tautological), [QA-08](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-08-unit-tests-depend-on-host-tool-paths-and-create-fixtures-inside-the-repository)
 - **Change:** Assert or remove the unasserted gate screenshots (including the known amendment-panel flake); dedupe helpers copied into 8 specs; derive expected scope evidence independently of the production resolver; remove hard-coded host tool paths and in-repo temporary repositories.
@@ -3559,6 +3559,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - The same three files failed in the full run at load average 14, as at 527d151: `e2e-daemon-shutdown`, one timeout in `server-execution-cycles`, and one in `server-execution-receipt-gates`. All three passed serially (49 tests).
       - The e2e run (21 passed) again left a partial 44 MB directory (`backups`, `runs`), which was deleted.
       - The three recur together under full-run load. That is a signal for R-I9, whose e2e workspaces and worker count decide that load.
+- **Test-suite review pass (2026-10-02): TS-M15, e2e and fixture weaknesses** ([TS-M15](findings/TS-test-suite-review-2026-10-02.md); E2E F5, F6; AS F-9). AS F-9, an `expect` failing inside `backend.onLaunch`, was done under R-I2.
+  - **One scalable e2e timeout (E2E F5).** The evidence: at the review pass's gate (load 34-37), 9 of 21 specs failed on explicit 20-30 s waits for run progress, and all 21 passed with one worker at load 27. This pass's own first run, at the base, failed the walkthrough rehearsal on a default 5 s `expect` while load rose from 4 to 29. Load slows each step of a run, not the number of steps, as for the unit tests (R-I2, TS-H1).
+    - `playwright.config.ts` now sets one wait, a step of 60 s, for `expect`, actions, navigations and the web servers' start, and a test timeout of 5 steps (15 for the walkthrough, one test that seeds and visits every page). Both are multiplied by `CRAFTINGTABLE_TEST_TIMEOUT_SCALE`, the factor the unit tests read. They are hang guards, not budgets: specs still wait on state with Playwright's retrying `expect`, never on time.
+    - Before, there was no `expect.timeout` (Playwright's 5 s), no action timeout outside the mobile spec, and specs passed 35 `timeout:` options (10-30 s) and 11 `setTimeout`, `setDefaultTimeout` and `actionTimeout` numbers (15-600 s). They are all gone.
 
 ### R-I6
 
@@ -3677,6 +3681,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *NIT, fixed:* the phone project's dead storage entry, and a worker count from the environment that is not a number (now falls back to 4).
     - *NIT, disposition:* `expectSignedIn` accepts any page heading; the steps after it wait for their own elements.
 - **Done-when met, 2026-09-29.** `pnpm test:e2e` passed ten consecutive runs at 661282f, from a clean worktree, with nothing else heavy running: 21 tests and the walkthrough rehearsal each time, 219 to 250 s per run (load average 2.4 to 6.9), no retries (none are configured), and no data directory left behind. Every gate spec runs in its own workspace, and the gate runs four workers.
+- **Test-suite review pass (2026-10-02, TS-M15).** At the pass's gate (load 34-37), 9 of 21 specs failed with four workers and all passed with one at load 27. The worker count stays four: the failures were waits sized for an idle machine, now one scalable e2e timeout (R-I5), not interference between specs.
 
 ### R-I10
 

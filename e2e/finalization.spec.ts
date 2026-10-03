@@ -11,8 +11,6 @@ for (const decision of ['remediate', 'staged'] as const) {
   test(`automates integration and performs plan finalization with explicit final approval (${decision})`, async ({
     page,
   }, info) => {
-    test.setTimeout(120000);
-    page.setDefaultTimeout(15000);
     // The one file each variant's implementation run adds to the candidate.
     const candidateFile = decision === 'staged' ? 'POLISH-1.md' : 'REMEDIATED.md';
     const repository = mkdtempSync(join(tmpdir(), 'craftingtable-finalization-e2e-'));
@@ -89,9 +87,7 @@ for (const decision of ['remediate', 'staged'] as const) {
       await editor.getByRole('button', { name: 'Save roadmap', exact: true }).click();
       const roadmap = page.getByRole('region', { name: 'Unattended integration', exact: true });
       await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();
-      await expect(roadmap.getByText('2/2 completed', { exact: false })).toBeVisible({
-        timeout: 30000,
-      });
+      await expect(roadmap.getByText('2/2 completed', { exact: false })).toBeVisible();
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
       const integration = git(['rev-parse', 'revision'], repository);
       expect(integration).not.toBe(main);
@@ -146,14 +142,14 @@ for (const decision of ['remediate', 'staged'] as const) {
       const planPage = page.url();
       const openDecision = async () => {
         const link = finalization.getByRole('link', { name: 'Open the decision', exact: true });
-        await expect(link).toBeVisible({ timeout: 30000 });
+        await expect(link).toBeVisible();
         await link.click();
         return page.getByRole('region', { name: 'Decision' });
       };
       if (decision === 'staged') {
         await expect(
           finalization.getByRole('heading', { name: 'Stage 4 of 6: Simplification', exact: true }),
-        ).toBeVisible({ timeout: 30000 });
+        ).toBeVisible();
         const selection = (await openDecision()).getByRole('form', {
           name: 'Finalization next step',
         });
@@ -175,7 +171,7 @@ for (const decision of ['remediate', 'staged'] as const) {
       } else {
         await expect(
           finalization.getByRole('link', { name: 'Open the decision', exact: true }),
-        ).toBeVisible({ timeout: 30000 });
+        ).toBeVisible();
         await finalization.getByText('Review findings', { exact: true }).click();
         await expect(
           finalization.getByRole('heading', { name: /Clarify the finalization example/ }),
@@ -251,10 +247,10 @@ for (const decision of ['remediate', 'staged'] as const) {
       // The promotion is the next item.
       await expect(
         finalization.getByRole('link', { name: 'Open the decision', exact: true }),
-      ).toBeVisible({ timeout: 30000 });
+      ).toBeVisible();
       await expect(
         finalization.getByRole('heading', { name: /Final independent review/ }),
-      ).toBeVisible({ timeout: 30000 });
+      ).toBeVisible();
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
       if (decision === 'remediate') {
         await expect(
@@ -304,11 +300,9 @@ for (const decision of ['remediate', 'staged'] as const) {
       await expect(removeIntegration).not.toBeChecked();
       if (decision === 'remediate') await removeIntegration.check();
       await promotion.getByRole('button', { name: 'Approve merge into main', exact: true }).click();
-      await expect(page.getByText('This item is resolved.')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText('This item is resolved.')).toBeVisible();
       await page.goto(planPage);
-      await expect(finalization.getByText('Promoted by operator', { exact: true })).toBeVisible({
-        timeout: 15000,
-      });
+      await expect(finalization.getByText('Promoted by operator', { exact: true })).toBeVisible();
       const promoted = git(['rev-parse', 'main'], repository);
       expect(promoted).not.toBe(main);
       await expect(page.getByText('Plan completed', { exact: true }).first()).toBeVisible();

@@ -42,13 +42,13 @@ test('authenticated snapshot, replay, outage recovery, and logout', async ({ pag
   await page.route(EVENT_ROUTE, (route) => route.abort());
   await page.reload();
   await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
-  await expect(page.getByRole('status')).toHaveText('Disconnected', { timeout: 10_000 });
+  await expect(page.getByRole('status')).toHaveText('Disconnected');
   await expect(page.getByRole('alert')).toContainText(
     'last committed workspace state remains visible',
   );
 
   await page.unroute(EVENT_ROUTE);
-  await expect(page.getByRole('status')).toHaveText('Live', { timeout: 10_000 });
+  await expect(page.getByRole('status')).toHaveText('Live');
   await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Log out' }).click();

@@ -17,7 +17,6 @@ const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url)
 test('registers a repository, delegates a work item, follows the run, and reads the diff', async ({
   page,
 }) => {
-  test.setTimeout(60_000);
   const repository = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-repo-'));
   try {
     git(['init', '--initial-branch=main', '.'], repository);
@@ -273,9 +272,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
       encoding: 'utf8',
     });
     await cyclePanel.getByRole('button', { name: 'Start automated cycle' }).click();
-    await expect(cyclePanel.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(cyclePanel.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     expect(
       execFileSync('git', ['rev-parse', 'revision-test'], { cwd: repository, encoding: 'utf8' }),
     ).toBe(beforeCycle);
@@ -307,9 +304,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByText(/Includes the current integration commit/)).toBeVisible();
     await expect(page.locator('.worktree-item').first()).toBeVisible();
     await cyclePanel.getByRole('button', { name: 'Resume automation' }).click();
-    await expect(cyclePanel.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(cyclePanel.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     expect(
       execFileSync('git', ['branch', '--show-current'], {
         cwd: repository,
@@ -324,13 +319,12 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     const automatedMerge = await openMergeDecision(page);
     const completedMerge = page.waitForResponse(
       (response) => response.request().method() === 'POST' && response.url().endsWith('/merge'),
-      { timeout: 15000 },
     );
     await automatedMerge.getByRole('button', { name: 'Merge', exact: true }).click();
     const mergeResponse = await completedMerge;
     expect(mergeResponse.status(), await mergeResponse.text()).toBe(200);
     await page.goto(awaiting);
-    await expect(cyclePanel.getByText(/Previous cycle: Completed/)).toBeVisible({ timeout: 15000 });
+    await expect(cyclePanel.getByText(/Previous cycle: Completed/)).toBeVisible();
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

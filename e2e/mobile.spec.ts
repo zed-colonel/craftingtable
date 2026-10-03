@@ -5,7 +5,6 @@ import { expect, type Page, test } from '@playwright/test';
 import { expectSignedIn, git, openMergeDecision, sendCommand, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
-test.use({ actionTimeout: 15_000 });
 
 const TARGET = 'revision/integration-with-a-long-branch-name-for-phone-layout-checks';
 
@@ -29,7 +28,6 @@ async function fitsPhone(page: Page) {
 }
 
 test('phone navigation, review findings, diff, and explicit merge approval', async ({ page }) => {
-  test.setTimeout(90_000);
   const repository = mkdtempSync(join(tmpdir(), 'craftingtable-mobile-repo-'));
   try {
     git(['init', '--initial-branch=main', '.'], repository);
@@ -151,7 +149,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await cycle.getByRole('button', { name: 'Start automated cycle' }).click();
     // The stop is decided in its inbox item; the work item links there (R-A6).
     const decisionLink = cycle.getByRole('link', { name: 'Open the decision', exact: true });
-    await expect(decisionLink).toBeVisible({ timeout: 30_000 });
+    await expect(decisionLink).toBeVisible();
     await expect(cycle.getByRole('button', { name: 'Resume automation' })).toHaveCount(0);
     await fitsPhone(page);
     const workItemPage = page.url();
@@ -164,20 +162,15 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await sendCommand(page, decision.getByRole('button', { name: 'Authorize more remediation' }));
     await page.goto(workItemPage);
 
-    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     expect(git(['rev-parse', TARGET], repository)).toBe(initial);
     await fitsPhone(page);
 
     await cycle.getByRole('button', { name: 'Pause automation' }).click();
     await expect(cycle.getByText('Paused', { exact: true })).toBeVisible();
     await cycle.getByRole('button', { name: 'Resume automation' }).click();
-    // Resuming reviews the tree again before it awaits approval: a whole run, under load longer
-    // than the default 5 s (TS-M15).
-    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    // Resuming reviews the tree again before it awaits approval: a whole run.
+    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
 
     await cycle.getByRole('button', { name: 'Open current run' }).click();
     await expect(page.getByRole('heading', { name: 'Review run', exact: true })).toBeVisible();

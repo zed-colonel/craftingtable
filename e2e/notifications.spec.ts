@@ -34,9 +34,7 @@ test('owners configure write-only Pushover credentials and test delivery on desk
   await expect(panel.getByLabel('Application API token')).toHaveValue('');
   await expect(panel.getByLabel('Pushover user key')).toHaveValue('');
   await panel.getByRole('button', { name: 'Send test notification', exact: true }).click();
-  await expect(panel.getByText('Test accepted by Pushover', { exact: false })).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(panel.getByText('Test accepted by Pushover', { exact: false })).toBeVisible();
   // Delivery polling must preserve edits not yet saved.
   await panel.getByLabel('Device name (optional)').fill('iphone');
   await expect

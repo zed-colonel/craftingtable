@@ -918,10 +918,68 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - the notification exit criterion (enable notifications, check that the push log, rail count and inbox agree, count false alarms);
     - P1's R-G7 and R-H2 measurements.
   - **Order after landing:**
-    1. The review pass, on `remediation/p2`: R-I2 with tmpfs test data directories, TS-H3, then the gate tests TS-H7, TS-M2, TS-M6 and TS-M10, and R-I4.
+    1. The review pass, on `remediation/p2`: R-I2 with tmpfs test data directories, TS-H3, then the gate tests TS-H7, TS-M2, TS-M6 and TS-M10, and R-I4. Done 2026-10-03 (the next entry).
     2. R-G15: model pickers from each CLI's own catalog (added 2026-10-02 from LIVE-34, operator decision).
     3. R-D5.
     4. R-G9.
+- **Test-suite review pass (2026-10-02/03, on `remediation/p2`, 75243c6..5fd5808; 107 commits).** It remediates the [test-suite findings](findings/TS-test-suite-review-2026-10-02.md) in eleven units. Each unit was built in its own worktree and reviewed by an independent agent; units with production changes were reviewed a second time after their fixes. Each was then cherry-picked here in the operator's order. Each register item records its own work.
+  - **Foundation, in sequence:**
+    - **A, R-I2 (90a0dd1): TS-H1, TS-H2, LF F4, AS F-9, TS-H8 and the `agent-tree` flake.**
+      - `waitFor` is bounded by controller steps, with a hang guard that names its label.
+      - There is one scalable test timeout (`CRAFTINGTABLE_TEST_TIMEOUT_SCALE`), and Testing Library's waits use the same scale.
+      - The four-checks test is rewritten.
+      - Checks are gated on a FIFO, and drains are asserted by state.
+      - `onLaunch` and reply errors are collected.
+      - Test daemons' data directories are on `$XDG_RUNTIME_DIR`.
+      - Two production fixes came out of the review: `closeAll` waits, with a bound, for checks that are still stopping; and test daemons get a 1 GiB storage reserve.
+      - The done-when is met: three consecutive default parallel runs passed.
+    - **B, R-I2/TS-M13 (41a1351):** a migrated template database per run, and the `scope-recovery` and `cycles` files split. A default `pnpm test` went from 407 s to 164–170 s. The operator-wait report now reads the clock once, which fixes a flake.
+  - **In parallel from B's head, integrated in order:**
+    - **C, R-G5 (9f83470, e9549e6): TS-H3 and TS-M4.**
+      - The restart sweep removes only 12-hex run directories.
+      - The agents' root may not be `/`, `/tmp`, `/var/tmp`, `/dev/shm`, `/run`, `XDG_RUNTIME_DIR`, `TMPDIR`, `$HOME` or the account's home, nor any directory above one of them. It may not overlap the database or backup directories.
+      - The variable is documented in `docs/operations.md`.
+      - Two Codex test flakes are fixed.
+    - **D, gate tests (43a4468), recorded here because they have no register item (operator decision 4): TS-H7, TS-M2, TS-M6 and TS-M10.** The merge-time security gate, the promotion backstops (including a failed final check), protected `trunk` and finalization destinations, and one unmerged worktree per item are now tested. All six named mutants survived the whole node project before and are caught after. No defect was found.
+    - **E, R-H3/R-G4 (27b7ff8): TS-M5.** The daemon's record guard is shown refusing a record and rolling back. Receipts are immutable for every column. Deployed migration checksums are frozen in a table, separate from pending ones. `.gitattributes` keeps the SQL files' bytes.
+    - **F, R-C16/R-D4 (daa24c2): TS-M3, TS-M8 and TS-M9.**
+      - Every investigation start guard is tested, including `requireAvailable`, and the test checks that HEAD and status are unchanged.
+      - A refused submit keeps the operator's draft.
+      - **TS-M9 was a test gap, not a defect.** `replaceEqualDeep` already drops a removed key; the finding's "keeps a removed key" describes the surviving mutant. The review did find one real edge: an own `__proto__` key. That is fixed.
+    - **G, R-B2/R-C11 (0bb1ed9): TS-M7.** Step-outcome rows and a cycle test kill six mutants. The SOTT row is defence in depth: production cannot produce those facts.
+    - **H, R-I10 (7525e65): TS-M12 and GR F-1, F-3 and F-8.**
+      - `pnpm replays` runs `tsc -b` and the committed manifest, which pins snapshot and golden hashes, records expected changes by key and hash, and fails closed.
+      - It records the arguments of every intercepted command.
+      - It compares status-list headers and attention as a multiset, and rejects duplicate keys.
+    - **I, R-I4 part 1 (4934503): TS-M11 and TS-H6's `local-check` part.**
+      - `check:scope` reads the TypeScript 7 compiler's file sets and syntax trees. It classifies files by the import graph, with no name patterns.
+      - All 27 bypasses planted across the reviews now fail it.
+      - Every guard, including the links and boundary guards, has a positive self-test.
+      - `local-check`'s children run from source through a `source` export condition.
+      - `typescript` is pinned at 7.0.2, because the checker uses its unstable API.
+  - **Last:**
+    - **J, R-I5/R-I9 (6d1706b): TS-M15.** One scalable e2e timeout replaces 46 per-call numbers. A shared fixture fails a spec on `pageerror`, `console.error` or an undeclared HTTP failure. Walkthrough captures check a landmark on each viewport, and rehearsals no longer sleep. The web client logs a 2xx answer that breaks its contract, then fails the read as before.
+    - **K, R-I4 part 2 (5fd5808): TS-M14.**
+      - 212 test and support modules, and the e2e harness, moved from `src` to each package's `test/`.
+      - There is one fixture stack.
+      - `createDaemon` is shared by `createRuntime` and the test context, so tests close through production's close. A failing close step no longer skips the later ones.
+      - `check:scope` rule 6 keeps test code out of `dist`, and a clean build emits nothing test-only.
+      - R-I4 is done.
+  - **Gate after every integration.**
+    - `pnpm check` passed in a separate worktree for every integration, with these exceptions:
+      - A, first attempt: a web wait failed at load 24 and passed serially. A then scaled Testing Library's waits.
+      - C: 9 e2e specs failed on 20–30 s progress waits at load 34–37. All 21 passed with one Playwright worker; J later made the e2e timeouts scalable.
+    - `replays.sh` reported 43 of 45 at 0 changed every time, with LIVE-32's two known 2026-10-01 differences. `pnpm replays` agrees.
+    - Final head: 2,175 unit tests (1 skipped), e2e 21 plus the walkthrough rehearsal.
+  - **Awaiting operator decisions:**
+    1. **C.** The reading of "overlapping": a directory of its own inside `/tmp` or `$HOME` stays allowed (the defaults use one), and the protected list goes beyond the brief.
+    2. **C.** A lock on the agents' root, so two daemons cannot sweep each other's runs (proposed on R-G5, not built).
+    3. **F.** The daemon-side investigation worktree check (proposed on R-C16), with its End-while-live case and what its digest misses.
+    4. **H.** Install the format-2 scheduler goldens (`~/.cache/ct-p2-tmp/review-pass-h-r-i10/goldens/`) and set `"schedulerFormat": 2`. Until then, `pnpm replays` does not compare command arguments, and says so.
+    5. **E.** A deploy-time migration preflight in `deploy-daemon.mjs` (proposed on R-H3).
+    6. **D.** Keep both sources of default-branch protection. The review recommends keeping both.
+    7. **A.** The open question on R-I2: confined checks cannot see `/run/user/$UID`. This is latent, because e2e runs no checks.
+    8. **I.** The `source-hooks.ts` loader allowance (`node:module`, that file only).
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

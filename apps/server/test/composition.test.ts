@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServices } from '../src/composition.js';
+import { createDaemon, createServices } from '../src/composition.js';
 import { configFromEnv } from '../src/config.js';
 import { openDaemonStorage } from '../src/persisted-records.js';
 import { FastTestPasswordHasher, testDataRoot } from './test-support.js';
@@ -64,5 +64,41 @@ describe('service composition', () => {
     } finally {
       storage.close();
     }
+  });
+
+  it("closes a daemon's checks and storage even when its server fails to close (TS-M14)", async () => {
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
+    directories.push(directory);
+    const storage = openDaemonStorage(join(directory, 'state.sqlite'));
+    let checked = false;
+    const daemon = await createDaemon(
+      storage,
+      configFromEnv({ CRAFTINGTABLE_DATA_DIR: directory }),
+      {
+        overrides: { passwordHasher: new FastTestPasswordHasher(), gitOperations: null },
+        server: { logger: false, startWorkers: false },
+        beforeStorageCloses: () => {
+          checked = true;
+        },
+      },
+    );
+    let checksClosed = false;
+    const closeAll = daemon.services.checkRequestService.closeAll.bind(
+      daemon.services.checkRequestService,
+    );
+    daemon.services.checkRequestService.closeAll = async () => {
+      await closeAll();
+      checksClosed = true;
+    };
+    daemon.app.addHook('onClose', async () => {
+      throw new Error('a hook failed');
+    });
+
+    await expect(daemon.close()).rejects.toThrow('a hook failed');
+    // The steps after the failed one still ran: no check outlives the daemon, and the storage
+    // a test then removes is closed.
+    expect(checksClosed).toBe(true);
+    expect(checked).toBe(true);
+    expect(() => storage.users.findByNormalizedUsername('nobody')).toThrow();
   });
 });

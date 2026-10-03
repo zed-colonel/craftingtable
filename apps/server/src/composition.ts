@@ -435,10 +435,11 @@ export interface DaemonOptions {
 }
 
 /**
- * A daemon over storage it now owns: its services, its server, and the one way it closes. The
- * production runtime and every test daemon are built here, so a test's teardown is the
- * daemon's own (TS-M14): stop the server and its workers, wait for running checks, then close
- * the storage.
+ * A daemon over storage the caller opened: its services, its server, and the one way it
+ * closes. The production runtime and every test daemon are built here, so a test's teardown is
+ * the daemon's own (TS-M14): stop the server and its workers, wait for running checks, then
+ * close the storage. Once it is returned, its close owns the storage; if it throws instead,
+ * the storage is still the caller's to close.
  */
 export async function createDaemon(
   storage: CraftingTableStorage,
@@ -486,13 +487,30 @@ export async function createDaemon(
         return;
       }
       closed = true;
-      await app.close();
-      await services.checkRequestService.closeAll();
+      // Every step runs even when one before it fails, so a server that fails to close leaves
+      // no check running and no storage open; the first failure is the one the close throws.
+      const failures: unknown[] = [];
+      try {
+        await app.close();
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        await services.checkRequestService.closeAll();
+      } catch (error) {
+        failures.push(error);
+      }
       try {
         options.beforeStorageCloses?.();
-      } finally {
-        storage.close();
+      } catch (error) {
+        failures.push(error);
       }
+      try {
+        storage.close();
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length > 0) throw failures[0];
     },
   };
 }

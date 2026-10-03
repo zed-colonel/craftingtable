@@ -352,7 +352,14 @@ it('compares command arguments only against a golden that records them', () => {
     action: 'createWorktree',
     args: { workItemId: 'item-1', repositoryId: 'repo-1' },
   };
-  const golden: SchedulerReplay = { format: 2, roadmaps: [], entries: [entry], cycles: [] };
+  const golden: SchedulerReplay = {
+    format: 2,
+    roadmaps: [],
+    entries: [entry],
+    cycles: [],
+    status: [],
+    attention: [],
+  };
   const elsewhere: SchedulerReplay = {
     ...golden,
     entries: [{ ...entry, args: { workItemId: 'item-1', repositoryId: 'repo-2' } }],
@@ -361,7 +368,13 @@ it('compares command arguments only against a golden that records them', () => {
   expect(checkSchedulerReplay(golden, elsewhere).changed.map((c) => c.key)).toEqual(['entry:r/e']);
   // A golden recorded before arguments were: the rest still compares, and the check says so.
   const { args: _args, ...unrecorded } = entry;
-  const older: SchedulerReplay = { roadmaps: [], entries: [unrecorded], cycles: [] };
+  const older: SchedulerReplay = {
+    roadmaps: [],
+    entries: [unrecorded],
+    cycles: [],
+    status: [],
+    attention: [],
+  };
   expect(checkSchedulerReplay(older, elsewhere)).toMatchObject({
     changed: [],
     missing: [],
@@ -370,6 +383,56 @@ it('compares command arguments only against a golden that records them', () => {
   expect(
     checkSchedulerReplay(older, { ...elsewhere, entries: [{ ...entry, action: 'start' }] }).changed,
   ).toHaveLength(1);
+});
+
+it('compares each status list’s header, and attention items as a multiset', () => {
+  // GR F-8: a roadmap's own status, reason or completed count, and a duplicated or dropped
+  // inbox item, replayed as 0 changed.
+  const list = {
+    roadmapId: 'r',
+    name: 'Roadmap',
+    status: 'running',
+    reason: 'Parallel scheduling enabled.',
+    completed: 1,
+    entries: [],
+  } as const;
+  const item = { subjectKey: 'cycle:c', code: 'remediation-exhausted' };
+  const golden: SchedulerReplay = {
+    format: 2,
+    roadmaps: [],
+    entries: [],
+    cycles: [],
+    status: [list],
+    attention: [item],
+  };
+  expect(checkSchedulerReplay(golden, golden)).toMatchObject({ changed: [], missing: [] });
+  for (const header of [
+    { status: 'completed' },
+    { reason: 'All roadmap entries are completed.' },
+    { completed: 2 },
+  ] as const)
+    expect(
+      checkSchedulerReplay(golden, { ...golden, status: [{ ...list, ...header }] }).changed.map(
+        (c) => c.key,
+      ),
+      JSON.stringify(header),
+    ).toEqual(['statuslist:r']);
+  const twice = { ...golden, attention: [item, item] };
+  expect(checkSchedulerReplay(golden, twice).changed.map((c) => c.key)).toEqual([
+    'attention:cycle:c/remediation-exhausted#2',
+  ]);
+  expect(checkSchedulerReplay(twice, golden)).toMatchObject({
+    changed: [],
+    missing: ['attention:cycle:c/remediation-exhausted#2'],
+  });
+  expect(checkSchedulerReplay(twice, twice)).toMatchObject({ changed: [], missing: [] });
+  // A golden recorded before status lists and attention compares the rest, and says so.
+  expect(
+    checkSchedulerReplay({ format: 2, roadmaps: [], entries: [], cycles: [] }, twice),
+  ).toMatchObject({
+    changed: [],
+    notCompared: ['status lists (the golden predates them)', 'attention (the golden predates it)'],
+  });
 });
 
 it('reports the typed hold a pass records', async () => {

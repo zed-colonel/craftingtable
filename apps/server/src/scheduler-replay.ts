@@ -24,7 +24,12 @@ import type { GitOperations } from '@craftingtable/git';
 import { type ServiceSet, createServices } from './composition.js';
 import { configFromEnv } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
-import { compareRecords, type ReplayCheck, type ReplayRecord } from './replay-check.js';
+import {
+  canonicalJson,
+  compareRecords,
+  type ReplayCheck,
+  type ReplayRecord,
+} from './replay-check.js';
 import { ConcurrentModificationError } from './services/errors.js';
 import { resolveScope, scopeEvidenceLedger } from './services/execution-scope.js';
 import { PhaseGateError } from './services/phase-resources.js';
@@ -127,19 +132,33 @@ export interface SchedulerReplay {
   }[];
 }
 
-/** Keys each scheduler decision by its roadmap entry or cycle, for `--check`. */
+/**
+ * Keys each scheduler decision by its roadmap entry or cycle, for `--check`. A status list is
+ * its header (`statuslist:`) and one record per entry (`status:`). Attention is a multiset
+ * (GR F-8): the n-th item with one subject and code is keyed `#n`, so a duplicated or dropped
+ * item is a new or missing record, not a collapsed one.
+ */
 export function schedulerRecords(replay: SchedulerReplay): ReplayRecord[] {
+  const attention = new Map<string, unknown[]>();
+  for (const item of replay.attention ?? []) {
+    const key = `attention:${item.subjectKey}/${item.code}`;
+    attention.set(key, [...(attention.get(key) ?? []), item]);
+  }
   return [
     ...replay.roadmaps.map((r) => ({ key: `roadmap:${r.roadmapId}`, value: r })),
     ...replay.entries.map((e) => ({ key: `entry:${e.roadmapId}/${e.entryId}`, value: e })),
     ...replay.cycles.map((c) => ({ key: `cycle:${c.cycleId}`, value: c })),
-    ...(replay.attention ?? []).map((item) => ({
-      key: `attention:${item.subjectKey}/${item.code}`,
-      value: item,
-    })),
-    ...(replay.status ?? []).flatMap((list) =>
-      list.entries.map((e) => ({ key: `status:${list.roadmapId}/${e.entryId}`, value: e })),
+    ...[...attention].flatMap(([key, items]) =>
+      // Items under one key differ at most in `blocks`; order them so the pairing is stable.
+      items
+        .map((item) => ({ item, canonical: canonicalJson(item) }))
+        .sort((a, b) => a.canonical.localeCompare(b.canonical))
+        .map(({ item }, index) => ({ key: index ? `${key}#${index + 1}` : key, value: item })),
     ),
+    ...(replay.status ?? []).flatMap(({ entries, ...header }) => [
+      { key: `statuslist:${header.roadmapId}`, value: header },
+      ...entries.map((e) => ({ key: `status:${header.roadmapId}/${e.entryId}`, value: e })),
+    ]),
   ];
 }
 
@@ -152,18 +171,25 @@ export function checkSchedulerReplay(
   replay: SchedulerReplay,
 ): ReplayCheck {
   const withArguments = (golden.format ?? 1) >= 2;
-  const comparable = (records: SchedulerReplay): SchedulerReplay =>
-    withArguments
-      ? records
+  const comparable = ({ status, attention, ...records }: SchedulerReplay): SchedulerReplay => ({
+    ...records,
+    ...(golden.status ? { status } : {}),
+    ...(golden.attention ? { attention } : {}),
+    ...(withArguments
+      ? {}
       : {
-          ...records,
           roadmaps: records.roadmaps.map(({ args: _args, ...roadmap }) => roadmap),
           entries: records.entries.map(({ args: _args, ...entry }) => entry),
-        };
+        }),
+  });
   return compareRecords(
     schedulerRecords(comparable(golden)),
     schedulerRecords(comparable(replay)),
-    withArguments ? [] : ['command arguments (the golden predates them)'],
+    [
+      ...(withArguments ? [] : ['command arguments (the golden predates them)']),
+      ...(golden.status ? [] : ['status lists (the golden predates them)']),
+      ...(golden.attention ? [] : ['attention (the golden predates it)']),
+    ],
   );
 }
 

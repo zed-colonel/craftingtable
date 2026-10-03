@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "erasableSyntaxOnly": true
+  },
+  "files": ["src/local-check.ts", "src/pinned-cargo.ts", "src/source-hooks.ts"]
+}

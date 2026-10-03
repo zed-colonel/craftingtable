@@ -10,7 +10,9 @@
  * to their `src/index.ts` (a dependency that published one would otherwise resolve to source
  * Node will not strip inside `node_modules`), and resolve a missing `./x.js` imported by a
  * `.ts` module to `./x.ts`, as `tsc` does. Node strips types only from erasable syntax, so a
- * module run this way must be written in it, as the domain is.
+ * module run this way must be written in it: `erasableSyntaxOnly` holds the domain to it
+ * (`packages/domain/tsconfig.json`), and `pnpm typecheck` holds what a launched check loads
+ * from this package to it (`packages/agents/tsconfig.launched.json`).
  */
 import { registerHooks } from 'node:module';
 

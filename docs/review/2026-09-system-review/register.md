@@ -93,7 +93,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
 | [R-I3](#r-i3) | P1 | S-M | done (2531715) | Systematic authorization tests |
 | [R-I4](#r-i4) | P2 | M | open | Structural test/production and process-authority boundaries |
-| [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 in progress in the test-suite review pass (2026-10-02) | E2E and fixture reliability |
+| [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 done in the test-suite review pass (2026-10-02) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
@@ -3493,7 +3493,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I5
 
-**E2E and fixture reliability** · Phase P1 · Effort S-M · Status: done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 in progress in the test-suite review pass (2026-10-02)
+**E2E and fixture reliability** · Phase P1 · Effort S-M · Status: done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 done in the test-suite review pass (2026-10-02)
 
 - **Resolves:** [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs), [QA-06](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-06-the-fixture-derives-expected-scope-evidence-from-the-production-resolver-tautological), [QA-08](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-08-unit-tests-depend-on-host-tool-paths-and-create-fixtures-inside-the-repository)
 - **Change:** Assert or remove the unasserted gate screenshots (including the known amendment-panel flake); dedupe helpers copied into 8 specs; derive expected scope evidence independently of the production resolver; remove hard-coded host tool paths and in-repo temporary repositories.
@@ -3583,6 +3583,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *The phone's scene settles after its setup*, as the desktop's does, so a photograph follows the loaded scene and a rehearsal checks the landmark after setup.
     - *The daemon's graceful-stop bound* (10 s) is scaled with the rest.
     - *Dispositions.* `deep-links.spec.ts` still sleeps 7 s before reading where a deep link landed (E2E F7, LOW, open under R-E1): a retrying assertion would pass at the first moment the target is in place, before a later layout shift could move it, which weakens that test; the config's comment now says so. The fixture judges errors when the test body ends, while pages are still open; a failure in that moment would be a real one (a read after logout, say), and none appeared in the runs. The time-scale parser repeats `vitest.config.ts`'s rather than sharing a module, so this pass leaves `vitest.config.ts`, which the concurrent test-support move changes, untouched.
+  - **Verified.** `pnpm test:e2e` (21 specs, then the walkthrough rehearsal) at the head of these commits:
+
+    | Run | Load (1 min) | Time | Result |
+    |---|---|---|---|
+    | 1 | 4.6 → 9.2 | 209 s | 21 + 1 passed |
+    | 2 | 9.2 → 10.4 | 201 s | 21 + 1 passed |
+    | 3 | 10.4 → 7.4 | 309 s | 21 + 1 passed |
+    | 4, 16 CPU burners | 15 → 24, 33 at peak | 732 s | 21 + 1 passed |
+
+    - Under the burners the longest spec, package imports, took 2.6 minutes of its 5-minute guard, and the rehearsal 6.0 of its 15. No run needed the scale.
+    - At the base, before these commits, the first run's rehearsal failed on a 5 s `expect` as load rose from 4 to 29 (about 6 minutes in all).
+    - Every run left no e2e data directory under `$XDG_RUNTIME_DIR` and no agent root in `/tmp`, and nothing listening on 4610 or 5183.
 
 ### R-I6
 

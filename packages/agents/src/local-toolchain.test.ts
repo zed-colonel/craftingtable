@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { observeRustToolchain } from './local-toolchain.js';
+import { testTimeScale } from './test-time.js';
 const directories: string[] = [];
 afterEach(() => {
   for (const d of directories.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -35,7 +36,11 @@ it('does not return a successful fingerprint for a failing or oversized probe', 
 });
 it('terminates a hung observation within its bounded deadline', async () => {
   const { dir, path } = executable('setInterval(()=>{},1000);');
+  const started = Date.now();
   await expect(observeRustToolchain({ cargo: path, rustc: path }, dir)).rejects.toThrow(
     'Could not observe',
   );
+  // A genuine bound, scaled (R-I2): the observation's own 5 s deadline, with room for load. It
+  // fails if that deadline is raised or lost.
+  expect(Date.now() - started).toBeLessThan(10_000 * testTimeScale());
 });

@@ -36,6 +36,7 @@ import {
   type PinnedCargoManifest,
   prepareCargoLauncher,
 } from './pinned-cargo.js';
+import { withinHangGuard } from './test-time.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -1146,8 +1147,10 @@ it('reads only a regular file within its limit, never waiting on a FIFO or follo
   symlinkSync(join(root, 'file'), join(root, 'link'));
   // An agent can swap a file for a FIFO after it was listed; opening it must not wait.
   expect(spawnSync('mkfifo', [join(root, 'fifo')]).status).toBe(0);
-  // Nothing ever writes to it, so a read that waited would never return.
-  expect(await readRegular(join(root, 'fifo'), 1024)).toBeUndefined();
+  // Nothing ever writes to it, so a read that waited would never return: the guard names it.
+  expect(
+    await withinHangGuard(readRegular(join(root, 'fifo'), 1024), 'a read of a FIFO'),
+  ).toBeUndefined();
   expect((await readRegular(join(root, 'file'), 1024))?.toString()).toBe('content');
   expect(await readRegular(join(root, 'large'), 1024)).toBeUndefined();
   expect(await readRegular(join(root, 'link'), 1024)).toBeUndefined();
@@ -1160,8 +1163,11 @@ it('a lock that is a FIFO, or too many locks, never block or exhaust the daemon 
   mkdirSync(join(shared, 'registry', 'index'), { recursive: true });
   // Untracked and not ignored, so it is listed; opening it must not wait for a writer.
   expect(spawnSync('mkfifo', [join(f.m.workspacePath, 'Cargo.lock')]).status).toBe(0);
-  // Nothing ever writes to it, so a listing that waited would never finish.
-  const { outcome, output } = await listCargoHome(f, shared, authority({}));
+  // Nothing ever writes to it, so a listing that waited would never finish: the guard names it.
+  const { outcome, output } = await withinHangGuard(
+    listCargoHome(f, shared, authority({})),
+    'a listing with a FIFO lock',
+  );
   expect(outcome.exitCode, output).toBe(0);
   expect(output).toContain('No Cargo.lock in the checked tree');
 });

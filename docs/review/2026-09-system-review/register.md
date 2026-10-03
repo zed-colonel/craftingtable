@@ -3156,6 +3156,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `cleanupExecutionFixtures` now collects callback errors after the daemons have closed. An error raised during the close belongs to the test that ended, not to the next test's first wait.
     - The node project passed afterwards: 1,736 passed, 1 skipped, 244 s, load up to 16.
   - **The daemon-wide check bound has a test (TS-H2, review M2).** `runningInDaemon: 1000` survived the whole node project, because the four-checks test uses one run. A new gated test runs three scoped reviews at once: a third slice is added through `scopedRuntimeFixture`'s `extraSlices`, with 3 development slots. Each review asks for 4 checks that wait on one gate, 12 in all. Once every request is claimed, exactly 8 run, and no run has more than 4. Released, the checks never exceed 8 at once, and all 12 run. The mutant now fails with "expected 12 to be 8". The test takes about 1 s.
+  - **Meaning restored where removing a number had dropped it (LF F4, review L2).**
+    - "Terminates a hung observation within its bounded deadline" had relied on its 10 s per-test timeout. It now asserts its own scaled bound, under 10 s × `testTimeScale`. A mutant that raised the observation deadline from 5 s to 12 s fails ("expected 12006 to be less than 10000").
+    - The two FIFO-read tests in `local-check` now await inside a labelled hang guard ("Hung waiting for a read of a FIFO …"). A blocking regression is reported by name at half the test timeout.
+    - `packages/agents/src/test-time.ts` holds the `inject` typing and these helpers, so the tests no longer declare them one by one.
 
 ### R-I3
 

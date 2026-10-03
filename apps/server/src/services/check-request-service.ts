@@ -178,6 +178,8 @@ export const CHECK_LIMITS = {
 export class CheckRequestService {
   private readonly runs = new Map<string, ServedRun>();
   private readonly workflows = new WorkflowQueue();
+  /** Runs still stopping their checks (`close`), which `closeAll` waits for. */
+  private readonly closing = new Set<Promise<unknown>>();
   private closed = false;
   /** Units are named per data directory, so a second daemon on the host never stops ours. */
   private readonly unitPrefix: string;
@@ -321,7 +323,13 @@ export class CheckRequestService {
     } catch {
       /* the run directory is gone */
     }
-    await Promise.allSettled([...run.inFlight.values()].map((c) => c.done));
+    const stopped = Promise.allSettled([...run.inFlight.values()].map((c) => c.done));
+    this.closing.add(stopped);
+    try {
+      await stopped;
+    } finally {
+      this.closing.delete(stopped);
+    }
     // Declared checks' clones and build outputs are the daemon's scratch; only logs are kept.
     this.removeScratch(runId);
     this.pump();
@@ -330,6 +338,9 @@ export class CheckRequestService {
   async closeAll(): Promise<void> {
     this.closed = true;
     await Promise.all([...this.runs.keys()].map((runId) => this.close(runId)));
+    // Runs that ended just before are still stopping their checks, which write their logs as
+    // they stop: the daemon is closed only once they have.
+    await Promise.allSettled([...this.closing]);
   }
 
   private serve(runId: string): void {

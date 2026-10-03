@@ -3121,7 +3121,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Test cleanup now calls `checkRequestService.closeAll()` before removing the directory, as the daemon's own close does (TS-M14). Without it, a check still running wrote its log into the removed directory and recreated it: today's runs had left 7 such directories in TMPDIR.
     - One test depended on disk size. The storage alert clears only above the 5 GiB reserve plus 2 GiB, more than the 6.3 GiB tmpfs ever has free. The volume-loss test now sets a 1 GiB reserve, which is not what it tests, and passes on either root. The same 5 GiB reserve leaves test daemons about 1.2 GiB of the tmpfs before they refuse writes; a full run peaked at 104–112 MB.
     - One default `pnpm test` afterwards (load 1.9, peaking near 9): 2,083 passed, 0 failed, 186 s. That compares with 218 s for the run after the step budgets. The sum of per-file times fell from 2,248 s to 1,714 s: `storage-management` 36 s → 5.4 s, `migrations` 14.8 s → 1.3 s, `planning-schema` 14.3 s → 7.6 s.
-    - One directory still leaks per run, 150 bytes: the ct-act test in `server-execution-receipt-gates` ends a run with CI still running. The check's log line about removing containers (its docker stub already gone) lands after cleanup, outside what `closeAll` awaits. It belongs to TS-M14 (R-I4).
+    - At first, one directory still leaked per run: a run that had just ended was still stopping its checks, and `closeAll` did not wait for those. The independent review found more of them, 9 from its own runs, including one from a failing four-checks run. That is fixed below (review L4).
   - **The `agent-tree` load flake (TS, new LOW).** Two tests built a 1,100-level and a 1,100-level-with-`prlimit` tree by forking one `mkdir` per level. That took 7.5 s of system time alone, 9 s per test serially and 15 s in a parallel run, against the old 15 s timeout (vitest reported `STACK_TRACE_ERROR`). `deepTree()` now builds the same trees with one `mkdir -p` per 500 levels, a relative path well under PATH_MAX, and `cd` between them. The trees are unchanged: 1,100 levels, past PATH_MAX, and `find` puts the bottom file at depth 1,101. The two tests take 0.22 s and 0.39 s, and the file takes 1 s instead of 18 s.
   - **Code-review fixes to the waits and gates (TS-H1, TS-H2, LF F4).**
     - With a 120 s hang guard, a wait left running by a test that timed out could keep stepping for up to 2 minutes. It would step the next test's daemons and take its `onLaunch` errors. Each wait now records the fixture generation, which `cleanupExecutionFixtures` advances, and stops at its next step once its test has ended. `stepDaemons` steps a snapshot of the open daemons, and a failure report names only its own test's waits. A temporary test checked this: test A timed out inside a 15 s step and reported "The test failed while waiting for A", and test B, which ran next, saw no step from A.
@@ -3160,6 +3160,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - "Terminates a hung observation within its bounded deadline" had relied on its 10 s per-test timeout. It now asserts its own scaled bound, under 10 s × `testTimeScale`. A mutant that raised the observation deadline from 5 s to 12 s fails ("expected 12006 to be less than 10000").
     - The two FIFO-read tests in `local-check` now await inside a labelled hang guard ("Hung waiting for a read of a FIFO …"). A blocking regression is reported by name at half the test timeout.
     - `packages/agents/src/test-time.ts` holds the `inject` typing and these helpers, so the tests no longer declare them one by one.
+  - **No check-log directory leaks (TS-M14, TS-H8; review L4).**
+    - A run that ends closes its checks without anyone awaiting it. `CheckRequestService.close` takes the run out of its map at once, while its in-flight checks are still stopping and writing their logs, so the daemon's `closeAll` did not wait for them. A test daemon's cleanup then removed its directory, and a log write recreated it on tmpfs, where it stays until logout.
+    - `close` now registers the stop while it is in progress, and `closeAll` waits for every one. This is a small production change: the daemon's own shutdown now also waits for the checks of a run that ended just before.
+    - The review's sources of leaks are gone:
+      - the ct-act test's run that ends with CI still running;
+      - a four-checks run made to fail with the 5-per-run mutant, which left none.
+    - A full `pnpm test` (2,084 passed, 1 skipped, 230 s, load 2.3 → 11.5, tmpfs peak 83 MB) left no `craftingtable-*-test-*` directory. That was true both under `/run/user/1000` (it had left 1 per run before) and in TMPDIR. The directories earlier runs had left were removed.
+  - **Steps per wait, measured (TS-H1; review L6).** Temporary logging (not committed) recorded every passing wait in one full run (load 2.3 → 11.5).
+    - Stepped waits: 803. Median 3 steps, p90 15, p99 24, maximum 52 ("bounded recovery stopping reason"). The 1,000-step budget is 19 times the worst, so the margin is not thin. It stays.
+    - Free-running waits: 18, at most 165 polls and 2.3 s. Only the hang guard bounds these.
+    - `waitUntil` waits: 14, at most 90 polls and 2.3 s ("every check").
+    - The cost of the margin: a wait that can never hold fails after about 10 s idle (1,000 × the 10 ms poll plus cheap steps), as measured above.
 
 ### R-I3
 

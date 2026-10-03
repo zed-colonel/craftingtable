@@ -3064,7 +3064,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I2
 
-**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: reopened (2026-10-02, operator; was done at 7bb4562, b0a0c0d, d08a143)
+**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: reopened (2026-10-02, operator; was done at 7bb4562, b0a0c0d, d08a143); its done-when met on `review-pass/a-r-i2` (2026-10-02), awaiting review and integration; TS-M13 rebalancing is a separate unit
 
 - **Resolves:** [QA-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-01-server-executiontestts-is-the-whole-critical-path-of-the-unit-suite-and-should-be-split-by-aggregate), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Split server-execution.test.ts by aggregate (runs, merge gate, cycles, roadmaps, finalization, execution scopes) so files run in parallel; use the R-B2 stepping seam to remove wall-clock polling.
@@ -3132,6 +3132,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - There is now one rule. `vitest.config.ts` evaluates it once and provides it, `packages/storage` reads it with `inject('testDataRoot')`, and the copy is gone. The read-only fallback is asserted only for a non-root user, since root may write anyway.
     - **Open, for the operator.** Under systemd confinement a check sees `/run/user/$UID` as an empty read-only tmpfs (`runtimeDirectoryConfinement`), and Claude's sandbox denies reads there. An e2e daemon whose worktrees live there could not run a real confined check, nor a real Claude on its worktree. That is latent today: e2e uses fake agents, and no spec runs a check. Vitest daemons run checks unconfined. `/dev/shm`, or unconfined checks for the e2e daemon, would avoid it.
     - Also noted: the directory is the login session's RAM-backed runtime directory. A daemon killed by SIGKILL leaves its data there until logout, about 100 MB at most in a vitest run.
+  - **Done-when met: three consecutive default parallel `pnpm test` runs.** Each was a plain `pnpm test` (default workers, no flags, no serial rerun), on the branch head with the review fixes. Every run had 2,084 tests: 2,083 passed, 1 skipped (`sandbox-real`, which needs a host capability), and 0 failed.
+
+    | Run | Start → end (1-minute load) | Highest 5-minute load | Wall time | Tmpfs peak |
+    |---|---|---|---|---|
+    | 1 | 16:54, 2.5 → 8.5 | 9.3 | 189 s | 90 MB |
+    | 2 | 16:57, 7.5 → 11.3 | 13.7 | 225 s | 104 MB |
+    | 3 | 17:01, 10.9 → 12.8 | 16.1 | 228 s | 131 MB |
+
+    - Load after the runs, with nothing of this unit running, was 11.6: ambient load from the live daemon and the rest of the host.
+    - Before the review fixes, three more runs (186–189 s, load up to 11) had also passed with no failure.
+    - Each run left only the 150-byte ct-act log directory described above, which was removed.
 
 ### R-I3
 

@@ -6,12 +6,14 @@
  *
  * 1. No runtime dependency on the Exo Stack (ActionQueue, WorldInterface, Exoskeleton) in any
  *    workspace manifest or in any module of `apps/` and `packages/`, tests included.
- * 2. Capability modules (`child_process`, `cluster`, `worker_threads`, `vm`, Git and
- *    vendor-agent libraries) are imported only by the named adapter modules, and only those load
- *    a module by a name they compute (`import(expression)`, `require`, `createRequire`,
- *    `process.getBuiltinModule`, a computed `process[name]` or `Reflect` on `process`) or run code
- *    from text (`eval`, `Function`): a computed name is a capability import this check cannot
- *    read.
+ * 2. Capability modules (`child_process`, `cluster`, `worker_threads`, `vm`, `module`, a module
+ *    by URL such as `data:`, Git and vendor-agent libraries) are imported only by the named
+ *    adapter modules (`node:module` only by the listed loader authority), and only those load a
+ *    module by a name they compute (`import(expression)`, `require`, `createRequire`,
+ *    `getBuiltinModule`) or run code from text (`eval`, `Function`, a `.constructor(…)` call).
+ *    `process` and `globalThis` are read only as a named member that loads nothing; an alias,
+ *    a destructure, an argument or a computed member could reach a loader, so each is a finding
+ *    too. A computed name is a capability import this check cannot read.
  * 3. The planning package stays pure: no filesystem, process, network, database, or UI imports,
  *    and no module of a sibling package other than the domain and the contracts.
  * 4. The domain package depends on nothing but itself.
@@ -60,6 +62,11 @@ export const FORBIDDEN_CAPABILITY_PATTERNS = [
   /^(node:)?cluster$/i,
   /^(node:)?worker_threads$/i,
   /^(node:)?vm$/i,
+  // `createRequire`, `Module._load` and loader hooks.
+  /^(node:)?module$/i,
+  // A module by URL (`data:`, `file:`, `https:`) is code this check cannot read; `node:` names
+  // a builtin, which the patterns above judge.
+  /^(?!node:)[a-z][a-z0-9+.-]*:/i,
   /^execa$/i,
   /^cross-spawn$/i,
   /^shelljs$/i,
@@ -85,6 +92,17 @@ export const PROCESS_AUTHORITY = new Map([
   [
     'packages/agents/src/pinned-cargo.ts',
     'Pinned Cargo execution in the agent process group (ADR-047)',
+  ],
+]);
+
+/**
+ * The only production modules allowed to import `node:module` (resolution hooks, `createRequire`),
+ * each with its reason. Like a process authority, adding one is a reviewed decision.
+ */
+export const LOADER_AUTHORITY = new Map([
+  [
+    'packages/agents/src/source-hooks.ts',
+    'Resolves workspace packages to source in checks launched from source (TS-H6); never loaded built',
   ],
 ]);
 
@@ -311,12 +329,11 @@ const LOADER_NAMES = new Set(['getBuiltinModule', 'createRequire']);
 /** `process` members that load native or internal modules. */
 const PROCESS_LOADERS = new Set(['binding', '_linkedBinding', 'dlopen']);
 
-/**
- * How a use of `process` reaches a loader, if it does: a loader member (`process.binding`,
- * through casts and parentheses too), a member it computes (`process[name]`), or `process`
- * handed to `Reflect` (`Reflect.get(process, name)`).
- */
-function processLoader(node) {
+/** `globalThis` members that load or run code by name. */
+const GLOBAL_LOADERS = new Set(['eval', 'Function', 'require']);
+
+/** The expression a node is inside parentheses, casts and non-null assertions. */
+function unwrapped(node) {
   let outer = node;
   while (
     (outer.parent?.kind === SyntaxKind.ParenthesizedExpression ||
@@ -327,23 +344,43 @@ function processLoader(node) {
     outer.parent.expression === outer
   )
     outer = outer.parent;
-  const parent = outer.parent;
-  if (parent?.kind === SyntaxKind.PropertyAccessExpression && parent.expression === outer)
-    return PROCESS_LOADERS.has(parent.name.text) ? `process.${parent.name.text}` : undefined;
-  if (parent?.kind === SyntaxKind.ElementAccessExpression && parent.expression === outer) {
-    const name = parent.argumentExpression;
-    if (!isLiteral(name)) return 'process[…]';
-    return PROCESS_LOADERS.has(name.text) ? `process.${name.text}` : undefined;
+  return outer;
+}
+
+/**
+ * How a use of `process` or `globalThis` could reach a loader, if it could. The only use that
+ * cannot is reading (or writing) a named member that loads nothing: `process.env`,
+ * `process['argv']`, `globalThis.setTimeout`, and `typeof process`. A loader member
+ * (`process.binding`, `globalThis.eval`, also through casts and `globalThis.process`), a
+ * computed member, and any other use (an alias, a destructure, an argument) are findings: each
+ * can reach a loader by a name this check cannot read.
+ */
+function globalLoad(node) {
+  let name = node.text;
+  let outer = unwrapped(node);
+  for (;;) {
+    const parent = outer.parent;
+    if (
+      parent?.kind === SyntaxKind.TypeOfExpression ||
+      parent?.kind === SyntaxKind.TypeQuery ||
+      parent?.kind === SyntaxKind.QualifiedName
+    )
+      return undefined;
+    let member;
+    if (parent?.kind === SyntaxKind.PropertyAccessExpression && parent.expression === outer)
+      member = parent.name.text;
+    else if (parent?.kind === SyntaxKind.ElementAccessExpression && parent.expression === outer) {
+      if (!isLiteral(parent.argumentExpression)) return `${name}[…]`;
+      member = parent.argumentExpression.text;
+    } else return `${name} as a value`;
+    if (name === 'globalThis' && member === 'process') {
+      name = 'process';
+      outer = unwrapped(parent);
+      continue;
+    }
+    const loaders = name === 'process' ? PROCESS_LOADERS : GLOBAL_LOADERS;
+    return loaders.has(member) ? `${name}.${member}` : undefined;
   }
-  if (
-    parent?.kind === SyntaxKind.CallExpression &&
-    parent.arguments.includes(outer) &&
-    parent.expression.kind === SyntaxKind.PropertyAccessExpression &&
-    parent.expression.expression.kind === SyntaxKind.Identifier &&
-    parent.expression.expression.text === 'Reflect'
-  )
-    return 'Reflect on process';
-  return undefined;
 }
 
 /**
@@ -361,6 +398,19 @@ function readModule(sourceFile) {
     else loads.push({ node: node ?? sourceFile, what: kind });
   };
   const visit = (node) => {
+    // Any function's `constructor` is `Function`: `(() => {}).constructor('…')` runs text.
+    if (node.kind === SyntaxKind.CallExpression || node.kind === SyntaxKind.NewExpression) {
+      let callee = node.expression;
+      while (callee.kind === SyntaxKind.ParenthesizedExpression) callee = callee.expression;
+      if (
+        (callee.kind === SyntaxKind.PropertyAccessExpression &&
+          callee.name.text === 'constructor') ||
+        (callee.kind === SyntaxKind.ElementAccessExpression &&
+          isLiteral(callee.argumentExpression) &&
+          callee.argumentExpression.text === 'constructor')
+      )
+        loads.push({ node, what: 'constructor()' });
+    }
     switch (node.kind) {
       case SyntaxKind.NewExpression:
         if (
@@ -410,8 +460,12 @@ function readModule(sourceFile) {
         )
           loads.push({ node, what: 'module.require' });
         else if (LOADER_NAMES.has(node.text)) loads.push({ node, what: node.text });
-        else if (node.text === 'process' && !isMemberName(node)) {
-          const what = processLoader(node);
+        else if (
+          (node.text === 'process' || node.text === 'globalThis') &&
+          !isMemberName(node) &&
+          !isDeclaredName(node)
+        ) {
+          const what = globalLoad(node);
           if (what !== undefined) loads.push({ node, what });
         } else if (
           // Code run from text: `eval(…)`, `Function(…)`, `new Function(…)`.
@@ -932,7 +986,11 @@ function moduleFindings(root, module, production) {
   for (const { specifier, resolved } of module.references) {
     if (isForbiddenName(specifier)) findings.push(`${path}: forbidden import "${specifier}"`);
     if (!production) continue;
-    if (isForbiddenCapability(specifier) && !(authority && /child_process$/i.test(specifier)))
+    if (
+      isForbiddenCapability(specifier) &&
+      !(authority && /child_process$/i.test(specifier)) &&
+      !(LOADER_AUTHORITY.has(path) && /^(node:)?module$/i.test(specifier))
+    )
       findings.push(
         `${path}: capability import "${specifier}" is permitted only in a listed process authority`,
       );

@@ -157,6 +157,7 @@ describe('the bypasses that printed "passed" (TS-M11; GR F-4, F-7)', () => {
         capability('apps/server/src/template-require.ts', 'child_process'),
         computed('apps/server/src/computed.ts', 2, 'import()'),
         computed('apps/server/src/builtin.ts', 1, 'getBuiltinModule'),
+        capability('apps/server/src/created.ts', 'node:module'),
         computed('apps/server/src/created.ts', 1, 'createRequire'),
         computed('apps/server/src/created.ts', 2, 'createRequire'),
         computed('apps/server/src/escaped.ts', 1, 'require'),
@@ -465,7 +466,7 @@ describe('the fail-open gaps the independent review found', () => {
     });
     expect(runCheck(root).sort()).toEqual(
       [
-        computed('apps/server/src/reflect.ts', 1, 'Reflect on process'),
+        computed('apps/server/src/reflect.ts', 1, 'process as a value'),
         computed('apps/server/src/indexed.ts', 2, 'process[…]'),
         computed('apps/server/src/cast.ts', 1, 'process.binding'),
         computed('apps/server/src/cast.ts', 2, 'process.dlopen'),
@@ -535,6 +536,61 @@ it('fails the command on a planted violation and passes it on a clean workspace'
 });
 
 describe('the gaps the verification review found', () => {
+  /**
+   * `process` and `globalThis` are read only as `.name` of a member that loads nothing; any
+   * other use (an alias, a destructure, an argument, a computed member) could reach a loader.
+   * `node:module`, a URL specifier and a `.constructor(…)` call load code by other names (L-1).
+   */
+  it('catches every other way to reach a loader or run text', () => {
+    const at = (file) => `apps/server/src/${file}`;
+    const root = workspace({
+      [at('alias.ts')]:
+        "const p = process;\nexport const a = (p as any)['getBuiltin' + 'Module']('x');\n",
+      [at('destructure.ts')]: 'const { binding } = process as any;\nexport { binding };\n',
+      [at('argument.ts')]:
+        "export const d = Object.getOwnPropertyDescriptor(process, 'binding');\n",
+      [at('global-process.ts')]: "export const c = (globalThis as any).process.binding('x');\n",
+      [at('global-text.ts')]: [
+        "export const g = globalThis.eval('1');",
+        "export const h = new globalThis.Function('return 1');",
+        'const t = globalThis;',
+        "export const i = (() => {}).constructor('return 1');",
+        '',
+      ].join('\n'),
+      [at('module.ts')]:
+        "import { Module } from 'node:module';\nexport const e = (Module as any)._load('x');\n",
+      [at('data.ts')]: [
+        "import 'data:text/javascript,1';",
+        "export const j = await import('data:text/javascript,export default 1');",
+        '',
+      ].join('\n'),
+      [at('plain.ts')]: [
+        'export const home = process.env.HOME;',
+        "export const argv = process['argv'];",
+        'process.exitCode = 0;',
+        "export const node = typeof process !== 'undefined';",
+        'export type Env = typeof process.env;',
+        'export const later = globalThis.setTimeout;',
+        '',
+      ].join('\n'),
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        computed(at('alias.ts'), 1, 'process as a value'),
+        computed(at('destructure.ts'), 1, 'process as a value'),
+        computed(at('argument.ts'), 1, 'process as a value'),
+        computed(at('global-process.ts'), 1, 'process.binding'),
+        computed(at('global-text.ts'), 1, 'globalThis.eval'),
+        computed(at('global-text.ts'), 2, 'globalThis.Function'),
+        computed(at('global-text.ts'), 3, 'globalThis as a value'),
+        computed(at('global-text.ts'), 4, 'constructor()'),
+        capability(at('module.ts'), 'node:module'),
+        capability(at('data.ts'), 'data:text/javascript,1'),
+        capability(at('data.ts'), 'data:text/javascript,export default 1'),
+      ].sort(),
+    );
+  });
+
   /**
    * A dev-only package with no `source` condition, imported by a test and by production: the
    * import reaches its source whether it is unlinked, or linked and built (M-1).

@@ -171,7 +171,12 @@ function resolvedPath(path: string, variable: string | undefined, hops: number):
       const code = (error as NodeJS.ErrnoException).code;
       const link = code === 'ENOENT' ? danglingLinkTarget(existing) : undefined;
       if (link !== undefined && hops < LINK_HOPS)
-        return resolvedPath(join(resolve(dirname(existing), link), ...rest), variable, hops + 1);
+        // A relative target starts from the link's real directory, as the kernel's does.
+        return resolvedPath(
+          join(resolve(realDirectory(dirname(existing)), link), ...rest),
+          variable,
+          hops + 1,
+        );
       const unresolvable =
         link !== undefined ? 'ELOOP' : code === 'ENOENT' || code === 'ENOTDIR' ? undefined : code;
       if (variable !== undefined && unresolvable !== undefined)
@@ -179,6 +184,15 @@ function resolvedPath(path: string, variable: string | undefined, hops: number):
       if (dirname(existing) === existing) return path;
       rest.unshift(basename(existing));
     }
+  }
+}
+
+/** A directory that exists (a link's own), through its links; as written if it cannot be read. */
+function realDirectory(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
   }
 }
 
@@ -303,7 +317,12 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
     throw new Error('CRAFTINGTABLE_AGENT_TMP_ROOT must be a normalized absolute path');
   // A start sweeps the run directories it holds (LIVE-31): it may share nothing it could
   // mistake for one, nor what it could reach through a mistake (TS-H3).
-  const agentRoot = comparedPath(agentTemporaryRoot, 'CRAFTINGTABLE_AGENT_TMP_ROOT');
+  const agentRoot = comparedPath(
+    agentTemporaryRoot,
+    env.CRAFTINGTABLE_AGENT_TMP_ROOT === undefined
+      ? "The agents' default temporary root"
+      : 'CRAFTINGTABLE_AGENT_TMP_ROOT',
+  );
   for (const shared of sharedDirectories(env))
     if (equalOrWithinCompared(comparedPath(shared), agentRoot))
       throw new Error(

@@ -265,8 +265,10 @@ check-log or Cargo-home roots or the default backup directory `<data>/backups`. 
 compared as written and through their links, as far as they exist; a link that names nothing
 yet is followed to what it names. A root that cannot be resolved (unreadable, a link loop) is
 refused; a directory it is compared with that cannot be is compared as far as it can be read,
-so an unreadable `HOME` or `TMPDIR` never stops the daemon starting. Two daemons must not share
-one root: each start sweeps the other's live runs' directories.
+so an unreadable `HOME` or `TMPDIR` never stops the daemon starting. The check sees the runs and
+backup roots as configured at start: **Settings → Storage** can move them later, and the check
+does not follow, but the sweep's name filter still leaves whatever they hold. Two daemons must
+not share one root: each start sweeps the other's live runs' directories.
 
 The daemon runs the checks agents ask for with `ct-check` itself, each in a transient systemd user unit
 (`craftingtable-check-<instance>-<request>.service`) with a read-only file system except the run's own

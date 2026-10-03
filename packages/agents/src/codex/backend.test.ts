@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AgentLaunchRequest, AgentSession, AgentSessionItem } from '../index.js';
-import { CodexBackend } from './backend.js';
 import { testTimeScale } from '../test-time.js';
+import { CodexBackend } from './backend.js';
 import { CodexRpc } from './rpc.js';
 
 const FAKE = `#!${process.execPath}

@@ -224,6 +224,16 @@ describe('configFromEnv', () => {
       // A link that names nothing yet is followed to where it points.
       symlinkSync(join(data, 'state', 'later'), join(base, 'dangling-link'));
       expect(() => root(join(base, 'dangling-link'))).toThrow(/database's directory/);
+      // Through a chain of such links, and from a relative target.
+      symlinkSync(join(base, 'dangling-link'), join(base, 'chain-link'));
+      expect(() => root(join(base, 'chain-link'))).toThrow(/database's directory/);
+      symlinkSync(join('data', 'state', 'later'), join(base, 'relative-link'));
+      expect(() => root(join(base, 'relative-link'))).toThrow(/database's directory/);
+      // A relative target climbs from the link's real directory, not the path as written.
+      mkdirSync(join(base, 'real', 'sub'), { recursive: true });
+      symlinkSync(join(base, 'real', 'sub'), join(base, 'via-parent'));
+      symlinkSync(join('..', '..', 'data', 'state', 'x'), join(base, 'real', 'sub', 'climb'));
+      expect(() => root(join(base, 'via-parent', 'climb'))).toThrow(/database's directory/);
       // Named inside the database's directory, it is refused whatever the link reaches.
       mkdirSync(join(base, 'agents'));
       symlinkSync(join(base, 'agents'), join(data, 'state', 'agents-link'));
@@ -246,6 +256,10 @@ describe('configFromEnv', () => {
       symlinkSync(join(base, 'loop-b'), join(base, 'loop-a'));
       symlinkSync(join(base, 'loop-a'), join(base, 'loop-b'));
       expect(() => root(join(base, 'loop-a', 't'))).toThrow(/could not be resolved: ELOOP/);
+      // The default root is named as the default, not by a variable that is not set.
+      expect(() =>
+        configFromEnv({ CRAFTINGTABLE_DATA_DIR: join(base, 'locked', 'inner', 'data') }),
+      ).toThrow(/^The agents' default temporary root .* could not be resolved: EACCES/);
       // An unreadable HOME or TMPDIR, or one that loops, is no reason to refuse the start: it
       // is compared as far as it can be read.
       for (const unreadable of [

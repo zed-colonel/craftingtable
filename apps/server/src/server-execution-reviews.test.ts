@@ -1242,6 +1242,100 @@ itNeedsCargo(
 );
 
 itNeedsCargo(
+  'ends a security review that requests remediation, at the remediation limit and on the next round (TS-M7)',
+  async () => {
+    const f = await supervisedMapFixture(true);
+    const original = f.backend.replyForRequest!;
+    let fixed = false;
+    const reviews: string[] = [];
+    f.backend.replyForRequest = async (request) => {
+      if (request.model === 'remediate-model') {
+        fixed = true;
+        commitFile(request.cwd, 'guard.txt', 'Recovery guard fixed');
+        return implementationDone;
+      }
+      const reply = await original(request);
+      if (request.model !== 'review-model') return reply;
+      const specialist = request.prompt.includes('This is a separate security review.');
+      reviews.push(specialist ? 'security' : 'controller');
+      // Only the security review finds the defect; every review after the repair sees it fixed.
+      const open = specialist && !fixed;
+      const raw = reply.resultText!;
+      const body = JSON.parse(raw.match(/```craftingtable-review\n([\s\S]*?)\n```/)![1]!);
+      body.verdict = open ? 'changes-requested' : 'mergeable';
+      body.exitGate.met = !open;
+      body.findings =
+        open || fixed
+          ? [
+              {
+                id: 'RECOVERY-1',
+                severity: 'major',
+                status: open ? 'open' : 'resolved',
+                title: 'Recovery guard bypass',
+                explanation: 'A restricted state can reenter through an intermediate state.',
+                recommendation: 'Apply the recovery guard to every operational path.',
+                ...(open
+                  ? {}
+                  : {
+                      disposition:
+                        'Independent negative-path regression passed on the repaired candidate.',
+                    }),
+              },
+            ]
+          : [];
+      return {
+        ...reply,
+        resultText: withWorkflowReport(
+          '## Open questions\nnone\n## Review report\n```craftingtable-review\n' +
+            JSON.stringify(body) +
+            '\n```\nVERDICT: ' +
+            body.verdict,
+          {
+            securityReview: { required: true, sources: ['Approved security-sensitive PR policy'] },
+          },
+        ),
+      };
+    };
+    await adoptSupervisedMap(f);
+    // No automatic rounds: the security review's findings stop at the remediation limit.
+    const { defaults } = f.input.configuration;
+    f.service.save(f.auth, f.state.workspaceId, {
+      ...f.input,
+      configuration: {
+        ...f.input.configuration,
+        defaults: { ...defaults, policy: { ...defaults.policy, maxRemediationRounds: 0 } },
+      },
+    });
+    await roadmapControl(f.state, 'start');
+    const slice = () =>
+      f.state.context.storage.execution.cycles
+        .listForWorkspace(f.state.workspaceId)
+        .find((c) => c.executionScope?.kind === 'slice');
+    await waitFor(() => slice()?.status === 'needs-attention', 'remediation limit');
+    const stopped = slice()!;
+    expect(stopped.attention?.code).toBe('remediation-exhausted');
+    expect(reviews).toEqual(['controller', 'security']);
+    // The security review ended with its run, so the stop does not keep it active.
+    expect(stopped.workflow?.activeReview ?? null).toBeNull();
+    const granted = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/cycles/${stopped.id}/control`,
+      headers: mutationHeaders(f.state),
+      payload: {
+        action: 'authorize-remediation',
+        expectedVersion: stopped.version,
+        additionalRounds: 1,
+      },
+    });
+    expect(granted.statusCode, granted.body).toBe(200);
+    await waitFor(() => slice()?.status === 'completed', 'remediation then reviews');
+    expect(slice()!.remediationRounds).toBe(1);
+    // The repaired candidate gets the controller's review first, then a new security review.
+    expect(reviews).toEqual(['controller', 'security', 'controller', 'security']);
+  },
+);
+
+itNeedsCargo(
   'holds a technical checkpoint for its mapped prerequisite without launching repeated reviews',
   async () => {
     const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({

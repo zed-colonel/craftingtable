@@ -434,7 +434,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B2
 
-**Characterization harness for the cycle controller** · Phase P1 · Effort M · Status: done (131a9de)
+**Characterization harness for the cycle controller** · Phase P1 · Effort M · Status: done (131a9de); TS-M7 table rows done on `review-pass/g-ts-m7`, awaiting review and integration
 
 - **Resolves:** [CTRL-18](findings/CTRL-controller.md#ctrl-18-the-controller-has-no-unit-testable-transition-core), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Extract reconcile's post-run classification (work-cycle-service.ts ~:1858-2254) verbatim into a pure function of (cycle, facts). Record golden decisions by replaying every cycle in a DB snapshot, and add decision-table tests. Add a deterministic stepping seam (tick once / wait-for-idle) so orchestration tests stop polling wall-clock time.
@@ -444,6 +444,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The facts are not all lazy. `turn` and `ended` are read eagerly, which costs two indexed reads per reconcile of a live run. The claim above that "each is read only on the branch that read it before" does not hold for them.
   - The live golden covers only each cycle's current run, which is four decision kinds. `--every-run` (added with R-C2's amendment) classifies all 278 recorded runs.
   - The drain tests still sleep on the drain's fixed 250 ms poll.
+- **Test-suite review, 2026-10-02 ([TS-M7](findings/TS-test-suite-review-2026-10-02.md); branch `review-pass/g-ts-m7` from 41a1351): three step-outcome branches were untested.**
+  - **The gap.** The table covered every attention code, but not two of `serviceRecovery`'s eligibility conditions, nor the remediate decision's payload. At 41a1351 each of these mutants survived the whole node project: SO2 (no `!ownsIntegrationResolution(cycle)` in the retry guard), SO4 (`!clipped` becomes `true` under a suspected outage) and SO20 (`clearActiveReview: false` on remediate).
+  - **Rows added to `step-outcome.test.ts`.**
+    - A provider failure while the cycle owns a conflict resolution stops as `service-failure-not-retryable`.
+    - A question during a suspected outage with a clipped assistant message stays `implementation-open-questions` (R-C11).
+    - A specialist review's remediation returns `clearActiveReview: true`.
+  - **Found by the unit's review.** Three more mutants also survived the whole node project at 41a1351, in one combined run; their paths do not overlap.
+    - SO20w: the controller never applies `clearActiveReview` (`work-cycle-service.ts`, the `remediate-review` case). On the remediation path `reviewRemediation` clears `activeReview` itself, so the flag shows only when it stops instead. A security review's remediation that hits the limit kept the review active at the `remediation-exhausted` stop. A cycle test in `server-execution-reviews.test.ts` now covers this. The security review's findings stop at the limit, and the stop no longer carries the review. Then one more round is authorized, and the repaired candidate gets the controller's review and then a new security review.
+    - SOFT and SOTT: the two other halves of "clipped". Two new rows pin them. A clipped assistant message before a failed turn's service failure is not retried. An early exit with questions whose result was clipped stays `exit-with-open-questions` during an outage.
+  - **Result.** Each mutant now fails only its new test. SO2, SO4 and SO20 were each run against the whole node project (`--maxWorkers=4`); SO20w, SOFT and SOTT in one combined run. Every failure was confirmed by a serial re-run of the file. Only tests changed, so the replays are unaffected.
 
 ### R-B3
 
@@ -1152,7 +1162,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C11
 
-**Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry** · Phase P2 · Effort S-M · Status: done (see Progress)
+**Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry** · Phase P2 · Effort S-M · Status: done (see Progress); TS-M7 clipped-output rows done on `review-pass/g-ts-m7`, awaiting review and integration
 
 - **Added 2026-09-25** from a live incident; the operator put it on P2 the same day.
 - **What happened:**
@@ -1216,6 +1226,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - The local-login check is `account/read` (present, ChatGPT mode), thinner than the Change's "tokens well-formed and fresh". The regex needs "Incorrect API key provided: sk-", which a ChatGPT token failure does not produce.
       - Guidance is capped at 16,000 characters, and a step whose stored guidance is near the cap cannot take more (shared with the provider-retry branch).
     - *Checked and sound:* guidance given while a retry is pending joins that retry, with a single launch. Guidance after spent retries opens a new window, as ADR-062 intends. The guided path cannot launch a second live agent (R-G1). Carried guidance never crosses a step (R-G3).
+  - **Test-suite review, 2026-10-02 ([TS-M7](findings/TS-test-suite-review-2026-10-02.md); branch `review-pass/g-ts-m7`):** no test pinned "clipped output always goes to the operator". Mutants of all three clipped checks survived the whole node project at 41a1351:
+    - SO4: the outage path's `!clipped` becomes `true`;
+    - SOTT: the turn's own `truncated` flag is ignored;
+    - SOFT: a clipped assistant message before a failed turn's service failure is ignored.
+
+    Three `step-outcome.test.ts` rows now pin them, and each mutant fails its row. See R-B2.
 
 ### R-C12
 

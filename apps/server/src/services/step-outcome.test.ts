@@ -257,6 +257,29 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'service-failure-not-retryable' },
   },
   {
+    // TS-M7: a clipped message may hide a question or a partial outcome.
+    name: 'a service failure after clipped output is not retried',
+    facts: {
+      run: failedRun,
+      turn: turnOf('', { outcome: 'error', providerFailure: serviceFailure() }),
+      ended: endedOf({ status: 'failed', exitCode: 1 }),
+      assistantMessages: () => [{ text: 'Partial progress…', truncated: true }],
+    },
+    expected: { kind: 'attention', code: 'service-failure-not-retryable' },
+  },
+  {
+    // TS-M7: a retry would relaunch the step on a worktree holding MERGE_HEAD and
+    // half-applied edits, so a provider failure mid-resolution stays with the operator.
+    name: 'a service failure while the cycle owns a conflict resolution is not retried',
+    cycle: { integrationResolution: { status: 'resolving' } },
+    facts: {
+      run: failedRun,
+      turn: turnOf('', { outcome: 'error', providerFailure: serviceFailure() }),
+      ended: endedOf({ status: 'failed', exitCode: 1 }),
+    },
+    expected: { kind: 'attention', code: 'service-failure-not-retryable' },
+  },
+  {
     name: 'an exit before background work finished starts a completion continuation',
     facts: {
       run: failedRun,
@@ -382,6 +405,25 @@ const rows: readonly Row[] = [
       reviewAssessment: () => review([minor]),
     },
     expected: { kind: 'schedule-service-retry' },
+  },
+  {
+    // R-C11, TS-M7: clipped output always goes to the operator, even when a refused approval
+    // review suggests the question was the outage's.
+    name: 'a question during a provider outage with clipped output stays with the operator',
+    facts: {
+      turn: turnOf(withQuestions, { suspectedOutage: credentialFailure() }),
+      assistantMessages: () => [{ text: 'Partial progress…', truncated: true }],
+    },
+    expected: { kind: 'attention', code: 'implementation-open-questions' },
+  },
+  {
+    // The same when the turn's own result was clipped.
+    name: 'an early exit with questions during a provider outage and a clipped result stays with the operator',
+    facts: {
+      turn: turnOf(withQuestions, { truncated: true, suspectedOutage: credentialFailure() }),
+      ended: endedOf({ reason: 'background-work-incomplete' }),
+    },
+    expected: { kind: 'attention', code: 'exit-with-open-questions' },
   },
   {
     name: "a slice review's shared and work-item questions at the limit wait for the shared decision",
@@ -678,6 +720,29 @@ const rows: readonly Row[] = [
     cycle: { step: 'review' },
     facts: { run: reviewRun, turn: turnOf(noQuestions), reviewAssessment: () => review([minor]) },
     expected: { kind: 'remediate-review', clearActiveReview: false },
+  },
+  {
+    // TS-M7: the specialist review that requested remediation ended with its run, so neither
+    // the remediation nor a stop at the remediation limit keeps it active.
+    name: "a specialist review's findings start remediation and end the specialist review",
+    cycle: {
+      step: 'review',
+      executionScope: { kind: 'slice' },
+      workflow: {
+        reassessments: 0,
+        questions: [],
+        activeReview: {
+          kind: 'security',
+          sourceRunId: 'run-0',
+          requirements: [],
+          caseIds: [],
+          roles: ['independent-security-reviewer-if-required-by-source'],
+          contextDigest: 'a'.repeat(64),
+        },
+      },
+    },
+    facts: { run: reviewRun, turn: turnOf(workflow([])), reviewAssessment: () => review([minor]) },
+    expected: { kind: 'remediate-review', clearActiveReview: true },
   },
   {
     name: 'a review without a structured report is sent back for repair',

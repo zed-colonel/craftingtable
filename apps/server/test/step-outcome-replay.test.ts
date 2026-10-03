@@ -2,16 +2,17 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createCycleFixture, type CycleFixture } from './cycle-test-support.js';
 import {
-  type CycleFixture,
-  createCycleFixture,
+  cleanupExecutionFixtures,
   designDone,
   git,
+  implementationDone,
   openQuestions,
   reviewText,
   startCycle,
-  stepController,
-} from './cycle-test-support.js';
+  stepDaemon,
+} from './execution-test-support.js';
 import { replayStepOutcomes } from '../src/services/step-outcome.js';
 
 /**
@@ -33,10 +34,7 @@ const GOLDEN = join(
 // Far from the real clock, so times derived from it survive normalization.
 const NOW = new Date('2000-01-01T00:00:00.000Z');
 
-const fixtures: CycleFixture[] = [];
-afterEach(async () => {
-  await Promise.all(fixtures.splice(0).map((f) => f.cleanup()));
-});
+afterEach(cleanupExecutionFixtures);
 
 async function commitChange(f: CycleFixture, name: string): Promise<void> {
   const worktree = f.backend.latest.request.cwd;
@@ -48,12 +46,12 @@ async function commitChange(f: CycleFixture, name: string): Promise<void> {
 /** Drives design → implement → review and stops with the review turn finished. */
 async function throughReview(f: CycleFixture, review: string): Promise<void> {
   f.backend.latest.release(designDone);
-  await stepController(f.services, 3);
+  await stepDaemon(f.services, 3);
   await commitChange(f, 'change.txt');
-  f.backend.latest.release('Implemented and checks passed.');
-  await stepController(f.services, 3);
-  f.backend.latest.release(review);
-  await stepController(f.services);
+  f.backend.latest.release(implementationDone);
+  await stepDaemon(f.services, 3);
+  f.backend.latest.release({ resultText: review });
+  await stepDaemon(f.services);
 }
 
 const minorFinding = {
@@ -69,34 +67,34 @@ const SCENARIOS: Record<string, (f: CycleFixture) => Promise<void>> = {
   'design-live': async () => {},
   'design-open-questions': async (f) => {
     f.backend.latest.release(openQuestions);
-    await stepController(f.services, 2);
+    await stepDaemon(f.services, 2);
   },
   'implement-open-questions': async (f) => {
     f.backend.latest.release(designDone);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     f.backend.latest.release(openQuestions);
-    await stepController(f.services, 2);
+    await stepDaemon(f.services, 2);
   },
   'implement-crashed': async (f) => {
     f.backend.latest.release(designDone);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     f.backend.latest.crash();
-    await stepController(f.services, 2);
+    await stepDaemon(f.services, 2);
   },
   'implement-service-failure': async (f) => {
     f.backend.latest.release(designDone);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     f.backend.latest.failWithService({
       kind: 'capacity',
       safeToRetry: true,
       message: 'The model is overloaded.',
     } as never);
-    await stepController(f.services, 2);
+    await stepDaemon(f.services, 2);
   },
   'review-findings': async (f) => throughReview(f, reviewText([minorFinding])),
   'review-mergeable': async (f) => {
     await throughReview(f, reviewText());
-    await stepController(f.services);
+    await stepDaemon(f.services);
   },
   'design-drain-interrupted': async (f) => {
     await f.services.daemonDrain.drain(0);
@@ -122,10 +120,9 @@ describe('controller golden replay (R-B2)', () => {
   it('reproduces the recorded decision for every scenario snapshot', async () => {
     const replayed: Record<string, unknown> = {};
     for (const [name, drive] of Object.entries(SCENARIOS)) {
-      const f = await createCycleFixture({ workers: false });
-      fixtures.push(f);
-      await startCycle(f);
-      await stepController(f.services);
+      const f = await createCycleFixture();
+      await startCycle(f, f.worktreeId);
+      await stepDaemon(f.services);
       await drive(f);
       replayed[name] = normalize(
         replayStepOutcomes(f.context.storage, NOW).map(({ cycleId, runId, ...rest }) => rest),

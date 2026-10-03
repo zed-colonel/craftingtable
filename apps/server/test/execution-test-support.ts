@@ -50,6 +50,7 @@ import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { sourceRecordDigest } from '@craftingtable/planning';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect, inject, it, onTestFailed, vi } from 'vitest';
+import type { ServiceSet } from '../src/composition.js';
 import { CSRF_HEADER_NAME } from '../src/config.js';
 import { resolveExecutable } from '../src/services/executables.js';
 import { PLAN_CRITERIA, PLAN_REQUIREMENTS } from '../src/services/plan-acceptance-policy.js';
@@ -281,11 +282,6 @@ export class ScriptedSession implements AgentSession {
     else this.respond(request.prompt);
   }
 
-  /**
-   * A review brief that carries the operator marker `VERDICT-MERGEABLE` (or
-   * `VERDICT-CHANGES`) ends its turn with the matching verdict line, the way
-   * a real review run is instructed to.
-   */
   /** A prompt marker asks for a result made of multibyte characters at the limit. */
   private resultText(text: string): string {
     if (text.includes('MULTIBYTE-RESULT')) {
@@ -294,6 +290,11 @@ export class ScriptedSession implements AgentSession {
     return `done turn ${this.turns}${this.verdictLine(text)}`;
   }
 
+  /**
+   * A review brief that carries the operator marker `VERDICT-MERGEABLE` (or
+   * `VERDICT-CHANGES`) ends its turn with the matching verdict line, the way
+   * a real review run is instructed to.
+   */
   private verdictLine(text: string): string {
     if (text.includes('VERDICT-MERGEABLE')) return '\n\nVERDICT: mergeable';
     if (text.includes('VERDICT-CHANGES')) return '\nVERDICT: changes-requested\n';
@@ -435,13 +436,17 @@ export class ScriptedSession implements AgentSession {
   }
 }
 
-export interface Ready {
+/** A test daemon with a signed-in operator and a work item, whatever agent it scripts. */
+export interface SignedIn {
   readonly context: TestContext;
   readonly cookie: string;
   readonly csrfToken: string;
   readonly workspaceId: WorkspaceId;
   readonly userId: UserId;
   readonly workItemId: ReturnType<typeof asWorkItemId>;
+}
+
+export interface Ready extends SignedIn {
   readonly backend: ScriptedBackend;
 }
 
@@ -539,7 +544,7 @@ export async function ready(
   };
 }
 
-export function mutationHeaders(ready: Ready): Record<string, string> {
+export function mutationHeaders(ready: SignedIn): Record<string, string> {
   return {
     cookie: ready.cookie,
     origin: ready.context.config.publicOrigin,
@@ -588,20 +593,28 @@ export async function registerAndWorktree(
 }
 
 /**
- * One pass of every open test daemon's controllers (R-B2 seam): live runs settle, then the
- * roadmap scheduler, the cycle controller and notification delivery each run once.
+ * One pass of a daemon's controllers (R-B2 seam), the one step every test takes: live runs
+ * settle, then the roadmap scheduler, the cycle controller and notification delivery each run
+ * once. `stepDaemons` steps every registered daemon; this one also steps a service set no
+ * fixture registered, such as a restarted daemon.
  */
+export async function stepDaemon(services: ServiceSet, steps = 1): Promise<void> {
+  for (let step = 0; step < steps; step++) {
+    await services.agentRunService.quiesce();
+    await services.roadmapService.tick();
+    await services.workCycleService.tick();
+    await services.agentRunService.quiesce();
+    await services.notificationService.tick();
+  }
+}
+
+/** `stepDaemon` over every open test daemon whose loops are stopped. */
 export async function stepDaemons(steps = 1): Promise<void> {
   for (let step = 0; step < steps; step++)
     // A snapshot: a step a timed-out test left running must not reach the next test's daemons.
     for (const context of [...contexts]) {
       if (freeRunning.has(context)) continue;
-      const { services } = context;
-      await services.agentRunService.quiesce();
-      await services.roadmapService.tick();
-      await services.workCycleService.tick();
-      await services.agentRunService.quiesce();
-      await services.notificationService.tick();
+      await stepDaemon(context.services);
     }
 }
 /** Daemons created with `workers: true`, whose own loops run; stepping skips them. */
@@ -851,7 +864,7 @@ export const structuredFinding = {
   explanation: 'Cover the boundary.',
   recommendation: 'Add a regression case.',
 };
-export function reviewText(findings: readonly unknown[]) {
+export function reviewText(findings: readonly unknown[] = []) {
   return `\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict: 'mergeable', exitGate: { met: true, evidence: 'Checks passed.' }, findings })}\n\`\`\`\nVERDICT: mergeable`;
 }
 
@@ -926,7 +939,7 @@ export const cycleProfiles = Object.fromEntries(
   ]),
 ) as unknown as CycleProfiles;
 export async function startCycle(
-  state: Ready,
+  state: SignedIn,
   worktreeId: WorktreeId,
   overrides: Record<string, unknown> = {},
 ) {
@@ -982,6 +995,10 @@ export async function cycleFixture(
   return { state, backend, worktree, root };
 }
 export const designDone = { resultText: 'Design complete.\n\n## Open questions\nnone' };
+/** A design report that asks the operator a question. */
+export const openQuestions = {
+  resultText: 'Done.\n\n## Open questions\nWhich queue should own retries?',
+};
 export const implementationDone = { resultText: 'Implemented and checks passed.' };
 
 /* Branch mechanics: real Git, authenticated commands, durable provenance. */

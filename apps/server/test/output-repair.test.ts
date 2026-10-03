@@ -2,17 +2,21 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  type CycleFixture,
   createCycleFixture,
-  designDone,
-  git,
-  openQuestions,
-  reviewText,
-  startCycle,
-  stepController,
+  type CycleFixture,
   storedCycle,
   storedRun,
 } from './cycle-test-support.js';
+import {
+  cleanupExecutionFixtures,
+  designDone,
+  git,
+  implementationDone,
+  openQuestions,
+  reviewText,
+  startCycle,
+  stepDaemon,
+} from './execution-test-support.js';
 import { replayEveryRun } from '../src/services/step-outcome.js';
 
 /**
@@ -21,16 +25,12 @@ import { replayEveryRun } from '../src/services/step-outcome.js';
  * operator. Listed open questions still stop at once. Everything is stepped.
  */
 
-const fixtures: CycleFixture[] = [];
-afterEach(async () => {
-  await Promise.all(fixtures.splice(0).map((f) => f.cleanup()));
-});
+afterEach(cleanupExecutionFixtures);
 
 async function liveDesign() {
-  const f = await createCycleFixture({ workers: false });
-  fixtures.push(f);
-  const started = await startCycle(f);
-  await stepController(f.services);
+  const f = await createCycleFixture();
+  const started = await startCycle(f, f.worktreeId);
+  await stepDaemon(f.services);
   return { f, started };
 }
 
@@ -39,9 +39,9 @@ describe('automatic output-format repair (R-C2)', () => {
     const { f, started } = await liveDesign();
     const designRunId = storedCycle(f, started.id).currentRunId;
 
-    f.backend.latest.release('Design settled; nothing to ask.');
+    f.backend.latest.release({ resultText: 'Design settled; nothing to ask.' });
     // Classify and reserve the repair, then launch it.
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     expect(f.backend.sessions).toHaveLength(2);
     const repair = f.backend.launches[1];
     expect(repair).toMatchObject({ resumeSessionId: 'vendor-session-1', model: 'design-model' });
@@ -60,7 +60,7 @@ describe('automatic output-format repair (R-C2)', () => {
     expect(repairing.attention).toBeUndefined();
 
     f.backend.latest.release(designDone);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     const advanced = storedCycle(f, started.id);
     expect(advanced.step).toBe('implement');
     expect(advanced.outputRepair ?? null).toBeNull();
@@ -78,8 +78,8 @@ describe('automatic output-format repair (R-C2)', () => {
   it('stops for the operator after two failed repairs and records them', async () => {
     const { f, started } = await liveDesign();
     for (let turn = 0; turn < 3; turn += 1) {
-      f.backend.latest.release('```craftingtable-design\n{');
-      await stepController(f.services, 3);
+      f.backend.latest.release({ resultText: '```craftingtable-design\n{' });
+      await stepDaemon(f.services, 3);
     }
     expect(f.backend.sessions).toHaveLength(3);
     expect(f.backend.launches[2]?.prompt).toContain('automatic repair 2 of 2');
@@ -94,7 +94,7 @@ describe('automatic output-format repair (R-C2)', () => {
   it('stops at once when the design lists real questions', async () => {
     const { f, started } = await liveDesign();
     f.backend.latest.release(openQuestions);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     expect(f.backend.sessions).toHaveLength(1);
     const stopped = storedCycle(f, started.id);
     expect(stopped.attention).toMatchObject({ code: 'design-open-questions' });
@@ -103,13 +103,13 @@ describe('automatic output-format repair (R-C2)', () => {
 
   it('does not carry spent repairs past the stop they ended in', async () => {
     const { f, started } = await liveDesign();
-    f.backend.latest.release('Design settled; nothing to ask.');
-    await stepController(f.services, 3);
+    f.backend.latest.release({ resultText: 'Design settled; nothing to ask.' });
+    await stepDaemon(f.services, 3);
     expect(storedCycle(f, started.id).outputRepair?.attempts).toBe(1);
     // The repaired report lists real questions: the step stops, and the budget ends with it,
     // so the run the operator's answer starts gets its own two repairs.
     f.backend.latest.release(openQuestions);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     const stopped = storedCycle(f, started.id);
     expect(stopped.attention).toMatchObject({ code: 'design-open-questions' });
     expect(stopped.outputRepair ?? null).toBeNull();
@@ -118,18 +118,18 @@ describe('automatic output-format repair (R-C2)', () => {
   it('repairs a review report on its pinned review baseline', async () => {
     const { f, started } = await liveDesign();
     f.backend.latest.release(designDone);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     const worktree = f.backend.latest.request.cwd;
     writeFileSync(join(worktree, 'change.txt'), 'implemented');
     git(['add', '.'], worktree);
     git(['commit', '--no-gpg-sign', '-m', 'implementation'], worktree);
-    f.backend.latest.release('Implemented and checks passed.');
-    await stepController(f.services, 3);
+    f.backend.latest.release(implementationDone);
+    await stepDaemon(f.services, 3);
     const review = storedRun(f, storedCycle(f, started.id).currentRunId);
     expect(review).toMatchObject({ role: 'review', status: 'running' });
 
-    f.backend.latest.release('Looks good to me.\n\n## Open questions\nnone');
-    await stepController(f.services, 3);
+    f.backend.latest.release({ resultText: 'Looks good to me.\n\n## Open questions\nnone' });
+    await stepDaemon(f.services, 3);
     expect(f.backend.launches[3]).toMatchObject({
       resumeSessionId: 'vendor-session-3',
       model: 'review-model',
@@ -141,8 +141,8 @@ describe('automatic output-format repair (R-C2)', () => {
     expect(repaired?.role).toBe('review');
     expect(repaired?.reviewBranchContext?.headSha).toBe(review?.reviewBranchContext?.headSha);
 
-    f.backend.latest.release(reviewText());
-    await stepController(f.services, 2);
+    f.backend.latest.release({ resultText: reviewText() });
+    await stepDaemon(f.services, 2);
     expect(storedCycle(f, started.id).status).toBe('awaiting-merge');
   });
 });

@@ -3,31 +3,26 @@ import { operatorWaitReportSchema } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
 import {
-  type CycleFixture,
-  createCycleFixture,
+  cleanupExecutionFixtures,
   openQuestions,
   startCycle,
-  stepController,
-  storedCycle,
-} from './cycle-test-support.js';
+  stepDaemon,
+} from './execution-test-support.js';
 import { OperatorWaitService, operatorWaitReport } from '../src/services/operator-wait-service.js';
 
 /** R-C1: operator wait is measured from the cycle audit trail and shown on the dashboard. */
 
-const fixtures: CycleFixture[] = [];
-afterEach(async () => {
-  await Promise.all(fixtures.splice(0).map((f) => f.cleanup()));
-});
+afterEach(cleanupExecutionFixtures);
 
 describe('operator wait (R-C1)', () => {
   it('records the stop code with each transition and reports it by kind', async () => {
-    const f = await createCycleFixture({ workers: false });
-    fixtures.push(f);
-    const started = await startCycle(f);
-    await stepController(f.services);
+    const f = await createCycleFixture();
+    const started = await startCycle(f, f.worktreeId);
+    await stepDaemon(f.services);
     f.backend.latest.release(openQuestions);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     expect(storedCycle(f, started.id).attention?.code).toBe('design-open-questions');
 
     const recorded = f.context.storage.audit
@@ -59,8 +54,7 @@ describe('operator wait (R-C1)', () => {
   });
 
   it('reports a window of exactly the requested days, from one reading of the clock', async () => {
-    const f = await createCycleFixture({ workers: false });
-    fixtures.push(f);
+    const f = await createCycleFixture();
     // A clock that moves on every reading, as a busy host's does between two calls.
     let ms = Date.parse('2026-09-20T00:00:00.000Z');
     const service = new OperatorWaitService(
@@ -74,8 +68,7 @@ describe('operator wait (R-C1)', () => {
   });
 
   it('reads the state each cycle was in at the window start, and nothing older', async () => {
-    const f = await createCycleFixture({ workers: false });
-    fixtures.push(f);
+    const f = await createCycleFixture();
     const append = (cycleId: string, occurredAt: string, status: string) =>
       f.context.storage.audit.append({
         id: randomUUID(),

@@ -5,18 +5,22 @@ import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServices, type ServiceSet } from '../src/composition.js';
 import {
-  type CycleFixture,
   createCycleFixture,
-  cycleProfiles,
-  designDone,
-  git,
-  reviewText,
+  type CycleFixture,
   runFinished,
-  startCycle,
-  stepController,
   storedCycle,
   storedRun,
 } from './cycle-test-support.js';
+import {
+  cleanupExecutionFixtures,
+  cycleProfiles,
+  designDone,
+  git,
+  implementationDone,
+  reviewText,
+  startCycle,
+  stepDaemon,
+} from './execution-test-support.js';
 import { DRAIN_REQUEST_FILE, DRAIN_STATUS_FILE } from '../src/services/daemon-drain.js';
 import { FastTestPasswordHasher } from './test-support.js';
 
@@ -27,23 +31,21 @@ import { FastTestPasswordHasher } from './test-support.js';
  * daemon's controller runs only when the test ticks it, and so does the restarted one.
  */
 
-const fixtures: CycleFixture[] = [];
 const restarted: ServiceSet[] = [];
 afterEach(async () => {
   for (const services of restarted.splice(0)) await services.daemonDrain.drain(0);
-  await Promise.all(fixtures.splice(0).map((f) => f.cleanup()));
+  await cleanupExecutionFixtures();
 });
 
 async function fixture(): Promise<CycleFixture> {
-  const f = await createCycleFixture({ workers: false });
-  fixtures.push(f);
+  const f = await createCycleFixture();
   return f;
 }
 
 /** Starts a cycle and steps the controller until its first step's turn is live. */
 async function startLiveCycle(f: CycleFixture) {
-  const started = await startCycle(f);
-  await stepController(f.services);
+  const started = await startCycle(f, f.worktreeId);
+  await stepDaemon(f.services);
   expect(storedRun(f, storedCycle(f, started.id).currentRunId)?.status).toBe('running');
   return started;
 }
@@ -74,7 +76,7 @@ describe('restart drain and automatic resume (R-B9)', () => {
 
     const services = await restart(f);
     // First pass reserves the resumed step; the second launches it.
-    await stepController(services, 2);
+    await stepDaemon(services, 2);
     expect(f.backend.sessions).toHaveLength(2);
     const resumed = f.backend.launches[1];
     expect(resumed).toMatchObject({
@@ -98,16 +100,16 @@ describe('restart drain and automatic resume (R-B9)', () => {
 
     // The resumed session finishes the step and the cycle moves on without the operator.
     f.backend.latest.release(designDone);
-    await stepController(services, 2);
+    await stepDaemon(services, 2);
     expect(storedCycle(f, started.id).step).toBe('implement');
   });
 
   it('gives a resumed session the guidance the operator added while its step was interrupted', async () => {
     const f = await fixture();
-    const started = await startCycle(f);
-    await stepController(f.services);
+    const started = await startCycle(f, f.worktreeId);
+    await stepDaemon(f.services);
     f.backend.latest.release(designDone);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     const interruptedId = storedCycle(f, started.id).currentRunId;
     expect(storedRun(f, interruptedId)).toMatchObject({ role: 'implement', status: 'running' });
     expect(await f.services.daemonDrain.drain(0)).toBe(1);
@@ -133,7 +135,7 @@ describe('restart drain and automatic resume (R-B9)', () => {
       storedCycle(f, started.id).version,
       guidance,
     );
-    await stepController(services, 2);
+    await stepDaemon(services, 2);
     const resumed = f.backend.launches.at(-1);
     expect(resumed?.resumeSessionId).toBe('vendor-session-2');
     expect(resumed?.prompt).toContain(guidance);
@@ -151,7 +153,7 @@ describe('restart drain and automatic resume (R-B9)', () => {
     expect(f.services.agentRunService.busyRunCount()).toBe(1);
     f.backend.latest.release(designDone);
     // The draining controller still classifies the finished turn.
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     expect(await draining).toBe(0);
     expect(storedRun(f, designRunId)?.status).toBe('finished');
     // The next step was reserved but not launched while draining.
@@ -159,7 +161,7 @@ describe('restart drain and automatic resume (R-B9)', () => {
     expect(f.backend.sessions).toHaveLength(1);
 
     const services = await restart(f);
-    await stepController(services);
+    await stepDaemon(services);
     expect(f.backend.sessions).toHaveLength(2);
     expect(f.backend.launches[1]).toMatchObject({ model: 'implement-model' });
     expect(f.backend.launches[1]?.resumeSessionId).toBeUndefined();
@@ -169,20 +171,20 @@ describe('restart drain and automatic resume (R-B9)', () => {
     const f = await fixture();
     const started = await startLiveCycle(f);
     f.backend.latest.release(designDone);
-    await stepController(f.services, 3);
+    await stepDaemon(f.services, 3);
     const worktree = f.backend.latest.request.cwd;
     writeFileSync(join(worktree, 'change.txt'), 'implemented');
     git(['add', '.'], worktree);
     git(['commit', '--no-gpg-sign', '-m', 'implementation'], worktree);
-    f.backend.latest.release('Implemented and checks passed.');
-    await stepController(f.services, 3);
+    f.backend.latest.release(implementationDone);
+    await stepDaemon(f.services, 3);
     expect(f.backend.sessions).toHaveLength(3);
     const review = storedRun(f, storedCycle(f, started.id).currentRunId);
     expect(review).toMatchObject({ role: 'review', status: 'running' });
 
     expect(await f.services.daemonDrain.drain(0)).toBe(1);
     const services = await restart(f);
-    await stepController(services, 2);
+    await stepDaemon(services, 2);
     expect(f.backend.launches[3]).toMatchObject({
       resumeSessionId: 'vendor-session-3',
       model: 'review-model',
@@ -190,8 +192,8 @@ describe('restart drain and automatic resume (R-B9)', () => {
     const resumed = storedRun(f, storedCycle(f, started.id).currentRunId);
     expect(resumed?.role).toBe('review');
     expect(resumed?.reviewBranchContext?.headSha).toBe(review?.reviewBranchContext?.headSha);
-    f.backend.latest.release(reviewText());
-    await stepController(services, 2);
+    f.backend.latest.release({ resultText: reviewText() });
+    await stepDaemon(services, 2);
     expect(storedCycle(f, started.id).status).toBe('awaiting-merge');
   });
 
@@ -217,18 +219,18 @@ describe('restart drain and automatic resume (R-B9)', () => {
     const services = await restart(f);
     expect(storedCycle(f, started.id)).toMatchObject({ status: 'needs-attention' });
     expect(storedCycle(f, started.id).reason).toContain('Daemon restarted');
-    await stepController(services, 2);
+    await stepDaemon(services, 2);
     expect(f.backend.sessions).toHaveLength(1);
   });
 
   it('asks the operator when the interrupted run never reported a session', async () => {
     const f = await fixture();
     f.backend.withoutSessionId = true;
-    const started = await startCycle(f);
-    await stepController(f.services);
+    const started = await startCycle(f, f.worktreeId);
+    await stepDaemon(f.services);
     await f.services.daemonDrain.drain(0);
     const services = await restart(f);
-    await stepController(services);
+    await stepDaemon(services);
     expect(storedCycle(f, started.id).status).toBe('needs-attention');
     expect(storedCycle(f, started.id).reason).toContain(
       'before its agent session could be resumed',
@@ -242,7 +244,7 @@ describe('restart drain and automatic resume (R-B9)', () => {
     await f.services.daemonDrain.drain(0);
     f.backend.failResumes = true;
     const services = await restart(f);
-    await stepController(services, 3);
+    await stepDaemon(services, 3);
     expect(storedCycle(f, started.id).status).toBe('needs-attention');
     expect(storedRun(f, storedCycle(f, started.id).currentRunId)?.status).toBe('failed');
   });
@@ -277,14 +279,14 @@ describe('restart drain and automatic resume (R-B9)', () => {
       expectedVersion: roadmap()?.version,
     });
     await f.services.roadmapService.tick();
-    await stepController(f.services);
+    await stepDaemon(f.services);
     expect(f.backend.sessions).toHaveLength(1);
 
     expect(await f.services.daemonDrain.drain(0)).toBe(1);
     const services = await restart(f);
     expect(roadmap()?.status).toBe('running');
     await services.roadmapService.tick();
-    await stepController(services, 2);
+    await stepDaemon(services, 2);
     expect(f.backend.sessions).toHaveLength(2);
     expect(f.backend.launches[1]?.resumeSessionId).toBe('vendor-session-1');
     expect(roadmap()?.status).toBe('running');

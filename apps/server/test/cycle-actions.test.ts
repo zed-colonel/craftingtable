@@ -4,15 +4,14 @@ import { join } from 'node:path';
 import { createWorktreeResponseSchema, workCycleResponseSchema } from '@craftingtable/contracts';
 import { asWorkItemId, cycleActions, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
 import {
-  type CycleFixture,
-  createCycleFixture,
+  cleanupExecutionFixtures,
   cycleProfiles,
   git,
   startCycle,
-  stepController,
-  storedCycle,
-} from './cycle-test-support.js';
+  stepDaemon,
+} from './execution-test-support.js';
 
 /**
  * R-A7: commands accept only actions that can make progress. These replay the shapes of
@@ -21,14 +20,10 @@ import {
  * integration branch, which bounced 1.6 s later (cycle 2f1ab211).
  */
 
-const fixtures: CycleFixture[] = [];
-afterEach(async () => {
-  await Promise.all(fixtures.splice(0).map((f) => f.cleanup()));
-});
+afterEach(cleanupExecutionFixtures);
 
 async function fixture(): Promise<CycleFixture> {
-  const f = await createCycleFixture({ workers: false });
-  fixtures.push(f);
+  const f = await createCycleFixture();
   return f;
 }
 
@@ -44,14 +39,14 @@ function control(f: CycleFixture, id: string, action: 'pause' | 'resume' | 'stop
 describe('offer only actions that can make progress (R-A7)', () => {
   it('refuses a resume that would reclassify the same design, naming the control to use', async () => {
     const f = await fixture();
-    const started = await startCycle(f);
-    await stepController(f.services);
+    const started = await startCycle(f, f.worktreeId);
+    await stepDaemon(f.services);
     // The same invalid classification survives the two automatic repairs (R-C2).
     for (let turn = 0; turn < 3; turn += 1) {
-      f.backend.latest.release(
-        'Design.\n\n```craftingtable-design\n{"version":1,"items":[{}]}\n```',
-      );
-      await stepController(f.services, 3);
+      f.backend.latest.release({
+        resultText: 'Design.\n\n```craftingtable-design\n{"version":1,"items":[{}]}\n```',
+      });
+      await stepDaemon(f.services, 3);
     }
     const stopped = storedCycle(f, started.id);
     expect(stopped.attention).toMatchObject({ code: 'design-report-invalid', repairAttempts: 2 });
@@ -61,7 +56,7 @@ describe('offer only actions that can make progress (R-A7)', () => {
     expect(resumed.statusCode).toBe(409);
     expect(resumed.json().error.message).toContain('Use Resolve design questions');
     expect(storedCycle(f, started.id).version).toBe(stopped.version);
-    await stepController(f.services, 2);
+    await stepDaemon(f.services, 2);
     expect(f.backend.sessions).toHaveLength(3);
 
     // Pausing holds the stop, and resuming returns to it instead of relaunching the design.
@@ -78,20 +73,20 @@ describe('offer only actions that can make progress (R-A7)', () => {
       attention: { code: 'design-report-invalid' },
       reason: expect.stringContaining('Use Resolve design questions'),
     });
-    await stepController(f.services, 2);
+    await stepDaemon(f.services, 2);
     expect(f.backend.sessions).toHaveLength(3);
     expect((await control(f, started.id, 'stop')).statusCode).toBe(200);
   });
 
   it('returns each cycle with the actions the daemon offers, so the browser renders only those (R-A6)', async () => {
     const f = await fixture();
-    const started = await startCycle(f);
-    await stepController(f.services);
+    const started = await startCycle(f, f.worktreeId);
+    await stepDaemon(f.services);
     for (let turn = 0; turn < 3; turn += 1) {
-      f.backend.latest.release(
-        'Design.\n\n```craftingtable-design\n{"version":1,"items":[{}]}\n```',
-      );
-      await stepController(f.services, 3);
+      f.backend.latest.release({
+        resultText: 'Design.\n\n```craftingtable-design\n{"version":1,"items":[{}]}\n```',
+      });
+      await stepDaemon(f.services, 3);
     }
     const listed = async () =>
       (
@@ -158,9 +153,9 @@ describe('offer only actions that can make progress (R-A7)', () => {
     });
     expect(response.statusCode, response.body).toBe(200);
     const cycle = workCycleResponseSchema.parse(response.json()).cycle;
-    await stepController(f.services);
+    await stepDaemon(f.services);
     f.backend.latest.crash();
-    await stepController(f.services, 2);
+    await stepDaemon(f.services, 2);
     expect(storedCycle(f, cycle.id).attention?.code).toBe('step-incomplete');
 
     // The predecessor's merge leaves the integration branch.

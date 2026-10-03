@@ -7,32 +7,28 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
 import {
-  type CycleFixture,
-  createCycleFixture,
+  cleanupExecutionFixtures,
   cycleProfiles,
   designDone,
   git,
+  implementationDone,
   openQuestions,
   reviewText,
   startCycle,
-  stepController,
-  storedCycle,
-} from './cycle-test-support.js';
+  stepDaemon,
+} from './execution-test-support.js';
 
 /**
  * R-A3: the controller declares every stop with a typed code and keeps its owner current
  * while automation claims it; the notification service only reads what was declared.
  */
 
-const fixtures: CycleFixture[] = [];
-afterEach(async () => {
-  await Promise.all(fixtures.splice(0).map((f) => f.cleanup()));
-});
+afterEach(cleanupExecutionFixtures);
 
 async function fixture(): Promise<CycleFixture> {
-  const f = await createCycleFixture({ workers: false });
-  fixtures.push(f);
+  const f = await createCycleFixture();
   return f;
 }
 
@@ -68,24 +64,24 @@ function cycleAlerts(f: CycleFixture, cycle: WorkCycle) {
 /** Design, implementation and a clean review, stepped to the merge boundary. */
 async function toMergeBoundary(f: CycleFixture): Promise<void> {
   f.backend.latest.release(designDone);
-  await stepController(f.services, 3);
+  await stepDaemon(f.services, 3);
   const worktree = f.backend.latest.request.cwd;
   writeFileSync(join(worktree, 'change.txt'), 'implemented');
   git(['add', '.'], worktree);
   git(['commit', '--no-gpg-sign', '-m', 'implementation'], worktree);
-  f.backend.latest.release('Implemented and checks passed.');
-  await stepController(f.services, 3);
-  f.backend.latest.release(reviewText());
-  await stepController(f.services, 2);
+  f.backend.latest.release(implementationDone);
+  await stepDaemon(f.services, 3);
+  f.backend.latest.release({ resultText: reviewText() });
+  await stepDaemon(f.services, 2);
 }
 
 describe('typed attention (R-A3)', () => {
   it('declares a stop with its code when the controller stops a step', async () => {
     const f = await fixture();
-    const started = await startCycle(f);
-    await stepController(f.services);
+    const started = await startCycle(f, f.worktreeId);
+    await stepDaemon(f.services);
     f.backend.latest.release(openQuestions);
-    await stepController(f.services, 2);
+    await stepDaemon(f.services, 2);
     expect(storedCycle(f, started.id)).toMatchObject({
       status: 'needs-attention',
       attention: { code: 'design-open-questions', owner: 'operator' },
@@ -123,7 +119,7 @@ describe('typed attention (R-A3)', () => {
       expectedVersion: roadmap()?.version,
     });
     await f.services.roadmapService.tick();
-    await stepController(f.services);
+    await stepDaemon(f.services);
     await toMergeBoundary(f);
     const cycle = f.context.storage.execution.cycles.listForWorkspace(
       f.workspaceId,
@@ -141,7 +137,7 @@ describe('typed attention (R-A3)', () => {
       action: 'pause',
       expectedVersion: roadmap()?.version,
     });
-    await stepController(f.services);
+    await stepDaemon(f.services);
     expect(storedCycle(f, cycle.id).attention).toEqual({
       code: 'merge-approval',
       owner: 'operator',

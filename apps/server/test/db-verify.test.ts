@@ -3,11 +3,13 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { copyDatabase, openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCycleFixture, startCycle, stepController } from './cycle-test-support.js';
+import { createCycleFixture } from './cycle-test-support.js';
+import { cleanupExecutionFixtures, startCycle, stepDaemon } from './execution-test-support.js';
 import { formatVerification, verifyDatabase } from '../src/db-verify.js';
 import { verified } from '../src/persisted-records.js';
 import { testDataRoot } from './test-support.js';
 
+afterEach(cleanupExecutionFixtures);
 const directories: string[] = [];
 afterEach(() => {
   for (const directory of directories.splice(0))
@@ -16,18 +18,14 @@ afterEach(() => {
 
 /** A daemon database from a real cycle, copied so the fixture's own cleanup stays clean. */
 async function cycleDatabase(): Promise<{ path: string; workspaceId: string }> {
-  const f = await createCycleFixture({ workers: false });
-  try {
-    await startCycle(f);
-    await stepController(f.services, 2);
-    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-db-verify-test-'));
-    directories.push(directory);
-    const path = join(directory, 'copy.sqlite');
-    await copyDatabase(f.context.config.databasePath, path);
-    return { path, workspaceId: f.workspaceId };
-  } finally {
-    await f.cleanup();
-  }
+  const f = await createCycleFixture();
+  await startCycle(f, f.worktreeId);
+  await stepDaemon(f.services, 2);
+  const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-db-verify-test-'));
+  directories.push(directory);
+  const path = join(directory, 'copy.sqlite');
+  await copyDatabase(f.context.config.databasePath, path);
+  return { path, workspaceId: f.workspaceId };
 }
 
 describe('pnpm db:verify (R-H3)', () => {

@@ -194,13 +194,42 @@ function productionPackages(manifests) {
   return reached;
 }
 
-/** A workspace package's source entry: its manifest's `source` export condition, if any. */
-function sourceEntry(root, { directory, manifest }) {
+/**
+ * What a workspace package's name resolves to, in order: its `source` export condition, then
+ * its `main`, `module` and other `exports` of `.`. Build outputs among them are mapped back to
+ * source by `sourceModule`.
+ */
+function packageEntries(root, { directory, manifest }) {
   const exported = manifest.exports;
-  const entry =
-    typeof exported === 'object' && exported !== null ? (exported['.'] ?? exported) : undefined;
-  const source = typeof entry === 'object' && entry !== null ? entry.source : undefined;
-  return typeof source === 'string' ? resolve(root, directory, source) : undefined;
+  const dot =
+    typeof exported === 'object' && exported !== null ? (exported['.'] ?? exported) : exported;
+  const paths = [];
+  const collect = (value) => {
+    if (typeof value === 'string') paths.push(value);
+    else if (value && typeof value === 'object') for (const v of Object.values(value)) collect(v);
+  };
+  if (typeof dot === 'object' && dot !== null) collect(dot.source);
+  collect(manifest.main);
+  collect(manifest.module);
+  collect(dot);
+  return paths.map((path) => resolve(root, directory, path));
+}
+
+/**
+ * The checked module a path is, or is built from: a path under a project's `outDir` (a `.js`
+ * or its `.d.ts`) maps back to the source under its `rootDir`.
+ */
+function sourceModule(path, projects, modules) {
+  if (modules.has(path)) return path;
+  for (const { outDir, rootDir } of projects.map((project) => project.compilerOptions)) {
+    if (!outDir || !rootDir || !path.startsWith(outDir + sep)) continue;
+    const stem = join(rootDir, relative(outDir, path)).replace(/(\.d)?\.[cm]?[jt]s$/, '');
+    const found = ['.ts', '.tsx', '.mts', '.cts']
+      .map((extension) => stem + extension)
+      .find((candidate) => modules.has(candidate));
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 function manifestFindings(root) {
@@ -715,12 +744,10 @@ function readWorkspace(root) {
       SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension)) && !isDeclarationFile(path),
   );
   const vitestConfig = join(root, VITEST_CONFIG);
-  const workspaceSources = new Map();
-  for (const entry of workspaceManifests(root)) {
-    const path = sourceEntry(root, entry);
-    if (typeof entry.manifest.name === 'string' && path !== undefined)
-      workspaceSources.set(entry.manifest.name, path);
-  }
+  const workspaceEntries = new Map();
+  for (const entry of workspaceManifests(root))
+    if (typeof entry.manifest.name === 'string')
+      workspaceEntries.set(entry.manifest.name, packageEntries(root, entry));
   const api = new API({ cwd: root });
   try {
     let snapshot = api.updateSnapshot({
@@ -794,18 +821,22 @@ function readWorkspace(root) {
         // Where it leads, a build output's declarations included: rules 3 and 4 read it. A
         // relative path the compiler does not treat as a module (`require` in a `.cts`) is
         // followed on disk.
-        let resolved =
+        const resolved =
           symbols[index]?.declarations?.[0]?.path ??
           (ref.specifier.startsWith('.') ? onDisk(module.file, ref.specifier) : undefined);
-        // A workspace package the compiler resolves to its build, or not at all (no project
-        // reference, no link): its source entry is the module the import reaches.
-        if (
-          (resolved === undefined || !modules.has(resolved)) &&
-          workspaceSources.has(ref.specifier)
-        )
-          resolved = workspaceSources.get(ref.specifier);
+        // The module the import reaches: a build output (`dist/x.js`, `dist/x.d.ts`) maps back
+        // to its source; a workspace package the compiler resolves to nothing it checks (no
+        // project reference, no link) is followed through its manifest's entries.
+        let target = resolved === undefined ? undefined : sourceModule(resolved, projects, modules);
+        for (const entry of target === undefined
+          ? (workspaceEntries.get(ref.specifier) ?? [])
+          : []) {
+          target = sourceModule(entry, projects, modules);
+          if (target !== undefined) break;
+        }
         if (resolved !== undefined && inRoot(resolved)) ref.resolved = resolved;
-        if (resolved !== undefined && modules.has(resolved)) module.imports.add(resolved);
+        else if (target !== undefined) ref.resolved = target;
+        if (target !== undefined) module.imports.add(target);
       });
     }
     // A module named by `new URL(…, import.meta.url)` is loaded by the one naming it.
@@ -843,16 +874,9 @@ function productionModules(root, projects, modules, tests) {
   const running = productionPackages(manifests);
   for (const { directory, manifest } of manifests) {
     for (const entry of running.has(directory) ? manifestEntries(manifest) : []) {
-      const path = resolve(root, directory, entry);
-      const candidates = [path];
       // A manifest names the build output; its module is the source the project compiles.
-      for (const { outDir, rootDir } of projects.map((project) => project.compilerOptions)) {
-        if (!outDir || !rootDir || !path.startsWith(outDir + sep)) continue;
-        const source = join(rootDir, relative(outDir, path));
-        for (const extension of ['.ts', '.tsx', '.mts', '.cts'])
-          candidates.push(source.replace(/\.[cm]?js$/, extension));
-      }
-      for (const candidate of candidates) if (modules.has(candidate)) entries.push(candidate);
+      const source = sourceModule(resolve(root, directory, entry), projects, modules);
+      if (source !== undefined) entries.push(source);
     }
     // The browser app's entry is the module its `index.html` loads (vite's entry).
     let html = '';

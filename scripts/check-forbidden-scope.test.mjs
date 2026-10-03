@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -532,4 +532,49 @@ it('fails the command on a planted violation and passes it on a clean workspace'
   const failed = spawnSync(process.execPath, [script, planted], { encoding: 'utf8' });
   expect(failed.status).toBe(1);
   expect(failed.stderr).toContain(capability('apps/server/src/index.ts', 'node:child_process'));
+});
+
+describe('the gaps the verification review found', () => {
+  /**
+   * A dev-only package with no `source` condition, imported by a test and by production: the
+   * import reaches its source whether it is unlinked, or linked and built (M-1).
+   */
+  it.each(['unlinked', 'linked and built'])(
+    'follows a %s package import back to its source',
+    (shape) => {
+      const files = {
+        'packages/devpkg/package.json': JSON.stringify({
+          name: '@craftingtable/devpkg',
+          main: './dist/index.js',
+        }),
+        'packages/devpkg/src/index.ts':
+          "import { spawn } from 'node:child_process';\nexport { spawn };\n",
+        'apps/server/package.json': JSON.stringify({
+          name: '@craftingtable/server',
+          devDependencies: { '@craftingtable/devpkg': 'workspace:*' },
+        }),
+        // A test reaches the package's source by path, so only production's import makes it
+        // production.
+        'apps/server/src/devpkg.test.ts':
+          "import { spawn } from '../../../packages/devpkg/src/index.js';\nexport { spawn };\n",
+        'apps/server/src/usedev.ts':
+          "import { spawn } from '@craftingtable/devpkg';\nexport { spawn };\n",
+      };
+      if (shape === 'linked and built') {
+        files['packages/devpkg/dist/index.d.ts'] = "export { spawn } from 'node:child_process';\n";
+        files['packages/devpkg/dist/index.js'] = "export { spawn } from 'node:child_process';\n";
+      }
+      const root = workspace(files);
+      if (shape === 'linked and built') {
+        mkdirSync(join(root, 'apps/server/node_modules/@craftingtable'), { recursive: true });
+        symlinkSync(
+          '../../../../packages/devpkg',
+          join(root, 'apps/server/node_modules/@craftingtable/devpkg'),
+        );
+      }
+      const { findings, classes } = inspectWorkspace(root);
+      expect(classes.get('packages/devpkg/src/index.ts')).toBe('production');
+      expect(findings).toEqual([capability('packages/devpkg/src/index.ts', 'node:child_process')]);
+    },
+  );
 });

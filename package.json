@@ -26,7 +26,7 @@
     "format:check": "biome format .",
     "lint": "biome lint --error-on-warnings .",
     "typecheck": "tsc -b && tsc --noEmit -p apps/web && pnpm typecheck:tests && tsc -p packages/agents/tsconfig.launched.json",
-    "typecheck:tests": "tsc --noEmit -p packages/domain/tsconfig.test.json && tsc --noEmit -p packages/contracts/tsconfig.test.json && tsc --noEmit -p packages/planning/tsconfig.test.json && tsc --noEmit -p packages/storage/tsconfig.test.json && tsc --noEmit -p packages/agents/tsconfig.test.json && tsc --noEmit -p packages/git/tsconfig.test.json && tsc --noEmit -p apps/server/tsconfig.test.json",
+    "typecheck:tests": "node scripts/typecheck-tests.mjs",
     "test": "vitest run",
     "test:e2e": "tsc -b && playwright test && CRAFTINGTABLE_WALKTHROUGH=rehearse playwright test --project=walkthrough",
     "ui:walkthrough": "tsc -b && CRAFTINGTABLE_WALKTHROUGH=1 playwright test --project=walkthrough",

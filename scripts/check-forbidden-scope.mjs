@@ -700,7 +700,7 @@ function readWorkspace(root) {
  * Which modules are production: everything reached on the import graph from a production
  * entry. An entry is a package's manifest entry, or a module that is not a test and that no
  * module imports (an application entry, a launcher's target, or dead code). What only tests and
- * vitest's setup modules reach is test support.
+ * vitest's setup modules reach is test support; what nothing reaches is production too.
  */
 function productionModules(root, projects, modules, tests) {
   const testFiles = new Set(
@@ -740,18 +740,29 @@ function productionModules(root, projects, modules, tests) {
       if (modules.has(path)) entries.push(path);
     }
   }
-  const production = new Set();
-  const pending = [...entries];
-  while (pending.length > 0) {
-    const file = pending.pop();
-    if (production.has(file)) continue;
-    production.add(file);
-    for (const target of modules.get(file).imports) pending.push(target);
-  }
-  return {
-    production,
-    tests: testFiles,
+  const reach = (from) => {
+    const reached = new Set();
+    const pending = [...from];
+    while (pending.length > 0) {
+      const file = pending.pop();
+      if (reached.has(file)) continue;
+      reached.add(file);
+      for (const target of modules.get(file).imports) pending.push(target);
+    }
+    return reached;
   };
+  const fromEntries = reach(entries);
+  // Fail closed: test support is what tests reach and no entry does. Whatever neither reaches
+  // (a module that imports itself, a cycle nothing else imports) is checked as production.
+  const support = new Set(
+    [...reach(testFiles)].filter((file) => !fromEntries.has(file) && !testFiles.has(file)),
+  );
+  const production = new Set(
+    [...modules.keys()].filter(
+      (file) => fromEntries.has(file) || (!testFiles.has(file) && !support.has(file)),
+    ),
+  );
+  return { production, tests: testFiles };
 }
 
 /**

@@ -329,6 +329,31 @@ describe('the bypasses the unit review found', () => {
   });
 });
 
+describe('the fail-open gaps the independent review found', () => {
+  /** Only what tests reach, and nothing production reaches, is test support (HIGH-1). */
+  it('checks a module that neither an entry nor a test reaches', () => {
+    const root = workspace({
+      'apps/server/src/self.ts':
+        "import { spawn } from 'node:child_process';\nimport * as self from './self.js';\nexport { spawn, self };\n",
+      'apps/server/src/cycle-a.ts':
+        "import { spawn } from 'node:child_process';\nimport type { B } from './cycle-b.js';\nexport type A = B;\nexport { spawn };\n",
+      'apps/server/src/cycle-b.ts':
+        "import type { A } from './cycle-a.js';\nexport type B = A | 1;\n",
+      'packages/planning/src/cycle-a.ts':
+        "import { readFileSync } from 'node:fs';\nimport { b } from './cycle-b.js';\nexport const a = () => b() + readFileSync('x', 'utf8');\n",
+      'packages/planning/src/cycle-b.ts':
+        "import { a } from './cycle-a.js';\nexport const b = (): string => (a ? '' : '');\n",
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        capability('apps/server/src/self.ts', 'node:child_process'),
+        capability('apps/server/src/cycle-a.ts', 'node:child_process'),
+        'packages/planning/src/cycle-a.ts: planning package imports impure module "node:fs"',
+      ].sort(),
+    );
+  });
+});
+
 it('passes on the real repository, having read and classified its modules', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const { findings, classes } = inspectWorkspace(root);

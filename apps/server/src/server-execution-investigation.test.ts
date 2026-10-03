@@ -7,6 +7,7 @@ import {
   workCyclesResponseSchema,
 } from '@craftingtable/contracts';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
+import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import {
   asAgentRunEventId,
   asAgentRunId,
@@ -29,10 +30,12 @@ import {
   roadmapId,
   roadmapInput,
   saveRoadmapRequest,
+  ScriptedSession,
   startCycle,
   stepDaemons,
   storedRoadmap,
   waitFor,
+  waitUntil,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -65,8 +68,8 @@ const report = (status: 'proposed' | 'open' = 'proposed') =>
   ].join('\n');
 
 /** A cycle stopped on its implementation's question, and a way to script the investigation. */
-async function atQuestionStop(now?: () => Date) {
-  const f = await cycleFixture([], now);
+async function atQuestionStop(now?: () => Date, gitOperations?: GitOperations) {
+  const f = await cycleFixture([], now, gitOperations);
   let investigation: { resultText: string; release?: Promise<void> } = { resultText: report() };
   let implementations = 0;
   f.backend.replyForRequest = (request: AgentLaunchRequest) =>
@@ -122,10 +125,24 @@ const launchesReadOnly = (launches: readonly AgentLaunchRequest[]) =>
   launches.filter((launch) => launch.readOnly);
 /**
  * A refused command's error. These refusals share the API's `conflict` code and carry no typed
- * reason of their own, so each is told apart by its documented message (TS-M3).
+ * reason of their own, so each is told apart by the message the daemon returns (TS-M3).
  */
 const refusal = (response: { json: () => unknown }) =>
   (response.json() as { error: { code: string; message: string } }).error;
+/** Starting an investigation is refused with `message`, and nothing is recorded or launched. */
+async function refusedStart(
+  f: Awaited<ReturnType<typeof atQuestionStop>>,
+  message: string,
+): Promise<void> {
+  const { state, cycle, backend } = f;
+  const response = await post(state, `/cycles/${cycle.id}/investigation`, {
+    expectedVersion: currentCycle(state, cycle).version,
+  });
+  expect(response.statusCode, response.body).toBe(409);
+  expect(refusal(response)).toEqual({ code: 'conflict', message });
+  expect(currentCycle(state, cycle).investigation).toBeUndefined();
+  expect(launchesReadOnly(backend.launches)).toEqual([]);
+}
 /**
  * The worktree as an investigation must leave it (R-C16 done-when, TS-M3): its commit, its
  * branch and every file Git sees, untracked and ignored ones included.
@@ -356,6 +373,10 @@ describe('question stop investigations (R-C16)', () => {
       expectedVersion: currentCycle(g.state, other).version,
     });
     expect(refused.statusCode).toBe(409);
+    expect(refusal(refused)).toEqual({
+      code: 'conflict',
+      message: 'This stop holds no questions to investigate.',
+    });
     // An investigation stop offers it only while its report asks something: a stop at the
     // round limit whose review asked nothing has nothing to investigate.
     const stored = currentCycle(g.state, other);
@@ -489,6 +510,10 @@ describe('question stop investigations (R-C16)', () => {
       profile: { backend: 'codex' },
     });
     expect(refused.statusCode, refused.body).toBe(503);
+    expect(refusal(refused)).toEqual({
+      code: 'unavailable',
+      message: 'The investigation profile’s agent backend is not available on this workstation.',
+    });
     expect(currentCycle(state, cycle)).toEqual(before);
 
     // A record whose launch never recorded its run (a restart in between) is over at once,
@@ -587,15 +612,7 @@ describe('question stop investigations (R-C16)', () => {
     const f = await atQuestionStop();
     const { state, cycle, backend } = f;
     const stopped = currentCycle(state, cycle);
-    const refused = async (message: string) => {
-      const response = await post(state, `/cycles/${cycle.id}/investigation`, {
-        expectedVersion: currentCycle(state, cycle).version,
-      });
-      expect(response.statusCode, response.body).toBe(409);
-      expect(refusal(response)).toEqual({ code: 'conflict', message });
-      expect(currentCycle(state, cycle).investigation).toBeUndefined();
-      expect(launchesReadOnly(backend.launches)).toEqual([]);
-    };
+    const refused = (message: string) => refusedStart(f, message);
 
     // A manual session works in the worktree: a read-only run would read a tree that another
     // agent is rewriting.
@@ -626,21 +643,24 @@ describe('question stop investigations (R-C16)', () => {
     );
 
     // An integration merge reserved on the worktree owns it until it is recovered.
-    state.context.storage.transaction((tx) =>
-      tx.execution.merges.save({
-        id: randomUUID(),
-        workspaceId: state.workspaceId,
-        worktreeId: f.worktree.id,
-        status: 'reserved',
-        sourceSha: 'a'.repeat(40),
-        targetSha: 'b'.repeat(40),
-        targetBranch: 'main',
-        reviewRunId: stopped.currentRunId,
-        createdAt: new Date().toISOString(),
-        authorizedByUserId: stopped.createdByUserId,
-      }),
-    );
+    const merge = {
+      id: randomUUID(),
+      workspaceId: state.workspaceId,
+      worktreeId: f.worktree.id,
+      status: 'reserved' as const,
+      sourceSha: 'a'.repeat(40),
+      targetSha: 'b'.repeat(40),
+      targetBranch: 'main',
+      reviewRunId: stopped.currentRunId,
+      createdAt: new Date().toISOString(),
+      authorizedByUserId: stopped.createdByUserId,
+    };
+    state.context.storage.transaction((tx) => tx.execution.merges.save(merge));
     await refused('Recover the reserved integration merge before starting an investigation.');
+    // Recovered (here, as failed), it no longer holds the worktree: the next case stands alone.
+    state.context.storage.transaction((tx) =>
+      tx.execution.merges.save({ ...merge, status: 'failed' }),
+    );
 
     // A worktree no longer active has nothing to investigate.
     state.context.storage.execution.worktrees.markRemoved({
@@ -650,6 +670,76 @@ describe('question stop investigations (R-C16)', () => {
     });
     await refused('The worktree is no longer active.');
     // Throughout, the stop stayed where it was.
+    expect(currentCycle(state, cycle)).toMatchObject({
+      status: 'needs-attention',
+      currentRunId: stopped.currentRunId,
+      attention: { code: 'implementation-open-questions' },
+    });
+  });
+
+  // TS-M3 review L-1: the worktree's mutation guard (`requireAvailable`) refuses too.
+  it('refuses to start while the worktree is being updated, or an agent that lost supervision is still exiting', async () => {
+    // An update from the integration branch waits inside its Git step until the test lets it go.
+    const real = createGitOperations({ gitExecutable: 'git' });
+    let updating = false;
+    let finishUpdate = () => {};
+    const updateHeld = new Promise<void>((done) => (finishUpdate = done));
+    const f = await atQuestionStop(undefined, {
+      ...real,
+      updateWorktree: async (input) => {
+        updating = true;
+        await updateHeld;
+        return real.updateWorktree(input);
+      },
+    });
+    const { state, cycle, backend } = f;
+    const stopped = currentCycle(state, cycle);
+
+    // A merge, removal or update in progress holds the worktree.
+    const update = post(state, `/worktrees/${f.worktree.id}/update`, {
+      expectedVersion: state.context.storage.execution.worktrees.find(
+        state.workspaceId,
+        f.worktree.id,
+      )!.version,
+    });
+    await waitUntil(() => updating, 'the update holding the worktree');
+    await refusedStart(f, 'A merge or removal is already in progress for this worktree');
+    finishUpdate();
+    const updated = await update;
+    expect(updated.statusCode, updated.body).toBe(200);
+
+    // An agent whose supervision failed was killed, but its process has not exited: a read-only
+    // run would read a tree that agent may still be editing.
+    class Unexiting extends ScriptedSession {
+      override kill(): void {}
+    }
+    let unexiting: Unexiting | undefined;
+    const launch = backend.launch.bind(backend);
+    backend.launch = (request: AgentLaunchRequest) => {
+      if (request.readOnly || unexiting) return launch(request);
+      backend.launches.push(request);
+      // A message the daemon cannot store fails supervision (AGT-01).
+      unexiting = new Unexiting(request, 'claude-code', [
+        { resultText: 'Lost.', messages: [1n as unknown as string] },
+      ]);
+      return Promise.resolve(unexiting);
+    };
+    const manual = await post(state, `/work-items/${state.workItemId}/runs`, {
+      worktreeId: f.worktree.id,
+      role: 'implement',
+    });
+    expect(manual.statusCode, manual.body).toBe(200);
+    const { run } = startAgentRunResponseSchema.parse(manual.json());
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'failed',
+      'supervision failure',
+    );
+    await refusedStart(
+      f,
+      'An agent that lost supervision is still being terminated in this worktree; wait for its process to exit',
+    );
+    unexiting?.end();
     expect(currentCycle(state, cycle)).toMatchObject({
       status: 'needs-attention',
       currentRunId: stopped.currentRunId,

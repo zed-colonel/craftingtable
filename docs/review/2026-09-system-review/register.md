@@ -1559,15 +1559,23 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - a replay of EXO-04's 2026-10-01e stop offers it;
   - tests cover each question code and the read-only boundary: the launch is `readOnly`, and the agents' read-only arguments have their own tests.
 - **Test-suite review fixes (2026-10-02, [findings](findings/TS-test-suite-review-2026-10-02.md)).**
-  - **TS-M3, the start guards.** Each refusal of `startInvestigation` is now asserted in `server-execution-investigation.test.ts`, and each records nothing and launches nothing:
+  - **TS-M3, the start guards.** `server-execution-investigation.test.ts` now asserts these refusals of `startInvestigation`. Each records nothing and launches nothing:
     - one at a time: the existing second start, which until now passed on the live run's refusal as well;
     - a live manual session in the worktree;
     - a reserved integration merge;
-    - a removed worktree.
+    - a removed worktree, with the reservation released first so the case stands alone (review N-2);
+    - the worktree's mutation guard (`requireAvailable`, review L-1): an update from the integration branch in progress, and an agent that lost supervision and has not exited yet. That agent may still be editing the tree a read-only run would read;
+    - a stop with no questions (now with its message);
+    - an unavailable backend (503 `unavailable`, now with its message).
 
-    These refusals share the API's `conflict` code and carry no typed reason, so each is asserted by its documented message.
-    - **Mutants.** WC1 (no one-at-a-time guard), WC2 (no live-session check) and WC3 (no reserved-merge check) survived the node project. Each now fails this file, as does WC2a (no active-worktree check).
-    - **Why the start guards matter.** Without WC2's or WC3's check, the launch's own checks still refuse, but only after the record is written, so the stop shows a failed investigation rather than a clean refusal.
+    The `conflict` refusals carry no typed reason, so each is asserted by the message the daemon returns.
+    - **Mutants.** WC1 (no one-at-a-time guard), WC2 (no live-session check) and WC3 (no reserved-merge check) survived the node project. Each now fails this file. So do these:
+      - WC2a (no active-worktree check);
+      - RA1 (no `requireAvailable`);
+      - RA2 (only the terminating-agent check);
+      - RA3 (the guard forgetting a terminating agent).
+    - **Why the start guards matter.** Without WC2's, WC3's or `requireAvailable`'s check, the launch's own checks still refuse, some with the same message. They refuse only after the record is written, so the stop shows a failed investigation rather than a clean refusal, and the "records nothing" assertion fails.
+    - **Not asserted here:** the stale-version refusal, and the guard's third state, a review holding the worktree while its adopted checks run.
     - **Still untested backstops (above):** the launch's own checks inside and after the insert, and the rest of that list, are unchanged.
   - **TS-M3, the worktree left unchanged (test side).** The Done bullet above said `server-execution-investigation.test.ts` shows that an investigation leaves the worktree unchanged. It did not assert it. Its end-to-end investigation now compares the worktree before the start and after the read-back: HEAD, branch, and `git status --porcelain --untracked-files=all --ignored`.
     - **Shown by two checks, neither kept.** A daemon mutation that leaves a file in the worktree when it launches an investigation fails the test. So does a scripted read-only agent that commits.

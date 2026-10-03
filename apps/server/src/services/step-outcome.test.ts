@@ -417,8 +417,11 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'implementation-open-questions' },
   },
   {
-    // The same when the turn's own result was clipped.
-    name: 'an early exit with questions during a provider outage and a clipped result stays with the operator',
+    // Defence in depth: the run service marks a run `finished` only without an exit reason, and
+    // a finished run with a clipped result stops as step-incomplete before this check, so
+    // production never brings these facts here. Should either change, the clipped result
+    // still goes to the operator.
+    name: 'defence in depth: an early exit with questions during an outage and a clipped result stays with the operator',
     facts: {
       turn: turnOf(withQuestions, { truncated: true, suspectedOutage: credentialFailure() }),
       ended: endedOf({ reason: 'background-work-incomplete' }),

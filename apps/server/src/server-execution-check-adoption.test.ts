@@ -170,11 +170,14 @@ async function adoptionFixture(
   return { f, ws, storage, root, integration, head, tree, merge, post, definitions, declarations };
 }
 
+/** The cycle stopped for the operator before it reached its merge approval. */
+class CycleStopped extends Error {}
+
 async function runToMergeApproval(x: Awaited<ReturnType<typeof adoptionFixture>>) {
   const cycle = await startCycle(x.f.state, x.tree.id);
   await waitFor(() => {
     const current = currentCycle(x.f.state, cycle);
-    if (current.status === 'needs-attention') throw new Error(current.reason);
+    if (current.status === 'needs-attention') throw new CycleStopped(current.reason);
     return current.status === 'awaiting-merge';
   }, 'merge approval');
   return currentCycle(x.f.state, cycle);
@@ -866,7 +869,11 @@ itNeedsCargo(
   'a byte order mark stays in the text the operator is shown (verification NEW-1)',
   async () => {
     const x = await adoptionFixture({ 'scripts/check.sh': `﻿${ADOPTED}` });
-    await runToMergeApproval(x).catch(() => undefined);
+    // Whether it stops or reaches its approval, the diagnosis shows the text; any other
+    // failure, a wait that hung included, is the test's.
+    await runToMergeApproval(x).catch((error: unknown) => {
+      if (!(error instanceof CycleStopped)) throw error;
+    });
     const diagnosis = await x.definitions();
     const change = diagnosis.merge!.definitions[0]!;
     expect(change.proposed!.text!.startsWith('﻿')).toBe(true);

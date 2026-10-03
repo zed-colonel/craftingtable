@@ -7,6 +7,7 @@ import { asPlanVersionId, asProjectId } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import {
   cleanupExecutionFixtures,
+  directories,
   finalizationFixture,
   git,
   mutationHeaders,
@@ -117,6 +118,8 @@ it('lets an open finalization with improvement rounds only stop (R-B10)', async 
   // A real worktree at the fixture's integration commit, so a resume reaches the launch.
   const path = join(tmpdir(), `legacy-finalization-${randomUUID()}`);
   git(['worktree', 'add', '-b', `ct/finalize-${open.id}`, path, fixture.integration], fixture.root);
+  // Removed with the fixtures: it lived on in TMPDIR after every run (R-I2).
+  directories.push(path);
   const finalization = {
     ...open,
     ...owned,

@@ -1,0 +1,297 @@
+{
+  "description": "The replay gate (R-I10): every live snapshot and its goldens, relative to $XDG_DATA_HOME. Run with pnpm replays (scripts/replays.mjs).",
+  "root": "craftingtable-review/replay",
+  "snapshots": [
+    {
+      "id": "2026-09-23",
+      "sha256": "9cf6dca2b2f4ff717c8edefd0b276664c9a2ba35e3883d817c57c2c8943d0259",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-a4aa12d.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-85ad226.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-27",
+      "sha256": "3f43f73af8695e909e4df9d569137cc6dc8f8b23bef1a95ea710ad25e98fb4bd",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-d81db74.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-cb86fba.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-28",
+      "sha256": "645b7c3e4a4b95319549b1d0a12161bb83c494b1725f7d962739aa44bf902c6c",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-ac08291.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-6b4ae21.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-28b",
+      "sha256": "f5e8d6cae1f2a9105ed889d1d26bb234c98383d3bdbb978bd963edf688d8c3d2",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-8146974.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-8146974.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-28c",
+      "sha256": "f3b27347e881982e027d8c97c0fc9e8dbb36f93e132c46b1052f5c713e2c3c51",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-c547ede.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-cb86fba.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-29",
+      "sha256": "80a94173c1e40071a063961b38c36aeb6f830192b38fee57b40dd16db713602d",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-fccce06.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-1f82ffb.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-29b",
+      "sha256": "dec5c77aef5e013adbb8f97e26440839af1eeeb3bf081b91f3ae7458fb01e5b9",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-79937d4.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-79937d4.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-30",
+      "sha256": "5f7527f4a4efbfe7493645543b5ab7a3c7a8ef1ce53cc6be38bb5b202a867fd1",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-3a290e2.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-6b4ae21.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-30b",
+      "sha256": "b9e2788a76c2a8ca4c486f3f66f2e7d61d88a0c73db1ada7b9812f231aa4a539",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-9f4da08.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-9f4da08.json"
+        },
+        {
+          "mode": "evidence-view",
+          "golden": "evidence-view-golden-4f0a7ad.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-30c",
+      "sha256": "24a05770dec88bc80d2dfe28ef0d44870b661d3612dc856e03f58013047126c7",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-baca24e.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-baca24e.json"
+        },
+        {
+          "mode": "evidence-view",
+          "golden": "evidence-view-golden-4f0a7ad.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-09-30d",
+      "sha256": "9b2f00ebfe98dbf1680a0664a64115941c3e3d19f7f9b9f08d44341547e277cc",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-baca24e.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-baca24e.json"
+        },
+        {
+          "mode": "evidence-view",
+          "golden": "evidence-view-golden-45c05c2.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-10-01",
+      "sha256": "668fb588f447c4263352bea985c40064754972db1bb1880b5a5088c289adb152",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json",
+          "expected": [
+            {
+              "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/86d9061f-8441-4698-a8e9-5a8aa353ad9a",
+              "nowSha256": "16ba53155ee51f3a53a419e51fc4e1e4fd84f9551adf540ee1c61df97fe486a5",
+              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope’s exit gate.\""
+            }
+          ]
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-baca24e.json",
+          "expected": [
+            {
+              "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/53fd4990-d550-4b42-810b-f39e7050bb76",
+              "nowSha256": "a3cbb50846231a38bf035b2124fc5f3fb2477eac4f22c83616e58a7475b63b81",
+              "reason": "LIVE-32 (0b09307): a scoped review’s schema-invalid report gets its format repair (repair-output) instead of a scope stop."
+            },
+            {
+              "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/86d9061f-8441-4698-a8e9-5a8aa353ad9a",
+              "nowSha256": "16ba53155ee51f3a53a419e51fc4e1e4fd84f9551adf540ee1c61df97fe486a5",
+              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope’s exit gate.\""
+            }
+          ]
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-baca24e.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-10-01b",
+      "withoutGolden": "Taken after the 284f598 deploy for live measurement (program.md); no golden was recorded."
+    },
+    {
+      "id": "2026-10-01c",
+      "withoutGolden": "Taken on 2026-10-01 between the 10-01b and 10-01d snapshots; no golden was recorded."
+    },
+    {
+      "id": "2026-10-01d",
+      "sha256": "d7e94b0d6318664e82a15702c5bb9ecc54e46362362fb877f2b9d48162c1dd9f",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-0b09307.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-0b09307.json"
+        }
+      ]
+    },
+    {
+      "id": "2026-10-01e",
+      "sha256": "eb011373a7593e84e4c5aa8eb47d82e371588dd36df76b78e09974acaa7dc96b",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-55d47fc.json"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-55d47fc.json"
+        }
+      ]
+    }
+  ]
+}

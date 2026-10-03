@@ -22,6 +22,7 @@ import type { GitOperations } from '@craftingtable/git';
 import { type ServiceSet, createServices } from './composition.js';
 import { configFromEnv } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
+import { compareRecords, type ReplayCheck, type ReplayRecord } from './replay-check.js';
 import { ConcurrentModificationError } from './services/errors.js';
 import { resolveScope, scopeEvidenceLedger } from './services/execution-scope.js';
 import { PhaseGateError } from './services/phase-resources.js';
@@ -107,6 +108,30 @@ export interface SchedulerReplay {
     readonly code: string;
     readonly blocks?: number;
   }[];
+}
+
+/** Keys each scheduler decision by its roadmap entry or cycle, for `--check`. */
+export function schedulerRecords(replay: SchedulerReplay): ReplayRecord[] {
+  return [
+    ...replay.roadmaps.map((r) => ({ key: `roadmap:${r.roadmapId}`, value: r })),
+    ...replay.entries.map((e) => ({ key: `entry:${e.roadmapId}/${e.entryId}`, value: e })),
+    ...replay.cycles.map((c) => ({ key: `cycle:${c.cycleId}`, value: c })),
+    ...(replay.attention ?? []).map((item) => ({
+      key: `attention:${item.subjectKey}/${item.code}`,
+      value: item,
+    })),
+    ...(replay.status ?? []).flatMap((list) =>
+      list.entries.map((e) => ({ key: `status:${list.roadmapId}/${e.entryId}`, value: e })),
+    ),
+  ];
+}
+
+/** Compares a scheduler replay with its golden (`controller:replay --scheduler --check`). */
+export function checkSchedulerReplay(
+  golden: SchedulerReplay,
+  replay: SchedulerReplay,
+): ReplayCheck {
+  return compareRecords(schedulerRecords(golden), schedulerRecords(replay));
 }
 
 /**

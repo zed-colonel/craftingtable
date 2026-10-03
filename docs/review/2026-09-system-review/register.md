@@ -98,7 +98,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | done (3836b99, 6fb5a4a, 0cf4fa5; 10 runs at 661282f) | Independent e2e specs: one workspace per spec (added 2026-09-24) |
-| [R-I10](#r-i10) | P2 | M | done (2026-09-27) | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
+| [R-I10](#r-i10) | P2 | M | done (2026-09-27); replay gate (TS-M12) on `review-pass/h-r-i10` | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
 | [R-I11](#r-i11) | P2 | S | done (2026-09-27, see entry) | Independent review of the live-run fixes made on `main` (added 2026-09-27) |
 
 ## Workstream A — Attention, decisions and notifications (pain points 1 and 3)
@@ -3648,7 +3648,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I10
 
-**Live plan data as the test corpus: record live stops, replay scheduler decisions** · Phase P2 · Effort M · Status: done (2026-09-27)
+**Live plan data as the test corpus: record live stops, replay scheduler decisions** · Phase P2 · Effort M · Status: done (2026-09-27); the versioned replay gate (TS-M12) built on `review-pass/h-r-i10` (2026-10-02), awaiting review and integration
 
 - **Added 2026-09-27; direction set by the operator** after the 2026-09-25/26 live run ([LIVE findings](findings/LIVE-live-run-2026-09-25.md)). WI/EXO delivery is paused until P2 is done. The live roadmap's data is now test data.
 - **Why:** every live blocker so far was diagnosed by ad hoc database queries in an agent session, then patched on `main`. `controller:replay` covers step outcomes only (`decideStepOutcome`), so a scheduler decision such as LIVE-06's missing recovery round cannot be reproduced offline.
@@ -3695,6 +3695,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The scheduler replay now also records `attention`: the items each roadmap's pass would project, as if it were running (`RoadmapService.passAttention`), and every other open item.
   - Its packet check also names a prerequisite accepted as an architecture decision whose record the packet lacks (`decision:<id>`).
   - These are LIVE-09 to LIVE-13's replay cases.
+
+- **Review pass 2026-10-02 (branch `review-pass/h-r-i10` from `remediation/p2` 41a1351): a versioned replay gate.** The test-suite review found the gate was a person reading output ([TS-M12](findings/TS-test-suite-review-2026-10-02.md), GR F-3), ran workspace packages from a possibly stale `dist` (TS-H6's replay part, GR F-1), recorded no command arguments (GR F-2/F-3) and compared neither status-list headers nor attention multiplicity (GR F-8).
+  - **The gate is in the repository (TS-M12, GR F-1, F-3).** `pnpm replays` (`scripts/replays.mjs`) replaces the unversioned `replays.sh`.
+    - It reads `scripts/replays.manifest.json`: each snapshot's directory relative to `$XDG_DATA_HOME`, its SHA-256, and its golden per mode. The changes it expects are listed by record key and the SHA-256 of the record's new value, each with its reason (today LIVE-32's two, on 2026-10-01). `2026-10-01b` and `-c` are listed as snapshots without goldens, which the summary names.
+    - It runs `tsc -b` first, copies each snapshot into a private temporary directory and checks the copy's hash, runs each case as `controller:replay … --check <golden> --report <file>` with argument arrays, and prints one table.
+    - It exits 1 on an unlisted change, a further change to an expected record, a missing record, an expected change that did not happen, a replay error or usage error, a changed snapshot, or a missing snapshot or golden; 2 on an invalid manifest.
+    - The three `--check` modes share one comparator (`replay-check.ts`), canonical in key order (GR F-12 in part), which writes the JSON report the gate reads.
+    - Tests: `scripts/replays.test.mjs` (manifest validation, the expected-change matcher, exit codes, over synthetic fixtures).
 
 ### R-I11
 

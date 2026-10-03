@@ -7,12 +7,17 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { canonicalDefinition, type EvidenceSubmission } from '@craftingtable/domain';
+import type { EvidenceSubmission } from '@craftingtable/domain';
 import { join, resolve } from 'node:path';
 import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
 import { openDaemonStorage } from './persisted-records.js';
+import { canonicalJson, compareRecords, formatCheck, type ReplayCheck } from './replay-check.js';
 import { submissionSummary } from './services/runtime-evidence-service.js';
-import { replaySchedulerDecisions, type SchedulerReplay } from './scheduler-replay.js';
+import {
+  checkSchedulerReplay,
+  replaySchedulerDecisions,
+  type SchedulerReplay,
+} from './scheduler-replay.js';
 import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
 
 /**
@@ -27,6 +32,8 @@ import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
  *       scheduler pass takes for every roadmap entry, and checkpoint readiness (R-I10)
  *   pnpm controller:replay <snapshot.sqlite> --evidence-view [...]  render each map's evidence
  *       view with Git stubbed, and print its size and CPU (R-H4)
+ *   ... --check <file> --report <report.json>   also write the comparison as JSON; the
+ *       versioned replay gate reads it (`pnpm replays`, `scripts/replays.mjs`)
  *
  * Take the snapshot with SQLite's backup API (for example the Storage page's backup) and
  * keep it and its golden file outside the repository: they hold real plans and agent
@@ -65,23 +72,17 @@ function snapshotTime(snapshot: string): Date {
   }
 }
 
-/** Keys each scheduler decision by its roadmap entry or cycle, for `--check`. */
-function schedulerRecords(replay: SchedulerReplay) {
-  return [
-    ...replay.roadmaps.map((r) => ({ key: `roadmap:${r.roadmapId}`, value: r })),
-    ...replay.entries.map((e) => ({ key: `entry:${e.roadmapId}/${e.entryId}`, value: e })),
-    ...replay.cycles.map((c) => ({ key: `cycle:${c.cycleId}`, value: c })),
-    ...(replay.attention ?? []).map((item) => ({
-      key: `attention:${item.subjectKey}/${item.code}`,
-      value: item,
-    })),
-    ...(replay.status ?? []).flatMap((list) =>
-      list.entries.map((e) => ({ key: `status:${list.roadmapId}/${e.entryId}`, value: e })),
-    ),
-  ];
+/** Writes the comparison where `--report` asked for it. */
+function report(check: ReplayCheck, path: string | undefined): void {
+  if (path) writeFileSync(path, `${JSON.stringify(check, null, 2)}\n`, { mode: 0o600 });
 }
 
-async function scheduler(snapshot: string, mode?: string, golden?: string): Promise<number> {
+async function scheduler(
+  snapshot: string,
+  mode?: string,
+  golden?: string,
+  reportPath?: string,
+): Promise<number> {
   const copy = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
   try {
     const path = join(copy, 'snapshot.sqlite');
@@ -96,22 +97,13 @@ async function scheduler(snapshot: string, mode?: string, golden?: string): Prom
       return 0;
     }
     if (mode === '--check' && golden) {
-      const expected = schedulerRecords(
+      const check = checkSchedulerReplay(
         JSON.parse(readFileSync(golden, 'utf8')) as SchedulerReplay,
+        replay,
       );
-      const actual = schedulerRecords(replay);
-      const byKey = new Map(expected.map((r) => [r.key, JSON.stringify(r.value)]));
-      const changed = actual.filter((r) => byKey.get(r.key) !== JSON.stringify(r.value));
-      const missing = expected.filter((e) => !actual.some((r) => r.key === e.key));
-      for (const record of changed)
-        process.stdout.write(
-          `changed ${record.key}\n  was ${byKey.get(record.key) ?? '(new)'}\n  now ${JSON.stringify(record.value)}\n`,
-        );
-      for (const record of missing) process.stdout.write(`missing ${record.key}\n`);
-      process.stdout.write(
-        `${actual.length} scheduler records replayed; ${changed.length} changed, ${missing.length} missing\n`,
-      );
-      return changed.length || missing.length ? 1 : 0;
+      report(check, reportPath);
+      process.stdout.write(formatCheck(check, 'scheduler records'));
+      return check.changed.length || check.missing.length ? 1 : 0;
     }
     process.stdout.write(text);
     return 0;
@@ -163,7 +155,12 @@ function evidenceViewRecords(
   });
 }
 
-async function evidenceView(snapshot: string, mode?: string, golden?: string): Promise<number> {
+async function evidenceView(
+  snapshot: string,
+  mode?: string,
+  golden?: string,
+  reportPath?: string,
+): Promise<number> {
   const copy = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
   try {
     const path = join(copy, 'snapshot.sqlite');
@@ -184,24 +181,16 @@ async function evidenceView(snapshot: string, mode?: string, golden?: string): P
       return 0;
     }
     if (mode === '--check' && golden) {
-      const expected = evidenceViewRecords(
-        JSON.parse(readFileSync(golden, 'utf8')) as EvidenceViewReplay[],
+      // Field order follows the schema that parsed a record; the comparison is canonical.
+      const check = compareRecords(
+        evidenceViewRecords(JSON.parse(readFileSync(golden, 'utf8')) as EvidenceViewReplay[]),
+        evidenceViewRecords(views),
       );
-      const actual = evidenceViewRecords(views);
-      // Field order follows the schema that parsed a record, so compare canonically.
-      const canonical = (value: unknown) => canonicalDefinition(JSON.parse(JSON.stringify(value)));
-      const byKey = new Map(expected.map((r) => [r.key, canonical(r.value)]));
-      const changed = actual.filter((r) => byKey.get(r.key) !== canonical(r.value));
-      const missing = expected.filter((e) => !actual.some((r) => r.key === e.key));
-      for (const record of changed)
-        process.stdout.write(
-          `changed ${record.key}\n  was ${(byKey.get(record.key) ?? '(new)').slice(0, 400)}\n  now ${canonical(record.value).slice(0, 400)}\n`,
-        );
-      for (const record of missing) process.stdout.write(`missing ${record.key}\n`);
+      report(check, reportPath);
       process.stdout.write(
-        `${actual.length} evidence view records replayed; ${changed.length} changed, ${missing.length} missing\n`,
+        formatCheck(check, 'evidence view records', (value) => canonicalJson(value).slice(0, 400)),
       );
-      return changed.length || missing.length ? 1 : 0;
+      return check.changed.length || check.missing.length ? 1 : 0;
     }
     return 0;
   } finally {
@@ -215,24 +204,33 @@ async function main(args: readonly string[]): Promise<number> {
   const everyRun = args.includes('--every-run');
   const schedulerMode = args.includes('--scheduler');
   const viewMode = args.includes('--evidence-view');
-  const [snapshotArg, mode, goldenArg] = args.filter(
-    (arg) => arg !== '--every-run' && arg !== '--scheduler' && arg !== '--evidence-view',
+  const reportAt = args.indexOf('--report');
+  const reportArg = reportAt < 0 ? undefined : args[reportAt + 1];
+  const [snapshotArg, mode, goldenArg, extra] = args.filter(
+    (arg, index) =>
+      arg !== '--every-run' &&
+      arg !== '--scheduler' &&
+      arg !== '--evidence-view' &&
+      (reportAt < 0 || (index !== reportAt && index !== reportAt + 1)),
   );
   const snapshot = snapshotArg && resolve(base, snapshotArg);
   const golden = goldenArg && resolve(base, goldenArg);
+  const reportPath = reportArg && resolve(base, reportArg);
   if (
     !snapshot ||
     !existsSync(snapshot) ||
+    extra !== undefined ||
     (mode && (!['--record', '--check'].includes(mode) || !golden)) ||
+    (reportAt >= 0 && (mode !== '--check' || !reportArg)) ||
     [everyRun, schedulerMode, viewMode].filter(Boolean).length > 1
   ) {
     process.stderr.write(
-      'Usage: pnpm controller:replay <snapshot.sqlite> [--every-run | --scheduler | --evidence-view] [--record <golden.json> | --check <golden.json>]\n',
+      'Usage: pnpm controller:replay <snapshot.sqlite> [--every-run | --scheduler | --evidence-view] [--record <golden.json> | --check <golden.json> [--report <report.json>]]\n',
     );
     return 2;
   }
-  if (schedulerMode) return scheduler(snapshot, mode, golden);
-  if (viewMode) return evidenceView(snapshot, mode, golden);
+  if (schedulerMode) return scheduler(snapshot, mode, golden, reportPath);
+  if (viewMode) return evidenceView(snapshot, mode, golden, reportPath);
   const outcomes = replaySnapshot(snapshot, everyRun);
   const text = `${JSON.stringify(outcomes, null, 2)}\n`;
   if (mode === '--record' && golden) {
@@ -241,22 +239,20 @@ async function main(args: readonly string[]): Promise<number> {
     return 0;
   }
   if (mode === '--check' && golden) {
-    const expected = JSON.parse(readFileSync(golden, 'utf8')) as typeof outcomes;
-    const key = (outcome: (typeof outcomes)[number]) => `${outcome.cycleId}/${outcome.runId}`;
-    const byKey = new Map(expected.map((outcome) => [key(outcome), outcome]));
-    const changed = outcomes.filter(
-      (outcome) => JSON.stringify(byKey.get(key(outcome))) !== JSON.stringify(outcome),
+    const records = (list: typeof outcomes) =>
+      list.map((outcome) => ({ key: `${outcome.cycleId}/${outcome.runId}`, value: outcome }));
+    const check = compareRecords(
+      records(JSON.parse(readFileSync(golden, 'utf8')) as typeof outcomes),
+      records(outcomes),
     );
-    const missing = expected.filter((e) => !outcomes.some((o) => key(o) === key(e)));
-    for (const outcome of changed)
-      process.stdout.write(
-        `changed ${key(outcome)}\n  was ${JSON.stringify(byKey.get(key(outcome))?.decision ?? byKey.get(key(outcome))?.error)}\n  now ${JSON.stringify(outcome.decision ?? outcome.error)}\n`,
-      );
-    for (const outcome of missing) process.stdout.write(`missing ${key(outcome)}\n`);
+    report(check, reportPath);
     process.stdout.write(
-      `${outcomes.length} decisions replayed; ${changed.length} changed, ${missing.length} missing\n`,
+      formatCheck(check, 'decisions', (value) => {
+        const outcome = value as (typeof outcomes)[number];
+        return JSON.stringify(outcome.decision ?? outcome.error);
+      }),
     );
-    return changed.length || missing.length ? 1 : 0;
+    return check.changed.length || check.missing.length ? 1 : 0;
   }
   process.stdout.write(text);
   return 0;

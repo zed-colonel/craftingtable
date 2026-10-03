@@ -1,0 +1,158 @@
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { AgentLaunchError } from '@craftingtable/agents';
+import { afterEach, expect, it } from 'vitest';
+
+/* -------------------------------------------------------------------------- */
+/* Fixtures                                                                    */
+/* -------------------------------------------------------------------------- */
+
+import {
+  cleanupExecutionFixtures,
+  currentCycle,
+  cycleFixture,
+  designDone,
+  present,
+  startCycle,
+  waitFor,
+} from './execution-test-support.js';
+
+afterEach(cleanupExecutionFixtures);
+
+it("gives each run's agent a short private temporary directory and removes it when the run ends (LIVE-31)", async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  const root = state.context.config.execution.agentTemporaryRoot;
+  // Observed at launch and asserted after: an assertion failing inside the launch only fails it.
+  const seen: { own?: string; mode?: number; tmpdir?: string; scratch?: string }[] = [];
+  backend.onLaunch = (request) => {
+    const own = request.processTemporaryDirectory;
+    seen.push({
+      ...(own === undefined ? {} : { own, mode: statSync(own).mode & 0o777 }),
+      ...(request.environment?.TMPDIR ? { tmpdir: request.environment.TMPDIR } : {}),
+      ...(request.temporaryDirectory ? { scratch: request.temporaryDirectory } : {}),
+    });
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => seen.length === 1, 'launched');
+  const [launched] = seen;
+  const own = present(launched?.own);
+  // Its own, beneath the daemon's root, private, outside the worktree and the run's directory.
+  expect(dirname(own)).toBe(root);
+  expect(basename(own)).toMatch(/^[0-9a-f]{12}$/);
+  expect(launched?.mode).toBe(0o700);
+  expect(own.startsWith(worktree.path)).toBe(false);
+  expect(own.startsWith(state.context.config.execution.runsRoot)).toBe(false);
+  // The run's scratch stays the commands' and builds' place.
+  expect(launched?.tmpdir).toBe(launched?.scratch);
+  await waitFor(() => !existsSync(own), 'directory removed at run end');
+  const run = present(
+    state.context.storage.execution.runs.find(
+      state.workspaceId,
+      currentCycle(state, cycle).currentRunId,
+    ),
+  );
+  expect(run.status).toBe('finished');
+});
+
+it("removes agents' temporary directories a stopped daemon left behind (LIVE-31)", async () => {
+  const { state } = await cycleFixture([]);
+  const root = state.context.config.execution.agentTemporaryRoot;
+  const left = join(root, '0123456789ab');
+  mkdirSync(join(left, 'claude-1000'), { recursive: true });
+  writeFileSync(join(left, 'claude-1000', 'partial'), 'x');
+  state.context.services.agentRunService.recoverInterrupted();
+  await waitFor(() => !existsSync(left), 'leftover removed in the background');
+  expect(existsSync(root)).toBe(true);
+});
+
+it('ends a run normally when its agent left a read-only directory behind, and removes it (LIVE-31 review)', async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  let own: string | undefined;
+  backend.onLaunch = (request) => {
+    own = request.processTemporaryDirectory;
+    // What any sandboxed command may do: a directory it cannot itself be removed from.
+    const locked = join(present(own), 'claude-1000', 'locked');
+    mkdirSync(locked, { recursive: true });
+    writeFileSync(join(locked, 'file'), 'x');
+    chmodSync(locked, 0o500);
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => own !== undefined && !existsSync(own), 'directory removed');
+  const run = present(
+    state.context.storage.execution.runs.find(
+      state.workspaceId,
+      currentCycle(state, cycle).currentRunId,
+    ),
+  );
+  expect(run.status).toBe('finished');
+});
+
+it('starts after a stop that left an unremovable directory, and removes it (LIVE-31 review)', async () => {
+  const { state } = await cycleFixture([]);
+  const locked = join(state.context.config.execution.agentTemporaryRoot, '0123456789ab', 'locked');
+  mkdirSync(locked, { recursive: true });
+  writeFileSync(join(locked, 'file'), 'x');
+  chmodSync(locked, 0o500);
+  expect(() => state.context.services.agentRunService.recoverInterrupted()).not.toThrow();
+  await waitFor(() => !existsSync(dirname(locked)), 'leftover removed in the background');
+});
+
+it("removes a run's earlier directory when the run launches again, and when its record fails to end (LIVE-31 verification)", async () => {
+  const { state } = await cycleFixture([]);
+  // The service's own bookkeeping, as a launch that failed before its record leaves it.
+  const service = state.context.services.agentRunService as unknown as {
+    processTemporaryDirectory(runId: string): string;
+    finalize(workspaceId: string, runId: string, status: 'failed', detail: object): void;
+  };
+  const first = service.processTemporaryDirectory('run-a');
+  const second = service.processTemporaryDirectory('run-a');
+  expect(second).not.toBe(first);
+  await waitFor(() => !existsSync(first), 'the earlier directory removed');
+  expect(existsSync(second)).toBe(true);
+  // A run whose record cannot be written still loses its directory.
+  const storage = state.context.storage as unknown as { transaction: (work: unknown) => unknown };
+  const transaction = storage.transaction;
+  storage.transaction = () => {
+    throw new Error('storage unavailable');
+  };
+  try {
+    expect(() => service.finalize(state.workspaceId, 'run-a', 'failed', {})).toThrow(
+      'storage unavailable',
+    );
+  } finally {
+    storage.transaction = transaction;
+  }
+  await waitFor(() => !existsSync(second), 'removed although the record failed');
+});
+
+it('leaves no run starting when its temporary directory cannot be made (LIVE-31 review)', async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  // A file where the root should be: every directory beneath it fails.
+  writeFileSync(state.context.config.execution.agentTemporaryRoot, 'in the way');
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status !== 'running', 'the start failed');
+  expect(backend.launches).toHaveLength(0);
+  expect(state.context.storage.execution.runs.listLive()).toEqual([]);
+});
+
+it("stops a cycle as agent-environment-unavailable when the agent's tools cannot start (LIVE-31)", async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  let own: string | undefined;
+  backend.failLaunch = (request) => {
+    own = request.processTemporaryDirectory;
+    return new AgentLaunchError(
+      'environment-unavailable',
+      "Claude Code's command sandbox cannot start on this host: socat is not on the agent's PATH.",
+    );
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'typed stop');
+  const stopped = currentCycle(state, cycle);
+  expect(stopped.attention?.code).toBe('agent-environment-unavailable');
+  expect(stopped.reason).toContain("socat is not on the agent's PATH");
+  expect(existsSync(present(own))).toBe(false);
+  // Not the agent's report: nothing ran, so no questions are asked of the operator.
+  expect(
+    state.context.storage.attention.open(state.workspaceId).map((item) => item.code),
+  ).toContain('agent-environment-unavailable');
+});

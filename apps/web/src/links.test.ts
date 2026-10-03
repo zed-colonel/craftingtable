@@ -115,7 +115,9 @@ it('navigates inside the app only through Link, never a reloading anchor (R-E1, 
 it('reports each planted in-app anchor and nothing else', () => {
   const caught = [
     '<a href="/workspaces/w1">a</a>',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: JSX source text holding a template.
     '<a href={`/runs/${id}`}>a</a>',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: JSX source text holding a template.
     '<a href={`${base}/runs`}>a</a>',
     '<a href={path}>a</a>',
     '<a href={buildPath(route)}>a</a>',

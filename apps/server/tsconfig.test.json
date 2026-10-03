@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The daemon's tests also use the storage and planning packages' test support
+    // (`packages/*/test/`), which no project emits, so this one lists no root of its own.
+    "composite": false,
+    "noEmit": true
+  },
+  "include": ["test/**/*.ts"],
+  "references": [{ "path": "./tsconfig.json" }]
+}

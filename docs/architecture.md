@@ -29,6 +29,14 @@ compile, through the compiler: their files, syntax trees and resolved imports. T
 `vitest.config.ts` runs, test support is what only tests import, and everything else is
 production, whatever its name.
 
+Each package's tests and test support live in its `test/` directory, beside `src/`, as in
+`packages/git`: `tsconfig.json` compiles `src` alone into `dist`, and `tsconfig.test.json`
+type-checks `test` without emitting (`pnpm typecheck` runs each). So nothing a test needs is
+built into `dist` or shipped with a release. A test reaches the code it tests by a relative
+path into `src` (`../src/x.js`); the daemon's tests also use the storage and planning
+packages' test support. The browser app's tests stay beside its components: vite builds only
+what `index.html` loads.
+
 ## Persisted records and migrations
 
 Migrations live in `packages/storage/migrations/` and run forward only, whenever the daemon or a

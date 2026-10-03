@@ -515,9 +515,9 @@ it('passes on the real repository, having read and classified its modules', () =
   // Run by a package script, and imported by its own test.
   expect(classes.get('apps/server/src/db-verify.ts')).toBe('production');
   expect(classes.get('apps/web/src/test-setup.ts')).toBe('test');
-  expect(classes.get('apps/server/src/execution-test-support.ts')).toBe('test-support');
+  expect(classes.get('apps/server/test/execution-test-support.ts')).toBe('test-support');
   // Test support by what imports it, not by its name.
-  expect(classes.get('packages/storage/src/migration-preservation.ts')).toBe('test-support');
+  expect(classes.get('packages/storage/test/migration-preservation.ts')).toBe('test-support');
 });
 
 /** The gate is the command, not the function: `pnpm check:scope` must exit non-zero. */

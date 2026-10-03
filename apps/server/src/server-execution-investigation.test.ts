@@ -20,6 +20,7 @@ import {
   cycleFixture,
   designDone,
   entryIds,
+  git,
   implementationDone,
   mutationHeaders,
   type Ready,
@@ -125,6 +126,15 @@ const launchesReadOnly = (launches: readonly AgentLaunchRequest[]) =>
  */
 const refusal = (response: { json: () => unknown }) =>
   (response.json() as { error: { code: string; message: string } }).error;
+/**
+ * The worktree as an investigation must leave it (R-C16 done-when, TS-M3): its commit, its
+ * branch and every file Git sees, untracked and ignored ones included.
+ */
+const treeState = (path: string) => ({
+  head: git(['rev-parse', 'HEAD'], path).trim(),
+  branch: git(['symbolic-ref', '--short', 'HEAD'], path).trim(),
+  status: git(['status', '--porcelain=v1', '--untracked-files=all', '--ignored'], path),
+});
 
 describe('question stop investigations (R-C16)', () => {
   it('investigates read-only beside the cycle, refuses the stop while it runs, and returns to the same stop', async () => {
@@ -138,6 +148,7 @@ describe('question stop investigations (R-C16)', () => {
       'investigate',
       'stop',
     ]);
+    const tree = treeState(f.worktree.path);
 
     const started = await investigate(state, cycle, { instructions: 'Check the format spec.' });
     const record = started.investigation;
@@ -245,6 +256,8 @@ describe('question stop investigations (R-C16)', () => {
     expect(
       state.context.services.workCycleService.holdsReminders(state.workspaceId, cycle.id),
     ).toBe(false);
+    // The worktree is as the investigation found it: no commit, no change, no file left behind.
+    expect(treeState(f.worktree.path)).toEqual(tree);
     // The same stop, the same run: nothing moved but the record.
     expect(ended).toMatchObject({
       status: 'needs-attention',

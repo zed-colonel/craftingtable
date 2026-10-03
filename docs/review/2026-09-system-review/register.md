@@ -1569,6 +1569,28 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **Mutants.** WC1 (no one-at-a-time guard), WC2 (no live-session check) and WC3 (no reserved-merge check) survived the node project. Each now fails this file, as does WC2a (no active-worktree check).
     - **Why the start guards matter.** Without WC2's or WC3's check, the launch's own checks still refuse, but only after the record is written, so the stop shows a failed investigation rather than a clean refusal.
     - **Still untested backstops (above):** the launch's own checks inside and after the insert, and the rest of that list, are unchanged.
+  - **TS-M3, the worktree left unchanged (test side).** The Done bullet above said `server-execution-investigation.test.ts` shows that an investigation leaves the worktree unchanged. It did not assert it. Its end-to-end investigation now compares the worktree before the start and after the read-back: HEAD, branch, and `git status --porcelain --untracked-files=all --ignored`.
+    - **Shown by two checks, neither kept.** A daemon mutation that leaves a file in the worktree when it launches an investigation fails the test. So does a scripted read-only agent that commits.
+    - **What it covers.** The scripted backend changes nothing, so the test pins the daemon's own side: the context files, the launch and the read-back. The agents' read-only arguments have their own tests. A real CLI or sandbox regression would be caught only by the daemon check proposed next.
+  - **Proposed, awaiting operator decision (TS-M3, RC F-7): a daemon check that an investigation left the worktree unchanged.** Not built.
+    - **Record at start.** In `startInvestigation`, after the reserved-merge guard (`work-cycle-service.ts` ~580) and before the record is written, read `git.inspectWorktreeChanges(tree.path)`. It already returns HEAD, branch, a fingerprint of the diff against HEAD, and the untracked paths. Store them on the record as `worktree: { headSha, branch, fingerprint, untrackedDigest }`.
+    - **Compare at read-back.** Inspect again before `investigationResult` is written: in `settleInvestigation` (~747) and in `endInvestigation` once the run has ended (~693). Settling is synchronous today, so the inspection runs first, and the cycle is read again before `change`. A record without `worktree` (started before the check) is not compared.
+    - **On a mismatch.** The result carries a typed `code: 'worktree-changed'` with outcome `failed`, the HEAD before and after, and the first changed paths (bounded).
+      - The stop is unchanged, and no new recovery panel or attention code is added (program rule 1).
+      - The stop's existing inbox item pages once, through its existing member, `investigation:<id>:worktree-changed`, with a summary that names the change.
+      - The browser branches on the code, never on the message (rule 4).
+      - The daemon never resets the tree. The change may be the operator's own: an edit made while the investigation ran is indistinguishable from the agent's, so the summary says the worktree changed while it ran, not that the agent changed it.
+    - **Schema and contract.**
+      - `CycleInvestigation` (`packages/domain/src/work-cycle.ts` ~107) gains an optional `worktree` and an optional `result.code`.
+      - The contract's `investigation` object (`packages/contracts/src/work-cycle.ts` ~268) gains the same, both optional, so stored records keep reading under R-H3's guard. No migration: the record is in the cycle's JSON.
+    - **Tests it would need:**
+      - a scripted backend whose `onLaunch` writes or commits on a read-only request, which settles as `worktree-changed` and pages the item;
+      - a record without `worktree`, which settles as today;
+      - the contract accepting an old record.
+    - **For the operator to decide:**
+      1. Build it or not.
+      2. Whether the stop's own commands (Continue with guidance, Authorize more remediation) stay open after a mismatch, the recommendation, or are refused until the operator acknowledges it.
+      3. Whether the proposals of a changed tree are still offered to Use proposed answers. The recommendation is to show them, without the Use button.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

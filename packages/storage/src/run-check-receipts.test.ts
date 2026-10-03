@@ -1,17 +1,23 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
-import { type TemporaryStorage, temporaryStorage } from './test-support.js';
+import { copyMigratedTemplate, testDataRoot } from './test-support.js';
 
-const fixtures: TemporaryStorage[] = [];
+const directories: string[] = [];
 afterEach(() => {
-  for (const fixture of fixtures.splice(0)) fixture.cleanup();
+  for (const directory of directories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
 });
 
 describe('daemon check receipts (schema 33, R-G4)', () => {
-  it('refuses to update or delete a stored receipt, on any connection (TS-M5)', () => {
-    const fixture = temporaryStorage();
-    fixtures.push(fixture);
-    const database = openDatabase(fixture.databasePath);
+  it('refuses to update or delete a stored receipt, even on a raw connection (TS-M5)', () => {
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-check-receipts-'));
+    directories.push(directory);
+    const databasePath = join(directory, 'state', 'craftingtable.sqlite');
+    copyMigratedTemplate(databasePath);
+    const database = openDatabase(databasePath);
     try {
       const receipt = (sequence: number) =>
         JSON.stringify({
@@ -25,13 +31,7 @@ describe('daemon check receipts (schema 33, R-G4)', () => {
         database
           .prepare('SELECT run_id, sequence, record_json FROM run_check_receipts ORDER BY sequence')
           .all();
-      // The triggers are what is under test, not the receipt's parents (a run environment, its
-      // agent run, worktree and runtime generation), so the row is stored without them.
-      database.pragma('foreign_keys = OFF');
-      database
-        .prepare('INSERT INTO run_check_receipts VALUES (?, ?, ?, ?)')
-        .run('run-1', 1, 'workspace-1', receipt(1));
-      database.pragma('foreign_keys = ON');
+      insertWithoutParents(database, 1, receipt(1));
       const stored = rows();
       expect(stored).toHaveLength(1);
 
@@ -47,13 +47,25 @@ describe('daemon check receipts (schema 33, R-G4)', () => {
       expect(rows()).toEqual(stored);
 
       // The table stays append-only rather than frozen: the run's next receipt is stored.
-      database.pragma('foreign_keys = OFF');
-      database
-        .prepare('INSERT INTO run_check_receipts VALUES (?, ?, ?, ?)')
-        .run('run-1', 2, 'workspace-1', receipt(2));
+      insertWithoutParents(database, 2, receipt(2));
       expect(rows()).toHaveLength(2);
     } finally {
       database.close();
     }
   });
 });
+
+/**
+ * Stores a receipt of run `run-1` without its parents (a run environment, its agent run,
+ * worktree and runtime generation): the triggers are what is under test, not the parents.
+ */
+function insertWithoutParents(database: Database.Database, sequence: number, record: string) {
+  database.pragma('foreign_keys = OFF');
+  try {
+    database
+      .prepare('INSERT INTO run_check_receipts VALUES (?, ?, ?, ?)')
+      .run('run-1', sequence, 'workspace-1', record);
+  } finally {
+    database.pragma('foreign_keys = ON');
+  }
+}

@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { workCycleResponseSchema, workCyclesResponseSchema } from '@craftingtable/contracts';
+import {
+  startAgentRunResponseSchema,
+  workCycleResponseSchema,
+  workCyclesResponseSchema,
+} from '@craftingtable/contracts';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
 import {
   asAgentRunEventId,
@@ -115,6 +119,12 @@ async function presented(state: Ready, cycle: WorkCycle) {
 }
 const launchesReadOnly = (launches: readonly AgentLaunchRequest[]) =>
   launches.filter((launch) => launch.readOnly);
+/**
+ * A refused command's error. These refusals share the API's `conflict` code and carry no typed
+ * reason of their own, so each is told apart by its documented message (TS-M3).
+ */
+const refusal = (response: { json: () => unknown }) =>
+  (response.json() as { error: { code: string; message: string } }).error;
 
 describe('question stop investigations (R-C16)', () => {
   it('investigates read-only beside the cycle, refuses the stop while it runs, and returns to the same stop', async () => {
@@ -177,10 +187,15 @@ describe('question stop investigations (R-C16)', () => {
     });
     expect(guidance.statusCode).toBe(409);
     expect(guidance.body).toContain('investigation of this stop is running');
+    // One at a time (TS-M3): refused by its own guard, not only by the live run it started.
     const again = await post(state, `/cycles/${cycle.id}/investigation`, {
       expectedVersion: currentCycle(state, cycle).version,
     });
     expect(again.statusCode).toBe(409);
+    expect(refusal(again)).toEqual({
+      code: 'conflict',
+      message: 'An investigation of this stop is running. Wait for it, or end it, first.',
+    });
     const grant = await post(state, `/cycles/${cycle.id}/control`, {
       action: 'authorize-remediation',
       expectedVersion: currentCycle(state, cycle).version,
@@ -551,5 +566,81 @@ describe('question stop investigations (R-C16)', () => {
     expect(observed).toBe(true);
     expect((await pending).statusCode).toBe(200);
     expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
+  });
+
+  // TS-M3: each guard on starting an investigation refuses on its own, records nothing and
+  // launches nothing.
+  it('refuses to start beside a live session, a reserved merge or a removed worktree', async () => {
+    const f = await atQuestionStop();
+    const { state, cycle, backend } = f;
+    const stopped = currentCycle(state, cycle);
+    const refused = async (message: string) => {
+      const response = await post(state, `/cycles/${cycle.id}/investigation`, {
+        expectedVersion: currentCycle(state, cycle).version,
+      });
+      expect(response.statusCode, response.body).toBe(409);
+      expect(refusal(response)).toEqual({ code: 'conflict', message });
+      expect(currentCycle(state, cycle).investigation).toBeUndefined();
+      expect(launchesReadOnly(backend.launches)).toEqual([]);
+    };
+
+    // A manual session works in the worktree: a read-only run would read a tree that another
+    // agent is rewriting.
+    backend.replyForRequest = () => ({
+      resultText: 'Still working.',
+      release: new Promise<void>(() => {}),
+    });
+    const manual = await post(state, `/work-items/${state.workItemId}/runs`, {
+      worktreeId: f.worktree.id,
+      role: 'implement',
+    });
+    expect(manual.statusCode, manual.body).toBe(200);
+    const { run } = startAgentRunResponseSchema.parse(manual.json());
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.liveForWorktree(state.workspaceId, f.worktree.id)
+          .length === 1,
+      'manual session',
+    );
+    await refused('End the live session in this worktree before starting an investigation.');
+    const cancelled = await post(state, `/runs/${run.id}/cancel`, {});
+    expect(cancelled.statusCode, cancelled.body).toBe(200);
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.liveForWorktree(state.workspaceId, f.worktree.id)
+          .length === 0,
+      'manual session ended',
+    );
+
+    // An integration merge reserved on the worktree owns it until it is recovered.
+    state.context.storage.transaction((tx) =>
+      tx.execution.merges.save({
+        id: randomUUID(),
+        workspaceId: state.workspaceId,
+        worktreeId: f.worktree.id,
+        status: 'reserved',
+        sourceSha: 'a'.repeat(40),
+        targetSha: 'b'.repeat(40),
+        targetBranch: 'main',
+        reviewRunId: stopped.currentRunId,
+        createdAt: new Date().toISOString(),
+        authorizedByUserId: stopped.createdByUserId,
+      }),
+    );
+    await refused('Recover the reserved integration merge before starting an investigation.');
+
+    // A worktree no longer active has nothing to investigate.
+    state.context.storage.execution.worktrees.markRemoved({
+      workspaceId: state.workspaceId,
+      worktreeId: f.worktree.id,
+      occurredAt: new Date().toISOString(),
+    });
+    await refused('The worktree is no longer active.');
+    // Throughout, the stop stayed where it was.
+    expect(currentCycle(state, cycle)).toMatchObject({
+      status: 'needs-attention',
+      currentRunId: stopped.currentRunId,
+      attention: { code: 'implementation-open-questions' },
+    });
   });
 });

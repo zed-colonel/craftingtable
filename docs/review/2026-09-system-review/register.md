@@ -1558,6 +1558,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - an investigation leaves the worktree, the allowance and the stop unchanged, and attaches its report to the questions (`server-execution-investigation.test.ts`);
   - a replay of EXO-04's 2026-10-01e stop offers it;
   - tests cover each question code and the read-only boundary: the launch is `readOnly`, and the agents' read-only arguments have their own tests.
+- **Test-suite review fixes (2026-10-02, [findings](findings/TS-test-suite-review-2026-10-02.md)).**
+  - **TS-M3, the start guards.** Each refusal of `startInvestigation` is now asserted in `server-execution-investigation.test.ts`, and each records nothing and launches nothing:
+    - one at a time: the existing second start, which until now passed on the live run's refusal as well;
+    - a live manual session in the worktree;
+    - a reserved integration merge;
+    - a removed worktree.
+
+    These refusals share the API's `conflict` code and carry no typed reason, so each is asserted by its documented message.
+    - **Mutants.** WC1 (no one-at-a-time guard), WC2 (no live-session check) and WC3 (no reserved-merge check) survived the node project. Each now fails this file, as does WC2a (no active-worktree check).
+    - **Why the start guards matter.** Without WC2's or WC3's check, the launch's own checks still refuse, but only after the record is written, so the stop shows a failed investigation rather than a clean refusal.
+    - **Still untested backstops (above):** the launch's own checks inside and after the insert, and the rest of that list, are unchanged.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

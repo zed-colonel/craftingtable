@@ -313,4 +313,51 @@ describe('replaceEqualDeep', () => {
     expect(next.a).not.toBe(previous.a);
     expect(replaceEqualDeep(previous, { ...previous, d: 1 } as typeof previous)).not.toBe(previous);
   });
+
+  // TS-M9: a refresh that drops an optional field (a cycle's `investigation`, a workflow's
+  // `activeReview`) must not keep the old object, which still has it.
+  it('drops a key or an element the next value no longer has, at every level', () => {
+    const previous: { a: number; b?: number } = { a: 1, b: 2 };
+    const dropped = replaceEqualDeep(previous, { a: 1 });
+    expect(dropped).not.toBe(previous);
+    expect(dropped).toEqual({ a: 1 });
+    expect('b' in dropped).toBe(false);
+    const cycle = {
+      id: 'c1',
+      investigation: { id: 'i1' },
+      workflow: { questions: ['Q?'], activeReview: { kind: 'security' } },
+    };
+    const resumed = { id: 'c1', workflow: { questions: ['Q?'] } };
+    const next = replaceEqualDeep(cycle, resumed);
+    expect(next).toEqual(resumed);
+    expect('investigation' in next).toBe(false);
+    expect('activeReview' in next.workflow).toBe(false);
+    expect(next.workflow).not.toBe(cycle.workflow);
+    // The unchanged parts keep their identity.
+    expect(next.workflow.questions).toBe(cycle.workflow.questions);
+    const shorter = replaceEqualDeep([1, 2], [1]);
+    expect(shorter).toEqual([1]);
+  });
+});
+
+describe('a re-read that drops an optional field (TS-M9)', () => {
+  it('notifies with the data as read, without the dropped field', async () => {
+    const store = createQueryStore(options);
+    type Cycle = { id: string; version: number; investigation?: { id: string } };
+    const { load, pending } = controlled<Cycle>();
+    const listener = vi.fn();
+    store.subscribe(['cycle'], load, listener);
+    const first = { id: 'c1', version: 3, investigation: { id: 'i1' } };
+    pending[0]!.resolve(first);
+    await settle();
+    listener.mockClear();
+    store.refreshNow([['cycle']]);
+    pending[1]!.resolve({ id: 'c1', version: 3 });
+    await settle();
+    expect(listener).toHaveBeenCalled();
+    const data = store.read(['cycle']).data as Cycle;
+    expect(data).not.toBe(first);
+    expect(data).toEqual({ id: 'c1', version: 3 });
+    expect(data.investigation).toBeUndefined();
+  });
 });

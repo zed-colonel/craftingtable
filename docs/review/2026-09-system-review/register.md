@@ -1777,6 +1777,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The only timer left is the operator-approved minute re-read of Git-derived queries (decision 2026-10-01), which replaced the safety refresh.
   - `request-budget.test.tsx` checks that unrelated events cause 0 requests on six pages.
   - The two intermittent e2e specs that kept the item open are fixed above.
+- **Post-closure, test-suite review (2026-10-02, TS-M9; no code change).** The review reported that `replaceEqualDeep` keeps a key the next value dropped. It does not. The key-count comparison already returns a new object when the next value has fewer keys, and the new tests pass on the unchanged code. The gap was the test.
+  - **Mutant.** QS6 (`let same = true`) survived the browser app's tests. It would reuse an object whose optional field had been dropped, such as `cycle.investigation` or `workflow.activeReview`, so the stale field would stay on screen.
+  - **Tests (`query-store.test.ts`):**
+    - a key and an element dropped at nested levels: the result has no stale key, and unchanged parts keep their identity;
+    - a store re-read that drops an optional field notifies, with the field gone.
+  - QS6 now fails both tests, and QS5 (an array that shrinks) fails the first.
 
 ### R-D5
 

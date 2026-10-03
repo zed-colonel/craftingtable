@@ -26,7 +26,8 @@ describe('SQLite operating mode', () => {
   });
 
   it('creates owner-only directory and database permissions', () => {
-    const temporary = temporaryStorage();
+    // A new file, not the migrated template's copy: the open itself must set the modes.
+    const temporary = temporaryStorage({ fresh: true });
     temporaries.push(temporary);
     expect(statSync(temporary.databasePath).mode & 0o777).toBe(0o600);
     expect(statSync(new URL('.', `file://${temporary.databasePath}`)).mode & 0o777).toBe(0o700);

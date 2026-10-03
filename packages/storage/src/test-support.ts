@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { constants, copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { inject } from 'vitest';
 import { acceptAnyRecord } from './records.js';
 import { openCraftingTableStorage } from './storage.js';
+import { migratedTemplate } from './test-template.js';
 import type { CraftingTableStorage } from './types.js';
 
 export interface TemporaryStorage {
@@ -30,9 +31,28 @@ export function testDataRoot(): string {
   return root;
 }
 
-export function temporaryStorage(): TemporaryStorage {
+/**
+ * Puts a copy of this run's migrated template at `databasePath` (TS-M13, R-I2), so the open
+ * that follows finds the schema current and migrates nothing. The template is built once per
+ * run by `test-template-setup.ts`, and again for a changed migration set. Tests of migrating
+ * itself open a database that does not exist yet instead.
+ */
+export function copyMigratedTemplate(databasePath: string): void {
+  const directory = inject('testTemplateDirectory');
+  if (typeof directory !== 'string')
+    throw new Error('vitest.config.ts runs no test-template-setup for this project');
+  mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
+  copyFileSync(migratedTemplate(directory), databasePath, constants.COPYFILE_EXCL);
+}
+
+/**
+ * A storage on a temporary database: a copy of the run's migrated template, or with `fresh`
+ * a new file the open migrates from schema 0.
+ */
+export function temporaryStorage(options: { readonly fresh?: boolean } = {}): TemporaryStorage {
   const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-storage-test-'));
   const databasePath = join(directory, 'state', 'craftingtable.sqlite');
+  if (!options.fresh) copyMigratedTemplate(databasePath);
   const storage = openCraftingTableStorage(databasePath, acceptAnyRecord);
   return {
     directory,

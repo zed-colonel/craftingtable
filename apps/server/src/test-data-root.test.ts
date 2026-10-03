@@ -1,7 +1,8 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, inject, it } from 'vitest';
+import { migratedTemplate, migrationLedger } from '../../../packages/storage/src/test-template.js';
 import { TEST_DAEMON_RESERVE_GIB } from './test-daemon-storage.js';
 import { chooseTestDataRoot } from './test-data-root.js';
 import { createTestContext, type TestContext, testDataRoot } from './test-support.js';
@@ -52,3 +53,20 @@ it.skipIf(!process.env.XDG_RUNTIME_DIR)(
     );
   },
 );
+
+it("starts each test daemon from a copy of the run's migrated template, with the test reserve (TS-M13)", async () => {
+  // The template is read from a copy: a reader opened in place would add a log beside it.
+  const scratch = mkdtempSync(join(testDataRoot(), 'craftingtable-template-test-'));
+  roots.push(scratch);
+  copyFileSync(migratedTemplate(inject('testTemplateDirectory')), join(scratch, 'template.sqlite'));
+  const context = await createTestContext();
+  contexts.push(context);
+  // A migration of its own would stamp every row with the time it ran.
+  expect(migrationLedger(context.config.databasePath)).toEqual(
+    migrationLedger(join(scratch, 'template.sqlite')),
+  );
+  // The template holds no settings, so the daemon's first boot still saved the test reserve.
+  expect(context.storage.maintenance.settings()?.policy.minimumFreeGiB).toBe(
+    TEST_DAEMON_RESERVE_GIB,
+  );
+});

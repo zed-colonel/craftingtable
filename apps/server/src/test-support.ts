@@ -5,6 +5,7 @@ import { CYCLE_ATTENTION } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { FastifyInstance } from 'fastify';
 import { inject } from 'vitest';
+import { copyMigratedTemplate } from '../../../packages/storage/src/test-support.js';
 import { createServices, type ServiceSet } from './composition.js';
 import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from './config.js';
 import { groupedIssues } from './db-verify.js';
@@ -91,6 +92,9 @@ export async function createTestContext(
     CRAFTINGTABLE_CHECK_CONFINEMENT: 'none',
     ...options.env,
   });
+  // A copy of the run's migrated template, not a migration of its own (TS-M13). It holds no
+  // settings, so the test reserve below is still the daemon's first-boot save.
+  copyMigratedTemplate(config.databasePath);
   const storage = openDaemonStorage(config.databasePath);
   seedTestDaemonStorage(storage, config);
   const services = await createServices(storage, config, {

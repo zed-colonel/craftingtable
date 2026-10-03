@@ -61,6 +61,8 @@ export default defineConfig({
           environment: 'node',
           // The daemon's tests: real repositories, real checks and whole maps.
           ...timeouts(240_000),
+          // One migrated template database for the run, which test daemons copy (TS-M13).
+          globalSetup: ['packages/storage/src/test-template-setup.ts'],
           include: [
             'packages/*/src/**/*.test.ts',
             'packages/*/test/**/*.test.ts',

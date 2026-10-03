@@ -178,10 +178,10 @@ export function git(args: readonly string[], cwd: string): string {
   return execFileSync('git', [...args], { cwd, env: GIT_ENV, encoding: 'utf8' });
 }
 
-export function fixtureRepository(): string {
+export function fixtureRepository(initialBranch = 'main'): string {
   const root = mkdtempSync(join(tmpdir(), 'craftingtable-exec-repo-'));
   directories.push(root);
-  git(['init', '--initial-branch=main', '.'], root);
+  git(['init', `--initial-branch=${initialBranch}`, '.'], root);
   // The daemon's Git reads no operator configuration (R-G5); the repository names its committer.
   git(['config', 'user.name', 'T'], root);
   git(['config', 'user.email', 't@example.invalid'], root);
@@ -1016,6 +1016,8 @@ export async function roadmapFixture(
     keepWorktree?: boolean;
     alternateBackend?: AgentBackend;
     workers?: boolean;
+    /** The fixture repository's default branch, which is also the plan's integration branch. */
+    initialBranch?: string;
   } = {},
 ) {
   const backend = new CycleBackend(outputs);
@@ -1032,8 +1034,8 @@ export async function roadmapFixture(
     ...(options.gitOperations ? { gitOperations: options.gitOperations } : {}),
     ...(options.workers ? { workers: true } : {}),
   });
-  const root = fixtureRepository();
-  const { repository, worktree } = await registerAndWorktree(state, root);
+  const root = fixtureRepository(options.initialBranch);
+  const { repository, worktree } = await registerAndWorktree(state, root, options.initialBranch);
   if (!options.keepWorktree) {
     const removed = await state.context.app.inject({
       method: 'POST',

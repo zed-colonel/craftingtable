@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts';
 import {
   asPlanVersionId,
   asProjectId,
@@ -16,6 +17,8 @@ import { afterEach, expect, it } from 'vitest';
 
 import {
   awaitRoadmapMerge,
+  beginFinalization,
+  branchCommand,
   type CycleBackend,
   cleanupExecutionFixtures,
   commitFile,
@@ -24,6 +27,9 @@ import {
   cycleFixture,
   cycleProfiles,
   designDone,
+  finalizationCommand,
+  finalizationFixture,
+  fixtureRepository,
   git,
   implementationDone,
   mergeRoadmapAttempt,
@@ -458,6 +464,116 @@ it('keeps main protected from automatic roadmap merges', async () => {
   await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'protected main');
   expect(storedRoadmap(state).reason).toContain('explicit operator');
   expect(git(['rev-parse', 'main'], root)).toBe(main);
+});
+
+// Automatic roadmap merges never land in a protected destination: the repository's own default
+// branch, main and master, the plan's manual-merge branches and every finalization's
+// destination, not only a branch literally named main (TS-M6, ADR-033).
+const automaticMerges = { integrationMerge: 'automatic', integrationConflicts: 'manual' } as const;
+/** A merge into a protected destination stops the roadmap; an unprotected one completes it. */
+const stopsOrEnds: readonly string[] = ['needs-attention', 'completed'];
+
+it('keeps a default branch other than main protected from automatic roadmap merges', async () => {
+  const { state, root } = await roadmapFixture(undefined, { initialBranch: 'trunk' });
+  const trunk = git(['rev-parse', 'trunk'], root);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: automaticMerges,
+  });
+  await roadmapControl(state, 'start');
+  await waitFor(() => stopsOrEnds.includes(storedRoadmap(state).status), 'protected trunk');
+  expect(storedRoadmap(state)).toMatchObject({
+    attention: { code: 'scheduler-error' },
+    reason: 'trunk always requires explicit operator merge approval.',
+  });
+  expect(git(['rev-parse', 'trunk'], root)).toBe(trunk);
+  // The repository's own default branch is protected even where no plan's branch settings
+  // name the repository, so nothing else adds it.
+  const registered = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/repositories`,
+    headers: mutationHeaders(state),
+    payload: { rootPath: fixtureRepository('trunk'), displayName: 'Unplanned' },
+  });
+  expect(registered.statusCode, registered.body).toBe(200);
+  const unplanned = registerSourceRepositoryResponseSchema.parse(registered.json()).repository;
+  const refusal = (branch: string) => {
+    try {
+      state.context.services.executionService.branches.requireAutomaticMergeTarget(
+        state.workspaceId,
+        unplanned.id,
+        branch,
+      );
+      return undefined;
+    } catch (error) {
+      return error;
+    }
+  };
+  expect(refusal('trunk')).toMatchObject({
+    code: 'conflict',
+    message: 'trunk always requires explicit operator merge approval.',
+  });
+  expect(refusal('feature')).toBeUndefined();
+});
+
+it('keeps a finalization destination protected from automatic roadmap merges', async () => {
+  const fixture = await finalizationFixture();
+  const { state, backend, root, repository } = fixture;
+  git(['branch', 'release', 'main'], root);
+  const value = await beginFinalization(fixture, { ...fixture.input, targetBranch: 'release' });
+  const stopped = await finalizationCommand(state, value, 'stop');
+  expect(stopped.statusCode, stopped.body).toBe(200);
+  const removed = await finalizationCommand(state, value, 'remove-worktree', {
+    discardChanges: true,
+  });
+  expect(removed.statusCode, removed.body).toBe(200);
+  // A later item of the plan integrates on that destination with automatic merges delegated.
+  const third = asWorkItemId('item-3');
+  state.context.storage.planning.workItems.insertMany([
+    {
+      id: third,
+      workspaceId: state.workspaceId,
+      projectId: asProjectId('project-1'),
+      planVersionId: asPlanVersionId('version-1'),
+      sourceId: 'AQ-03',
+      ordinal: 2,
+      title: 'Follow-up after finalization',
+      risk: 'low',
+      primaryAreas: [],
+      exitGate: 'Done',
+      sourceFields: { id: 'AQ-03' },
+    },
+  ]);
+  const settings = present(
+    state.context.storage.execution.branchSettings.find(
+      state.workspaceId,
+      asPlanVersionId('version-1'),
+    ),
+  );
+  const retargeted = await branchCommand(state, 'plan-versions/version-1/branch-settings', {
+    expectedVersion: settings.version,
+    repositoryId: repository.id,
+    integrationBranch: 'release',
+  });
+  expect(retargeted.statusCode, retargeted.body).toBe(200);
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model') commitFile(request.cwd, 'follow-up.txt', 'follow-up');
+  };
+  backend.replyForRequest = (request) =>
+    request.model === 'design-model'
+      ? designDone
+      : request.model === 'review-model'
+        ? { resultText: reviewText([]) }
+        : implementationDone;
+  const release = git(['rev-parse', 'release'], root);
+  await saveRoadmapRequest(state, { ...roadmapInput(state, [third]), automation: automaticMerges });
+  await roadmapControl(state, 'start');
+  await waitFor(() => stopsOrEnds.includes(storedRoadmap(state).status), 'protected destination');
+  expect(storedRoadmap(state)).toMatchObject({
+    attention: { code: 'scheduler-error' },
+    reason: 'release always requires explicit operator merge approval.',
+  });
+  expect(git(['rev-parse', 'release'], root)).toBe(release);
 });
 
 it('automatically resolves parallel integration conflicts and freshly reviews before integrating', async () => {

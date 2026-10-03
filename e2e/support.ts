@@ -7,42 +7,42 @@ import {
   type Page,
 } from '@playwright/test';
 
-/** An HTTP answer a spec causes on purpose, such as a refused sign-in. */
+/** A failure a spec causes on purpose, such as a refused sign-in or a request it aborts. */
 export interface ExpectedFailure {
   readonly method: string;
-  /** The request's path, without its query. */
-  readonly path: string;
-  readonly status: number;
+  /** The request's path without its query, or a pattern for one that names a record. */
+  readonly path: string | RegExp;
+  /** The answer's status, or `'dropped'` for a request that got no answer. */
+  readonly status: number | 'dropped';
 }
 
-/**
- * Failures every spec meets. Each needs its reason.
- * - `GET /api/auth/session` answered 401: a page opened while signed out asks the daemon for
- *   its session, and that answer is how the app knows to show the sign-in page.
- */
-const EXPECTED_EVERYWHERE: readonly ExpectedFailure[] = [
-  { method: 'GET', path: '/api/auth/session', status: 401 },
-];
-
-const matches = (failure: ExpectedFailure, method: string, path: string, status: number) =>
-  failure.method === method && failure.path === path && failure.status === status;
+const SESSION = '/api/auth/session';
 
 /**
  * Fails a spec on what the browser reports as an error on any page it watches (TS-M15,
  * E2E F6): an uncaught exception (`pageerror`; React reports a render error it cannot recover
- * from this way, since the app has no error boundary), a `console.error` call, or an HTTP
- * answer of 400 or more that the spec did not expect.
+ * from this way, since the app has no error boundary), a `console.error` or failed
+ * `console.assert`, an HTTP answer of 400 or more, or a request that got no answer, unless
+ * the spec declared it with `expectFailure`.
  *
- * Chrome also logs a console error of its own, with no arguments, for each failed load; it
- * is judged by its response's status, a code, never by its text. A request the browser
- * dropped (a navigation leaving a read or the event stream behind, or a spec's `route.abort`)
- * is not an error: whatever the page should have shown, the spec asserts.
+ * Two failures need no declaration, each for its reason:
+ * - `GET /api/auth/session` answered 401 while the context is signed out: a page opened then
+ *   asks the daemon for its session, and that answer is how the app knows to show the sign-in
+ *   page. Once a sign-in succeeds, a 401 there is a lost session, and an error, until the
+ *   context logs out.
+ * - A request Chrome cancelled (`net::ERR_ABORTED`): a navigation, reload or closing page
+ *   leaves reads and the event stream behind. Whatever the page should have shown, the spec
+ *   asserts.
+ *
+ * Chrome also logs a console error of its own, with no arguments, for each failed load. It is
+ * judged by its request's status or Chrome's error code, never by the log's text.
  */
 export class BrowserErrors {
   private readonly errors: string[] = [];
   private readonly loadLogs: { readonly where: string; readonly url: string }[] = [];
   private readonly failedUrls = new Set<string>();
-  private readonly expected: ExpectedFailure[] = [...EXPECTED_EVERYWHERE];
+  private readonly expected: ExpectedFailure[] = [];
+  private readonly signedIn = new WeakSet<BrowserContext>();
 
   /** Watches every page of `context`, open now or opened later. */
   watch(context: BrowserContext): void {
@@ -50,7 +50,7 @@ export class BrowserErrors {
     context.on('page', (page) => this.watchPage(page));
   }
 
-  /** Accepts an HTTP failure the calling spec causes on purpose. */
+  /** Accepts a failure the calling spec causes on purpose, from now on. */
   expectFailure(failure: ExpectedFailure): void {
     this.expected.push(failure);
   }
@@ -60,23 +60,53 @@ export class BrowserErrors {
       this.errors.push(`uncaught on ${page.url()}: ${error.stack ?? error.message}`),
     );
     page.on('console', (message) => {
-      if (message.type() !== 'error') return;
-      const where = `console.error on ${page.url()}: ${message.text()}`;
+      if (message.type() !== 'error' && message.type() !== 'assert') return;
+      const where = `console.${message.type()} on ${page.url()}: ${message.text()}`;
       // The browser's own log of a failed load names the resource and passes no arguments.
       if (message.args().length === 0 && message.location().url)
         this.loadLogs.push({ where, url: message.location().url });
       else this.errors.push(where);
     });
-    page.on('requestfailed', (request) => this.failedUrls.add(request.url()));
-    page.on('response', (response) => {
-      const status = response.status();
-      if (status < 400) return;
-      this.failedUrls.add(response.url());
-      const method = response.request().method();
-      const path = new URL(response.url()).pathname;
-      if (!this.expected.some((failure) => matches(failure, method, path, status)))
-        this.errors.push(`${method} ${path} answered ${status} on ${page.url()}`);
+    page.on('requestfailed', (request) => {
+      this.failedUrls.add(request.url());
+      const code = request.failure()?.errorText;
+      if (code !== 'net::ERR_ABORTED')
+        this.judge(page, request.method(), request.url(), 'dropped', `got no answer (${code})`);
     });
+    page.on('response', (response) => {
+      const method = response.request().method();
+      const { pathname } = new URL(response.url());
+      const status = response.status();
+      if (status < 400) {
+        if ((method === 'POST' && pathname === '/api/auth/login') || pathname === SESSION)
+          this.signedIn.add(page.context());
+        if (method === 'POST' && pathname === '/api/auth/logout')
+          this.signedIn.delete(page.context());
+        return;
+      }
+      this.failedUrls.add(response.url());
+      if (pathname === SESSION && status === 401 && !this.signedIn.has(page.context())) return;
+      this.judge(page, method, response.url(), status, `answered ${status}`);
+    });
+  }
+
+  private judge(
+    page: Page,
+    method: string,
+    url: string,
+    status: ExpectedFailure['status'],
+    what: string,
+  ): void {
+    const { pathname } = new URL(url);
+    const declared = this.expected.some(
+      (failure) =>
+        failure.method === method &&
+        failure.status === status &&
+        (typeof failure.path === 'string'
+          ? failure.path === pathname
+          : failure.path.test(pathname)),
+    );
+    if (!declared) this.errors.push(`${method} ${pathname} ${what} on ${page.url()}`);
   }
 
   /** Fails the test with every error seen so far. */

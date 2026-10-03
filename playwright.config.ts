@@ -24,12 +24,13 @@ const WALKTHROUGH = !!process.env.CRAFTINGTABLE_WALKTHROUGH;
 
 /**
  * One scalable timeout for the suite (TS-M15), as `vitest.config.ts` has for the unit tests
- * (R-I2, TS-H1). Specs wait on state with Playwright's retrying `expect`, never on time, and
- * they pass no `timeout:` of their own: a number sized on an idle machine fails under load,
- * which slows each step of a run, not the number of steps. Every wait gets one bound, a step,
- * and a test gets a fixed number of steps; both are hang guards, not budgets. A slower or
- * busier host raises them all with `CRAFTINGTABLE_TEST_TIMEOUT_SCALE` (a positive factor,
- * default 1), the variable the unit tests read.
+ * (R-I2, TS-H1). Specs wait on state with Playwright's retrying `expect` (the deep-links
+ * spec's settle sleeps are E2E F7, still open), and they pass no `timeout:` of their own: a
+ * number sized on an idle machine fails under load, which slows each step of a run, not the
+ * number of steps. Every wait gets one bound, a step, and a test gets a fixed number of steps;
+ * both are hang guards, not budgets. A slower or busier host raises them all with
+ * `CRAFTINGTABLE_TEST_TIMEOUT_SCALE` (a positive factor, default 1), the variable the unit
+ * tests read. Its parsing repeats `vitest.config.ts`'s.
  */
 const TIME_SCALE = (() => {
   const raw = process.env.CRAFTINGTABLE_TEST_TIMEOUT_SCALE;
@@ -132,8 +133,9 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: STEP_TIMEOUT_MS,
       // Playwright otherwise SIGKILLs the group, and the daemon's temporary data directory,
-      // which only its signal handlers remove, stays behind on every run.
-      gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
+      // which only its signal handlers remove, stays behind on every run. Closing takes
+      // milliseconds when idle; the bound is scaled with the rest for a slower host.
+      gracefulShutdown: { signal: 'SIGTERM', timeout: Math.round(10_000 * TIME_SCALE) },
       env: {
         CRAFTINGTABLE_CLAUDE_EXECUTABLE: FAKE_CLAUDE,
         CRAFTINGTABLE_CODEX_EXECUTABLE: FAKE_CODEX,

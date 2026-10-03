@@ -39,6 +39,11 @@ test('authenticated snapshot, replay, outage recovery, and logout', async ({
   await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
   await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
 
+  browserErrors.expectFailure({
+    method: 'GET',
+    path: /^\/api\/workspaces\/[^/]+\/events$/,
+    status: 'dropped',
+  });
   await page.route(EVENT_ROUTE, (route) => route.abort());
   await page.reload();
   await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);

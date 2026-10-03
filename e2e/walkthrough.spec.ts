@@ -168,8 +168,8 @@ class Walkthrough {
     await settled(this.desktop, landmark);
     await this.photograph(this.desktop, 'desktop', file);
     await this.phone.goto(url);
-    await settled(this.phone, landmark);
     if (setup) await setup(this.phone);
+    await settled(this.phone, landmark);
     await this.photograph(this.phone, 'phone', file);
     this.shots.push({ file, title, path: pathOf(url), viewports: 'both' });
   }

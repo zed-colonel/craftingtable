@@ -43,6 +43,7 @@ import {
   FINALIZATION_STAGE_KINDS,
   type UserId,
   type WorkCycle,
+  type WorkItemId,
   type WorkspaceId,
   type WorktreeId,
 } from '@craftingtable/domain';
@@ -443,7 +444,7 @@ export interface SignedIn {
   readonly csrfToken: string;
   readonly workspaceId: WorkspaceId;
   readonly userId: UserId;
-  readonly workItemId: ReturnType<typeof asWorkItemId>;
+  readonly workItemId: WorkItemId;
 }
 
 export interface Ready extends SignedIn {
@@ -473,16 +474,11 @@ export async function ready(
   });
   contexts.push(context);
   if (options.workers) freeRunning.add(context);
-  await context.bootstrap();
-  const login = await context.login();
-  const user = context.storage.users.findByNormalizedUsername('test-user');
-  if (user === undefined) throw new Error('bootstrap user missing');
-  const workspaceId = context.storage.workspaces.listAuthorized(user.id)[0]?.workspace.id;
-  if (workspaceId === undefined) throw new Error('default workspace missing');
+  const signedIn = await signIn(context, asWorkItemId('item-1'));
+  const { workspaceId, userId, workItemId } = signedIn;
 
   const projectId = asProjectId('project-1');
   const planVersionId = asPlanVersionId('version-1');
-  const workItemId = asWorkItemId('item-1');
   const now = '2026-09-04T00:00:00.000Z';
   context.storage.transaction((tx) => {
     tx.planning.projects.insert({
@@ -491,7 +487,7 @@ export async function ready(
       name: 'Exec project',
       slug: 'exec-project',
       createdAt: now,
-      createdByUserId: user.id,
+      createdByUserId: userId,
     });
     tx.planning.bundles.insert({
       id: asPlanBundleId('bundle-1'),
@@ -515,7 +511,7 @@ export async function ready(
       itemCount: 1,
       requiredDependencyCount: 0,
       createdAt: now,
-      createdByUserId: user.id,
+      createdByUserId: userId,
     });
     tx.planning.workItems.insertMany([
       {
@@ -533,6 +529,20 @@ export async function ready(
       },
     ]);
   });
+  return { ...signedIn, backend: backend ?? new ScriptedBackend() };
+}
+
+/**
+ * Bootstraps a fresh test daemon's operator and signs in, for the work item the caller seeds:
+ * the start of every fixture on this stack (`ready`, `createCycleFixture`).
+ */
+export async function signIn(context: TestContext, workItemId: WorkItemId): Promise<SignedIn> {
+  await context.bootstrap();
+  const login = await context.login();
+  const user = context.storage.users.findByNormalizedUsername('test-user');
+  if (user === undefined) throw new Error('bootstrap user missing');
+  const workspaceId = context.storage.workspaces.listAuthorized(user.id)[0]?.workspace.id;
+  if (workspaceId === undefined) throw new Error('default workspace missing');
   return {
     context,
     cookie: login.cookie,
@@ -540,7 +550,6 @@ export async function ready(
     workspaceId,
     userId: user.id,
     workItemId,
-    backend: backend ?? new ScriptedBackend(),
   };
 }
 

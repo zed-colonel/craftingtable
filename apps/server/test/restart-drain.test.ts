@@ -33,7 +33,11 @@ import { FastTestPasswordHasher } from './test-support.js';
 
 const restarted: ServiceSet[] = [];
 afterEach(async () => {
-  for (const services of restarted.splice(0)) await services.daemonDrain.drain(0);
+  // A restarted daemon has no server of its own; the rest of the daemon's close applies.
+  for (const services of restarted.splice(0)) {
+    await services.daemonDrain.drain(0);
+    await services.checkRequestService.closeAll();
+  }
   await cleanupExecutionFixtures();
 });
 

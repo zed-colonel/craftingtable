@@ -27,6 +27,7 @@ import {
   mutationHeaders,
   type ScriptedReply,
   type SignedIn,
+  signIn,
 } from './execution-test-support.js';
 import { createTestContext } from './test-support.js';
 
@@ -204,11 +205,8 @@ export async function createCycleFixture(): Promise<CycleFixture> {
     workers: false,
   });
   contexts.push(context);
-  await context.bootstrap();
-  const login = await context.login();
-  const user = context.storage.users.findByNormalizedUsername('test-user');
-  const workspaceId = user && context.storage.workspaces.listAuthorized(user.id)[0]?.workspace.id;
-  if (!user || !workspaceId) throw new Error('bootstrap failed');
+  const signedIn = await signIn(context, asWorkItemId('item-1'));
+  const { workspaceId, userId } = signedIn;
   const at = '2026-09-23T00:00:00.000Z';
   context.storage.transaction((tx) => {
     tx.planning.projects.insert({
@@ -217,7 +215,7 @@ export async function createCycleFixture(): Promise<CycleFixture> {
       name: 'Cycle project',
       slug: 'cycle-project',
       createdAt: at,
-      createdByUserId: user.id,
+      createdByUserId: userId,
     });
     tx.planning.bundles.insert({
       id: asPlanBundleId('bundle-1'),
@@ -241,7 +239,7 @@ export async function createCycleFixture(): Promise<CycleFixture> {
       itemCount: 2,
       requiredDependencyCount: 1,
       createdAt: at,
-      createdByUserId: user.id,
+      createdByUserId: userId,
     });
     tx.planning.workItems.insertMany(
       ['item-1', 'item-2'].map((id, ordinal) => ({
@@ -270,14 +268,6 @@ export async function createCycleFixture(): Promise<CycleFixture> {
       },
     ]);
   });
-  const signedIn: SignedIn = {
-    context,
-    cookie: login.cookie,
-    csrfToken: login.csrfToken,
-    workspaceId,
-    userId: user.id,
-    workItemId: asWorkItemId('item-1'),
-  };
   const headers = mutationHeaders(signedIn);
   const root = fixtureRepository();
   const inject = async (url: string, payload: Record<string, unknown>) => {

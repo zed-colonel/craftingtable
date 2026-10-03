@@ -4,25 +4,44 @@
  *
  * Mechanically enforces the durable boundaries that a review could miss:
  *
- * 1. No runtime dependency on the Exo Stack (ActionQueue, WorldInterface,
- *    Exoskeleton) anywhere in the workspace.
- * 2. Process authority lives only in the named adapter modules. Every other
- *    production source file is forbidden from spawning processes or importing
- *    Git or vendor-agent libraries.
- * 3. The planning package stays pure: no filesystem, process, network,
- *    database, or UI imports.
+ * 1. No runtime dependency on the Exo Stack (ActionQueue, WorldInterface, Exoskeleton) in any
+ *    workspace manifest or in any module of `apps/` and `packages/`, tests included.
+ * 2. Capability modules (`child_process`, Git and vendor-agent libraries) are imported only by
+ *    the named adapter modules, and only those load a module by a name they compute
+ *    (`import(expression)`, `require`, `createRequire`, `process.getBuiltinModule`): a computed
+ *    name is a capability import this check cannot read.
+ * 3. The planning package stays pure: no filesystem, process, network, database, or UI imports,
+ *    and no module of a sibling package other than the domain and the contracts.
  * 4. The domain package depends on nothing but itself.
- * 5. The daemon and the browser never branch on human-readable text: no prefix, substring
- *    or regex tests on a `reason` or `message` (program rule 4, R-A3). Stops carry typed
- *    codes; `packages/domain/src/attention-legacy.ts` is the one place that maps text
- *    written by earlier releases to codes.
+ * 5. The daemon and the browser never branch on human-readable text: no prefix, substring,
+ *    regex, equality or `switch` test of a `reason` or `message` against prose (program rule 4,
+ *    R-A3). Stops carry typed codes; `packages/domain/src/attention-legacy.ts` is the one
+ *    place that maps text written by earlier releases to codes.
  *
- * Exported functions are unit-tested in check-forbidden-scope.test.mjs.
+ * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
+ *
+ * - **The files** are the ones the workspace's TypeScript projects compile: every
+ *   `tsconfig*.json` of a workspace package, read through the compiler (TypeScript 7's
+ *   `typescript/unstable/sync` API). A directory named `dist` inside `src` is compiled, so it is
+ *   checked. A source file under `apps/` or `packages/` that no project compiles (a
+ *   dot-directory, a stray `.mjs`) is itself a finding: nothing would check it.
+ * - **The imports** come from each module's syntax tree, resolved by the compiler: static
+ *   imports and re-exports, `import()`, `require`, `import x = require()`, and `import('x')`
+ *   types. No comment stripping and no quote-only patterns.
+ * - **Tests** are what vitest runs: the `include`, `setupFiles` and `globalSetup` entries of
+ *   `vitest.config.ts`, read from its syntax tree. **Test support** is every module that only
+ *   tests reach on the resolved import graph. Everything else is production, whatever its name:
+ *   a module reached from a production entry (a module nothing imports, or a package's
+ *   manifest entry) is production even when it is called `…-test-support.ts`. Until test
+ *   support moves out of `src` (R-I4, unit K), this graph is what separates it.
+ *
+ * Exported functions are tested in check-forbidden-scope.test.mjs on throwaway workspaces.
  */
-import { readdirSync, readFileSync } from 'node:fs';
-import { builtinModules } from 'node:module';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, join, matchesGlob, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SyntaxKind } from 'typescript/unstable/ast';
+import { API } from 'typescript/unstable/sync';
 
 export const FORBIDDEN_PATTERNS = [/action-?queue/i, /world-?interface/i, /exoskeleton/i];
 
@@ -34,6 +53,7 @@ export const FORBIDDEN_CAPABILITY_PATTERNS = [
   /^dugite$/i,
   /^node:child_process$/i,
   /^child_process$/i,
+  /^(node:)?cluster$/i,
   /^execa$/i,
   /^cross-spawn$/i,
   /^shelljs$/i,
@@ -76,9 +96,23 @@ export const PLANNING_FORBIDDEN_PATTERNS = [
   /^better-sqlite3$/,
   /^@craftingtable\/(storage|server|web|agents|git)$/,
 ];
+/** The packages whose modules planning may import (ADR-012). */
+const PLANNING_MAY_IMPORT = new Set(['packages/planning', 'packages/domain', 'packages/contracts']);
 
 /** The domain package may import nothing but itself. */
 export const DOMAIN_FORBIDDEN_PATTERNS = [/^node:/, /^@craftingtable\//, /^[a-z@]/];
+
+/** Where rule 5 applies: the daemon, the browser and the shared packages (R-A3). */
+const PROSE_PACKAGES = new Set([
+  'apps/server',
+  'apps/web',
+  'packages/contracts',
+  'packages/domain',
+  'packages/planning',
+  'packages/storage',
+]);
+/** The one module allowed to read reason text written by earlier releases (ADR-067). */
+const PROSE_LEGACY_MAPPING = 'packages/domain/src/attention-legacy.ts';
 
 const DEPENDENCY_FIELDS = [
   'dependencies',
@@ -86,32 +120,9 @@ const DEPENDENCY_FIELDS = [
   'peerDependencies',
   'optionalDependencies',
 ];
-const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs'];
+const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 const APPLICATION_GROUPS = ['apps', 'packages'];
-
-const IMPORT_PATTERN =
-  /(?:\bimport\b[^'"]*?\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+|\bexport\b[^'"]*?\bfrom\s*)['"]([^'"]+)['"]/g;
-
-function stripComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\])\/\/[^\n]*/g, '$1');
-}
-
-export function findImports(source) {
-  const specifiers = [];
-  for (const match of stripComments(source).matchAll(IMPORT_PATTERN)) {
-    specifiers.push(match[1]);
-  }
-  return specifiers;
-}
-
-export function nodeBuiltinName(specifier) {
-  const prefixed = specifier.startsWith('node:');
-  const root = (prefixed ? specifier.slice('node:'.length) : specifier).split('/')[0];
-  if (root.length === 0) {
-    return undefined;
-  }
-  return prefixed || builtinModules.includes(root) ? root : undefined;
-}
+const VITEST_CONFIG = 'vitest.config.ts';
 
 export function isForbiddenName(value) {
   return FORBIDDEN_PATTERNS.some((pattern) => pattern.test(value));
@@ -121,45 +132,27 @@ export function isForbiddenCapability(specifier) {
   return FORBIDDEN_CAPABILITY_PATTERNS.some((pattern) => pattern.test(specifier));
 }
 
-export function isTestSource(relativePath) {
-  return (
-    /\.test\.[cm]?[jt]sx?$/.test(relativePath) ||
-    /(?:^|\/)test\//.test(relativePath) ||
-    /test-support/.test(relativePath) ||
-    /(?:^|\/)fixtures\//.test(relativePath)
-  );
-}
+const posix = (path) => path.split(sep).join('/');
 
-function* walk(directory) {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) {
-      continue;
+/** The workspace's package directories (`apps/*`, `packages/*`), relative to the root. */
+function packageDirectories(root) {
+  return APPLICATION_GROUPS.flatMap((group) => {
+    try {
+      return readdirSync(join(root, group), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => `${group}/${entry.name}`);
+    } catch {
+      return [];
     }
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      yield* walk(path);
-    } else if (SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension))) {
-      yield path;
-    }
-  }
+  }).sort();
 }
 
 function manifestFindings(root) {
   const findings = [];
-  const manifests = [join(root, 'package.json')];
-  for (const group of APPLICATION_GROUPS) {
-    let entries = [];
-    try {
-      entries = readdirSync(join(root, group), { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        manifests.push(join(root, group, entry.name, 'package.json'));
-      }
-    }
-  }
+  const manifests = [
+    join(root, 'package.json'),
+    ...packageDirectories(root).map((directory) => join(root, directory, 'package.json')),
+  ];
   for (const manifest of manifests) {
     let parsed;
     try {
@@ -170,10 +163,12 @@ function manifestFindings(root) {
     for (const field of DEPENDENCY_FIELDS) {
       for (const name of Object.keys(parsed[field] ?? {})) {
         if (isForbiddenName(name)) {
-          findings.push(`${relative(root, manifest)}: forbidden dependency "${name}"`);
+          findings.push(`${posix(relative(root, manifest))}: forbidden dependency "${name}"`);
         }
         if (isForbiddenCapability(name) && !name.startsWith('@craftingtable/')) {
-          findings.push(`${relative(root, manifest)}: forbidden capability dependency "${name}"`);
+          findings.push(
+            `${posix(relative(root, manifest))}: forbidden capability dependency "${name}"`,
+          );
         }
       }
     }
@@ -181,109 +176,575 @@ function manifestFindings(root) {
   return findings;
 }
 
+/** Every TypeScript project of a workspace package: its `tsconfig*.json` files. */
+function projectConfigs(root) {
+  return packageDirectories(root).flatMap((directory) => {
+    try {
+      return readdirSync(join(root, directory))
+        .filter((name) => /^tsconfig.*\.json$/.test(name))
+        .sort()
+        .map((name) => join(root, directory, name));
+    } catch {
+      return [];
+    }
+  });
+}
+
+const isDeclarationFile = (path) => /\.d\.[cm]?ts$/.test(path);
+const isLiteral = (node) =>
+  node?.kind === SyntaxKind.StringLiteral ||
+  node?.kind === SyntaxKind.NoSubstitutionTemplateLiteral;
+
+/** Identifiers that name a declaration's own member or key, not a value in scope. */
+function isMemberName(node) {
+  const parent = node.parent;
+  if (!parent) return false;
+  switch (parent.kind) {
+    case SyntaxKind.PropertyAccessExpression:
+    case SyntaxKind.PropertyAssignment:
+    case SyntaxKind.PropertyDeclaration:
+    case SyntaxKind.PropertySignature:
+    case SyntaxKind.MethodDeclaration:
+    case SyntaxKind.MethodSignature:
+    case SyntaxKind.GetAccessor:
+    case SyntaxKind.SetAccessor:
+    case SyntaxKind.EnumMember:
+    case SyntaxKind.QualifiedName:
+    case SyntaxKind.JsxAttribute:
+      return parent.name === node;
+    case SyntaxKind.BindingElement:
+      return parent.propertyName === node;
+    default:
+      return false;
+  }
+}
+
+/** Names whose only use is loading a module the compiler cannot see. */
+const LOADER_NAMES = new Set(['getBuiltinModule', 'createRequire']);
+/** `process` members that load native or internal modules. */
+const PROCESS_LOADERS = new Set(['binding', '_linkedBinding', 'dlopen']);
+
 /**
- * Classifies one source file's imports. Exported for the unit tests, which
- * feed synthetic paths and sources.
+ * One module's imports and computed loads, from its syntax tree. `require` identifiers are
+ * returned for the caller to resolve: a local function called `require` is not module loading.
  */
-export function sourceFindings(relativePath, source) {
-  const findings = [];
-  if (source.includes('\0')) {
-    findings.push(`${relativePath}: contains a NUL byte`);
-    return findings;
-  }
-  const production = !isTestSource(relativePath);
-  const planning = relativePath.startsWith('packages/planning/src/');
-  const domain = relativePath.startsWith('packages/domain/src/');
-  for (const specifier of findImports(source)) {
-    if (isForbiddenName(specifier)) {
-      findings.push(`${relativePath}: forbidden import "${specifier}"`);
+function readModule(sourceFile) {
+  const references = [];
+  const loads = [];
+  const requires = [];
+  const reference = (node, kind) => {
+    if (isLiteral(node)) references.push({ specifier: node.text, node, kind });
+    else loads.push({ node: node ?? sourceFile, what: kind });
+  };
+  const visit = (node) => {
+    switch (node.kind) {
+      case SyntaxKind.ImportDeclaration:
+      case SyntaxKind.ExportDeclaration:
+        if (node.moduleSpecifier) reference(node.moduleSpecifier, 'import');
+        break;
+      case SyntaxKind.ImportEqualsDeclaration:
+        if (node.moduleReference.kind === SyntaxKind.ExternalModuleReference)
+          reference(node.moduleReference.expression, 'require');
+        break;
+      case SyntaxKind.ImportType:
+        if (node.argument?.kind === SyntaxKind.LiteralType && isLiteral(node.argument.literal))
+          references.push({ specifier: node.argument.literal.text, node: node.argument.literal });
+        break;
+      case SyntaxKind.CallExpression:
+        if (node.expression.kind === SyntaxKind.ImportKeyword)
+          reference(node.arguments[0], 'import()');
+        break;
+      case SyntaxKind.Identifier:
+        if (node.text === 'require' && !isMemberName(node)) requires.push(node);
+        else if (LOADER_NAMES.has(node.text)) loads.push({ node, what: node.text });
+        else if (
+          node.text === 'process' &&
+          node.parent?.kind === SyntaxKind.PropertyAccessExpression &&
+          node.parent.expression === node &&
+          PROCESS_LOADERS.has(node.parent.name.text)
+        )
+          loads.push({ node, what: `process.${node.parent.name.text}` });
+        break;
+      case SyntaxKind.ElementAccessExpression:
+        if (isLiteral(node.argumentExpression) && LOADER_NAMES.has(node.argumentExpression.text))
+          loads.push({ node, what: node.argumentExpression.text });
+        break;
     }
-    if (production && isForbiddenCapability(specifier)) {
-      const authority = PROCESS_AUTHORITY.get(relativePath);
-      const isSpawn = /child_process$/i.test(specifier);
-      if (!(isSpawn && authority !== undefined)) {
-        findings.push(
-          `${relativePath}: capability import "${specifier}" is permitted only in a listed process authority`,
-        );
+    node.forEachChild(visit);
+  };
+  sourceFile.forEachChild(visit);
+  return { references, loads, requires };
+}
+
+/** Whether a name holds human-readable text: any identifier ending in `reason` or `message`. */
+const isProseName = (name) => /(?:reason|message|Reason|Message)$/.test(name);
+/** Typed codes are lowercase kebab-case words; anything else in a literal is prose. */
+const isCode = (text) => text === '' || /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(text);
+/** String methods that return text (or its words) derived from their receiver. */
+const STRING_TRANSFORMS = new Set([
+  'at',
+  'charAt',
+  'concat',
+  'normalize',
+  'padEnd',
+  'padStart',
+  'repeat',
+  'replace',
+  'replaceAll',
+  'slice',
+  'split',
+  'substr',
+  'substring',
+  'toLocaleLowerCase',
+  'toLocaleUpperCase',
+  'toLowerCase',
+  'toString',
+  'toUpperCase',
+  'trim',
+  'trimEnd',
+  'trimStart',
+]);
+/** Methods that test text against other text. */
+const TEXT_TESTS = new Set([
+  'endsWith',
+  'includes',
+  'indexOf',
+  'lastIndexOf',
+  'localeCompare',
+  'match',
+  'matchAll',
+  'search',
+  'startsWith',
+]);
+const EQUALITY = new Set([
+  SyntaxKind.EqualsEqualsEqualsToken,
+  SyntaxKind.ExclamationEqualsEqualsToken,
+  SyntaxKind.EqualsEqualsToken,
+  SyntaxKind.ExclamationEqualsToken,
+]);
+
+/**
+ * Whether an expression is a reason or a message, or text derived from one: `x.reason`,
+ * `x.reason!`, `x['reason']`, `x.reason ?? ''`, `String(x.message)`,
+ * `x.reason.toLowerCase()`, `x.reason.split(' ')[0]`.
+ */
+function isProse(expression) {
+  let node = expression;
+  for (;;) {
+    switch (node?.kind) {
+      case SyntaxKind.ParenthesizedExpression:
+      case SyntaxKind.NonNullExpression:
+      case SyntaxKind.AsExpression:
+      case SyntaxKind.SatisfiesExpression:
+      case SyntaxKind.TypeAssertionExpression:
+        node = node.expression;
+        continue;
+      case SyntaxKind.BinaryExpression:
+        if (
+          node.operatorToken.kind !== SyntaxKind.QuestionQuestionToken &&
+          node.operatorToken.kind !== SyntaxKind.BarBarToken
+        )
+          return false;
+        node = node.left;
+        continue;
+      case SyntaxKind.CallExpression: {
+        const callee = node.expression;
+        if (callee.kind === SyntaxKind.Identifier && callee.text === 'String') {
+          node = node.arguments[0];
+          continue;
+        }
+        if (
+          callee.kind === SyntaxKind.PropertyAccessExpression &&
+          STRING_TRANSFORMS.has(callee.name.text)
+        ) {
+          node = callee.expression;
+          continue;
+        }
+        return false;
       }
-    }
-    if (planning && production && PLANNING_FORBIDDEN_PATTERNS.some((p) => p.test(specifier))) {
-      findings.push(`${relativePath}: planning package imports impure module "${specifier}"`);
-    }
-    if (
-      domain &&
-      production &&
-      !specifier.startsWith('.') &&
-      DOMAIN_FORBIDDEN_PATTERNS.some((p) => p.test(specifier))
-    ) {
-      findings.push(`${relativePath}: domain package imports external module "${specifier}"`);
+      case SyntaxKind.ElementAccessExpression:
+        if (isLiteral(node.argumentExpression)) return isProseName(node.argumentExpression.text);
+        node = node.expression;
+        continue;
+      case SyntaxKind.PropertyAccessExpression:
+        return isProseName(node.name.text);
+      case SyntaxKind.Identifier:
+        return isProseName(node.text);
+      default:
+        return false;
     }
   }
-  return findings;
+}
+
+/** A literal (or a template) that holds prose rather than a typed code. */
+function isProseLiteral(node) {
+  if (node?.kind === SyntaxKind.TemplateExpression) return true;
+  return isLiteral(node) && !isCode(node.text);
+}
+
+/** A list of literals written in place, as in `['Paused.', …].includes(x.reason)`. */
+function proseList(node) {
+  let list = node;
+  while (list?.kind === SyntaxKind.ParenthesizedExpression) list = list.expression;
+  if (list?.kind === SyntaxKind.NewExpression && list.arguments?.length === 1)
+    list = list.arguments[0];
+  return list?.kind === SyntaxKind.ArrayLiteralExpression && list.elements.some(isProseLiteral);
+}
+
+/** The nodes in a module that branch on prose (rule 5). */
+function proseBranches(sourceFile) {
+  const found = [];
+  const visit = (node) => {
+    if (node.kind === SyntaxKind.CallExpression) {
+      const callee = node.expression;
+      if (callee.kind === SyntaxKind.PropertyAccessExpression) {
+        const method = callee.name.text;
+        if (TEXT_TESTS.has(method) && isProse(callee.expression)) found.push(node);
+        else if ((method === 'test' || method === 'exec') && node.arguments.some(isProse))
+          found.push(node);
+        else if (
+          (method === 'includes' || method === 'indexOf' || method === 'has') &&
+          proseList(callee.expression) &&
+          node.arguments.some(isProse)
+        )
+          found.push(node);
+      }
+    } else if (node.kind === SyntaxKind.BinaryExpression && EQUALITY.has(node.operatorToken.kind)) {
+      if (
+        (isProse(node.left) && isProseLiteral(node.right)) ||
+        (isProse(node.right) && isProseLiteral(node.left))
+      )
+        found.push(node);
+    } else if (node.kind === SyntaxKind.SwitchStatement && isProse(node.expression)) {
+      if (node.caseBlock.clauses.some((clause) => isProseLiteral(clause.expression)))
+        found.push(node);
+    }
+    node.forEachChild(visit);
+  };
+  sourceFile.forEachChild(visit);
+  return found;
+}
+
+function lineOf(sourceFile, node) {
+  const text = sourceFile.text;
+  const position = node.getStart(sourceFile);
+  let line = 1;
+  for (
+    let index = text.indexOf('\n');
+    index !== -1 && index < position;
+    index = text.indexOf('\n', index + 1)
+  )
+    line += 1;
+  return line;
 }
 
 /**
- * Text matching on a reason or message (rule 4). Any identifier ending in `reason` or
- * `message` counts: `x.reason.startsWith(`, `blockerMessage.includes(`,
- * `/…/.test(x.message ?? '')`, `x.reason === 'Some sentence.'`. Comparisons with
- * kebab-case codes such as `reason === 'daemon-drain'` are typed and allowed.
+ * What a `vitest.config.ts` runs: for each `test: { … }` block, its `include` globs less its
+ * `exclude` globs, and its `setupFiles` and `globalSetup` modules. Only a `test` block counts,
+ * so a `coverage.include` cannot turn production into tests.
  */
-export const PROSE_BRANCH_PATTERNS = [
-  /\b\w*(?:reason|message|Reason|Message)\??\.(?:startsWith|endsWith|includes|match|matchAll|search|indexOf)\(/,
-  /\.(?:test|exec)\(\s*[\w.?]*?\b\w*(?:reason|message|Reason|Message)\s*(?:\?\?\s*(['"`])\1)?\s*\)/,
-  /\b\w*(?:reason|message|Reason|Message)\s*[!=]==?\s*(['"`])[^'"`]*[ .][^'"`]*\1/,
-  /(['"`])[^'"`]*[ .][^'"`]*\1\s*[!=]==?\s*[\w.?]*?\b\w*(?:reason|message|Reason|Message)\b/,
-];
+function vitestEntries(sourceFile) {
+  const blocks = [];
+  const strings = (value) => {
+    if (isLiteral(value)) return [value.text];
+    if (value?.kind === SyntaxKind.ArrayLiteralExpression)
+      return value.elements.filter(isLiteral).map((element) => element.text);
+    return [];
+  };
+  const visit = (node) => {
+    if (
+      node.kind === SyntaxKind.PropertyAssignment &&
+      node.name.kind === SyntaxKind.Identifier &&
+      node.name.text === 'test' &&
+      node.initializer.kind === SyntaxKind.ObjectLiteralExpression
+    ) {
+      const block = { include: [], exclude: [], setup: [] };
+      for (const property of node.initializer.properties) {
+        if (property.kind !== SyntaxKind.PropertyAssignment) continue;
+        const name = property.name.kind === SyntaxKind.Identifier ? property.name.text : '';
+        if (name === 'include') block.include.push(...strings(property.initializer));
+        else if (name === 'exclude') block.exclude.push(...strings(property.initializer));
+        else if (name === 'setupFiles' || name === 'globalSetup')
+          block.setup.push(...strings(property.initializer));
+      }
+      blocks.push(block);
+    }
+    node.forEachChild(visit);
+  };
+  sourceFile.forEachChild(visit);
+  return blocks;
+}
 
-/**
- * Where rule 4 applies: the daemon, the browser and the shared packages. The agent and Git
- * adapters are excluded as a boundary: reading vendor and tool output is their job. So is
- * the one legacy mapping allowed to read old reason text (ADR-067).
- */
-function proseScoped(relativePath) {
-  if (isTestSource(relativePath)) return false;
-  if (relativePath === 'packages/domain/src/attention-legacy.ts') return false;
-  return /^(?:apps\/(?:server|web)|packages\/(?:contracts|domain|planning|storage))\/src\//.test(
-    relativePath,
+/** Whether vitest runs a module (its path from the root) as a test or a setup module. */
+function isTestEntry(path, blocks) {
+  return blocks.some(
+    (block) =>
+      block.setup.some((entry) => matchesGlob(path, entry)) ||
+      (block.include.some((entry) => matchesGlob(path, entry)) &&
+        !block.exclude.some((entry) => matchesGlob(path, entry))),
   );
 }
 
-/** Production sources must branch on codes, not prose. */
-export function proseFindings(relativePath, source) {
-  if (!proseScoped(relativePath)) return [];
-  const findings = [];
-  // Blank comments out in place so reported line numbers stay right.
-  const code = source
-    .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:\\])\/\/[^\n]*/g, '$1');
-  for (const [index, line] of code.split('\n').entries())
-    if (PROSE_BRANCH_PATTERNS.some((pattern) => pattern.test(line)))
-      findings.push(
-        `${relativePath}:${index + 1}: branches on human-readable text; use a typed code`,
-      );
-  return findings;
+/**
+ * The paths a package manifest names as its entries: `main`, `module`, `bin`, `exports`, and
+ * every word of its `scripts` (`tsx src/db-verify.ts` runs `src/db-verify.ts`). A word that is
+ * not a module of the workspace matches nothing.
+ */
+function manifestEntries(manifest) {
+  const entries = [];
+  const collect = (value) => {
+    if (typeof value === 'string') entries.push(value);
+    else if (value && typeof value === 'object') for (const v of Object.values(value)) collect(v);
+  };
+  collect(manifest.main);
+  collect(manifest.module);
+  collect(manifest.bin);
+  collect(manifest.exports);
+  for (const script of Object.values(manifest.scripts ?? {}))
+    if (typeof script === 'string') entries.push(...script.split(/[\s;&|]+/).filter(Boolean));
+  return entries;
 }
 
-export function runCheck(root) {
-  const findings = manifestFindings(root);
-  for (const group of APPLICATION_GROUPS) {
-    let path;
+/**
+ * Reads the workspace through the compiler: every project's modules, with their imports
+ * resolved, and the test entries `vitest.config.ts` declares.
+ */
+function readWorkspace(root) {
+  const configs = projectConfigs(root);
+  const vitestConfig = join(root, VITEST_CONFIG);
+  const api = new API({ cwd: root });
+  try {
+    const snapshot = api.updateSnapshot({
+      openProjects: configs,
+      openFiles: existsSync(vitestConfig) ? [vitestConfig] : [],
+    });
+    const projects = configs.map((config) => snapshot.getProject(config)).filter(Boolean);
+    const inRoot = (path) =>
+      path.startsWith(root + sep) && !path.includes(`${sep}node_modules${sep}`);
+    // Every file some project compiles (or reads): what the coverage check compares against.
+    const compiled = new Set();
+    // Each checked module's owning project: the one whose own files include it.
+    const owner = new Map();
+    for (const project of projects)
+      for (const file of project.rootFiles) if (!owner.has(file)) owner.set(file, project);
+    for (const project of projects)
+      for (const file of project.program.getSourceFileNames()) {
+        if (!inRoot(file)) continue;
+        compiled.add(file);
+        if (!isDeclarationFile(file) && !owner.has(file)) owner.set(file, project);
+      }
+    const modules = new Map();
+    for (const [file, project] of owner) {
+      if (isDeclarationFile(file) || !inRoot(file)) continue;
+      const sourceFile = project.program.getSourceFile(file);
+      if (!sourceFile) continue;
+      modules.set(file, {
+        file,
+        project,
+        sourceFile,
+        ...readModule(sourceFile),
+        imports: new Set(),
+      });
+    }
+    // Resolve every literal specifier and every `require`, one compiler call per project.
+    const byProject = new Map();
+    for (const module of modules.values()) {
+      if (!byProject.has(module.project)) byProject.set(module.project, []);
+      byProject.get(module.project).push(module);
+    }
+    for (const [project, members] of byProject) {
+      const specifiers = members.flatMap((m) => m.references.map((r) => [m, r]));
+      const symbols = project.checker.getSymbolAtLocation(specifiers.map(([, r]) => r.node));
+      specifiers.forEach(([module, ref], index) => {
+        const target = symbols[index]?.declarations?.[0]?.path;
+        if (target !== undefined && modules.has(target)) {
+          ref.target = target;
+          module.imports.add(target);
+        }
+      });
+      const requires = members.flatMap((m) => m.requires.map((node) => [m, node]));
+      if (requires.length === 0) continue;
+      const declared = project.checker.getSymbolAtLocation(requires.map(([, node]) => node));
+      requires.forEach(([module, node], index) => {
+        const declaration = declared[index]?.declarations?.[0]?.path;
+        // A `require` this workspace declares is a local function, not Node's loader.
+        if (declaration !== undefined && inRoot(declaration) && !isDeclarationFile(declaration))
+          return;
+        const call = node.parent;
+        if (call?.kind === SyntaxKind.CallExpression && call.expression === node) {
+          if (isLiteral(call.arguments[0]))
+            module.references.push({ specifier: call.arguments[0].text, node: call.arguments[0] });
+          else module.loads.push({ node, what: 'require()' });
+        } else module.loads.push({ node, what: 'require' });
+      });
+    }
+    let tests = [];
+    if (existsSync(vitestConfig)) {
+      const project = snapshot.getDefaultProjectForFile(vitestConfig);
+      const sourceFile = project?.program.getSourceFile(vitestConfig);
+      if (sourceFile) tests = vitestEntries(sourceFile);
+    }
+    return { projects, modules, compiled, tests };
+  } finally {
+    api.close();
+  }
+}
+
+/**
+ * Which modules are production: everything reached on the import graph from a production
+ * entry. An entry is a package's manifest entry, or a module that is not a test and that no
+ * module imports (an application entry, a launcher's target, or dead code). What only tests and
+ * vitest's setup modules reach is test support.
+ */
+function productionModules(root, projects, modules, tests) {
+  const testFiles = new Set(
+    [...modules.keys()].filter((file) => isTestEntry(posix(relative(root, file)), tests)),
+  );
+  const imported = new Set();
+  for (const module of modules.values()) for (const target of module.imports) imported.add(target);
+  const entries = [...modules.keys()].filter((file) => !imported.has(file) && !testFiles.has(file));
+  for (const directory of packageDirectories(root)) {
+    let manifest;
     try {
-      path = join(root, group);
-      readdirSync(path);
+      manifest = JSON.parse(readFileSync(join(root, directory, 'package.json'), 'utf8'));
     } catch {
       continue;
     }
-    for (const file of walk(path)) {
-      const relativePath = relative(root, file).split('\\').join('/');
-      const source = readFileSync(file, 'utf8');
-      findings.push(
-        ...sourceFindings(relativePath, source),
-        ...proseFindings(relativePath, source),
-      );
+    for (const entry of manifestEntries(manifest)) {
+      const path = resolve(root, directory, entry);
+      const candidates = [path];
+      // A manifest names the build output; its module is the source the project compiles.
+      for (const { outDir, rootDir } of projects.map((project) => project.compilerOptions)) {
+        if (!outDir || !rootDir || !path.startsWith(outDir + sep)) continue;
+        const source = join(rootDir, relative(outDir, path));
+        for (const extension of ['.ts', '.tsx', '.mts', '.cts'])
+          candidates.push(source.replace(/\.[cm]?js$/, extension));
+      }
+      for (const candidate of candidates) if (modules.has(candidate)) entries.push(candidate);
     }
   }
+  const production = new Set();
+  const pending = [...entries];
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (production.has(file)) continue;
+    production.add(file);
+    for (const target of modules.get(file).imports) pending.push(target);
+  }
+  return {
+    production,
+    tests: testFiles,
+  };
+}
+
+/** Source files under `apps/` and `packages/` that no project compiles. */
+function uncompiledFindings(root, compiled, outputs) {
+  const findings = [];
+  // A package's build output (tsc's `outDir`, vite's default `dist`) is not source.
+  const skipped = new Set([
+    ...outputs,
+    ...packageDirectories(root).map((directory) => join(root, directory, 'dist')),
+  ]);
+  const walk = (directory) => {
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules' && !skipped.has(path)) walk(path);
+      } else if (
+        SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension)) &&
+        !compiled.has(path)
+      )
+        findings.push(
+          `${posix(relative(root, path))}: compiled by no TypeScript project, so this check cannot read it`,
+        );
+    }
+  };
+  for (const group of APPLICATION_GROUPS) walk(join(root, group));
   return findings;
+}
+
+function packageOf(root, module) {
+  return posix(relative(root, dirname(module.project.configFileName)));
+}
+
+/** One module's findings under rules 1-5. */
+function moduleFindings(root, module, production, modules) {
+  const findings = [];
+  const path = posix(relative(root, module.file));
+  const { sourceFile } = module;
+  if (sourceFile.text.includes('\0')) return [`${path}: contains a NUL byte`];
+  const owningPackage = packageOf(root, module);
+  const authority = PROCESS_AUTHORITY.has(path);
+  for (const { specifier, target } of module.references) {
+    if (isForbiddenName(specifier)) findings.push(`${path}: forbidden import "${specifier}"`);
+    if (!production) continue;
+    if (isForbiddenCapability(specifier) && !(authority && /child_process$/i.test(specifier)))
+      findings.push(
+        `${path}: capability import "${specifier}" is permitted only in a listed process authority`,
+      );
+    const targetPackage = target === undefined ? undefined : packageOf(root, modules.get(target));
+    const targetPath = target === undefined ? undefined : posix(relative(root, target));
+    if (owningPackage === 'packages/planning') {
+      if (PLANNING_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier)))
+        findings.push(`${path}: planning package imports impure module "${specifier}"`);
+      else if (targetPackage !== undefined && !PLANNING_MAY_IMPORT.has(targetPackage))
+        findings.push(`${path}: planning package imports "${targetPath}" from ${targetPackage}`);
+    }
+    if (owningPackage === 'packages/domain') {
+      if (
+        !specifier.startsWith('.') &&
+        DOMAIN_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier))
+      )
+        findings.push(`${path}: domain package imports external module "${specifier}"`);
+      else if (targetPackage !== undefined && targetPackage !== 'packages/domain')
+        findings.push(`${path}: domain package imports "${targetPath}" from ${targetPackage}`);
+    }
+  }
+  if (!production) return findings;
+  if (!authority)
+    for (const { node, what } of module.loads)
+      findings.push(
+        `${path}:${lineOf(sourceFile, node)}: loads a module by a name it computes (${what}); only a listed process authority may`,
+      );
+  if (PROSE_PACKAGES.has(owningPackage) && path !== PROSE_LEGACY_MAPPING) {
+    const lines = new Set(proseBranches(sourceFile).map((node) => lineOf(sourceFile, node)));
+    for (const line of [...lines].sort((a, b) => a - b))
+      findings.push(`${path}:${line}: branches on human-readable text; use a typed code`);
+  }
+  return findings;
+}
+
+/**
+ * Checks a workspace. Returns the findings, and how each module was classified (its path from
+ * the root mapped to `production`, `test` or `test-support`) so tests can see what was read.
+ */
+export function inspectWorkspace(root) {
+  const absoluteRoot = realpathSync(resolve(root));
+  const findings = manifestFindings(absoluteRoot);
+  const { projects, modules, compiled, tests } = readWorkspace(absoluteRoot);
+  const classified = productionModules(absoluteRoot, projects, modules, tests);
+  const classes = new Map();
+  for (const module of modules.values()) {
+    const production = classified.production.has(module.file);
+    classes.set(
+      posix(relative(absoluteRoot, module.file)),
+      production ? 'production' : classified.tests.has(module.file) ? 'test' : 'test-support',
+    );
+    findings.push(...moduleFindings(absoluteRoot, module, production, modules));
+  }
+  const outputs = projects.map((project) => project.compilerOptions.outDir).filter(Boolean);
+  findings.push(...uncompiledFindings(absoluteRoot, compiled, outputs));
+  return { findings, classes };
+}
+
+export function runCheck(root) {
+  return inspectWorkspace(root).findings;
 }
 
 const isMain =
@@ -299,7 +760,7 @@ if (isMain) {
     process.exit(1);
   }
   console.log(
-    'Forbidden-scope check passed: no Exo Stack dependency, process authority confined to',
+    'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
     `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text.`,
   );
 }

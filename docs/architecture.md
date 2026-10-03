@@ -24,7 +24,10 @@ each entry with its reason. The same check keeps `planning` pure and `domain` fr
 imports, forbids Git and vendor-agent libraries elsewhere, and fails any branching on the
 text of a `reason` or `message` in the daemon, the browser app and the `contracts`, `domain`,
 `planning` and `storage` packages. No package depends on ActionQueue, WorldInterface,
-Exoskeleton, or any other supervised project.
+Exoskeleton, or any other supervised project. The check reads what the TypeScript projects
+compile, through the compiler: their files, syntax trees and resolved imports. Tests are what
+`vitest.config.ts` runs, test support is what only tests import, and everything else is
+production, whatever its name.
 
 ## Persisted records and migrations
 

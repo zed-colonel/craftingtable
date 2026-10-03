@@ -30,6 +30,7 @@ import {
   present,
   runDetail,
   stagedInput,
+  stagedKind,
   stagedLedger,
   stagedText,
   stageIdea,
@@ -707,6 +708,80 @@ describe('staged finalization', () => {
     expect(promoted.statusCode, promoted.body).toBe(200);
     expect(readFileSync(join(root, 'simplified.txt'), 'utf8')).toContain('selected S-1');
   });
+
+  // The promotion command re-checks the staged ledger and the completion policy itself, so a
+  // stage-controller regression that leaves an unmet obligation, or an open finding the ledger
+  // no longer parks, at awaiting-merge cannot promote (TS-M2, ADR-033).
+  it.each(['current', 'unmet obligation', 'unparked open finding'] as const)(
+    'promotes a staged finalization only while its ledger and completion policy hold (%s)',
+    async (ledger) => {
+      const fixture = await finalizationFixture();
+      const { state, backend, root } = fixture;
+      const ws = state.workspaceId;
+      // The final review leaves one optional polish nit open; the ledger parks it as follow-up.
+      const parkedNit = { ...stageIdea, id: 'P-1', category: 'polish', severity: 'nit' };
+      backend.replyForRequest = (request) =>
+        implementsFinalization(request)
+          ? committed
+          : {
+              resultText: stagedText(
+                request,
+                stagedKind(request) === 'final-review' ? [parkedNit] : [],
+              ),
+            };
+      const value = await beginFinalization(fixture);
+      await waitFor(
+        () => finalizationCycle(state, value).status === 'awaiting-merge',
+        'final review',
+      );
+      const cycle = finalizationCycle(state, value);
+      const progress = present(cycle.finalizationProgress);
+      expect(progress.followUps.map((f) => f.id)).toEqual(['P-1']);
+      expect(progress.obligations.length).toBeGreaterThan(0);
+      const baseline = present(
+        state.context.storage.execution.runs.find(ws, cycle.currentRunId)?.reviewBranchContext,
+      );
+      if (ledger !== 'current')
+        state.context.storage.execution.cycles.replace(
+          {
+            ...cycle,
+            version: cycle.version + 1,
+            finalizationProgress:
+              ledger === 'unmet obligation'
+                ? {
+                    ...progress,
+                    obligations: progress.obligations.map((o, i) =>
+                      i ? o : { ...o, status: 'gap' as const },
+                    ),
+                  }
+                : { ...progress, followUps: [] },
+          },
+          cycle.version,
+        );
+      const main = git(['rev-parse', 'main'], root);
+      const promoted = await finalizationCommand(state, value, 'merge', {
+        expectedHeadSha: baseline.headSha,
+        expectedTargetSha: baseline.targetSha,
+      });
+      if (ledger === 'current') {
+        expect(promoted.statusCode, promoted.body).toBe(200);
+        expect(git(['rev-parse', 'main'], root)).not.toBe(main);
+        return;
+      }
+      expect(promoted.statusCode, promoted.body).toBe(409);
+      expect(promoted.json()).toEqual({
+        error: {
+          code: 'conflict',
+          message:
+            ledger === 'unmet obligation'
+              ? 'Every adopted obligation needs current final-review evidence.'
+              : 'The current final review does not meet the completion policy.',
+        },
+      });
+      expect(git(['rev-parse', 'main'], root)).toBe(main);
+      expect(state.context.storage.execution.merges.latest(ws, cycle.worktreeId)).toBeUndefined();
+    },
+  );
 
   it('reopens correctness for a later nit regression and retains that stage’s spent budget', async () => {
     const alternate = new CycleBackend([], 'codex');

@@ -22,7 +22,7 @@ import type {
   StorageRootIdentity,
   StoredStorageSettings,
 } from '@craftingtable/storage';
-import type { ExecutionConfig, ServerConfig } from '../config.js';
+import { DATABASE_BACKUP_DIRECTORY, type ExecutionConfig, type ServerConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError, ForbiddenError } from './errors.js';
 import { type StorageAlert, StorageAlertGate } from './storage-alerts.js';
@@ -52,7 +52,7 @@ export function initialStorageSettings(
   const policy: StoragePolicy = {
     worktreeRoot: config.execution.worktreeRoot,
     runsRoot: config.execution.runsRoot,
-    backupRoot: join(config.dataDir, 'backups'),
+    backupRoot: join(config.dataDir, DATABASE_BACKUP_DIRECTORY),
     autoCleanBuildCaches: true,
     scratchRetentionDays: 30,
     minimumFreeGiB: 5,

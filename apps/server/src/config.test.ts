@@ -1,8 +1,20 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { configFromEnv, retiredSettings } from './config.js';
+
+// The account's entry in the user database, which a test may replace (TS-H3).
+const account = vi.hoisted(() => ({
+  replace: undefined as undefined | (() => { readonly homedir: string }),
+}));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, userInfo: () => (account.replace ?? actual.userInfo)() };
+});
+afterEach(() => {
+  account.replace = undefined;
+});
 
 describe('configFromEnv', () => {
   it('defaults to loopback, XDG storage, and a 30-day session', () => {
@@ -116,53 +128,75 @@ describe('configFromEnv', () => {
   it("refuses an agents' temporary root that holds the database or files of the operator's (TS-H3, R-G5)", () => {
     const data = '/srv/ct/data';
     const home = '/home/someone';
-    const root = (value: string) =>
+    const root = (value: string, env: Record<string, string> = {}) =>
       configFromEnv({
         CRAFTINGTABLE_DATA_DIR: data,
         HOME: home,
-        XDG_RUNTIME_DIR: '/run/user/1234',
-        TMPDIR: '/scratch/tmp',
         CRAFTINGTABLE_AGENT_TMP_ROOT: value,
+        ...env,
       }).execution.agentTemporaryRoot;
-    // At or above the system's shared and runtime temporary directories, the process's TMPDIR,
-    // a home, or the file system.
-    for (const refused of [
-      '/',
-      '/tmp',
-      '/var/tmp',
-      '/var',
-      '/dev/shm',
-      '/run',
-      '/run/user',
-      '/run/user/1234',
-      '/scratch/tmp',
-      '/scratch',
-      home,
-      '/home',
-      homedir(),
-    ])
-      expect(() => root(refused), refused).toThrow(/directory of its own/);
+    // At or above the system's shared and runtime temporary directories, a home, or the file
+    // system: each named by the entry that refuses it.
+    for (const [refused, shared] of [
+      ['/', '/'],
+      ['/tmp', '/tmp'],
+      ['/var', '/var/tmp'],
+      ['/var/tmp', '/var/tmp'],
+      ['/dev', '/dev/shm'],
+      ['/dev/shm', '/dev/shm'],
+      ['/run', '/run'],
+      ['/home', home],
+      [home, home],
+    ] as [string, string][])
+      expect(() => root(refused), refused).toThrow(`not ${shared} or a directory above it`);
+    // The process's runtime directory and TMPDIR, wherever they are.
+    const env = { XDG_RUNTIME_DIR: '/srv/runtime/1234', TMPDIR: '/scratch/tmp' };
+    for (const refused of ['/srv/runtime/1234', '/srv/runtime', '/scratch/tmp', '/scratch'])
+      expect(() => root(refused, env), refused).toThrow(/directory of its own/);
     // The database's directory, at, above or inside it, and the data directory.
     for (const refused of [`${data}/state`, `${data}/state/t`, data, '/srv'])
       expect(() => root(refused), refused).toThrow(
         /AGENT_TMP_ROOT must lie outside the database's directory/,
       );
+    // The database backups' default directory, with the daemon's other roots.
+    for (const refused of [`${data}/backups`, `${data}/backups/t`])
+      expect(() => root(refused), refused).toThrow(/outside the daemon's other roots/);
     // A directory of its own stays allowed, beneath a home or /tmp included: the default
     // `<data>/t` is under the home, and the e2e daemon's is `/tmp/cte-…`.
     for (const accepted of [
       `${data}/t`,
       '/tmp/cte-x',
       '/var/tmp/ct',
-      '/run/user/1234/ct',
-      '/scratch/tmp/ct',
+      '/dev/shm/ct',
+      '/run/ct',
       `${home}/x`,
-      `${homedir()}/x`,
     ])
       expect(root(accepted)).toBe(accepted);
+    for (const accepted of ['/srv/runtime/1234/ct', '/scratch/tmp/ct'])
+      expect(root(accepted, env)).toBe(accepted);
     expect(
       configFromEnv({ HOME: home, CRAFTINGTABLE_DATA_DIR: `${home}/.local/share/craftingtable` })
         .execution.agentTemporaryRoot,
     ).toBe(`${home}/.local/share/craftingtable/t`);
+  });
+
+  it("refuses the account's own home whatever HOME says, and starts without one (TS-H3, R-G5)", () => {
+    const env = { CRAFTINGTABLE_DATA_DIR: '/srv/ct/data', HOME: '/home/elsewhere' };
+    account.replace = () => ({ homedir: '/home/account' });
+    expect(() => configFromEnv({ ...env, CRAFTINGTABLE_AGENT_TMP_ROOT: '/home/account' })).toThrow(
+      'not /home/account or a directory above it',
+    );
+    // No entry in the user database (a container's arbitrary user): HOME still counts.
+    account.replace = () => {
+      throw new Error('uv_os_get_passwd returned ENOENT (no such file or directory)');
+    };
+    expect(
+      configFromEnv({ ...env, CRAFTINGTABLE_AGENT_TMP_ROOT: '/home/account' }).execution
+        .agentTemporaryRoot,
+    ).toBe('/home/account');
+    expect(() =>
+      configFromEnv({ ...env, CRAFTINGTABLE_AGENT_TMP_ROOT: '/home/elsewhere' }),
+    ).toThrow(/directory of its own/);
   });
 
   it("compares an agents' temporary root through links where its path exists (TS-H3, R-G5)", () => {
@@ -174,9 +208,12 @@ describe('configFromEnv', () => {
       symlinkSync(join(data, 'state'), join(base, 'state-link'));
       symlinkSync(data, join(base, 'data-link'));
       symlinkSync('/tmp', join(base, 'tmp-link'));
-      const root = (value: string, dataDir = data) =>
-        configFromEnv({ CRAFTINGTABLE_DATA_DIR: dataDir, CRAFTINGTABLE_AGENT_TMP_ROOT: value })
-          .execution.agentTemporaryRoot;
+      const root = (value: string, dataDir = data, env: Record<string, string> = {}) =>
+        configFromEnv({
+          CRAFTINGTABLE_DATA_DIR: dataDir,
+          CRAFTINGTABLE_AGENT_TMP_ROOT: value,
+          ...env,
+        }).execution.agentTemporaryRoot;
       for (const refused of [join(base, 'state-link'), join(base, 'state-link', 'not-yet')])
         expect(() => root(refused), refused).toThrow(/database's directory/);
       // The data directory named through a link, the root by its real path.
@@ -184,14 +221,46 @@ describe('configFromEnv', () => {
         /database's directory/,
       );
       expect(() => root(join(base, 'tmp-link'))).toThrow(/directory of its own/);
-      // A link to a directory of its own is that directory.
+      // A link that names nothing yet is followed to where it points.
+      symlinkSync(join(data, 'state', 'later'), join(base, 'dangling-link'));
+      expect(() => root(join(base, 'dangling-link'))).toThrow(/database's directory/);
+      // Named inside the database's directory, it is refused whatever the link reaches.
       mkdirSync(join(base, 'agents'));
+      symlinkSync(join(base, 'agents'), join(data, 'state', 'agents-link'));
+      expect(() => root(join(data, 'state', 'agents-link'))).toThrow(/database's directory/);
+      // The daemon's other roots are compared through links too.
+      mkdirSync(join(base, 'runs'));
+      symlinkSync(join(base, 'runs'), join(base, 'runs-link'));
+      expect(() =>
+        root(join(base, 'runs-link'), data, { CRAFTINGTABLE_RUNS_ROOT: join(base, 'runs') }),
+      ).toThrow(/outside the daemon's other roots/);
+      // A link to a directory of its own is that directory.
       symlinkSync(join(base, 'agents'), join(base, 'agents-link'));
       expect(root(join(base, 'agents-link'))).toBe(join(base, 'agents-link'));
-      // A path whose links cannot be read is refused, not passed unseen.
+      // A root whose links cannot be read, or that loops, is refused, not passed unseen.
       mkdirSync(join(base, 'locked', 'inner'), { recursive: true });
       chmodSync(join(base, 'locked'), 0o000);
-      expect(() => root(join(base, 'locked', 'inner', 't'))).toThrow(/could not be resolved/);
+      expect(() => root(join(base, 'locked', 'inner', 't'))).toThrow(
+        /CRAFTINGTABLE_AGENT_TMP_ROOT .* could not be resolved: EACCES/,
+      );
+      symlinkSync(join(base, 'loop-b'), join(base, 'loop-a'));
+      symlinkSync(join(base, 'loop-a'), join(base, 'loop-b'));
+      expect(() => root(join(base, 'loop-a', 't'))).toThrow(/could not be resolved: ELOOP/);
+      // An unreadable HOME or TMPDIR, or one that loops, is no reason to refuse the start: it
+      // is compared as far as it can be read.
+      for (const unreadable of [
+        { HOME: join(base, 'locked', 'inner', 'home') },
+        { TMPDIR: join(base, 'locked', 'inner', 'tmp') },
+        { TMPDIR: join(base, 'loop-a', 'tmp') },
+        { XDG_RUNTIME_DIR: join(base, 'loop-b') },
+      ] as Record<string, string>[])
+        expect(root(join(base, 'agents'), data, unreadable), JSON.stringify(unreadable)).toBe(
+          join(base, 'agents'),
+        );
+      // And it is still refused as a root, or above one.
+      expect(() =>
+        root(join(base, 'locked'), data, { HOME: join(base, 'locked', 'inner', 'home') }),
+      ).toThrow(/directory of its own/);
     } finally {
       if (existsSync(join(base, 'locked'))) chmodSync(join(base, 'locked'), 0o700);
       rmSync(base, { recursive: true, force: true });

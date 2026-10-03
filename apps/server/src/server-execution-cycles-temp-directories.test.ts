@@ -107,6 +107,9 @@ it("sweeps only run directories from the agents' temporary root at a start, and 
     mkdirSync(name);
     writeFileSync(join(name, 'kept'), 'x');
   }
+  // More than the warning names: it counts them all and names the first 20.
+  const others = Array.from({ length: 15 }, (_, index) => join(root, `other-${index}`));
+  for (const other of others) writeFileSync(other, 'x');
   const warnings: { message: string; detail?: Readonly<Record<string, unknown>> }[] = [];
   const context = await createTestContext({
     env: { CRAFTINGTABLE_AGENT_TMP_ROOT: root },
@@ -126,14 +129,18 @@ it("sweeps only run directories from the agents' temporary root at a start, and 
     expect(existsSync(join(target, 'kept'))).toBe(true);
     for (const name of [kept.upper, kept.long, kept.short])
       expect(existsSync(join(name, 'kept'))).toBe(true);
+    for (const other of others) expect(existsSync(other), other).toBe(true);
     // One warning for everything left, naming it.
     expect(warnings).toEqual([
       {
         message: expect.stringContaining('not run directories'),
         detail: {
           root,
-          count: 8,
-          entries: ['target', ...Object.values(kept)].map((path) => basename(path)).sort(),
+          count: 23,
+          entries: ['target', ...Object.values(kept), ...others]
+            .map((path) => basename(path))
+            .sort()
+            .slice(0, 20),
         },
       },
     ]);

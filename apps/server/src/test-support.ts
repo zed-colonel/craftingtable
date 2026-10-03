@@ -74,7 +74,7 @@ export async function createTestContext(
       AgentBackend
     >;
     readonly env?: Readonly<Record<string, string>>;
-    /** Where the agent run service's warnings go; nowhere by default. */
+    /** Where the agent run and check request services' warnings go; nowhere by default. */
     readonly runLog?: RunLog;
     /** False leaves the controller loops stopped so the test steps them itself. */
     readonly workers?: boolean;

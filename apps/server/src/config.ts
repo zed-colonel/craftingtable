@@ -1,5 +1,5 @@
-import { existsSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
+import { homedir, userInfo } from 'node:os';
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -53,7 +53,8 @@ export interface ExecutionConfig {
    * directory's path is long (each run's is this plus 13 bytes, and must be at most 60).
    * A start removes the run directories it holds (12 hex characters), and nothing else; it may
    * not be `/`, `/tmp`, `/var/tmp`, `/dev/shm`, `/run`, `XDG_RUNTIME_DIR`, `TMPDIR` or a home,
-   * nor above one, nor overlap the database's directory or another of the daemon's roots (TS-H3).
+   * nor above one, nor overlap the database's directory, the default backup directory or another
+   * of the daemon's roots (TS-H3).
    */
   readonly agentTemporaryRoot: string;
 }
@@ -91,6 +92,8 @@ export const CSRF_HEADER_NAME = 'x-craftingtable-csrf';
 
 /** The data directory's subdirectory holding the database and its pre-migration copies. */
 const DATABASE_DIRECTORY = 'state';
+/** The data directory's subdirectory the storage policy keeps database backups in by default. */
+export const DATABASE_BACKUP_DIRECTORY = 'backups';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const HOSTNAME_PATTERN =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
@@ -139,29 +142,52 @@ function pathsOverlap(left: string, right: string): boolean {
   return equalOrWithin(left, right) || equalOrWithin(right, left);
 }
 
-/** A path as written, and with the links of its existing part resolved (TS-H3). */
+/** A path as written, and with its links resolved as far as it exists (TS-H3). */
 interface ComparedPath {
   readonly written: string;
   readonly resolved: string;
 }
 
+/** How many links one path may pass through, as the kernel allows (`MAXSYMLINKS`). */
+const LINK_HOPS = 40;
+
 /**
- * `path` with the links of its deepest existing part resolved, and the rest as written. A part
- * that cannot be resolved for any reason but its absence refuses the configuration, rather than
- * passing a link unseen.
+ * `path` with the links of its deepest existing part resolved, a dangling link followed to what
+ * it names, and the rest as written. For the agents' root itself (`variable` named), a part that
+ * cannot be resolved for any reason but its absence refuses the configuration rather than
+ * passing a link unseen. For a path it is compared with, such a part counts as missing, so an
+ * unreadable HOME or TMPDIR never stops the daemon starting.
  */
-function comparedPath(path: string): ComparedPath {
+function comparedPath(path: string, variable?: string): ComparedPath {
+  return { written: path, resolved: resolvedPath(path, variable, 0) };
+}
+
+function resolvedPath(path: string, variable: string | undefined, hops: number): string {
   const rest: string[] = [];
   for (let existing = path; ; existing = dirname(existing)) {
     try {
-      return { written: path, resolved: join(realpathSync(existing), ...rest) };
+      return join(realpathSync(existing), ...rest);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'ENOTDIR')
-        throw new Error(`${existing} could not be resolved to check the daemon's roots: ${code}`);
-      if (dirname(existing) === existing) return { written: path, resolved: path };
+      const link = code === 'ENOENT' ? danglingLinkTarget(existing) : undefined;
+      if (link !== undefined && hops < LINK_HOPS)
+        return resolvedPath(join(resolve(dirname(existing), link), ...rest), variable, hops + 1);
+      const unresolvable =
+        link !== undefined ? 'ELOOP' : code === 'ENOENT' || code === 'ENOTDIR' ? undefined : code;
+      if (variable !== undefined && unresolvable !== undefined)
+        throw new Error(`${variable} ${path} could not be resolved: ${unresolvable}`);
+      if (dirname(existing) === existing) return path;
       rest.unshift(basename(existing));
     }
+  }
+}
+
+/** What a link names, if `path` is a link (one that resolves nowhere, as `realpath` found). */
+function danglingLinkTarget(path: string): string | undefined {
+  try {
+    return lstatSync(path).isSymbolicLink() ? readlinkSync(path) : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -177,12 +203,12 @@ function overlapCompared(left: ComparedPath, right: ComparedPath): boolean {
   return equalOrWithinCompared(left, right) || equalOrWithinCompared(right, left);
 }
 
-/** The account's home directory, if the system names one. */
-function systemHome(): string | undefined {
+/** The account's home in the user database, whatever HOME says, if it has an entry. */
+function accountHome(): string | undefined {
   try {
-    return homedir();
+    return userInfo().homedir;
   } catch {
-    // No passwd entry and no HOME (a container's arbitrary user): nothing to protect here.
+    // No passwd entry (a container's arbitrary user): nothing more to protect.
     return undefined;
   }
 }
@@ -190,10 +216,10 @@ function systemHome(): string | undefined {
 /**
  * Directories other files share, which an agents' temporary root may lie inside but never be
  * nor contain (TS-H3): the file system's root, the shared and runtime temporary directories,
- * the process's TMPDIR, and the homes.
+ * the process's TMPDIR, HOME and the account's home.
  */
 function sharedDirectories(env: NodeJS.ProcessEnv): string[] {
-  const named = [env.HOME, systemHome(), env.XDG_RUNTIME_DIR, env.TMPDIR].filter(
+  const named = [env.HOME, accountHome(), env.XDG_RUNTIME_DIR, env.TMPDIR].filter(
     (path): path is string => path !== undefined && isAbsolute(path),
   );
   return [
@@ -277,7 +303,7 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
     throw new Error('CRAFTINGTABLE_AGENT_TMP_ROOT must be a normalized absolute path');
   // A start sweeps the run directories it holds (LIVE-31): it may share nothing it could
   // mistake for one, nor what it could reach through a mistake (TS-H3).
-  const agentRoot = comparedPath(agentTemporaryRoot);
+  const agentRoot = comparedPath(agentTemporaryRoot, 'CRAFTINGTABLE_AGENT_TMP_ROOT');
   for (const shared of sharedDirectories(env))
     if (equalOrWithinCompared(comparedPath(shared), agentRoot))
       throw new Error(
@@ -289,9 +315,13 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
       `CRAFTINGTABLE_AGENT_TMP_ROOT must lie outside the database's directory ${databaseDirectory}`,
     );
   if (
-    [runsRoot, worktreeRoot, checkLogRoot, cargoHome].some((root) =>
-      overlapCompared(agentRoot, comparedPath(root)),
-    )
+    [
+      runsRoot,
+      worktreeRoot,
+      checkLogRoot,
+      cargoHome,
+      join(dataDir, DATABASE_BACKUP_DIRECTORY),
+    ].some((root) => overlapCompared(agentRoot, comparedPath(root)))
   )
     throw new Error("Agents' temporary directories must lie outside the daemon's other roots");
   const cargoSeedFrom =

@@ -256,14 +256,17 @@ too long, to a directory used for nothing else. The directory goes when its run 
 each start removes what a stopped daemon left: only directories named as a run's (12
 lowercase hex characters, never through a link). Anything else in the root stays, and the
 start logs one warning naming it (TS-H3). The daemon refuses to start with a root that is
-`/`, `/tmp`, `/var/tmp`, `/dev/shm`, `/run`, the daemon's `XDG_RUNTIME_DIR` or `TMPDIR`, or a
-home directory, or a directory above one of them (a directory of its own inside them is fine);
-that is the database's directory `<data>/state`, inside it, or above it (the data directory
-included; other directories inside the data directory, such as the default `<data>/t`, are
-fine); or that overlaps the worktree, runs, check-log or Cargo-home roots. Links are resolved
-for the part of each path that exists, and a path that cannot be resolved (unreadable, a link
-loop) is refused. Two daemons must not share one root: each start sweeps the other's live
-runs' directories.
+`/`, `/tmp`, `/var/tmp`, `/dev/shm`, `/run`, the daemon's `XDG_RUNTIME_DIR` or `TMPDIR`, its
+`HOME`, or the account's home in the user database, or a directory above one of them (a
+directory of its own inside them is fine); that is the database's directory `<data>/state`,
+inside it, or above it (the data directory included; other directories inside the data
+directory, such as the default `<data>/t`, are fine); or that overlaps the worktree, runs,
+check-log or Cargo-home roots or the default backup directory `<data>/backups`. Paths are
+compared as written and through their links, as far as they exist; a link that names nothing
+yet is followed to what it names. A root that cannot be resolved (unreadable, a link loop) is
+refused; a directory it is compared with that cannot be is compared as far as it can be read,
+so an unreadable `HOME` or `TMPDIR` never stops the daemon starting. Two daemons must not share
+one root: each start sweeps the other's live runs' directories.
 
 The daemon runs the checks agents ask for with `ct-check` itself, each in a transient systemd user unit
 (`craftingtable-check-<instance>-<request>.service`) with a read-only file system except the run's own

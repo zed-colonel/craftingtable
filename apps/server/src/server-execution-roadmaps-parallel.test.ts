@@ -189,6 +189,40 @@ describe('parallel roadmaps', () => {
     ).toBe('active');
   });
 
+  // One unmerged worktree per item (LIVE-06/16): with repository capacity to spare, the item
+  // that has a manual worktree waits while an independent item takes the free slot (TS-M10).
+  it('refuses a second worktree for an item that already has one, with repository capacity to spare', async () => {
+    const { state, backend, input, worktree } = await parallelFixture({
+      keepWorktree: true,
+      independentThird: true,
+    });
+    await saveRoadmapRequest(state, input);
+    await roadmapControl(state, 'start');
+    await state.context.services.roadmapService.tick();
+    // The independent item starts: the manual worktree and its attempt fit maxPerRepository 2.
+    expect(storedRoadmap(state).attempts.map((a) => a.entryId)).toEqual([
+      present(input.entries[2]).id,
+    ]);
+    const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]);
+    const status = state.context.services.roadmapService.statusList(
+      auth,
+      state.workspaceId,
+      roadmapId,
+    );
+    expect(status.entries.find((e) => e.entryId === entryIds[0])?.waitsOn).toMatchObject({
+      code: 'capacity-blocked',
+      reason:
+        'AQ-01: This item already has an unmerged worktree. Finish or remove it before delegating another attempt.',
+    });
+    expect(
+      state.context.storage.execution.worktrees
+        .listActive(state.workspaceId)
+        .filter((w) => w.workItemId === state.workItemId)
+        .map((w) => w.id),
+    ).toEqual([worktree.id]);
+    expect(backend.launches.map((r) => r.cwd)).not.toContain(worktree.path);
+  });
+
   it('aborts an integration conflict and pauses only the affected sibling', async () => {
     const { state, backend, input } = await parallelFixture();
     backend.onLaunch = (request) => {

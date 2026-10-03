@@ -3184,6 +3184,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `restart.test.ts` and `composition.test.ts` build their daemons themselves, with `createRuntime` or `createServices`, so they keep the production 5 GiB reserve. That is harmless: they launch no runs.
   - **The production first-boot defaults are pinned (review NIT).** Test daemons now skip the production first-boot branch, so a new test in `composition.test.ts` checks a daemon without the override instead. It must save the production policy, with its 5 GiB reserve, before anything reads it. A reserve of 4 and a dropped first-boot save both fail it.
   - **A swallowed hang (review NIT).** The byte-order-mark test in `check-adoption` caught every error from `runToMergeApproval`, which would have swallowed a hung step. It now catches only the cycle stopping (a `CycleStopped` error) and rethrows anything else.
+  - **After these fixes.** The node project passed: 1,740 passed, 1 skipped, 228 s, load 6.6 → 12.8. One default parallel `pnpm test` passed: 2,087 passed, 1 skipped, 0 failed, 404 s. Its 1-minute load went from 12.6 to 15.0, and its 5-minute load reached 20.4, from ambient load. It peaked at 101 MB of tmpfs, and it left no `craftingtable-*-test-*` or `legacy-finalization-*` directory under `/run/user/1000` or in TMPDIR.
 
 ### R-I3
 

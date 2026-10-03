@@ -6,12 +6,11 @@ import type { GitOperations } from '@craftingtable/git';
 import type { FastifyInstance } from 'fastify';
 import { inject } from 'vitest';
 import { copyMigratedTemplate } from '../../../packages/storage/test/test-support.js';
-import { createServices, type ServiceSet } from '../src/composition.js';
+import { type CraftingTableRuntime, createDaemon, type ServiceSet } from '../src/composition.js';
 import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from '../src/config.js';
 import { groupedIssues } from '../src/db-verify.js';
 import { openDaemonStorage, verified, verifyRecords } from '../src/persisted-records.js';
 import type { PasswordHasher } from '../src/security/password-hasher.js';
-import { buildServer } from '../src/server.js';
 import type { NotificationTransport } from '../src/services/notification-transport.js';
 import type { RunLog } from '../src/services/agent-run-service.js';
 import type { WorkspaceEventStreamHooks } from '../src/services/workspace-event-stream-service.js';
@@ -105,54 +104,43 @@ export async function createTestContext(
     rmSync(directory, { recursive: true, force: true });
     throw error;
   }
-  seedTestDaemonStorage(storage, config);
-  const services = await createServices(storage, config, {
-    notificationTransport: options.notificationTransport ?? {
-      send: async () => ({ status: 'accepted' }),
-    },
-    passwordHasher: options.passwordHasher ?? new FastTestPasswordHasher(),
-    ...(options.now === undefined ? {} : { now: options.now }),
-    ...(options.streamHooks === undefined ? {} : { streamHooks: options.streamHooks }),
-    // Tests never reach the real Git or Claude executables unless they opt in.
-    gitOperations: options.gitOperations === undefined ? null : options.gitOperations,
-    agentBackends: options.agentBackends ?? new Map(),
-    ...(options.runLog === undefined ? {} : { runLog: options.runLog }),
-  });
-  const app = buildServer(
-    {
-      crossProjectService: services.crossProjectService,
-      mapAmendmentService: services.mapAmendmentService,
-      runtimeEvidenceService: services.runtimeEvidenceService,
-      repositoryChecksService: services.repositoryChecksService,
-      packageImportService: services.packageImportService,
-      storageService: services.storageService,
-      hostSchedulingService: services.hostSchedulingService,
-      operatorWaitService: services.operatorWaitService,
-      attentionService: services.attentionService,
-      authService: services.authService,
-      workspaceService: services.workspaceService,
-      planImportService: services.planImportService,
-      planningQueryService: services.planningQueryService,
-      workItemService: services.workItemService,
-      workspaceEventStreamService: services.workspaceEventStreamService,
-      executionService: services.executionService,
-      agentRunService: services.agentRunService,
-      workCycleService: services.workCycleService,
-      finalizationService: services.finalizationService,
-      notificationService: services.notificationService,
-      roadmapService: services.roadmapService,
-      runEventStreamService: services.runEventStreamService,
-      executionStatus: services.executionStatus,
-      daemonDrain: services.daemonDrain,
-    },
-    config,
-    {
-      ...(options.loggerStream === undefined
-        ? { logger: false }
-        : { logger: true, loggerStream: options.loggerStream }),
-      ...(options.workers === false ? { startWorkers: false } : {}),
-    },
-  );
+  // What the record checks found once the daemon stopped, before its storage closed.
+  let untyped: string[] = [];
+  let unverified: string[] = [];
+  let daemon: CraftingTableRuntime;
+  try {
+    seedTestDaemonStorage(storage, config);
+    // The daemon production runs, and its close (TS-M14): only the services' seams differ.
+    daemon = await createDaemon(storage, config, {
+      overrides: {
+        notificationTransport: options.notificationTransport ?? {
+          send: async () => ({ status: 'accepted' }),
+        },
+        passwordHasher: options.passwordHasher ?? new FastTestPasswordHasher(),
+        ...(options.now === undefined ? {} : { now: options.now }),
+        ...(options.streamHooks === undefined ? {} : { streamHooks: options.streamHooks }),
+        // Tests never reach the real Git or Claude executables unless they opt in.
+        gitOperations: options.gitOperations === undefined ? null : options.gitOperations,
+        agentBackends: options.agentBackends ?? new Map(),
+        ...(options.runLog === undefined ? {} : { runLog: options.runLog }),
+      },
+      server: {
+        ...(options.loggerStream === undefined
+          ? { logger: false }
+          : { logger: true, loggerStream: options.loggerStream }),
+        ...(options.workers === false ? { startWorkers: false } : {}),
+      },
+      beforeStorageCloses: () => {
+        untyped = untypedStops(storage);
+        unverified = options.verifyRecords === false ? [] : unverifiedRecords(storage);
+      },
+    });
+  } catch (error) {
+    storage.close();
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+  const { app, services } = daemon;
   let closed = false;
   return {
     directory,
@@ -191,18 +179,18 @@ export async function createTestContext(
         return;
       }
       closed = true;
-      await app.close();
-      // As the daemon's own close does: a check still running would otherwise write its log
-      // into the data directory after it is removed, and leave it behind (TS-M14, TS-H8).
-      await services.checkRequestService.closeAll();
-      const untyped = untypedStops(storage);
-      const unverified = options.verifyRecords === false ? [] : unverifiedRecords(storage);
-      storage.close();
+      // The daemon's own close: a check still running would otherwise write its log into the
+      // data directory after it is removed, and leave it behind (TS-M14, TS-H8). The directory
+      // goes whatever the close or the record checks found (ARCH F8d).
+      try {
+        await daemon.close();
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
       if (untyped.length)
         throw new Error(`Stops written without typed attention (R-A3): ${untyped.join('; ')}`);
       if (unverified.length)
         throw new Error(`Stored records break their contracts (R-H3): ${unverified.join('; ')}`);
-      rmSync(directory, { recursive: true, force: true });
     },
   };
 }

@@ -22,7 +22,7 @@ import type { ServerConfig } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
-import { buildServer } from './server.js';
+import { type BuildServerOptions, buildServer } from './server.js';
 import { AgentRunService, type RunLog } from './services/agent-run-service.js';
 import { AuthService } from './services/auth-service.js';
 import { BaselinePreparationService } from './services/baseline-preparation.js';
@@ -424,6 +424,79 @@ export interface CraftingTableRuntime {
   close(): Promise<void>;
 }
 
+export interface DaemonOptions {
+  readonly overrides?: ServiceOverrides;
+  readonly server?: BuildServerOptions;
+  /**
+   * Runs once the daemon has stopped (its server, workers and checks) and before its storage
+   * closes, whether or not it throws. Test daemons check the records they leave here.
+   */
+  readonly beforeStorageCloses?: () => void;
+}
+
+/**
+ * A daemon over storage it now owns: its services, its server, and the one way it closes. The
+ * production runtime and every test daemon are built here, so a test's teardown is the
+ * daemon's own (TS-M14): stop the server and its workers, wait for running checks, then close
+ * the storage.
+ */
+export async function createDaemon(
+  storage: CraftingTableStorage,
+  config: ServerConfig,
+  options: DaemonOptions = {},
+): Promise<CraftingTableRuntime> {
+  const services = await createServices(storage, config, options.overrides);
+  const app = buildServer(
+    {
+      crossProjectService: services.crossProjectService,
+      mapAmendmentService: services.mapAmendmentService,
+      runtimeEvidenceService: services.runtimeEvidenceService,
+      repositoryChecksService: services.repositoryChecksService,
+      packageImportService: services.packageImportService,
+      storageService: services.storageService,
+      hostSchedulingService: services.hostSchedulingService,
+      operatorWaitService: services.operatorWaitService,
+      attentionService: services.attentionService,
+      authService: services.authService,
+      workspaceService: services.workspaceService,
+      planImportService: services.planImportService,
+      planningQueryService: services.planningQueryService,
+      workItemService: services.workItemService,
+      workspaceEventStreamService: services.workspaceEventStreamService,
+      executionService: services.executionService,
+      agentRunService: services.agentRunService,
+      workCycleService: services.workCycleService,
+      finalizationService: services.finalizationService,
+      notificationService: services.notificationService,
+      roadmapService: services.roadmapService,
+      runEventStreamService: services.runEventStreamService,
+      executionStatus: services.executionStatus,
+      daemonDrain: services.daemonDrain,
+    },
+    config,
+    options.server,
+  );
+  let closed = false;
+  return {
+    app,
+    storage,
+    services,
+    async close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      await app.close();
+      await services.checkRequestService.closeAll();
+      try {
+        options.beforeStorageCloses?.();
+      } finally {
+        storage.close();
+      }
+    },
+  };
+}
+
 export async function createRuntime(
   config: ServerConfig,
   options: { readonly logger?: boolean; readonly overrides?: ServiceOverrides } = {},
@@ -445,56 +518,12 @@ export async function createRuntime(
       warn: (message, detail = {}) =>
         log ? log.warn(detail, message) : console.warn(message, JSON.stringify(detail)),
     };
-    const services = await createServices(storage, config, {
-      ...(options.logger === false ? {} : { runLog }),
-      ...options.overrides,
+    const daemon = await createDaemon(storage, config, {
+      overrides: { ...(options.logger === false ? {} : { runLog }), ...options.overrides },
+      server: { logger: options.logger ?? true },
     });
-    const app = buildServer(
-      {
-        crossProjectService: services.crossProjectService,
-        mapAmendmentService: services.mapAmendmentService,
-        runtimeEvidenceService: services.runtimeEvidenceService,
-        repositoryChecksService: services.repositoryChecksService,
-        packageImportService: services.packageImportService,
-        storageService: services.storageService,
-        hostSchedulingService: services.hostSchedulingService,
-        operatorWaitService: services.operatorWaitService,
-        attentionService: services.attentionService,
-        authService: services.authService,
-        workspaceService: services.workspaceService,
-        planImportService: services.planImportService,
-        planningQueryService: services.planningQueryService,
-        workItemService: services.workItemService,
-        workspaceEventStreamService: services.workspaceEventStreamService,
-        executionService: services.executionService,
-        agentRunService: services.agentRunService,
-        workCycleService: services.workCycleService,
-        finalizationService: services.finalizationService,
-        notificationService: services.notificationService,
-        roadmapService: services.roadmapService,
-        runEventStreamService: services.runEventStreamService,
-        executionStatus: services.executionStatus,
-        daemonDrain: services.daemonDrain,
-      },
-      config,
-      { logger: options.logger ?? true },
-    );
-    log = app.log;
-    let closed = false;
-    return {
-      app,
-      storage,
-      services,
-      async close() {
-        if (closed) {
-          return;
-        }
-        closed = true;
-        await app.close();
-        await services.checkRequestService.closeAll();
-        storage.close();
-      },
-    };
+    log = daemon.app.log;
+    return daemon;
   } catch (error) {
     storage.close();
     throw error;

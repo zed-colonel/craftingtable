@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { rmSync } from 'node:fs';
 import { analyzeConcurrencyArchive, concurrencySourceIssues } from '@craftingtable/planning';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupExecutionFixtures, slicedFixture } from './execution-test-support.js';
@@ -112,6 +111,5 @@ describe('local scope map fixture (R-F3, FMT-15)', () => {
     });
     expect(unverifiedRecords(storage).join('\n')).toContain('/work_items/0/id');
     await expect(f.state.context.cleanup()).rejects.toThrow('break their contracts (R-H3)');
-    rmSync(f.state.context.directory, { recursive: true, force: true });
   });
 });

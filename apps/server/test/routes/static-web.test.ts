@@ -12,14 +12,16 @@ afterEach(() => {
   }
 });
 
+/** A built web app in a directory of its own, beside a file a traversal would reach (ARCH F8a). */
 function distFixture(): string {
-  const dist = mkdtempSync(join(tmpdir(), 'craftingtable-dist-'));
-  directories.push(dist);
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-static-web-'));
+  directories.push(root);
+  const dist = join(root, 'dist');
+  mkdirSync(join(dist, 'assets'), { recursive: true });
   writeFileSync(join(dist, 'index.html'), '<!doctype html><title>CraftingTable</title>');
-  mkdirSync(join(dist, 'assets'));
   writeFileSync(join(dist, 'assets', 'app-abc123.js'), 'console.log(1);');
   writeFileSync(join(dist, 'secret.pem'), 'not served');
-  writeFileSync(join(tmpdir(), 'craftingtable-outside.txt'), 'outside');
+  writeFileSync(join(root, 'craftingtable-outside.txt'), 'outside');
   return dist;
 }
 

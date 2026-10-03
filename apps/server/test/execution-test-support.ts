@@ -61,6 +61,7 @@ import {
   localScopeSource,
   withoutScaffolding,
 } from './map-test-support.js';
+import { FIXTURE_GIT_ENVIRONMENT } from '../../../packages/git/test/test-support.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 /* -------------------------------------------------------------------------- */
@@ -166,10 +167,14 @@ function throwLaunchCallbackError(): void {
   if (launchCallbackErrors.length) throw launchCallbackErrors.shift();
 }
 
+/**
+ * Fixture Git's environment (ARCH F7): the Git package's hermetic one, with only `PATH` taken
+ * from the test process, so an inherited `GIT_DIR`, `GIT_INDEX_FILE` or `GIT_WORK_TREE` cannot
+ * redirect a fixture's writes, and no operator configuration is read.
+ */
 export const GIT_ENV = {
-  ...process.env,
-  GIT_CONFIG_NOSYSTEM: '1',
-  GIT_CONFIG_GLOBAL: '/dev/null',
+  ...FIXTURE_GIT_ENVIRONMENT,
+  PATH: process.env.PATH ?? '',
   GIT_AUTHOR_NAME: 'T',
   GIT_AUTHOR_EMAIL: 't@example.invalid',
   GIT_COMMITTER_NAME: 'T',
@@ -1554,13 +1559,6 @@ export async function slicedFixture(
   });
   return { ...fixture, auth, scopes, parentScope };
 }
-/** The local consumer's dependency environment: no upstream pins, one local test environment. */
-/**
- * Gives every active fixture repository the declared check the scoped fixtures run (R-G13):
- * `fixture`, a whitespace check of the reviewed commit. Written directly, as an adoption would
- * record it; the adoption itself is tested on its own.
- */
-/** Adopts checks for each fixture repository without one, as the operator would (R-G13). */
 /**
  * Leaves a review's adopted checks to the agent, as before R-G13 increment 3, for tests of the
  * agent's own check requests and of the gates they feed. The daemon's own runs before a review
@@ -1570,6 +1568,11 @@ export function withoutDaemonChecks(state: Ready): void {
   vi.spyOn(state.context.services.checkRequestService, 'runDeclared').mockResolvedValue([]);
 }
 
+/**
+ * Gives every active fixture repository without checks the declared check the scoped fixtures
+ * run (R-G13): `fixture`, a whitespace check of the reviewed commit. Written directly, as the
+ * operator's adoption would record it; the adoption itself is tested on its own.
+ */
 export function declareFixtureChecks(
   state: Ready,
   checks: import('@craftingtable/domain').DeclaredCheck[] = [
@@ -1596,6 +1599,7 @@ export function declareFixtureChecks(
     });
   }
 }
+/** The local consumer's dependency environment: no upstream pins, one local test environment. */
 export function configureLocalRuntime(
   auth: ReturnType<TestContext['services']['authService']['authenticate']>,
   state: Ready,

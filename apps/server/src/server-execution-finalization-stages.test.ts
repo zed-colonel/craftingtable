@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { finalizationsResponseSchema } from '@craftingtable/contracts';
 import {
+  asAgentRunEventId,
   asPlanVersionId,
   evaluateCycleCompletion,
   FINALIZATION_STAGE_KINDS,
@@ -709,10 +711,11 @@ describe('staged finalization', () => {
     expect(readFileSync(join(root, 'simplified.txt'), 'utf8')).toContain('selected S-1');
   });
 
-  // The promotion command re-checks the staged ledger and the completion policy itself, so a
-  // stage-controller regression that leaves an unmet obligation, or an open finding the ledger
-  // no longer parks, at awaiting-merge cannot promote (TS-M2, ADR-033).
-  it.each(['current', 'unmet obligation', 'unparked open finding'] as const)(
+  // The promotion command re-checks the staged ledger, the final report and the completion
+  // policy itself, so a stage-controller regression that leaves an unmet obligation, a failed
+  // final check, or an open finding the ledger no longer parks, at awaiting-merge cannot promote
+  // (TS-M2, ADR-033).
+  it.each(['current', 'unmet obligation', 'failed final check', 'unparked open finding'] as const)(
     'promotes a staged finalization only while its ledger and completion policy hold (%s)',
     async (ledger) => {
       const fixture = await finalizationFixture();
@@ -741,7 +744,33 @@ describe('staged finalization', () => {
       const baseline = present(
         state.context.storage.execution.runs.find(ws, cycle.currentRunId)?.reviewBranchContext,
       );
-      if (ledger !== 'current')
+      if (ledger === 'failed final check') {
+        // The final review's latest turn reports its required check failed (so its exit gate is
+        // not met and it asks for changes), while the ledger still records the stage complete.
+        const turn = present(
+          state.context.storage.execution.runEvents.latestOfKind(
+            ws,
+            cycle.currentRunId,
+            'turn-completed',
+          ),
+        );
+        if (turn.kind !== 'turn-completed') throw new Error('Expected a completed turn');
+        const failed = present(turn.payload.resultText)
+          .replace('"verdict":"mergeable"', '"verdict":"changes-requested"')
+          .replace('VERDICT: mergeable', 'VERDICT: changes-requested')
+          .replace('"exitGate":{"met":true', '"exitGate":{"met":false')
+          .replace('"status":"passed"', '"status":"failed"');
+        for (const changed of ['"status":"failed"', '"met":false', 'VERDICT: changes-requested'])
+          expect(failed).toContain(changed);
+        state.context.storage.execution.runEvents.append({
+          id: asAgentRunEventId(randomUUID()),
+          workspaceId: ws,
+          runId: cycle.currentRunId,
+          occurredAt: new Date().toISOString(),
+          kind: 'turn-completed',
+          payload: { outcome: 'success', resultText: failed, turns: 1, durationMs: 1 },
+        });
+      } else if (ledger !== 'current')
         state.context.storage.execution.cycles.replace(
           {
             ...cycle,
@@ -772,10 +801,12 @@ describe('staged finalization', () => {
       expect(promoted.json()).toEqual({
         error: {
           code: 'conflict',
-          message:
-            ledger === 'unmet obligation'
-              ? 'Every adopted obligation needs current final-review evidence.'
-              : 'The current final review does not meet the completion policy.',
+          message: {
+            'unmet obligation': 'Every adopted obligation needs current final-review evidence.',
+            'failed final check': 'All final required checks must pass.',
+            'unparked open finding':
+              'The current final review does not meet the completion policy.',
+          }[ledger],
         },
       });
       expect(git(['rev-parse', 'main'], root)).toBe(main);

@@ -466,9 +466,9 @@ it('keeps main protected from automatic roadmap merges', async () => {
   expect(git(['rev-parse', 'main'], root)).toBe(main);
 });
 
-// Automatic roadmap merges never land in a protected destination: the repository's own default
-// branch, main and master, the plan's manual-merge branches and every finalization's
-// destination, not only a branch literally named main (TS-M6, ADR-033).
+// Automatic roadmap merges never land in a protected destination. Beyond a branch literally
+// named main, these tests cover the repository's own default branch and a finalization's
+// destination (TS-M6, ADR-033).
 const automaticMerges = { integrationMerge: 'automatic', integrationConflicts: 'manual' } as const;
 /** A merge into a protected destination stops the roadmap; an unprotected one completes it. */
 const stopsOrEnds: readonly string[] = ['needs-attention', 'completed'];

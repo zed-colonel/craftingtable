@@ -176,6 +176,18 @@ against recorded decisions (`pnpm controller:replay`, and a golden test over sce
 snapshots). Tests step the controller with `WorkCycleService.tick()` and
 `AgentRunService.quiesce()` instead of waiting on wall-clock time.
 
+`controller:replay --scheduler` does the same for one `RoadmapService.tick()`: it records each
+roadmap entry's decision, the arguments of the command it would issue (as ids, kinds and
+digests of free text), each status list and the attention items, with every command and Git
+call intercepted. `pnpm replays` (`scripts/replays.mjs`) is the replay gate. Its committed
+manifest, `scripts/replays.manifest.json`, names each recorded live snapshot and its goldens by
+paths relative to `$XDG_DATA_HOME`, with each file's SHA-256, because the snapshots hold real
+plans and stay outside the repository. It also lists each expected difference by record key, the hash of the new value
+and the reason. The gate runs `tsc -b` first, since workspace packages resolve to their built
+`dist`. It replays private copies and exits non-zero on any difference the manifest does not
+expect. "0 changed" covers classification and scheduling choice only: the replay does not run
+`prepare()` or anything after an intercepted command.
+
 **Typed attention.** Every stop carries typed attention (`packages/domain/src/attention.ts`,
 ADR-067). A cycle entering `needs-attention` or `awaiting-merge`, a roadmap entering
 `needs-attention`, and a held roadmap entry declare a code and an owner in the same write; the

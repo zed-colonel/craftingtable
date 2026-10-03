@@ -15,6 +15,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import { deflateSync } from 'node:zlib';
 import { afterEach, expect, it } from 'vitest';
 import { hostCargo, hostGit } from './host-tools-test-support.js';
@@ -347,10 +348,21 @@ it('releases its run when a ct-act is interrupted while it waits for the workflo
       stdio: 'ignore',
     });
   const waiting = act();
-  await new Promise((r) => setTimeout(r, 1500));
+  // Listened for from the start: a ct-act that fails early has closed before any later wait.
+  const closed = once(waiting, 'close');
+  // It is waiting once it holds the run's lease, which it takes just before the lock; one that
+  // exits first fails here at once, not at the test's timeout (TS-H1).
+  const state = () =>
+    waiting.exitCode !== null || waiting.signalCode !== null
+      ? 'exited'
+      : existsSync(join(f.directory, 'checks', 'act-active'))
+        ? 'waiting'
+        : 'starting';
+  await expect.poll(state, { interval: 20 }).not.toBe('starting');
+  expect(state()).toBe('waiting');
   // The agent's shell tool gives up on the waiting command.
   waiting.kill('SIGTERM');
-  await new Promise((r) => waiting.once('close', r));
+  await closed;
   rmSync(lock, { recursive: true });
   // The run's next ct-act is not refused by a lease the interrupted one left behind.
   expect(await new Promise<number | null>((done) => act().once('close', done))).toBe(0);

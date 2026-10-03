@@ -16,13 +16,16 @@ import {
   cleanupExecutionFixtures,
   commitFile,
   configureLocalRuntime,
+  controlCycle,
   currentCycle,
   cycleFixture,
   declareFixtureChecks,
   designDone,
+  git,
   implementationDone,
   itNeedsCargo,
   merge,
+  mergeGate,
   mutationHeaders,
   present,
   reviewScope,
@@ -511,6 +514,107 @@ itNeedsCargo.each([true, false])(
     expect(reviewed.status, reviewed.reason).toBe('awaiting-merge');
     const merged = await merge(f.state, tree.id);
     expect(merged.statusCode, merged.body).toBe(200);
+  },
+);
+
+const SECURITY_MERGE_REFUSAL =
+  'The required separate security review must pass on this exact candidate and integration target before merge.';
+const SECURITY_REVIEW_PROMPT = 'This is a separate security review.';
+
+/**
+ * A slice cycle on operator authority whose code review reports that the source requires a
+ * separate security review. `holdSecurityReview` keeps that security review's session working
+ * until the cycle is stopped, so it never leaves a receipt.
+ */
+async function securityRequiredSlice(holdSecurityReview = false) {
+  const f = await slicedFixture();
+  await configureLocalRuntime(f.auth, f.state, f.scopes[0]!.definitionId);
+  const tree = await scopeTree(f, f.scopes[0]!);
+  f.backend.replyForRequest = async (request) => {
+    if (request.model === 'design-model') return designDone;
+    if (request.model !== 'review-model') {
+      commitFile(request.cwd, 'session.txt', 'Security-sensitive session handling');
+      return implementationDone;
+    }
+    await runScopedFixtureCheck(request);
+    const held = holdSecurityReview && request.prompt.includes(SECURITY_REVIEW_PROMPT);
+    return {
+      resultText: withWorkflowReport(
+        `## Open questions\nnone\n\n## Review report\n${scopeReport(f.state, tree.executionScope!)}`,
+        { securityReview: { required: true, sources: ['Approved security review policy'] } },
+      ),
+      ...(held ? { release: new Promise<void>(() => {}) } : {}),
+    };
+  };
+  const cycle = await startCycle(f.state, tree.id);
+  return { f, tree, cycle };
+}
+
+// Once the cycle is stopped no active cycle guards the merge, so the security-review gate in
+// the merge command is the only thing between a manual review and the merge (TS-H7, ADR-033).
+itNeedsCargo.each(['current', 'stale'] as const)(
+  "gates a stopped cycle's manual merge of a security-required slice on its %s security receipt (TS-H7)",
+  async (receipt) => {
+    const { f, tree, cycle } = await securityRequiredSlice();
+    await waitFor(
+      () => currentCycle(f.state, cycle).status !== 'running',
+      'security-reviewed candidate',
+    );
+    const reviewed = currentCycle(f.state, cycle);
+    expect(reviewed.status, reviewed.reason).toBe('awaiting-merge');
+    expect(reviewed.workflow?.securityRequired).toBe(true);
+    expect(reviewed.workflow?.securityReceipt?.runId).toBe(reviewed.currentRunId);
+    expect((await controlCycle(f.state, reviewed, 'stop')).status).toBe('stopped');
+    const receiptHead = git(['rev-parse', 'HEAD'], tree.path).trim();
+    if (receipt === 'stale') {
+      // The code moves after the security review; a manual code review of the new head passes.
+      commitFile(tree.path, 'session.txt', 'Session handling changed after the security review');
+      await reviewScope(f, tree);
+      expect((await mergeGate(f.state, tree.id))?.mergeable).toBe(true);
+    }
+    const merged = await merge(f.state, tree.id);
+    if (receipt === 'current') {
+      expect(merged.statusCode, merged.body).toBe(200);
+      expect(
+        f.state.context.storage.execution.merges.latest(f.state.workspaceId, tree.id),
+      ).toMatchObject({ sourceSha: receiptHead });
+      return;
+    }
+    expect(merged.statusCode, merged.body).toBe(409);
+    expect(merged.json()).toEqual({
+      error: { code: 'conflict', message: SECURITY_MERGE_REFUSAL },
+    });
+    expect(
+      f.state.context.storage.execution.merges.latest(f.state.workspaceId, tree.id),
+    ).toBeUndefined();
+  },
+);
+
+itNeedsCargo(
+  "refuses a stopped cycle's manual merge of a security-required slice whose security review never finished (TS-H7)",
+  async () => {
+    const { f, tree, cycle } = await securityRequiredSlice(true);
+    await waitFor(
+      () => f.backend.launches.some((r) => r.prompt.includes(SECURITY_REVIEW_PROMPT)),
+      'held security review',
+    );
+    expect((await controlCycle(f.state, currentCycle(f.state, cycle), 'stop')).status).toBe(
+      'stopped',
+    );
+    const stopped = currentCycle(f.state, cycle);
+    expect(stopped.workflow?.securityRequired).toBe(true);
+    expect(stopped.workflow?.securityReceipt).toBeUndefined();
+    // A manual code review of the same head passes the ordinary gate; the receipt is missing.
+    await reviewScope(f, tree);
+    expect((await mergeGate(f.state, tree.id))?.mergeable).toBe(true);
+    const merged = await merge(f.state, tree.id);
+    expect(merged.statusCode, merged.body).toBe(409);
+    expect(merged.json()).toEqual({
+      error: { code: 'conflict', message: SECURITY_MERGE_REFUSAL },
+    });
+    expect(
+      f.state.context.storage.execution.merges.latest(f.state.workspaceId, tree.id),
+    ).toBeUndefined();
   },
 );
 

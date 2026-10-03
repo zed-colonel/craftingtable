@@ -20,11 +20,12 @@
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
- * - **The files** are the ones the workspace's TypeScript projects compile: every
- *   `tsconfig*.json` of a workspace package, read through the compiler (TypeScript 7's
- *   `typescript/unstable/sync` API). A directory named `dist` inside `src` is compiled, so it is
- *   checked. A source file under `apps/` or `packages/` that no project compiles (a
- *   dot-directory, a stray `.mjs`) is itself a finding: nothing would check it.
+ * - **The files** are every module the workspace's TypeScript projects compile (each
+ *   `tsconfig*.json` under `apps/` and `packages/`, nested ones included), and every other
+ *   source file there that Git tracks or would add. They are read through the compiler
+ *   (TypeScript 7's `typescript/unstable/sync` API); a file no project compiles is read in the
+ *   project the compiler infers for it. A directory named `dist` inside `src` is compiled, so it
+ *   is checked; ignored build output is not.
  * - **The imports** come from each module's syntax tree, resolved by the compiler: static
  *   imports and re-exports, `import()`, `require`, `import x = require()`, and `import('x')`
  *   types. No comment stripping and no quote-only patterns.
@@ -37,8 +38,9 @@
  *
  * Exported functions are tested in check-forbidden-scope.test.mjs on throwaway workspaces.
  */
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, matchesGlob, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, matchesGlob, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SyntaxKind } from 'typescript/unstable/ast';
 import { API } from 'typescript/unstable/sync';
@@ -174,20 +176,6 @@ function manifestFindings(root) {
     }
   }
   return findings;
-}
-
-/** Every TypeScript project of a workspace package: its `tsconfig*.json` files. */
-function projectConfigs(root) {
-  return packageDirectories(root).flatMap((directory) => {
-    try {
-      return readdirSync(join(root, directory))
-        .filter((name) => /^tsconfig.*\.json$/.test(name))
-        .sort()
-        .map((name) => join(root, directory, name));
-    } catch {
-      return [];
-    }
-  });
 }
 
 const isDeclarationFile = (path) => /\.d\.[cm]?ts$/.test(path);
@@ -603,33 +591,68 @@ function isLocalFunction(declaration, project) {
 }
 
 /**
- * Reads the workspace through the compiler: every project's modules, with their imports
- * resolved, and the test entries `vitest.config.ts` declares.
+ * Every file under `apps/` and `packages/` that Git tracks or would add (not ignored), so a
+ * file no TypeScript project compiles is still checked, and ignored build output is not.
+ */
+function workspaceFiles(root) {
+  const listed = spawnSync(
+    'git',
+    ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...APPLICATION_GROUPS],
+    { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  if (listed.status !== 0)
+    throw new Error(`check:scope lists the workspace's files with git: ${listed.stderr.trim()}`);
+  return [...new Set(listed.stdout.split('\0').filter(Boolean))]
+    .map((path) => join(root, path))
+    .filter((path) => existsSync(path))
+    .sort();
+}
+
+/**
+ * Reads the workspace through the compiler: every project's modules and every other source
+ * file, with their imports resolved, and the test entries `vitest.config.ts` declares.
  */
 function readWorkspace(root) {
-  const configs = projectConfigs(root);
+  const files = workspaceFiles(root);
+  // Every project, nested ones (`packages/storage/test/tsconfig.json`) included.
+  const configs = files.filter((path) => /^tsconfig.*\.json$/.test(basename(path)));
+  const sources = files.filter(
+    (path) =>
+      SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension)) && !isDeclarationFile(path),
+  );
   const vitestConfig = join(root, VITEST_CONFIG);
   const api = new API({ cwd: root });
   try {
-    const snapshot = api.updateSnapshot({
+    let snapshot = api.updateSnapshot({
       openProjects: configs,
       openFiles: existsSync(vitestConfig) ? [vitestConfig] : [],
     });
-    const projects = configs.map((config) => snapshot.getProject(config)).filter(Boolean);
+    let projects = configs.map((config) => snapshot.getProject(config)).filter(Boolean);
     const inRoot = (path) =>
       path.startsWith(root + sep) && !path.includes(`${sep}node_modules${sep}`);
-    // Every file some project compiles (or reads): what the coverage check compares against.
-    const compiled = new Set();
     // Each checked module's owning project: the one whose own files include it.
-    const owner = new Map();
-    for (const project of projects)
-      for (const file of project.rootFiles) if (!owner.has(file)) owner.set(file, project);
-    for (const project of projects)
-      for (const file of project.program.getSourceFileNames()) {
-        if (!inRoot(file)) continue;
-        compiled.add(file);
-        if (!isDeclarationFile(file) && !owner.has(file)) owner.set(file, project);
+    const owners = () => {
+      const owner = new Map();
+      for (const project of projects)
+        for (const file of project.rootFiles) if (!owner.has(file)) owner.set(file, project);
+      for (const project of projects)
+        for (const file of project.program.getSourceFileNames())
+          if (inRoot(file) && !isDeclarationFile(file) && !owner.has(file))
+            owner.set(file, project);
+      return owner;
+    };
+    let owner = owners();
+    // A source file no project compiles is read in the project the compiler infers for it.
+    const uncompiled = sources.filter((file) => !owner.has(file));
+    if (uncompiled.length > 0) {
+      snapshot = api.updateSnapshot({ openFiles: uncompiled });
+      projects = configs.map((config) => snapshot.getProject(config)).filter(Boolean);
+      owner = owners();
+      for (const file of uncompiled) {
+        const project = snapshot.getDefaultProjectForFile(file);
+        if (project !== undefined && !owner.has(file)) owner.set(file, project);
       }
+    }
     const modules = new Map();
     for (const [file, project] of owner) {
       if (isDeclarationFile(file) || !inRoot(file)) continue;
@@ -690,7 +713,7 @@ function readWorkspace(root) {
       const sourceFile = project?.program.getSourceFile(vitestConfig);
       if (sourceFile) tests = vitestEntries(sourceFile);
     }
-    return { projects, modules, compiled, tests };
+    return { projects, modules, tests };
   } finally {
     api.close();
   }
@@ -765,47 +788,6 @@ function productionModules(root, projects, modules, tests) {
   return { production, tests: testFiles };
 }
 
-/**
- * Source files that no project compiles, in the source directories the projects compile from
- * (`apps/server/src`, `packages/git/test`): a dot-directory there, or a stray `.mjs`. Build
- * output and artifacts beside them (`dist`, `coverage`) are not walked.
- */
-function uncompiledFindings(root, compiled, modules) {
-  const findings = [];
-  const sources = new Set();
-  for (const file of modules.keys()) {
-    const [group, name, first, ...rest] = posix(relative(root, file)).split('/');
-    if (APPLICATION_GROUPS.includes(group) && rest.length > 0)
-      sources.add(join(root, group, name, first));
-  }
-  const walk = (directory) => {
-    let entries;
-    try {
-      entries = readdirSync(directory, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== 'node_modules') walk(path);
-      } else if (
-        SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension)) &&
-        !compiled.has(path)
-      )
-        findings.push(
-          `${posix(relative(root, path))}: compiled by no TypeScript project, so this check cannot read it`,
-        );
-    }
-  };
-  for (const directory of sources) walk(directory);
-  return findings;
-}
-
-function packageOf(root, module) {
-  return posix(relative(root, dirname(module.project.configFileName)));
-}
-
 /** The workspace package (`packages/storage`) or top-level directory a path is in. */
 function placeOf(root, path) {
   const [group, name] = posix(relative(root, path)).split('/');
@@ -818,7 +800,7 @@ function moduleFindings(root, module, production) {
   const path = posix(relative(root, module.file));
   const { sourceFile } = module;
   if (sourceFile.text.includes('\0')) return [`${path}: contains a NUL byte`];
-  const owningPackage = packageOf(root, module);
+  const owningPackage = placeOf(root, module.file);
   const authority = PROCESS_AUTHORITY.has(path);
   for (const { specifier, resolved } of module.references) {
     if (isForbiddenName(specifier)) findings.push(`${path}: forbidden import "${specifier}"`);
@@ -866,7 +848,7 @@ function moduleFindings(root, module, production) {
 export function inspectWorkspace(root) {
   const absoluteRoot = realpathSync(resolve(root));
   const findings = manifestFindings(absoluteRoot);
-  const { projects, modules, compiled, tests } = readWorkspace(absoluteRoot);
+  const { projects, modules, tests } = readWorkspace(absoluteRoot);
   const classified = productionModules(absoluteRoot, projects, modules, tests);
   const classes = new Map();
   for (const module of modules.values()) {
@@ -877,7 +859,6 @@ export function inspectWorkspace(root) {
     );
     findings.push(...moduleFindings(absoluteRoot, module, production));
   }
-  findings.push(...uncompiledFindings(absoluteRoot, compiled, modules));
   return { findings, classes };
 }
 

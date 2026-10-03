@@ -56,13 +56,18 @@ const VITEST_CONFIG = `export default {
 `;
 
 /**
- * A throwaway workspace: the given files, a TypeScript project for every package they name
- * (unless the files give one), and a vitest config, all in a temporary directory.
+ * A throwaway Git workspace: the given files, a TypeScript project for every package they name
+ * (unless the files give one, or `null` for none), a vitest config, and the repository's kind
+ * of `.gitignore`, all in a temporary directory.
  */
 function workspace(files) {
   const root = mkdtempSync(join(tmpdir(), 'craftingtable-scope-'));
   roots.push(root);
-  const all = { 'package.json': '{"name":"scratch"}', 'vitest.config.ts': VITEST_CONFIG };
+  const all = {
+    'package.json': '{"name":"scratch"}',
+    'vitest.config.ts': VITEST_CONFIG,
+    '.gitignore': 'node_modules/\ndist/\ncoverage/\n',
+  };
   for (const path of Object.keys(files)) {
     const [group, name] = path.split('/');
     if (group !== 'apps' && group !== 'packages') continue;
@@ -71,9 +76,11 @@ function workspace(files) {
   }
   Object.assign(all, files);
   for (const [path, content] of Object.entries(all)) {
+    if (content === null) continue;
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), content);
   }
+  expect(spawnSync('git', ['init', '-q'], { cwd: root }).status).toBe(0);
   return root;
 }
 
@@ -90,7 +97,7 @@ describe('the bypasses that printed "passed" (TS-M11; GR F-4, F-7)', () => {
       // tsc compiles a directory named `dist` inside `src`; the old walk skipped it.
       'apps/server/src/dist/spawner.ts':
         "import { spawn } from 'node:child_process';\nexport { spawn };\n",
-      // A dot-directory is skipped by tsc and was skipped by the walk.
+      // A dot-directory is skipped by tsc and was skipped by the walk; it is still listed.
       'apps/server/src/.cache/spawner.ts':
         "import { spawn } from 'node:child_process';\nexport { spawn };\n",
       'apps/server/src/template.ts': 'export const cp = await import(`node:child_process`);\n',
@@ -140,7 +147,7 @@ describe('the bypasses that printed "passed" (TS-M11; GR F-4, F-7)', () => {
     });
     expect(runCheck(root).sort()).toEqual(
       [
-        'apps/server/src/.cache/spawner.ts: compiled by no TypeScript project, so this check cannot read it',
+        capability('apps/server/src/.cache/spawner.ts', 'node:child_process'),
         capability('apps/server/src/dist/spawner.ts', 'node:child_process'),
         capability('apps/server/src/template.ts', 'node:child_process'),
         capability('apps/server/src/template-require.ts', 'child_process'),
@@ -330,6 +337,40 @@ describe('the bypasses the unit review found', () => {
 });
 
 describe('the fail-open gaps the independent review found', () => {
+  /** Every source file Git would commit is checked, whichever project compiles it (HIGH-2). */
+  it('checks files outside every package-root project', () => {
+    const spawning = "import { spawn } from 'node:child_process';\nexport { spawn };\n";
+    const root = workspace({
+      'packages/newpkg/tsconfig.json': null,
+      'packages/newpkg/src/index.ts':
+        "import q from '@exo/action-queue';\nimport { spawn } from 'node:child_process';\nexport { q, spawn };\n",
+      'apps/server/src/index.ts': 'export const a = 1;\n',
+      'apps/server/bin/spawn.mjs': spawning,
+      'apps/server/root.ts': spawning,
+      'packages/agents/src/index.ts': 'export const a = 1;\n',
+      'packages/agents/fixtures/fake.mjs': spawning,
+      // A nested project, as test support moved out of `src` will have.
+      'packages/storage/src/index.ts': 'export const a = 1;\n',
+      'packages/storage/test/tsconfig.json': JSON.stringify({
+        compilerOptions: { module: 'NodeNext', moduleResolution: 'NodeNext', noEmit: true },
+        include: ['.'],
+      }),
+      'packages/storage/test/stray.ts': spawning,
+      // Ignored build output is not source.
+      'apps/web/coverage/prettify.js': spawning,
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        'packages/newpkg/src/index.ts: forbidden import "@exo/action-queue"',
+        capability('packages/newpkg/src/index.ts', 'node:child_process'),
+        capability('apps/server/bin/spawn.mjs', 'node:child_process'),
+        capability('apps/server/root.ts', 'node:child_process'),
+        capability('packages/agents/fixtures/fake.mjs', 'node:child_process'),
+        capability('packages/storage/test/stray.ts', 'node:child_process'),
+      ].sort(),
+    );
+  });
+
   /** Only what tests reach, and nothing production reaches, is test support (HIGH-1). */
   it('checks a module that neither an entry nor a test reaches', () => {
     const root = workspace({

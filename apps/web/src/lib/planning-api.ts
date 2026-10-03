@@ -27,7 +27,7 @@ import type {
   WorkItemId,
   WorkspaceId,
 } from '@craftingtable/domain';
-import { ApiError, request } from './api-client.js';
+import { ApiError, parseAnswer, request } from './api-client.js';
 
 /** Every planning response is revalidated in the browser (ADR-003). */
 
@@ -152,7 +152,8 @@ export async function importPlanBundle(
     // The multipart field name *is* the artifact role (CT-03 §5.1).
     form.append(entry.role, entry.file, entry.file.name);
   }
-  const response = await fetch(`/api/workspaces/${encode(workspaceId)}/plan-imports`, {
+  const url = `/api/workspaces/${encode(workspaceId)}/plan-imports`;
+  const response = await fetch(url, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'x-craftingtable-csrf': csrfToken },
@@ -162,7 +163,7 @@ export async function importPlanBundle(
   if (!response.ok) {
     throw new ApiError(response.status, 'invalid-request', 'The plan import request was rejected');
   }
-  return planImportResponseSchema.parse(body);
+  return parseAnswer(url, planImportResponseSchema, body);
 }
 
 export function loadWorkspaceWorkItems(

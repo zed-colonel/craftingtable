@@ -71,7 +71,21 @@ export async function request<T>(
     const { code, message, ...detail } = error.data.error;
     throw new ApiError(response.status, code, message, detail);
   }
-  return schema.parse(body);
+  return parseAnswer(url, schema, body);
+}
+
+/**
+ * Reads a successful answer through its contract. An answer the contract refuses is a defect
+ * between the daemon and the app, not a state a page can explain, so it is also said in the
+ * browser console, where the e2e suite fails on it (TS-M15); the read fails as before.
+ */
+export function parseAnswer<T>(url: string, schema: ResponseSchema<T>, body: unknown): T {
+  try {
+    return schema.parse(body);
+  } catch (error) {
+    console.error(`The daemon's answer to ${url} does not match its contract.`, error);
+    throw error;
+  }
 }
 
 export async function loadSession(): Promise<AuthenticatedSessionResponse | undefined> {

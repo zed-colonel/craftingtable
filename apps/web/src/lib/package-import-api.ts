@@ -8,7 +8,7 @@ import {
   type SaveConcurrencyBindings,
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
-import { ApiError, request } from './api-client.js';
+import { ApiError, parseAnswer, request } from './api-client.js';
 
 const base = (workspaceId: WorkspaceId) => `/api/workspaces/${encodeURIComponent(workspaceId)}`;
 async function upload<T>(
@@ -36,7 +36,7 @@ async function upload<T>(
       error.success ? error.data.error.message : 'The package request failed.',
     );
   }
-  return schema.parse(body);
+  return parseAnswer(url, schema, body);
 }
 export const previewPlanZip = (
   workspaceId: WorkspaceId,

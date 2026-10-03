@@ -283,6 +283,52 @@ describe('the package boundaries', () => {
   });
 });
 
+describe('the bypasses the unit review found', () => {
+  it('follows imports into build output, CommonJS requires, page entries and URL-loaded modules', () => {
+    const spawning = "import { spawn } from 'node:child_process';\nexport { spawn };\n";
+    const root = workspace({
+      'packages/storage/src/database.ts': 'export const open = () => 1;\n',
+      'packages/storage/dist/database.d.ts': 'export declare const open: () => number;\n',
+      'packages/storage/dist/database.js': 'export const open = () => 1;\n',
+      'packages/planning/src/built.ts':
+        "import { open } from '../../storage/dist/database.js';\nexport { open };\n",
+      'packages/domain/src/built.ts':
+        "import { open } from '../../storage/dist/database.js';\nexport { open };\n",
+      'packages/planning/src/common.cts':
+        "export const db = require('../../storage/src/database.js');\n",
+      // The page's entry, which a test also imports.
+      'apps/web/index.html': '<script type="module" src="/src/main.tsx"></script>\n',
+      'apps/web/src/main.tsx':
+        "export const stopped = (x: { reason: string }) => x.reason === 'Daemon restarted.';\n",
+      'apps/web/src/main.test.tsx': "import { stopped } from './main.tsx';\nexport { stopped };\n",
+      // A worker the daemon loads by URL, which its test also imports.
+      'apps/server/src/index.ts':
+        "export const worker = new URL('./worker.js', import.meta.url);\n",
+      'apps/server/src/worker.ts': spawning,
+      'apps/server/src/worker.test.ts': "import { spawn } from './worker.js';\nexport { spawn };\n",
+      // Node's loader, declared ambiently or reached through CommonJS's module object.
+      'apps/server/src/ambient.ts':
+        "declare const require: (name: string) => unknown;\nexport const cp = require('child_process');\n",
+      'apps/server/src/module-require.cts':
+        "export const cp = module.require('child_process');\nexport const again = process.mainModule?.require('node:child_process');\n",
+      // Artifacts beside the sources are not sources.
+      'apps/web/coverage/prettify.js': 'window.x = 1;\n',
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        'packages/planning/src/built.ts: planning package imports "packages/storage/dist/database.d.ts" from packages/storage',
+        'packages/domain/src/built.ts: domain package imports "packages/storage/dist/database.d.ts" from packages/storage',
+        'packages/planning/src/common.cts: planning package imports "packages/storage/src/database.ts" from packages/storage',
+        prose('apps/web/src/main.tsx', 1),
+        capability('apps/server/src/worker.ts', 'node:child_process'),
+        capability('apps/server/src/ambient.ts', 'child_process'),
+        computed('apps/server/src/module-require.cts', 1, 'module.require'),
+        computed('apps/server/src/module-require.cts', 2, 'module.require'),
+      ].sort(),
+    );
+  });
+});
+
 it('passes on the real repository, having read and classified its modules', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const { findings, classes } = inspectWorkspace(root);

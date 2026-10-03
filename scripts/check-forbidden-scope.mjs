@@ -37,7 +37,7 @@
  *
  * Exported functions are tested in check-forbidden-scope.test.mjs on throwaway workspaces.
  */
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, matchesGlob, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SyntaxKind } from 'typescript/unstable/ast';
@@ -195,6 +195,22 @@ const isLiteral = (node) =>
   node?.kind === SyntaxKind.StringLiteral ||
   node?.kind === SyntaxKind.NoSubstitutionTemplateLiteral;
 
+/** Identifiers that declare a binding (`const require = …`), rather than use one. */
+function isDeclaredName(node) {
+  switch (node.parent?.kind) {
+    case SyntaxKind.VariableDeclaration:
+    case SyntaxKind.FunctionDeclaration:
+    case SyntaxKind.Parameter:
+    case SyntaxKind.BindingElement:
+    case SyntaxKind.ImportSpecifier:
+    case SyntaxKind.ImportClause:
+    case SyntaxKind.NamespaceImport:
+      return node.parent.name === node;
+    default:
+      return false;
+  }
+}
+
 /** Identifiers that name a declaration's own member or key, not a value in scope. */
 function isMemberName(node) {
   const parent = node.parent;
@@ -232,12 +248,31 @@ function readModule(sourceFile) {
   const references = [];
   const loads = [];
   const requires = [];
+  // Modules named by `new URL('./x.js', import.meta.url)`: a launcher's or a worker's target.
+  const urls = [];
   const reference = (node, kind) => {
     if (isLiteral(node)) references.push({ specifier: node.text, node, kind });
     else loads.push({ node: node ?? sourceFile, what: kind });
   };
   const visit = (node) => {
     switch (node.kind) {
+      case SyntaxKind.NewExpression:
+        if (
+          node.expression.kind === SyntaxKind.Identifier &&
+          node.expression.text === 'URL' &&
+          node.arguments?.length === 2 &&
+          node.arguments[1].kind === SyntaxKind.PropertyAccessExpression &&
+          node.arguments[1].expression.kind === SyntaxKind.MetaProperty &&
+          node.arguments[1].name.text === 'url'
+        ) {
+          const target = node.arguments[0];
+          const branches =
+            target.kind === SyntaxKind.ConditionalExpression
+              ? [target.whenTrue, target.whenFalse]
+              : [target];
+          for (const branch of branches) if (isLiteral(branch)) urls.push(branch.text);
+        }
+        break;
       case SyntaxKind.ImportDeclaration:
       case SyntaxKind.ExportDeclaration:
         if (node.moduleSpecifier) reference(node.moduleSpecifier, 'import');
@@ -255,7 +290,19 @@ function readModule(sourceFile) {
           reference(node.arguments[0], 'import()');
         break;
       case SyntaxKind.Identifier:
-        if (node.text === 'require' && !isMemberName(node)) requires.push(node);
+        if (node.text === 'require' && !isMemberName(node)) {
+          if (!isDeclaredName(node)) requires.push(node);
+        } else if (
+          // CommonJS's own loader: `module.require(…)`, `process.mainModule.require(…)`.
+          node.text === 'require' &&
+          node.parent?.kind === SyntaxKind.PropertyAccessExpression &&
+          node.parent.name === node &&
+          ((node.parent.expression.kind === SyntaxKind.Identifier &&
+            node.parent.expression.text === 'module') ||
+            (node.parent.expression.kind === SyntaxKind.PropertyAccessExpression &&
+              node.parent.expression.name.text === 'mainModule'))
+        )
+          loads.push({ node, what: 'module.require' });
         else if (LOADER_NAMES.has(node.text)) loads.push({ node, what: node.text });
         else if (
           node.text === 'process' &&
@@ -273,7 +320,7 @@ function readModule(sourceFile) {
     node.forEachChild(visit);
   };
   sourceFile.forEachChild(visit);
-  return { references, loads, requires };
+  return { references, loads, requires, urls };
 }
 
 /** Whether a name holds human-readable text: any identifier ending in `reason` or `message`. */
@@ -425,17 +472,26 @@ function proseBranches(sourceFile) {
   return found;
 }
 
+const lineStarts = new WeakMap();
+/** The 1-based line a node starts on. */
 function lineOf(sourceFile, node) {
-  const text = sourceFile.text;
+  let starts = lineStarts.get(sourceFile);
+  if (starts === undefined) {
+    starts = [0];
+    const text = sourceFile.text;
+    for (let index = text.indexOf('\n'); index !== -1; index = text.indexOf('\n', index + 1))
+      starts.push(index + 1);
+    lineStarts.set(sourceFile, starts);
+  }
   const position = node.getStart(sourceFile);
-  let line = 1;
-  for (
-    let index = text.indexOf('\n');
-    index !== -1 && index < position;
-    index = text.indexOf('\n', index + 1)
-  )
-    line += 1;
-  return line;
+  let low = 0;
+  let high = starts.length - 1;
+  while (low < high) {
+    const middle = (low + high + 1) >> 1;
+    if (starts[middle] <= position) low = middle;
+    else high = middle - 1;
+  }
+  return low + 1;
 }
 
 /**
@@ -506,6 +562,47 @@ function manifestEntries(manifest) {
 }
 
 /**
+ * The file a relative specifier names, as `tsc` maps it: `./x.js` is `./x.ts` (or `.tsx`, or
+ * a build's `./x.d.ts`) when no `./x.js` exists.
+ */
+function onDisk(from, specifier) {
+  const path = resolve(dirname(from), specifier);
+  const stem = path.replace(/\.([cm]?)js$/, '');
+  const flavour = /\.([cm]?)js$/.exec(path)?.[1] ?? '';
+  const candidates = [
+    path,
+    `${stem}.${flavour}ts`,
+    `${stem}.tsx`,
+    `${stem}.d.${flavour}ts`,
+    `${path}.ts`,
+    `${path}.tsx`,
+    join(path, 'index.ts'),
+  ];
+  return candidates.find(
+    (candidate) => existsSync(candidate) && !statSync(candidate).isDirectory(),
+  );
+}
+
+/**
+ * Whether a `require` is declared by the workspace as its own function or value: a function
+ * with a body, a variable with an initializer, or a parameter. An ambient `declare` (or no
+ * declaration, or Node's types) is Node's loader.
+ */
+function isLocalFunction(declaration, project) {
+  if (declaration === undefined) return false;
+  if (declaration.kind === SyntaxKind.Parameter) return true;
+  if (
+    declaration.kind !== SyntaxKind.FunctionDeclaration &&
+    declaration.kind !== SyntaxKind.VariableDeclaration
+  )
+    return false;
+  const node = declaration.resolve(project);
+  return node?.kind === SyntaxKind.FunctionDeclaration
+    ? node.body !== undefined
+    : node?.initializer !== undefined;
+}
+
+/**
  * Reads the workspace through the compiler: every project's modules, with their imports
  * resolved, and the test entries `vitest.config.ts` declares.
  */
@@ -553,23 +650,14 @@ function readWorkspace(root) {
       byProject.get(module.project).push(module);
     }
     for (const [project, members] of byProject) {
-      const specifiers = members.flatMap((m) => m.references.map((r) => [m, r]));
-      const symbols = project.checker.getSymbolAtLocation(specifiers.map(([, r]) => r.node));
-      specifiers.forEach(([module, ref], index) => {
-        const target = symbols[index]?.declarations?.[0]?.path;
-        if (target !== undefined && modules.has(target)) {
-          ref.target = target;
-          module.imports.add(target);
-        }
-      });
+      // `require` first: a call of Node's `require` with a literal is an import to resolve.
       const requires = members.flatMap((m) => m.requires.map((node) => [m, node]));
-      if (requires.length === 0) continue;
-      const declared = project.checker.getSymbolAtLocation(requires.map(([, node]) => node));
+      const declared =
+        requires.length === 0
+          ? []
+          : project.checker.getSymbolAtLocation(requires.map(([, node]) => node));
       requires.forEach(([module, node], index) => {
-        const declaration = declared[index]?.declarations?.[0]?.path;
-        // A `require` this workspace declares is a local function, not Node's loader.
-        if (declaration !== undefined && inRoot(declaration) && !isDeclarationFile(declaration))
-          return;
+        if (isLocalFunction(declared[index]?.declarations?.[0], project)) return;
         const call = node.parent;
         if (call?.kind === SyntaxKind.CallExpression && call.expression === node) {
           if (isLiteral(call.arguments[0]))
@@ -577,7 +665,25 @@ function readWorkspace(root) {
           else module.loads.push({ node, what: 'require()' });
         } else module.loads.push({ node, what: 'require' });
       });
+      const specifiers = members.flatMap((m) => m.references.map((r) => [m, r]));
+      const symbols = project.checker.getSymbolAtLocation(specifiers.map(([, r]) => r.node));
+      specifiers.forEach(([module, ref], index) => {
+        // Where it leads, a build output's declarations included: rules 3 and 4 read it. A
+        // relative path the compiler does not treat as a module (`require` in a `.cts`) is
+        // followed on disk.
+        const resolved =
+          symbols[index]?.declarations?.[0]?.path ??
+          (ref.specifier.startsWith('.') ? onDisk(module.file, ref.specifier) : undefined);
+        if (resolved !== undefined && inRoot(resolved)) ref.resolved = resolved;
+        if (resolved !== undefined && modules.has(resolved)) module.imports.add(resolved);
+      });
     }
+    // A module named by `new URL(…, import.meta.url)` is loaded by the one naming it.
+    for (const module of modules.values())
+      for (const url of module.urls) {
+        const target = onDisk(module.file, url);
+        if (target !== undefined && modules.has(target)) module.imports.add(target);
+      }
     let tests = [];
     if (existsSync(vitestConfig)) {
       const project = snapshot.getDefaultProjectForFile(vitestConfig);
@@ -604,11 +710,11 @@ function productionModules(root, projects, modules, tests) {
   for (const module of modules.values()) for (const target of module.imports) imported.add(target);
   const entries = [...modules.keys()].filter((file) => !imported.has(file) && !testFiles.has(file));
   for (const directory of packageDirectories(root)) {
-    let manifest;
+    let manifest = {};
     try {
       manifest = JSON.parse(readFileSync(join(root, directory, 'package.json'), 'utf8'));
     } catch {
-      continue;
+      // No manifest, or not one this can read: no entries from it.
     }
     for (const entry of manifestEntries(manifest)) {
       const path = resolve(root, directory, entry);
@@ -621,6 +727,17 @@ function productionModules(root, projects, modules, tests) {
           candidates.push(source.replace(/\.[cm]?js$/, extension));
       }
       for (const candidate of candidates) if (modules.has(candidate)) entries.push(candidate);
+    }
+    // The browser app's entry is the module its `index.html` loads (vite's entry).
+    let html = '';
+    try {
+      html = readFileSync(join(root, directory, 'index.html'), 'utf8');
+    } catch {
+      // No page.
+    }
+    for (const [, source] of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/g)) {
+      const path = join(root, directory, source.startsWith('/') ? `.${source}` : source);
+      if (modules.has(path)) entries.push(path);
     }
   }
   const production = new Set();
@@ -637,14 +754,19 @@ function productionModules(root, projects, modules, tests) {
   };
 }
 
-/** Source files under `apps/` and `packages/` that no project compiles. */
-function uncompiledFindings(root, compiled, outputs) {
+/**
+ * Source files that no project compiles, in the source directories the projects compile from
+ * (`apps/server/src`, `packages/git/test`): a dot-directory there, or a stray `.mjs`. Build
+ * output and artifacts beside them (`dist`, `coverage`) are not walked.
+ */
+function uncompiledFindings(root, compiled, modules) {
   const findings = [];
-  // A package's build output (tsc's `outDir`, vite's default `dist`) is not source.
-  const skipped = new Set([
-    ...outputs,
-    ...packageDirectories(root).map((directory) => join(root, directory, 'dist')),
-  ]);
+  const sources = new Set();
+  for (const file of modules.keys()) {
+    const [group, name, first, ...rest] = posix(relative(root, file)).split('/');
+    if (APPLICATION_GROUPS.includes(group) && rest.length > 0)
+      sources.add(join(root, group, name, first));
+  }
   const walk = (directory) => {
     let entries;
     try {
@@ -655,7 +777,7 @@ function uncompiledFindings(root, compiled, outputs) {
     for (const entry of entries) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name !== 'node_modules' && !skipped.has(path)) walk(path);
+        if (entry.name !== 'node_modules') walk(path);
       } else if (
         SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension)) &&
         !compiled.has(path)
@@ -665,7 +787,7 @@ function uncompiledFindings(root, compiled, outputs) {
         );
     }
   };
-  for (const group of APPLICATION_GROUPS) walk(join(root, group));
+  for (const directory of sources) walk(directory);
   return findings;
 }
 
@@ -673,23 +795,29 @@ function packageOf(root, module) {
   return posix(relative(root, dirname(module.project.configFileName)));
 }
 
+/** The workspace package (`packages/storage`) or top-level directory a path is in. */
+function placeOf(root, path) {
+  const [group, name] = posix(relative(root, path)).split('/');
+  return APPLICATION_GROUPS.includes(group) ? `${group}/${name}` : group;
+}
+
 /** One module's findings under rules 1-5. */
-function moduleFindings(root, module, production, modules) {
+function moduleFindings(root, module, production) {
   const findings = [];
   const path = posix(relative(root, module.file));
   const { sourceFile } = module;
   if (sourceFile.text.includes('\0')) return [`${path}: contains a NUL byte`];
   const owningPackage = packageOf(root, module);
   const authority = PROCESS_AUTHORITY.has(path);
-  for (const { specifier, target } of module.references) {
+  for (const { specifier, resolved } of module.references) {
     if (isForbiddenName(specifier)) findings.push(`${path}: forbidden import "${specifier}"`);
     if (!production) continue;
     if (isForbiddenCapability(specifier) && !(authority && /child_process$/i.test(specifier)))
       findings.push(
         `${path}: capability import "${specifier}" is permitted only in a listed process authority`,
       );
-    const targetPackage = target === undefined ? undefined : packageOf(root, modules.get(target));
-    const targetPath = target === undefined ? undefined : posix(relative(root, target));
+    const targetPackage = resolved === undefined ? undefined : placeOf(root, resolved);
+    const targetPath = resolved === undefined ? undefined : posix(relative(root, resolved));
     if (owningPackage === 'packages/planning') {
       if (PLANNING_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier)))
         findings.push(`${path}: planning package imports impure module "${specifier}"`);
@@ -736,10 +864,9 @@ export function inspectWorkspace(root) {
       posix(relative(absoluteRoot, module.file)),
       production ? 'production' : classified.tests.has(module.file) ? 'test' : 'test-support',
     );
-    findings.push(...moduleFindings(absoluteRoot, module, production, modules));
+    findings.push(...moduleFindings(absoluteRoot, module, production));
   }
-  const outputs = projects.map((project) => project.compilerOptions.outDir).filter(Boolean);
-  findings.push(...uncompiledFindings(absoluteRoot, compiled, outputs));
+  findings.push(...uncompiledFindings(absoluteRoot, compiled, modules));
   return { findings, classes };
 }
 

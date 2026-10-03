@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -120,10 +120,27 @@ describe('configFromEnv', () => {
       configFromEnv({
         CRAFTINGTABLE_DATA_DIR: data,
         HOME: home,
+        XDG_RUNTIME_DIR: '/run/user/1234',
+        TMPDIR: '/scratch/tmp',
         CRAFTINGTABLE_AGENT_TMP_ROOT: value,
       }).execution.agentTemporaryRoot;
-    // At or above the system's shared temporary directories, a home, or the file system.
-    for (const refused of ['/', '/tmp', '/var/tmp', '/var', home, '/home', homedir()])
+    // At or above the system's shared and runtime temporary directories, the process's TMPDIR,
+    // a home, or the file system.
+    for (const refused of [
+      '/',
+      '/tmp',
+      '/var/tmp',
+      '/var',
+      '/dev/shm',
+      '/run',
+      '/run/user',
+      '/run/user/1234',
+      '/scratch/tmp',
+      '/scratch',
+      home,
+      '/home',
+      homedir(),
+    ])
       expect(() => root(refused), refused).toThrow(/directory of its own/);
     // The database's directory, at, above or inside it, and the data directory.
     for (const refused of [`${data}/state`, `${data}/state/t`, data, '/srv'])
@@ -136,6 +153,8 @@ describe('configFromEnv', () => {
       `${data}/t`,
       '/tmp/cte-x',
       '/var/tmp/ct',
+      '/run/user/1234/ct',
+      '/scratch/tmp/ct',
       `${home}/x`,
       `${homedir()}/x`,
     ])
@@ -169,7 +188,12 @@ describe('configFromEnv', () => {
       mkdirSync(join(base, 'agents'));
       symlinkSync(join(base, 'agents'), join(base, 'agents-link'));
       expect(root(join(base, 'agents-link'))).toBe(join(base, 'agents-link'));
+      // A path whose links cannot be read is refused, not passed unseen.
+      mkdirSync(join(base, 'locked', 'inner'), { recursive: true });
+      chmodSync(join(base, 'locked'), 0o000);
+      expect(() => root(join(base, 'locked', 'inner', 't'))).toThrow(/could not be resolved/);
     } finally {
+      if (existsSync(join(base, 'locked'))) chmodSync(join(base, 'locked'), 0o700);
       rmSync(base, { recursive: true, force: true });
     }
   });

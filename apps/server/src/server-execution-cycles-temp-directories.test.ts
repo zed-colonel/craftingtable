@@ -3,14 +3,15 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { AgentLaunchError } from '@craftingtable/agents';
-import type { RunLog } from './services/agent-run-service.js';
 import { afterEach, expect, it } from 'vitest';
 
 /* -------------------------------------------------------------------------- */
@@ -26,6 +27,7 @@ import {
   startCycle,
   waitFor,
 } from './execution-test-support.js';
+import { createTestContext, testDataRoot } from './test-support.js';
 
 afterEach(cleanupExecutionFixtures);
 
@@ -76,14 +78,9 @@ it("removes agents' temporary directories a stopped daemon left behind (LIVE-31)
 });
 
 it("sweeps only run directories from the agents' temporary root at a start, and names what it left (TS-H3, R-G5)", async () => {
-  const { state } = await cycleFixture([]);
-  const root = state.context.config.execution.agentTemporaryRoot;
-  const service = state.context.services.agentRunService;
-  const warnings: { message: string; detail?: Readonly<Record<string, unknown>> }[] = [];
-  (service as unknown as { log: RunLog }).log = {
-    warn: (message, detail) => warnings.push({ message, ...(detail ? { detail } : {}) }),
-  };
-  // A run's own directory, as a stopped daemon left it.
+  // A root as a stopped daemon left it, before the next daemon starts on it.
+  const root = mkdtempSync(join(testDataRoot(), 'craftingtable-agent-root-'));
+  // A run's own directory.
   const run = join(root, '0123456789ab');
   mkdirSync(join(run, 'claude-1000'), { recursive: true });
   // What a misconfigured root holds besides (the database's directory, a home, /tmp): each
@@ -110,30 +107,40 @@ it("sweeps only run directories from the agents' temporary root at a start, and 
     mkdirSync(name);
     writeFileSync(join(name, 'kept'), 'x');
   }
-  service.recoverInterrupted();
-  await service.quiesce();
-  expect(existsSync(run)).toBe(false);
-  for (const path of Object.values(kept))
-    expect(lstatSync(path, { throwIfNoEntry: false })).toBeDefined();
-  expect(readFileSync(kept.file, 'utf8')).toBe('the database');
-  expect(existsSync(join(kept.directory, 'backup'))).toBe(true);
-  expect(lstatSync(kept.link).isSymbolicLink()).toBe(true);
-  expect(existsSync(join(target, 'kept'))).toBe(true);
-  for (const name of [kept.upper, kept.long, kept.short])
-    expect(existsSync(join(name, 'kept'))).toBe(true);
-  // One warning for everything left, naming it.
-  expect(warnings).toEqual([
-    {
-      message: expect.stringContaining('not run directories'),
-      detail: expect.objectContaining({
-        root,
-        count: 8,
-        entries: expect.arrayContaining(
-          ['target', ...Object.values(kept)].map((path) => basename(path)),
-        ),
-      }),
+  const warnings: { message: string; detail?: Readonly<Record<string, unknown>> }[] = [];
+  const context = await createTestContext({
+    env: { CRAFTINGTABLE_AGENT_TMP_ROOT: root },
+    runLog: {
+      warn: (message, detail) => warnings.push({ message, ...(detail ? { detail } : {}) }),
     },
-  ]);
+  });
+  try {
+    // The start swept the root; its removals run in the background.
+    await context.services.agentRunService.quiesce();
+    expect(existsSync(run)).toBe(false);
+    for (const path of Object.values(kept))
+      expect(lstatSync(path, { throwIfNoEntry: false }), path).toBeDefined();
+    expect(readFileSync(kept.file, 'utf8')).toBe('the database');
+    expect(existsSync(join(kept.directory, 'backup'))).toBe(true);
+    expect(lstatSync(kept.link).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(target, 'kept'))).toBe(true);
+    for (const name of [kept.upper, kept.long, kept.short])
+      expect(existsSync(join(name, 'kept'))).toBe(true);
+    // One warning for everything left, naming it.
+    expect(warnings).toEqual([
+      {
+        message: expect.stringContaining('not run directories'),
+        detail: {
+          root,
+          count: 8,
+          entries: ['target', ...Object.values(kept)].map((path) => basename(path)).sort(),
+        },
+      },
+    ]);
+  } finally {
+    await context.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 it('ends a run normally when its agent left a read-only directory behind, and removes it (LIVE-31 review)', async () => {

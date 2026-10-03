@@ -52,8 +52,8 @@ export interface ExecutionConfig {
    * so the directory must be short: `<data>/t`, or `CRAFTINGTABLE_AGENT_TMP_ROOT` where the data
    * directory's path is long (each run's is this plus 13 bytes, and must be at most 60).
    * A start removes the run directories it holds (12 hex characters), and nothing else; it may
-   * not be `/`, `/tmp`, `/var/tmp` or a home, nor above one, nor overlap the database's
-   * directory or another of the daemon's roots (TS-H3).
+   * not be `/`, `/tmp`, `/var/tmp`, `/dev/shm`, `/run`, `XDG_RUNTIME_DIR`, `TMPDIR` or a home,
+   * nor above one, nor overlap the database's directory or another of the daemon's roots (TS-H3).
    */
   readonly agentTemporaryRoot: string;
 }
@@ -139,40 +139,73 @@ function pathsOverlap(left: string, right: string): boolean {
   return equalOrWithin(left, right) || equalOrWithin(right, left);
 }
 
-/** `path` with the links of its existing part resolved, and the rest as written. */
-function resolvedAsFarAsExists(path: string): string {
+/** A path as written, and with the links of its existing part resolved (TS-H3). */
+interface ComparedPath {
+  readonly written: string;
+  readonly resolved: string;
+}
+
+/**
+ * `path` with the links of its deepest existing part resolved, and the rest as written. A part
+ * that cannot be resolved for any reason but its absence refuses the configuration, rather than
+ * passing a link unseen.
+ */
+function comparedPath(path: string): ComparedPath {
   const rest: string[] = [];
   for (let existing = path; ; existing = dirname(existing)) {
     try {
-      return join(realpathSync(existing), ...rest);
-    } catch {
-      if (dirname(existing) === existing) return path;
+      return { written: path, resolved: join(realpathSync(existing), ...rest) };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR')
+        throw new Error(`${existing} could not be resolved to check the daemon's roots: ${code}`);
+      if (dirname(existing) === existing) return { written: path, resolved: path };
       rest.unshift(basename(existing));
     }
   }
 }
 
-/** Equal or within, as written or through the links of what exists (TS-H3). */
-function equalOrWithinResolved(candidate: string, parent: string): boolean {
+/** Equal or within, as written or through the links of what exists. */
+function equalOrWithinCompared(candidate: ComparedPath, parent: ComparedPath): boolean {
   return (
-    equalOrWithin(candidate, parent) ||
-    equalOrWithin(resolvedAsFarAsExists(candidate), resolvedAsFarAsExists(parent))
+    equalOrWithin(candidate.written, parent.written) ||
+    equalOrWithin(candidate.resolved, parent.resolved)
   );
 }
 
-function pathsOverlapResolved(left: string, right: string): boolean {
-  return equalOrWithinResolved(left, right) || equalOrWithinResolved(right, left);
+function overlapCompared(left: ComparedPath, right: ComparedPath): boolean {
+  return equalOrWithinCompared(left, right) || equalOrWithinCompared(right, left);
+}
+
+/** The account's home directory, if the system names one. */
+function systemHome(): string | undefined {
+  try {
+    return homedir();
+  } catch {
+    // No passwd entry and no HOME (a container's arbitrary user): nothing to protect here.
+    return undefined;
+  }
 }
 
 /**
  * Directories other files share, which an agents' temporary root may lie inside but never be
- * nor contain (TS-H3): the file system's root, the shared temporary directories, the homes.
+ * nor contain (TS-H3): the file system's root, the shared and runtime temporary directories,
+ * the process's TMPDIR, and the homes.
  */
 function sharedDirectories(env: NodeJS.ProcessEnv): string[] {
-  const homes = [env.HOME, homedir()].filter(
-    (home): home is string => home !== undefined && isAbsolute(home),
+  const named = [env.HOME, systemHome(), env.XDG_RUNTIME_DIR, env.TMPDIR].filter(
+    (path): path is string => path !== undefined && isAbsolute(path),
   );
-  return [...new Set(['/', '/tmp', '/var/tmp', ...homes.map((home) => resolve(home))])];
+  return [
+    ...new Set([
+      '/',
+      '/tmp',
+      '/var/tmp',
+      '/dev/shm',
+      '/run',
+      ...named.map((path) => resolve(path)),
+    ]),
+  ];
 }
 
 function boundedInteger(
@@ -244,19 +277,20 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
     throw new Error('CRAFTINGTABLE_AGENT_TMP_ROOT must be a normalized absolute path');
   // A start sweeps the run directories it holds (LIVE-31): it may share nothing it could
   // mistake for one, nor what it could reach through a mistake (TS-H3).
+  const agentRoot = comparedPath(agentTemporaryRoot);
   for (const shared of sharedDirectories(env))
-    if (equalOrWithinResolved(shared, agentTemporaryRoot))
+    if (equalOrWithinCompared(comparedPath(shared), agentRoot))
       throw new Error(
         `CRAFTINGTABLE_AGENT_TMP_ROOT must be a directory of its own, not ${shared} or a directory above it`,
       );
   const databaseDirectory = join(dataDir, DATABASE_DIRECTORY);
-  if (pathsOverlapResolved(agentTemporaryRoot, databaseDirectory))
+  if (overlapCompared(agentRoot, comparedPath(databaseDirectory)))
     throw new Error(
       `CRAFTINGTABLE_AGENT_TMP_ROOT must lie outside the database's directory ${databaseDirectory}`,
     );
   if (
     [runsRoot, worktreeRoot, checkLogRoot, cargoHome].some((root) =>
-      pathsOverlapResolved(agentTemporaryRoot, root),
+      overlapCompared(agentRoot, comparedPath(root)),
     )
   )
     throw new Error("Agents' temporary directories must lie outside the daemon's other roots");

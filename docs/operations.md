@@ -256,10 +256,13 @@ too long, to a directory used for nothing else. The directory goes when its run 
 each start removes what a stopped daemon left: only directories named as a run's (12
 lowercase hex characters, never through a link). Anything else in the root stays, and the
 start logs one warning naming it (TS-H3). The daemon refuses to start with a root that is
-`/`, `/tmp`, `/var/tmp` or a home directory, or above one (a directory of its own inside them is
-fine), that overlaps the database's directory `<data>/state` or the data directory, or that
-overlaps the worktree, runs, check-log or Cargo-home roots. Links are resolved for the part of
-each path that exists. Two daemons must not share one root: each start sweeps the other's live
+`/`, `/tmp`, `/var/tmp`, `/dev/shm`, `/run`, the daemon's `XDG_RUNTIME_DIR` or `TMPDIR`, or a
+home directory, or a directory above one of them (a directory of its own inside them is fine);
+that is the database's directory `<data>/state`, inside it, or above it (the data directory
+included; other directories inside the data directory, such as the default `<data>/t`, are
+fine); or that overlaps the worktree, runs, check-log or Cargo-home roots. Links are resolved
+for the part of each path that exists, and a path that cannot be resolved (unreadable, a link
+loop) is refused. Two daemons must not share one root: each start sweeps the other's live
 runs' directories.
 
 The daemon runs the checks agents ask for with `ct-check` itself, each in a transient systemd user unit

@@ -13,6 +13,7 @@ import { openDaemonStorage, verified, verifyRecords } from './persisted-records.
 import type { PasswordHasher } from './security/password-hasher.js';
 import { buildServer } from './server.js';
 import type { NotificationTransport } from './services/notification-transport.js';
+import type { RunLog } from './services/agent-run-service.js';
 import type { WorkspaceEventStreamHooks } from './services/workspace-event-stream-service.js';
 import { seedTestDaemonStorage } from './test-daemon-storage.js';
 
@@ -73,6 +74,8 @@ export async function createTestContext(
       AgentBackend
     >;
     readonly env?: Readonly<Record<string, string>>;
+    /** Where the agent run service's warnings go; nowhere by default. */
+    readonly runLog?: RunLog;
     /** False leaves the controller loops stopped so the test steps them itself. */
     readonly workers?: boolean;
     /** False skips the cleanup's record check, for tests that store invalid rows on purpose. */
@@ -113,6 +116,7 @@ export async function createTestContext(
     // Tests never reach the real Git or Claude executables unless they opt in.
     gitOperations: options.gitOperations === undefined ? null : options.gitOperations,
     agentBackends: options.agentBackends ?? new Map(),
+    ...(options.runLog === undefined ? {} : { runLog: options.runLog }),
   });
   const app = buildServer(
     {

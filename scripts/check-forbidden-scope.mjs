@@ -149,6 +149,56 @@ function packageDirectories(root) {
   }).sort();
 }
 
+/** Each workspace package's directory and its manifest (`{}` where it has none). */
+function workspaceManifests(root) {
+  return packageDirectories(root).map((directory) => {
+    try {
+      return {
+        directory,
+        manifest: JSON.parse(readFileSync(join(root, directory, 'package.json'), 'utf8')),
+      };
+    } catch {
+      return { directory, manifest: {} };
+    }
+  });
+}
+
+/** The fields through which a package is installed with whatever depends on it in production. */
+const PRODUCTION_DEPENDENCY_FIELDS = ['dependencies', 'optionalDependencies', 'peerDependencies'];
+
+/**
+ * The packages that run in production: the apps, and every workspace package an app reaches
+ * through production dependencies. A package only `devDependencies` reach (a test stack) is not
+ * one, so its manifest's entries are not production entries.
+ */
+function productionPackages(manifests) {
+  const byName = new Map(
+    manifests
+      .filter(({ manifest }) => typeof manifest.name === 'string')
+      .map((m) => [m.manifest.name, m]),
+  );
+  const reached = new Set();
+  const pending = manifests.filter(({ directory }) => directory.startsWith('apps/'));
+  while (pending.length > 0) {
+    const { directory, manifest } = pending.pop();
+    if (reached.has(directory)) continue;
+    reached.add(directory);
+    for (const field of PRODUCTION_DEPENDENCY_FIELDS)
+      for (const name of Object.keys(manifest[field] ?? {}))
+        if (byName.has(name)) pending.push(byName.get(name));
+  }
+  return reached;
+}
+
+/** A workspace package's source entry: its manifest's `source` export condition, if any. */
+function sourceEntry(root, { directory, manifest }) {
+  const exported = manifest.exports;
+  const entry =
+    typeof exported === 'object' && exported !== null ? (exported['.'] ?? exported) : undefined;
+  const source = typeof entry === 'object' && entry !== null ? entry.source : undefined;
+  return typeof source === 'string' ? resolve(root, directory, source) : undefined;
+}
+
 function manifestFindings(root) {
   const findings = [];
   const manifests = [
@@ -621,6 +671,12 @@ function readWorkspace(root) {
       SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension)) && !isDeclarationFile(path),
   );
   const vitestConfig = join(root, VITEST_CONFIG);
+  const workspaceSources = new Map();
+  for (const entry of workspaceManifests(root)) {
+    const path = sourceEntry(root, entry);
+    if (typeof entry.manifest.name === 'string' && path !== undefined)
+      workspaceSources.set(entry.manifest.name, path);
+  }
   const api = new API({ cwd: root });
   try {
     let snapshot = api.updateSnapshot({
@@ -694,9 +750,16 @@ function readWorkspace(root) {
         // Where it leads, a build output's declarations included: rules 3 and 4 read it. A
         // relative path the compiler does not treat as a module (`require` in a `.cts`) is
         // followed on disk.
-        const resolved =
+        let resolved =
           symbols[index]?.declarations?.[0]?.path ??
           (ref.specifier.startsWith('.') ? onDisk(module.file, ref.specifier) : undefined);
+        // A workspace package the compiler resolves to its build, or not at all (no project
+        // reference, no link): its source entry is the module the import reaches.
+        if (
+          (resolved === undefined || !modules.has(resolved)) &&
+          workspaceSources.has(ref.specifier)
+        )
+          resolved = workspaceSources.get(ref.specifier);
         if (resolved !== undefined && inRoot(resolved)) ref.resolved = resolved;
         if (resolved !== undefined && modules.has(resolved)) module.imports.add(resolved);
       });
@@ -721,8 +784,8 @@ function readWorkspace(root) {
 
 /**
  * Which modules are production: everything reached on the import graph from a production
- * entry. An entry is a package's manifest entry, or a module that is not a test and that no
- * module imports (an application entry, a launcher's target, or dead code). What only tests and
+ * entry. An entry is the manifest entry of a package production runs (`productionPackages`),
+ * the module a page loads, or a module that is not a test and that no module imports (an application entry, a launcher's target, or dead code). What only tests and
  * vitest's setup modules reach is test support; what nothing reaches is production too.
  */
 function productionModules(root, projects, modules, tests) {
@@ -732,14 +795,10 @@ function productionModules(root, projects, modules, tests) {
   const imported = new Set();
   for (const module of modules.values()) for (const target of module.imports) imported.add(target);
   const entries = [...modules.keys()].filter((file) => !imported.has(file) && !testFiles.has(file));
-  for (const directory of packageDirectories(root)) {
-    let manifest = {};
-    try {
-      manifest = JSON.parse(readFileSync(join(root, directory, 'package.json'), 'utf8'));
-    } catch {
-      // No manifest, or not one this can read: no entries from it.
-    }
-    for (const entry of manifestEntries(manifest)) {
+  const manifests = workspaceManifests(root);
+  const running = productionPackages(manifests);
+  for (const { directory, manifest } of manifests) {
+    for (const entry of running.has(directory) ? manifestEntries(manifest) : []) {
       const path = resolve(root, directory, entry);
       const candidates = [path];
       // A manifest names the build output; its module is the source the project compiles.

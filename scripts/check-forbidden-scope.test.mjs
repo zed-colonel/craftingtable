@@ -45,7 +45,11 @@ const VITEST_CONFIG = `export default {
     projects: [
       {
         test: {
-          include: ['packages/*/src/**/*.test.ts', 'apps/server/src/**/*.test.ts'],
+          include: [
+            'packages/*/src/**/*.test.ts',
+            'packages/*/test/**/*.test.ts',
+            'apps/server/src/**/*.test.ts',
+          ],
           globalSetup: ['packages/storage/src/global-setup.ts'],
         },
       },
@@ -369,6 +373,46 @@ describe('the fail-open gaps the independent review found', () => {
         capability('packages/storage/test/stray.ts', 'node:child_process'),
       ].sort(),
     );
+  });
+
+  /**
+   * The layouts unit K moves test support into (MEDIUM-4): a package's `test/` project, and a
+   * workspace package only tests depend on. Neither is production; a package an app depends
+   * on is, through its manifest's entry.
+   */
+  it('treats test projects and test-only packages as test support', () => {
+    const spawning = "import { spawn } from 'node:child_process';\nexport { spawn };\n";
+    const stack = (name) => ({
+      [`packages/${name}/package.json`]: JSON.stringify({
+        name: `@craftingtable/${name}`,
+        main: './dist/index.js',
+        exports: { '.': { source: './src/index.ts', default: './dist/index.js' } },
+      }),
+      [`packages/${name}/src/index.ts`]: spawning,
+    });
+    const root = workspace({
+      'packages/storage/src/index.ts': 'export const a = 1;\n',
+      'packages/storage/test/tsconfig.json': JSON.stringify({
+        compilerOptions: { module: 'NodeNext', moduleResolution: 'NodeNext', noEmit: true },
+        include: ['.'],
+      }),
+      'packages/storage/test/support.ts': spawning,
+      'packages/storage/test/store.test.ts': "import { spawn } from './support.js';\nexport { spawn };\n",
+      ...stack('test-stack'),
+      ...stack('runner'),
+      'apps/server/package.json': JSON.stringify({
+        name: '@craftingtable/server',
+        dependencies: { '@craftingtable/runner': 'workspace:*' },
+        devDependencies: { '@craftingtable/test-stack': 'workspace:*' },
+      }),
+      'apps/server/src/index.ts': 'export const a = 1;\n',
+      'apps/server/src/run.test.ts':
+        "import { spawn } from '@craftingtable/test-stack';\nexport { spawn };\n",
+    });
+    const { findings, classes } = inspectWorkspace(root);
+    expect(findings).toEqual([capability('packages/runner/src/index.ts', 'node:child_process')]);
+    expect(classes.get('packages/storage/test/support.ts')).toBe('test-support');
+    expect(classes.get('packages/test-stack/src/index.ts')).toBe('test-support');
   });
 
   /** Only what tests reach, and nothing production reaches, is test support (HIGH-1). */

@@ -141,18 +141,39 @@ it('posts a control command only from the cycle module and the roadmap and final
  * A kind's commands file (`decisions/<kind>/*-api.ts`) is private to its module: nothing outside
  * the kind's directory imports it, so no other component can post its command (R-A6 review).
  */
-it('imports a decision kind’s commands only from inside its own directory', () => {
+function privateImports(path: string, source = readFileSync(path, 'utf8')): string[] {
   const decisions = join(src, 'decisions') + sep;
-  const outside = sources(src).flatMap((path) => {
-    const imports = [...readFileSync(path, 'utf8').matchAll(/from\s+['"]([^'"]+)['"]/g)].map(
-      (m) => m[1]!,
-    );
-    return imports
-      .filter((spec) => spec.startsWith('.'))
-      .map((spec) => join(path, '..', spec))
-      .filter((target) => target.startsWith(decisions) && /-api\.js$/.test(target))
-      .filter((target) => !path.startsWith(join(target, '..') + sep))
-      .map((target) => `${relative(src, path)} -> ${relative(src, target)}`);
-  });
-  expect(outside).toEqual([]);
+  const imports = [...source.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]!);
+  return imports
+    .filter((spec) => spec.startsWith('.'))
+    .map((spec) => join(path, '..', spec))
+    .filter((target) => target.startsWith(decisions) && /-api\.js$/.test(target))
+    .filter((target) => !path.startsWith(join(target, '..') + sep))
+    .map((target) => `${relative(src, path)} -> ${relative(src, target)}`);
+}
+
+it('imports a decision kind’s commands only from inside its own directory', () => {
+  expect(sources(src).flatMap((path) => privateImports(path))).toEqual([]);
+});
+
+/**
+ * The import detector itself (TS-M11): with it disabled, the test above passes over a clean
+ * tree, so this one plants a component outside the kind's directory that imports and re-exports
+ * the kind's commands, next to the kind's own panel, which may.
+ */
+it('reports a planted import of a kind’s commands from outside its directory', () => {
+  const planted = [
+    "import { recoverDesign } from '../decisions/design/design-api.js';",
+    "export { delegateScopeRepair } from '../decisions/scope-repair/scope-repair-api.js';",
+  ].join('\n');
+  expect(privateImports(join(src, 'components', 'planted.tsx'), planted)).toEqual([
+    `${join('components', 'planted.tsx')} -> ${join('decisions', 'design', 'design-api.js')}`,
+    `${join('components', 'planted.tsx')} -> ${join('decisions', 'scope-repair', 'scope-repair-api.js')}`,
+  ]);
+  expect(
+    privateImports(
+      join(src, 'decisions', 'design', 'planted.tsx'),
+      "import { recoverDesign } from './design-api.js';",
+    ),
+  ).toEqual([]);
 });

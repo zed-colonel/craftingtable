@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -298,4 +299,19 @@ it('passes on the real repository, having read and classified its modules', () =
   expect(classes.get('apps/server/src/execution-test-support.ts')).toBe('test-support');
   // Test support by what imports it, not by its name.
   expect(classes.get('packages/storage/src/migration-preservation.ts')).toBe('test-support');
+});
+
+/** The gate is the command, not the function: `pnpm check:scope` must exit non-zero. */
+it('fails the command on a planted violation and passes it on a clean workspace', () => {
+  const script = fileURLToPath(new URL('./check-forbidden-scope.mjs', import.meta.url));
+  const clean = workspace({ 'apps/server/src/index.ts': 'export const a = 1;\n' });
+  const passed = spawnSync(process.execPath, [script, clean], { encoding: 'utf8' });
+  expect(passed.status).toBe(0);
+  expect(passed.stdout).toContain('Forbidden-scope check passed');
+  const planted = workspace({
+    'apps/server/src/index.ts': 'export const cp = await import(`node:child_process`);\n',
+  });
+  const failed = spawnSync(process.execPath, [script, planted], { encoding: 'utf8' });
+  expect(failed.status).toBe(1);
+  expect(failed.stderr).toContain(capability('apps/server/src/index.ts', 'node:child_process'));
 });

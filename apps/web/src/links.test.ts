@@ -72,8 +72,7 @@ function inApp(value: Node): boolean {
   }
 }
 
-function rawInAppLinks(file: string): string[] {
-  const source = readFileSync(file, 'utf8');
+function rawInAppLinks(file: string, source = readFileSync(file, 'utf8')): string[] {
   const { program } = parseSync(file, source);
   const found: string[] = [];
   const visit = (node: Node) => {
@@ -104,6 +103,40 @@ function rawInAppLinks(file: string): string[] {
 it('navigates inside the app only through Link, never a reloading anchor (R-E1, UI-07)', () => {
   const offenders = components(root)
     .filter((file) => file !== LINK_MODULE)
-    .flatMap(rawInAppLinks);
+    .flatMap((file) => rawInAppLinks(file));
   expect(offenders).toEqual([]);
+});
+
+/**
+ * The detector itself (TS-M11): with it disabled, the test above passes over a clean tree, so
+ * this one plants each shape it must catch, the R-E1 review's four (a call, a ternary, a
+ * concatenation, a spread) among them, next to anchors it must leave alone.
+ */
+it('reports each planted in-app anchor and nothing else', () => {
+  const caught = [
+    '<a href="/workspaces/w1">a</a>',
+    '<a href={`/runs/${id}`}>a</a>',
+    '<a href={`${base}/runs`}>a</a>',
+    '<a href={path}>a</a>',
+    '<a href={buildPath(route)}>a</a>',
+    '<a href={open ? "/runs" : "#runs"}>a</a>',
+    '<a href={"/runs/" + id}>a</a>',
+    '<a {...props}>a</a>',
+  ];
+  const allowed = [
+    '<a href="#runs">a</a>',
+    '<a href="https://example.com/">a</a>',
+    '<a href="/api/runs/r1/log">a</a>',
+    '<a href={archiveDownloadPath(id)}>a</a>',
+  ];
+  const source = [
+    'export const Planted = () => (',
+    '  <>',
+    ...[...caught, ...allowed].map((anchor) => `    ${anchor}`),
+    '  </>',
+    ');',
+  ].join('\n');
+  expect(rawInAppLinks(join(root, 'planted.tsx'), source)).toEqual(
+    caught.map((_, index) => `planted.tsx:${index + 3}`),
+  );
 });

@@ -750,7 +750,11 @@ export function runCheck(root) {
 const isMain =
   process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  // The repository this script is in; its self-test names a throwaway workspace instead.
+  const root =
+    process.argv[2] === undefined
+      ? resolve(dirname(fileURLToPath(import.meta.url)), '..')
+      : resolve(process.argv[2]);
   const findings = runCheck(root);
   if (findings.length > 0) {
     console.error('Forbidden-scope check failed:');

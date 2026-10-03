@@ -456,7 +456,7 @@ describe('the fail-open gaps the independent review found', () => {
     const { findings, classes } = inspectWorkspace(root);
     expect(findings.sort()).toEqual(
       [
-        "packages/storage/src/store.test.ts: a test, built into packages/storage/dist; tests live in the package's test/ directory",
+        "packages/storage/src/store.test.ts: a test built into packages/storage/dist; tests live in the package's test/ directory",
         onlyTests('packages/storage/src/seed.ts', 'packages/storage/dist'),
         'apps/server/src/expect.ts: imports the test runner "vitest" and is built into apps/server/dist',
         onlyTests('apps/server/src/worker.ts', 'apps/server/dist'),
@@ -465,6 +465,47 @@ describe('the fail-open gaps the independent review found', () => {
     );
     expect(classes.get('apps/server/src/worker.ts')).toBe('production');
     expect(classes.get('apps/server/test/support.ts')).toBe('test-support');
+  });
+
+  /** Code review: a test vitest no longer runs, other runners, and a build that compiles test/. */
+  it('fails stray tests, other test runners, and a production project compiling test/', () => {
+    const root = workspace({
+      'apps/server/package.json': JSON.stringify({
+        name: '@craftingtable/server',
+        dependencies: { '@craftingtable/storage': 'workspace:*', '@craftingtable/contracts': '*' },
+      }),
+      'packages/storage/package.json': JSON.stringify({ name: '@craftingtable/storage' }),
+      // Left in `src`, outside vitest's include, and importing no runner itself.
+      'packages/storage/src/stray.test.ts': "import { help } from './help.js';\nexport { help };\n",
+      'packages/storage/src/help.ts': 'export const help = 1;\n',
+      'apps/server/src/index.ts': "import { check } from './runner.js';\nexport { check };\n",
+      'apps/server/src/runner.ts':
+        "import { test } from 'node:test';\nexport const check = test;\n",
+      'packages/contracts/package.json': JSON.stringify({ name: '@craftingtable/contracts' }),
+      'packages/contracts/tsconfig.json': JSON.stringify({
+        compilerOptions: {
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          rootDir: '.',
+          outDir: 'dist',
+          types: [],
+        },
+        include: ['src', 'test'],
+      }),
+      'packages/contracts/src/index.ts': 'export const a = 1;\n',
+      'packages/contracts/test/support.ts': 'export const s = 1;\n',
+      'packages/contracts/test/a.test.ts': "import { s } from './support.js';\nexport { s };\n",
+    });
+    const keepOut = "keep the package's test/ directory out of its production tsconfig.json";
+    expect(runCheck(root).sort()).toEqual(
+      [
+        "packages/storage/src/stray.test.ts: named as a test, though vitest does not run it, built into packages/storage/dist; tests live in the package's test/ directory",
+        "packages/storage/src/help.ts: only tests import it, yet it is built into packages/storage/dist; move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it",
+        'apps/server/src/runner.ts: imports the test runner "node:test" and is built into apps/server/dist',
+        `packages/contracts/test/a.test.ts: a test built into packages/contracts/dist; ${keepOut}`,
+        `packages/contracts/test/support.ts: only tests import it, yet it is built into packages/contracts/dist; ${keepOut}`,
+      ].sort(),
+    );
   });
 
   /** Forms the self-tests did not plant, so a checker that dropped them still passed (MEDIUM-3). */

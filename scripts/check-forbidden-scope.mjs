@@ -21,8 +21,9 @@
  *    regex, equality or `switch` test of a `reason` or `message` against prose (program rule 4,
  *    R-A3). Stops carry typed codes; `packages/domain/src/attention-legacy.ts` is the one
  *    place that maps text written by earlier releases to codes.
- * 6. Nothing test-only is built into a production package's `dist` (R-I4): no test, no module
- *    that imports the test runner, and no module that only tests import.
+ * 6. Nothing test-only is built into a production package's `dist` (R-I4): no test (one
+ *    vitest runs, or one named as a test), no module that imports a test runner, and no module
+ *    that only tests import.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -998,11 +999,20 @@ function productionModules(root, projects, modules, tests, built) {
     }
     return reached;
   };
-  const fromTests = reach(testFiles);
+  // A built module named as a test that vitest does not run (one left in `src` by a move) is a
+  // test to rule 6, so a module only it imports is not hidden behind it as an entry.
+  const strayTests = new Set(
+    [...built.keys()].filter((file) => !testFiles.has(file) && TEST_NAME.test(file)),
+  );
+  const fromTests = reach([...testFiles, ...strayTests]);
   const supportOutside = (fromEntries) =>
-    new Set([...fromTests].filter((file) => !fromEntries.has(file) && !testFiles.has(file)));
+    new Set(
+      [...fromTests].filter(
+        (file) => !fromEntries.has(file) && !testFiles.has(file) && !strayTests.has(file),
+      ),
+    );
   // What tests alone reach among the modules a build ships: by the graph it is test support.
-  const onlyTestsReach = supportOutside(reach(entries));
+  const onlyTestsReach = supportOutside(reach(entries.filter((file) => !strayTests.has(file))));
   // A module a production build ships is production, whoever imports it (R-I4): so a module
   // loaded only through a path built at runtime, and imported by a test, is checked too.
   const fromEntries = reach([...entries, ...[...built.keys()].filter((f) => !testFiles.has(f))]);
@@ -1014,10 +1024,13 @@ function productionModules(root, projects, modules, tests, built) {
       (file) => fromEntries.has(file) || (!testFiles.has(file) && !support.has(file)),
     ),
   );
-  return { production, tests: testFiles, onlyTestsReach };
+  return { production, tests: testFiles, strayTests, onlyTestsReach };
 }
 
-const TEST_RUNNER = /^(?:vitest|@vitest\/[^/]+)(?:\/.*)?$/;
+/** The test runners: vitest, and the two a test might reach for instead. */
+const TEST_RUNNER = /^(?:vitest|@vitest\/[^/]+|@playwright\/test|node:test)(?:\/.*)?$/;
+/** A module named as a test (`x.test.ts`, `x.spec.tsx`), whether or not vitest runs it. */
+const TEST_NAME = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 
 /**
  * Nothing test-only in what a production build ships (R-I4, TS-M14): no test, no module that
@@ -1028,9 +1041,16 @@ function buildFindings(root, modules, classified, built) {
   const findings = [];
   for (const [file, outDir] of built) {
     const path = posix(relative(root, file));
-    if (classified.tests.has(file)) {
+    // Already in `test/`: the fix is the production project, which must not compile it.
+    const keepOut = /^(?:apps|packages)\/[^/]+\/test\//.test(path)
+      ? "keep the package's test/ directory out of its production tsconfig.json"
+      : undefined;
+    if (classified.tests.has(file) || classified.strayTests.has(file)) {
+      const what = classified.tests.has(file)
+        ? 'a test'
+        : 'named as a test, though vitest does not run it,';
       findings.push(
-        `${path}: a test, built into ${outDir}; tests live in the package's test/ directory`,
+        `${path}: ${what} built into ${outDir}; ${keepOut ?? "tests live in the package's test/ directory"}`,
       );
       continue;
     }
@@ -1041,7 +1061,7 @@ function buildFindings(root, modules, classified, built) {
         );
     if (classified.onlyTestsReach.has(file))
       findings.push(
-        `${path}: only tests import it, yet it is built into ${outDir}; move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it`,
+        `${path}: only tests import it, yet it is built into ${outDir}; ${keepOut ?? "move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it"}`,
       );
   }
   return findings;

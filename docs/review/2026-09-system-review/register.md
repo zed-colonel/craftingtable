@@ -3518,6 +3518,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Self-tests.** The throwaway workspaces' tests and test support moved to `test/`, as in the real tree. A new self-test plants four cases: a test left in `src` that vitest still includes, a module only tests import, a production module that imports vitest, and a worker loaded by a runtime path that its test imports. Each is a finding; a test project's support is not.
     - Six mutants of the rule each fail the self-tests: no built set, no test finding, a broken runner pattern, built modules not counted as entries, every package treated as built, and no support finding.
   - **The real tree.** No findings. It reads 462 production, 281 test and 17 test-support modules. `pnpm check:scope` took 2.0 s at load 4.
+  - **At the base layout.** Run on the tree before the move, rule 6 reports 223 findings. 198 are tests built into `dist` (197 tests and the template `globalSetup`). 14 are modules only tests import, and 5 are support modules that import vitest. The other 6 are production rules that now apply to those support modules: two `node:child_process` imports, three prose branches and one impure planning import.
+  - **Code review fixes.**
+    - **Stray tests.** vitest now includes only `test/`, so a `*.test.ts` left in `src` was neither run nor counted as a test. If it did not import vitest itself, rule 6 missed it, and also the module it alone imports. A built module named as a test (`.test.` or `.spec.`) is now a finding whether or not vitest runs it. What only such a module imports is a finding too.
+    - **Other runners.** `node:test` and `@playwright/test` count as test runners.
+    - **The advice in each message.** When the module is already in `test/`, the message now says to keep `test/` out of the production `tsconfig.json`, not to move the module to `test/`.
+    - A new self-test plants each case. Four more mutants fail it: no stray-test name, no `node:test`, no tsconfig advice, and stray tests left as entries.
+    - **Kept as they are, by disposition.**
+      - A type-only import of vitest is still a finding: the declarations a build emits would name the runner too.
+      - A module that an otherwise unused production module imports is not "only tests": the build emits its importer.
+      - `createDaemon` still lists the 24 server dependencies by name; it is now the only copy.
+      - The e2e daemon's `e2e-entry.ts`, `test-data-root.ts` and `test-daemon-storage.ts` stay in `src`, so the build emits them. Moving them means changing how `playwright.config.ts` starts the daemon (`src/e2e-entry.ts`), which this pass leaves to the e2e work.
 - **Done (2026-10-02, the test-suite review pass).** The done-when is met.
   - **"No `*.test.js` or test-support in `dist`."** A clean `tsc -b` emits none of either, and rule 6 fails the check if a build would.
   - **"The known bypasses fail `check:scope`."** Unit I's 14 planted bypasses and the 13 fail-open plants of the independent review fail. So does test code built into `dist`.

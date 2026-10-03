@@ -626,16 +626,18 @@ export async function runLocalCheck(
     if (isCi) {
       actual = localActArguments(m, path, args, directory);
       command = m.localCi!.actExecutable;
-      mkdirSync(lease); // One act invocation at a time per supervised run.
-      ownsLease = true;
       const lock = localCiLockPath(m.localCi!, m.workspacePath, args);
       // The wait can be long, so an interruption ends it through this function's cleanup
-      // rather than the default exit, which would leave the run's lease behind.
+      // rather than the default exit, which would leave the run's lease behind. The handlers
+      // come first: a signal between taking the lease and installing them killed the process
+      // with the lease still held (TS-H1, R-I2).
       const waiting = new AbortController();
       const abandon = () => waiting.abort();
       process.once('SIGTERM', abandon);
       process.once('SIGINT', abandon);
       try {
+        mkdirSync(lease); // One act invocation at a time per supervised run.
+        ownsLease = true;
         await acquireLocalCiLock(
           lock,
           m.runId,

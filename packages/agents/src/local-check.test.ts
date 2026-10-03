@@ -9,6 +9,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  watch,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -313,7 +314,11 @@ function ownIdentity() {
   const stat = readFileSync(`/proc/${process.pid}/stat`, 'utf8');
   return `${process.pid}:${stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]}`;
 }
-it('releases its run when a ct-act is interrupted while it waits for the workflow lock', async () => {
+/**
+ * A run whose ct-act must wait: another live run (this test process) holds the workflow's lock.
+ * `act` starts one; `lease` is the run's act-active lease.
+ */
+function actBehindHeldLock() {
   const shared = mkdtempSync(join(tmpdir(), 'ct-act-wait-'));
   roots.push(shared);
   const tool = (name: string, body: string) => {
@@ -347,6 +352,34 @@ it('releases its run when a ct-act is interrupted while it waits for the workflo
       cwd: f.m.workspacePath,
       stdio: 'ignore',
     });
+  return { f, lock, act, lease: join(f.directory, 'checks', 'act-active') };
+}
+/**
+ * TS-H1: the act took its lease before it installed its SIGTERM handler, so a signal landing
+ * between the two killed it by the default action with the lease held (25 of 40 at base, killed
+ * as the lease appeared). Each attempt here interrupts the act the moment its lease exists.
+ */
+it('releases its lease however early an interruption lands', async () => {
+  const { act, lease } = actBehindHeldLock();
+  mkdirSync(dirname(lease), { recursive: true });
+  let leftBehind = 0;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const child = act();
+    const closed = once(child, 'close');
+    const watcher = watch(dirname(lease), (_event, name) => {
+      if (name === 'act-active') child.kill('SIGTERM');
+    });
+    await closed;
+    watcher.close();
+    if (existsSync(lease)) {
+      leftBehind += 1;
+      rmSync(lease, { recursive: true });
+    }
+  }
+  expect(leftBehind).toBe(0);
+});
+it('releases its run when a ct-act is interrupted while it waits for the workflow lock', async () => {
+  const { f, lock, act, lease } = actBehindHeldLock();
   const waiting = act();
   // Listened for from the start: a ct-act that fails early has closed before any later wait.
   const closed = once(waiting, 'close');
@@ -355,7 +388,7 @@ it('releases its run when a ct-act is interrupted while it waits for the workflo
   const state = () =>
     waiting.exitCode !== null || waiting.signalCode !== null
       ? 'exited'
-      : existsSync(join(f.directory, 'checks', 'act-active'))
+      : existsSync(lease)
         ? 'waiting'
         : 'starting';
   await expect.poll(state, { interval: 20 }).not.toBe('starting');

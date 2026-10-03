@@ -3194,6 +3194,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - No web test sets its own `findBy`/`waitFor` timeout, and no node test uses Testing Library or `vi.waitFor`. The two `expect.poll` uses already take the project's scaled default.
     - The web base goes from 60 s to 120 s: under the burners `request-budget` took 62–87 s.
   - **Result.** Under the same 48 burners (load 58–68), the web project passed 3 of 3 runs, 347 of 347 each.
+  - **Afterwards.** The web project passed alone: 347 of 347, 25 s, at an ambient load of 41, which came from the host's other work. One default parallel `pnpm test` passed: 2,087 passed, 1 skipped, 0 failed, 253 s. Its 1-minute load went from 31.9 to 13.8, and its 5-minute load was 56.9 at the start. It peaked at 90 MB of tmpfs and left no test directory behind.
 
 ### R-I3
 

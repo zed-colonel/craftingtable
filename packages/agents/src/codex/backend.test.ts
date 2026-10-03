@@ -1,9 +1,11 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { AgentLaunchRequest, AgentSession, AgentSessionItem } from '../index.js';
 import { CodexBackend } from './backend.js';
+import { testTimeScale } from '../test-time.js';
+import { CodexRpc } from './rpc.js';
 
 const FAKE = `#!${process.execPath}
 const fs = require('node:fs');
@@ -100,7 +102,8 @@ lines.on('line', line => {
     const id = active;
     if (mode === 'complete-before-reply') {finish(); setTimeout(() => reply({turn: {id, status: 'completed'}}), 20); return;}
     reply({turn: {id, status: 'inProgress'}});
-    if (mode === 'hold' || mode === 'ignore-term') return;
+    // Held turns say they are under way, so a test knows the session has seen the turn begin.
+    if (mode === 'hold' || mode === 'ignore-term') {notify('item/completed', {turnId: id, item: {id: 'working-' + id, type: 'agentMessage', text: 'WORKING'}}); return;}
     timer = setTimeout(() => finish(['failed', 'overloaded'].includes(mode) ? 'failed' : 'completed'), mode === 'approval-outage' ? 300 : 100);
     return;
   }
@@ -118,6 +121,8 @@ lines.on('line', line => {
 });
 lines.on('close', () => { if (mode === 'shutdown-error') {setInterval(() => {}, 1000); return;} if (mode !== 'ignore-term') process.exit(0); });
 `;
+/** Modes in which a request is never answered, so the test waits out its budget. */
+const TIMED_OUT_MODES = new Set(['timeout', 'steer-timeout', 'usage-timeout', 'no-inventory']);
 const directories: string[] = [];
 const sessions: AgentSession[] = [];
 afterEach(() => {
@@ -140,7 +145,9 @@ async function launch(
     // The fake reads its mode from the environment, which the adapter allowlists (R-G5).
     allowEnvironment: ['FAKE_MODE', ...Object.keys(env)],
     terminationGraceMs: 50,
-    requestTimeoutMs: 300,
+    // The adapter's own budget, as a run has it, except where a test waits for a request to time
+    // out: a loaded host can take longer than a short budget to start the fake (TS-H1).
+    ...(TIMED_OUT_MODES.has(mode) ? { requestTimeoutMs: 2_000 * testTimeScale() } : {}),
   }).launch({ cwd, prompt: 'first\nmultiline', permissionMode: 'auto', ...overrides });
   sessions.push(session);
   const items: AgentSessionItem[] = [];
@@ -320,24 +327,33 @@ it('responds to server requests without granting permissions or inventing user i
 it.each(['hold', 'ignore-term'])(
   'interrupts active work and reaps the process, escalating when needed: %s',
   async (mode) => {
-    const { session, items, done, messages } = await launch(mode);
-    await waitFor(() => {
-      try {
-        return messages().some((msg) => msg.method === 'turn/start');
-      } catch {
-        return false;
-      }
-    });
-    const pid = session.pid;
-    session.kill();
-    session.kill();
-    await done;
-    expect(messages().some((msg) => msg.method === 'turn/interrupt')).toBe(true);
-    expect(items.at(-1)).toMatchObject({
-      type: 'exited',
-      signal: mode === 'ignore-term' ? 'SIGKILL' : 'SIGTERM',
-    });
-    expect(() => process.kill(pid ?? 0, 0)).toThrow();
+    // What the session sends, whether or not a starved app-server reads it before it is killed.
+    const requests = vi.spyOn(CodexRpc.prototype, 'request');
+    try {
+      const { session, items, done } = await launch(mode);
+      // The session has processed the turn's start (TS-H1): notifications arrive in order, and
+      // this one comes after `turn/started`, so the turn is active when it is killed.
+      await waitFor(() =>
+        items.some(
+          (item) =>
+            item.type === 'event' &&
+            item.event.kind === 'assistant-message' &&
+            item.event.payload.text === 'WORKING',
+        ),
+      );
+      const pid = session.pid;
+      session.kill();
+      session.kill();
+      await done;
+      expect(requests.mock.calls.filter(([method]) => method === 'turn/interrupt')).toHaveLength(1);
+      expect(items.at(-1)).toMatchObject({
+        type: 'exited',
+        signal: mode === 'ignore-term' ? 'SIGKILL' : 'SIGTERM',
+      });
+      expect(() => process.kill(pid ?? 0, 0)).toThrow();
+    } finally {
+      requests.mockRestore();
+    }
   },
 );
 
@@ -442,7 +458,6 @@ it("starts the probe and the run's app-server from named variables only, plus th
     },
     allowEnvironment: ['FAKE_MODE', 'OPERATOR_DECLARED'],
     terminationGraceMs: 50,
-    requestTimeoutMs: 300,
   }).launch({
     cwd,
     prompt: 'first',

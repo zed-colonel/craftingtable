@@ -3,7 +3,7 @@ import { operatorWaitReportSchema } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
+import { createCycleFixture, storedCycle } from './cycle-test-support.js';
 import {
   cleanupExecutionFixtures,
   openQuestions,

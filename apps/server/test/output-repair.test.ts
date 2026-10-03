@@ -1,12 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  createCycleFixture,
-  type CycleFixture,
-  storedCycle,
-  storedRun,
-} from './cycle-test-support.js';
+import { createCycleFixture, storedCycle, storedRun } from './cycle-test-support.js';
 import {
   cleanupExecutionFixtures,
   designDone,

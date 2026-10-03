@@ -30,10 +30,17 @@ function daemonStorage() {
   }
 }
 
-function count(databasePath: string, table: 'audit_events' | 'roadmaps' | 'roadmap_definitions') {
+/** Row counts of the tables the test writes, read on a connection of their own. */
+function counts(databasePath: string) {
   const database = openDatabase(databasePath);
   try {
-    return (database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    return database
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM audit_events) AS audit,
+                (SELECT COUNT(*) FROM roadmaps) AS roadmaps,
+                (SELECT COUNT(*) FROM roadmap_definitions) AS definitions`,
+      )
+      .get() as { audit: number; roadmaps: number; definitions: number };
   } finally {
     database.close();
   }
@@ -96,11 +103,7 @@ describe("the daemon's record guard (R-H3, TS-M5)", () => {
           });
           expect(tx.roadmaps.save(update, 1)).toBe(true);
         });
-      const before = {
-        audit: count(databasePath, 'audit_events'),
-        roadmaps: count(databasePath, 'roadmaps'),
-        definitions: count(databasePath, 'roadmap_definitions'),
-      };
+      const before = counts(databasePath);
 
       let refused: unknown;
       try {
@@ -117,16 +120,16 @@ describe("the daemon's record guard (R-H3, TS-M5)", () => {
       // audit record.
       expect(storage.roadmaps.find(seed.workspaceId, id)).toBeUndefined();
       expect(storage.roadmaps.history(seed.workspaceId, id)).toEqual([]);
-      expect({
-        audit: count(databasePath, 'audit_events'),
-        roadmaps: count(databasePath, 'roadmaps'),
-        definitions: count(databasePath, 'roadmap_definitions'),
-      }).toEqual(before);
+      expect(counts(databasePath)).toEqual(before);
 
       // The same transaction within the bound commits, so the refusal above is the guard's.
       write(granted(20));
       expect(storage.roadmaps.find(seed.workspaceId, id)).toEqual(granted(20));
-      expect(count(databasePath, 'audit_events')).toBe(before.audit + 1);
+      expect(counts(databasePath)).toEqual({
+        audit: before.audit + 1,
+        roadmaps: before.roadmaps + 1,
+        definitions: before.definitions + 1,
+      });
     } finally {
       storage.close();
     }

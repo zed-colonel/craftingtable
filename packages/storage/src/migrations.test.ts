@@ -41,9 +41,10 @@ function databasePath(): string {
 /**
  * Every deployed migration's name and SHA-256, as literals (TS-M5). The daemon refuses to start
  * when an applied migration's checksum no longer matches its file, so a deployed migration is
- * never edited: a change is a new migration. Rows are only ever appended, one in the commit that
- * adds each migration, and never changed or removed. The rows below match the live daemon's
- * ledger as of 2026-10-02.
+ * never edited: a change is a new migration. Rows are only ever appended: a migration's row is
+ * added in the commit that adds it, and a row whose migration has been deployed is never changed
+ * or removed. Only a migration that no daemon has applied yet may still be revised, with its
+ * own newest row. The rows below match the live daemon's ledger as of 2026-10-02.
  */
 // biome-ignore format: one row per migration, appended in order.
 const DEPLOYED_MIGRATIONS: readonly { version: number; name: string; checksum: string }[] = [
@@ -107,8 +108,8 @@ describe('ordered SQL migrations', () => {
     const database = openDatabase(path);
     const migrations = discoverMigrations();
     expect(runMigrations(database, migrations)).toEqual({
-      currentVersion: 36,
-      supportedVersion: 36,
+      currentVersion: DEPLOYED_MIGRATIONS.length,
+      supportedVersion: DEPLOYED_MIGRATIONS.length,
       pendingVersions: [],
     });
     const rows = database
@@ -127,6 +128,8 @@ describe('ordered SQL migrations', () => {
     const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-migration-files-'));
     directories.push(directory);
     cpSync(DEFAULT_MIGRATIONS_DIRECTORY, directory, { recursive: true });
+    // The copy starts pinned, so each edit below is the only drift.
+    expect(migrationDrift(directory)).toEqual([]);
     const files = readdirSync(directory).toSorted();
     expect(files).toHaveLength(DEPLOYED_MIGRATIONS.length);
     for (const [index, file] of files.entries()) {

@@ -2493,6 +2493,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Test that a non-run entry survives a restart.
   - **Related.** No test excludes the daemon's variables from the Codex environment ([TS-M4](findings/TS-test-suite-review-2026-10-02.md)).
   - **Operator decision 2026-10-02.** This is a rule-7 blocker, but it has not been material: the live root is the default `<data>/t`. It will be fixed in the review pass, not before P2 lands. Revised the same day: the review pass runs on `remediation/p2`, the deployed line, and `main` is only fast-forwarded.
+  - **Status (2026-10-02): in progress on `review-pass/c-r-g5`.**
+  - **The sweep removes run directories only (done).**
+    - At a start, `recoverInterrupted` removes an entry of the root only when its name is one `processTemporaryDirectory` gives (`^[0-9a-f]{12}$`, six random bytes in hex) and `lstat` shows a directory, so a link is never followed or removed.
+    - Everything else stays: files (a 12-hex one included), other directories, links, and upper-case or longer names. One warning names what was left: the root, the count, and up to 20 names.
+    - **Test.** `server-execution-cycles-temp-directories.test.ts`, "sweeps only run directories…": the root holds a run directory, a database-like file, two directories with contents, a 12-hex file, a link named like a run to one of those directories, and upper-case, 13- and 11-character directories. After the sweep only the run directory is gone, and one warning names the other eight. On the base it fails: the sweep deleted all of them.
 
 ### R-G6
 

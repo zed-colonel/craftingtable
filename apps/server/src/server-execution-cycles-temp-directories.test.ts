@@ -1,6 +1,16 @@
-import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { AgentLaunchError } from '@craftingtable/agents';
+import type { RunLog } from './services/agent-run-service.js';
 import { afterEach, expect, it } from 'vitest';
 
 /* -------------------------------------------------------------------------- */
@@ -63,6 +73,67 @@ it("removes agents' temporary directories a stopped daemon left behind (LIVE-31)
   state.context.services.agentRunService.recoverInterrupted();
   await waitFor(() => !existsSync(left), 'leftover removed in the background');
   expect(existsSync(root)).toBe(true);
+});
+
+it("sweeps only run directories from the agents' temporary root at a start, and names what it left (TS-H3, R-G5)", async () => {
+  const { state } = await cycleFixture([]);
+  const root = state.context.config.execution.agentTemporaryRoot;
+  const service = state.context.services.agentRunService;
+  const warnings: { message: string; detail?: Readonly<Record<string, unknown>> }[] = [];
+  (service as unknown as { log: RunLog }).log = {
+    warn: (message, detail) => warnings.push({ message, ...(detail ? { detail } : {}) }),
+  };
+  // A run's own directory, as a stopped daemon left it.
+  const run = join(root, '0123456789ab');
+  mkdirSync(join(run, 'claude-1000'), { recursive: true });
+  // What a misconfigured root holds besides (the database's directory, a home, /tmp): each
+  // must outlive the start, contents included.
+  const target = join(root, 'target');
+  mkdirSync(target);
+  writeFileSync(join(target, 'kept'), 'x');
+  const kept = {
+    file: join(root, 'craftingtable.sqlite'),
+    directory: join(root, 'pre-migration'),
+    hexFile: join(root, 'abcdef012345'),
+    link: join(root, 'fedcba987654'),
+    upper: join(root, '0123456789AB'),
+    long: join(root, '0123456789abc'),
+    short: join(root, '0123456789a'),
+  };
+  writeFileSync(kept.file, 'the database');
+  mkdirSync(kept.directory);
+  writeFileSync(join(kept.directory, 'backup'), 'x');
+  writeFileSync(kept.hexFile, 'a file named like a run');
+  // A link named like a run, to a directory that is not one: neither it nor its target goes.
+  symlinkSync(target, kept.link);
+  for (const name of [kept.upper, kept.long, kept.short]) {
+    mkdirSync(name);
+    writeFileSync(join(name, 'kept'), 'x');
+  }
+  service.recoverInterrupted();
+  await service.quiesce();
+  expect(existsSync(run)).toBe(false);
+  for (const path of Object.values(kept))
+    expect(lstatSync(path, { throwIfNoEntry: false })).toBeDefined();
+  expect(readFileSync(kept.file, 'utf8')).toBe('the database');
+  expect(existsSync(join(kept.directory, 'backup'))).toBe(true);
+  expect(lstatSync(kept.link).isSymbolicLink()).toBe(true);
+  expect(existsSync(join(target, 'kept'))).toBe(true);
+  for (const name of [kept.upper, kept.long, kept.short])
+    expect(existsSync(join(name, 'kept'))).toBe(true);
+  // One warning for everything left, naming it.
+  expect(warnings).toEqual([
+    {
+      message: expect.stringContaining('not run directories'),
+      detail: expect.objectContaining({
+        root,
+        count: 8,
+        entries: expect.arrayContaining(
+          ['target', ...Object.values(kept)].map((path) => basename(path)),
+        ),
+      }),
+    },
+  ]);
 });
 
 it('ends a run normally when its agent left a read-only directory behind, and removes it (LIVE-31 review)', async () => {

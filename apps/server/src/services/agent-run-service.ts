@@ -130,6 +130,25 @@ export interface RunLog {
 
 class CycleLaunchCancelledError extends Error {}
 
+/** A run's own directory beneath the agents' temporary root: random bytes, in hex (LIVE-31). */
+const RUN_TEMPORARY_NAME_BYTES = 6;
+const RUN_TEMPORARY_NAME = new RegExp(`^[0-9a-f]{${RUN_TEMPORARY_NAME_BYTES * 2}}$`);
+/** How many of the entries a start's sweep left it names in its one warning. */
+const LEFT_ENTRIES_NAMED = 20;
+
+/**
+ * Whether `name` beneath `root` is a directory a run made (TS-H3): its name is one
+ * `processTemporaryDirectory` gives, and it is a directory itself, never through a link.
+ */
+function isRunTemporaryDirectory(root: string, name: string): boolean {
+  if (!RUN_TEMPORARY_NAME.test(name)) return false;
+  try {
+    return lstatSync(join(root, name), { throwIfNoEntry: false })?.isDirectory() === true;
+  } catch {
+    return false;
+  }
+}
+
 interface LiveRun {
   readonly workspaceId: WorkspaceId;
   readonly runId: AgentRunId;
@@ -2159,7 +2178,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     const root = this.config.agentTemporaryRoot;
     mkdirSync(root, { recursive: true, mode: 0o700 });
     for (;;) {
-      const directory = join(root, randomBytes(6).toString('hex'));
+      const directory = join(root, randomBytes(RUN_TEMPORARY_NAME_BYTES).toString('hex'));
       try {
         mkdirSync(directory, { mode: 0o700 });
       } catch (error) {
@@ -2202,17 +2221,29 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   recoverInterrupted(): number {
     // Their agents' temporary directories went with them (LIVE-31). One that cannot be removed
     // is logged; it never keeps the daemon from starting (LIVE-31 review).
+    const root = this.config.agentTemporaryRoot;
     let leftovers: string[] = [];
     try {
-      leftovers = readdirSync(this.config.agentTemporaryRoot);
+      leftovers = readdirSync(root);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
         this.log.warn("Agents' temporary directories could not be listed", {
           error: String(error),
         });
     }
-    for (const name of leftovers)
-      this.removeAgentDirectory(join(this.config.agentTemporaryRoot, name));
+    // Only what a run made goes: a directory, not a link, named as `processTemporaryDirectory`
+    // names one. Anything else stays, so a root set where other files live loses none of them
+    // (TS-H3); it is named once.
+    const left: string[] = [];
+    for (const name of leftovers) {
+      if (isRunTemporaryDirectory(root, name)) this.removeAgentDirectory(join(root, name));
+      else left.push(name);
+    }
+    if (left.length > 0)
+      this.log.warn(
+        "Entries in the agents' temporary root that are not run directories were left in place",
+        { root, count: left.length, entries: left.sort().slice(0, LEFT_ENTRIES_NAMED) },
+      );
     this.storage.transaction((tx) =>
       tx.phaseScheduling.releaseOperations(this.now().toISOString()),
     );

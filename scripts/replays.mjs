@@ -195,11 +195,17 @@ export function classifyCase({ status, signal, report, expected }) {
   if (status === 2) return { ok: false, problems: ['replay usage error (exit 2)'] };
   if (status !== 0 && status !== 1)
     return { ok: false, problems: [`replay failed (exit ${status ?? 'unknown'})`] };
-  if (!isObject(report) || !Array.isArray(report.changed) || !Array.isArray(report.missing))
+  if (
+    !isObject(report) ||
+    !Array.isArray(report.changed) ||
+    !Array.isArray(report.missing) ||
+    !Array.isArray(report.duplicates)
+  )
     return { ok: false, problems: ['replay wrote no check report'] };
   const { matched, unexpected } = matchExpected(report, expected);
-  const differs = report.changed.length > 0 || report.missing.length > 0;
-  const problems = [...unexpected];
+  const differs =
+    report.changed.length > 0 || report.missing.length > 0 || report.duplicates.length > 0;
+  const problems = [...unexpected, ...report.duplicates.map((key) => `duplicate key: ${key}`)];
   if (differs !== (status === 1)) problems.push(`replay exit ${status} disagrees with its report`);
   return {
     ok: problems.length === 0,

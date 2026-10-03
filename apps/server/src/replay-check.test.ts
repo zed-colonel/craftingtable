@@ -40,6 +40,15 @@ it('reports changed, new and missing records, with the new value’s hash', () =
       },
     ],
     missing: ['gone'],
+    duplicates: [],
     notCompared: [],
   });
+});
+
+it('reports a key that appears twice on either side, even with identical values', () => {
+  // A map would collapse them, so a duplicated record would replay as 0 changed.
+  const a = { key: 'entry:r/e', value: { decision: 'wait' } };
+  expect(compareRecords([a], [a, a]).duplicates).toEqual(['replay entry:r/e']);
+  expect(compareRecords([a, a], [a]).duplicates).toEqual(['golden entry:r/e']);
+  expect(compareRecords([a], [a]).duplicates).toEqual([]);
 });

@@ -152,7 +152,7 @@ describe('matchExpected', () => {
 });
 
 describe('classifyCase', () => {
-  const clean = { records: 3, changed: [], missing: [], notCompared: [] };
+  const clean = { records: 3, changed: [], missing: [], duplicates: [], notCompared: [] };
   it('passes a clean replay and fails every way a replay can go wrong', () => {
     expect(classifyCase({ status: 0, report: clean })).toMatchObject({ ok: true, records: 3 });
     expect(classifyCase({ status: 2, report: clean }).problems).toEqual([
@@ -167,6 +167,14 @@ describe('classifyCase', () => {
     expect(classifyCase({ status: 1 }).problems).toEqual(['replay wrote no check report']);
     expect(classifyCase({ status: 1, report: clean }).problems).toEqual([
       'replay exit 1 disagrees with its report',
+    ]);
+    expect(
+      classifyCase({ status: 1, report: { ...clean, duplicates: ['replay entry:r/e'] } }).problems,
+    ).toEqual(['duplicate key: replay entry:r/e']);
+    // A report from before duplicate keys were reported is not trusted.
+    const { duplicates: _duplicates, ...older } = clean;
+    expect(classifyCase({ status: 0, report: older }).problems).toEqual([
+      'replay wrote no check report',
     ]);
   });
 });
@@ -233,6 +241,7 @@ describe('main', () => {
         changed:
           mode === 'scheduler' ? [{ key: 'entry:r/e', was: {}, now: {}, nowSha256: HASH }] : [],
         missing: [],
+        duplicates: [],
         notCompared: [],
       };
       if (report === 'none') return { status: 1 };
@@ -269,11 +278,12 @@ describe('main', () => {
       records: 2,
       changed: [{ key: 'c/r', was: {}, now: {}, nowSha256: OTHER }],
       missing: [],
+      duplicates: [],
       notCompared: [],
     };
     for (const golden of [
       changed,
-      { records: 1, changed: [], missing: ['c/r'], notCompared: [] },
+      { records: 1, changed: [], missing: ['c/r'], duplicates: [], notCompared: [] },
       'none',
     ]) {
       const { exit, lines } = gate({ reports: { golden } });
@@ -282,7 +292,9 @@ describe('main', () => {
     }
     // The expected scheduler change did not happen.
     const absent = gate({
-      reports: { scheduler: { records: 2, changed: [], missing: [], notCompared: [] } },
+      reports: {
+        scheduler: { records: 2, changed: [], missing: [], duplicates: [], notCompared: [] },
+      },
     });
     expect(await absent.exit).toBe(1);
     expect(absent.lines.join('\n')).toMatch(/expected change did not happen: entry:r\/e/);

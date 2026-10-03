@@ -11,7 +11,13 @@ import type { EvidenceSubmission } from '@craftingtable/domain';
 import { join, resolve } from 'node:path';
 import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
 import { openDaemonStorage } from './persisted-records.js';
-import { canonicalJson, compareRecords, formatCheck, type ReplayCheck } from './replay-check.js';
+import {
+  canonicalJson,
+  compareRecords,
+  differs,
+  formatCheck,
+  type ReplayCheck,
+} from './replay-check.js';
 import { submissionSummary } from './services/runtime-evidence-service.js';
 import {
   checkSchedulerReplay,
@@ -103,7 +109,7 @@ async function scheduler(
       );
       report(check, reportPath);
       process.stdout.write(formatCheck(check, 'scheduler records'));
-      return check.changed.length || check.missing.length ? 1 : 0;
+      return differs(check) ? 1 : 0;
     }
     process.stdout.write(text);
     return 0;
@@ -190,7 +196,7 @@ async function evidenceView(
       process.stdout.write(
         formatCheck(check, 'evidence view records', (value) => canonicalJson(value).slice(0, 400)),
       );
-      return check.changed.length || check.missing.length ? 1 : 0;
+      return differs(check) ? 1 : 0;
     }
     return 0;
   } finally {
@@ -252,7 +258,7 @@ async function main(args: readonly string[]): Promise<number> {
         return JSON.stringify(outcome.decision ?? outcome.error);
       }),
     );
-    return check.changed.length || check.missing.length ? 1 : 0;
+    return differs(check) ? 1 : 0;
   }
   process.stdout.write(text);
   return 0;

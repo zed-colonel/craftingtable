@@ -25,8 +25,24 @@ export interface ReplayCheck {
   readonly records: number;
   readonly changed: readonly ReplayChange[];
   readonly missing: readonly string[];
+  /**
+   * Keys that appear more than once on one side (`golden <key>` or `replay <key>`). Records are
+   * paired by key, so a duplicate would otherwise collapse into its twin unseen.
+   */
+  readonly duplicates: readonly string[];
   /** Parts of the replay the golden predates, which this check could not compare. */
   readonly notCompared: readonly string[];
+}
+
+/** Whether a check found any difference: `controller:replay --check` exits 1 when it did. */
+export const differs = (check: ReplayCheck): boolean =>
+  check.changed.length > 0 || check.missing.length > 0 || check.duplicates.length > 0;
+
+function repeatedKeys(records: readonly ReplayRecord[], side: string): string[] {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  for (const { key } of records) (seen.has(key) ? repeated : seen).add(key);
+  return [...repeated].map((key) => `${side} ${key}`);
 }
 
 /**
@@ -68,7 +84,8 @@ export function compareRecords(
     ];
   });
   const missing = expected.filter((e) => !replayed.has(e.key)).map((e) => e.key);
-  return { records: actual.length, changed, missing, notCompared };
+  const duplicates = [...repeatedKeys(expected, 'golden'), ...repeatedKeys(actual, 'replay')];
+  return { records: actual.length, changed, missing, duplicates, notCompared };
 }
 
 /** The check as `controller:replay --check` prints it: each difference, then one count line. */
@@ -83,7 +100,8 @@ export function formatCheck(
         `changed ${c.key}\n  was ${'was' in c ? show(c.was) : '(new)'}\n  now ${show(c.now)}\n`,
     ),
     ...check.missing.map((key) => `missing ${key}\n`),
+    ...check.duplicates.map((key) => `duplicate key: ${key}\n`),
     ...check.notCompared.map((part) => `not compared: ${part}\n`),
-    `${check.records} ${noun} replayed; ${check.changed.length} changed, ${check.missing.length} missing\n`,
+    `${check.records} ${noun} replayed; ${check.changed.length} changed, ${check.missing.length} missing${check.duplicates.length ? `, ${check.duplicates.length} duplicate keys` : ''}\n`,
   ].join('');
 }

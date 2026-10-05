@@ -919,7 +919,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - P1's R-G7 and R-H2 measurements.
   - **Order after landing:**
     1. The review pass, on `remediation/p2`: R-I2 with tmpfs test data directories, TS-H3, then the gate tests TS-H7, TS-M2, TS-M6 and TS-M10, and R-I4. Done 2026-10-03 (the next entry).
-    2. R-G15: model pickers from each CLI's own catalog (added 2026-10-02 from LIVE-34, operator decision).
+    2. R-G15: model pickers from each CLI's own catalog (added 2026-10-02 from LIVE-34, operator decision). Since 2026-10-05, after the increment that builds the review pass's approved follow-ups (the next entry's decisions).
     3. R-D5.
     4. R-G9.
 - **Test-suite review pass (2026-10-02/03, on `remediation/p2`, 75243c6..5fd5808; 107 commits).** It remediates the [test-suite findings](findings/TS-test-suite-review-2026-10-02.md) in eleven units. Each unit was built in its own worktree and reviewed by an independent agent; units with production changes were reviewed a second time after their fixes. Each was then cherry-picked here in the operator's order. Each register item records its own work.
@@ -980,6 +980,15 @@ independent review; every finding is fixed or its disposition is recorded in reg
     6. **D.** Keep both sources of default-branch protection. The review recommends keeping both.
     7. **A.** The open question on R-I2: confined checks cannot see `/run/user/$UID`. This is latent, because e2e runs no checks.
     8. **I.** The `source-hooks.ts` loader allowance (`node:module`, that file only).
+  - **Operator decisions 2026-10-05** (each is recorded on its register item):
+    - **1 and 7 (R-G5, R-I2).** The reading of "overlapping" stands. Test and e2e daemons' data move from tmpfs to a dedicated directory on the workhorse disk, after a full suite and e2e run on each location. That also lets a confined check see an e2e worktree.
+    - **2 (R-G5).** Build the agents'-root lock.
+    - **3 (R-C16).** Build the investigation worktree check.
+    - **4 (R-I10).** The format-2 scheduler goldens are installed, and `pnpm replays` compares command arguments.
+    - **5 (R-H3).** Build the deploy-time migration preflight.
+    - **6 (gate tests).** Keep both sources of default-branch protection, as the review recommended.
+    - **Still open:** 8, the `source-hooks.ts` loader allowance.
+    - **Next:** one increment for 2, 3, 5 and the test data root (1 and 7), then R-G15, then R-D5, then R-G9.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

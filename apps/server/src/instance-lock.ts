@@ -306,7 +306,16 @@ async function publishFileLock(
     const temporary = join(base, `${files.prefix}-starting.${id}`);
     await listen(server, temporary);
     listening = true;
-    renameSync(temporary, join(base, published));
+    try {
+      renameSync(temporary, join(base, published));
+    } catch (error) {
+      // Another start probed this socket between its bind and its listen (microseconds), found
+      // it refusing, and removed it: a withdrawal, retried like a tie (R-G5 review).
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      await release();
+      closeDescriptor();
+      return new Withdrawn(new InstanceLockedError(canonical, undefined, resource));
+    }
     const after = await refusal(published);
     if (after) {
       rmSync(join(base, published), { force: true });

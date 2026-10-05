@@ -1,7 +1,7 @@
 {
   "description": "The replay gate (R-I10): every live snapshot and its goldens, relative to $XDG_DATA_HOME. Run with pnpm replays (scripts/replays.mjs).",
   "root": "craftingtable-review/replay",
-  "schedulerFormat": 1,
+  "schedulerFormat": 2,
   "snapshots": [
     {
       "id": "2026-09-23",
@@ -19,8 +19,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-85ad226.json",
-          "goldenSha256": "7e2c0b4aaa5c8d6f4f4f4d656423f9bee07797957bbada3fbd7a431179f0e36e"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "93ad70a2ac18360094d41923cf29ea829174257f591510b1b98a73003db62d78"
         }
       ]
     },
@@ -40,8 +40,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-cb86fba.json",
-          "goldenSha256": "b81d6fe8229b6917284150c34a1d1b5d611c098f1860c58231c71a4afa81c7dc"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "da48afb6cee6b3b213c46f1073b0301c04cf5ec12fabcb87f2175dc061cd9d7e"
         }
       ]
     },
@@ -61,8 +61,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-6b4ae21.json",
-          "goldenSha256": "a4dc7f288facf9a94360a8f4092a0c4fd891d6920697a866904c6997917fc67c"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "c10774e8ed9ea7f1c3745188ae333b9c38fd694bca81e37350471a51f1d99a0c"
         }
       ]
     },
@@ -82,8 +82,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-8146974.json",
-          "goldenSha256": "9cf5fb68142e3ed598f74c3db5c01c9b4ec16206a39f3591afdeba3be6f4e9d2"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "f8a7c80c66f4b09e7de5a8cd78fdb134ae91d883f8bd732376e05b3fb5eba2e5"
         }
       ]
     },
@@ -103,8 +103,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-cb86fba.json",
-          "goldenSha256": "13e74c3b4dda86eeacffddef3b7e0b99406a78cd293eef32f82d3e021e96b98f"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "a5f1984768139dd8a7612c0781add7b0b7f10508b9b929e65a95c512fcdeee3b"
         }
       ]
     },
@@ -124,8 +124,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-1f82ffb.json",
-          "goldenSha256": "372808bfbb107ee84d1a7292ac00dae86f2e50057848c825baf83dd52c4c58fd"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "671bebfc7358a30d97e0a569a39383e4f87ac554373fae1262562d2cf35125f2"
         }
       ]
     },
@@ -145,8 +145,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-79937d4.json",
-          "goldenSha256": "30143f2a30b4adede0fcd92559188eff69fca026754d720e09efa342b1cb7b42"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "67bd7171e907b8b6444744623be5a632b409d929a1377708a616540b7e806a29"
         }
       ]
     },
@@ -166,8 +166,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-6b4ae21.json",
-          "goldenSha256": "50445a30c59b655f720a4aa50ee197baf18473892ba7178ec31ec5750252b797"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "d595323372ad0f824ad8c4221180be7a4c9791fea727660d59fb99822b0a638f"
         }
       ]
     },
@@ -187,8 +187,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-9f4da08.json",
-          "goldenSha256": "52d2ada617db335b78b25aa17d829c25a045ed539bf8c14ff13b4daf6db5773f"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "8e31fde0415a7a53642fc39ccf74726ced03cc4537044b5d9b9c016bc2310647"
         },
         {
           "mode": "evidence-view",
@@ -213,8 +213,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-baca24e.json",
-          "goldenSha256": "1d6c4a36d0b7c99ca2783466ef64f68fdd4a732ea8492cce3461f41d0dfd92f6"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "9f2892bedad7df848464ce15d5724bc4a995a68dd363ed2fe5654dbee88176b5"
         },
         {
           "mode": "evidence-view",
@@ -239,8 +239,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-baca24e.json",
-          "goldenSha256": "b595c28e6256b2e05bdb1f0bfaad82f6b9f0d685933ef9be240d3e94994521c8"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "5044ab61f029c4ee68c8f5b68b85f1e59632a5e53bbaae9a45f1ef7a82406519"
         },
         {
           "mode": "evidence-view",
@@ -284,18 +284,52 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-baca24e.json",
-          "goldenSha256": "834dab0b1e483adb33c3f3d7ad89a62914aa4dff83956db748cda874201ca5ad"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "0b9c192b170cf4e533fa07755e68b251525ab2a4d448abb21753c05bace5e2eb"
         }
       ]
     },
     {
       "id": "2026-10-01b",
-      "withoutGolden": "Taken after the 284f598 deploy for live measurement (program.md); no golden was recorded."
+      "sha256": "1bd6f761ad902ad2dd690a7a4288a28f75d96f28f4ca4cc64d384712fdefd2d1",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden-3c9d430.json",
+          "goldenSha256": "c51f079ed3223a6639e8108d006e94824e1c74d5a4dcb6cc23a1ed541520bfa6"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-3c9d430.json",
+          "goldenSha256": "97ce01338630185297c830aa3c6291cbf2b49daf7f3d9a33f72c1c9e43c47308"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "bde6d0111630b23ea4ab857e85878336dc9b834065076351e4b687c3aa13d69e"
+        }
+      ]
     },
     {
       "id": "2026-10-01c",
-      "withoutGolden": "Taken on 2026-10-01 between the 10-01b and 10-01d snapshots; no golden was recorded."
+      "sha256": "a46479499c32363a3dc14f6b70a37fdddda24090a23b34c13ddf0f1981d7f135",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden-3c9d430.json",
+          "goldenSha256": "3974b87f4aab13395acc24ab18ba62639de8ca11c59353c03eb9f17f276b7e12"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-3c9d430.json",
+          "goldenSha256": "207f393fe0644439ecbd49a9c2c8204cce448beb33e5ce4b8d1de9420b7677c0"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "3b5f18296cb7d8a59793d5a4ef1aa9d07a93e0abc1c63546a99e55ccb194f912"
+        }
+      ]
     },
     {
       "id": "2026-10-01d",
@@ -313,8 +347,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-0b09307.json",
-          "goldenSha256": "f80b9d0ded7ba9f7dd8ab5d436f6d032174c7eb478068a690fee3cf5b63c5633"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "e573554649b98724697b0749e097a051ab8dc4d143038a4f545f99fe6570ca7d"
         }
       ]
     },
@@ -334,8 +368,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-55d47fc.json",
-          "goldenSha256": "04d3534cab614ac9d82e59471f2f2feb88f3b890539916036cf2e72acac0fed4"
+          "golden": "scheduler-golden-3c9d430.json",
+          "goldenSha256": "dcab155f82562c8b33ec070081faf5fd71acab01fbc4bb11b0137031eb8d03ed"
         }
       ]
     }

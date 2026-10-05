@@ -900,6 +900,16 @@ describe('the investigated worktree (R-C16)', () => {
       message: 'Ended by the operator.',
       worktreeChange: { parts: ['untracked'], paths: ['after-end.txt'] },
     });
+    // End is recorded with the operator who asked (review L6).
+    const requested = state.context.storage.audit
+      .listWorkspace({ workspaceId: state.workspaceId, limit: 200 })
+      .find(
+        (entry) =>
+          entry.targetId === cycle.id &&
+          (entry.metadata as { action?: string } | undefined)?.action ===
+            'investigation-end-requested',
+      );
+    expect(requested).toMatchObject({ actorKind: 'user', actorUserId: state.userId });
     // The operator's own End is no news, but a changed tree is.
     const id = started.investigation!.id;
     await waitFor(
@@ -1115,6 +1125,26 @@ describe('the investigated worktree (R-C16)', () => {
     });
     expect(stopped.statusCode, stopped.body).toBe(200);
     expect(currentCycle(state, cycle).status).toBe('stopped');
+  });
+
+  it('retires a held cycle for an amendment, since retiring ends it (review L1)', async () => {
+    const f = await atQuestionStop();
+    const { state, cycle } = f;
+    plantOnReadOnlyLaunch(f);
+    await investigate(state, cycle);
+    await waitFor(
+      () => currentCycle(state, cycle).investigation?.result?.code === 'worktree-changed',
+      'worktree change',
+    );
+    const user = state.context.storage.users.findById(state.userId)!;
+    state.context.services.workCycleService.retireForAmendment(
+      { user },
+      currentCycle(state, cycle),
+      'amendment-1',
+    );
+    expect(currentCycle(state, cycle).status).toBe('stopped');
+    // Nothing reset the tree.
+    expect(existsSync(join(f.worktree.path, 'planted.txt'))).toBe(true);
   });
 
   it('settles a record without a worktree, started before the check, as before', async () => {

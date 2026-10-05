@@ -242,6 +242,13 @@ export function CycleInvestigation({
             </button>
           </p>
           {used && <p role="status">Added to your answer below. Edit it before you send it.</p>}
+          {!changed && record.worktree?.metadataOnly ? (
+            <p>
+              The worktree was checked as unchanged; {record.worktree.metadataOnly} large{' '}
+              {record.worktree.metadataOnly === 1 ? 'file was' : 'files were'} compared by size and
+              modification time only.
+            </p>
+          ) : null}
         </>
       )}
       {offered && !live && (

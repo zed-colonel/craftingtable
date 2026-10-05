@@ -614,3 +614,25 @@ it('says an investigation is ending once End was asked, until its process has ex
     'Ending: the investigation run was asked to end',
   );
 });
+
+it('says when the unchanged worktree was compared partly by size and time (R-C16 review L4)', () => {
+  const worktree = {
+    headSha: 'a'.repeat(40),
+    branch: 'item',
+    fingerprint: '0'.repeat(64),
+    trackedClean: true,
+    untrackedDigest: '0'.repeat(64),
+    ignoredDigest: '0'.repeat(64),
+    gitDigest: '0'.repeat(64),
+    metadataOnly: 2,
+  };
+  show({ ...base, investigation: { ...record, worktree, result: finished } }, [
+    'continue-with-guidance',
+    'investigate',
+    'stop',
+  ]);
+  const panel = screen.getByRole('region', { name: 'Investigation' });
+  expect(panel.textContent).toContain(
+    '2 large files were compared by size and modification time only',
+  );
+});

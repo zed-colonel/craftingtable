@@ -97,3 +97,14 @@ it('shows a chosen hidden model, and an unlisted one under Other… (R-G15)', ()
   expect((screen.getByLabelText('Model id') as HTMLInputElement).value).toBe('claude-retired-1');
   expect(screen.getByRole('note')).toBeTruthy();
 });
+
+it('keeps a chosen model visible under Other… when the list no longer has it (R-G15)', () => {
+  const props = { value: 'claude-opus-5', disabled: false, onChange: vi.fn() };
+  const { rerender } = render(<ModelField models={CATALOG} {...props} />);
+  expect(select().value).toBe('claude-opus-5');
+  // A refresh, or a restart's built-in list, without the model.
+  rerender(<ModelField models={CATALOG.filter((m) => m.id !== 'claude-opus-5')} {...props} />);
+  expect(select().value).toBe('__custom__');
+  expect((screen.getByLabelText('Model id') as HTMLInputElement).value).toBe('claude-opus-5');
+  expect(screen.getByRole('note')).toBeTruthy();
+});

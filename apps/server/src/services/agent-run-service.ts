@@ -198,14 +198,38 @@ function refuseMisnamedModel(backend: AgentBackend, model: string | undefined): 
     throw new AgentLaunchError('model-misnamed', `${misnamed} Nothing was started.`);
 }
 
+/** How long a launch waits for a backend's first catalog look after the daemon starts. */
+const FIRST_CATALOG_LOOK_MS = 30_000;
+
+/**
+ * Right after a start the backend may still offer only the release's own list, which can lack
+ * the model a display name belongs to; a launch then waits, bounded, for the first look at the
+ * CLI's catalog (R-G15 review), which a refresh already under way shares.
+ */
+async function firstCatalogLook(backend: AgentBackend): Promise<void> {
+  const { catalog } = backend.describe();
+  if (catalog.source !== 'fallback' || catalog.checkedAt !== undefined) return;
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    backend.listModels().catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, FIRST_CATALOG_LOOK_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
 /** What is wrong with a model the backend's catalog lists under another id, if it is. */
 function misnamedModel(backend: AgentBackend, model: string | undefined): string | undefined {
   if (model === undefined) return undefined;
   const { label, models } = backend.describe();
   const spelling = modelSpelling(models, model);
-  return spelling.kind === 'misnamed'
-    ? `${label}'s catalog lists ${JSON.stringify(model)} as ${spelling.label}, whose id is ${JSON.stringify(spelling.id)}. Only the id can be sent.`
-    : undefined;
+  if (spelling.kind !== 'misnamed') return undefined;
+  const what =
+    model.trim().toLowerCase() === spelling.label.toLowerCase()
+      ? 'the display name of'
+      : 'another spelling of';
+  return `${JSON.stringify(model)} is ${what} ${JSON.stringify(spelling.id)} in ${label}'s model list. Only the id can be sent.`;
 }
 
 function summarise(text: string): string {
@@ -495,12 +519,17 @@ export class AgentRunService {
   /**
    * Refuses agent selections an operator submits whose model is a display name, or another
    * spelling of a catalog id (R-G15, LIVE-34): caught when it is chosen, not at a later launch.
-   * Only what a command submits is checked; a saved selection elsewhere never blocks it.
+   * Only what a command submits is checked, and a model the record already saved (`saved`) is
+   * let through, so a saved selection is a warning and never blocks another change; the launch
+   * check still stops it.
    */
   requireModelIds(
     selections: Iterable<{ readonly backend: AgentBackendKind; readonly model?: string }>,
+    saved: Iterable<{ readonly backend: AgentBackendKind; readonly model?: string }> = [],
   ): void {
+    const kept = new Set([...saved].map((selection) => `${selection.backend}\0${selection.model}`));
     for (const selection of selections) {
+      if (kept.has(`${selection.backend}\0${selection.model}`)) continue;
       const backend = this.backends.get(selection.backend);
       const misnamed = backend && misnamedModel(backend, selection.model);
       if (misnamed !== undefined) throw new ExecutionRequestError('invalid-request', misnamed);
@@ -542,7 +571,7 @@ export class AgentRunService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
-    this.requireModelIds(profiles);
+    this.requireModelIds(profiles, this.storage.execution.runProfiles.list(workspaceId));
     const occurredAt = this.now().toISOString();
     this.storage.transaction((tx) => {
       tx.execution.runProfiles.replace({
@@ -1863,6 +1892,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         try {
           // A display name, or another spelling of a catalog id, never reaches the CLI (R-G15,
           // LIVE-34): the run ends before anything starts, and a cycle stops saying which id.
+          if (launch.model !== undefined) await firstCatalogLook(backend);
           refuseMisnamedModel(backend, launch.model);
           session = cycle
             ? await this.launchCycleSession(backend, launch, cycle)

@@ -11,6 +11,15 @@ import {
 } from '../src/services/model-catalog-service.js';
 import {
   cleanupExecutionFixtures,
+  controlCycle,
+  entryIds,
+  present,
+  roadmapControl,
+  roadmapFixture,
+  roadmapId,
+  roadmapInput,
+  saveRoadmapRequest,
+  storedRoadmap,
   currentCycle,
   cycleFixture,
   cycleProfiles,
@@ -19,6 +28,7 @@ import {
   implementationDone,
   startCycle,
   waitFor,
+  withinHangGuard,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -255,4 +265,127 @@ describe('the model catalog timer (R-G15)', () => {
       { backend: 'claude-code', detail: 'unexpected' },
     ]);
   });
+});
+
+it("stops a roadmap's cycle, not its scheduler, on a saved display name, and the profiles' id carries it on (LIVE-34)", async () => {
+  const { state, backend } = await roadmapFixture([designDone]);
+  const known = backend.models;
+  // Saved while the catalog did not list the model, so it was sent as typed.
+  backend.models = [];
+  const input = roadmapInput(state, [state.workItemId]);
+  const misnamed = {
+    ...input,
+    entries: input.entries.map((entry) => ({
+      ...entry,
+      profiles: {
+        ...entry.profiles,
+        design: { ...entry.profiles.design, model: 'Scripted model' },
+      },
+    })),
+  };
+  expect((await saveRoadmapRequest(state, misnamed)).statusCode).toBe(200);
+  // A refresh then learns it as the display name of scripted-model.
+  backend.models = known;
+  await roadmapControl(state, 'start');
+  await waitFor(() => storedRoadmap(state).attempts.length === 1, 'entry started');
+  const attempt = present(storedRoadmap(state).attempts[0]);
+  const cycle = () =>
+    present(state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId));
+  await waitFor(() => cycle().attention?.code === 'agent-model-misnamed', 'typed stop');
+  expect(backend.launches).toHaveLength(0);
+  // The fix the stop names: the id in the roadmap's agent profiles, then resume.
+  await waitFor(() => storedRoadmap(state).status !== 'running', 'roadmap held');
+  const selection = (model: string) => ({ backend: 'claude-code' as const, model });
+  const applied = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/agent-profiles`,
+    headers: mutationHeaders(state),
+    payload: {
+      expectedVersion: storedRoadmap(state).version,
+      entryIds: [entryIds[0]],
+      selections: {
+        design: selection('scripted-model'),
+        implement: selection('implement-model'),
+        review: selection('review-model'),
+        remediate: selection('remediate-model'),
+      },
+    },
+  });
+  expect(applied.statusCode, applied.body).toBe(200);
+  await controlCycle(state, cycle(), 'resume');
+  await waitFor(() => backend.launches.length === 1, 'relaunched with the id');
+  expect(backend.launches[0]?.model).toBe('scripted-model');
+});
+
+it('lets a saved display name stay through other changes, while a new one is refused (R-G15)', async () => {
+  const { state, backend } = await cycleFixture([]);
+  const save = (profiles: readonly Record<string, unknown>[]) =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/run-profiles`,
+      headers: mutationHeaders(state),
+      payload: { profiles },
+    });
+  const review = {
+    role: 'review',
+    backend: 'claude-code',
+    model: 'GPT-6.1-Sol',
+    permissionMode: 'auto',
+  };
+  // Saved before the catalog listed the model.
+  expect((await save([review])).statusCode).toBe(200);
+  backend.models = CATALOG;
+  // Another change saves; the saved name is a warning, not a block.
+  const design = {
+    role: 'design',
+    backend: 'claude-code',
+    model: 'gpt-5.5',
+    permissionMode: 'auto',
+  };
+  const kept = await save([review, design]);
+  expect(kept.statusCode, kept.body).toBe(200);
+  // A display name newly entered is refused.
+  const entered = await save([review, { ...design, model: 'GPT-5.5' }]);
+  expect(entered.statusCode).toBe(400);
+  expect(entered.json().error.message).toContain('"gpt-5.5"');
+});
+
+it('waits for the first catalog look before checking a launch after a start (R-G15)', async () => {
+  const { state, backend, worktree } = await cycleFixture([]);
+  // The daemon has only the release's list, and its first look is still under way.
+  let release: (() => void) | undefined;
+  let read = false;
+  const describe = backend.describe.bind(backend);
+  backend.describe = () =>
+    read ? describe() : { ...describe(), models: [], catalog: { source: 'fallback' as const } };
+  let asked: () => void = () => undefined;
+  const askedForCatalog = new Promise<void>((resolve) => {
+    asked = resolve;
+  });
+  backend.listModels = () =>
+    new Promise((resolve) => {
+      asked();
+      release = () => {
+        read = true;
+        backend.models = CATALOG;
+        resolve({ models: CATALOG, status: { source: 'catalog' } });
+      };
+    });
+  // The start answers once its launch has gone through the check, so it is awaited after.
+  const starting = state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, permissionMode: 'auto', model: 'GPT-6.1-Sol' },
+  });
+  await withinHangGuard(askedForCatalog, 'the launch asked for the catalog');
+  release?.();
+  const started = await starting;
+  expect(started.statusCode, started.body).toBe(200);
+  const { run } = startAgentRunResponseSchema.parse(started.json());
+  await waitFor(
+    () => state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'failed',
+    'refused once the catalog was read',
+  );
+  expect(backend.launches).toHaveLength(0);
 });

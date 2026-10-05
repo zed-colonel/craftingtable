@@ -150,7 +150,7 @@ it('warns about a saved model that left the catalog, and still lets the profiles
   );
   const section = screen.getByRole('region', { name: 'Agent profiles' });
   expect(within(section).getByRole('note').textContent).toContain(
-    'gpt-4 is no longer in Codex’s model list; runs still send it',
+    'gpt-4 is not in Codex’s model list; runs still send it',
   );
   fireEvent.click(within(section).getByRole('button', { name: 'Edit workspace defaults' }));
   fireEvent.click(within(section).getByRole('button', { name: 'Save workspace defaults' }));

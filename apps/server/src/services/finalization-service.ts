@@ -63,6 +63,7 @@ export class FinalizationService {
       this.cycles.validateSettings({
         profiles: { design: profile, implement: profile, review: profile, remediate: profile },
       });
+    this.cycles.requireModelIds(input.stages.flatMap((s) => [s.review, s.implement]));
     const value = await this.execution.branches.duringMerge(repo.rootPath, async () => {
       this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
       if (

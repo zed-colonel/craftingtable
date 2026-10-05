@@ -9,12 +9,15 @@ export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 /** A catalog's section name; anything else makes the catalog unsupported. */
 export const MODEL_SECTION = /^[a-z][a-z0-9_-]{0,39}$/;
 
-/** A display name: 1 to 100 characters, none of them controls. */
+/**
+ * A display name: 1 to 100 UTF-16 code units (the wire contract's measure), none of them
+ * controls.
+ */
 export function modelLabel(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     value.trim().length > 0 &&
-    [...value].length <= 100 &&
+    value.length <= 100 &&
     [...value].every((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
       return codePoint > 31 && (codePoint < 127 || codePoint > 159);
@@ -62,7 +65,8 @@ export class ModelCatalog {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.snapshot = {
-      models: initial,
+      // An operator's list is cut like a catalog: the execution status carries at most this many.
+      models: initial.slice(0, MODEL_CATALOG_LIMIT),
       status: { source: discover === undefined ? 'environment' : 'fallback' },
     };
   }

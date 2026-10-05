@@ -42,7 +42,10 @@ export function ModelField({
 }) {
   const groups = sections(models, value);
   const offered = (id: string) => groups.some(([, group]) => group.some((m) => m.id === id));
-  const [custom, setCustom] = useState(value !== '' && !offered(value));
+  const [chosenCustom, setCustom] = useState(value !== '' && !offered(value));
+  // A list that changes under a chosen model (a refresh, a restart's built-in list) keeps showing
+  // it under "Other…" rather than as the backend default (R-G15 review).
+  const custom = chosenCustom || (value !== '' && !offered(value));
   const selectValue = custom ? CUSTOM_MODEL : value;
   const spelling = custom && value.trim() !== '' ? modelSpelling(models, value) : undefined;
   const options = (group: readonly ModelOption[]) =>

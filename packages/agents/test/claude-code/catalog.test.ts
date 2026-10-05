@@ -100,9 +100,10 @@ it('reads the most recently fetched valid catalog of several (R-G15)', async () 
     { id: 'claude-only-newer', name: 'Only Newer', section: 'main' },
   ];
   const config = configDirectory({
-    'a-cc.json': text(newer),
-    'b-cc.json': text(older),
-    'c-cc.json': '{not json',
+    'a-cc.json': text(older),
+    'b-cc.json': '{not json',
+    'c-cc.json': text(newer),
+    'd-cc.json': text(older),
     'notes.json': text(older),
   });
   const found = await readClaudeModelCatalog(config, '2.1.288');
@@ -117,9 +118,16 @@ it('reads the most recently fetched valid catalog of several (R-G15)', async () 
 it.each([
   ['a later format version', (value: Record<string, unknown>) => ({ ...value, version: 3 })],
   [
-    'an id that cannot be sent',
+    'a model name with a control character',
     (value: Record<string, unknown>) => {
-      firstEntry(value).id = 'has space';
+      firstEntry(value).name = 'Opus\u00075.5';
+      return value;
+    },
+  ],
+  [
+    'a model with no id',
+    (value: Record<string, unknown>) => {
+      firstEntry(value).id = '';
       return value;
     },
   ],
@@ -248,4 +256,69 @@ it('shares one look among concurrent refreshes, and starts a new one after (R-G1
   release?.();
   await next;
   expect(looks).toBe(2);
+});
+
+it.each([
+  ['missing', (): string => '/nonexistent/claude'],
+  [
+    'hung',
+    (): string => {
+      const root = mkdtempSync(join(tmpdir(), 'craftingtable-claude-bin-'));
+      directories.push(root);
+      const executable = join(root, 'claude');
+      writeFileSync(executable, `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`);
+      chmodSync(executable, 0o755);
+      return executable;
+    },
+  ],
+] as const)(
+  'reads the catalog without a version when the CLI is %s (R-G15)',
+  async (_case, cli) => {
+    const config = configDirectory({ 'a-cc.json': readFileSync(FIXTURE, 'utf8') });
+    const backend = new ClaudeCodeBackend({
+      executable: cli(),
+      env: { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: config },
+      catalogTimeoutMs: 300,
+    });
+    const snapshot = await backend.listModels();
+    expect(snapshot.status).toMatchObject({ source: 'catalog', issue: 'cli-version-unknown' });
+    expect(snapshot.models.map((model) => model.id)).not.toContain('claude-opus-5-5');
+    expect(snapshot.models.map((model) => model.id)).toContain('claude-sonnet-5-5');
+  },
+);
+
+it('leaves out an entry whose id cannot be sent, keeping the rest of the catalog (R-G15)', async () => {
+  const value = fixture();
+  firstEntry(value).id = 'claude-opus-5-5[1m]';
+  const found = await readClaudeModelCatalog(
+    configDirectory({ 'a-cc.json': text(value) }),
+    '2.1.288',
+  );
+  expect(found.models.map((model) => model.id)).toEqual([
+    'opus',
+    'sonnet',
+    'haiku',
+    'claude-sonnet-5-5',
+    'claude-haiku-4-5-20251001',
+    'claude-opus-5',
+  ]);
+});
+
+it('refuses a catalog file over 1 MiB (R-G15)', async () => {
+  const value = fixture();
+  value.padding = 'x'.repeat(1024 * 1024);
+  await expect(
+    readClaudeModelCatalog(configDirectory({ 'a-cc.json': text(value) }), '2.1.288'),
+  ).rejects.toMatchObject({ issue: 'catalog-unreadable' });
+});
+
+it("cuts an operator's list to what the execution status carries (R-G15)", () => {
+  const own = Array.from({ length: 101 }, (_, index) => ({
+    id: `model-${index}`,
+    label: `Model ${index}`,
+    section: 'main',
+    hidden: false,
+  }));
+  const backend = new ClaudeCodeBackend({ executable: '/nonexistent/claude', models: own });
+  expect(backend.describe().models).toHaveLength(100);
 });

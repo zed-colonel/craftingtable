@@ -1,9 +1,10 @@
-import { execFile } from 'node:child_process';
-import { lstat, readdir, readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { constants } from 'node:fs';
+import { open, readdir } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import type { AgentModel } from '@craftingtable/domain';
 import { isRecord } from '../bounded.js';
+import { spawnSupervisedProcess } from '../process.js';
 import {
   MODEL_ID,
   MODEL_SECTION,
@@ -32,23 +33,43 @@ export function claudeConfigDirectory(env: NodeJS.ProcessEnv): string {
   return join(env.HOME !== undefined && isAbsolute(env.HOME) ? env.HOME : homedir(), '.claude');
 }
 
-/** The installed CLI's version, as `claude --version` prints it first; undefined if unreadable. */
-export function readClaudeVersion(
+/**
+ * The installed CLI's version, as `claude --version` prints it first; undefined if unreadable.
+ * Started through the agents' process supervision, the one place they spawn from.
+ */
+export async function readClaudeVersion(
   executable: string,
   env: Record<string, string>,
   timeoutMs: number,
 ): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    execFile(
+  let child: ReturnType<typeof spawnSupervisedProcess>;
+  try {
+    child = spawnSupervisedProcess({
       executable,
-      ['--version'],
-      { env, timeout: timeoutMs, maxBuffer: 64 * 1024, windowsHide: true },
-      (error, stdout) => {
-        const first = error ? undefined : String(stdout).trim().split(/\s+/)[0];
-        resolve(first !== undefined && CLI_VERSION.test(first) ? first : undefined);
-      },
-    );
-  });
+      args: ['--version'],
+      cwd: tmpdir(),
+      env,
+      terminationGraceMs: 1000,
+      maxLineBytes: 64 * 1024,
+      backgroundWorkTimeoutMs: timeoutMs,
+    });
+  } catch {
+    return undefined;
+  }
+  child.endInput();
+  const timer = setTimeout(() => child.terminate(), timeoutMs);
+  let first: string | undefined;
+  let exitCode: number | null = null;
+  try {
+    for await (const item of child.items) {
+      if (item.type === 'stdout-line' && first === undefined) first = item.line.trim();
+      if (item.type === 'exited') exitCode = item.exitCode;
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  const version = first?.split(/\s+/)[0];
+  return exitCode === 0 && version !== undefined && CLI_VERSION.test(version) ? version : undefined;
 }
 
 function versionParts(version: string): readonly number[] {
@@ -84,11 +105,13 @@ function parseCatalog(text: string): { fetchedAt: number; entries: readonly Cata
   const config = isRecord(value.catalog) ? value.catalog.config : undefined;
   const models = isRecord(config) ? config.models : undefined;
   if (!Array.isArray(models) || models.length > CATALOG_MAX_MODELS) throw unsupported('model list');
-  const entries = models.map((entry): CatalogEntry => {
+  const entries = models.flatMap((entry): CatalogEntry[] => {
     if (!isRecord(entry)) throw unsupported('model entry');
     const { id, name, section, hidden } = entry;
     const minVersion = entry.min_claude_code_version;
-    if (typeof id !== 'string' || !MODEL_ID.test(id)) throw unsupported('model id');
+    if (typeof id !== 'string' || id.length === 0) throw unsupported('model id');
+    // An id CraftingTable cannot send (a form outside its id grammar) is left out, not the file.
+    if (!MODEL_ID.test(id)) return [];
     if (!modelLabel(name)) throw unsupported('model name');
     if (typeof section !== 'string' || !MODEL_SECTION.test(section))
       throw unsupported('model section');
@@ -99,12 +122,36 @@ function parseCatalog(text: string): { fetchedAt: number; entries: readonly Cata
       (typeof minVersion !== 'string' || !CLI_VERSION.test(minVersion))
     )
       throw unsupported('minimum version');
-    return {
-      model: { id, label: name, section, hidden: hidden === true },
-      ...(typeof minVersion === 'string' ? { minVersion } : {}),
-    };
+    return [
+      {
+        model: { id, label: name, section, hidden: hidden === true },
+        ...(typeof minVersion === 'string' ? { minVersion } : {}),
+      },
+    ];
   });
   return { fetchedAt, entries };
+}
+
+/**
+ * A catalog file's text: a regular file the CLI wrote, never through a link, read through one
+ * descriptor and bounded, so what is checked is what is read (R-G15 review).
+ */
+async function readCatalogFile(path: string, name: string): Promise<string> {
+  const refused = () =>
+    new ModelCatalogError('catalog-unreadable', `${name} is not a catalog file.`);
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
+    throw refused();
+  });
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size > CATALOG_MAX_BYTES) throw refused();
+    const buffer = Buffer.alloc(CATALOG_MAX_BYTES + 1);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > CATALOG_MAX_BYTES) throw refused();
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await file.close();
+  }
 }
 
 /**
@@ -133,10 +180,7 @@ export async function readClaudeModelCatalog(
   for (const name of names) {
     const path = join(directory, name);
     try {
-      const stat = await lstat(path);
-      if (!stat.isFile() || stat.size > CATALOG_MAX_BYTES)
-        throw new ModelCatalogError('catalog-unreadable', `${name} is not a catalog file.`);
-      const parsed = parseCatalog(await readFile(path, 'utf8'));
+      const parsed = parseCatalog(await readCatalogFile(path, name));
       if (best === undefined || parsed.fetchedAt > best.fetchedAt) best = parsed;
     } catch (error) {
       const found =

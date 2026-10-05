@@ -97,6 +97,8 @@ export async function withCodexAppServer<T>(
     readonly env: NodeJS.ProcessEnv;
     readonly cwd: string;
     readonly timeoutMs: number;
+    /** Ends the app-server, and so every request still pending, once this much has passed. */
+    readonly deadlineMs?: number;
   },
   use: (rpc: CodexRpc) => Promise<T>,
 ): Promise<T> {
@@ -125,6 +127,10 @@ export async function withCodexAppServer<T>(
       }
     }
   })();
+  const deadline =
+    options.deadlineMs === undefined
+      ? undefined
+      : setTimeout(() => child.terminate(), options.deadlineMs);
   try {
     await rpc.request('initialize', {
       clientInfo: { name: 'craftingtable', version: '0.1.0' },
@@ -133,6 +139,7 @@ export async function withCodexAppServer<T>(
     if (!rpc.write({ method: 'initialized' })) throw new Error('Codex initialization failed');
     return await use(rpc);
   } finally {
+    clearTimeout(deadline);
     child.terminate();
     await reading.catch(() => undefined);
   }

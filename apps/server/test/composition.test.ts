@@ -66,6 +66,30 @@ describe('service composition', () => {
     }
   });
 
+  it("never asks the workstation's agent CLIs unless the runtime names them (R-G15)", async () => {
+    // A daemon reads its backends' model catalogs at start; a test daemon must not reach the
+    // operator's Claude Code or Codex for that, so only `createRuntime` finds the host's.
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
+    directories.push(directory);
+    const storage = openDaemonStorage(join(directory, 'state.sqlite'));
+    const daemon = await createDaemon(
+      storage,
+      configFromEnv({ CRAFTINGTABLE_DATA_DIR: directory }),
+      {
+        overrides: { passwordHasher: new FastTestPasswordHasher(), gitOperations: null },
+        server: { logger: false, startWorkers: false },
+      },
+    );
+    try {
+      expect(daemon.services.executionStatus().backends.map((b) => b.available)).toEqual([
+        false,
+        false,
+      ]);
+    } finally {
+      await daemon.close();
+    }
+  });
+
   it("closes a daemon's checks and storage even when its server fails to close (TS-M14)", async () => {
     const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
     directories.push(directory);

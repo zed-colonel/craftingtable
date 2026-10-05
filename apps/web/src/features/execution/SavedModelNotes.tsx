@@ -15,9 +15,9 @@ export function savedModelNote(backends: Backends, selection: AgentSelection): s
   if (model === undefined || backend === undefined || !backend.available) return undefined;
   const spelling = modelSpelling(backend.models, model);
   if (spelling.kind === 'misnamed')
-    return `${model} is ${backend.label}’s name for ${spelling.id}, and runs that name it are not started; choose ${spelling.id}`;
+    return `${model} is not an id in ${backend.label}’s model list, and runs that name it are not started; choose ${spelling.id}`;
   if (spelling.kind === 'unlisted' && backend.catalog.source !== 'fallback')
-    return `${model} is no longer in ${backend.label}’s model list; runs still send it`;
+    return `${model} is not in ${backend.label}’s model list; runs still send it`;
   return undefined;
 }
 

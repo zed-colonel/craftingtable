@@ -45,7 +45,9 @@ export function listCodexModels(options: {
   readonly cwd: string;
   readonly timeoutMs: number;
 }): Promise<ModelDiscovery> {
-  return withCodexAppServer(options, async (rpc) => {
+  // One bound for the whole look, however many pages, so a refresh or a shutdown never waits
+  // on it longer (R-G15 review).
+  return withCodexAppServer({ ...options, deadlineMs: options.timeoutMs }, async (rpc) => {
     const models: AgentModel[] = [];
     let cursor: string | undefined;
     for (let page = 0; page < MAX_PAGES && models.length < MODEL_CATALOG_LIMIT; page++) {

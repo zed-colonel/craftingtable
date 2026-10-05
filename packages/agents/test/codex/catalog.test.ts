@@ -167,3 +167,17 @@ it("never asks Codex when the operator's own list replaces the catalog (R-G15)",
   expect(snapshot.status).toEqual({ source: 'environment' });
   expect(backend.describe().models).toEqual(own);
 });
+
+it('refuses a catalog whose display name the execution status could not carry (R-G15)', async () => {
+  const fixture = JSON.parse(readFileSync(FIXTURE, 'utf8')) as { data: Record<string, unknown>[] };
+  const { root } = fakeCodex();
+  const path = join(root, 'catalog.json');
+  // 60 code points, 120 UTF-16 code units: over the contract's 100.
+  const wide = { ...fixture.data[0], displayName: '😀'.repeat(60) };
+  writeFileSync(path, JSON.stringify({ ...fixture, data: [wide] }));
+  const snapshot = await fakeCodex('', path).backend.listModels();
+  expect(snapshot.status).toMatchObject({
+    source: 'fallback',
+    issue: 'catalog-format-unsupported',
+  });
+});

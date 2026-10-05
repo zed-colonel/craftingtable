@@ -109,6 +109,8 @@ export function registerWorkCycleRoutes(
         return sendApiError(reply, 404, 'not-found', 'Work item not found');
       if (!body.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid cycle settings');
+      // The operator's own start; a roadmap's starts meet the launch check instead (R-G15).
+      cycles.requireModelIds(Object.values(body.data.profiles));
       return noStore(reply).send(
         workCycleResponseSchema.parse({
           cycle: cycles.present(cycles.start(context, workspace.data, item.data, body.data)),

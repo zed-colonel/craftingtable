@@ -13,6 +13,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type {
   AgentBackend,
+  AgentBackendDescriptor,
   AgentLaunchRequest,
   AgentSession,
   AgentSessionItem,
@@ -216,13 +217,13 @@ export class ScriptedBackend implements AgentBackend {
     { id: 'scripted-model', label: 'Scripted model', section: 'main', hidden: false },
   ];
 
-  describe() {
+  describe(): AgentBackendDescriptor {
     return {
       kind: this.kind,
       label: 'Scripted',
       executable: '/fake/claude',
       models: this.models,
-      catalog: { source: 'catalog' as const },
+      catalog: { source: 'catalog' },
     };
   }
 

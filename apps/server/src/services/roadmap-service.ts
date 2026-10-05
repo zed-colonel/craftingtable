@@ -433,7 +433,12 @@ export class RoadmapService {
     )
       conflict('Select current entries from this roadmap.');
     this.cycles.validateAgentSelections(input.selections);
-    this.cycles.requireModelIds(Object.values(input.selections));
+    this.cycles.requireModelIds(
+      Object.values(input.selections),
+      old.definition.entries
+        .filter((entry) => input.entryIds.includes(entry.id))
+        .flatMap((entry) => Object.values(entryAgentSelections(old, entry).selections)),
+    );
     const assignment = {
       id: randomUUID(),
       entryIds: input.entryIds,
@@ -831,7 +836,10 @@ export class RoadmapService {
           .selections,
         conflict: input.automation.resolutionProfile,
       });
-      this.cycles.requireModelIds([input.automation.resolutionProfile]);
+      this.cycles.requireModelIds(
+        [input.automation.resolutionProfile],
+        old.delegationAssignments?.map((grant) => grant.automation.resolutionProfile) ?? [],
+      );
     }
     const { expectedVersion: _version, ...grant } = input;
     return this.view(
@@ -1176,6 +1184,11 @@ export class RoadmapService {
     const old = this.storage.roadmaps.find(workspaceId, id);
     if (old && this.storage.amendments.pending(workspaceId, id) && !amendment)
       conflict('Decide the pending planning amendment before editing settings.');
+    // A display name is refused when it is entered; one this roadmap already saved is not (R-G15).
+    this.cycles.requireModelIds(
+      input.entries.flatMap((entry) => Object.values(entry.profiles)),
+      old?.definition.entries.flatMap((entry) => Object.values(entry.profiles)) ?? [],
+    );
     if (old?.definition.crossProject && !crossProject)
       conflict('Use the imported map supervisor to edit this roadmap.');
     if ((old?.version ?? 0) !== input.expectedVersion)

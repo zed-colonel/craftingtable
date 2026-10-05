@@ -220,11 +220,18 @@ export class WorkCycleService {
         );
     }
   }
-  /** A submitted model must be a catalog id, not a display name (R-G15, LIVE-34). */
+  /**
+   * A submitted model must be a catalog id, not a display name (R-G15, LIVE-34); one the record
+   * already saved (`saved`) is let through. Only command handlers call this: the scheduler's
+   * launches meet the launch check, which stops with `agent-model-misnamed`.
+   */
   requireModelIds(
     selections: Iterable<import('@craftingtable/domain').AgentSelection | undefined>,
+    saved: Iterable<import('@craftingtable/domain').AgentSelection | undefined> = [],
   ): void {
-    this.runs.requireModelIds([...selections].filter((selection) => selection !== undefined));
+    const present = <T>(values: Iterable<T | undefined>) =>
+      [...values].filter((value): value is T => value !== undefined);
+    this.runs.requireModelIds(present(selections), present(saved));
   }
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
@@ -1152,7 +1159,6 @@ export class WorkCycleService {
 
   validateSettings(input: Pick<StartWorkCycleRequest, 'profiles'>): void {
     this.validateAgentSelections(input.profiles);
-    this.requireModelIds(Object.values(input.profiles));
     if (this.git === undefined)
       throw new ExecutionRequestError('unavailable', 'Git is required for an automated cycle');
   }

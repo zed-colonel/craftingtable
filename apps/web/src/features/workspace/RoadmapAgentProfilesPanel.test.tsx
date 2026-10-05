@@ -122,7 +122,7 @@ it("warns about a roadmap's model that left the catalog, without blocking an edi
   });
   show();
   expect((await screen.findByRole('note')).textContent).toBe(
-    'Review: gpt-5.6-terra is no longer in Codex’s model list; runs still send it.',
+    'Review: gpt-5.6-terra is not in Codex’s model list; runs still send it.',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Edit future run profiles' }));
   expect(screen.getByRole('button', { name: 'Apply to future runs' })).toBeDefined();

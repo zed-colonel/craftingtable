@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { type CrateChecksumAuthority, CratesIoChecksums } from './services/crate-checksums.js';
@@ -110,8 +111,12 @@ export interface ServiceOverrides {
   readonly streamHooks?: WorkspaceEventStreamHooks;
   /** Test seam: a Git operations implementation or `null` to simulate no Git. */
   readonly gitOperations?: GitOperations | null;
-  /** Test seam: an agent backend or `null` to simulate a missing executable. */
-  readonly agentBackends?: ReadonlyMap<AgentBackendKind, AgentBackend>;
+  /**
+   * The agent backends: `host` finds the workstation's Claude Code and Codex, which the
+   * production runtime does (`createRuntime`); otherwise the ones given, or none. A daemon asks
+   * its CLIs for their model catalogs at start (R-G15), so nothing else resolves the host's.
+   */
+  readonly agentBackends?: ReadonlyMap<AgentBackendKind, AgentBackend> | 'host';
   readonly runLog?: RunLog;
   /** Test seam: where published crate checksums come from (crates.io's index by default). */
   readonly crateChecksums?: CrateChecksumAuthority;
@@ -120,6 +125,11 @@ export interface ServiceOverrides {
    * instead of recovering interrupted runs, cycles and roadmaps as a restart does.
    */
   readonly restartRecovery?: false;
+}
+
+function privateDirectory(path: string): string {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  return path;
 }
 
 /**
@@ -181,8 +191,10 @@ export async function createServices(
           })
       : (overrides.gitOperations ?? undefined);
   const gitOperations = unwatchedGit && refWatch.wrap(unwatchedGit);
-  const backends = new Map<AgentBackendKind, AgentBackend>(overrides.agentBackends);
-  if (overrides.agentBackends === undefined) {
+  const backends = new Map<AgentBackendKind, AgentBackend>(
+    overrides.agentBackends === 'host' ? [] : overrides.agentBackends,
+  );
+  if (overrides.agentBackends === 'host') {
     const claude = resolveExecutable('claude', config.execution.claudeExecutable, process.env, [
       join(homedir(), '.local', 'bin'),
     ]);
@@ -206,6 +218,8 @@ export async function createServices(
           executable: codex,
           allowEnvironment: config.execution.agentEnvironmentAllow,
           ...operatorModels(config.execution.codexModels),
+          // An empty directory of the daemon's own: no project's Codex configuration applies.
+          catalogDirectory: privateDirectory(join(config.dataDir, 'model-catalog')),
         }),
       );
     }
@@ -559,7 +573,11 @@ export async function createRuntime(
         log ? log.warn(detail, message) : console.warn(message, JSON.stringify(detail)),
     };
     const daemon = await createDaemon(storage, config, {
-      overrides: { ...(options.logger === false ? {} : { runLog }), ...options.overrides },
+      overrides: {
+        agentBackends: 'host',
+        ...(options.logger === false ? {} : { runLog }),
+        ...options.overrides,
+      },
       server: { logger: options.logger ?? true },
     });
     log = daemon.app.log;

@@ -153,11 +153,10 @@ function checkUnit(root) {
 }
 
 /**
- * CRAFTINGTABLE_* settings from the unit's environment files and `Environment=` lines, as
- * systemd reads them (later ones win, quotes removed); empty when unreadable.
+ * CRAFTINGTABLE_* settings from the unit's `Environment=` lines and environment files, as
+ * systemd reads them; empty when unreadable.
  */
 function unitEnvironment() {
-  const values = {};
   try {
     const files = run('systemctl', [
       '--user',
@@ -167,17 +166,33 @@ function unitEnvironment() {
       'EnvironmentFiles',
       '--value',
     ]);
+    const inline = run('systemctl', ['--user', 'show', unitName(), '-p', 'Environment', '--value']);
+    const texts = [];
     for (const listed of files.split('\n')) {
       const path = listed.replace(/\s+\(ignore_errors=\w+\)\s*$/, '').trim();
-      if (path && existsSync(path))
-        Object.assign(values, environmentAssignments(readFileSync(path, 'utf8').split('\n')));
+      if (path && existsSync(path)) texts.push(readFileSync(path, 'utf8'));
     }
-    const inline = run('systemctl', ['--user', 'show', unitName(), '-p', 'Environment', '--value']);
-    Object.assign(values, environmentAssignments(inline.split(/\s+/)));
+    return unitAssignments(inline, texts);
   } catch {
     // Fall back to the defaults.
+    return {};
   }
-  return values;
+}
+
+/**
+ * The unit's settings from `systemctl show -p Environment --value` and its environment files'
+ * texts: settings from the files override `Environment=` (systemd.exec), and a later file
+ * overrides an earlier one. `systemctl` prints an entry holding whitespace in double quotes,
+ * with C-style escapes.
+ */
+export function unitAssignments(inline, fileTexts) {
+  const entries = [...inline.matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)].map(([, quoted, plain]) =>
+    quoted === undefined ? plain : quoted.replace(/\\(.)/g, '$1'),
+  );
+  return Object.assign(
+    environmentAssignments(entries),
+    ...fileTexts.map((text) => environmentAssignments(text.split('\n'))),
+  );
 }
 
 /** `CRAFTINGTABLE_*=value` assignments, with one pair of surrounding quotes removed. */
@@ -227,7 +242,19 @@ try {
 }
 process.stdout.write(JSON.stringify(result) + '\\n');
 `;
-const PREFLIGHT_OUTCOMES = new Set(['current', 'pending', 'mismatch', 'unavailable']);
+/** An answer of the check's own shape; anything else refuses (R-H3 review). */
+function preflightAnswer(result) {
+  if (typeof result !== 'object' || result === null) return false;
+  if (result.outcome === 'current' || result.outcome === 'pending')
+    return (
+      Number.isInteger(result.currentVersion) &&
+      Number.isInteger(result.supportedVersion) &&
+      Array.isArray(result.pendingVersions) &&
+      result.pendingVersions.every(Number.isInteger)
+    );
+  if (result.outcome === 'mismatch') return typeof result.failure === 'string';
+  return result.outcome === 'unavailable';
+}
 
 /**
  * Whether a release can run on the live database (R-H3), checked before `current` moves:
@@ -259,7 +286,7 @@ export function migrationPreflight(release, database) {
     try {
       const result = JSON.parse(line);
       // Only an answer of the check's own shape counts; anything else refuses (R-H3 review).
-      if (PREFLIGHT_OUTCOMES.has(result?.outcome)) return result;
+      if (preflightAnswer(result)) return result;
     } catch {
       // Reported below.
     }

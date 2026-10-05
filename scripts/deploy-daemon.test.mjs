@@ -23,6 +23,7 @@ import {
   environmentAssignments,
   migrationPreflight,
   timeSpanSeconds,
+  unitAssignments,
   unitStopProblems,
 } from './deploy-daemon.mjs';
 
@@ -266,7 +267,12 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
       message: expect.stringContaining('Invalid migration filename: not-a-migration.sql'),
     });
     // The check's process dies, or answers in a shape that is not the check's.
-    for (const body of ['process.exit(3);\n', "process.stdout.write('null\\n');\n"]) {
+    for (const body of [
+      'process.exit(3);\n',
+      // Printed as the whole answer: the process exits before the check prints its own.
+      "process.stdout.write('null\\n'); process.exit(0);\n",
+      'process.stdout.write(\'{"outcome":"current"}\\n\'); process.exit(0);\n',
+    ]) {
       const broken = stageRelease(scratch('craftingtable-release-'));
       writeFileSync(join(broken, 'packages', 'storage', 'dist', 'index.js'), body);
       expect(migrationPreflight(broken, databaseOf(data))).toMatchObject({
@@ -280,6 +286,20 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
     expect(
       migrationPreflight(stageRelease(scratch('craftingtable-release-')), databaseOf(corrupt)),
     ).toMatchObject({ outcome: 'unavailable', message: expect.stringContaining('not a database') });
+  });
+
+  it("reads the unit's settings as systemd does: files over Environment=, quoted entries whole", () => {
+    expect(
+      unitAssignments(
+        'CRAFTINGTABLE_PORT=4601 "CRAFTINGTABLE_DATA_DIR=/mnt/with space" OTHER=1 "CRAFTINGTABLE_HOST=a\\"b"',
+        ['CRAFTINGTABLE_PORT=4600\nCRAFTINGTABLE_LOG_LEVEL=info', 'CRAFTINGTABLE_LOG_LEVEL=warn'],
+      ),
+    ).toEqual({
+      CRAFTINGTABLE_PORT: '4600',
+      CRAFTINGTABLE_DATA_DIR: '/mnt/with space',
+      CRAFTINGTABLE_HOST: 'a"b',
+      CRAFTINGTABLE_LOG_LEVEL: 'warn',
+    });
   });
 
   it("reads the unit's environment as systemd does: quotes removed, later files winning", () => {

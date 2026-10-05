@@ -3224,6 +3224,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - *LOW, documented:* on a stopped daemon's database the read-only open leaves empty `-wal`/`-shm` files (the database's bytes are unchanged, as the test asserts); `docs/operations.md` says so, and lists the `unavailable` refusal and the no-database line.
       - *NIT, fixed:* a rollback refused as `unsupported-version` names `<data>/state/pre-migration/`; this entry's "would"; the docs paragraph's wrapping.
       - *Left:* mutant M3 (checking after the drain) survives: the tests never restart a daemon, so they cannot tell the drain's order; the order is in the code beside the build.
+      - **Re-check of the fixes (2026-10-05, at 1cd5f85).** Every finding fixed or soundly disposed of; no build output written into the checkout; M7, M9, M9b, M10, M12, M15, M17 killed (M3 and M13 survive as recorded). New, all fixed:
+        - *LOW:* the "null answer" case never produced one: the fixture printed `null` on import and the check then printed its own answer. It now exits right after printing, and a third case answers `{"outcome":"current"}` without versions; both refuse. The shape check (`preflightAnswer`) now also requires a passing answer's versions; the no-shape-check mutant (M11) fails.
+        - *LOW:* `Environment=` overrode the environment files, the reverse of systemd (`systemd.exec`: settings from the files override `Environment=`). The order is now files over `Environment=`, a later file over an earlier one (`unitAssignments`, tested; the reversed order fails the test).
+        - *LOW:* an `Environment=` entry holding whitespace, which `systemctl show` prints in double quotes, was split apart and lost; quoted entries are read whole, with their escapes.
   - **Line endings (review NIT-1).** `.gitattributes` marks `packages/storage/migrations/*.sql` as `-text`. A checkout that converts line endings (`core.autocrlf`) therefore cannot change the files' bytes or checksums.
 
 ### R-H4

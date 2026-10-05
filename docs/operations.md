@@ -175,8 +175,8 @@ installed and built), a `current` symlink and an append-only `deploys.jsonl`. A 
 leaves `current` untouched. So does a release whose migrations do not match the live database
 (R-H3): after the build, and before draining or switching, the release's own storage code opens
 the database read-only (`<data>/state/craftingtable.sqlite`, the data directory found as the
-drain finds it: `CRAFTINGTABLE_DEPLOY_DATA_DIR`, then the unit's environment files and
-`Environment=` lines, then the XDG default) and compares its migration ledger with the
+drain finds it: `CRAFTINGTABLE_DEPLOY_DATA_DIR`, then the unit's settings, where its
+environment files override its `Environment=` lines as systemd has them, then the XDG default) and compares its migration ledger with the
 release's migration files. An applied migration whose checksum or name differs, or one the
 release does not know, stops the deploy with the ledger's code (`checksum-mismatch`,
 `name-mismatch`, `unsupported-version`); so does a check that cannot run or cannot read the

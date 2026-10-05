@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -162,7 +163,8 @@ it("keeps the root's own lock socket without naming it in the start's warning (R
       { dataDir: lockData, execution: { agentTemporaryRoot: root } },
       'darwin',
     );
-    const socket = join(root, AGENTS_ROOT_LOCK_FILE);
+    const [published] = readdirSync(root).filter((name) => name.startsWith(AGENTS_ROOT_LOCK_FILE));
+    const socket = join(root, published!);
     const warnings: { message: string; detail?: Readonly<Record<string, unknown>> }[] = [];
     const start = (env: Record<string, string>) =>
       createTestContext({
@@ -184,14 +186,14 @@ it("keeps the root's own lock socket without naming it in the start's warning (R
     } finally {
       await lock.release();
     }
-    // A file of the same name is not the lock: it is named like anything else.
+    // A file named like a lock is not one: it is named like anything else.
     writeFileSync(socket, 'not a socket');
     const other = await start({ CRAFTINGTABLE_AGENT_TMP_ROOT: root });
     try {
       await other.services.agentRunService.quiesce();
       expect(warnings).toEqual([
         expect.objectContaining({
-          detail: expect.objectContaining({ entries: [AGENTS_ROOT_LOCK_FILE] }),
+          detail: expect.objectContaining({ entries: [published] }),
         }),
       ]);
     } finally {

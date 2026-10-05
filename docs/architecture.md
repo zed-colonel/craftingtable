@@ -469,10 +469,13 @@ default) (ADR-034, ADR-039).
 
 ## Deploy and the single-daemon lock
 
-Only one process can use a data directory: `apps/server/src/instance-lock.ts` takes the lock
-before anything opens the database, as a listening socket in the abstract namespace on Linux (a
-socket file elsewhere), so a crash leaves no stale lock. The CLI's migrate and compaction commands
-take the same lock. `scripts/deploy-daemon.mjs` fetches the requested commit into a bare clone
+Only one process can use a data directory, or an agents' temporary root:
+`apps/server/src/instance-lock.ts` takes their locks before anything opens the database. Each is
+a socket file the holder publishes in the directory (`state/daemon.lock.<id>`), which a process
+in any network namespace finds, and on Linux first a socket in the abstract namespace, which a
+crash never leaves stale. A published socket that refuses connections was a crashed holder's and
+is removed; a starter checks again after publishing its own and withdraws if another appeared.
+The CLI's migrate and compaction commands take the data directory's lock. `scripts/deploy-daemon.mjs` fetches the requested commit into a bare clone
 under the deploy root, builds it into its own release directory, and atomically repoints `current`,
 which is the systemd user unit's working directory. It asks the running daemon to drain through a
 request file, restarts the unit, and restores the previous release if the health check fails;

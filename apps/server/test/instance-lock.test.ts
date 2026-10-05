@@ -1,11 +1,26 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { createConnection, createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   acquireDaemonLocks,
   AGENTS_ROOT_LOCK_FILE,
+  ANSWER_TIMEOUT_MS,
   acquireInstanceLock,
   type InstanceLock,
   InstanceLockedError,
@@ -140,93 +155,282 @@ describe("the agents' temporary root lock (R-G5)", () => {
 
 /**
  * The locks across network namespaces (operator decision 2026-10-05, R-G5): an abstract socket
- * is scoped to one, so on Linux each lock is also a socket file in the directory it locks,
- * which a process in any namespace that sees the directory finds.
+ * is scoped to one, so each lock is also a socket file in the directory it locks, which a
+ * process in any namespace that sees the directory finds. Each holder publishes its own
+ * (`<name>.<id>`), already listening, and checks again after publishing.
  */
 describe.skipIf(process.platform !== 'linux')('the locks across network namespaces (R-G5)', () => {
   const held: InstanceLock[] = [];
   const directories: string[] = [];
+  const children: ChildProcess[] = [];
   const directory = (prefix: string, base = testDataRoot()): string => {
     const path = mkdtempSync(join(base, prefix));
     directories.push(path);
     return path;
   };
   afterEach(async () => {
+    for (const child of children.splice(0)) if (child.exitCode === null) child.kill('SIGKILL');
     for (const lock of held.splice(0)) await lock.release();
     for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
   });
-  const unshare = spawnSync('unshare', ['-rn', 'true']).status === 0;
+  // Where unprivileged network namespaces are refused, the test that needs one would skip
+  // unseen; it fails instead, unless the host is declared to lack them.
+  const unshare =
+    spawnSync('unshare', ['-rn', 'true']).status === 0 ||
+    process.env.CRAFTINGTABLE_TEST_NO_NETNS !== '1';
   const SERVER = fileURLToPath(new URL('..', import.meta.url));
   const LOCK_MODULE = fileURLToPath(new URL('../src/instance-lock.ts', import.meta.url));
 
-  /** Tries the daemon's locks from a process in a network namespace of its own. */
-  function fromAnotherNamespace(dataDir: string, agentRoot: string) {
+  /**
+   * A process that takes and releases the daemon's locks on command, in this network namespace
+   * or one of its own: `acquire [platform]`, `release`, `hold-open <path>`.
+   */
+  function lockProcess(dataDir: string, root: string, ownNamespace: boolean) {
     const script = `
       import { acquireDaemonLocks } from ${JSON.stringify(LOCK_MODULE)};
-      try {
-        const lock = await acquireDaemonLocks({ dataDir: ${JSON.stringify(dataDir)}, execution: { agentTemporaryRoot: ${JSON.stringify(agentRoot)} } });
-        console.log('acquired'); await lock.release();
-      } catch (error) { console.log('refused', error.resource ?? error.message); }
+      import { createInterface } from 'node:readline';
+      let lock;
+      createInterface({ input: process.stdin }).on('line', async (line) => {
+        const [command, platform] = line.split(' ');
+        if (command === 'acquire')
+          try {
+            lock = await acquireDaemonLocks(
+              { dataDir: ${JSON.stringify(dataDir)}, execution: { agentTemporaryRoot: ${JSON.stringify(root)} } },
+              platform,
+            );
+            console.log('acquired');
+          } catch (error) {
+            console.log('refused ' + (error.resource ?? error.message) + ' ' + (error.holder?.pid ?? '-'));
+          }
+        if (command === 'release') {
+          await lock?.release();
+          lock = undefined;
+          console.log('released');
+        }
+        // Answers, then keeps its event loop busy for that long, as a loaded daemon may.
+        if (command === 'block') {
+          console.log('blocking');
+          setImmediate(() => {
+            const until = Date.now() + Number(platform);
+            while (Date.now() < until);
+          });
+        }
+      });
+      console.log('ready');
     `;
-    return spawnSync(
-      'unshare',
-      ['-rn', process.execPath, '--import', 'tsx', '--input-type=module', '-e', script],
-      { cwd: SERVER, encoding: 'utf8' },
-    );
+    const node = [process.execPath, '--import', 'tsx', '--input-type=module', '-e', script];
+    const child = ownNamespace
+      ? spawn('unshare', ['-rn', ...node], { cwd: SERVER, stdio: ['pipe', 'pipe', 'inherit'] })
+      : spawn(node[0]!, node.slice(1), { cwd: SERVER, stdio: ['pipe', 'pipe', 'inherit'] });
+    children.push(child);
+    const lines: string[] = [];
+    const waiting: ((line: string) => void)[] = [];
+    let buffered = '';
+    child.stdout!.on('data', (chunk: Buffer) => {
+      buffered += chunk.toString('utf8');
+      for (let at = buffered.indexOf('\n'); at >= 0; at = buffered.indexOf('\n')) {
+        const line = buffered.slice(0, at);
+        buffered = buffered.slice(at + 1);
+        const next = waiting.shift();
+        if (next) next(line);
+        else lines.push(line);
+      }
+    });
+    // A process that ended answers every pending and later command with its exit.
+    child.once('exit', (code, signal) => {
+      const ended = `exited ${code ?? signal}`;
+      lines.push(ended);
+      for (const next of waiting.splice(0)) next(ended);
+    });
+    const nextLine = () =>
+      new Promise<string>((resolve) => {
+        const line = lines.length > 1 || !lines[0]?.startsWith('exited') ? lines.shift() : lines[0];
+        if (line !== undefined) resolve(line);
+        else waiting.push(resolve);
+      });
+    const send = async (command: string) => {
+      child.stdin!.write(`${command}\n`);
+      return nextLine();
+    };
+    return { child, ready: nextLine(), send };
   }
 
+  /** The published lock sockets in `directory` whose names start with `prefix`. */
+  const lockSockets = (directory: string, prefix: string) =>
+    readdirSync(directory).filter(
+      (name) => name.startsWith(`${prefix}.`) && lstatSync(join(directory, name)).isSocket(),
+    );
+
   it.skipIf(!unshare)(
-    'refuses a daemon in another network namespace on the same data directory or root',
+    'refuses a daemon in another network namespace on the same data directory or root, naming the holder',
     async () => {
       const dataDir = directory('ctd-');
       const root = directory('cta-');
       held.push(await acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }));
-      const sameData = fromAnotherNamespace(dataDir, directory('cta-'));
-      expect(sameData.stdout.trim(), sameData.stderr).toBe('refused data-directory');
-      const sameRoot = fromAnotherNamespace(directory('ctd-'), root);
-      expect(sameRoot.stdout.trim(), sameRoot.stderr).toBe('refused agents-temporary-root');
-      // With nothing held, the same process starts.
+      // The other daemon's own directories differ; only the one shared is refused.
+      const sameData = lockProcess(dataDir, directory('cta-'), true);
+      expect(await sameData.ready).toBe('ready');
+      expect(await sameData.send('acquire')).toBe(`refused data-directory ${process.pid}`);
+      const sameRoot = lockProcess(directory('ctd-'), root, true);
+      expect(await sameRoot.ready).toBe('ready');
+      expect(await sameRoot.send('acquire')).toBe(`refused agents-temporary-root ${process.pid}`);
+      // With nothing held, it acquires.
       await held.splice(0)[0]!.release();
-      const free = fromAnotherNamespace(dataDir, root);
-      expect(free.stdout.trim(), free.stderr).toBe('acquired');
+      expect(await sameData.send('acquire')).toBe('acquired');
+      expect(await sameData.send('release')).toBe('released');
     },
   );
 
-  it('holds a socket file in each locked directory, however long its path, and removes it on release', async () => {
+  it.skipIf(!unshare)(
+    'releases its abstract socket when the socket file refuses it (review M7)',
+    async () => {
+      const dataDir = directory('ctd-');
+      const root = directory('cta-');
+      const other = lockProcess(dataDir, root, true);
+      expect(await other.ready).toBe('ready');
+      expect(await other.send('acquire')).toBe('acquired');
+      await expect(
+        acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }),
+      ).rejects.toMatchObject({ resource: 'data-directory' });
+      expect(await other.send('release')).toBe('released');
+      // An abstract socket kept from the refusal would refuse this start.
+      held.push(await acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }));
+    },
+  );
+
+  it('holds its socket files however long their paths, removes them on release, and leaks no descriptor', async () => {
     // Past the 107 bytes a socket's path holds.
     const dataDir = directory(`ctd-${'x'.repeat(100)}-`);
     const root = directory(`cta-${'y'.repeat(100)}-`);
+    // Descriptors this process holds on the locked directories; other work in the process
+    // opens and closes descriptors of its own meanwhile.
+    const onLocked = () =>
+      readdirSync('/proc/self/fd').filter((fd) => {
+        try {
+          const target = readlinkSync(`/proc/self/fd/${fd}`);
+          return target === realpathSync(join(dataDir, 'state')) || target === realpathSync(root);
+        } catch {
+          return false;
+        }
+      });
     const lock = await acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } });
-    const files = [join(dataDir, 'state', 'daemon.lock'), join(root, AGENTS_ROOT_LOCK_FILE)];
-    for (const file of files) expect(lstatSync(file).isSocket(), file).toBe(true);
+    expect(onLocked()).toHaveLength(2);
+    expect(lockSockets(join(dataDir, 'state'), 'daemon.lock')).toHaveLength(1);
+    expect(lockSockets(root, AGENTS_ROOT_LOCK_FILE)).toHaveLength(1);
     await lock.release();
-    for (const file of files) expect(existsSync(file), file).toBe(false);
+    expect(lockSockets(join(dataDir, 'state'), 'daemon.lock')).toEqual([]);
+    expect(lockSockets(root, AGENTS_ROOT_LOCK_FILE)).toEqual([]);
+    expect(onLocked()).toEqual([]);
   });
 
-  it('reclaims a socket file a killed daemon left, and still refuses a live holder', async () => {
+  it("removes a killed holder's socket file, and leaves entries that only share its name", async () => {
     const dataDir = directory('ctd-');
     const root = directory('cta-');
-    // A process that took the locks and was killed: its socket files stay, nobody answers.
-    const killed = spawn(
-      process.execPath,
-      [
-        '--import',
-        'tsx',
-        '--input-type=module',
-        '-e',
-        `import { acquireDaemonLocks } from ${JSON.stringify(LOCK_MODULE)};
-         await acquireDaemonLocks({ dataDir: ${JSON.stringify(dataDir)}, execution: { agentTemporaryRoot: ${JSON.stringify(root)} } });
-         console.log('held'); setInterval(() => {}, 1000);`,
-      ],
-      { cwd: SERVER, stdio: ['ignore', 'pipe', 'inherit'] },
-    );
-    await new Promise<void>((resolve) => killed.stdout.once('data', () => resolve()));
+    // Not a lock: a regular file and a directory named like one stay where they are.
+    writeFileSync(join(root, `${AGENTS_ROOT_LOCK_FILE}.notes`), 'mine');
+    mkdirSync(join(root, `${AGENTS_ROOT_LOCK_FILE}.dir`));
+    const killed = lockProcess(dataDir, root, false);
+    expect(await killed.ready).toBe('ready');
+    expect(await killed.send('acquire')).toBe('acquired');
     await expect(
       acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }),
     ).rejects.toBeInstanceOf(InstanceLockedError);
-    killed.kill('SIGKILL');
-    await new Promise((resolve) => killed.once('close', resolve));
-    expect(lstatSync(join(root, AGENTS_ROOT_LOCK_FILE)).isSocket()).toBe(true);
+    killed.child.kill('SIGKILL');
+    await new Promise((resolve) => killed.child.once('close', resolve));
+    expect(lockSockets(root, AGENTS_ROOT_LOCK_FILE)).toHaveLength(1);
     held.push(await acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }));
+    // Only this holder's socket is left, beside the entries that were never a lock.
+    expect(lockSockets(root, AGENTS_ROOT_LOCK_FILE)).toHaveLength(1);
+    expect(readFileSync(join(root, `${AGENTS_ROOT_LOCK_FILE}.notes`), 'utf8')).toBe('mine');
+    expect(existsSync(join(root, `${AGENTS_ROOT_LOCK_FILE}.dir`))).toBe(true);
+  });
+
+  it('survives clients that close at once, and releases with a client still connected (review HIGH)', async () => {
+    // A short base: this test connects to the socket by its full path.
+    const dataDir = directory('ctd-', SOCKET_BASE);
+    const root = directory('cta-', SOCKET_BASE);
+    const holder = lockProcess(dataDir, root, false);
+    expect(await holder.ready).toBe('ready');
+    expect(await holder.send('acquire')).toBe('acquired');
+    const [socket] = lockSockets(root, AGENTS_ROOT_LOCK_FILE);
+    const path = join(root, socket!);
+    // Connect and close before the holder answers, many times: an unhandled write error would
+    // end the holder's process.
+    await Promise.all(
+      Array.from(
+        { length: 300 },
+        () =>
+          new Promise<void>((resolve) => {
+            const client = createConnection(path, () => client.destroy());
+            client.on('error', () => resolve());
+            client.on('close', () => resolve());
+          }),
+      ),
+    );
+    // A client that stays connected must not keep the release from finishing.
+    const lingering = createConnection({ path, allowHalfOpen: true });
+    lingering.on('error', () => {});
+    await new Promise((resolve) => lingering.once('connect', resolve));
+    expect(await holder.send('release')).toBe('released');
+    lingering.destroy();
+    expect(holder.child.exitCode).toBeNull();
+  });
+
+  it('refuses, and never removes, a holder too busy to answer (review M3)', async () => {
+    const dataDir = directory('ctd-', SOCKET_BASE);
+    const root = directory('cta-', SOCKET_BASE);
+    const busy = lockProcess(dataDir, root, false);
+    expect(await busy.ready).toBe('ready');
+    expect(await busy.send('acquire darwin')).toBe('acquired');
+    expect(await busy.send(`block ${ANSWER_TIMEOUT_MS + 1_500}`)).toBe('blocking');
+    // The holder answers nobody while its loop is busy: not an ended holder, so refused.
+    await expect(
+      acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }, 'darwin'),
+    ).rejects.toMatchObject({ resource: 'data-directory', holder: undefined });
+    // Its lock stands, and it survives the asker that gave up.
+    expect(await busy.send('release')).toBe('released');
+  });
+
+  it('never lets two processes both hold a lock when they race to replace a stale file (review MEDIUM)', async () => {
+    // A short base: the stale sockets this test makes are named by their full paths.
+    const dataDir = directory('ctd-', SOCKET_BASE);
+    const root = directory('cta-', SOCKET_BASE);
+    mkdirSync(join(dataDir, 'state'), { recursive: true });
+    // Another process stands in for another namespace: the socket files alone decide.
+    const other = lockProcess(dataDir, root, false);
+    expect(await other.ready).toBe('ready');
+    let both = 0;
+    let neither = 0;
+    for (let round = 0; round < 150; round++) {
+      // A killed holder's file: a socket nobody listens on.
+      for (const [path, name] of [
+        [join(dataDir, 'state'), 'daemon.lock'],
+        [root, AGENTS_ROOT_LOCK_FILE],
+      ] as const)
+        await staleSocket(path, `${name}.dead${round}`);
+      const [theirs, ours] = await Promise.all([
+        other.send('acquire darwin'),
+        acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }, 'darwin').then(
+          (lock) => lock,
+          () => undefined,
+        ),
+      ]);
+      if (theirs === 'acquired' && ours) both++;
+      if (theirs !== 'acquired' && !ours) neither++;
+      if (theirs === 'acquired') expect(await other.send('release')).toBe('released');
+      await ours?.release();
+    }
+    expect(both).toBe(0);
+    // Both refused is the safe outcome of a tie; it stays rare.
+    expect(neither).toBeLessThan(150);
   });
 });
+
+/** A socket file in `directory` that nobody listens on, as a killed holder leaves one. */
+async function staleSocket(directory: string, name: string): Promise<void> {
+  const live = join(directory, `${name}.live`);
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(live, resolve));
+  linkSync(live, join(directory, name));
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}

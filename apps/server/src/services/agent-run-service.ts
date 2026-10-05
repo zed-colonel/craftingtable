@@ -137,9 +137,12 @@ const RUN_TEMPORARY_NAME = new RegExp(`^[0-9a-f]{${RUN_TEMPORARY_NAME_BYTES * 2}
 /** How many of the entries a start's sweep left it names in its one warning. */
 const LEFT_ENTRIES_NAMED = 20;
 
-/** The agents' root's own lock socket (R-G5), which the start sweep leaves unnamed. */
+/**
+ * A lock socket of the agents' root (R-G5): a daemon's published `<file>.<id>`, or one still
+ * being published. The start sweep leaves them unnamed.
+ */
 function isRootLockSocket(root: string, name: string): boolean {
-  if (name !== AGENTS_ROOT_LOCK_FILE) return false;
+  if (!name.startsWith(AGENTS_ROOT_LOCK_FILE)) return false;
   try {
     return lstatSync(join(root, name)).isSocket();
   } catch {
@@ -2265,8 +2268,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     const left: string[] = [];
     for (const name of leftovers) {
       if (isRunTemporaryDirectory(root, name)) this.removeAgentDirectory(join(root, name));
-      // The root's lock where there is no abstract socket namespace (R-G5): the daemon's own
-      // socket, never a file or directory of that name.
+      // The root's lock sockets (R-G5), a daemon's own; never a file or directory so named.
       else if (!isRootLockSocket(root, name)) left.push(name);
     }
     if (left.length > 0)

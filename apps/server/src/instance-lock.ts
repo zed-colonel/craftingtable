@@ -1,6 +1,16 @@
-import { createHash } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, realpathSync, rmSync } from 'node:fs';
-import { createConnection, createServer, type Server } from 'node:net';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+} from 'node:fs';
+import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { join, resolve } from 'node:path';
 
 /** What a lock holder tells a process that finds the data directory taken. */
@@ -37,8 +47,8 @@ export class InstanceLockedError extends Error {
 }
 
 /**
- * The socket file that holds an agents' temporary root's lock, beside the abstract socket on
- * Linux. It lives in the root, beside the run directories, and the start sweep leaves it.
+ * The name the agents' temporary root's lock sockets start with: each holder publishes
+ * `<name>.<id>` in the root, beside the run directories, and the start sweep leaves them.
  */
 export const AGENTS_ROOT_LOCK_FILE = '.craftingtable-daemon.lock';
 
@@ -49,7 +59,7 @@ export const AGENTS_ROOT_LOCK_FILE = '.craftingtable-daemon.lock';
  * state even though it then fails to listen. The lock is taken before any
  * database work.
  *
- * Each lock is a socket file in the directory it locks (the data directory's `state/`), which
+ * Each lock is a socket file in the directory it locks (`state/daemon.lock.<id>`), which
  * a process in any network namespace that sees the directory finds (operator decision
  * 2026-10-05, R-G5). One nobody answers on was left by a crashed process and is reclaimed. On
  * Linux the lock is first an abstract socket named from the canonical directory as well: the
@@ -67,7 +77,7 @@ export async function acquireInstanceLock(
   return acquireDirectoryLock(
     canonical,
     'craftingtable',
-    { directory: state, name: 'daemon.lock' },
+    { directory: state, prefix: 'daemon.lock' },
     'data-directory',
     platform,
   );
@@ -101,7 +111,7 @@ export async function acquireDaemonLocks(
     root = await acquireDirectoryLock(
       canonical,
       'craftingtable-agents',
-      { directory: canonical, name: AGENTS_ROOT_LOCK_FILE },
+      { directory: canonical, prefix: AGENTS_ROOT_LOCK_FILE },
       'agents-temporary-root',
       platform,
     );
@@ -122,10 +132,10 @@ function abstractAddress(prefix: string, canonical: string): string {
   return `\0${prefix}-${createHash('sha256').update(canonical).digest('hex').slice(0, 40)}`;
 }
 
-/** A socket file named `name` in `directory`. */
-interface SocketFile {
+/** The lock's socket files in `directory`: each holder publishes `<prefix>.<id>`. */
+interface SocketFiles {
   readonly directory: string;
-  readonly name: string;
+  readonly prefix: string;
 }
 
 /**
@@ -135,15 +145,19 @@ interface SocketFile {
 async function acquireDirectoryLock(
   canonical: string,
   prefix: string,
-  file: SocketFile,
+  files: SocketFiles,
   resource: InstanceLockResource,
   platform: NodeJS.Platform,
 ): Promise<InstanceLock> {
-  if (platform !== 'linux') return acquireLock(canonical, file, resource);
-  const abstract = await acquireLock(canonical, abstractAddress(prefix, canonical), resource);
+  if (platform !== 'linux') return acquireFileLock(canonical, files, resource);
+  const abstract = await acquireAbstractLock(
+    canonical,
+    abstractAddress(prefix, canonical),
+    resource,
+  );
   let socket: InstanceLock;
   try {
-    socket = await acquireLock(canonical, file, resource);
+    socket = await acquireFileLock(canonical, files, resource);
   } catch (error) {
     await abstract.release();
     throw error;
@@ -157,69 +171,153 @@ async function acquireDirectoryLock(
   };
 }
 
-/**
- * Listens on `target`: an abstract address, or a socket file. A socket file's path may be
- * longer than the 107 bytes a socket's address holds (test data roots are), so on Linux it is
- * named through an open descriptor of its directory, `/proc/self/fd/<n>/<name>`, which the
- * kernel resolves to the same file.
- */
-async function acquireLock(
-  canonical: string,
-  target: string | SocketFile,
-  resource: InstanceLockResource,
-): Promise<InstanceLock> {
+/** The holder's answer to whoever asks, served so that no client can end or hold the process. */
+function holderServer(): { server: Server; release: () => Promise<void> } {
   const holder: InstanceLockHolder = {
     pid: process.pid,
     startedAt: new Date().toISOString(),
     cwd: process.cwd(),
   };
+  const clients = new Set<Socket>();
+  const server = createServer((socket) => {
+    clients.add(socket);
+    socket.on('close', () => clients.delete(socket));
+    // A client that leaves before the answer, or never reads it, is dropped: an unhandled
+    // write error would end the daemon, and an open connection would keep it from closing
+    // (R-G5 review).
+    socket.on('error', () => socket.destroy());
+    socket.setTimeout(ANSWER_TIMEOUT_MS, () => socket.destroy());
+    socket.end(`${JSON.stringify(holder)}\n`);
+  });
+  server.unref();
+  return {
+    server,
+    release: () =>
+      new Promise<void>((done) => {
+        for (const client of clients) client.destroy();
+        server.close(() => done());
+      }),
+  };
+}
+
+/** How long a holder serves one asker, and how long an asker waits for an answer. */
+export const ANSWER_TIMEOUT_MS = 2_000;
+
+/** An abstract socket: released by the kernel when its holder dies, so never stale. */
+async function acquireAbstractLock(
+  canonical: string,
+  address: string,
+  resource: InstanceLockResource,
+): Promise<InstanceLock> {
+  const { server, release } = holderServer();
+  try {
+    await listen(server, address);
+  } catch (error) {
+    if (!isAddressInUse(error)) throw error;
+    const current = await askHolder(address);
+    throw new InstanceLockedError(
+      canonical,
+      current === 'no-answer' ? undefined : current,
+      resource,
+    );
+  }
+  return { address, release };
+}
+
+/**
+ * The socket-file part of a lock, which a process in any network namespace that sees the
+ * directory finds (operator decision 2026-10-05, R-G5). Each holder publishes its own socket,
+ * `<prefix>.<id>`, already listening: it binds a temporary name and renames it into place. So
+ * a published socket that refuses a connection belongs to a holder that has ended, and is
+ * removed. A starter is refused by any published socket that answers (or does not answer in
+ * time), publishes its own, and then looks again: if another holder published meanwhile, it
+ * withdraws. Two starters racing can at worst both withdraw, never both hold.
+ *
+ * Paths may be longer than the 107 bytes a socket's address holds (test data roots are), so
+ * on Linux the sockets are named through an open descriptor of the directory,
+ * `/proc/self/fd/<n>/<name>`, which the kernel resolves to the same file.
+ */
+async function acquireFileLock(
+  canonical: string,
+  files: SocketFiles,
+  resource: InstanceLockResource,
+): Promise<InstanceLock> {
   let descriptor: number | undefined;
-  let address: string;
-  if (typeof target === 'string') address = target;
-  else if (existsSync('/proc/self/fd')) {
-    descriptor = openSync(target.directory, 'r');
-    address = `/proc/self/fd/${descriptor}/${target.name}`;
-  } else address = join(target.directory, target.name);
+  let base = files.directory;
+  if (existsSync('/proc/self/fd')) {
+    descriptor = openSync(files.directory, 'r');
+    base = `/proc/self/fd/${descriptor}`;
+  }
   const closeDescriptor = () => {
     if (descriptor !== undefined) closeSync(descriptor);
     descriptor = undefined;
   };
-  const server = createServer((socket) => {
-    socket.end(`${JSON.stringify(holder)}\n`);
-  });
-  server.unref();
+  const id = randomBytes(6).toString('hex');
+  const published = `${files.prefix}.${id}`;
+  const { server, release } = holderServer();
+  let listening = false;
   try {
-    try {
-      await listen(server, address);
-    } catch (error) {
-      if (!isAddressInUse(error)) throw error;
-      const current = await askHolder(address);
-      // An abstract address is never stale; a socket file nobody answers on was left by a
-      // crashed process.
-      if (current !== 'no-answer' || typeof target === 'string')
+    const refuse = async (except?: string) => {
+      const current = await liveHolder(base, files.prefix, except);
+      if (current !== undefined)
         throw new InstanceLockedError(
           canonical,
-          current === 'no-answer' ? undefined : current,
+          current === 'unknown' ? undefined : current,
           resource,
         );
-      rmSync(address, { force: true });
-      await listen(server, address);
-    }
+    };
+    await refuse();
+    const temporary = join(base, `${files.prefix}-starting.${id}`);
+    await listen(server, temporary);
+    listening = true;
+    renameSync(temporary, join(base, published));
+    await refuse(published);
   } catch (error) {
+    if (listening) {
+      rmSync(join(base, published), { force: true });
+      await release();
+    }
     closeDescriptor();
-    throw error;
+    if (error instanceof InstanceLockedError) throw error;
+    // Named by the directory, not the descriptor path it was reached through.
+    throw new Error(
+      `The lock in ${files.directory} could not be taken: ${String((error as Error).message).replaceAll(base, files.directory)}`,
+    );
   }
   return {
-    address,
-    release: () =>
-      new Promise<void>((done) => {
-        // Closing unlinks a socket file, through the descriptor still open.
-        server.close(() => {
-          closeDescriptor();
-          done();
-        });
-      }),
+    address: join(files.directory, published),
+    release: async () => {
+      // Closing unlinks the temporary name the socket was bound to, which is gone; the
+      // published name is this holder's own, so it is removed by name.
+      rmSync(join(base, published), { force: true });
+      await release();
+      closeDescriptor();
+    },
   };
+}
+
+/**
+ * The holder of a published socket in `base` that answers, `unknown` for one that does not
+ * answer in time, or nothing. A published socket that refuses connections is a holder's that
+ * ended, and is removed; entries that are not published sockets are left alone.
+ */
+async function liveHolder(
+  base: string,
+  prefix: string,
+  except?: string,
+): Promise<InstanceLockHolder | 'unknown' | undefined> {
+  for (const name of readdirSync(base)) {
+    if (name === except || !name.startsWith(`${prefix}.`)) continue;
+    const path = join(base, name);
+    if (lstatSync(path, { throwIfNoEntry: false })?.isSocket() !== true) continue;
+    const answer = await askHolder(path);
+    if (answer === 'no-answer') {
+      rmSync(path, { force: true });
+      continue;
+    }
+    return answer ?? 'unknown';
+  }
+  return undefined;
 }
 
 function canonicalDirectory(dataDir: string): string {
@@ -254,7 +352,7 @@ function askHolder(address: string): Promise<InstanceLockHolder | 'no-answer' | 
     let text = '';
     const socket = createConnection(address);
     socket.setEncoding('utf8');
-    socket.setTimeout(2_000, () => {
+    socket.setTimeout(ANSWER_TIMEOUT_MS, () => {
       socket.destroy();
       done(undefined);
     });

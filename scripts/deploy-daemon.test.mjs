@@ -1,18 +1,29 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
+  appendFileSync,
+  cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
-import { dataDirectory, drainDaemon, timeSpanSeconds, unitStopProblems } from './deploy-daemon.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { discoverMigrations, openDatabase, runMigrations } from '@craftingtable/storage';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import {
+  dataDirectory,
+  drainDaemon,
+  migrationPreflight,
+  timeSpanSeconds,
+  unitStopProblems,
+} from './deploy-daemon.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./deploy-daemon.mjs', import.meta.url));
 const GIT_ENV = {
@@ -53,11 +64,15 @@ function sourceRepository() {
   return { path, commits };
 }
 
-/** Runs the real script against a scratch deploy root, with building and restarting disabled. */
-function deploy(source, root, args) {
+/**
+ * Runs the real script against a scratch deploy root, with building and restarting disabled. Its
+ * data directory is always a scratch one, never the operator's: without a database there, the
+ * migration preflight has nothing to check (R-H3).
+ */
+function deploy(source, root, args, data = scratch('craftingtable-deploy-data-')) {
   return spawnSync(process.execPath, [SCRIPT, ...args, '--yes', '--no-restart', '--skip-build'], {
     cwd: source,
-    env: { ...GIT_ENV, CRAFTINGTABLE_DEPLOY_ROOT: root },
+    env: { ...GIT_ENV, CRAFTINGTABLE_DEPLOY_ROOT: root, CRAFTINGTABLE_DEPLOY_DATA_DIR: data },
     encoding: 'utf8',
   });
 }
@@ -124,11 +139,192 @@ describe('deploy:daemon', () => {
     const root = scratch('craftingtable-deploy-root-');
     const result = spawnSync(process.execPath, [SCRIPT, 'main', '--no-restart', '--skip-build'], {
       cwd: path,
-      env: { ...GIT_ENV, CRAFTINGTABLE_DEPLOY_ROOT: root },
+      env: {
+        ...GIT_ENV,
+        CRAFTINGTABLE_DEPLOY_ROOT: root,
+        CRAFTINGTABLE_DEPLOY_DATA_DIR: scratch('craftingtable-deploy-data-'),
+      },
       encoding: 'utf8',
     });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Re-run with --yes');
+    expect(readdirSync(root)).not.toContain('current');
+  });
+});
+
+/**
+ * The migration preflight (R-H3), on fixture databases only. A release here is what the
+ * preflight reads of one: the storage package's build (this checkout's, re-exported) and the
+ * release's own migration files, which a test may change.
+ */
+describe('deploy:daemon migration preflight (R-H3)', () => {
+  const REPOSITORY = fileURLToPath(new URL('..', import.meta.url));
+  const STORAGE_BUILD = join(REPOSITORY, 'packages', 'storage', 'dist', 'index.js');
+  const MIGRATIONS = join(REPOSITORY, 'packages', 'storage', 'migrations');
+  const versions = readdirSync(MIGRATIONS)
+    .filter((name) => name.endsWith('.sql'))
+    .sort();
+
+  beforeAll(() => {
+    // The preflight runs a release's compiled storage package; `pnpm build` makes this one.
+    execFileSync(join(REPOSITORY, 'node_modules', '.bin', 'tsc'), ['-b', 'packages/storage'], {
+      cwd: REPOSITORY,
+    });
+  });
+
+  /** The preflight's view of a release into `directory`, its migrations changed by `edit`. */
+  function stageRelease(directory, edit = () => {}) {
+    const storage = join(directory, 'packages', 'storage');
+    mkdirSync(join(storage, 'dist'), { recursive: true });
+    writeFileSync(
+      join(storage, 'dist', 'index.js'),
+      `export * from ${JSON.stringify(pathToFileURL(STORAGE_BUILD).href)};\n`,
+    );
+    cpSync(MIGRATIONS, join(storage, 'migrations'), { recursive: true });
+    edit(join(storage, 'migrations'));
+    return directory;
+  }
+
+  /** A daemon data directory whose database has the first `count` migrations applied. */
+  function dataWithDatabase(count = versions.length) {
+    const data = scratch('craftingtable-deploy-data-');
+    mkdirSync(join(data, 'state'));
+    const database = openDatabase(join(data, 'state', 'craftingtable.sqlite'));
+    runMigrations(database, discoverMigrations(MIGRATIONS).slice(0, count));
+    database.close();
+    return data;
+  }
+
+  const databaseOf = (data) => join(data, 'state', 'craftingtable.sqlite');
+  const lastVersion = Number(versions.at(-1).slice(0, 4));
+  const editMigration = (name) => (directory) =>
+    appendFileSync(join(directory, name), '\n-- edited after it was deployed\n');
+
+  it('passes a database at the release schema, or one the release will migrate', () => {
+    const release = stageRelease(scratch('craftingtable-release-'));
+    const current = dataWithDatabase();
+    const before = readFileSync(databaseOf(current));
+    expect(migrationPreflight(release, databaseOf(current))).toMatchObject({
+      outcome: 'current',
+      currentVersion: lastVersion,
+      supportedVersion: lastVersion,
+    });
+    // Read only: the database's bytes are unchanged.
+    expect(readFileSync(databaseOf(current)).equals(before)).toBe(true);
+    expect(migrationPreflight(release, databaseOf(dataWithDatabase(versions.length - 2)))).toEqual({
+      outcome: 'pending',
+      currentVersion: lastVersion - 2,
+      supportedVersion: lastVersion,
+      pendingVersions: [lastVersion - 1, lastVersion],
+    });
+    expect(migrationPreflight(release, join(current, 'absent.sqlite'))).toEqual({
+      outcome: 'no-database',
+    });
+  });
+
+  it("refuses a release whose migrations differ from the live ledger, by the ledger's code", () => {
+    const data = dataWithDatabase();
+    const edited = stageRelease(scratch('craftingtable-release-'), editMigration(versions[4]));
+    expect(migrationPreflight(edited, databaseOf(data))).toMatchObject({
+      outcome: 'mismatch',
+      failure: 'checksum-mismatch',
+    });
+    const renamed = stageRelease(scratch('craftingtable-release-'), (directory) =>
+      renameSync(
+        join(directory, versions[2]),
+        join(directory, `${versions[2].slice(0, 5)}renamed.sql`),
+      ),
+    );
+    expect(migrationPreflight(renamed, databaseOf(data))).toMatchObject({
+      outcome: 'mismatch',
+      failure: 'name-mismatch',
+    });
+    // An older release does not know the database's newest migration.
+    const older = stageRelease(scratch('craftingtable-release-'), (directory) =>
+      rmSync(join(directory, versions.at(-1))),
+    );
+    expect(migrationPreflight(older, databaseOf(data))).toMatchObject({
+      outcome: 'mismatch',
+      failure: 'unsupported-version',
+    });
+  });
+
+  it('fails closed on a release that cannot run the check', () => {
+    const empty = scratch('craftingtable-release-');
+    expect(migrationPreflight(empty, databaseOf(dataWithDatabase()))).toMatchObject({
+      outcome: 'unavailable',
+    });
+  });
+
+  /** A source repository whose commits carry the preflight's view of a release. */
+  function releaseRepository() {
+    const path = scratch('craftingtable-deploy-source-');
+    git(['init', '--quiet', '--initial-branch=main', '.'], path);
+    const commit = (message) => {
+      git(['add', '-A'], path);
+      git(['commit', '--quiet', '--no-gpg-sign', '-m', message], path);
+      return git(['rev-parse', 'HEAD'], path);
+    };
+    writeFileSync(join(path, 'VERSION'), 'older\n');
+    stageRelease(path, (directory) => rmSync(join(directory, versions.at(-1))));
+    const older = commit('older');
+    writeFileSync(join(path, 'VERSION'), 'matching\n');
+    stageRelease(path);
+    const matching = commit('matching');
+    writeFileSync(join(path, 'VERSION'), 'edited\n');
+    editMigration(versions[4])(join(path, 'packages', 'storage', 'migrations'));
+    const edited = commit('edited');
+    return { path, older, matching, edited };
+  }
+
+  it('stops a deploy whose release does not match the live database before switching current', () => {
+    const source = releaseRepository();
+    const root = scratch('craftingtable-deploy-root-');
+    const data = dataWithDatabase();
+    const before = readFileSync(databaseOf(data));
+    const first = deploy(source.path, root, [source.matching], data);
+    expect(first.status, first.stderr).toBe(0);
+    expect(first.stdout).toContain(`Migrations: schema ${lastVersion}/${lastVersion}`);
+    const refused = deploy(source.path, root, [source.edited], data);
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('checksum-mismatch');
+    expect(refused.stderr).toContain('stays deployed');
+    // The running release stays, the refused one is gone, and the database is untouched.
+    expect(deployedVersion(root)).toBe('matching');
+    expect(readdirSync(join(root, 'releases'))).toHaveLength(1);
+    expect(readFileSync(databaseOf(data)).equals(before)).toBe(true);
+    expect(log(root).at(-1)).toMatchObject({
+      action: 'preflight-refused',
+      commit: source.edited,
+      failure: 'checksum-mismatch',
+      previous: current(root).replace('releases/', ''),
+    });
+  });
+
+  it('refuses a rollback to a release that cannot read the live database', () => {
+    const source = releaseRepository();
+    const root = scratch('craftingtable-deploy-root-');
+    const empty = scratch('craftingtable-deploy-data-');
+    // Deployed while nothing was there to check, as a first deploy is.
+    expect(deploy(source.path, root, [source.older], empty).status).toBe(0);
+    expect(deploy(source.path, root, [source.matching], empty).status).toBe(0);
+    // The newer release has since migrated the database.
+    const refused = deploy(source.path, root, ['--rollback'], dataWithDatabase());
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('unsupported-version');
+    expect(deployedVersion(root)).toBe('matching');
+    expect(log(root).at(-1)).toMatchObject({
+      action: 'preflight-refused',
+      failure: 'unsupported-version',
+    });
+  });
+
+  it('refuses a deploy whose release cannot run the check while a database exists', () => {
+    const { path, commits } = sourceRepository();
+    const root = scratch('craftingtable-deploy-root-');
+    const refused = deploy(path, root, [commits[0]], dataWithDatabase());
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('could not check');
     expect(readdirSync(root)).not.toContain('current');
   });
 });

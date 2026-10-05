@@ -16,7 +16,10 @@
  *     current -> releases/...         what the unit runs
  *     deploys.jsonl                   append-only record of every switch
  *
- * A failed build leaves `current` untouched. Before restarting, the running daemon is
+ * A failed build leaves `current` untouched, and so does a release whose migrations do not
+ * match the live database's ledger (R-H3): before draining or switching, the release's own
+ * storage code reads the database read-only against the release's migration files. A
+ * rollback is checked the same way. Before restarting, the running daemon is
  * asked to drain (R-B9) through a request file in its data directory: it stops starting
  * new work, gives live agent turns up to its drain bound to finish (`--when-idle`: waits
  * until none is live), interrupts the rest and records a clean stop, so the restarted
@@ -27,7 +30,7 @@
  * Only one daemon can use a data directory (apps/server/src/instance-lock.ts),
  * so nothing here can start a second production daemon.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
@@ -43,6 +46,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 
 const HEALTH_TIMEOUT_MS = 90_000;
@@ -178,6 +182,103 @@ export function dataDirectory(env = process.env, unit = {}) {
   if (env.CRAFTINGTABLE_DEPLOY_DATA_DIR) return resolve(env.CRAFTINGTABLE_DEPLOY_DATA_DIR);
   if (unit.CRAFTINGTABLE_DATA_DIR) return unit.CRAFTINGTABLE_DATA_DIR;
   return join(env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'craftingtable');
+}
+
+/** The daemon's database in its data directory, as `apps/server/src/config.ts` places it. */
+export function databasePath(directory) {
+  return join(directory, 'state', 'craftingtable.sqlite');
+}
+
+/**
+ * Runs in a release (R-H3): its compiled storage package reads the database read-only against
+ * the release's migration files, and prints one JSON line.
+ */
+const PREFLIGHT = `
+const [index, migrations, database] = process.argv.slice(1);
+const storage = await import(index);
+let result;
+try {
+  const status = storage.inspectMigrationStatus(database, storage.discoverMigrations(migrations));
+  result = { outcome: status.pendingVersions.length ? 'pending' : 'current', ...status };
+} catch (error) {
+  if (!(error instanceof storage.MigrationValidationError)) throw error;
+  result = { outcome: 'mismatch', failure: error.failure, message: error.message };
+}
+process.stdout.write(JSON.stringify(result) + '\\n');
+`;
+
+/**
+ * Whether a release can run on the live database (R-H3), checked before `current` moves:
+ *
+ * - `no-database`: nothing to check yet (a first deploy).
+ * - `current` or `pending`: the ledger matches the release's migrations; the release applies
+ *   any pending ones when it starts.
+ * - `mismatch`: an applied migration's checksum or name differs from the release's file, or
+ *   the database has a migration the release does not know (`failure` is the storage code).
+ *   The release would refuse to start.
+ * - `unavailable`: the release could not run the check; refused too, since it could not open
+ *   the database either.
+ *
+ * The check is the release's own `inspectMigrationStatus`, which opens the database read-only.
+ */
+export function migrationPreflight(release, database) {
+  if (!existsSync(database)) return { outcome: 'no-database' };
+  const index = join(release, 'packages', 'storage', 'dist', 'index.js');
+  const migrations = join(release, 'packages', 'storage', 'migrations');
+  if (!existsSync(index) || !existsSync(migrations))
+    return { outcome: 'unavailable', message: `${release} has no built storage package.` };
+  const checked = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e', PREFLIGHT, pathToFileURL(index).href, migrations, database],
+    { cwd: release, encoding: 'utf8', timeout: 60_000 },
+  );
+  const line = checked.stdout?.trim().split('\n').at(-1);
+  if (checked.status === 0 && line)
+    try {
+      return JSON.parse(line);
+    } catch {
+      // Reported below.
+    }
+  return {
+    outcome: 'unavailable',
+    message: (checked.stderr || checked.error?.message || `exit ${checked.status}`)
+      .trim()
+      .slice(0, 2000),
+  };
+}
+
+/**
+ * Stops a switch to `release` unless its migrations match the live database (R-H3). A refusal
+ * is recorded and leaves `current`, and the daemon running it, as they are.
+ */
+function requireMigrationsMatch(root, release, entry, current) {
+  const database = databasePath(dataDirectory(process.env, unitEnvironment()));
+  const result = migrationPreflight(join(root, 'releases', release), database);
+  if (
+    result.outcome === 'no-database' ||
+    result.outcome === 'current' ||
+    result.outcome === 'pending'
+  ) {
+    if (result.outcome !== 'no-database')
+      process.stdout.write(
+        `Migrations: schema ${result.currentVersion}/${result.supportedVersion}; pending: ${result.pendingVersions.join(', ') || 'none'}\n`,
+      );
+    return;
+  }
+  record(root, {
+    action: 'preflight-refused',
+    ...entry,
+    release,
+    previous: current,
+    outcome: result.outcome,
+    ...(result.failure ? { failure: result.failure } : {}),
+  });
+  const stays = `${current ?? 'nothing'} stays deployed`;
+  throw new Error(
+    result.outcome === 'mismatch'
+      ? `The live database ${database} does not match ${release}'s migrations (${result.failure}: ${result.message}); ${stays}.`
+      : `${release} could not check the live database ${database} (${result.message}); ${stays}.`,
+  );
 }
 
 /** Health URL from the unit's environment file, overridable for unusual setups. */
@@ -388,6 +489,12 @@ async function deploy(options) {
       throw new Error(`Build failed; ${current ?? 'nothing'} stays deployed. ${error.message}`);
     }
   }
+  try {
+    requireMigrationsMatch(root, release, { commit, ref: options.ref, source }, current);
+  } catch (error) {
+    run('git', ['-C', repo, 'worktree', 'remove', '--force', directory]);
+    throw error;
+  }
   if (options.restart) await drainBeforeRestart(options);
   switchTo(root, release);
   record(root, { action: 'deploy', commit, ref: options.ref, source, release, previous: current });
@@ -426,6 +533,7 @@ async function rollback(options) {
   if (problem) throw new Error(problem);
   const restart = options.restart ? ' and restart the daemon' : '';
   if (!(await confirm(options, `Roll back from ${current} to ${target}${restart}.`))) return 1;
+  requireMigrationsMatch(root, target, { rollback: true }, current);
   if (options.restart) await drainBeforeRestart(options);
   switchTo(root, target);
   record(root, { action: 'rollback', release: target, previous: current });

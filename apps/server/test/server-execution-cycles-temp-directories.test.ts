@@ -156,41 +156,48 @@ it("keeps the root's own lock socket without naming it in the start's warning (R
   // A short base: a socket's path holds 107 bytes, more than the run's data root leaves.
   const root = mkdtempSync('/tmp/cta-');
   const lockData = mkdtempSync('/tmp/ctl-');
-  const lock = await acquireDaemonLocks(
-    { dataDir: lockData, execution: { agentTemporaryRoot: root } },
-    'darwin',
-  );
-  const socket = join(root, AGENTS_ROOT_LOCK_FILE);
-  expect(lstatSync(socket).isSocket()).toBe(true);
-  const warnings: { message: string; detail?: Readonly<Record<string, unknown>> }[] = [];
-  const start = (env: Record<string, string>) =>
-    createTestContext({
-      env,
-      runLog: {
-        warn: (message, detail) => warnings.push({ message, ...(detail ? { detail } : {}) }),
-      },
-    });
-  const context = await start({ CRAFTINGTABLE_AGENT_TMP_ROOT: root });
+  // Outside the run's directory, so nothing else removes them, whatever fails.
   try {
-    await context.services.agentRunService.quiesce();
-    expect(lstatSync(socket).isSocket()).toBe(true);
-    expect(warnings).toEqual([]);
+    const lock = await acquireDaemonLocks(
+      { dataDir: lockData, execution: { agentTemporaryRoot: root } },
+      'darwin',
+    );
+    const socket = join(root, AGENTS_ROOT_LOCK_FILE);
+    const warnings: { message: string; detail?: Readonly<Record<string, unknown>> }[] = [];
+    const start = (env: Record<string, string>) =>
+      createTestContext({
+        env,
+        runLog: {
+          warn: (message, detail) => warnings.push({ message, ...(detail ? { detail } : {}) }),
+        },
+      });
+    try {
+      expect(lstatSync(socket).isSocket()).toBe(true);
+      const context = await start({ CRAFTINGTABLE_AGENT_TMP_ROOT: root });
+      try {
+        await context.services.agentRunService.quiesce();
+        expect(lstatSync(socket).isSocket()).toBe(true);
+        expect(warnings).toEqual([]);
+      } finally {
+        await context.cleanup();
+      }
+    } finally {
+      await lock.release();
+    }
+    // A file of the same name is not the lock: it is named like anything else.
+    writeFileSync(socket, 'not a socket');
+    const other = await start({ CRAFTINGTABLE_AGENT_TMP_ROOT: root });
+    try {
+      await other.services.agentRunService.quiesce();
+      expect(warnings).toEqual([
+        expect.objectContaining({
+          detail: expect.objectContaining({ entries: [AGENTS_ROOT_LOCK_FILE] }),
+        }),
+      ]);
+    } finally {
+      await other.cleanup();
+    }
   } finally {
-    await context.cleanup();
-    await lock.release();
-  }
-  // A file of the same name is not the lock: it is named like anything else.
-  writeFileSync(socket, 'not a socket');
-  const other = await start({ CRAFTINGTABLE_AGENT_TMP_ROOT: root });
-  try {
-    await other.services.agentRunService.quiesce();
-    expect(warnings).toEqual([
-      expect.objectContaining({
-        detail: expect.objectContaining({ entries: [AGENTS_ROOT_LOCK_FILE] }),
-      }),
-    ]);
-  } finally {
-    await other.cleanup();
     rmSync(root, { recursive: true, force: true });
     rmSync(lockData, { recursive: true, force: true });
   }

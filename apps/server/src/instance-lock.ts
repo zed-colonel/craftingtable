@@ -15,19 +15,31 @@ export interface InstanceLock {
   release(): Promise<void>;
 }
 
+/** What a lock keeps to one daemon: its data directory, or its agents' temporary root (R-G5). */
+export type InstanceLockResource = 'data-directory' | 'agents-temporary-root';
+
 export class InstanceLockedError extends Error {
   constructor(
+    /** The canonical directory the lock is keyed on. */
     readonly dataDir: string,
     readonly holder: InstanceLockHolder | undefined,
+    readonly resource: InstanceLockResource = 'data-directory',
   ) {
+    const what = resource === 'data-directory' ? dataDir : `the agents' temporary root ${dataDir}`;
     super(
       holder === undefined
-        ? `Another CraftingTable process is already using ${dataDir}.`
-        : `Another CraftingTable process (pid ${holder.pid}, started ${holder.startedAt} from ${holder.cwd}) is already using ${dataDir}.`,
+        ? `Another CraftingTable process is already using ${what}.`
+        : `Another CraftingTable process (pid ${holder.pid}, started ${holder.startedAt} from ${holder.cwd}) is already using ${what}.`,
     );
     this.name = 'InstanceLockedError';
   }
 }
+
+/**
+ * The socket file that holds an agents' temporary root's lock where there is no abstract
+ * namespace. It lives in the root, beside the run directories, and the start sweep leaves it.
+ */
+export const AGENTS_ROOT_LOCK_FILE = '.craftingtable-daemon.lock';
 
 /**
  * One process per data directory (R-I8). The daemon's startup marks every live
@@ -46,10 +58,60 @@ export async function acquireInstanceLock(
   platform: NodeJS.Platform = process.platform,
 ): Promise<InstanceLock> {
   const canonical = canonicalDirectory(dataDir);
-  const address =
-    platform === 'linux'
-      ? `\0craftingtable-${createHash('sha256').update(canonical).digest('hex').slice(0, 40)}`
-      : socketFile(canonical);
+  return acquireLock(
+    canonical,
+    platform === 'linux' ? abstractAddress('craftingtable', canonical) : socketFile(canonical),
+    'data-directory',
+    platform,
+  );
+}
+
+/**
+ * Both of a daemon's locks, taken before any database work: its data directory's, then its
+ * agents' temporary root's (R-G5). A start sweeps every run-named directory of that root, so a
+ * second daemon on the same root, with a data directory of its own, would remove the first
+ * one's live runs' directories. The root's lock refuses it first; the default root, `<data>/t`,
+ * differs per data directory. A refused start holds neither lock.
+ */
+export async function acquireDaemonLocks(
+  config: { readonly dataDir: string; readonly execution: { readonly agentTemporaryRoot: string } },
+  platform: NodeJS.Platform = process.platform,
+): Promise<InstanceLock> {
+  const data = await acquireInstanceLock(config.dataDir, platform);
+  let root: InstanceLock;
+  try {
+    const canonical = canonicalDirectory(config.execution.agentTemporaryRoot);
+    root = await acquireLock(
+      canonical,
+      platform === 'linux'
+        ? abstractAddress('craftingtable-agents', canonical)
+        : join(canonical, AGENTS_ROOT_LOCK_FILE),
+      'agents-temporary-root',
+      platform,
+    );
+  } catch (error) {
+    await data.release();
+    throw error;
+  }
+  return {
+    address: data.address,
+    release: async () => {
+      await root.release();
+      await data.release();
+    },
+  };
+}
+
+function abstractAddress(prefix: string, canonical: string): string {
+  return `\0${prefix}-${createHash('sha256').update(canonical).digest('hex').slice(0, 40)}`;
+}
+
+async function acquireLock(
+  canonical: string,
+  address: string,
+  resource: InstanceLockResource,
+  platform: NodeJS.Platform,
+): Promise<InstanceLock> {
   const holder: InstanceLockHolder = {
     pid: process.pid,
     startedAt: new Date().toISOString(),
@@ -65,7 +127,11 @@ export async function acquireInstanceLock(
     if (!isAddressInUse(error)) throw error;
     const current = await askHolder(address);
     if (current !== 'no-answer' || platform === 'linux')
-      throw new InstanceLockedError(canonical, current === 'no-answer' ? undefined : current);
+      throw new InstanceLockedError(
+        canonical,
+        current === 'no-answer' ? undefined : current,
+        resource,
+      );
     // A socket file nobody answers on was left by a crashed process.
     rmSync(address, { force: true });
     await listen(server, address);

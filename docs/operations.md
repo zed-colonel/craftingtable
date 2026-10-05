@@ -151,7 +151,8 @@ Set `CRAFTINGTABLE_DATA_DIR`/`CRAFTINGTABLE_PORT` to override either.
 an exclusive lock on its data directory (an abstract Unix socket on Linux, released by the
 kernel the moment the process exits). A second daemon on the same directory, for example a
 stray `pnpm start` in another checkout, exits with a message naming the holder instead of
-marking the live daemon's runs interrupted. `pnpm craftingtable db migrate` takes the same
+marking the live daemon's runs interrupted. It locks its agents' temporary root the same way
+(see below). `pnpm craftingtable db migrate` takes the same
 lock, so stop the daemon before migrating by hand (the daemon also migrates on start).
 
 **The installed daemon** runs from a deploy checkout, never from a development checkout, so
@@ -267,8 +268,11 @@ yet is followed to what it names. A root that cannot be resolved (unreadable, a 
 refused; a directory it is compared with that cannot be is compared as far as it can be read,
 so an unreadable `HOME` or `TMPDIR` never stops the daemon starting. The check sees the runs and
 backup roots as configured at start: **Settings → Storage** can move them later, and the check
-does not follow, but the sweep's name filter still leaves whatever they hold. Two daemons must
-not share one root: each start sweeps the other's live runs' directories.
+does not follow, but the sweep's name filter still leaves whatever they hold. Two daemons
+cannot share one root, since each start would sweep the other's live runs' directories: a
+daemon also locks its agents' temporary root, canonically, as it locks its data directory, and
+a second daemon on the same root exits at start, before its sweep, with a message naming the
+holder (R-G5).
 
 The daemon runs the checks agents ask for with `ct-check` itself, each in a transient systemd user unit
 (`craftingtable-check-<instance>-<request>.service`) with a read-only file system except the run's own

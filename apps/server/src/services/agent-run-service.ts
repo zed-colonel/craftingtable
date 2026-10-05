@@ -59,6 +59,7 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
+import { AGENTS_ROOT_LOCK_FILE } from '../instance-lock.js';
 import { cycleAgentSelection } from './agent-profile-policy.js';
 import { removeAgentTree } from './agent-tree.js';
 import { cycleOwnership } from './cycle-ownership.js';
@@ -2237,7 +2238,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     const left: string[] = [];
     for (const name of leftovers) {
       if (isRunTemporaryDirectory(root, name)) this.removeAgentDirectory(join(root, name));
-      else left.push(name);
+      // The root's lock where there is no abstract socket namespace (R-G5): the daemon's own.
+      else if (name !== AGENTS_ROOT_LOCK_FILE) left.push(name);
     }
     if (left.length > 0)
       this.log.warn(

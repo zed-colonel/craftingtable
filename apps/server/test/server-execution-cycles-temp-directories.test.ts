@@ -27,6 +27,7 @@ import {
   startCycle,
   waitFor,
 } from './execution-test-support.js';
+import { AGENTS_ROOT_LOCK_FILE } from '../src/instance-lock.js';
 import { createTestContext, testDataRoot } from './test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -144,6 +145,26 @@ it("sweeps only run directories from the agents' temporary root at a start, and 
         },
       },
     ]);
+  } finally {
+    await context.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps the root's own lock file without naming it in the start's warning (R-G5)", async () => {
+  // Where there is no abstract socket namespace, the root's lock is a socket file in the root.
+  const root = mkdtempSync(join(testDataRoot(), 'craftingtable-agent-root-'));
+  const lock = join(root, AGENTS_ROOT_LOCK_FILE);
+  writeFileSync(lock, '');
+  const warnings: string[] = [];
+  const context = await createTestContext({
+    env: { CRAFTINGTABLE_AGENT_TMP_ROOT: root },
+    runLog: { warn: (message) => warnings.push(message) },
+  });
+  try {
+    await context.services.agentRunService.quiesce();
+    expect(existsSync(lock)).toBe(true);
+    expect(warnings).toEqual([]);
   } finally {
     await context.cleanup();
     rmSync(root, { recursive: true, force: true });

@@ -1,16 +1,16 @@
-import { createRuntime } from './composition.js';
 import { configFromEnv, retiredSettings } from './config.js';
-import { acquireInstanceLock, InstanceLockedError } from './instance-lock.js';
+import { startDaemon } from './daemon-start.js';
+import { InstanceLockedError } from './instance-lock.js';
 
 const config = configFromEnv();
-// Taken before any database work: restart recovery would otherwise rewrite a
-// running daemon's live state before this process failed to bind its port.
-const lock = await acquireInstanceLock(config.dataDir).catch((error: unknown) => {
+// The locks come before any database work: restart recovery would otherwise rewrite a running
+// daemon's live state, and sweep its agents' directories, before this process failed to bind
+// its port.
+const { runtime, lock } = await startDaemon(config, { logger: true }).catch((error: unknown) => {
   if (!(error instanceof InstanceLockedError)) throw error;
   process.stderr.write(`${error.message} Refusing to start a second daemon on it.\n`);
   process.exit(1);
 });
-const runtime = await createRuntime(config, { logger: true });
 const retired = retiredSettings();
 if (retired.length > 0)
   runtime.app.log.warn(

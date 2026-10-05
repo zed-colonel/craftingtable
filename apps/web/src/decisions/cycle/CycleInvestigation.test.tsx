@@ -596,3 +596,21 @@ it('after an acknowledgement, answers the stop as usual but still never offers t
   expect(within(panel).queryByRole('button', { name: 'Use proposed answers' })).toBeNull();
   expect(screen.getByRole('form', { name: 'Continue with guidance' })).toBeTruthy();
 });
+
+it('offers Acknowledge only when the daemon does, and keys the proposals on the code (R-C16 review)', () => {
+  // Held by the daemon but not offered here (a stop the operator may not act on): no button.
+  show({ ...base, workflow: routed, investigation: { ...record, result: changed } }, ['stop']);
+  const panel = screen.getByRole('region', { name: 'Investigation' });
+  expect(within(panel).queryByRole('button', { name: 'Acknowledge the change' })).toBeNull();
+  expect(within(panel).queryByRole('button', { name: 'Use proposed answers' })).toBeNull();
+});
+
+it('says an investigation is ending once End was asked, until its process has exited (R-C16 review)', () => {
+  show({ ...base, investigation: { ...record, endRequestedAt: '2026-10-02T12:05:00.000Z' } }, [
+    'end-investigation',
+  ]);
+  const panel = screen.getByRole('region', { name: 'Investigation' });
+  expect(within(panel).getByRole('status').textContent).toContain(
+    'Ending: the investigation run was asked to end',
+  );
+});

@@ -1874,9 +1874,20 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             ...(handoff === undefined ? {} : { handoffSources: handoff.sources }),
           },
         });
-        this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
+        const started = this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
           startedAt: this.now().toISOString(),
         });
+        if (started === undefined) {
+          // The run was ended while it launched (an investigation's End, R-C16 review H1): its
+          // session never runs. The worktree is held until its process has exited, and the
+          // launch returns only then, so nothing compares or launches beside it.
+          session.kill();
+          await this.mutations.untilExited(
+            input.worktreeId,
+            drainUntilExit(session.items[Symbol.asyncIterator]()),
+          );
+          return this.storage.execution.runs.find(workspaceId, runId) ?? run;
+        }
 
         const liveRun: LiveRun = {
           workspaceId,
@@ -1891,6 +1902,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             () => {
               liveRun.cancelRequested = true;
               session.kill();
+              // The run ends now, but its process may still be writing: the worktree is held
+              // until it exits, so an investigation is compared only then (R-C16 review M1).
+              void this.mutations.untilExited(input.worktreeId, liveRun.done);
               this.finalize(workspaceId, runId, 'failed', { message: controlled.limit });
             },
             Math.max(1, Date.parse(controlled.deadlineAt) - this.now().getTime()),

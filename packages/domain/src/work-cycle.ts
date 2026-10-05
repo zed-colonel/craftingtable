@@ -115,6 +115,8 @@ export interface InvestigationWorktree {
   readonly ignoredDigest: string;
   /** The repository's config, hooks and info files. */
   readonly gitDigest: string;
+  /** Files compared by size and modification time only, past the snapshot's bounds. */
+  readonly metadataOnly?: number;
 }
 /** A part of the worktree an investigation found changed; `unreadable`: it could not be read. */
 export const INVESTIGATION_WORKTREE_PARTS = [
@@ -158,6 +160,12 @@ export interface CycleInvestigation {
   readonly startedByUserId: UserId;
   /** The worktree at the start; a record without it (started before the check) is not compared. */
   readonly worktree?: InvestigationWorktree;
+  /**
+   * The operator asked a run with a recorded worktree to end; the result follows its process's
+   * exit and the comparison (R-C16).
+   */
+  readonly endRequestedAt?: string;
+  readonly endRequestedByUserId?: UserId;
   /** Written when the run ends, with what the daemon read from its report. */
   readonly result?: {
     readonly endedAt: string;

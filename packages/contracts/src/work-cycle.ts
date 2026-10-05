@@ -141,6 +141,7 @@ const investigationWorktreeSchema = z.strictObject({
   untrackedDigest: sha256Schema,
   ignoredDigest: sha256Schema,
   gitDigest: sha256Schema,
+  metadataOnly: z.number().int().positive().optional(),
 });
 const investigationWorktreeChangeSchema = z.strictObject({
   parts: z
@@ -311,6 +312,8 @@ export const workCycleSchema = z
         startedAt: z.iso.datetime(),
         startedByUserId: userIdSchema,
         worktree: investigationWorktreeSchema.optional(),
+        endRequestedAt: z.iso.datetime().optional(),
+        endRequestedByUserId: userIdSchema.optional(),
         result: z
           .strictObject({
             endedAt: z.iso.datetime(),
@@ -323,6 +326,17 @@ export const workCycleSchema = z
             message: z.string().max(4000).optional(),
             findings: z.array(investigationFindingSchema).max(40).optional(),
           })
+          // A worktree change is a failed investigation that says what changed, and an
+          // acknowledgement names who gave it (R-C16 review).
+          .refine(
+            (r) =>
+              (r.code === undefined) === (r.worktreeChange === undefined) &&
+              (r.code === undefined || r.outcome === 'failed') &&
+              (r.acknowledgedAt === undefined) === (r.acknowledgedByUserId === undefined) &&
+              (r.code !== undefined ||
+                (r.acknowledgedAt === undefined && r.restoredAt === undefined)),
+            { message: 'An investigation result holds a worktree change only as a whole.' },
+          )
           .optional(),
       })
       .optional(),

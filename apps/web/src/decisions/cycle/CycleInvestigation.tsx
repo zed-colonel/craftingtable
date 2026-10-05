@@ -41,7 +41,7 @@ const CHANGED_PART: Record<ChangedPart, string> = {
   tracked: 'tracked files',
   untracked: 'untracked files',
   ignored: 'ignored files',
-  git: 'the repository’s config, hooks or info files',
+  git: 'the repository’s config, hooks or info files (which its other checkouts share)',
   unreadable: 'it could not be read',
 };
 
@@ -104,16 +104,19 @@ export function CycleInvestigation({
   const used = proposalsAdded;
   // The worktree changed while it ran (R-C16): its proposals are shown, never offered for use,
   // since the tree they cite changed under them; the stop waits for an acknowledgement.
-  const change = result?.code === 'worktree-changed' ? result.worktreeChange : undefined;
+  const changed = result?.code === 'worktree-changed';
+  const change = changed ? result.worktreeChange : undefined;
   return (
     <section aria-label="Investigation" className="stack">
       <h3>Investigation</h3>
       {live && record && (
         <>
           <p role="status">
-            {Date.parse(record.deadlineAt) > Date.now()
-              ? `Investigating: a read-only run is gathering evidence for these questions, until ${new Date(record.deadlineAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.`
-              : 'Investigating: the run has passed its time limit and is being ended.'}{' '}
+            {record.endRequestedAt
+              ? 'Ending: the investigation run was asked to end; its result follows once its process has exited and the worktree is compared.'
+              : Date.parse(record.deadlineAt) > Date.now()
+                ? `Investigating: a read-only run is gathering evidence for these questions, until ${new Date(record.deadlineAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.`
+                : 'Investigating: the run has passed its time limit and is being ended.'}{' '}
             The stop’s other controls wait for it.
           </p>
           <p className="inline-actions">
@@ -135,7 +138,7 @@ export function CycleInvestigation({
           </p>
         </>
       )}
-      {record && result && change && (
+      {record && result && changed && change && (
         <>
           <p role={actions.includes('acknowledge-worktree-change') ? 'alert' : undefined}>
             The worktree changed while the investigation ran:{' '}
@@ -181,7 +184,7 @@ export function CycleInvestigation({
       {record && result && (
         <>
           <p>
-            {change
+            {changed
               ? findings.length
                 ? 'Its proposals are shown below, not offered to use: they were gathered while the tree changed.'
                 : OUTCOME[result.outcome]
@@ -218,7 +221,7 @@ export function CycleInvestigation({
             </ol>
           )}
           <p className="inline-actions">
-            {findings.length > 0 && onUseAnswers && !change && (
+            {findings.length > 0 && onUseAnswers && !changed && (
               <button
                 type="button"
                 className="primary-button"

@@ -198,7 +198,7 @@ function retryableControllerError(error: unknown): boolean {
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
 /** How often an open worktree change is compared with its record again (R-C16). */
-const RESTORED_CHECK_MS = 15_000;
+const RESTORED_CHECK_MS = 60_000;
 /** How long past its deadline an unfinished investigation run is closed (R-C16 review M3). */
 const STUCK_INVESTIGATION_MS = 2 * 60_000;
 
@@ -724,9 +724,22 @@ export class WorkCycleService {
     if (run && !isTerminalAgentRunStatus(run.status))
       this.runs.cancelInvestigation(workspaceId, run.id, 'Ended by the operator.');
     if (investigation.worktree && run && !stopping) {
-      // A run that has already ended is compared now; a live one at its exit.
-      await this.settleInvestigation(cycle);
-      return this.present(this.storage.execution.cycles.find(workspaceId, id) ?? cycle);
+      // Recorded, with who asked, for the stop and the audit; a run that has already ended is
+      // compared now, a live one at its exit.
+      const requested = this.change(
+        cycle,
+        {
+          investigation: {
+            ...investigation,
+            endRequestedAt: this.now().toISOString(),
+            endRequestedByUserId: context.user.id,
+          },
+        },
+        'investigation-end-requested',
+        context,
+      );
+      await this.settleInvestigation(requested);
+      return this.present(this.storage.execution.cycles.find(workspaceId, id) ?? requested);
     }
     const ended =
       run && isTerminalAgentRunStatus(run.status)
@@ -804,7 +817,7 @@ export class WorkCycleService {
       current,
       {
         investigation: {
-          ...investigation,
+          ...(current.investigation ?? investigation),
           result: change
             ? { ...result, outcome: 'failed', code: 'worktree-changed', worktreeChange: change }
             : result,
@@ -870,6 +883,7 @@ export class WorkCycleService {
         'conflict',
         'No worktree change of this stop’s investigation is waiting to be acknowledged.',
       );
+    this.restoredChecks.delete(cycle.investigation.id);
     return this.present(
       this.change(
         cycle,
@@ -1620,7 +1634,8 @@ export class WorkCycleService {
   /** An approved amendment retires idle automation without deleting its branch or history. */
   retireForAmendment(context: CommandContext, cycle: WorkCycle, amendmentId: string): void {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
-    this.requireNoInvestigation(cycle);
+    // Retiring stops the cycle; it never builds on a changed tree (R-C16 review L1).
+    this.requireNoInvestigation(cycle, true);
     this.mutations.requireAvailable(cycle.worktreeId);
     if (
       this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0 ||

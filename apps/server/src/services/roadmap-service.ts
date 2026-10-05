@@ -1,4 +1,4 @@
-import { investigationHolds, investigationLive } from './investigation.js';
+import { investigationHolds, investigationLive, worktreeChangeOpen } from './investigation.js';
 import {
   decisionBindingDigest,
   supportsArchitectureDecision,
@@ -2101,12 +2101,14 @@ export class RoadmapService {
     const parallel = roadmap.definition.scheduling?.mode === 'parallel';
     let attempt =
       recoveryAttempt ?? roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
-    // A command on the cycle is in flight, or an investigation of its stop is at work or found
-    // its worktree changed (R-C16): the scheduler leaves the stop to it.
+    // A command on the cycle is in flight, or an investigation of its stop is at work (R-C16):
+    // the scheduler leaves the stop to it. One that found its worktree changed waits on the
+    // operator alone, and is recorded as the stop's wait (R-C16 review M2).
     if (attempt && this.cycles.isTransitioning(attempt.cycleId)) return MOVED;
     const investigated =
       attempt && this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
-    if (investigated && investigationHolds(investigated)) return MOVED;
+    if (investigated && investigationLive(investigated)) return MOVED;
+    if (investigated && worktreeChangeOpen(investigated)) return cycleStep(investigated);
     if (attempt) {
       const worktree = this.storage.execution.worktrees.find(
         roadmap.workspaceId,

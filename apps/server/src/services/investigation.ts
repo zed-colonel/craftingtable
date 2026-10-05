@@ -135,6 +135,7 @@ export function investigationWorktree(snapshot: WorktreeSnapshot): Investigation
     untrackedDigest: snapshot.untrackedDigest,
     ignoredDigest: snapshot.ignoredDigest,
     gitDigest: snapshot.gitDigest,
+    ...(snapshot.metadataOnly > 0 ? { metadataOnly: snapshot.metadataOnly } : {}),
   };
 }
 
@@ -170,7 +171,7 @@ const PART_NAMES: Record<InvestigationWorktreePart, string> = {
   tracked: 'tracked files',
   untracked: 'untracked files',
   ignored: 'ignored files',
-  git: "the repository's config, hooks or info files",
+  git: "the repository's config, hooks or info files (which its other checkouts share)",
   unreadable: 'it could not be read',
 };
 

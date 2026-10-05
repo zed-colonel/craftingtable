@@ -217,7 +217,22 @@ it("reads an investigation recorded before the worktree check, and validates the
     },
   };
   expect(investigation.safeParse(changed).success).toBe(true);
+  const { worktreeChange: _change, ...codeOnly } = changed.result;
+  const { acknowledgedAt: _at, ...unnamed } = changed.result;
   for (const invalid of [
+    // A change only as a whole (R-C16 review): a code says what changed, on a failed result,
+    // and an acknowledgement names its time and who gave it.
+    { ...changed, result: codeOnly },
+    { ...changed, result: { ...changed.result, outcome: 'finished' } },
+    { ...changed, result: unnamed },
+    {
+      ...older,
+      result: {
+        ...older.result,
+        acknowledgedAt: '2026-10-05T10:11:00.000Z',
+        acknowledgedByUserId: 'user-1',
+      },
+    },
     { ...changed, worktree: { ...worktree, gitDigest: 'short' } },
     { ...changed, result: { ...changed.result, code: 'something-else' } },
     {

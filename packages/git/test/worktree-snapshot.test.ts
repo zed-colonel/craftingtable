@@ -128,6 +128,21 @@ it("sees the repository's hooks, config and info files, from a linked worktree t
     expect(changed(before, after)).toEqual(['gitDigest']);
     before = after;
   }
+  // The linked worktree's own configuration, and the pointer that names its Git directory.
+  const gitDir = runFixtureGit(['rev-parse', '--path-format=absolute', '--git-dir'], {
+    cwd: linked,
+  })
+    .toString()
+    .trim();
+  for (const plant of [
+    () => writeFileSync(join(gitDir, 'config.worktree'), '[core]\n\tfsmonitor = planted\n'),
+    () => writeFileSync(join(linked, '.git'), `gitdir: ${gitDir}\n\n`),
+  ]) {
+    plant();
+    const after = await snapshot(linked);
+    expect(changed(before, after)).toEqual(['gitDigest']);
+    before = after;
+  }
 });
 
 it('compares a file past the content bound by its size and time, and says so', async () => {

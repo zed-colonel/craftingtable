@@ -908,7 +908,7 @@ describe('the investigated worktree (R-C16)', () => {
     );
   });
 
-  it('releases the hold once the worktree matches its record again', async () => {
+  it('releases the hold once the worktree matches its record again, checking at most once a minute', async () => {
     let clock = Date.now();
     const f = await atQuestionStop(() => new Date(clock));
     const { state, cycle } = f;
@@ -919,11 +919,15 @@ describe('the investigated worktree (R-C16)', () => {
       'worktree change',
     );
     // Still changed: the hold stays however often the controller looks.
-    clock += 20_000;
+    clock += 61_000;
     await stepDaemons(2);
     expect(currentCycle(state, cycle).investigation?.result?.restoredAt).toBeUndefined();
     rmSync(join(f.worktree.path, 'planted.txt'));
-    clock += 20_000;
+    // Within the minute since the last look, nothing reads the tree again.
+    clock += 30_000;
+    await stepDaemons(3);
+    expect(currentCycle(state, cycle).investigation?.result?.restoredAt).toBeUndefined();
+    clock += 31_000;
     await waitFor(
       () => !!currentCycle(state, cycle).investigation?.result?.restoredAt,
       'worktree restored',
@@ -934,6 +938,183 @@ describe('the investigated worktree (R-C16)', () => {
       'stop',
     ]);
     expect(stopItem(state, cycle)?.message).toContain('It matches its record again.');
+  });
+
+  it('ends a run asked to end while it launched, and compares only once its process has exited (review H1)', async () => {
+    const f = await atQuestionStop();
+    const { state, cycle, backend } = f;
+    let exit!: () => void;
+    const exited = new Promise<void>((resolve) => {
+      exit = resolve;
+    });
+    let ended: { statusCode: number; body: string } | undefined;
+    backend.replyForRequest = async (request: AgentLaunchRequest) => {
+      if (!request.readOnly) return implementationDone;
+      // The operator presses End while the backend is still starting the run.
+      ended = await post(state, `/cycles/${cycle.id}/investigation/end`, {
+        expectedVersion: currentCycle(state, cycle).version,
+      });
+      return { resultText: report(), release: new Promise<void>(() => {}), exitAfterKill: exited };
+    };
+    const started = post(state, `/cycles/${cycle.id}/investigation`, {
+      expectedVersion: currentCycle(state, cycle).version,
+    });
+    await waitFor(() => ended !== undefined, 'End during the launch');
+    expect(ended?.statusCode, ended?.body).toBe(200);
+    expect(currentCycle(state, cycle).investigation?.endRequestedByUserId).toBe(state.userId);
+    // The session the backend started is told to end; until it exits, nothing is written and
+    // the stop waits.
+    await waitFor(() => launchesReadOnly(backend.launches).length === 1, 'the session');
+    await stepDaemons(3);
+    expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
+    expect((await presented(state, cycle)).actions).toEqual(['end-investigation']);
+    writeFileSync(join(f.worktree.path, 'during-launch.txt'), 'still writing');
+    exit();
+    expect((await started).statusCode).toBe(200);
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'investigation ended');
+    expect(currentCycle(state, cycle).investigation?.result).toMatchObject({
+      outcome: 'failed',
+      code: 'worktree-changed',
+      worktreeChange: { parts: ['untracked'], paths: ['during-launch.txt'] },
+    });
+    expect(
+      state.context.storage.execution.runs.liveForWorktree(state.workspaceId, cycle.worktreeId),
+    ).toEqual([]);
+  });
+
+  it('compares a run ended at its deadline only once its process has exited (review M1)', async () => {
+    let now = new Date('2026-10-02T12:00:00Z');
+    const f = await atQuestionStop(() => now);
+    const { state, cycle, backend } = f;
+    let exit!: () => void;
+    f.script({
+      resultText: report(),
+      release: new Promise<void>(() => {}),
+      exitAfterKill: new Promise<void>((resolve) => {
+        exit = resolve;
+      }),
+    });
+    // The clock passes the deadline as the run launches, so its timer fires at once.
+    backend.onLaunch = (request) => {
+      if (request.readOnly) now = new Date(now.getTime() + 31 * 60_000);
+    };
+    await investigate(state, cycle);
+    await waitFor(() => launchesReadOnly(backend.launches).length === 1, 'investigation launch');
+    await stepDaemons(3);
+    expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
+    writeFileSync(join(f.worktree.path, 'after-deadline.txt'), 'still writing');
+    exit();
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'deadline result');
+    expect(currentCycle(state, cycle).investigation?.result).toMatchObject({
+      outcome: 'failed',
+      code: 'worktree-changed',
+      message: expect.stringContaining('time limit'),
+    });
+  });
+
+  it("fails on the agent's own commit, and on a tree it cannot read (review M20, M21)", async () => {
+    const f = await atQuestionStop();
+    const { state, cycle } = f;
+    // A commit leaves the diff against the new HEAD clean: only HEAD shows it.
+    f.backend.onLaunch = (request) => {
+      if (!request.readOnly) return;
+      writeFileSync(join(request.cwd, 'committed.txt'), 'x');
+      git(['add', 'committed.txt'], request.cwd);
+      git(
+        ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'agent'],
+        request.cwd,
+      );
+    };
+    await investigate(state, cycle);
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'investigation result');
+    const change = currentCycle(state, cycle).investigation?.result?.worktreeChange;
+    expect(change?.parts).toEqual(['head']);
+    expect(change?.headAfter).not.toBe(change?.headBefore);
+
+    // A worktree the daemon cannot read when it compares counts as changed.
+    const real = createGitOperations({ gitExecutable: 'git' });
+    let snapshots = 0;
+    const g = await atQuestionStop(undefined, {
+      ...real,
+      snapshotWorktree: async (path) =>
+        snapshots++ === 0
+          ? real.snapshotWorktree(path)
+          : { ok: false, failure: { kind: 'git-failed', message: 'unreadable' } },
+    });
+    await investigate(g.state, g.cycle);
+    await waitFor(
+      () => !!currentCycle(g.state, g.cycle).investigation?.result,
+      'investigation result',
+    );
+    expect(currentCycle(g.state, g.cycle).investigation?.result).toMatchObject({
+      code: 'worktree-changed',
+      worktreeChange: { parts: ['unreadable'] },
+    });
+  });
+
+  it('lets the operator stop a cycle whose worktree changed, and holds a roadmap item as an operator wait (review M2)', async () => {
+    const { state, backend } = await roadmapFixture();
+    const ws = state.workspaceId;
+    let implementations = 0;
+    backend.replyForRequest = (request: AgentLaunchRequest) =>
+      request.readOnly
+        ? { resultText: report() }
+        : request.model === 'design-model'
+          ? designDone
+          : implementations++ === 0
+            ? asked
+            : implementationDone;
+    backend.onLaunch = (request) => {
+      if (request.readOnly) writeFileSync(join(request.cwd, 'planted.txt'), 'x');
+    };
+    const saved = await saveRoadmapRequest(state, {
+      ...roadmapInput(state, [state.workItemId]),
+      scheduling: {
+        mode: 'parallel',
+        maxInFlight: 1,
+        maxPerRepository: 1,
+        maxIntegrationRefreshes: 3,
+      },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    await roadmapControl(state, 'start');
+    const cycleOf = () => {
+      const attempt = storedRoadmap(state).attempts[0];
+      return attempt && state.context.storage.execution.cycles.find(ws, attempt.cycleId);
+    };
+    await waitFor(
+      () => cycleOf()?.attention?.code === 'implementation-open-questions',
+      'implementation question',
+    );
+    const cycle = cycleOf()!;
+    await investigate(state, cycle);
+    await waitFor(
+      () => currentCycle(state, cycle).investigation?.result?.code === 'worktree-changed',
+      'worktree change',
+    );
+    // The scheduler records the stop's operator wait, not work in progress.
+    await state.context.services.roadmapService.tick();
+    expect(storedRoadmap(state).entryWaits?.[entryIds[0]!]).toMatchObject({
+      code: 'cycle-attention',
+      refs: { cycleId: cycle.id },
+    });
+    // Resuming the item does not move the held stop.
+    const resumed = await post(state, `/roadmaps/${roadmapId}/control`, {
+      action: 'resume',
+      entryId: entryIds[0],
+      expectedVersion: storedRoadmap(state).version,
+    });
+    expect(resumed.statusCode, resumed.body).toBe(200);
+    await stepDaemons(2);
+    expect(currentCycle(state, cycle)).toMatchObject({ status: 'needs-attention' });
+    expect(currentCycle(state, cycle).investigation?.result?.acknowledgedAt).toBeUndefined();
+    // Stopping the cycle ends it; it never builds on the changed tree.
+    const stopped = await post(state, `/cycles/${cycle.id}/control`, {
+      action: 'stop',
+      expectedVersion: currentCycle(state, cycle).version,
+    });
+    expect(stopped.statusCode, stopped.body).toBe(200);
+    expect(currentCycle(state, cycle).status).toBe('stopped');
   });
 
   it('settles a record without a worktree, started before the check, as before', async () => {

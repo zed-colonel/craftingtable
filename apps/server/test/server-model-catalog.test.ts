@@ -1,5 +1,13 @@
-import { startAgentRunResponseSchema } from '@craftingtable/contracts';
-import { afterEach, expect, it } from 'vitest';
+import type { AgentBackend } from '@craftingtable/agents';
+import {
+  executionStatusResponseSchema,
+  startAgentRunResponseSchema,
+} from '@craftingtable/contracts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  MODEL_CATALOG_REFRESH_MS,
+  ModelCatalogService,
+} from '../src/services/model-catalog-service.js';
 import {
   cleanupExecutionFixtures,
   currentCycle,
@@ -83,4 +91,115 @@ it('refuses a manual run whose model is another spelling of a catalog id, and la
       `${model} ended`,
     );
   }
+});
+
+it('reads the catalog at daemon start, and offers a model added to it after "Refresh models" (R-G15)', async () => {
+  const { state, backend } = await cycleFixture([]);
+  // The daemon's start read it once, without waiting for it.
+  await waitFor(() => backend.modelLooks >= 1, 'catalog read at start');
+  const status = async () => {
+    const response = await state.context.app.inject({
+      method: 'GET',
+      url: '/api/execution-status',
+      headers: { cookie: state.cookie },
+    });
+    return executionStatusResponseSchema.parse(response.json());
+  };
+  expect((await status()).backends[0]?.models.map((model) => model.id)).toEqual(['scripted-model']);
+  // A model added to the CLI's catalog, with no code or configuration change.
+  backend.models = [...CATALOG, ...backend.models];
+  const looks = backend.modelLooks;
+  const refreshed = await state.context.app.inject({
+    method: 'POST',
+    url: '/api/execution-status/refresh-models',
+    headers: mutationHeaders(state),
+    payload: {},
+  });
+  expect(refreshed.statusCode, refreshed.body).toBe(200);
+  expect(backend.modelLooks).toBe(looks + 1);
+  const answered = executionStatusResponseSchema.parse(refreshed.json());
+  expect(answered.backends[0]?.models).toContainEqual(CATALOG[0]);
+  expect(answered.backends[0]?.catalog).toEqual({ source: 'catalog' });
+  expect((await status()).backends[0]?.models).toContainEqual(CATALOG[0]);
+  // A command like any other: the CSRF token is required.
+  const forged = await state.context.app.inject({
+    method: 'POST',
+    url: '/api/execution-status/refresh-models',
+    headers: { cookie: state.cookie, 'content-type': 'application/json' },
+    payload: {},
+  });
+  expect(forged.statusCode).toBe(403);
+});
+
+describe('the model catalog timer (R-G15)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('reads every catalog at start and about hourly, until stopped', async () => {
+    vi.useFakeTimers();
+    const looks: string[] = [];
+    const backend = (kind: 'claude-code' | 'codex') =>
+      ({
+        kind,
+        listModels: () => {
+          looks.push(kind);
+          return Promise.resolve({ models: [], status: { source: 'catalog' as const } });
+        },
+      }) as unknown as AgentBackend;
+    const service = new ModelCatalogService(
+      new Map([
+        ['claude-code', backend('claude-code')],
+        ['codex', backend('codex')],
+      ]),
+    );
+    service.start();
+    expect(looks).toEqual(['claude-code', 'codex']);
+    await vi.advanceTimersByTimeAsync(MODEL_CATALOG_REFRESH_MS - 1);
+    expect(looks).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(looks).toHaveLength(4);
+    expect(MODEL_CATALOG_REFRESH_MS).toBe(60 * 60 * 1000);
+    service.stop();
+    await vi.advanceTimersByTimeAsync(3 * MODEL_CATALOG_REFRESH_MS);
+    expect(looks).toHaveLength(4);
+  });
+
+  it('logs a catalog that was not read by its code, and goes on with the others', async () => {
+    const warnings: { message: string; detail?: Readonly<Record<string, unknown>> }[] = [];
+    const service = new ModelCatalogService(
+      new Map([
+        [
+          'codex',
+          {
+            kind: 'codex',
+            listModels: () =>
+              Promise.resolve({
+                models: [],
+                status: { source: 'fallback' as const, issue: 'catalog-request-failed' as const },
+                detail: 'Codex app-server timed out: model/list',
+              }),
+          } as unknown as AgentBackend,
+        ],
+        [
+          'claude-code',
+          {
+            kind: 'claude-code',
+            listModels: () => Promise.reject(new Error('unexpected')),
+          } as unknown as AgentBackend,
+        ],
+      ]),
+      { warn: (message, detail) => warnings.push({ message, ...(detail ? { detail } : {}) }) },
+    );
+    await service.refresh();
+    expect(warnings.map((warning) => warning.detail)).toEqual([
+      {
+        backend: 'codex',
+        issue: 'catalog-request-failed',
+        source: 'fallback',
+        detail: 'Codex app-server timed out: model/list',
+      },
+      { backend: 'claude-code', detail: 'unexpected' },
+    ]);
+  });
 });

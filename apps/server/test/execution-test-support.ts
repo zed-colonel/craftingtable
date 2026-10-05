@@ -226,8 +226,12 @@ export class ScriptedBackend implements AgentBackend {
     };
   }
 
+  /** How many times the daemon read this backend's catalog (R-G15). */
+  modelLooks = 0;
+
   /** Each look reads `models` as the test last set it. */
   listModels() {
+    this.modelLooks++;
     const { models, catalog } = this.describe();
     return Promise.resolve({ models, status: catalog });
   }

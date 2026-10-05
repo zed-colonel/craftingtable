@@ -3105,7 +3105,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G15
 
-**Model pickers from each CLI's own catalog** · Phase P2 (after the review pass, before R-D5) · Effort S-M · Status: partial (discovery; refresh, picker and profiles to follow)
+**Model pickers from each CLI's own catalog** · Phase P2 (after the review pass, before R-D5) · Effort S-M · Status: partial (discovery 5d2686a, refresh; picker and profiles to follow)
 
 - **Added 2026-10-02** (operator decision) from [LIVE-34](findings/LIVE-live-run-2026-09-25.md#live-34-a-codex-run-failed-because-the-model-pickers-other-field-sent-a-models-display-name-instead-of-its-id).
   - The model lists are written by hand (`packages/agents/src/{claude-code,codex}/models.ts`, or `CRAFTINGTABLE_{CLAUDE,CODEX}_MODELS`), so each release needs a code change.
@@ -3129,6 +3129,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **Codex** (`codex/catalog.ts`): a short-lived app-server with the isolation flags (verified on 0.160.0 to start no MCP server for this), `model/list` with `includeHidden`, up to five pages. The thread's model is the entry's `model` slug; `displayName` and `hidden` are required. Any other shape is `catalog-format-unsupported`; an error, exit or timeout is `catalog-request-failed`.
   - **Caught before launch.** A run whose model `modelSpelling` finds `misnamed` ends before anything starts, with the new exit reason `agent-model-misnamed` and a message naming the id; a cycle stops with the new operator-owned code `agent-model-misnamed` ("Model not named by its id"). Tests: LIVE-34's case (`GPT-6.1-Sol` against a catalog listing `gpt-6.1-sol`) stops a cycle and refuses a manual run with nothing launched, while a hidden id and an unlisted id are sent as typed. Catalog tests read only `fixtures/model-catalogs/` and a fake app-server.
   - The execution status carries each backend's models with section and hidden, and its catalog status, runtime-validated.
+- **Progress (2026-10-05), refresh:** `ModelCatalogService` reads every backend's catalog when a daemon starts (`createDaemon`, without waiting), then every hour (`MODEL_CATALOG_REFRESH_MS`, an unreferenced timer stopped by the daemon's close), and on `POST /api/execution-status/refresh-models` (session, CSRF), which answers with the new execution status. A replay, built from the services alone, never reads a catalog. A look that leaves an issue is logged with its code. Tests: a model added to the test backend's catalog is in the status after the refresh command, with nothing else changed; the timer reads at start and on the hour until stopped; a forged refresh is refused. The e2e daemon reads only the fixture catalogs (its own `CLAUDE_CONFIG_DIR`; the fake Codex answers `model/list`), and the restart and start tests run with no host agent CLI, since a daemon now asks its CLIs at start. `docs/operations.md` describes the catalogs.
 
 
 ### R-H1

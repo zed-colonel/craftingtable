@@ -268,9 +268,19 @@ passed. `CRAFTINGTABLE_AGENT_ENV_ALLOW=NAME,OTHER` lets further names through. P
 reach `git` and `claude` and/or `codex` (or set the explicit executable variables), and
 HOME must be the account signed in to the selected agent. Run `codex login` as that account before
 using Codex. Tool status reports executable availability, not authentication health.
-`CRAFTINGTABLE_CODEX_EXECUTABLE` overrides discovery and `CRAFTINGTABLE_CODEX_MODELS`
-replaces its model picker list. Codex app-server behavior was verified with CLI 0.153.4. The adapter communicates
+`CRAFTINGTABLE_CODEX_EXECUTABLE` overrides discovery. Codex app-server behavior was verified with CLI 0.153.4. The adapter communicates
 over local stdio; do not start a separate app-server listener for CraftingTable.
+
+Model pickers offer each CLI's own catalog (R-G15), read at start, about hourly, and on
+**Refresh models** (Repositories → Tools on the workstation). Claude Code's is the account's
+`<CLAUDE_CONFIG_DIR or ~/.claude>/cache/model-catalog/*-cc.json` (format version 2 only;
+entries needing a newer CLI than `claude --version` are left out), offered after the `opus`,
+`sonnet` and `haiku` aliases. Codex's is its app-server's `model/list` (verified with CLI
+0.160.0). Until a catalog is read, or when it cannot be, the release's own list is offered and
+the tool status names the reason by code. `CRAFTINGTABLE_CLAUDE_MODELS` and
+`CRAFTINGTABLE_CODEX_MODELS` (`id=Label,id2`) replace a backend's catalog; then nothing is read.
+A run whose model is a display name, or another spelling of a catalog id, is not started: a
+cycle stops as `agent-model-misnamed`, naming the id.
 
 Each run's agent process gets its own private temporary directory, `<12 hex characters>/`
 beneath the agents' temporary root (LIVE-31): `<data>/t` by default, or

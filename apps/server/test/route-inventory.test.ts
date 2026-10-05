@@ -76,6 +76,7 @@ const EXPECTED_ROUTES = [
   'GET /api/auth/session',
   'GET /api/auth/sessions',
   'GET /api/execution-status',
+  'POST /api/execution-status/refresh-models',
   'GET /api/health',
   'GET /api/workspaces',
   'GET /api/workspaces/:workspaceId/audit',

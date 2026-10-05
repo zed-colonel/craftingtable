@@ -96,6 +96,9 @@ export const executionStatusResponseSchema = z.strictObject({
     .max(10),
 });
 
+/** "Refresh models" (R-G15): no input; the answer is the execution status. */
+export const refreshModelsRequestSchema = z.strictObject({});
+
 /* -------------------------------------------------------------------------- */
 /* Source repositories                                                         */
 /* -------------------------------------------------------------------------- */

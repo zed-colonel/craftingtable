@@ -2,10 +2,12 @@
 /** Deterministic app-server peer; one thread and process across follow-up turns. */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { stagedFinalizationReview } from './fake-finalization.mjs';
+
+const MODEL_LIST = new URL('../fixtures/model-catalogs/codex-model-list.json', import.meta.url);
 
 let threadId = randomUUID();
 let active;
@@ -127,6 +129,10 @@ lines.on('line', (line) => {
       break;
     case 'mcpServerStatus/list':
       reply({ data: [] });
+      break;
+    // The daemon's model catalog (R-G15): the fixture, so the picker shows Codex's own names.
+    case 'model/list':
+      reply(JSON.parse(readFileSync(MODEL_LIST, 'utf8')));
       break;
     case 'thread/start':
     case 'thread/resume':

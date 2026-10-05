@@ -16,6 +16,9 @@ afterEach(async () => {
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
+/** No agent CLI of the host's: a daemon reads each backend's model catalog at start (R-G15). */
+const quiet = { logger: false, overrides: { agentBackends: new Map() } } as const;
+
 const directory = (prefix: string): string => {
   const path = mkdtempSync(join(testDataRoot(), prefix));
   directories.push(path);
@@ -34,13 +37,13 @@ const daemonConfig = (agentRoot: string) =>
 
 it("refuses a second daemon on another daemon's agents' temporary root before its start sweeps it (R-G5)", async () => {
   const root = directory('cta-');
-  const first = await startDaemon(daemonConfig(root), { logger: false });
+  const first = await startDaemon(daemonConfig(root), quiet);
   started.push(first);
   // The first daemon's live run directory: the second's start sweep would remove it.
   const live = join(root, '0123456789ab');
   mkdirSync(live);
   const second = daemonConfig(root);
-  const refused: StartedDaemon | unknown = await startDaemon(second, { logger: false }).catch(
+  const refused: StartedDaemon | unknown = await startDaemon(second, quiet).catch(
     (error: unknown) => error,
   );
   // Had it started, its sweep's removals would run in the background: wait for them before
@@ -57,14 +60,14 @@ it("refuses a second daemon on another daemon's agents' temporary root before it
   expect(existsSync(second.databasePath)).toBe(false);
   const retried = await startDaemon(
     { ...second, execution: { ...second.execution, agentTemporaryRoot: directory('cta-') } },
-    { logger: false },
+    quiet,
   );
   started.push(retried);
 });
 
 it("starts two daemons whose agents' temporary roots differ (R-G5)", async () => {
-  started.push(await startDaemon(daemonConfig(directory('cta-')), { logger: false }));
-  started.push(await startDaemon(daemonConfig(directory('cta-')), { logger: false }));
+  started.push(await startDaemon(daemonConfig(directory('cta-')), quiet));
+  started.push(await startDaemon(daemonConfig(directory('cta-')), quiet));
   for (const daemon of started) {
     const health = await daemon.runtime.app.inject({ method: 'GET', url: '/api/health' });
     expect(health.statusCode).toBe(200);
@@ -76,7 +79,7 @@ it('releases both locks when the runtime fails to start (R-G5)', async () => {
   // A database path the storage cannot open: the start fails after taking its locks.
   mkdirSync(config.databasePath, { recursive: true });
   // Refused by the storage, after the locks were taken: not by a lock.
-  const failed = await startDaemon(config, { logger: false }).catch((error: unknown) => error);
+  const failed = await startDaemon(config, quiet).catch((error: unknown) => error);
   expect(failed).toBeInstanceOf(Error);
   expect(failed).not.toBeInstanceOf(InstanceLockedError);
   const lock = await acquireDaemonLocks(config);
@@ -88,7 +91,7 @@ it("names the agents' temporary root when it cannot be created (R-G5)", async ()
   // A link to a directory that does not exist yet: the configuration accepts it.
   symlinkSync(join(base, 'not-yet'), join(base, 'root'));
   const config = daemonConfig(join(base, 'root'));
-  await expect(startDaemon(config, { logger: false })).rejects.toThrow(
+  await expect(startDaemon(config, quiet)).rejects.toThrow(
     `CRAFTINGTABLE_AGENT_TMP_ROOT ${join(base, 'root')} could not be created: ENOENT`,
   );
   expect(existsSync(config.databasePath)).toBe(false);

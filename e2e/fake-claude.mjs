@@ -13,6 +13,12 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { stagedFinalizationReview } from './fake-finalization.mjs';
 
+// The daemon reads the CLI's version with its model catalog (R-G15).
+if (process.argv[2] === '--version') {
+  process.stdout.write('2.1.288 (Claude Code)\n');
+  process.exit(0);
+}
+
 const cwd = process.cwd();
 let turns = 0;
 let reviewing = false;

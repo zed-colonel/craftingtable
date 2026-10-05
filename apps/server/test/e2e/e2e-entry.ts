@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRuntime } from '../../src/composition.js';
 import { configFromEnv } from '../../src/config.js';
@@ -23,6 +23,15 @@ sweepEndedRuns(root);
 const directory = mkdtempSync(join(root, runDirectoryPrefix(RUN_PREFIXES.e2e)));
 // Agents' own short temporary directories (LIVE-31): the data directory's path is too long.
 const agents = mkdtempSync('/tmp/cte-');
+// Claude Code's account configuration, holding only the fixture model catalog (R-G15): the
+// daemon reads it at start, and never the operator's own.
+const claudeConfig = join(directory, 'claude-config');
+mkdirSync(join(claudeConfig, 'cache', 'model-catalog'), { recursive: true });
+copyFileSync(
+  new URL('../../../../fixtures/model-catalogs/claude-cc-v2.json', import.meta.url),
+  join(claudeConfig, 'cache', 'model-catalog', 'e2e-cc.json'),
+);
+process.env.CLAUDE_CONFIG_DIR = claudeConfig;
 const config = configFromEnv({
   ...e2eEnvironment(directory, process.env),
   CRAFTINGTABLE_AGENT_TMP_ROOT: agents,

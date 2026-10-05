@@ -21,6 +21,8 @@ import {
 } from './test-support.js';
 
 const runtimes: CraftingTableRuntime[] = [];
+/** No agent CLI of the host's: a daemon reads each backend's model catalog at start (R-G15). */
+const NO_AGENTS = new Map();
 const directories: string[] = [];
 
 afterEach(async () => {
@@ -40,7 +42,10 @@ describe('daemon restart reconstruction', () => {
     });
     const passwordHasher = new FastTestPasswordHasher();
 
-    const first = await createRuntime(config, { logger: false, overrides: { passwordHasher } });
+    const first = await createRuntime(config, {
+      logger: false,
+      overrides: { passwordHasher, agentBackends: NO_AGENTS },
+    });
     runtimes.push(first);
     await first.services.bootstrapService.bootstrap(TEST_USERNAME, TEST_PASSWORD);
     const login = await first.app.inject({
@@ -121,7 +126,10 @@ describe('daemon restart reconstruction', () => {
     runtimes.splice(runtimes.indexOf(first), 1);
 
     // Real close and reopen of the same database file.
-    const second = await createRuntime(config, { logger: false, overrides: { passwordHasher } });
+    const second = await createRuntime(config, {
+      logger: false,
+      overrides: { passwordHasher, agentBackends: NO_AGENTS },
+    });
     runtimes.push(second);
     expect(second.storage.migrationStatus.currentVersion).toBe(
       second.storage.migrationStatus.supportedVersion,
@@ -172,7 +180,7 @@ describe('daemon restart reconstruction', () => {
     const passwordHasher = new FastTestPasswordHasher();
     const first = await createRuntime(config, {
       logger: false,
-      overrides: { passwordHasher },
+      overrides: { passwordHasher, agentBackends: NO_AGENTS },
     });
     runtimes.push(first);
     const bootstrap = await first.services.bootstrapService.bootstrap(TEST_USERNAME, TEST_PASSWORD);
@@ -193,7 +201,7 @@ describe('daemon restart reconstruction', () => {
 
     const second = await createRuntime(config, {
       logger: false,
-      overrides: { passwordHasher },
+      overrides: { passwordHasher, agentBackends: NO_AGENTS },
     });
     runtimes.push(second);
     expect(second.storage.migrationStatus.currentVersion).toBe(

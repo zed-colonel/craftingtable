@@ -8,6 +8,7 @@ import {
   mergeWorktreeResponseSchema,
   recordScopeReceiptRequestSchema,
   recordScopeReceiptResponseSchema,
+  refreshModelsRequestSchema,
   registerSourceRepositoryRequestSchema,
   registerSourceRepositoryResponseSchema,
   removeWorktreeRequestSchema,
@@ -31,6 +32,7 @@ import type { ServerConfig } from '../config.js';
 import type { AgentRunService } from '../services/agent-run-service.js';
 import type { AuthService } from '../services/auth-service.js';
 import type { ExecutionService, ExecutionStatus } from '../services/execution-service.js';
+import type { ModelCatalogService } from '../services/model-catalog-service.js';
 import { registerBranchRoutes } from './branches.js';
 import { noStore, sendApiError } from './http.js';
 import { authenticate, authorizeMutation } from './request-security.js';
@@ -51,6 +53,7 @@ export function registerExecutionRoutes(
   executionService: ExecutionService,
   agentRunService: AgentRunService,
   status: () => ExecutionStatus,
+  modelCatalogs: ModelCatalogService,
   config: ServerConfig,
 ): void {
   registerBranchRoutes(app, authService, executionService.branches, config);
@@ -117,6 +120,18 @@ export function registerExecutionRoutes(
     authenticate(request, authService);
     return noStore(reply).send(executionStatusResponseSchema.parse(status()));
   });
+  // "Refresh models" (R-G15): reads each CLI's catalog now and answers with the new status.
+  app.post(
+    '/api/execution-status/refresh-models',
+    { config: { access: 'session' } },
+    async (request, reply) => {
+      authorizeMutation(request, authService, config);
+      if (!refreshModelsRequestSchema.safeParse(request.body).success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid model refresh request');
+      await modelCatalogs.refresh();
+      return noStore(reply).send(executionStatusResponseSchema.parse(status()));
+    },
+  );
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/run-profiles',

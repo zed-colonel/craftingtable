@@ -37,6 +37,7 @@ import { ExecutionService, type ExecutionStatus } from './services/execution-ser
 import { FinalizationService } from './services/finalization-service.js';
 import { HostSchedulingService } from './services/host-scheduling-service.js';
 import { MapAmendmentService } from './services/map-amendment-service.js';
+import { ModelCatalogService } from './services/model-catalog-service.js';
 import { ControllerPasses, OperatorPresence } from './services/attention-gates.js';
 import { AttentionProjector } from './services/attention-projector.js';
 import { AttentionService } from './services/attention-service.js';
@@ -97,6 +98,8 @@ export interface ServiceSet {
   readonly workCycleService: WorkCycleService;
   readonly runEventStreamService: RunEventStreamService;
   readonly executionStatus: () => ExecutionStatus;
+  /** Each backend's model catalog, read again at start, about hourly and on request (R-G15). */
+  readonly modelCatalogService: ModelCatalogService;
   readonly daemonDrain: DaemonDrain;
 }
 
@@ -418,6 +421,7 @@ export async function createServices(
       overrides.streamHooks,
     ),
     executionStatus,
+    modelCatalogService: new ModelCatalogService(backends, overrides.runLog),
     daemonDrain: new DaemonDrain(
       storage,
       agentRunService,
@@ -485,11 +489,15 @@ export async function createDaemon(
       roadmapService: services.roadmapService,
       runEventStreamService: services.runEventStreamService,
       executionStatus: services.executionStatus,
+      modelCatalogService: services.modelCatalogService,
       daemonDrain: services.daemonDrain,
     },
     config,
     options.server,
   );
+  // A daemon reads its CLIs' model catalogs now and about hourly (R-G15); a replay, built from
+  // the services alone, keeps the lists it starts with.
+  services.modelCatalogService.start();
   let closed = false;
   return {
     app,
@@ -500,6 +508,7 @@ export async function createDaemon(
         return;
       }
       closed = true;
+      services.modelCatalogService.stop();
       // Every step runs even when one before it fails, so a server that fails to close leaves
       // no check running and no storage open; the first failure is the one the close throws.
       const failures: unknown[] = [];

@@ -33,6 +33,7 @@ import type { AgentRunService } from './services/agent-run-service.js';
 import type { AuthService } from './services/auth-service.js';
 import type { CrossProjectService } from './services/cross-project-service.js';
 import type { DaemonDrain } from './services/daemon-drain.js';
+import type { ModelCatalogService } from './services/model-catalog-service.js';
 import {
   AuthenticationError,
   ExecutionRequestError,
@@ -84,6 +85,7 @@ export interface ServerDependencies {
   readonly workCycleService: WorkCycleService;
   readonly runEventStreamService: RunEventStreamService;
   readonly executionStatus: () => ExecutionStatus;
+  readonly modelCatalogService: ModelCatalogService;
   readonly daemonDrain: DaemonDrain;
 }
 
@@ -197,6 +199,7 @@ export function buildServer(
     deps.executionService,
     deps.agentRunService,
     deps.executionStatus,
+    deps.modelCatalogService,
     config,
   );
   registerAgentRunRoutes(

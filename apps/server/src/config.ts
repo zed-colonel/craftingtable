@@ -218,6 +218,14 @@ function overlapCompared(left: ComparedPath, right: ComparedPath): boolean {
   return equalOrWithinCompared(left, right) || equalOrWithinCompared(right, left);
 }
 
+/**
+ * Whether two directories are the same, or one holds the other, as written or through the links
+ * of what exists (a dangling link followed). For the test data root (R-I2).
+ */
+export function directoriesOverlap(left: string, right: string): boolean {
+  return overlapCompared(comparedPath(left), comparedPath(right));
+}
+
 /** The account's home in the user database, whatever HOME says, if it has an entry. */
 function accountHome(): string | undefined {
   try {

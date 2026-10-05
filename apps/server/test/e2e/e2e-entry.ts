@@ -5,13 +5,22 @@ import { configFromEnv } from '../../src/config.js';
 import { e2eEnvironment } from './e2e-environment.js';
 import { openDaemonStorage } from '../../src/persisted-records.js';
 import { seedTestDaemonStorage } from './test-daemon-storage.js';
+import {
+  RUN_PREFIXES,
+  runDirectoryPrefix,
+  sweepEndedRuns,
+} from '../../../../packages/storage/test/test-run-directory.js';
 import { chooseTestDataRoot } from './test-data-root.js';
 
 const E2E_USERNAME = 'e2e-admin';
 const E2E_PASSWORD = 'correct horse battery staple';
 // The run's test data root (R-I2): a disk directory a confined check can see, beside the live
-// data directory, or the runtime tmpfs when none is named.
-const directory = mkdtempSync(join(chooseTestDataRoot(), 'craftingtable-e2e-'));
+// data directory, or the runtime tmpfs when none is named. The daemon's directory there names
+// its PID namespace and process, so a later run removes it if this one is killed before it can
+// (R-I2 review); that sweep runs first.
+const root = chooseTestDataRoot();
+sweepEndedRuns(root);
+const directory = mkdtempSync(join(root, runDirectoryPrefix(RUN_PREFIXES.e2e)));
 // Agents' own short temporary directories (LIVE-31): the data directory's path is too long.
 const agents = mkdtempSync('/tmp/cte-');
 const config = configFromEnv({

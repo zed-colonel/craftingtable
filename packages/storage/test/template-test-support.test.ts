@@ -21,7 +21,7 @@ import {
   readTemplate,
   templateLedger,
 } from './template-test-support.js';
-import { pidNamespace, sweepEndedRuns } from './template-test-support-setup.js';
+import { pidNamespace, sweepEndedRuns } from './test-run-directory.js';
 import { temporaryStorage, testDataRoot } from './test-support.js';
 
 const scratch: string[] = [];
@@ -93,7 +93,7 @@ it('builds a new template when a migration is added or edited, and reuses one fo
   );
 });
 
-it("removes the template directories of ended runs in its PID namespace, never a running one's or another namespace's (TS-M13)", () => {
+it("removes the run directories of ended runs in its PID namespace, never a running one's or another namespace's (TS-M13, R-I2)", () => {
   const root = scratchDirectory(testDataRoot());
   const names = (paths: string[]) => paths.map((path) => path.slice(root.length + 1)).toSorted();
   // Above the kernel's largest process ID (2^22), so no process has it.
@@ -103,11 +103,20 @@ it("removes the template directories of ended runs in its PID namespace, never a
   // Its process IDs are not this namespace's, so it cannot be told ended.
   const sandboxed = join(root, `craftingtable-template-test-222-${gone}-JkL012`);
   const other = join(root, 'craftingtable-server-test-GhI789');
-  for (const directory of [ended, running, sandboxed, other]) mkdirSync(directory);
+  // A vitest run's directory and an e2e daemon's, of ended and running processes (R-I2).
+  const endedRun = join(root, `ct-run-111-${gone}-MnO345`);
+  const endedE2e = join(root, `craftingtable-e2e-111-${gone}-PqR678`);
+  const runningE2e = join(root, `craftingtable-e2e-111-${process.pid}-StU901`);
+  // An e2e directory named before R-I2's review: no namespace or process to read.
+  const unnamed = join(root, 'craftingtable-e2e-VwX234');
+  const all = [ended, running, sandboxed, other, endedRun, endedE2e, runningE2e, unnamed];
+  for (const directory of all) mkdirSync(directory);
   sweepEndedRuns(root, undefined);
-  expect(readdirSync(root).toSorted()).toEqual(names([ended, running, sandboxed, other]));
+  expect(readdirSync(root).toSorted()).toEqual(names(all));
   sweepEndedRuns(root, '111');
-  expect(readdirSync(root).toSorted()).toEqual(names([running, sandboxed, other]));
+  expect(readdirSync(root).toSorted()).toEqual(
+    names([running, sandboxed, other, runningE2e, unnamed]),
+  );
 });
 
 it('publishes a template without replacing one, and by rename where hard links are refused (TS-M13)', () => {
@@ -132,10 +141,11 @@ it('publishes a template without replacing one, and by rename where hard links a
 });
 
 it.skipIf(pidNamespace() === undefined)(
-  "names this run's template directory by its PID namespace and process (TS-M13)",
+  "names this run's directory, which holds its template, by its PID namespace and process (TS-M13, R-I2)",
   () => {
-    expect(inject('testTemplateDirectory').split('/').at(-1)).toMatch(
-      new RegExp(`^craftingtable-template-test-${pidNamespace()}-\\d+-`),
+    expect(inject('testTemplateDirectory')).toBe(join(testDataRoot(), 'template'));
+    expect(testDataRoot().split('/').at(-1)).toMatch(
+      new RegExp(`^ct-run-${pidNamespace()}-\\d+-`),
     );
   },
 );

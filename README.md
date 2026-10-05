@@ -120,6 +120,7 @@ variables an operator usually sets:
 | `CRAFTINGTABLE_CLAUDE_EXECUTABLE`, `CRAFTINGTABLE_CODEX_EXECUTABLE`, `CRAFTINGTABLE_GIT_EXECUTABLE` | found on PATH (agents also in `~/.local/bin`) | Absolute path overrides. |
 | `CRAFTINGTABLE_DEVELOPMENT_CAPACITY`, `CRAFTINGTABLE_VERIFICATION_CAPACITY` | `2`, `1` | Workstation slots until saved under **Settings → Execution capacity**. |
 | `CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS` | `180` | How long a stop waits for live agent turns before interrupting them. |
+| `CRAFTINGTABLE_TEST_DATA_ROOT` | unset (`$XDG_RUNTIME_DIR`) | Tests only: where test daemons keep their data. A disk directory of its own, beside the data directory, never inside it; read from the test process's environment, not the daemon's unit. |
 
 Daemon settings, with bounds, are in [`apps/server/src/config.ts`](apps/server/src/config.ts);
 deploy settings in [`scripts/deploy-daemon.mjs`](scripts/deploy-daemon.mjs); local CI and Kata settings in

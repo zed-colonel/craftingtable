@@ -1,7 +1,7 @@
-import { accessSync, constants, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { dataDirectory } from '../../src/config.js';
+import { isAbsolute, resolve } from 'node:path';
+import { dataDirectory, directoriesOverlap } from '../../src/config.js';
 
 /** Names the directory test daemons keep their data in (R-I2), set outside the repository. */
 export const TEST_DATA_ROOT_VARIABLE = 'CRAFTINGTABLE_TEST_DATA_ROOT';
@@ -23,8 +23,11 @@ export const TEST_DATA_ROOT_VARIABLE = 'CRAFTINGTABLE_TEST_DATA_ROOT';
  * repositories, scratch files), and the production pragmas are unchanged. Test daemons take a
  * small free-space reserve (`test-daemon-storage.ts`).
  *
- * Decided once per run, never per daemon: `vitest.config.ts` provides it to every test
- * (`testDataRoot()` in the test supports), and the e2e daemon decides it once at start.
+ * Decided once per run, never per daemon: `vitest.config.ts` provides it, the node project's
+ * global setup takes the run's own directory beneath it for every test daemon
+ * (`testDataRoot()` in the test supports), and the e2e daemon decides it once at start. Each
+ * names its run's process, so a later run sweeps what a killed one left
+ * (`packages/storage/test/test-run-directory.ts`).
  */
 export function chooseTestDataRoot(
   env: NodeJS.ProcessEnv = process.env,
@@ -37,11 +40,11 @@ export function chooseTestDataRoot(
         `${TEST_DATA_ROOT_VARIABLE} (${named}) is not an absolute directory this user can write.`,
       );
     const daemon = dataDirectory(env);
-    if (overlaps(resolvedPath(named), resolvedPath(daemon)))
+    if (directoriesOverlap(resolve(named), resolve(daemon)))
       throw new Error(
         `${TEST_DATA_ROOT_VARIABLE} (${named}) overlaps the daemon data directory ${daemon}: name a directory of its own beside it.`,
       );
-    return named;
+    return resolve(named);
   }
   const runtime = env.XDG_RUNTIME_DIR;
   let root = tmpdir();
@@ -66,23 +69,4 @@ function usableDirectory(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-/** `path` with the links of its deepest existing part resolved. */
-function resolvedPath(path: string): string {
-  const absolute = resolve(path);
-  try {
-    return realpathSync(absolute);
-  } catch {
-    const parent = dirname(absolute);
-    return parent === absolute ? absolute : join(resolvedPath(parent), basename(absolute));
-  }
-}
-
-function overlaps(left: string, right: string): boolean {
-  const within = (child: string, parent: string) => {
-    const path = relative(parent, child);
-    return path === '' || (!path.startsWith('..') && !isAbsolute(path));
-  };
-  return within(left, right) || within(right, left);
 }

@@ -13,7 +13,7 @@ describe('instance lock', () => {
   const held: InstanceLock[] = [];
   const directories: string[] = [];
   const dataDir = (): string => {
-    const path = mkdtempSync(join(testDataRoot(), 'craftingtable-lock-'));
+    const path = mkdtempSync(join(testDataRoot(), 'ctl-'));
     directories.push(path);
     return path;
   };
@@ -66,7 +66,7 @@ describe("the agents' temporary root lock (R-G5)", () => {
     return path;
   };
   const daemon = (agentRoot?: string) => ({
-    dataDir: directory('craftingtable-lock-'),
+    dataDir: directory('ctl-'),
     execution: { agentTemporaryRoot: agentRoot ?? '' },
   });
   const withDefaultRoot = () => {

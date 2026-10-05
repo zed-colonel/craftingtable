@@ -153,12 +153,11 @@ it("sweeps only run directories from the agents' temporary root at a start, and 
 
 it("keeps the root's own lock socket without naming it in the start's warning (R-G5)", async () => {
   // Where there is no abstract socket namespace, the root's lock is a socket file in the root.
-  const root = mkdtempSync(join(testDataRoot(), 'craftingtable-agent-root-'));
+  // Short names: a socket's path holds 107 bytes.
+  const root = mkdtempSync(join(testDataRoot(), 'cta-'));
+  const lockData = mkdtempSync(join(testDataRoot(), 'ctl-'));
   const lock = await acquireDaemonLocks(
-    {
-      dataDir: mkdtempSync(join(testDataRoot(), 'craftingtable-lock-data-')),
-      execution: { agentTemporaryRoot: root },
-    },
+    { dataDir: lockData, execution: { agentTemporaryRoot: root } },
     'darwin',
   );
   const socket = join(root, AGENTS_ROOT_LOCK_FILE);
@@ -193,6 +192,7 @@ it("keeps the root's own lock socket without naming it in the start's warning (R
   } finally {
     await other.cleanup();
     rmSync(root, { recursive: true, force: true });
+    rmSync(lockData, { recursive: true, force: true });
   }
 });
 

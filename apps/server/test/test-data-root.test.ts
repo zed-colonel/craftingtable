@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { confinedCheckArguments } from '@craftingtable/agents';
 import { afterEach, expect, inject, it } from 'vitest';
 import {
@@ -41,10 +41,19 @@ it('chooses CRAFTINGTABLE_TEST_DATA_ROOT over the runtime tmpfs, and refuses one
   const warnings: string[] = [];
   const choose = (env: NodeJS.ProcessEnv) => chooseTestDataRoot(env, (m) => warnings.push(m));
   expect(choose({ CRAFTINGTABLE_TEST_DATA_ROOT: chosen, XDG_RUNTIME_DIR: runtime })).toBe(chosen);
+  // Written with a trailing slash, it is the same root (R-I2 review L3).
+  expect(choose({ CRAFTINGTABLE_TEST_DATA_ROOT: `${chosen}/` })).toBe(chosen);
   expect(warnings).toEqual([]);
   // The operator named it, so a root it cannot use stops the run rather than moving elsewhere.
   writeFileSync(join(chosen, 'file'), '');
-  for (const unusable of ['relative/root', join(chosen, 'absent'), join(chosen, 'file')])
+  // A file this user may execute: only the directory check refuses it (review L4).
+  writeFileSync(join(chosen, 'program'), '', { mode: 0o700 });
+  for (const unusable of [
+    'relative/root',
+    join(chosen, 'absent'),
+    join(chosen, 'file'),
+    join(chosen, 'program'),
+  ])
     expect(() =>
       choose({ CRAFTINGTABLE_TEST_DATA_ROOT: unusable, XDG_RUNTIME_DIR: runtime }),
     ).toThrow(
@@ -75,7 +84,15 @@ it('refuses a test data root at, inside or above a daemon data directory, throug
   const choose = (root: string, env: NodeJS.ProcessEnv = { XDG_DATA_HOME: share }) =>
     chooseTestDataRoot({ ...env, CRAFTINGTABLE_TEST_DATA_ROOT: root }, () => {});
   expect(choose(sibling)).toBe(sibling);
-  for (const overlapping of [live, join(live, 'state'), host, join(host, 'state-link')])
+  // A name inside the data directory that starts with two dots is inside it (review L1).
+  mkdirSync(join(live, '..inner'));
+  for (const overlapping of [
+    live,
+    join(live, 'state'),
+    join(live, '..inner'),
+    host,
+    join(host, 'state-link'),
+  ])
     expect(() => choose(overlapping)).toThrow(
       `CRAFTINGTABLE_TEST_DATA_ROOT (${overlapping}) overlaps the daemon data directory ${join(share, 'craftingtable')}`,
     );
@@ -85,6 +102,16 @@ it('refuses a test data root at, inside or above a daemon data directory, throug
   );
   expect(choose(join(live, 'state'), { CRAFTINGTABLE_DATA_DIR: sibling + '-other' })).toBe(
     join(live, 'state'),
+  );
+  // A data directory that is a link to a directory not made yet is followed to it (review L1):
+  // a root that would hold it is refused.
+  const later = join(host, 'later');
+  mkdirSync(later);
+  const pending = join(host, 'pending-share');
+  mkdirSync(pending);
+  symlinkSync(join(later, 'craftingtable'), join(pending, 'craftingtable'));
+  expect(() => choose(later, { XDG_DATA_HOME: pending })).toThrow(
+    'overlaps the daemon data directory',
   );
 });
 
@@ -113,8 +140,10 @@ it('falls back to XDG_RUNTIME_DIR without CRAFTINGTABLE_TEST_DATA_ROOT, and says
 });
 
 it("keeps this run's test daemons in the root chosen for the run, with the test reserve (TS-H8, R-I2)", async () => {
-  // Decided once by vitest.config.ts, so it cannot change during the run.
-  expect(testDataRoot()).toBe(chooseTestDataRoot(process.env, () => {}));
+  // Decided once by vitest.config.ts, so it cannot change during the run; the global setup
+  // gives the run a directory of its own beneath it, named by its process (R-I2 review).
+  expect(dirname(testDataRoot())).toBe(chooseTestDataRoot(process.env, () => {}));
+  expect(basename(testDataRoot())).toMatch(/^ct-run-\d+-\d+-/);
   const context = await createTestContext();
   contexts.push(context);
   expect(dirname(context.directory)).toBe(testDataRoot());
@@ -152,7 +181,7 @@ function confinedCheck(worktree: string, runDirectory: string, script: string) {
 it.skipIf(!['running', 'degraded'].includes(userManager ?? ''))(
   "a confined check sees an e2e daemon's worktree under the chosen root, and would not on the runtime tmpfs (R-I2)",
   () => {
-    const root = chooseTestDataRoot(process.env, () => {});
+    const root = testDataRoot();
     const daemonData = (parent: string) => {
       const directory = mkdtempSync(join(parent, 'craftingtable-e2e-'));
       roots.push(directory);
@@ -172,7 +201,10 @@ it.skipIf(!['running', 'degraded'].includes(userManager ?? ''))(
     const checked = confinedCheck(e2e.worktree, e2e.runDirectory, script);
     // Without CRAFTINGTABLE_TEST_DATA_ROOT the root is the runtime tmpfs, and this fails with
     // systemd's 200 (the unit could not enter its working directory).
-    expect(checked.status, `${root}: ${checked.stdout}${checked.stderr}`).toBe(0);
+    expect(
+      checked.status,
+      `${root}: ${checked.stdout}${checked.stderr} (on the runtime tmpfs? set CRAFTINGTABLE_TEST_DATA_ROOT to a disk directory)`,
+    ).toBe(0);
     expect(checked.stdout).toContain('seen');
     expect(readFileSync(join(e2e.worktree, 'result'), 'utf8')).toBe('written\n');
     // Why the root left the tmpfs: a confined unit gets an empty, read-only runtime directory.
@@ -200,7 +232,7 @@ it("starts each test daemon from a copy of the run's migrated template, with the
 });
 
 it("passes the configuration's root refusals for test daemons under the chosen root (TS-H3, R-I2)", () => {
-  const root = chooseTestDataRoot(process.env, () => {});
+  const root = testDataRoot();
   const data = mkdtempSync(join(root, 'craftingtable-config-'));
   roots.push(data);
   // A vitest daemon: the default agents' root inside its data directory.

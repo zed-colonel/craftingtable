@@ -1,7 +1,11 @@
 import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { controlFinalizationRequestSchema } from '../src/finalization.js';
-import { completionPolicySchema, controlWorkCycleRequestSchema } from '../src/work-cycle.js';
+import {
+  completionPolicySchema,
+  controlWorkCycleRequestSchema,
+  workCycleSchema,
+} from '../src/work-cycle.js';
 
 it('bounds automation budgets and does not allow weakening major/minor gates', () => {
   expect(completionPolicySchema.safeParse(DEFAULT_COMPLETION_POLICY).success).toBe(true);
@@ -165,4 +169,71 @@ it('accepts bounded review guidance only on explicit review recovery commands', 
   expect(
     controlWorkCycleRequestSchema.safeParse({ ...input, instructions: 'x'.repeat(16001) }).success,
   ).toBe(false);
+});
+
+it("reads an investigation recorded before the worktree check, and validates the check's fields (R-C16)", () => {
+  const investigation = workCycleSchema.shape.investigation.unwrap();
+  const sha = 'a'.repeat(40);
+  const digest = 'b'.repeat(64);
+  const older = {
+    id: '11111111-1111-4111-8111-111111111111',
+    runId: 'run-1',
+    sourceRunId: 'run-0',
+    code: 'implementation-open-questions',
+    questionsDigest: digest,
+    profile: { backend: 'claude-code' },
+    instructions: '',
+    minutes: 30,
+    deadlineAt: '2026-10-05T10:30:00.000Z',
+    startedAt: '2026-10-05T10:00:00.000Z',
+    startedByUserId: 'user-1',
+    result: { endedAt: '2026-10-05T10:10:00.000Z', outcome: 'finished' },
+  };
+  expect(investigation.safeParse(older).success).toBe(true);
+  const worktree = {
+    headSha: sha,
+    branch: 'item',
+    fingerprint: digest,
+    trackedClean: true,
+    untrackedDigest: digest,
+    ignoredDigest: digest,
+    gitDigest: digest,
+  };
+  const changed = {
+    ...older,
+    worktree,
+    result: {
+      endedAt: '2026-10-05T10:10:00.000Z',
+      outcome: 'failed',
+      code: 'worktree-changed',
+      worktreeChange: {
+        parts: ['untracked', 'git'],
+        headBefore: sha,
+        headAfter: sha,
+        paths: ['x'],
+      },
+      acknowledgedAt: '2026-10-05T10:11:00.000Z',
+      acknowledgedByUserId: 'user-1',
+    },
+  };
+  expect(investigation.safeParse(changed).success).toBe(true);
+  for (const invalid of [
+    { ...changed, worktree: { ...worktree, gitDigest: 'short' } },
+    { ...changed, result: { ...changed.result, code: 'something-else' } },
+    {
+      ...changed,
+      result: {
+        ...changed.result,
+        worktreeChange: { ...changed.result.worktreeChange, parts: ['elsewhere'] },
+      },
+    },
+    {
+      ...changed,
+      result: {
+        ...changed.result,
+        worktreeChange: { ...changed.result.worktreeChange, parts: [] },
+      },
+    },
+  ])
+    expect(investigation.safeParse(invalid).success).toBe(false);
 });

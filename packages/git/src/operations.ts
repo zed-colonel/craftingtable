@@ -1,7 +1,17 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  stat,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -116,6 +126,38 @@ export interface WorktreeChanges {
   readonly fingerprint: string;
   readonly conflicted: boolean;
 }
+/**
+ * A worktree as an investigation compares it before and after (R-C16, TS-M3). It holds what
+ * `inspectWorktreeChanges` reads, and what that leaves out (RC F-7 review L-2): the contents of
+ * untracked files, ignored entries, and the repository files that run code or change how Git
+ * reads the tree. Each digest covers one part, so a comparison can name the parts that moved.
+ */
+export interface WorktreeSnapshot {
+  readonly headSha: string;
+  readonly branch: string;
+  /** The tracked diff against HEAD, as `inspectWorktreeChanges` fingerprints it. */
+  readonly fingerprint: string;
+  /** False once the index or the tracked files differ from HEAD. */
+  readonly trackedClean: boolean;
+  /** Untracked files (not ignored): each one's type, mode, size and contents. */
+  readonly untrackedDigest: string;
+  /**
+   * Ignored entries as `ls-files --directory` lists them: an ignored file by its contents, an
+   * ignored directory by its own entry, which shows what is added to or removed from it
+   * directly, not what changes deeper inside it.
+   */
+  readonly ignoredDigest: string;
+  /** The repository's `config` (and the worktree's `config.worktree`), `hooks/` and `info/`. */
+  readonly gitDigest: string;
+  /** Files past the content bounds, compared by size and modification time only. */
+  readonly metadataOnly: number;
+  /** What differs from HEAD now, tracked and untracked, to name a change: the first 20. */
+  readonly changedPaths: readonly string[];
+}
+/** Bounds on what a snapshot reads (R-C16): past them, files are compared by metadata. */
+const SNAPSHOT_FILE_BYTES = 1024 * 1024;
+const SNAPSHOT_TOTAL_BYTES = 64 * 1024 * 1024;
+const SNAPSHOT_ENTRIES = 20_000;
 export interface IntegrationMergeContext {
   worktreePath: string;
   branchName: string;
@@ -181,6 +223,7 @@ export interface GitOperations {
   ): Promise<GitResult<{ commitSha: string }>>;
   abortIntegrationResolution(input: IntegrationMergeContext): Promise<GitResult<void>>;
   inspectWorktreeChanges(path: string): Promise<GitResult<WorktreeChanges>>;
+  snapshotWorktree(path: string): Promise<GitResult<WorktreeSnapshot>>;
   checkpointWorktree(input: {
     worktreePath: string;
     branchName: string;
@@ -390,6 +433,59 @@ export function writeDaemonGitIdentity(gitExecutable: string, path: string): str
     { mode: 0o600 },
   );
   return path;
+}
+
+/** The files directly in `directory`, sorted; none when it is absent. */
+async function directoryFiles(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory)).sort().map((name) => join(directory, name));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * One digest of `entries` (paths under `root`, or absolute): each entry's type and mode, a
+ * link's target, and a file's contents while the budget lasts, its size and modification time
+ * after that. A directory is its own entry, never walked; an absent entry is recorded absent.
+ */
+async function entriesDigest(
+  root: string,
+  entries: readonly string[],
+  budget: { bytes: number; metadataOnly: number },
+): Promise<string> {
+  const hash = createHash('sha256');
+  const listed = [...entries].sort();
+  for (const entry of listed.slice(0, SNAPSHOT_ENTRIES)) {
+    const path = isAbsolute(entry) ? entry : join(root, entry.replace(/\/$/, ''));
+    hash.update(`${entry}\0`);
+    let info: Awaited<ReturnType<typeof lstat>>;
+    try {
+      info = await lstat(path);
+    } catch {
+      hash.update('absent\0');
+      continue;
+    }
+    hash.update(`${info.mode}\0`);
+    if (info.isSymbolicLink()) hash.update(`link ${await readlink(path)}\0`);
+    else if (info.isDirectory()) hash.update(`directory ${info.mtimeMs}\0`);
+    else if (info.isFile() && info.size <= SNAPSHOT_FILE_BYTES && info.size <= budget.bytes) {
+      budget.bytes -= info.size;
+      hash.update(
+        `file ${createHash('sha256')
+          .update(await readFile(path))
+          .digest('hex')}\0`,
+      );
+    } else {
+      budget.metadataOnly += 1;
+      hash.update(`metadata ${info.size} ${info.mtimeMs}\0`);
+    }
+  }
+  if (listed.length > SNAPSHOT_ENTRIES) {
+    budget.metadataOnly += listed.length - SNAPSHOT_ENTRIES;
+    hash.update(`and ${listed.length - SNAPSHOT_ENTRIES} more\0`);
+  }
+  return hash.digest('hex');
 }
 
 function splitNul(buffer: Buffer): string[] {
@@ -1492,6 +1588,54 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     };
   }
 
+  async function snapshotWorktree(path: string): Promise<GitResult<WorktreeSnapshot>> {
+    const changes = await inspectWorktreeChanges(path);
+    if (!changes.ok) return changes;
+    const ignored = await runOk(
+      ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'],
+      path,
+    );
+    if (!ignored.ok) return ignored;
+    const directories = await runOk(
+      ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'],
+      path,
+    );
+    if (!directories.ok) return directories;
+    const [gitDir, commonDir] = directories.value.stdout.toString('utf8').trim().split('\n');
+    if (!gitDir || !commonDir) return fail('git-failed', 'Git did not name its directories');
+    const budget = { bytes: SNAPSHOT_TOTAL_BYTES, metadataOnly: 0 };
+    const untracked = changes.value.untracked;
+    const ignoredEntries = splitNul(ignored.value.stdout);
+    // A linked worktree's `.git` is a file naming its Git directory; a main worktree's is that
+    // directory, whose own entry every commit touches.
+    const pointer = join(path, '.git');
+    const pointerIsFile = await lstat(pointer).then(
+      (info) => info.isFile(),
+      () => false,
+    );
+    const gitFiles = [
+      join(commonDir, 'config'),
+      join(gitDir, 'config.worktree'),
+      ...(pointerIsFile ? [pointer] : []),
+      ...(await directoryFiles(join(commonDir, 'hooks'))),
+      ...(await directoryFiles(join(commonDir, 'info'))),
+    ];
+    return {
+      ok: true,
+      value: {
+        headSha: changes.value.headSha,
+        branch: changes.value.branch,
+        fingerprint: changes.value.fingerprint,
+        trackedClean: changes.value.trackedClean,
+        untrackedDigest: await entriesDigest(path, untracked, budget),
+        ignoredDigest: await entriesDigest(path, ignoredEntries, budget),
+        gitDigest: await entriesDigest('/', gitFiles, budget),
+        metadataOnly: budget.metadataOnly,
+        changedPaths: [...changes.value.paths, ...untracked].slice(0, 20),
+      },
+    };
+  }
+
   /** Checkpoint only named tracked/indexed paths; arbitrary untracked files are never staged. */
   async function checkpointWorktree(
     input: {
@@ -2154,6 +2298,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     finishIntegrationResolution,
     abortIntegrationResolution,
     inspectWorktreeChanges,
+    snapshotWorktree,
     checkpointWorktree,
     commonAncestor,
     resolveBranch,

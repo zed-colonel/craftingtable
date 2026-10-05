@@ -6,6 +6,8 @@ import {
   CYCLE_STATUSES,
   CYCLE_STEPS,
   type CycleAttentionCode,
+  INVESTIGATION_WORKTREE_PARTS,
+  type InvestigationWorktreePart,
   OUTPUT_REPAIR_LIMIT,
 } from '@craftingtable/domain';
 import { z } from 'zod';
@@ -125,6 +127,36 @@ export const startInvestigationRequestSchema = z.strictObject({
 export type StartInvestigationRequest = z.infer<typeof startInvestigationRequestSchema>;
 export const endInvestigationRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
+});
+/** Acknowledge that the worktree changed while the stop's investigation ran (R-C16). */
+export const acknowledgeInvestigationChangeRequestSchema = endInvestigationRequestSchema;
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const gitObjectSchema = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
+/** The worktree an investigation recorded at its start (R-C16). */
+const investigationWorktreeSchema = z.strictObject({
+  headSha: gitObjectSchema,
+  branch: z.string().max(1000),
+  fingerprint: sha256Schema,
+  trackedClean: z.boolean(),
+  untrackedDigest: sha256Schema,
+  ignoredDigest: sha256Schema,
+  gitDigest: sha256Schema,
+});
+const investigationWorktreeChangeSchema = z.strictObject({
+  parts: z
+    .array(
+      z.enum(
+        INVESTIGATION_WORKTREE_PARTS as unknown as [
+          InvestigationWorktreePart,
+          ...InvestigationWorktreePart[],
+        ],
+      ),
+    )
+    .min(1)
+    .max(INVESTIGATION_WORKTREE_PARTS.length),
+  headBefore: gitObjectSchema,
+  headAfter: gitObjectSchema.optional(),
+  paths: z.array(z.string().max(4096)).max(20),
 });
 export const designRecoveryPreviewSchema = z.strictObject({
   decisionInbox: architectureDecisionInboxSchema.optional(),
@@ -278,10 +310,16 @@ export const workCycleSchema = z
         deadlineAt: z.iso.datetime(),
         startedAt: z.iso.datetime(),
         startedByUserId: userIdSchema,
+        worktree: investigationWorktreeSchema.optional(),
         result: z
           .strictObject({
             endedAt: z.iso.datetime(),
             outcome: z.enum(['finished', 'failed', 'cancelled', 'interrupted']),
+            code: z.literal('worktree-changed').optional(),
+            worktreeChange: investigationWorktreeChangeSchema.optional(),
+            acknowledgedAt: z.iso.datetime().optional(),
+            acknowledgedByUserId: userIdSchema.optional(),
+            restoredAt: z.iso.datetime().optional(),
             message: z.string().max(4000).optional(),
             findings: z.array(investigationFindingSchema).max(40).optional(),
           })

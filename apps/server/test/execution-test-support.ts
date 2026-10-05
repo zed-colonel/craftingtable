@@ -248,6 +248,11 @@ export interface ScriptedReply {
    * while it works. Only a launch's first reply is gated; replies to later messages are not.
    */
   readonly release?: Promise<void>;
+  /**
+   * A kill takes effect only once this resolves: the agent's process goes on after it was told
+   * to end, as a real one may (R-C16). Read from a launch's first reply.
+   */
+  readonly exitAfterKill?: Promise<void>;
 }
 
 export class ScriptedSession implements AgentSession {
@@ -261,6 +266,7 @@ export class ScriptedSession implements AgentSession {
   private turns = 0;
   private delayed = false;
   private exitReason: AgentExitReason | undefined;
+  private readonly exitAfterKill: Promise<void> | undefined;
 
   constructor(
     request: AgentLaunchRequest,
@@ -282,6 +288,7 @@ export class ScriptedSession implements AgentSession {
       },
     });
     this.delayed = request.prompt.includes('DEFER-TURNS');
+    this.exitAfterKill = replies[0]?.exitAfterKill;
     const release = replies[0]?.release;
     if (release)
       void release.then(() => {
@@ -424,7 +431,8 @@ export class ScriptedSession implements AgentSession {
   }
 
   kill(): void {
-    this.exit(null, 'SIGTERM');
+    if (this.exitAfterKill) void this.exitAfterKill.then(() => this.exit(null, 'SIGTERM'));
+    else this.exit(null, 'SIGTERM');
   }
 
   private exit(exitCode: number | null, signal: string | null): void {

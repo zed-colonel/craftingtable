@@ -4,13 +4,16 @@ import {
   type AgentRun,
   type AgentRunId,
   type CycleInvestigation,
+  type InvestigationWorktree,
+  type InvestigationWorktreeChange,
+  type InvestigationWorktreePart,
   INVESTIGATION_STOPS,
   isTerminalAgentRunStatus,
   openQuestionsCheckpoint,
   stopCode,
   type WorkCycle,
 } from '@craftingtable/domain';
-import type { GitOperations } from '@craftingtable/git';
+import type { GitOperations, WorktreeSnapshot } from '@craftingtable/git';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { runLineage } from './run-handoff.js';
 import { operatorQuestionRoutes } from './workflow-policy.js';
@@ -106,6 +109,71 @@ export const questionsDigest = (questions: readonly string[]) =>
 export const investigationLive = (cycle: Pick<WorkCycle, 'investigation'>): boolean =>
   !!cycle.investigation && !cycle.investigation.result;
 
+/**
+ * The stop's investigation found the worktree changed, and the operator has neither
+ * acknowledged it nor put the tree back as it was recorded (R-C16).
+ */
+export const worktreeChangeOpen = (cycle: Pick<WorkCycle, 'investigation'>): boolean => {
+  const result = cycle.investigation?.result;
+  return result?.code === 'worktree-changed' && !result.acknowledgedAt && !result.restoredAt;
+};
+
+/**
+ * The stop's investigation holds its commands (R-C16): while it runs, and while a change it
+ * found in the worktree is open.
+ */
+export const investigationHolds = (cycle: Pick<WorkCycle, 'investigation'>): boolean =>
+  investigationLive(cycle) || worktreeChangeOpen(cycle);
+
+/** What the daemon records of the worktree as an investigation starts. */
+export function investigationWorktree(snapshot: WorktreeSnapshot): InvestigationWorktree {
+  return {
+    headSha: snapshot.headSha,
+    branch: snapshot.branch,
+    fingerprint: snapshot.fingerprint,
+    trackedClean: snapshot.trackedClean,
+    untrackedDigest: snapshot.untrackedDigest,
+    ignoredDigest: snapshot.ignoredDigest,
+    gitDigest: snapshot.gitDigest,
+  };
+}
+
+/** How the worktree differs from its record now, or nothing when it matches (R-C16). */
+export function worktreeChange(
+  recorded: InvestigationWorktree,
+  now: WorktreeSnapshot | undefined,
+): InvestigationWorktreeChange | undefined {
+  if (!now) return { parts: ['unreadable'], headBefore: recorded.headSha, paths: [] };
+  const parts = (
+    [
+      ['head', recorded.headSha !== now.headSha],
+      ['branch', recorded.branch !== now.branch],
+      [
+        'tracked',
+        recorded.fingerprint !== now.fingerprint || recorded.trackedClean !== now.trackedClean,
+      ],
+      ['untracked', recorded.untrackedDigest !== now.untrackedDigest],
+      ['ignored', recorded.ignoredDigest !== now.ignoredDigest],
+      ['git', recorded.gitDigest !== now.gitDigest],
+    ] as const
+  )
+    .filter(([, differs]) => differs)
+    .map(([part]) => part);
+  return parts.length
+    ? { parts, headBefore: recorded.headSha, headAfter: now.headSha, paths: now.changedPaths }
+    : undefined;
+}
+
+const PART_NAMES: Record<InvestigationWorktreePart, string> = {
+  head: 'its commit',
+  branch: 'its branch',
+  tracked: 'tracked files',
+  untracked: 'untracked files',
+  ignored: 'ignored files',
+  git: "the repository's config, hooks or info files",
+  unreadable: 'it could not be read',
+};
+
 function finalText(tx: Pick<StorageRepositories, 'execution'>, run: AgentRun): string {
   const turn = tx.execution.runEvents.latestOfKind(run.workspaceId, run.id, 'turn-completed');
   return turn?.kind === 'turn-completed' ? turn.payload.resultText : (run.outcomeSummary ?? '');
@@ -141,6 +209,23 @@ export function investigationResult(
 
 /** One line on what an ended investigation found, for the stop's item and its page. */
 export function investigationSummary(result: NonNullable<CycleInvestigation['result']>): string {
+  const change = result.code === 'worktree-changed' ? result.worktreeChange : undefined;
+  if (change) {
+    // Said of the tree, not the agent: an edit made while it ran looks the same (R-C16).
+    const moved =
+      change.headAfter && change.headAfter !== change.headBefore
+        ? ` (HEAD ${change.headBefore.slice(0, 12)} → ${change.headAfter.slice(0, 12)})`
+        : '';
+    const paths = change.paths.length
+      ? ` Now differing from HEAD: ${change.paths.join(', ')}.`
+      : '';
+    const state = result.restoredAt
+      ? ' It matches its record again.'
+      : result.acknowledgedAt
+        ? ' The change was acknowledged.'
+        : ' Inspect the worktree, then acknowledge the change before answering; its proposals are shown, not offered to use.';
+    return `The worktree changed while the investigation ran: ${change.parts.map((p) => PART_NAMES[p]).join(', ')}${moved}.${paths}${state}`;
+  }
   if (result.outcome !== 'finished') {
     const what =
       result.outcome === 'failed'

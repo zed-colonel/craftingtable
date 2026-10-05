@@ -165,6 +165,8 @@ interface LiveRun {
   readonly runId: AgentRunId;
   readonly session: AgentSession;
   cancelRequested: boolean;
+  /** Why it was cancelled, recorded when its process exits (an investigation's End, R-C16). */
+  cancelMessage?: string;
   /** Set when a restart drain terminates the session; it then ends `interrupted`. */
   drainInterrupted?: boolean;
   /** The consumer is blocked on the session's next item (see `quiesce`). */
@@ -654,6 +656,7 @@ export class AgentRunService {
     const liveRun = this.liveRun(workspaceId, runId);
     if (liveRun !== undefined) {
       liveRun.cancelRequested = true;
+      liveRun.cancelMessage = message;
       liveRun.session.kill();
       return;
     }
@@ -2504,7 +2507,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
                       ? 'The agent exited before collecting background work and reporting completion. Its process group has finished; the last message is an incomplete outcome.'
                       : 'Background work exceeded the step time limit and was terminated. Inspect partial verification results before resuming.',
                 }
-              : {}),
+              : status === 'cancelled' && liveRun.cancelMessage
+                ? { message: liveRun.cancelMessage }
+                : {}),
         });
         return;
       }

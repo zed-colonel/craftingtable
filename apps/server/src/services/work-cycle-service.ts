@@ -20,6 +20,8 @@ import {
   type AgentRun,
   asAgentRunId,
   type CycleInvestigation,
+  type InvestigationWorktree,
+  type InvestigationWorktreeChange,
   profileForPurpose,
   stopCode,
   cycleActions,
@@ -53,7 +55,7 @@ import {
   resumeRedirect,
   type CycleOwner,
 } from '@craftingtable/domain';
-import type { GitOperations } from '@craftingtable/git';
+import type { GitOperations, WorktreeSnapshot } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { CommandContext } from './auth-service.js';
@@ -69,11 +71,15 @@ import { currentCycleAttention } from './cycle-attention-policy.js';
 import { collectDesignRecovery } from './design-recovery.js';
 import {
   investigationDocuments,
+  investigationHolds,
   investigationLive,
   investigationResult,
   investigationRules,
+  investigationWorktree,
   questionsDigest,
   stopQuestions,
+  worktreeChange,
+  worktreeChangeOpen,
 } from './investigation.js';
 import {
   ConcurrentModificationError,
@@ -192,6 +198,8 @@ function retryableControllerError(error: unknown): boolean {
 }
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
+/** How often an open worktree change is compared with its record again (R-C16). */
+const RESTORED_CHECK_MS = 15_000;
 /** How long past its deadline an unfinished investigation run is closed (R-C16 review M3). */
 const STUCK_INVESTIGATION_MS = 2 * 60_000;
 
@@ -218,6 +226,10 @@ export class WorkCycleService {
   private readonly ending = new Set<string>();
   /** Investigations whose launch is in flight (R-C16): settling waits for them. */
   private readonly launchingInvestigations = new Set<string>();
+  /** Investigations whose worktree is being compared, so one pass settles each (R-C16). */
+  private readonly settlingInvestigations = new Set<string>();
+  /** When each open worktree change was last compared with its record (R-C16). */
+  private readonly restoredChecks = new Map<string, number>();
   private readonly transitioning = new Set<string>();
 
   isTransitioning(id: string): boolean {
@@ -313,7 +325,11 @@ export class WorkCycleService {
       { ...c, ...(unsettled.length ? { unsettledDecisions: unsettled } : {}) },
       tx.execution.runs.latestIdForWorktree(c.workspaceId, c.worktreeId),
       reviewNeedsRounds(tx, c, currentRun),
-      { questions: !!stopQuestions(tx, c), live: investigationLive(c) },
+      {
+        questions: !!stopQuestions(tx, c),
+        live: investigationLive(c),
+        changed: worktreeChangeOpen(c),
+      },
     );
     const routes =
       c.status === 'needs-attention' &&
@@ -578,6 +594,17 @@ export class WorkCycleService {
         'conflict',
         'Recover the reserved integration merge before starting an investigation.',
       );
+    // The worktree as the run will find it: compared once the run has ended (R-C16, TS-M3).
+    let worktree: InvestigationWorktree | undefined;
+    if (this.git) {
+      const snapshot = await this.git.snapshotWorktree(tree.path);
+      if (!snapshot.ok)
+        throw new ExecutionRequestError(
+          'unavailable',
+          `The worktree could not be read before the investigation: ${snapshot.failure.message}`,
+        );
+      worktree = investigationWorktree(snapshot.value);
+    }
     const selected = profileForPurpose(
       effectiveCycleProfiles(this.storage, cycle),
       'investigation',
@@ -605,6 +632,7 @@ export class WorkCycleService {
       deadlineAt: new Date(startedAt.getTime() + input.minutes * 60_000).toISOString(),
       startedAt: startedAt.toISOString(),
       startedByUserId: context.user.id,
+      ...(worktree ? { worktree } : {}),
     };
     const documents = await investigationDocuments(
       this.storage,
@@ -670,13 +698,21 @@ export class WorkCycleService {
     return this.present(this.storage.execution.cycles.find(workspaceId, id) ?? updated);
   }
 
-  /** Ends the stop's live investigation: the one command the stop accepts while it runs. */
-  endInvestigation(
+  /**
+   * Ends the stop's live investigation: the one command the stop accepts while it runs. A run
+   * whose worktree was recorded is only asked to end here; its result is written once its
+   * process has exited and the worktree is compared, which may find the operator's own End
+   * left a changed tree (R-C16, RC F-7). Until then the stop waits, as it did while it ran.
+   * A roadmap's Stop (`stopping`) ends the cycle next, so nothing will build on the tree: its
+   * investigation ends at once, uncompared.
+   */
+  async endInvestigation(
     context: CommandContext,
     workspaceId: WorkspaceId,
     id: string,
     expectedVersion: number,
-  ): WorkCycle {
+    stopping = false,
+  ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
@@ -688,6 +724,11 @@ export class WorkCycleService {
     const run = this.storage.execution.runs.find(workspaceId, investigation.runId);
     if (run && !isTerminalAgentRunStatus(run.status))
       this.runs.cancelInvestigation(workspaceId, run.id, 'Ended by the operator.');
+    if (investigation.worktree && run && !stopping) {
+      // A run that has already ended is compared now; a live one at its exit.
+      await this.settleInvestigation(cycle);
+      return this.present(this.storage.execution.cycles.find(workspaceId, id) ?? cycle);
+    }
     const ended =
       run && isTerminalAgentRunStatus(run.status)
         ? investigationResult(this.storage, run, this.now().toISOString())
@@ -706,11 +747,16 @@ export class WorkCycleService {
     );
   }
 
-  /** Reads an investigation's ended run back into the cycle: its proposals, or why it failed. */
-  private settleInvestigation(cycle: WorkCycle): void {
+  /**
+   * Reads an investigation's ended run back into the cycle: its proposals, or why it failed.
+   * A recorded worktree is compared first, once no agent is still exiting in it (R-C16 review
+   * M-1); a difference fails the investigation as `worktree-changed`, whatever its run found.
+   */
+  private async settleInvestigation(cycle: WorkCycle): Promise<void> {
     const investigation = cycle.investigation;
     if (!investigation || investigation.result) return;
     if (this.launchingInvestigations.has(investigation.id)) return;
+    if (this.settlingInvestigations.has(investigation.id)) return;
     const run = this.storage.execution.runs.find(cycle.workspaceId, investigation.runId);
     const now = this.now();
     if (!run) {
@@ -739,24 +785,131 @@ export class WorkCycleService {
         );
       return;
     }
+    let change: InvestigationWorktreeChange | undefined;
+    let current = cycle;
+    if (investigation.worktree) {
+      if (this.mutations.agentTerminating(cycle.worktreeId)) return;
+      this.settlingInvestigations.add(investigation.id);
+      try {
+        change = worktreeChange(investigation.worktree, await this.investigatedTree(cycle));
+      } finally {
+        this.settlingInvestigations.delete(investigation.id);
+      }
+      // The inspection awaited Git: settle what the cycle holds now.
+      const reread = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+      if (reread?.investigation?.id !== investigation.id || reread.investigation.result) return;
+      current = reread;
+    }
+    const result = investigationResult(this.storage, run, this.now().toISOString());
     this.change(
-      cycle,
+      current,
       {
         investigation: {
           ...investigation,
-          result: investigationResult(this.storage, run, now.toISOString()),
+          result: change
+            ? { ...result, outcome: 'failed', code: 'worktree-changed', worktreeChange: change }
+            : result,
         },
       },
-      'investigation-finished',
+      change ? 'investigation-worktree-changed' : 'investigation-finished',
     );
   }
 
-  /** While a stop's investigation runs, the stop accepts no command but ending it (R-C16). */
-  private requireNoInvestigation(cycle: WorkCycle): void {
+  /** The investigated worktree as it is now, or nothing when it cannot be read (R-C16). */
+  private async investigatedTree(cycle: WorkCycle): Promise<WorktreeSnapshot | undefined> {
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    if (!tree || !this.git) return undefined;
+    const snapshot = await this.git.snapshotWorktree(tree.path);
+    return snapshot.ok ? snapshot.value : undefined;
+  }
+
+  /**
+   * An open worktree change is released when the tree matches its record again (R-C16); the
+   * controller checks at most every `RESTORED_CHECK_MS`.
+   */
+  private async checkWorktreeRestored(cycle: WorkCycle): Promise<void> {
+    const investigation = cycle.investigation;
+    if (!investigation?.worktree || !investigation.result) return;
+    const last = this.restoredChecks.get(investigation.id) ?? 0;
+    if (this.now().getTime() - last < RESTORED_CHECK_MS) return;
+    this.restoredChecks.set(investigation.id, this.now().getTime());
+    if (worktreeChange(investigation.worktree, await this.investigatedTree(cycle))) return;
+    const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+    if (!current?.investigation?.result || current.investigation.id !== investigation.id) return;
+    if (!worktreeChangeOpen(current)) return;
+    this.restoredChecks.delete(investigation.id);
+    this.change(
+      current,
+      {
+        investigation: {
+          ...current.investigation,
+          result: { ...current.investigation.result, restoredAt: this.now().toISOString() },
+        },
+      },
+      'investigation-worktree-restored',
+    );
+  }
+
+  /**
+   * The operator has seen that the worktree changed while the stop's investigation ran (R-C16).
+   * The stop's commands are accepted again; nothing in the tree is reset.
+   */
+  acknowledgeWorktreeChange(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    expectedVersion: number,
+  ): WorkCycle {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    if (cycle.version !== expectedVersion)
+      throw new ConcurrentModificationError('Cycle changed; refresh and try again.');
+    const result = cycle.investigation?.result;
+    if (!cycle.investigation || !result || !worktreeChangeOpen(cycle))
+      throw new ExecutionRequestError(
+        'conflict',
+        'No worktree change of this stop’s investigation is waiting to be acknowledged.',
+      );
+    return this.present(
+      this.change(
+        cycle,
+        {
+          investigation: {
+            ...cycle.investigation,
+            result: {
+              ...result,
+              acknowledgedAt: this.now().toISOString(),
+              acknowledgedByUserId: context.user.id,
+            },
+          },
+        },
+        'investigation-change-acknowledged',
+        context,
+      ),
+    );
+  }
+
+  /**
+   * While a stop's investigation runs, the stop accepts no command but ending it; once it
+   * found the worktree changed, none that would continue on that tree but acknowledging the
+   * change, until the tree matches its record again (R-C16). Stopping the cycle is allowed.
+   */
+  private requireNoInvestigation(cycle: WorkCycle, ending = false): void {
     if (investigationLive(cycle))
       throw new ExecutionRequestError(
         'conflict',
         'An investigation of this stop is running. Wait for it, or end it, first.',
+      );
+    // Ending the cycle never builds on the changed tree, so the change does not hold it.
+    if (!ending && worktreeChangeOpen(cycle))
+      throw new ExecutionRequestError(
+        'conflict',
+        'The worktree changed while this stop’s investigation ran. Inspect it, then acknowledge the change first.',
+        {
+          reason: 'investigation-worktree-changed',
+          paths: cycle.investigation?.result?.worktreeChange?.paths ?? [],
+        },
       );
   }
 
@@ -1598,7 +1751,7 @@ export class WorkCycleService {
     delegationCheck?.();
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
-    this.requireNoInvestigation(cycle);
+    this.requireNoInvestigation(cycle, action === 'stop');
     if (cycle.version !== expectedVersion)
       throw new ExecutionRequestError(
         'conflict',
@@ -2233,9 +2386,14 @@ export class WorkCycleService {
   }
 
   private async reconcile(cycle: WorkCycle): Promise<void> {
-    // A live investigation holds the stop: nothing else moves it until it is read back.
+    // A live investigation holds the stop: nothing else moves it until it is read back. So
+    // does a worktree change it found, until it is acknowledged or undone (R-C16).
     if (investigationLive(cycle)) {
-      this.settleInvestigation(cycle);
+      await this.settleInvestigation(cycle);
+      return;
+    }
+    if (worktreeChangeOpen(cycle)) {
+      await this.checkWorktreeRestored(cycle);
       return;
     }
     if (this.refreshing.has(cycle.id)) return;

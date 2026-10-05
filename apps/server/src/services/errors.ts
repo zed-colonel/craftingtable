@@ -39,7 +39,11 @@ export class BootstrapRefusedError extends Error {
  * message is composed by the daemon and safe to return to the operator.
  */
 export interface ExecutionErrorDetail {
-  readonly reason: 'worktree-has-changes';
+  /**
+   * `worktree-has-changes`: a removal would discard uncommitted work. `investigation-worktree-
+   * changed`: the stop's investigation found its worktree changed, unacknowledged (R-C16).
+   */
+  readonly reason: 'worktree-has-changes' | 'investigation-worktree-changed';
   readonly paths: readonly string[];
   readonly pathCount?: number;
 }

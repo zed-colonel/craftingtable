@@ -27,6 +27,12 @@ export const CYCLE_ACTIONS = [
   'investigate',
   /** End the live investigation; until then it is the only command the stop accepts. */
   'end-investigation',
+  /**
+   * The worktree changed while the stop's investigation ran (R-C16): until the operator
+   * acknowledges it, or the tree matches its record again, it is the only command the stop
+   * accepts.
+   */
+  'acknowledge-worktree-change',
 ] as const;
 export type CycleAction = (typeof CYCLE_ACTIONS)[number];
 
@@ -148,15 +154,21 @@ export function cycleActions(
   reviewNeedsRounds = false,
   /**
    * The stop's investigation (R-C16): whether the stop holds questions one can work on, and
-   * whether one is live. While it is live, ending it is the only command the stop accepts.
+   * whether one is live. While it is live, ending it is the only command the stop accepts; once
+   * it found the worktree changed, acknowledging that is, until it is acknowledged or undone.
    */
-  investigation: { readonly questions: boolean; readonly live: boolean } = {
+  investigation: {
+    readonly questions: boolean;
+    readonly live: boolean;
+    readonly changed?: boolean;
+  } = {
     questions: false,
     live: false,
   },
 ): readonly CycleAction[] {
   const atStop = ['paused', 'needs-attention'].includes(cycle.status);
   if (atStop && investigation.live) return ['end-investigation'];
+  if (atStop && investigation.changed) return ['acknowledge-worktree-change', 'stop'];
   // A pause taken at a stop keeps that stop's attention (as resumeRedirect reads it).
   const code = stopCode(cycle);
   const investigate: readonly CycleAction[] =

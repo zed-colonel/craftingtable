@@ -97,3 +97,25 @@ Stopping the roadmap ends it; pausing or resuming an item leaves it running. It 
 Evidence investigation profile and a 30-minute limit by default. A failure, the deadline or a
 restart ends it with an explicit retry; nothing retries or resumes it automatically. Leaving the
 stop clears its record and cancels a run that is still live.
+
+## Amendment 2026-10-05: the daemon checks that an investigation left the worktree unchanged (R-C16)
+
+Read-only is the agent's sandbox's promise; the daemon now checks it (operator decision
+2026-10-05, from TS-M3 and RC F-7). As an investigation starts, the daemon records the
+worktree: HEAD, branch, the tracked diff, the contents of untracked files, ignored files (an
+ignored directory by its own entry), and the repository's config, hooks and info files. It
+compares once the run has ended and no agent of it is still exiting. End only asks the run to
+end; the comparison, and the result, follow its exit.
+
+A difference fails the investigation as `worktree-changed`, whatever its run found:
+- the stop's existing item pages, even after the operator's own End; there is no new panel or
+  attention code;
+- the stop's commands are refused, with the typed reason `investigation-worktree-changed`,
+  until the operator acknowledges the change (a command on the stop) or the tree matches its
+  record again; stopping the cycle stays allowed (operator decision 2026-10-05);
+- the proposals are shown and never offered to Use proposed answers (operator decision
+  2026-10-05);
+- the daemon never resets the tree, and says the tree changed, not that the agent changed it.
+
+A record started before the check is not compared. A roadmap's Stop ends its stops'
+investigations at once, uncompared, since nothing will build on those trees.

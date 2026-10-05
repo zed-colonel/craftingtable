@@ -100,6 +100,43 @@ export interface InvestigationFinding {
   readonly reason?: string;
 }
 /**
+ * The cycle's worktree as an investigation found it at its start (R-C16, TS-M3): the daemon
+ * compares it once the run has ended and its agent has exited. Each digest covers one part.
+ */
+export interface InvestigationWorktree {
+  readonly headSha: string;
+  readonly branch: string;
+  /** The tracked diff against HEAD. */
+  readonly fingerprint: string;
+  readonly trackedClean: boolean;
+  /** Untracked files, by contents. */
+  readonly untrackedDigest: string;
+  /** Ignored files by contents, ignored directories by their own entries. */
+  readonly ignoredDigest: string;
+  /** The repository's config, hooks and info files. */
+  readonly gitDigest: string;
+}
+/** A part of the worktree an investigation found changed; `unreadable`: it could not be read. */
+export const INVESTIGATION_WORKTREE_PARTS = [
+  'head',
+  'branch',
+  'tracked',
+  'untracked',
+  'ignored',
+  'git',
+  'unreadable',
+] as const;
+export type InvestigationWorktreePart = (typeof INVESTIGATION_WORKTREE_PARTS)[number];
+/** How the worktree differed from its record when the investigation ended. */
+export interface InvestigationWorktreeChange {
+  readonly parts: readonly InvestigationWorktreePart[];
+  readonly headBefore: string;
+  /** Absent when the worktree could not be read. */
+  readonly headAfter?: string;
+  /** What differs from HEAD at the end, tracked and untracked: the first 20. */
+  readonly paths: readonly string[];
+}
+/**
  * A read-only investigation of a question stop (R-C16, ADR-059). Its run works beside the cycle
  * and is never its current run: the cycle keeps its stop, and the operator answers through the
  * stop's own control. Leaving the stop clears it.
@@ -119,10 +156,23 @@ export interface CycleInvestigation {
   readonly deadlineAt: string;
   readonly startedAt: string;
   readonly startedByUserId: UserId;
+  /** The worktree at the start; a record without it (started before the check) is not compared. */
+  readonly worktree?: InvestigationWorktree;
   /** Written when the run ends, with what the daemon read from its report. */
   readonly result?: {
     readonly endedAt: string;
     readonly outcome: 'finished' | 'failed' | 'cancelled' | 'interrupted';
+    /**
+     * `worktree-changed`: the worktree differed from its record once the run had ended (outcome
+     * `failed`). The stop's commands are refused until the operator acknowledges it, or the
+     * tree matches the record again. The daemon never resets the tree.
+     */
+    readonly code?: 'worktree-changed';
+    readonly worktreeChange?: InvestigationWorktreeChange;
+    readonly acknowledgedAt?: string;
+    readonly acknowledgedByUserId?: UserId;
+    /** The daemon found the worktree matching its record again. */
+    readonly restoredAt?: string;
     /** Why it failed, or why its report could not be read. */
     readonly message?: string;
     readonly findings?: readonly InvestigationFinding[];

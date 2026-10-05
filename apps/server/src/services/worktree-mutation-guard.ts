@@ -22,6 +22,10 @@ export class WorktreeMutationGuard {
       );
     this.requireNoTerminatingAgent(id);
   }
+  /** An agent process that lost supervision may still be editing the worktree. */
+  agentTerminating(id: WorktreeId): boolean {
+    return this.terminating.has(id);
+  }
   /** Refuse while an agent process that lost supervision may still be editing the worktree. */
   requireNoTerminatingAgent(id: WorktreeId): void {
     if (this.terminating.has(id))

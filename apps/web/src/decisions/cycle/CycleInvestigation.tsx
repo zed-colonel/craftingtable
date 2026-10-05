@@ -10,7 +10,11 @@ import {
 import { useState } from 'react';
 import { About } from '../../components/About.js';
 import { AgentSelectionFields } from '../../features/execution/AgentSelectionFields.js';
-import { endInvestigation, startInvestigation } from './investigation-api.js';
+import {
+  acknowledgeWorktreeChange,
+  endInvestigation,
+  startInvestigation,
+} from './investigation-api.js';
 
 type Finding = NonNullable<NonNullable<Investigation['result']>['findings']>[number];
 
@@ -27,6 +31,19 @@ export function proposedAnswers(findings: readonly Finding[]): string {
     ]),
   ].join('\n');
 }
+
+type ChangedPart = NonNullable<
+  NonNullable<Investigation['result']>['worktreeChange']
+>['parts'][number];
+const CHANGED_PART: Record<ChangedPart, string> = {
+  head: 'its commit',
+  branch: 'its branch',
+  tracked: 'tracked files',
+  untracked: 'untracked files',
+  ignored: 'ignored files',
+  git: 'the repository’s config, hooks or info files',
+  unreadable: 'it could not be read',
+};
 
 const OUTCOME: Record<NonNullable<Investigation['result']>['outcome'], string> = {
   finished: 'The investigation finished.',
@@ -85,6 +102,9 @@ export function CycleInvestigation({
   const result = record?.result;
   const findings = result?.findings ?? [];
   const used = proposalsAdded;
+  // The worktree changed while it ran (R-C16): its proposals are shown, never offered for use,
+  // since the tree they cite changed under them; the stop waits for an acknowledgement.
+  const change = result?.code === 'worktree-changed' ? result.worktreeChange : undefined;
   return (
     <section aria-label="Investigation" className="stack">
       <h3>Investigation</h3>
@@ -115,12 +135,59 @@ export function CycleInvestigation({
           </p>
         </>
       )}
+      {record && result && change && (
+        <>
+          <p role={actions.includes('acknowledge-worktree-change') ? 'alert' : undefined}>
+            The worktree changed while the investigation ran:{' '}
+            {change.parts.map((part) => CHANGED_PART[part]).join(', ')}
+            {change.headAfter && change.headAfter !== change.headBefore
+              ? ` (HEAD ${change.headBefore.slice(0, 12)} → ${change.headAfter.slice(0, 12)})`
+              : ''}
+            . The change may be the agent’s or anyone’s; nothing was reset.
+          </p>
+          {change.paths.length > 0 && (
+            <p>
+              Now differing from HEAD:{' '}
+              {change.paths.map((path, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list; paths may repeat.
+                <span key={index}>
+                  {index > 0 ? ', ' : ''}
+                  <code>{path}</code>
+                </span>
+              ))}
+            </p>
+          )}
+          <p role="status">
+            {result.restoredAt
+              ? 'The worktree matches its record again; the stop takes its commands.'
+              : result.acknowledgedAt
+                ? 'You acknowledged the change; the stop takes its commands.'
+                : 'Inspect the worktree, then acknowledge the change. Until then the stop takes no answer.'}
+          </p>
+          {actions.includes('acknowledge-worktree-change') && (
+            <p className="inline-actions">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={locked}
+                onClick={() => void run(() => acknowledgeWorktreeChange(cycle, csrfToken))}
+              >
+                Acknowledge the change
+              </button>
+            </p>
+          )}
+        </>
+      )}
       {record && result && (
         <>
           <p>
-            {findings.length
-              ? `${OUTCOME.finished} ${findings.filter((f) => f.status === 'proposed').length} proposed, ${findings.filter((f) => f.status === 'open').length} still open.`
-              : OUTCOME[result.outcome]}
+            {change
+              ? findings.length
+                ? 'Its proposals are shown below, not offered to use: they were gathered while the tree changed.'
+                : OUTCOME[result.outcome]
+              : findings.length
+                ? `${OUTCOME.finished} ${findings.filter((f) => f.status === 'proposed').length} proposed, ${findings.filter((f) => f.status === 'open').length} still open.`
+                : OUTCOME[result.outcome]}
             {result.message ? ` ${result.message}` : ''}
           </p>
           {findings.length > 0 && (
@@ -151,7 +218,7 @@ export function CycleInvestigation({
             </ol>
           )}
           <p className="inline-actions">
-            {findings.length > 0 && onUseAnswers && (
+            {findings.length > 0 && onUseAnswers && !change && (
               <button
                 type="button"
                 className="primary-button"

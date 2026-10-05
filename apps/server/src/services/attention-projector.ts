@@ -765,10 +765,13 @@ export class AttentionProjector implements WriteObserver {
                 held +
                 investigated,
         ),
-        // The operator's own End is no news; anything else the run ended with pages.
-        ...(investigation?.result && investigation.result.outcome !== 'cancelled'
-          ? { members: [`investigation:${investigation.id}:${investigation.result.outcome}`] }
-          : {}),
+        // The operator's own End is no news; anything else the run ended with pages. A worktree
+        // that changed while it ran pages even after End: that is the news (R-C16, RC F-7).
+        ...(investigation?.result?.code === 'worktree-changed'
+          ? { members: [`investigation:${investigation.id}:worktree-changed`] }
+          : investigation?.result && investigation.result.outcome !== 'cancelled'
+            ? { members: [`investigation:${investigation.id}:${investigation.result.outcome}`] }
+            : {}),
         path:
           !escalated && attention.code === 'upstream-pin-moved'
             ? (dependencyRefreshPath(ws, cycle.owner?.roadmapId) ?? path)

@@ -1,4 +1,4 @@
-import { investigationLive } from './investigation.js';
+import { investigationHolds, investigationLive } from './investigation.js';
 import {
   decisionBindingDigest,
   supportsArchitectureDecision,
@@ -1493,7 +1493,13 @@ export class RoadmapService {
         let cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
         // Stopping the roadmap ends its stops' investigations (R-C16); a pause leaves them.
         if (cycle && action === 'stop' && investigationLive(cycle))
-          cycle = this.cycles.endInvestigation(context, workspaceId, cycle.id, cycle.version);
+          cycle = await this.cycles.endInvestigation(
+            context,
+            workspaceId,
+            cycle.id,
+            cycle.version,
+            true,
+          );
         if (
           cycle &&
           !['stopped', 'completed'].includes(cycle.status) &&
@@ -1510,8 +1516,9 @@ export class RoadmapService {
    * or its item resumes; the operator resolves it with the control it names (R-A7).
    */
   private resumable(cycle: WorkCycle): boolean {
-    // A stop's investigation holds it until it ends (R-C16).
-    if (investigationLive(cycle)) return false;
+    // A stop's investigation holds it until it ends, and a worktree change it found until the
+    // operator acknowledges it (R-C16).
+    if (investigationHolds(cycle)) return false;
     // Unsettled shared decisions hold the stop, paused or not; resuming would review into it
     // again (LIVE-18). A report with open questions waits for guidance, not a resume.
     if (
@@ -1560,17 +1567,18 @@ export class RoadmapService {
           reason: 'Item paused by operator. Independent items may continue.',
         };
         roadmap = this.change(roadmap, { entryHolds: holds }, 'pause-entry', context);
-        // A stop being investigated is already still; the hold covers it (R-C16).
+        // A stop being investigated, or held by a worktree change its investigation found, is
+        // already still; the hold covers it (R-C16).
         if (
           cycle &&
           ['running', 'needs-attention'].includes(cycle.status) &&
-          !investigationLive(cycle)
+          !investigationHolds(cycle)
         )
           await this.cycles.control(context, workspaceId, cycle.id, 'pause', cycle.version);
         if (
           repairCycle &&
           ['running', 'needs-attention'].includes(repairCycle.status) &&
-          !investigationLive(repairCycle)
+          !investigationHolds(repairCycle)
         )
           await this.cycles.control(
             context,
@@ -1615,7 +1623,7 @@ export class RoadmapService {
           )
         )
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
-        if (repairCycle?.status === 'paused' && !investigationLive(repairCycle))
+        if (repairCycle?.status === 'paused' && !investigationHolds(repairCycle))
           await this.cycles.control(
             context,
             workspaceId,
@@ -2093,12 +2101,12 @@ export class RoadmapService {
     const parallel = roadmap.definition.scheduling?.mode === 'parallel';
     let attempt =
       recoveryAttempt ?? roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
-    // A command on the cycle is in flight, or an investigation of its stop is at work (R-C16):
-    // the scheduler leaves the stop to it.
+    // A command on the cycle is in flight, or an investigation of its stop is at work or found
+    // its worktree changed (R-C16): the scheduler leaves the stop to it.
     if (attempt && this.cycles.isTransitioning(attempt.cycleId)) return MOVED;
     const investigated =
       attempt && this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
-    if (investigated && investigationLive(investigated)) return MOVED;
+    if (investigated && investigationHolds(investigated)) return MOVED;
     if (attempt) {
       const worktree = this.storage.execution.worktrees.find(
         roadmap.workspaceId,

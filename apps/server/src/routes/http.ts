@@ -6,6 +6,7 @@ import {
 import type { StoredSession, StoredUser } from '@craftingtable/storage';
 import type { FastifyReply } from 'fastify';
 import type { ServerConfig } from '../config.js';
+import type { ExecutionErrorDetail } from '../services/errors.js';
 
 export function noStore(reply: FastifyReply): FastifyReply {
   return reply.header('cache-control', 'no-store');
@@ -24,11 +25,7 @@ export function sendApiError(
     | 'unavailable'
     | 'internal-error',
   message: string,
-  detail?: {
-    readonly reason: 'worktree-has-changes';
-    readonly paths: readonly string[];
-    readonly pathCount?: number;
-  },
+  detail?: ExecutionErrorDetail,
 ): FastifyReply {
   return noStore(reply)
     .code(statusCode)

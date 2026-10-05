@@ -17,6 +17,11 @@ export const apiErrorCodeSchema = z.enum([
 export const apiErrorReasonSchema = z.enum([
   /** A worktree removal was refused because it would discard uncommitted work. */
   'worktree-has-changes',
+  /**
+   * A stop's command was refused: its investigation found the worktree changed, and the change
+   * is not acknowledged (R-C16). `paths` names what differs from HEAD.
+   */
+  'investigation-worktree-changed',
 ]);
 
 export const apiErrorResponseSchema = z.strictObject({

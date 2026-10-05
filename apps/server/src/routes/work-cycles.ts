@@ -2,6 +2,7 @@ import {
   baselineEvidenceSchema,
   baselinePreviewSchema,
   controlWorkCycleRequestSchema,
+  acknowledgeInvestigationChangeRequestSchema,
   endInvestigationRequestSchema,
   designRecoveryPreviewSchema,
   integrationResolutionRequestSchema,
@@ -230,7 +231,27 @@ export function registerWorkCycleRoutes(
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       if (!input.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid investigation request');
-      const cycle = cycles.endInvestigation(
+      const cycle = await cycles.endInvestigation(
+        context,
+        workspace.data,
+        request.params.cycleId,
+        input.data.expectedVersion,
+      );
+      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+    },
+  );
+  // The worktree changed while the stop's investigation ran: the operator has seen it (R-C16).
+  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/investigation/acknowledge-change',
+    { config: { access: 'editor' } },
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const input = acknowledgeInvestigationChangeRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!input.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid acknowledgement request');
+      const cycle = cycles.acknowledgeWorktreeChange(
         context,
         workspace.data,
         request.params.cycleId,

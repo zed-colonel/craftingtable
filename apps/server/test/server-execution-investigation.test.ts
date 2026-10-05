@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   startAgentRunResponseSchema,
@@ -30,6 +30,7 @@ import {
   roadmapId,
   roadmapInput,
   saveRoadmapRequest,
+  type ScriptedReply,
   ScriptedSession,
   startCycle,
   stepDaemons,
@@ -70,7 +71,7 @@ const report = (status: 'proposed' | 'open' = 'proposed') =>
 /** A cycle stopped on its implementation's question, and a way to script the investigation. */
 async function atQuestionStop(now?: () => Date, gitOperations?: GitOperations) {
   const f = await cycleFixture([], now, gitOperations);
-  let investigation: { resultText: string; release?: Promise<void> } = { resultText: report() };
+  let investigation: ScriptedReply = { resultText: report() };
   let implementations = 0;
   f.backend.replyForRequest = (request: AgentLaunchRequest) =>
     request.readOnly
@@ -335,9 +336,14 @@ describe('question stop investigations (R-C16)', () => {
       expectedVersion: started.version,
     });
     expect(response.statusCode, response.body).toBe(200);
-    expect(
-      workCycleResponseSchema.parse(response.json()).cycle.investigation?.result,
-    ).toMatchObject({ outcome: 'cancelled', message: 'Ended by the operator.' });
+    // End only asks the run to end: the result is written once its process has exited and the
+    // worktree has been compared (R-C16).
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'investigation ended');
+    expect(currentCycle(state, cycle).investigation?.result).toMatchObject({
+      outcome: 'cancelled',
+      message: 'Ended by the operator.',
+    });
+    expect(currentCycle(state, cycle).investigation?.result?.code).toBeUndefined();
     const runId = started.investigation!.runId;
     await waitFor(
       () =>
@@ -745,5 +751,215 @@ describe('question stop investigations (R-C16)', () => {
       currentRunId: stopped.currentRunId,
       attention: { code: 'implementation-open-questions' },
     });
+  });
+});
+
+/**
+ * R-C16 (TS-M3, RC F-7): the daemon records the worktree as an investigation starts and compares
+ * it once the run has ended and its agent has exited. A change fails the investigation as
+ * `worktree-changed`, pages the stop's item, and holds the stop's commands until the operator
+ * acknowledges it or the tree matches its record again. The daemon never resets the tree.
+ */
+describe('the investigated worktree (R-C16)', () => {
+  const stopItem = (state: Ready, cycle: WorkCycle) =>
+    state.context.storage.attention
+      .open(state.workspaceId)
+      .find((i) => i.subjectKey === `cycle:${cycle.id}`);
+  /** An investigation agent that writes in the worktree it was told only to read. */
+  const plantOnReadOnlyLaunch = (f: Awaited<ReturnType<typeof atQuestionStop>>) => {
+    f.backend.onLaunch = (request) => {
+      if (request.readOnly) writeFileSync(join(request.cwd, 'planted.txt'), 'written by a reader');
+    };
+  };
+
+  it('fails an investigation whose worktree changed, pages the stop, and holds its commands until acknowledged', async () => {
+    const f = await atQuestionStop();
+    const { state, cycle } = f;
+    plantOnReadOnlyLaunch(f);
+    const started = await investigate(state, cycle);
+    expect(started.investigation?.worktree).toMatchObject({
+      headSha: expect.stringMatching(/^[0-9a-f]{40}$/),
+      trackedClean: true,
+    });
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'investigation result');
+    const id = started.investigation!.id;
+    const result = currentCycle(state, cycle).investigation!.result!;
+    expect(result).toMatchObject({
+      outcome: 'failed',
+      code: 'worktree-changed',
+      worktreeChange: { parts: ['untracked'], paths: ['planted.txt'] },
+      // Its proposals are kept to be read; the browser does not offer them for use.
+      findings: [{ question: QUESTION, status: 'proposed' }],
+    });
+    expect(result.worktreeChange?.headAfter).toBe(result.worktreeChange?.headBefore);
+    await waitFor(
+      () => !!stopItem(state, cycle)?.members?.includes(`investigation:${id}:worktree-changed`),
+      'worktree change paged',
+    );
+    expect(stopItem(state, cycle)?.message).toContain(
+      'The worktree changed while the investigation ran: untracked files. Now differing from HEAD: planted.txt.',
+    );
+    // Only the acknowledgement, or ending the cycle, until then; each other command is refused
+    // with its typed reason.
+    expect((await presented(state, cycle)).actions).toEqual([
+      'acknowledge-worktree-change',
+      'stop',
+    ]);
+    const held = {
+      code: 'conflict',
+      reason: 'investigation-worktree-changed',
+      paths: ['planted.txt'],
+    };
+    const guidance = await post(state, `/cycles/${cycle.id}/control`, {
+      action: 'resume',
+      expectedVersion: currentCycle(state, cycle).version,
+      instructions: 'Use JSON lines.',
+    });
+    expect(guidance.statusCode).toBe(409);
+    expect(refusal(guidance)).toMatchObject(held);
+    const grant = await post(state, `/cycles/${cycle.id}/control`, {
+      action: 'authorize-remediation',
+      expectedVersion: currentCycle(state, cycle).version,
+      additionalRounds: 1,
+      instructions: '',
+    });
+    expect(grant.statusCode).toBe(409);
+    expect(refusal(grant)).toMatchObject(held);
+    // A new investigation would replace the record, and the change with it.
+    const again = await post(state, `/cycles/${cycle.id}/investigation`, {
+      expectedVersion: currentCycle(state, cycle).version,
+    });
+    expect(again.statusCode).toBe(409);
+    expect(refusal(again)).toMatchObject(held);
+    // The daemon never resets the tree.
+    expect(existsSync(join(f.worktree.path, 'planted.txt'))).toBe(true);
+    // Reminders are not held: the item has news.
+    expect(
+      state.context.services.workCycleService.holdsReminders(state.workspaceId, cycle.id),
+    ).toBe(false);
+
+    const acknowledged = await post(state, `/cycles/${cycle.id}/investigation/acknowledge-change`, {
+      expectedVersion: currentCycle(state, cycle).version,
+    });
+    expect(acknowledged.statusCode, acknowledged.body).toBe(200);
+    expect(
+      workCycleResponseSchema.parse(acknowledged.json()).cycle.investigation?.result,
+    ).toMatchObject({ code: 'worktree-changed', acknowledgedByUserId: state.userId });
+    expect((await presented(state, cycle)).actions).toEqual([
+      'continue-with-guidance',
+      'investigate',
+      'stop',
+    ]);
+    const twice = await post(state, `/cycles/${cycle.id}/investigation/acknowledge-change`, {
+      expectedVersion: currentCycle(state, cycle).version,
+    });
+    expect(twice.statusCode).toBe(409);
+    expect(existsSync(join(f.worktree.path, 'planted.txt'))).toBe(true);
+    const answered = await post(state, `/cycles/${cycle.id}/control`, {
+      action: 'resume',
+      expectedVersion: currentCycle(state, cycle).version,
+      instructions: 'Use JSON lines.',
+    });
+    expect(answered.statusCode, answered.body).toBe(200);
+  });
+
+  it('compares after the agent has exited when End is pressed on a live run, and pages even then', async () => {
+    const f = await atQuestionStop();
+    const { state, cycle } = f;
+    let exit!: () => void;
+    f.script({
+      resultText: report(),
+      release: new Promise<void>(() => {}),
+      exitAfterKill: new Promise<void>((resolve) => {
+        exit = resolve;
+      }),
+    });
+    const started = await investigate(state, cycle);
+    await waitFor(() => launchesReadOnly(f.backend.launches).length === 1, 'investigation launch');
+    const ended = await post(state, `/cycles/${cycle.id}/investigation/end`, {
+      expectedVersion: started.version,
+    });
+    expect(ended.statusCode, ended.body).toBe(200);
+    // The process has not exited: nothing is written, and the stop still waits for it.
+    await stepDaemons(3);
+    expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
+    expect((await presented(state, cycle)).actions).toEqual(['end-investigation']);
+    const refused = await post(state, `/cycles/${cycle.id}/control`, {
+      action: 'resume',
+      expectedVersion: currentCycle(state, cycle).version,
+      instructions: 'Use JSON lines.',
+    });
+    expect(refused.statusCode).toBe(409);
+    // What RC F-7 feared: the agent goes on writing after End, then exits.
+    writeFileSync(join(f.worktree.path, 'after-end.txt'), 'still writing');
+    exit();
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'investigation ended');
+    expect(currentCycle(state, cycle).investigation?.result).toMatchObject({
+      outcome: 'failed',
+      code: 'worktree-changed',
+      message: 'Ended by the operator.',
+      worktreeChange: { parts: ['untracked'], paths: ['after-end.txt'] },
+    });
+    // The operator's own End is no news, but a changed tree is.
+    const id = started.investigation!.id;
+    await waitFor(
+      () => !!stopItem(state, cycle)?.members?.includes(`investigation:${id}:worktree-changed`),
+      'worktree change paged after End',
+    );
+  });
+
+  it('releases the hold once the worktree matches its record again', async () => {
+    let clock = Date.now();
+    const f = await atQuestionStop(() => new Date(clock));
+    const { state, cycle } = f;
+    plantOnReadOnlyLaunch(f);
+    await investigate(state, cycle);
+    await waitFor(
+      () => currentCycle(state, cycle).investigation?.result?.code === 'worktree-changed',
+      'worktree change',
+    );
+    // Still changed: the hold stays however often the controller looks.
+    clock += 20_000;
+    await stepDaemons(2);
+    expect(currentCycle(state, cycle).investigation?.result?.restoredAt).toBeUndefined();
+    rmSync(join(f.worktree.path, 'planted.txt'));
+    clock += 20_000;
+    await waitFor(
+      () => !!currentCycle(state, cycle).investigation?.result?.restoredAt,
+      'worktree restored',
+    );
+    expect((await presented(state, cycle)).actions).toEqual([
+      'continue-with-guidance',
+      'investigate',
+      'stop',
+    ]);
+    expect(stopItem(state, cycle)?.message).toContain('It matches its record again.');
+  });
+
+  it('settles a record without a worktree, started before the check, as before', async () => {
+    const f = await atQuestionStop();
+    const { state, cycle } = f;
+    let release!: () => void;
+    f.script({
+      resultText: report(),
+      release: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    });
+    await investigate(state, cycle);
+    await waitFor(() => launchesReadOnly(f.backend.launches).length === 1, 'investigation launch');
+    const stored = currentCycle(state, cycle);
+    const { worktree: _recorded, ...older } = stored.investigation!;
+    state.context.storage.execution.cycles.replace(
+      { ...stored, investigation: older },
+      stored.version,
+    );
+    writeFileSync(join(f.worktree.path, 'planted.txt'), 'not compared');
+    release();
+    await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'investigation result');
+    const result = currentCycle(state, cycle).investigation!.result!;
+    expect(result).toMatchObject({ outcome: 'finished', findings: [{ question: QUESTION }] });
+    expect(result.code).toBeUndefined();
+    expect((await presented(state, cycle)).actions).toContain('continue-with-guidance');
   });
 });

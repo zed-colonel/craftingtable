@@ -60,8 +60,13 @@ export type Continuation = 'scope-review' | 'remediation' | 'guidance' | 'resume
 export function continuationOf(cycle: WorkCycle): Continuation | undefined {
   const actions = cycle.actions ?? [];
   // A stop that waits on shared decisions is answered there, not here (LIVE-18), and one being
-  // investigated takes no answer until the investigation ends (R-C16).
-  if (actions.includes('open-shared-decisions') || actions.includes('end-investigation'))
+  // investigated takes no answer until the investigation ends, nor one whose worktree changed
+  // while it ran until the change is acknowledged (R-C16).
+  if (
+    actions.includes('open-shared-decisions') ||
+    actions.includes('end-investigation') ||
+    actions.includes('acknowledge-worktree-change')
+  )
     return undefined;
   // A parent or verification review is continued, or reviewed again, with instructions.
   if (cycle.executionScope && cycle.executionScope.kind !== 'slice')

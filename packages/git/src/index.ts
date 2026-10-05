@@ -19,5 +19,6 @@ export type {
   RepositoryIdentity,
   WorktreeDiff,
   WorktreeChanges,
+  WorktreeSnapshot,
 } from './operations.js';
 export { createGitOperations, writeDaemonGitIdentity } from './operations.js';

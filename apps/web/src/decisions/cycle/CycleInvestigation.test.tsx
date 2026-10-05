@@ -542,3 +542,57 @@ it('offers no proposals to a stop that only resumes, and focuses the grant and s
   fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
   expect(document.activeElement).toBe(screen.getByLabelText('Additional review guidance'));
 });
+
+const changed = {
+  ...finished,
+  outcome: 'failed',
+  code: 'worktree-changed',
+  worktreeChange: {
+    parts: ['untracked', 'head'],
+    headBefore: 'a'.repeat(40),
+    headAfter: 'b'.repeat(40),
+    paths: ['planted.txt'],
+  },
+} as NonNullable<NonNullable<WorkCycle['investigation']>['result']>;
+const routed = {
+  reassessments: 0,
+  questions: [{ question: 'Which format should it use?', destination: 'work-item' }],
+} as WorkCycle['workflow'];
+
+it('names a worktree change, takes only its acknowledgement, and shows the proposals without Use (R-C16)', () => {
+  show({ ...base, workflow: routed, investigation: { ...record, result: changed } }, [
+    'acknowledge-worktree-change',
+    'stop',
+  ]);
+  const panel = screen.getByRole('region', { name: 'Investigation' });
+  expect(within(panel).getByRole('alert').textContent).toContain(
+    'The worktree changed while the investigation ran: untracked files, its commit (HEAD aaaaaaaaaaaa → bbbbbbbbbbbb)',
+  );
+  expect(within(panel).getByText('planted.txt')).toBeTruthy();
+  // The proposals are there to read; nothing offers them for use, and no answer form shows.
+  expect(within(panel).getByText('Use JSON lines.')).toBeTruthy();
+  expect(within(panel).queryByRole('button', { name: 'Use proposed answers' })).toBeNull();
+  expect(screen.queryByRole('form', { name: 'Continue with guidance' })).toBeNull();
+  expect(screen.queryByRole('form', { name: 'Investigate these questions' })).toBeNull();
+  fireEvent.click(within(panel).getByRole('button', { name: 'Acknowledge the change' }));
+  expect(posted('/cycles/c1/investigation/acknowledge-change')).toEqual([{ expectedVersion: 3 }]);
+});
+
+it('after an acknowledgement, answers the stop as usual but still never offers those proposals (R-C16)', () => {
+  show(
+    {
+      ...base,
+      workflow: routed,
+      investigation: {
+        ...record,
+        result: { ...changed, acknowledgedAt: '2026-10-02T12:20:00.000Z' },
+      },
+    },
+    ['continue-with-guidance', 'investigate', 'stop'],
+  );
+  const panel = screen.getByRole('region', { name: 'Investigation' });
+  expect(within(panel).getByText(/You acknowledged the change/)).toBeTruthy();
+  expect(within(panel).queryByRole('button', { name: 'Acknowledge the change' })).toBeNull();
+  expect(within(panel).queryByRole('button', { name: 'Use proposed answers' })).toBeNull();
+  expect(screen.getByRole('form', { name: 'Continue with guidance' })).toBeTruthy();
+});

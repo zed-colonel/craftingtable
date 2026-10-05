@@ -178,4 +178,20 @@ describe('investigation actions (R-C16)', () => {
       'end-investigation',
     ]);
   });
+
+  it('accepts only acknowledging a worktree change, or stopping, until it is acknowledged (R-C16)', () => {
+    const changed = { questions: true, live: false, changed: true };
+    for (const stopped of [
+      cycle('needs-attention', 'review-open-questions'),
+      cycle('paused', 'implementation-open-questions'),
+    ])
+      expect(cycleActions(stopped, undefined, true, changed)).toEqual([
+        'acknowledge-worktree-change',
+        'stop',
+      ]);
+    // A cycle no longer at its stop is not held.
+    expect(
+      cycleActions(cycle('running', 'review-open-questions'), undefined, false, changed),
+    ).toEqual(['pause', 'stop']);
+  });
 });

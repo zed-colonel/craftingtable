@@ -71,7 +71,6 @@ import { currentCycleAttention } from './cycle-attention-policy.js';
 import { collectDesignRecovery } from './design-recovery.js';
 import {
   investigationDocuments,
-  investigationHolds,
   investigationLive,
   investigationResult,
   investigationRules,

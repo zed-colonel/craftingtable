@@ -54,8 +54,11 @@ function closed(child) {
 
 // `e2e:start` runs the daemon through tsx, which resolves the workspace packages from their
 // build output: `pnpm check` builds before it tests; a bare `pnpm test` on a fresh checkout
-// skips this until `tsc -b` has run.
-const built = existsSync(new URL('../packages/domain/dist/index.js', import.meta.url));
+// skips this until `tsc -b` has run. Every package must be built: a partial build (one
+// package's own `tsc -b`) would start a daemon that cannot load the rest (R-H3 review).
+const built = ['domain', 'contracts', 'planning', 'storage', 'agents', 'git'].every((name) =>
+  existsSync(new URL(`../packages/${name}/dist/index.js`, import.meta.url)),
+);
 
 // Playwright stops a web server by killing its process group: with SIGKILL unless the config
 // asks for a graceful signal. The e2e daemon keeps its database in a temporary directory that

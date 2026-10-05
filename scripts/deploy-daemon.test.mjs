@@ -14,12 +14,13 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { discoverMigrations, openDatabase, runMigrations } from '@craftingtable/storage';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   dataDirectory,
   drainDaemon,
+  environmentAssignments,
   migrationPreflight,
   timeSpanSeconds,
   unitStopProblems,
@@ -154,23 +155,18 @@ describe('deploy:daemon', () => {
 
 /**
  * The migration preflight (R-H3), on fixture databases only. A release here is what the
- * preflight reads of one: the storage package's build (this checkout's, re-exported) and the
- * release's own migration files, which a test may change.
+ * preflight reads of one: a storage entry point that loads this checkout's migration code from
+ * source through tsx (so no build is needed), and the release's own migration files, which a
+ * test may change.
  */
 describe('deploy:daemon migration preflight (R-H3)', () => {
   const REPOSITORY = fileURLToPath(new URL('..', import.meta.url));
-  const STORAGE_BUILD = join(REPOSITORY, 'packages', 'storage', 'dist', 'index.js');
   const MIGRATIONS = join(REPOSITORY, 'packages', 'storage', 'migrations');
+  const MIGRATION_SOURCE = join(REPOSITORY, 'packages', 'storage', 'src', 'migrations.ts');
+  const SERVER_PACKAGE = join(REPOSITORY, 'apps', 'server', 'package.json');
   const versions = readdirSync(MIGRATIONS)
     .filter((name) => name.endsWith('.sql'))
     .sort();
-
-  beforeAll(() => {
-    // The preflight runs a release's compiled storage package; `pnpm build` makes this one.
-    execFileSync(join(REPOSITORY, 'node_modules', '.bin', 'tsc'), ['-b', 'packages/storage'], {
-      cwd: REPOSITORY,
-    });
-  });
 
   /** The preflight's view of a release into `directory`, its migrations changed by `edit`. */
   function stageRelease(directory, edit = () => {}) {
@@ -178,7 +174,13 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
     mkdirSync(join(storage, 'dist'), { recursive: true });
     writeFileSync(
       join(storage, 'dist', 'index.js'),
-      `export * from ${JSON.stringify(pathToFileURL(STORAGE_BUILD).href)};\n`,
+      [
+        "import { createRequire } from 'node:module';",
+        `const { tsImport } = createRequire(${JSON.stringify(SERVER_PACKAGE)})('tsx/esm/api');`,
+        `const storage = await tsImport(${JSON.stringify(MIGRATION_SOURCE)}, import.meta.url);`,
+        'export const { inspectMigrationStatus, discoverMigrations, MigrationValidationError } = storage;',
+        '',
+      ].join('\n'),
     );
     cpSync(MIGRATIONS, join(storage, 'migrations'), { recursive: true });
     edit(join(storage, 'migrations'));
@@ -249,10 +251,50 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
     });
   });
 
-  it('fails closed on a release that cannot run the check', () => {
+  it('fails closed on a release that cannot run the check, or a check that fails', () => {
+    const data = dataWithDatabase();
     const empty = scratch('craftingtable-release-');
-    expect(migrationPreflight(empty, databaseOf(dataWithDatabase()))).toMatchObject({
+    expect(migrationPreflight(empty, databaseOf(data))).toMatchObject({
       outcome: 'unavailable',
+    });
+    // The check starts and throws: a migration file it cannot read as one.
+    const misnamed = stageRelease(scratch('craftingtable-release-'), (directory) =>
+      writeFileSync(join(directory, 'not-a-migration.sql'), ''),
+    );
+    expect(migrationPreflight(misnamed, databaseOf(data))).toMatchObject({
+      outcome: 'unavailable',
+      message: expect.stringContaining('Invalid migration filename: not-a-migration.sql'),
+    });
+    // The check's process dies, or answers in a shape that is not the check's.
+    for (const body of ['process.exit(3);\n', "process.stdout.write('null\\n');\n"]) {
+      const broken = stageRelease(scratch('craftingtable-release-'));
+      writeFileSync(join(broken, 'packages', 'storage', 'dist', 'index.js'), body);
+      expect(migrationPreflight(broken, databaseOf(data))).toMatchObject({
+        outcome: 'unavailable',
+      });
+    }
+    // A database file SQLite cannot read.
+    const corrupt = scratch('craftingtable-deploy-data-');
+    mkdirSync(join(corrupt, 'state'));
+    writeFileSync(databaseOf(corrupt), 'not a database'.repeat(100));
+    expect(
+      migrationPreflight(stageRelease(scratch('craftingtable-release-')), databaseOf(corrupt)),
+    ).toMatchObject({ outcome: 'unavailable', message: expect.stringContaining('not a database') });
+  });
+
+  it("reads the unit's environment as systemd does: quotes removed, later files winning", () => {
+    expect(
+      environmentAssignments([
+        'CRAFTINGTABLE_DATA_DIR="/mnt/x y"',
+        "CRAFTINGTABLE_PORT='4600'",
+        '  CRAFTINGTABLE_HOST = 127.0.0.1  ',
+        '# CRAFTINGTABLE_LOG_LEVEL=debug',
+        'OTHER=1',
+      ]),
+    ).toEqual({
+      CRAFTINGTABLE_DATA_DIR: '/mnt/x y',
+      CRAFTINGTABLE_PORT: '4600',
+      CRAFTINGTABLE_HOST: '127.0.0.1',
     });
   });
 
@@ -274,7 +316,16 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
     writeFileSync(join(path, 'VERSION'), 'edited\n');
     editMigration(versions[4])(join(path, 'packages', 'storage', 'migrations'));
     const edited = commit('edited');
-    return { path, older, matching, edited };
+    writeFileSync(join(path, 'VERSION'), 'renamed\n');
+    stageRelease(path, (directory) =>
+      renameSync(
+        join(directory, versions[2]),
+        join(directory, `${versions[2].slice(0, 5)}renamed.sql`),
+      ),
+    );
+    git(['rm', '-q', '--cached', `packages/storage/migrations/${versions[2]}`], path);
+    const renamed = commit('renamed');
+    return { path, older, matching, edited, renamed };
   }
 
   it('stops a deploy whose release does not match the live database before switching current', () => {
@@ -284,7 +335,9 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
     const before = readFileSync(databaseOf(data));
     const first = deploy(source.path, root, [source.matching], data);
     expect(first.status, first.stderr).toBe(0);
-    expect(first.stdout).toContain(`Migrations: schema ${lastVersion}/${lastVersion}`);
+    expect(first.stdout).toContain(
+      `Migrations: ${databaseOf(data)} at schema ${lastVersion}/${lastVersion}`,
+    );
     const refused = deploy(source.path, root, [source.edited], data);
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain('checksum-mismatch');
@@ -299,6 +352,11 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
       failure: 'checksum-mismatch',
       previous: current(root).replace('releases/', ''),
     });
+    // Every ledger code refuses, not only the checksum's.
+    const renamed = deploy(source.path, root, [source.renamed], data);
+    expect(renamed.status).toBe(1);
+    expect(renamed.stderr).toContain('name-mismatch');
+    expect(deployedVersion(root)).toBe('matching');
   });
 
   it('refuses a rollback to a release that cannot read the live database', () => {
@@ -312,6 +370,7 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
     const refused = deploy(source.path, root, ['--rollback'], dataWithDatabase());
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain('unsupported-version');
+    expect(refused.stderr).toContain('pre-migration');
     expect(deployedVersion(root)).toBe('matching');
     expect(log(root).at(-1)).toMatchObject({
       action: 'preflight-refused',
@@ -326,6 +385,23 @@ describe('deploy:daemon migration preflight (R-H3)', () => {
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain('could not check');
     expect(readdirSync(root)).not.toContain('current');
+    // A database SQLite cannot read refuses too.
+    const source = releaseRepository();
+    const corrupt = scratch('craftingtable-deploy-data-');
+    mkdirSync(join(corrupt, 'state'));
+    writeFileSync(databaseOf(corrupt), 'not a database'.repeat(100));
+    const unreadable = deploy(source.path, root, [source.matching], corrupt);
+    expect(unreadable.status).toBe(1);
+    expect(unreadable.stderr).toContain('could not check');
+    // With no database at all there is nothing to check, and that is said.
+    const empty = deploy(
+      source.path,
+      root,
+      [source.matching],
+      scratch('craftingtable-deploy-data-'),
+    );
+    expect(empty.status, empty.stderr).toBe(0);
+    expect(empty.stdout).toContain('Migrations: no database at');
   });
 });
 

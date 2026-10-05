@@ -45,7 +45,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 
@@ -152,7 +152,10 @@ function checkUnit(root) {
         `Set WorkingDirectory=${expected} in its unit file and run systemctl --user daemon-reload.`;
 }
 
-/** CRAFTINGTABLE_* settings from the unit's environment file; empty when unreadable. */
+/**
+ * CRAFTINGTABLE_* settings from the unit's environment files and `Environment=` lines, as
+ * systemd reads them (later ones win, quotes removed); empty when unreadable.
+ */
 function unitEnvironment() {
   const values = {};
   try {
@@ -164,15 +167,27 @@ function unitEnvironment() {
       'EnvironmentFiles',
       '--value',
     ]);
-    const path = files.split(' ')[0];
-    if (path && existsSync(path)) {
-      for (const line of readFileSync(path, 'utf8').split('\n')) {
-        const match = /^\s*(CRAFTINGTABLE_[A-Z_]+)\s*=\s*(\S+)/.exec(line);
-        if (match) values[match[1]] = match[2];
-      }
+    for (const listed of files.split('\n')) {
+      const path = listed.replace(/\s+\(ignore_errors=\w+\)\s*$/, '').trim();
+      if (path && existsSync(path))
+        Object.assign(values, environmentAssignments(readFileSync(path, 'utf8').split('\n')));
     }
+    const inline = run('systemctl', ['--user', 'show', unitName(), '-p', 'Environment', '--value']);
+    Object.assign(values, environmentAssignments(inline.split(/\s+/)));
   } catch {
     // Fall back to the defaults.
+  }
+  return values;
+}
+
+/** `CRAFTINGTABLE_*=value` assignments, with one pair of surrounding quotes removed. */
+export function environmentAssignments(lines) {
+  const values = {};
+  for (const line of lines) {
+    const match = /^\s*(CRAFTINGTABLE_[A-Z_]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!match) continue;
+    const quoted = /^(["'])(.*)\1$/.exec(match[2]);
+    values[match[1]] = quoted ? quoted[2] : match[2];
   }
   return values;
 }
@@ -180,7 +195,9 @@ function unitEnvironment() {
 /** The daemon's data directory, where it watches for a drain request. */
 export function dataDirectory(env = process.env, unit = {}) {
   if (env.CRAFTINGTABLE_DEPLOY_DATA_DIR) return resolve(env.CRAFTINGTABLE_DEPLOY_DATA_DIR);
-  if (unit.CRAFTINGTABLE_DATA_DIR) return unit.CRAFTINGTABLE_DATA_DIR;
+  const named =
+    typeof unit === 'function' ? unit().CRAFTINGTABLE_DATA_DIR : unit.CRAFTINGTABLE_DATA_DIR;
+  if (named) return named;
   return join(env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'craftingtable');
 }
 
@@ -195,17 +212,22 @@ export function databasePath(directory) {
  */
 const PREFLIGHT = `
 const [index, migrations, database] = process.argv.slice(1);
-const storage = await import(index);
 let result;
 try {
-  const status = storage.inspectMigrationStatus(database, storage.discoverMigrations(migrations));
-  result = { outcome: status.pendingVersions.length ? 'pending' : 'current', ...status };
+  const storage = await import(index);
+  try {
+    const status = storage.inspectMigrationStatus(database, storage.discoverMigrations(migrations));
+    result = { outcome: status.pendingVersions.length ? 'pending' : 'current', ...status };
+  } catch (error) {
+    if (!(error instanceof storage.MigrationValidationError)) throw error;
+    result = { outcome: 'mismatch', failure: error.failure, message: error.message };
+  }
 } catch (error) {
-  if (!(error instanceof storage.MigrationValidationError)) throw error;
-  result = { outcome: 'mismatch', failure: error.failure, message: error.message };
+  result = { outcome: 'unavailable', message: String(error?.message ?? error).slice(0, 2000) };
 }
 process.stdout.write(JSON.stringify(result) + '\\n');
 `;
+const PREFLIGHT_OUTCOMES = new Set(['current', 'pending', 'mismatch', 'unavailable']);
 
 /**
  * Whether a release can run on the live database (R-H3), checked before `current` moves:
@@ -235,7 +257,9 @@ export function migrationPreflight(release, database) {
   const line = checked.stdout?.trim().split('\n').at(-1);
   if (checked.status === 0 && line)
     try {
-      return JSON.parse(line);
+      const result = JSON.parse(line);
+      // Only an answer of the check's own shape counts; anything else refuses (R-H3 review).
+      if (PREFLIGHT_OUTCOMES.has(result?.outcome)) return result;
     } catch {
       // Reported below.
     }
@@ -252,17 +276,18 @@ export function migrationPreflight(release, database) {
  * is recorded and leaves `current`, and the daemon running it, as they are.
  */
 function requireMigrationsMatch(root, release, entry, current) {
-  const database = databasePath(dataDirectory(process.env, unitEnvironment()));
+  const database = databasePath(dataDirectory(process.env, unitEnvironment));
   const result = migrationPreflight(join(root, 'releases', release), database);
-  if (
-    result.outcome === 'no-database' ||
-    result.outcome === 'current' ||
-    result.outcome === 'pending'
-  ) {
-    if (result.outcome !== 'no-database')
-      process.stdout.write(
-        `Migrations: schema ${result.currentVersion}/${result.supportedVersion}; pending: ${result.pendingVersions.join(', ') || 'none'}\n`,
-      );
+  if (result.outcome === 'no-database') {
+    // A first deploy has none; a wrongly found data directory would have none either, so it is
+    // said rather than passed in silence (R-H3 review).
+    process.stdout.write(`Migrations: no database at ${database}; nothing to check.\n`);
+    return;
+  }
+  if (result.outcome === 'current' || result.outcome === 'pending') {
+    process.stdout.write(
+      `Migrations: ${database} at schema ${result.currentVersion}/${result.supportedVersion}; pending: ${result.pendingVersions.join(', ') || 'none'}\n`,
+    );
     return;
   }
   record(root, {
@@ -274,10 +299,17 @@ function requireMigrationsMatch(root, release, entry, current) {
     ...(result.failure ? { failure: result.failure } : {}),
   });
   const stays = `${current ?? 'nothing'} stays deployed`;
+  // An older release cannot open a database a newer one migrated: what remains is the copy the
+  // daemon took before migrating.
+  const snapshots =
+    result.failure === 'unsupported-version'
+      ? ` The database was migrated past this release; the copies taken before each migration are in ${join(dirname(database), 'pre-migration')}.`
+      : '';
   throw new Error(
-    result.outcome === 'mismatch'
+    (result.outcome === 'mismatch'
       ? `The live database ${database} does not match ${release}'s migrations (${result.failure}: ${result.message}); ${stays}.`
-      : `${release} could not check the live database ${database} (${result.message}); ${stays}.`,
+      : `${release} could not check the live database ${database} (${result.message}); ${stays}.`) +
+      snapshots,
   );
 }
 
@@ -369,7 +401,7 @@ function unitActive() {
 
 async function drainBeforeRestart(options) {
   if (options.drain === 'none' || !unitActive()) return;
-  const directory = dataDirectory(process.env, unitEnvironment());
+  const directory = dataDirectory(process.env, unitEnvironment);
   process.stdout.write(
     options.drain === 'when-idle'
       ? `Asking the daemon to finish live agent turns before restarting (no new steps start meanwhile)…\n`
@@ -504,6 +536,16 @@ async function deploy(options) {
       throw new Error(
         'The first deploy is not healthy; inspect journalctl --user -u craftingtable.',
       );
+    // The new release may have migrated the database before failing its health check; the
+    // release it replaced might then be unable to open it (R-H3 review). If so, the new release
+    // stays, and the operator decides.
+    try {
+      requireMigrationsMatch(root, current, { automatic: true }, release);
+    } catch (error) {
+      throw new Error(
+        `The new release did not become healthy, and the automatic rollback was refused: ${error.message} Inspect journalctl --user -u craftingtable.`,
+      );
+    }
     switchTo(root, current);
     record(root, { action: 'automatic-rollback', release: current, previous: release });
     const recovered = await restartAndCheck();

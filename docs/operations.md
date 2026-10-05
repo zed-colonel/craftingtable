@@ -174,13 +174,22 @@ holds a bare clone (`repo.git`), one directory per release (`releases/<time>-<co
 installed and built), a `current` symlink and an append-only `deploys.jsonl`. A failed build
 leaves `current` untouched. So does a release whose migrations do not match the live database
 (R-H3): after the build, and before draining or switching, the release's own storage code opens
-the database read-only (`<data>/state/craftingtable.sqlite`, the data directory as for the
-drain below) and compares its migration ledger with the release's migration files. An applied
-migration whose checksum or name differs, or one the release does not know, stops the deploy
-with the ledger's code (`checksum-mismatch`, `name-mismatch`, `unsupported-version`), removes
-the new release, and records `preflight-refused`; the running daemon is not touched. Pending
-migrations are fine: the release applies them when it starts. `--rollback` checks its target
-the same way, since an older release cannot open a database a newer one has migrated. After the restart the command polls `/api/health` (host and port
+the database read-only (`<data>/state/craftingtable.sqlite`, the data directory found as the
+drain finds it: `CRAFTINGTABLE_DEPLOY_DATA_DIR`, then the unit's environment files and
+`Environment=` lines, then the XDG default) and compares its migration ledger with the
+release's migration files. An applied migration whose checksum or name differs, or one the
+release does not know, stops the deploy with the ledger's code (`checksum-mismatch`,
+`name-mismatch`, `unsupported-version`); so does a check that cannot run or cannot read the
+database. A refusal removes the new release, records `preflight-refused`, and leaves the
+running daemon alone. Pending migrations are fine: the release applies them when it starts.
+The command prints the database it checked, or that there was none (a first deploy; anything
+else means the data directory was not found). `--rollback` checks its target the same way,
+since an older release cannot open a database a newer one has migrated; the refusal names the
+pre-migration copies in `<data>/state/pre-migration/`. So does the automatic rollback after a
+failed health check: if the new release migrated the database first, it stays, and the
+command says why. On a stopped daemon's database the read-only open leaves empty `-wal` and
+`-shm` files beside it (SQLite's own; the database's bytes are unchanged).
+After the restart the command polls `/api/health` (host and port
 from the unit's environment file, or `CRAFTINGTABLE_DEPLOY_HEALTH_URL`); if the new release
 does not answer within 90 seconds, it switches back to the previous release and restarts that.
 The five newest releases are kept (`--keep N`). The command asks for confirmation unless given

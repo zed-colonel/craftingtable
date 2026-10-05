@@ -141,6 +141,16 @@ const LEFT_ENTRIES_NAMED = 20;
  * Whether `name` beneath `root` is a directory a run made (TS-H3): its name is one
  * `processTemporaryDirectory` gives, and it is a directory itself, never through a link.
  */
+/** The agents' root's own lock socket (R-G5), which the start sweep leaves unnamed. */
+function isRootLockSocket(root: string, name: string): boolean {
+  if (name !== AGENTS_ROOT_LOCK_FILE) return false;
+  try {
+    return lstatSync(join(root, name)).isSocket();
+  } catch {
+    return false;
+  }
+}
+
 function isRunTemporaryDirectory(root: string, name: string): boolean {
   if (!RUN_TEMPORARY_NAME.test(name)) return false;
   try {
@@ -2238,8 +2248,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     const left: string[] = [];
     for (const name of leftovers) {
       if (isRunTemporaryDirectory(root, name)) this.removeAgentDirectory(join(root, name));
-      // The root's lock where there is no abstract socket namespace (R-G5): the daemon's own.
-      else if (name !== AGENTS_ROOT_LOCK_FILE) left.push(name);
+      // The root's lock where there is no abstract socket namespace (R-G5): the daemon's own
+      // socket, never a file or directory of that name.
+      else if (!isRootLockSocket(root, name)) left.push(name);
     }
     if (left.length > 0)
       this.log.warn(

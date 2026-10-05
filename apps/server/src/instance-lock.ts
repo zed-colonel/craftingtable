@@ -20,12 +20,13 @@ export type InstanceLockResource = 'data-directory' | 'agents-temporary-root';
 
 export class InstanceLockedError extends Error {
   constructor(
-    /** The canonical directory the lock is keyed on. */
-    readonly dataDir: string,
+    /** The canonical directory the lock is keyed on: the data directory or the agents' root. */
+    readonly directory: string,
     readonly holder: InstanceLockHolder | undefined,
     readonly resource: InstanceLockResource = 'data-directory',
   ) {
-    const what = resource === 'data-directory' ? dataDir : `the agents' temporary root ${dataDir}`;
+    const what =
+      resource === 'data-directory' ? directory : `the agents' temporary root ${directory}`;
     super(
       holder === undefined
         ? `Another CraftingTable process is already using ${what}.`
@@ -68,7 +69,9 @@ export async function acquireInstanceLock(
 
 /**
  * Both of a daemon's locks, taken before any database work: its data directory's, then its
- * agents' temporary root's (R-G5). A start sweeps every run-named directory of that root, so a
+ * agents' temporary root's (R-G5). On Linux both are abstract sockets, which are scoped to a
+ * network namespace: a daemon started inside a sandbox with a network namespace of its own is
+ * not refused by them. A start sweeps every run-named directory of that root, so a
  * second daemon on the same root, with a data directory of its own, would remove the first
  * one's live runs' directories. The root's lock refuses it first; the default root, `<data>/t`,
  * differs per data directory. A refused start holds neither lock.
@@ -80,7 +83,16 @@ export async function acquireDaemonLocks(
   const data = await acquireInstanceLock(config.dataDir, platform);
   let root: InstanceLock;
   try {
-    const canonical = canonicalDirectory(config.execution.agentTemporaryRoot);
+    let canonical: string;
+    try {
+      canonical = canonicalDirectory(config.execution.agentTemporaryRoot);
+    } catch (error) {
+      // A root it cannot create (a link to nowhere yet, an unwritable parent) stops the start
+      // with its name, not a bare system error (R-G5 review).
+      throw new Error(
+        `CRAFTINGTABLE_AGENT_TMP_ROOT ${config.execution.agentTemporaryRoot} could not be created: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
+      );
+    }
     root = await acquireLock(
       canonical,
       platform === 'linux'

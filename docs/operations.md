@@ -152,8 +152,11 @@ an exclusive lock on its data directory (an abstract Unix socket on Linux, relea
 kernel the moment the process exits). A second daemon on the same directory, for example a
 stray `pnpm start` in another checkout, exits with a message naming the holder instead of
 marking the live daemon's runs interrupted. It locks its agents' temporary root the same way
-(see below). `pnpm craftingtable db migrate` takes the same
-lock, so stop the daemon before migrating by hand (the daemon also migrates on start).
+(see below). `pnpm craftingtable db migrate` takes the data directory's lock, so stop the
+daemon before migrating by hand (the daemon also migrates on start). An abstract socket is
+scoped to a network namespace: a daemon started inside a sandbox with a network namespace of
+its own (`bwrap --unshare-net`, `unshare -n`, a unit with `PrivateNetwork=`) is not refused
+by either lock.
 
 **The installed daemon** runs from a deploy checkout, never from a development checkout, so
 editing, building or checking out branches there cannot change what it runs. Deploys go
@@ -280,7 +283,12 @@ does not follow, but the sweep's name filter still leaves whatever they hold. Tw
 cannot share one root, since each start would sweep the other's live runs' directories: a
 daemon also locks its agents' temporary root, canonically, as it locks its data directory, and
 a second daemon on the same root exits at start, before its sweep, with a message naming the
-holder (R-G5).
+holder (R-G5). The lock compares roots, not what lies inside them: a root that is a run-named
+directory (12 hex characters) inside another daemon's root would still be swept by that
+daemon's start. Where there is no abstract socket namespace, the lock is a socket
+`.craftingtable-daemon.lock` in the root, which the sweep leaves without naming it. A root the
+daemon cannot create (a link to a directory that does not exist yet, an unwritable parent)
+stops its start with the variable's name.
 
 The daemon runs the checks agents ask for with `ct-check` itself, each in a transient systemd user unit
 (`craftingtable-check-<instance>-<request>.service`) with a read-only file system except the run's own

@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { Section } from '../../components/Section.js';
 import { AgentSelectionsEditor } from '../execution/AgentSelectionsEditor.js';
 import { defaultEffortLabel } from '../execution/ReasoningEffortField.js';
+import { SavedModelNotes } from '../execution/SavedModelNotes.js';
 import { AgentRecommendations } from './AgentRecommendations.js';
 export function WorkspaceProfilesSection({
   profiles,
@@ -65,6 +66,10 @@ export function WorkspaceProfilesSection({
           </tbody>
         </table>
       </div>
+      <SavedModelNotes
+        backends={backends}
+        selections={profiles.map((profile) => [PROFILE_LABELS[profile.role], profile] as const)}
+      />
       <AgentRecommendations />
       {!draft ? (
         <button

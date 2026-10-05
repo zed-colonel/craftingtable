@@ -110,3 +110,20 @@ it('requires scheduling to pause without demanding that current runs be cancelle
   ).toBe(true);
   expect(screen.getByText(/Running agents may finish normally/)).toBeTruthy();
 });
+it("warns about a roadmap's model that left the catalog, without blocking an edit (R-G15)", async () => {
+  const left = { ...selection, model: 'gpt-5.6-terra' };
+  vi.mocked(request).mockResolvedValueOnce({
+    roadmaps: [
+      {
+        ...initial.roadmaps[0],
+        entries: [{ ...entry, selections: { ...entry.selections, review: left } }],
+      },
+    ],
+  });
+  show();
+  expect((await screen.findByRole('note')).textContent).toBe(
+    'Review: gpt-5.6-terra is no longer in Codex’s model list; runs still send it.',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Edit future run profiles' }));
+  expect(screen.getByRole('button', { name: 'Apply to future runs' })).toBeDefined();
+});

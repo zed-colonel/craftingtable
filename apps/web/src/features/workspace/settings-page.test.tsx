@@ -131,3 +131,28 @@ it("offers a reasoning effort for Claude profiles too, defaulting to Claude Code
     reasoningEffort: 'xhigh',
   });
 });
+
+it('warns about a saved model that left the catalog, and still lets the profiles be edited (R-G15)', () => {
+  const onSaveProfiles = vi.fn();
+  render(
+    <SettingsPage
+      workspace={workspace}
+      canEdit={true}
+      busy={false}
+      onRename={vi.fn()}
+      backends={backends}
+      profiles={[
+        ...profiles.slice(0, 2),
+        { role: 'review', backend: 'codex', model: 'gpt-4', permissionMode: 'auto', stored: true },
+      ]}
+      onSaveProfiles={onSaveProfiles}
+    />,
+  );
+  const section = screen.getByRole('region', { name: 'Agent profiles' });
+  expect(within(section).getByRole('note').textContent).toContain(
+    'gpt-4 is no longer in Codex’s model list; runs still send it',
+  );
+  fireEvent.click(within(section).getByRole('button', { name: 'Edit workspace defaults' }));
+  fireEvent.click(within(section).getByRole('button', { name: 'Save workspace defaults' }));
+  expect(onSaveProfiles).toHaveBeenCalledOnce();
+});

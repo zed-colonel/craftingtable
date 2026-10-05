@@ -1672,6 +1672,18 @@ it('applies model-only roadmap choices without expiring accepted saved-plan evid
       })
     ).statusCode,
   ).toBe(409);
+  // A display name is refused when it is applied, naming the catalog's id (R-G15, LIVE-34).
+  const misnamed = await context.app.inject({
+    method: 'POST',
+    url,
+    headers: mutationHeaders(f.state),
+    payload: {
+      ...payload,
+      selections: { ...selections, review: { ...selections.review, model: 'Scripted model' } },
+    },
+  });
+  expect(misnamed.statusCode).toBe(400);
+  expect(misnamed.json().error.message).toContain('"scripted-model"');
 });
 
 it('prepares a decision before gated development, keeps it proposal-only, and binds its report to the exact map', async () => {

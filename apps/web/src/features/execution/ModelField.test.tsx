@@ -85,7 +85,7 @@ it('warns, without blocking, on an id the catalog does not list (R-G15)', () => 
   fireEvent.change(select(), { target: { value: '__custom__' } });
   fireEvent.change(screen.getByLabelText('Model id'), { target: { value: 'gpt-7-preview' } });
   expect(onChange).toHaveBeenLastCalledWith('gpt-7-preview');
-  expect(screen.getByRole('note').textContent).toContain('Not in this agent’s model catalog');
+  expect(screen.getByRole('note').textContent).toContain('Not in this agent’s model list');
 });
 
 it('shows a chosen hidden model, and an unlisted one under Other… (R-G15)', () => {

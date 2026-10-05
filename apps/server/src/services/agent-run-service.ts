@@ -193,14 +193,19 @@ const DRAIN_INTERRUPTED_MESSAGE =
  * since a catalog can lag a release.
  */
 function refuseMisnamedModel(backend: AgentBackend, model: string | undefined): void {
-  if (model === undefined) return;
+  const misnamed = misnamedModel(backend, model);
+  if (misnamed !== undefined)
+    throw new AgentLaunchError('model-misnamed', `${misnamed} Nothing was started.`);
+}
+
+/** What is wrong with a model the backend's catalog lists under another id, if it is. */
+function misnamedModel(backend: AgentBackend, model: string | undefined): string | undefined {
+  if (model === undefined) return undefined;
   const { label, models } = backend.describe();
   const spelling = modelSpelling(models, model);
-  if (spelling.kind === 'misnamed')
-    throw new AgentLaunchError(
-      'model-misnamed',
-      `${label}'s catalog lists ${JSON.stringify(model)} as ${spelling.label}, whose id is ${JSON.stringify(spelling.id)}. Only the id can be sent, so nothing was started.`,
-    );
+  return spelling.kind === 'misnamed'
+    ? `${label}'s catalog lists ${JSON.stringify(model)} as ${spelling.label}, whose id is ${JSON.stringify(spelling.id)}. Only the id can be sent.`
+    : undefined;
 }
 
 function summarise(text: string): string {
@@ -487,6 +492,21 @@ export class AgentRunService {
     return this.backends.has(kind);
   }
 
+  /**
+   * Refuses agent selections an operator submits whose model is a display name, or another
+   * spelling of a catalog id (R-G15, LIVE-34): caught when it is chosen, not at a later launch.
+   * Only what a command submits is checked; a saved selection elsewhere never blocks it.
+   */
+  requireModelIds(
+    selections: Iterable<{ readonly backend: AgentBackendKind; readonly model?: string }>,
+  ): void {
+    for (const selection of selections) {
+      const backend = this.backends.get(selection.backend);
+      const misnamed = backend && misnamedModel(backend, selection.model);
+      if (misnamed !== undefined) throw new ExecutionRequestError('invalid-request', misnamed);
+    }
+  }
+
   backendAvailable(): boolean {
     return this.backends.size > 0;
   }
@@ -522,6 +542,7 @@ export class AgentRunService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
+    this.requireModelIds(profiles);
     const occurredAt = this.now().toISOString();
     this.storage.transaction((tx) => {
       tx.execution.runProfiles.replace({

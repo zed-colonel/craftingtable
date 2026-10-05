@@ -32,6 +32,7 @@ import { CycleSettingsFields } from './CycleSettingsFields.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import type { ProfileEntry } from './handoff.js';
 import { defaultEffortLabel } from './ReasoningEffortField.js';
+import { SavedModelNotes } from './SavedModelNotes.js';
 import { WorkflowStatus } from './WorkflowStatus.js';
 import { Link } from '../../lib/navigation.js';
 import type { WorkspaceId } from '@craftingtable/domain';
@@ -324,6 +325,19 @@ export function CyclePanel({
                 </li>
               ))}
             </ul>
+            <SavedModelNotes
+              backends={backends}
+              selections={[
+                ...(readOnly ? (['review'] as const) : CYCLE_STEPS),
+                ...SPECIALIST_PROFILES,
+              ].map(
+                (purpose) =>
+                  [
+                    PROFILE_LABELS[purpose],
+                    (active.nextAgentSelections ?? agentSelections(active.profiles))[purpose],
+                  ] as const,
+              )}
+            />
             <details>
               <summary>Future specialist agents</summary>
               <ul>

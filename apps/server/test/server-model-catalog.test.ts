@@ -3,6 +3,7 @@ import {
   executionStatusResponseSchema,
   startAgentRunResponseSchema,
 } from '@craftingtable/contracts';
+import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MODEL_CATALOG_REFRESH_MS,
@@ -15,6 +16,7 @@ import {
   cycleProfiles,
   designDone,
   mutationHeaders,
+  implementationDone,
   startCycle,
   waitFor,
 } from './execution-test-support.js';
@@ -27,18 +29,26 @@ const CATALOG = [
   { id: 'gpt-5.5', label: 'GPT-5.5', section: 'main', hidden: true },
 ];
 
-it("stops a cycle before launch when its model is a catalog entry's display name (LIVE-34)", async () => {
-  const { state, backend, worktree } = await cycleFixture([designDone]);
-  backend.models = CATALOG;
+it("stops a cycle before launch when its saved model became a catalog entry's display name (LIVE-34)", async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone, implementationDone]);
+  // A refresh while the design runs learns the model, under its id.
+  backend.onLaunch = () => {
+    backend.models = CATALOG;
+  };
+  // Saved while the catalog did not list the model: unlisted models are sent as typed.
   const cycle = await startCycle(state, worktree.id, {
-    profiles: { ...cycleProfiles, design: { ...cycleProfiles.design, model: 'GPT-6.1-Sol' } },
+    profiles: {
+      ...cycleProfiles,
+      implement: { ...cycleProfiles.implement, model: 'GPT-6.1-Sol' },
+    },
   });
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'typed stop');
   const stopped = currentCycle(state, cycle);
   expect(stopped.attention?.code).toBe('agent-model-misnamed');
-  // The stop names the id to choose; nothing reached the agent.
+  expect(stopped.step).toBe('implement');
+  // The stop names the id to choose; only the design reached the agent.
   expect(stopped.reason).toContain('gpt-6.1-sol');
-  expect(backend.launches).toHaveLength(0);
+  expect(backend.launches.map((request) => request.model)).toEqual(['design-model']);
   const run = state.context.storage.execution.runs.find(
     state.workspaceId,
     stopped.currentRunId ?? '',
@@ -47,6 +57,49 @@ it("stops a cycle before launch when its model is a catalog entry's display name
   expect(
     state.context.storage.attention.open(state.workspaceId).map((item) => item.code),
   ).toContain('agent-model-misnamed');
+});
+
+it('refuses a display name when a cycle starts or profiles are saved, naming the id (LIVE-34)', async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone]);
+  backend.models = CATALOG;
+  const started = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/cycles`,
+    headers: mutationHeaders(state),
+    payload: {
+      worktreeId: worktree.id,
+      profiles: { ...cycleProfiles, review: { ...cycleProfiles.review, model: 'GPT-6.1-Sol' } },
+      policy: DEFAULT_COMPLETION_POLICY,
+    },
+  });
+  expect(started.statusCode).toBe(400);
+  expect(started.json().error.message).toContain('"gpt-6.1-sol"');
+  expect(backend.launches).toHaveLength(0);
+  const saved = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/run-profiles`,
+    headers: mutationHeaders(state),
+    payload: {
+      profiles: [
+        { role: 'review', backend: 'claude-code', model: 'gpt-6.1-SOL', permissionMode: 'auto' },
+      ],
+    },
+  });
+  expect(saved.statusCode).toBe(400);
+  expect(saved.json().error.message).toContain('"gpt-6.1-sol"');
+  // An unlisted id and a hidden one are saved as typed.
+  const kept = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/run-profiles`,
+    headers: mutationHeaders(state),
+    payload: {
+      profiles: [
+        { role: 'review', backend: 'claude-code', model: 'gpt-7-preview', permissionMode: 'auto' },
+        { role: 'design', backend: 'claude-code', model: 'gpt-5.5', permissionMode: 'auto' },
+      ],
+    },
+  });
+  expect(kept.statusCode, kept.body).toBe(200);
 });
 
 it('refuses a manual run whose model is another spelling of a catalog id, and launches the id (LIVE-34)', async () => {

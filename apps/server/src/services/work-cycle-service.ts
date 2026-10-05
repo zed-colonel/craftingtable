@@ -220,6 +220,12 @@ export class WorkCycleService {
         );
     }
   }
+  /** A submitted model must be a catalog id, not a display name (R-G15, LIVE-34). */
+  requireModelIds(
+    selections: Iterable<import('@craftingtable/domain').AgentSelection | undefined>,
+  ): void {
+    this.runs.requireModelIds([...selections].filter((selection) => selection !== undefined));
+  }
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
   private readonly ending = new Set<string>();
@@ -1146,6 +1152,7 @@ export class WorkCycleService {
 
   validateSettings(input: Pick<StartWorkCycleRequest, 'profiles'>): void {
     this.validateAgentSelections(input.profiles);
+    this.requireModelIds(Object.values(input.profiles));
     if (this.git === undefined)
       throw new ExecutionRequestError('unavailable', 'Git is required for an automated cycle');
   }

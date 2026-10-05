@@ -433,6 +433,7 @@ export class RoadmapService {
     )
       conflict('Select current entries from this roadmap.');
     this.cycles.validateAgentSelections(input.selections);
+    this.cycles.requireModelIds(Object.values(input.selections));
     const assignment = {
       id: randomUUID(),
       entryIds: input.entryIds,
@@ -518,6 +519,7 @@ export class RoadmapService {
       ...entryAgentSelections(old, target.entry).selections,
       investigation: input.profile,
     });
+    this.cycles.requireModelIds([input.profile]);
     this.controlling.add(id);
     try {
       await this.launchPreparation(old, target, input, context, () =>
@@ -823,12 +825,14 @@ export class RoadmapService {
       new Set(input.reviewerRoles).size !== input.reviewerRoles.length
     )
       conflict('Choose reviewer responsibilities declared by this map.');
-    if (input.automation.resolutionProfile)
+    if (input.automation.resolutionProfile) {
       this.cycles.validateAgentSelections({
         ...this.agentSettings(context, workspaceId).roadmaps.find((r) => r.id === id)!.entries[0]!
           .selections,
         conflict: input.automation.resolutionProfile,
       });
+      this.cycles.requireModelIds([input.automation.resolutionProfile]);
+    }
     const { expectedVersion: _version, ...grant } = input;
     return this.view(
       this.change(

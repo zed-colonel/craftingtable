@@ -10,12 +10,14 @@ import {
   CYCLE_STEPS,
   cycleProfilesFromDefaults,
   PROFILE_LABELS,
+  SPECIALIST_PROFILES,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import { request } from '../../lib/api-client.js';
 import { AgentSelectionsEditor } from '../execution/AgentSelectionsEditor.js';
+import { SavedModelNotes } from '../execution/SavedModelNotes.js';
 import { Link } from '../../lib/navigation.js';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useRouteRoadmap } from '../../lib/navigation.js';
@@ -196,6 +198,12 @@ export function RoadmapAgentProfilesPanel({
                     `${PROFILE_LABELS[p]}: ${entries[0]?.selections[p].model ?? 'backend default'} (${entries[0]?.selections[p].reasoningEffort ?? 'local effort'})`,
                 ).join(' · ')}
               </p>
+              <SavedModelNotes
+                backends={backends}
+                selections={[...CYCLE_STEPS, ...SPECIALIST_PROFILES].map(
+                  (purpose) => [PROFILE_LABELS[purpose], entries[0]?.selections[purpose]] as const,
+                )}
+              />
               {entries[0].appliedAt && (
                 <p className="hint">
                   Last applied: {new Date(entries[0].appliedAt).toLocaleString()}

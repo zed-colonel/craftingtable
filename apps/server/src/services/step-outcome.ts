@@ -471,7 +471,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
   if (ended?.payload.reason === 'agent-model-misnamed')
     return attention(
       'agent-model-misnamed',
-      `The agent was not started because its model is not named by its id. ${ended.payload.message ?? ''} Choose the model by its id in the agent profiles, then resume.`.replace(
+      `The agent was not started because its model is not named by its id. ${ended.payload.message ?? ''} Choose the id in the roadmap's agent profiles, then resume; a cycle started on its own keeps the agents it started with, so stop it and start it again with the id.`.replace(
         /\s+/g,
         ' ',
       ),

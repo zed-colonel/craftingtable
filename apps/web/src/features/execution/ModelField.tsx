@@ -112,7 +112,7 @@ export function ModelField({
       )}
       {spelling?.kind === 'unlisted' && (
         <p className="warning-state" role="note">
-          Not in this agent’s model catalog. It is sent as typed, so check it is a model id.
+          Not in this agent’s model list. It is sent as typed, so check it is a model id.
         </p>
       )}
     </>

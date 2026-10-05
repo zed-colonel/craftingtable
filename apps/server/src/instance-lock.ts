@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, realpathSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, realpathSync, rmSync } from 'node:fs';
 import { createConnection, createServer, type Server } from 'node:net';
 import { join, resolve } from 'node:path';
 
@@ -37,8 +37,8 @@ export class InstanceLockedError extends Error {
 }
 
 /**
- * The socket file that holds an agents' temporary root's lock where there is no abstract
- * namespace. It lives in the root, beside the run directories, and the start sweep leaves it.
+ * The socket file that holds an agents' temporary root's lock, beside the abstract socket on
+ * Linux. It lives in the root, beside the run directories, and the start sweep leaves it.
  */
 export const AGENTS_ROOT_LOCK_FILE = '.craftingtable-daemon.lock';
 
@@ -49,19 +49,25 @@ export const AGENTS_ROOT_LOCK_FILE = '.craftingtable-daemon.lock';
  * state even though it then fails to listen. The lock is taken before any
  * database work.
  *
- * On Linux it is a listening socket in the abstract namespace, named from the
- * canonical data directory: the kernel releases it the instant the holder dies,
- * so a crash never leaves a stale lock behind. Elsewhere it is a socket file in
- * the state directory, reclaimed when nothing answers on it.
+ * Each lock is a socket file in the directory it locks (the data directory's `state/`), which
+ * a process in any network namespace that sees the directory finds (operator decision
+ * 2026-10-05, R-G5). One nobody answers on was left by a crashed process and is reclaimed. On
+ * Linux the lock is first an abstract socket named from the canonical directory as well: the
+ * kernel releases it the instant the holder dies, so a crash never leaves it stale, and only
+ * its holder reclaims a stale file. An abstract socket is scoped to its network namespace, so
+ * it alone would not refuse a daemon started in a sandbox with one of its own.
  */
 export async function acquireInstanceLock(
   dataDir: string,
   platform: NodeJS.Platform = process.platform,
 ): Promise<InstanceLock> {
   const canonical = canonicalDirectory(dataDir);
-  return acquireLock(
+  const state = join(canonical, 'state');
+  mkdirSync(state, { recursive: true, mode: 0o700 });
+  return acquireDirectoryLock(
     canonical,
-    platform === 'linux' ? abstractAddress('craftingtable', canonical) : socketFile(canonical),
+    'craftingtable',
+    { directory: state, name: 'daemon.lock' },
     'data-directory',
     platform,
   );
@@ -69,9 +75,8 @@ export async function acquireInstanceLock(
 
 /**
  * Both of a daemon's locks, taken before any database work: its data directory's, then its
- * agents' temporary root's (R-G5). On Linux both are abstract sockets, which are scoped to a
- * network namespace: a daemon started inside a sandbox with a network namespace of its own is
- * not refused by them. A start sweeps every run-named directory of that root, so a
+ * agents' temporary root's (R-G5), each taken as `acquireInstanceLock` takes its own, so a
+ * daemon in another network namespace is refused too. A start sweeps every run-named directory of that root, so a
  * second daemon on the same root, with a data directory of its own, would remove the first
  * one's live runs' directories. The root's lock refuses it first; the default root, `<data>/t`,
  * differs per data directory. A refused start holds neither lock.
@@ -93,11 +98,10 @@ export async function acquireDaemonLocks(
         `CRAFTINGTABLE_AGENT_TMP_ROOT ${config.execution.agentTemporaryRoot} could not be created: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
       );
     }
-    root = await acquireLock(
+    root = await acquireDirectoryLock(
       canonical,
-      platform === 'linux'
-        ? abstractAddress('craftingtable-agents', canonical)
-        : join(canonical, AGENTS_ROOT_LOCK_FILE),
+      'craftingtable-agents',
+      { directory: canonical, name: AGENTS_ROOT_LOCK_FILE },
       'agents-temporary-root',
       platform,
     );
@@ -118,41 +122,102 @@ function abstractAddress(prefix: string, canonical: string): string {
   return `\0${prefix}-${createHash('sha256').update(canonical).digest('hex').slice(0, 40)}`;
 }
 
-async function acquireLock(
+/** A socket file named `name` in `directory`. */
+interface SocketFile {
+  readonly directory: string;
+  readonly name: string;
+}
+
+/**
+ * A directory's lock: on Linux its abstract socket, then its socket file; elsewhere its socket
+ * file alone. A refused second part releases the first.
+ */
+async function acquireDirectoryLock(
   canonical: string,
-  address: string,
+  prefix: string,
+  file: SocketFile,
   resource: InstanceLockResource,
   platform: NodeJS.Platform,
+): Promise<InstanceLock> {
+  if (platform !== 'linux') return acquireLock(canonical, file, resource);
+  const abstract = await acquireLock(canonical, abstractAddress(prefix, canonical), resource);
+  let socket: InstanceLock;
+  try {
+    socket = await acquireLock(canonical, file, resource);
+  } catch (error) {
+    await abstract.release();
+    throw error;
+  }
+  return {
+    address: abstract.address,
+    release: async () => {
+      await socket.release();
+      await abstract.release();
+    },
+  };
+}
+
+/**
+ * Listens on `target`: an abstract address, or a socket file. A socket file's path may be
+ * longer than the 107 bytes a socket's address holds (test data roots are), so on Linux it is
+ * named through an open descriptor of its directory, `/proc/self/fd/<n>/<name>`, which the
+ * kernel resolves to the same file.
+ */
+async function acquireLock(
+  canonical: string,
+  target: string | SocketFile,
+  resource: InstanceLockResource,
 ): Promise<InstanceLock> {
   const holder: InstanceLockHolder = {
     pid: process.pid,
     startedAt: new Date().toISOString(),
     cwd: process.cwd(),
   };
+  let descriptor: number | undefined;
+  let address: string;
+  if (typeof target === 'string') address = target;
+  else if (existsSync('/proc/self/fd')) {
+    descriptor = openSync(target.directory, 'r');
+    address = `/proc/self/fd/${descriptor}/${target.name}`;
+  } else address = join(target.directory, target.name);
+  const closeDescriptor = () => {
+    if (descriptor !== undefined) closeSync(descriptor);
+    descriptor = undefined;
+  };
   const server = createServer((socket) => {
     socket.end(`${JSON.stringify(holder)}\n`);
   });
   server.unref();
   try {
-    await listen(server, address);
+    try {
+      await listen(server, address);
+    } catch (error) {
+      if (!isAddressInUse(error)) throw error;
+      const current = await askHolder(address);
+      // An abstract address is never stale; a socket file nobody answers on was left by a
+      // crashed process.
+      if (current !== 'no-answer' || typeof target === 'string')
+        throw new InstanceLockedError(
+          canonical,
+          current === 'no-answer' ? undefined : current,
+          resource,
+        );
+      rmSync(address, { force: true });
+      await listen(server, address);
+    }
   } catch (error) {
-    if (!isAddressInUse(error)) throw error;
-    const current = await askHolder(address);
-    if (current !== 'no-answer' || platform === 'linux')
-      throw new InstanceLockedError(
-        canonical,
-        current === 'no-answer' ? undefined : current,
-        resource,
-      );
-    // A socket file nobody answers on was left by a crashed process.
-    rmSync(address, { force: true });
-    await listen(server, address);
+    closeDescriptor();
+    throw error;
   }
   return {
     address,
     release: () =>
       new Promise<void>((done) => {
-        server.close(() => done());
+        // Closing unlinks a socket file, through the descriptor still open.
+        server.close(() => {
+          closeDescriptor();
+          done();
+        });
       }),
   };
 }
@@ -161,12 +226,6 @@ function canonicalDirectory(dataDir: string): string {
   const absolute = resolve(dataDir);
   mkdirSync(absolute, { recursive: true, mode: 0o700 });
   return realpathSync(absolute);
-}
-
-function socketFile(canonical: string): string {
-  const state = join(canonical, 'state');
-  mkdirSync(state, { recursive: true, mode: 0o700 });
-  return join(state, 'daemon.lock');
 }
 
 function listen(server: Server, address: string): Promise<void> {

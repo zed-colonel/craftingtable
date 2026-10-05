@@ -148,15 +148,18 @@ directory (for example `pnpm craftingtable:dev admin bootstrap --username <name>
 Set `CRAFTINGTABLE_DATA_DIR`/`CRAFTINGTABLE_PORT` to override either.
 
 **One daemon per data directory.** At start, before touching the database, a daemon takes
-an exclusive lock on its data directory (an abstract Unix socket on Linux, released by the
-kernel the moment the process exits). A second daemon on the same directory, for example a
-stray `pnpm start` in another checkout, exits with a message naming the holder instead of
-marking the live daemon's runs interrupted. It locks its agents' temporary root the same way
-(see below). `pnpm craftingtable db migrate` takes the data directory's lock, so stop the
-daemon before migrating by hand (the daemon also migrates on start). An abstract socket is
-scoped to a network namespace: a daemon started inside a sandbox with a network namespace of
-its own (`bwrap --unshare-net`, `unshare -n`, a unit with `PrivateNetwork=`) is not refused
-by either lock.
+an exclusive lock on its data directory: a Unix socket file, `<data>/state/daemon.lock`, and
+on Linux first an abstract socket as well, which the kernel releases the moment the process
+exits. A second daemon on the same directory, for example a stray `pnpm start` in another
+checkout, exits with a message naming the holder instead of marking the live daemon's runs
+interrupted. It locks its agents' temporary root the same way (see below). The socket file
+refuses a daemon in any network namespace that sees the directory, so one started inside a
+sandbox with a network namespace of its own (`bwrap --unshare-net`, `unshare -n`, a unit with
+`PrivateNetwork=`) is refused too; the abstract socket alone would not have refused it. A
+socket file left by a killed daemon answers nobody and is reclaimed by the next start, which
+already holds the abstract socket. `pnpm craftingtable db migrate` takes the data
+directory's lock, so stop the daemon before migrating by hand (the daemon also migrates on
+start).
 
 **The installed daemon** runs from a deploy checkout, never from a development checkout, so
 editing, building or checking out branches there cannot change what it runs. Deploys go
@@ -294,8 +297,8 @@ daemon also locks its agents' temporary root, canonically, as it locks its data 
 a second daemon on the same root exits at start, before its sweep, with a message naming the
 holder (R-G5). The lock compares roots, not what lies inside them: a root that is a run-named
 directory (12 hex characters) inside another daemon's root would still be swept by that
-daemon's start. Where there is no abstract socket namespace, the lock is a socket
-`.craftingtable-daemon.lock` in the root, which the sweep leaves without naming it. A root the
+daemon's start. The root's socket file is `.craftingtable-daemon.lock` in the root, which the
+sweep leaves without naming it. A root the
 daemon cannot create (a link to a directory that does not exist yet, an unwritable parent)
 stops its start with the variable's name.
 

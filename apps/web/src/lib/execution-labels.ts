@@ -1,4 +1,4 @@
-import type { MergeGate } from '@craftingtable/contracts';
+import type { ExecutionStatusResponse, MergeGate } from '@craftingtable/contracts';
 import type {
   AgentBillingSource,
   AgentPermissionMode,
@@ -6,6 +6,7 @@ import type {
   AgentRunStatus,
   AgentRunVerdict,
   CycleStatus,
+  ModelCatalogIssue,
 } from '@craftingtable/domain';
 
 /**
@@ -122,4 +123,26 @@ export function formatElapsed(fromIso: string, toIso: string | undefined, now: n
   if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
+}
+
+/** Why a CLI's model catalog was not fully read, by its code (R-G15). */
+export const MODEL_CATALOG_ISSUE_LABELS: Readonly<Record<ModelCatalogIssue, string>> = {
+  'catalog-missing': 'the CLI has written no model catalog',
+  'catalog-unreadable': 'its model catalog could not be read',
+  'catalog-format-unsupported': 'its model catalog is in a format this release does not read',
+  'catalog-empty': 'its model catalog lists no model',
+  'catalog-request-failed': 'the CLI did not list its models',
+  'cli-version-unknown': "the CLI's version could not be read, so newer models are left out",
+};
+
+/** Where a backend's models come from, for the tool status (R-G15). */
+export function modelCatalogSummary(backend: ExecutionStatusResponse['backends'][number]): string {
+  const count = backend.models.filter((model) => !model.hidden).length;
+  const { source, listedAt, issue } = backend.catalog;
+  const problem = issue === undefined ? '' : `; ${MODEL_CATALOG_ISSUE_LABELS[issue]}`;
+  if (source === 'environment') return `${count} set by the daemon's environment`;
+  if (source === 'fallback')
+    return `Built-in list${problem || '; the catalog has not been read yet'}`;
+  const read = listedAt === undefined ? '' : `, read ${new Date(listedAt).toLocaleString()}`;
+  return `${count} from its catalog${read}${problem}`;
 }

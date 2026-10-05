@@ -146,14 +146,14 @@ for (const mode of ['sequential', 'parallel'] as const) {
           .selectOption('codex');
         await remediation
           .getByRole('combobox', { name: 'Model', exact: true })
-          .selectOption('gpt-6-sol');
+          .selectOption('gpt-6-luna');
         await remediation
           .getByRole('combobox', { name: 'Reasoning effort', exact: true })
           .selectOption('medium');
         await agents.getByRole('button', { name: 'Apply to future runs' }).click();
         await expect(agents.getByRole('status')).toContainText('Applied to future runs');
         await page.reload();
-        await expect(agents.getByText(/Remediation: gpt-6-sol/)).toBeVisible();
+        await expect(agents.getByText(/Remediation: gpt-6-luna/)).toBeVisible();
         await expect
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);

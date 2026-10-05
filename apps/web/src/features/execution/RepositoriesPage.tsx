@@ -5,7 +5,7 @@ import { About } from '../../components/About.js';
 import { PageHeader } from '../../components/PageHeader.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
-import { shortSha } from '../../lib/execution-labels.js';
+import { modelCatalogSummary, shortSha } from '../../lib/execution-labels.js';
 import { RepositoryChecksPanel } from './RepositoryChecksPanel.js';
 
 export function RepositoriesPage({
@@ -16,6 +16,7 @@ export function RepositoriesPage({
   error,
   onRegister,
   onRetire,
+  onRefreshModels,
   checks,
 }: {
   repositories: readonly SourceRepositorySummary[];
@@ -25,6 +26,8 @@ export function RepositoriesPage({
   error?: string;
   onRegister: (input: { rootPath: string; displayName?: string }) => void;
   onRetire: (repositoryId: SourceRepositoryId) => void;
+  /** "Refresh models": the daemon reads each agent CLI's model catalog now (R-G15). */
+  onRefreshModels?: () => void;
   /** Loads and adopts each repository's declared checks (R-G13). */
   checks?: { workspaceId: WorkspaceId; csrfToken: string };
 }) {
@@ -210,6 +213,25 @@ export function RepositoriesPage({
               })),
             ]}
           />
+          <StatusStrip
+            label="Model catalogs"
+            facts={status.backends
+              .filter((backend) => backend.available)
+              .map((backend) => ({
+                label: `${backend.label} models`,
+                value: modelCatalogSummary(backend),
+              }))}
+          />
+          {onRefreshModels && status.backends.some((backend) => backend.available) && (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={onRefreshModels}
+            >
+              Refresh models
+            </button>
+          )}
           {missingTool && (
             <p className="warning-state" role="note">
               A missing tool disables delegation. Set CRAFTINGTABLE_GIT_EXECUTABLE or

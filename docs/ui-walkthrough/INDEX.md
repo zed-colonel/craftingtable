@@ -109,3 +109,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-02-investigate-review-after | `11856dd` | 2026-10-02 | 67 (1 phone only) | 1× |
 | 2026-10-05-worktree-check-before | `35634cf` | 2026-10-05 | 67 (1 phone only) | 1× |
 | 2026-10-05-worktree-check-after | `1cd5f85` | 2026-10-05 | 67 (1 phone only) | 1× |
+| 2026-10-05-2026-10-05-model-catalog-before | `ce8053f` | 2026-10-05 | 67 (1 phone only) | 1× |

@@ -63,6 +63,15 @@ export function loadExecutionStatus(): Promise<ExecutionStatusResponse> {
   return request('/api/execution-status', executionStatusResponseSchema);
 }
 
+/** "Refresh models" (R-G15): the daemon reads each CLI's catalog now. */
+export function refreshModels(csrfToken: string): Promise<ExecutionStatusResponse> {
+  return request(
+    '/api/execution-status/refresh-models',
+    executionStatusResponseSchema,
+    mutation(csrfToken, {}),
+  );
+}
+
 export function loadRepositories(workspaceId: WorkspaceId): Promise<SourceRepositoryListResponse> {
   return request(
     `/api/workspaces/${encode(workspaceId)}/repositories`,

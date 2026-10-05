@@ -1,6 +1,6 @@
 import { RepositoriesPage } from '../../features/execution/RepositoriesPage.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
-import { registerRepository, retireRepository } from '../../lib/execution-api.js';
+import { refreshModels, registerRepository, retireRepository } from '../../lib/execution-api.js';
 import { useQueryStore } from '../../lib/query-store.js';
 import { useCommands } from '../commands.js';
 import { useExecutionStatus, useRepositories } from '../reads.js';
@@ -24,6 +24,11 @@ export function RepositoriesRoute() {
       onRegister={(input) => commands.run(() => registerRepository(workspaceId, input, csrfToken))}
       onRetire={(repositoryId) =>
         commands.run(() => retireRepository(workspaceId, repositoryId, csrfToken))
+      }
+      onRefreshModels={() =>
+        commands.run(async () => {
+          store.set(queryKeys.executionStatus(), await refreshModels(csrfToken));
+        }, 'The models could not be refreshed')
       }
       checks={{ workspaceId, csrfToken }}
     />

@@ -134,6 +134,56 @@ describe('RepositoriesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Register' }));
     expect(onRegister).toHaveBeenCalledWith({ rootPath: '/home/user/src/other' });
   });
+
+  it("reports where each agent's models come from, and refreshes them (R-G15)", () => {
+    const onRefreshModels = vi.fn();
+    const model = (id: string, hidden = false) => ({ id, label: id, section: 'main', hidden });
+    render(
+      <RepositoriesPage
+        repositories={[]}
+        status={{
+          git: { available: true, executable: '/usr/bin/git' },
+          backends: [
+            {
+              kind: 'claude-code',
+              label: 'Claude Code',
+              available: true,
+              models: [model('opus'), model('claude-opus-5-5')],
+              catalog: {
+                source: 'catalog',
+                listedAt: '2026-10-05T16:00:00.000Z',
+                checkedAt: '2026-10-05T17:00:00.000Z',
+                issue: 'catalog-unreadable',
+              },
+            },
+            {
+              kind: 'codex',
+              label: 'Codex',
+              available: true,
+              models: [model('gpt-6-sol'), model('gpt-5.5', true)],
+              catalog: { source: 'fallback', issue: 'catalog-request-failed' },
+            },
+          ],
+        }}
+        canMutate={false}
+        busy={false}
+        onRegister={vi.fn()}
+        onRetire={vi.fn()}
+        onRefreshModels={onRefreshModels}
+      />,
+    );
+    const catalogs = screen.getByLabelText('Model catalogs');
+    expect(
+      within(catalogs).getByText(
+        /^2 from its catalog, read .*; its model catalog could not be read$/,
+      ),
+    ).toBeDefined();
+    expect(
+      within(catalogs).getByText('Built-in list; the CLI did not list its models'),
+    ).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+    expect(onRefreshModels).toHaveBeenCalledOnce();
+  });
 });
 
 describe('DelegationPanel', () => {

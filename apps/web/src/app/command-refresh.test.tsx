@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { InboxHost } from '../decisions/InboxHost.js';
 import { useWorkItem } from '../features/execution/WorkItemControls.js';
 import { queryKeys } from '../lib/event-invalidations.js';
-import { loadRun } from '../lib/execution-api.js';
+import { loadRun, refreshModels } from '../lib/execution-api.js';
 import { NavigationProvider } from '../lib/navigation.js';
 import { createQueryStore, type QueryStore, QueryStoreProvider } from '../lib/query-store.js';
 import { AccountRoute, HomeRoute } from './pages/AccountRoutes.js';
@@ -84,6 +84,7 @@ vi.mock('../lib/execution-api.js', async (original) => ({
   loadRunProfiles: vi.fn(async () => ({ profiles: [] })),
   saveRunProfiles: vi.fn(async () => ({ profiles: [] })),
   registerRepository: vi.fn(async () => undefined),
+  refreshModels: vi.fn(async () => ({ git: { available: true }, backends: [], refreshed: true })),
   loadWorkItemExecution: vi.fn(async (_ws: string, workItemId: string) => ({
     workItemId,
     worktrees: [{ id: 'tree-1', repositoryId: 'repo' }],
@@ -231,6 +232,17 @@ it('reads the repositories after registering one', async () => {
     (props.repositories!.onRegister as (input: { rootPath: string }) => void)({ rootPath: '/r' }),
   );
   expect(refreshed()).toEqual(named(queryKeys.repositories(ws)));
+});
+
+it('sets the execution status the refresh answered with after "Refresh models" (R-G15)', async () => {
+  inApp(<RepositoriesRoute />);
+  await waitFor(() => expect(props.repositories).toBeDefined());
+  vi.spyOn(store, 'set');
+  await run(() => (props.repositories!.onRefreshModels as () => void)());
+  expect(vi.mocked(refreshModels)).toHaveBeenCalledWith('csrf');
+  expect(vi.mocked(store.set).mock.calls).toEqual([
+    [queryKeys.executionStatus(), { git: { available: true }, backends: [], refreshed: true }],
+  ]);
 });
 
 it('reads the snapshot, projects and agenda after an import', async () => {

@@ -3,14 +3,17 @@ import { join } from 'node:path';
 import { type CrateChecksumAuthority, CratesIoChecksums } from './services/crate-checksums.js';
 import {
   type AgentBackend,
-  CLAUDE_CODE_MODELS,
   ClaudeCodeBackend,
-  CODEX_MODELS,
   CodexBackend,
   parseModelList,
   syncDaemonCargoHome,
 } from '@craftingtable/agents';
-import { AGENT_BACKEND_LABELS, AGENT_BACKENDS, type AgentBackendKind } from '@craftingtable/domain';
+import {
+  AGENT_BACKEND_LABELS,
+  AGENT_BACKENDS,
+  type AgentBackendKind,
+  type AgentModel,
+} from '@craftingtable/domain';
 import {
   createGitOperations,
   type GitOperations,
@@ -116,6 +119,15 @@ export interface ServiceOverrides {
   readonly restartRecovery?: false;
 }
 
+/**
+ * The operator's `CRAFTINGTABLE_{CLAUDE,CODEX}_MODELS`, which replaces a backend's catalog; a
+ * value with no valid entry leaves the catalog in use (R-G15).
+ */
+function operatorModels(value: string | undefined): { models?: readonly AgentModel[] } {
+  const models = parseModelList(value, []);
+  return models.length === 0 ? {} : { models };
+}
+
 export async function createServices(
   storage: CraftingTableStorage,
   config: ServerConfig,
@@ -177,7 +189,7 @@ export async function createServices(
         new ClaudeCodeBackend({
           executable: claude,
           allowEnvironment: config.execution.agentEnvironmentAllow,
-          models: parseModelList(config.execution.claudeModels, CLAUDE_CODE_MODELS),
+          ...operatorModels(config.execution.claudeModels),
         }),
       );
     }
@@ -190,7 +202,7 @@ export async function createServices(
         new CodexBackend({
           executable: codex,
           allowEnvironment: config.execution.agentEnvironmentAllow,
-          models: parseModelList(config.execution.codexModels, CODEX_MODELS),
+          ...operatorModels(config.execution.codexModels),
         }),
       );
     }
@@ -327,6 +339,7 @@ export async function createServices(
         available: backend !== undefined,
         ...(backend === undefined ? {} : { executable: backend.describe().executable }),
         models: backend === undefined ? [] : backend.describe().models,
+        catalog: backend === undefined ? { source: 'fallback' } : backend.describe().catalog,
       };
     }),
   });

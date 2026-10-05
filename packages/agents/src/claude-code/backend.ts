@@ -18,6 +18,8 @@ import {
   claudeUserMessageLine,
   sandboxAllowedWrites,
 } from './arguments.js';
+import { ModelCatalog, type ModelCatalogSnapshot } from '../model-catalog.js';
+import { claudeConfigDirectory, readClaudeModelCatalog, readClaudeVersion } from './catalog.js';
 import { CLAUDE_CODE_MODELS } from './models.js';
 import { ClaudeStreamNormalizer, RAW_LINE_LIMIT_BYTES } from './normalize.js';
 
@@ -32,8 +34,13 @@ export interface ClaudeCodeBackendOptions {
   readonly env?: NodeJS.ProcessEnv;
   /** Further variable names the operator lets through (`CRAFTINGTABLE_AGENT_ENV_ALLOW`). */
   readonly allowEnvironment?: readonly string[];
-  /** Models offered to the operator; defaults to the built-in list. */
+  /**
+   * The operator's own list (`CRAFTINGTABLE_CLAUDE_MODELS`), which replaces the catalog. Without
+   * it, the account's catalog is read (R-G15), and the built-in list is offered until then.
+   */
   readonly models?: readonly AgentModelOption[];
+  /** How long `claude --version` may take while the catalog is read. */
+  readonly catalogTimeoutMs?: number;
 }
 
 /** How Claude Code signs in without the operator's keychain. */
@@ -81,16 +88,39 @@ export function resolveClaudeExecutable(
 
 export class ClaudeCodeBackend implements AgentBackend {
   readonly kind = 'claude-code' as const;
+  private readonly catalog: ModelCatalog;
 
-  constructor(private readonly options: ClaudeCodeBackendOptions) {}
+  constructor(private readonly options: ClaudeCodeBackendOptions) {
+    this.catalog = new ModelCatalog(
+      options.models === undefined ? () => this.readCatalog() : undefined,
+      options.models ?? CLAUDE_CODE_MODELS,
+    );
+  }
 
   describe(): AgentBackendDescriptor {
+    const { models, status } = this.catalog.current();
     return {
       kind: this.kind,
       label: 'Claude Code',
       executable: this.options.executable,
-      models: this.options.models ?? CLAUDE_CODE_MODELS,
+      models,
+      catalog: status,
     };
+  }
+
+  listModels(): Promise<ModelCatalogSnapshot> {
+    return this.catalog.refresh();
+  }
+
+  /** The account's catalog, the one its agents' `CLAUDE_CONFIG_DIR` names (R-G15). */
+  private async readCatalog() {
+    const source = this.options.env ?? process.env;
+    const version = await readClaudeVersion(
+      this.options.executable,
+      agentEnvironment(source, CLAUDE_LOGIN_VARIABLES, this.options.allowEnvironment ?? []),
+      this.options.catalogTimeoutMs ?? 30_000,
+    );
+    return readClaudeModelCatalog(claudeConfigDirectory(source), version);
   }
 
   launch(request: AgentLaunchRequest): Promise<AgentSession> {

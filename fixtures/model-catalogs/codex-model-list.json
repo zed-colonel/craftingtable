@@ -1,0 +1,38 @@
+{
+  "data": [
+    {
+      "id": "gpt-6.1-sol",
+      "model": "gpt-6.1-sol",
+      "displayName": "GPT-6.1-Sol",
+      "description": "Frontier model",
+      "hidden": false,
+      "isDefault": true,
+      "defaultReasoningEffort": "medium",
+      "supportedReasoningEfforts": [{ "reasoningEffort": "medium", "description": "Balanced" }],
+      "upgrade": null
+    },
+    {
+      "id": "gpt-6-luna",
+      "model": "gpt-6-luna",
+      "displayName": "GPT-6-Luna",
+      "description": "Fast model",
+      "hidden": false,
+      "isDefault": false,
+      "defaultReasoningEffort": "low",
+      "supportedReasoningEfforts": [],
+      "upgrade": null
+    },
+    {
+      "id": "gpt-5.5",
+      "model": "gpt-5.5",
+      "displayName": "GPT-5.5",
+      "description": "Earlier model",
+      "hidden": true,
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "supportedReasoningEfforts": [],
+      "upgrade": "gpt-6.1-sol"
+    }
+  ],
+  "nextCursor": null
+}

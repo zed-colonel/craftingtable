@@ -126,13 +126,15 @@ const backends = [
     kind: 'claude-code' as const,
     label: 'Claude Code',
     available: true,
-    models: [{ id: 'fable-fixture', label: 'Fable fixture' }],
+    models: [{ id: 'fable-fixture', label: 'Fable fixture', section: 'main', hidden: false }],
+    catalog: { source: 'catalog' as const },
   },
   {
     kind: 'codex' as const,
     label: 'Codex',
     available: true,
-    models: [{ id: 'astra-fixture', label: 'Astra fixture' }],
+    models: [{ id: 'astra-fixture', label: 'Astra fixture', section: 'main', hidden: false }],
+    catalog: { source: 'catalog' as const },
   },
 ];
 const agentCycle = view.cycle;

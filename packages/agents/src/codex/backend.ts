@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import {
   type AgentBackend,
@@ -7,6 +8,8 @@ import {
   type AgentModelOption,
   type AgentSession,
 } from '../index.js';
+import { ModelCatalog, type ModelCatalogSnapshot } from '../model-catalog.js';
+import { listCodexModels } from './catalog.js';
 import { CODEX_MODELS } from './models.js';
 import { codexIsolationArguments, probeCodexInventory } from './isolation.js';
 import { CodexSession, codexEnvironment } from './session.js';
@@ -19,18 +22,43 @@ export interface CodexBackendOptions {
   readonly allowEnvironment?: readonly string[];
   readonly terminationGraceMs?: number;
   readonly requestTimeoutMs?: number;
+  /**
+   * The operator's own list (`CRAFTINGTABLE_CODEX_MODELS`), which replaces the catalog. Without
+   * it, Codex's catalog is read (R-G15), and the built-in list is offered until then.
+   */
   readonly models?: readonly AgentModelOption[];
+  /** Where the catalog's short-lived app-server runs; no project's configuration should apply. */
+  readonly catalogDirectory?: string;
 }
 export class CodexBackend implements AgentBackend {
   readonly kind = 'codex' as const;
-  constructor(private readonly options: CodexBackendOptions) {}
+  private readonly catalog: ModelCatalog;
+  constructor(private readonly options: CodexBackendOptions) {
+    this.catalog = new ModelCatalog(
+      options.models === undefined
+        ? () =>
+            listCodexModels({
+              executable: options.executable,
+              env: codexEnvironment(options, {}),
+              cwd: options.catalogDirectory ?? tmpdir(),
+              timeoutMs: options.requestTimeoutMs ?? 30000,
+            })
+        : undefined,
+      options.models ?? CODEX_MODELS,
+    );
+  }
   describe(): AgentBackendDescriptor {
+    const { models, status } = this.catalog.current();
     return {
       kind: this.kind,
       label: 'Codex',
       executable: this.options.executable,
-      models: this.options.models ?? CODEX_MODELS,
+      models,
+      catalog: status,
     };
+  }
+  listModels(): Promise<ModelCatalogSnapshot> {
+    return this.catalog.refresh();
   }
   launch(request: AgentLaunchRequest): Promise<AgentSession> {
     if (!isAbsolute(request.cwd) || request.prompt.length === 0) {

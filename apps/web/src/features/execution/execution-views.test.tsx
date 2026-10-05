@@ -107,7 +107,15 @@ describe('RepositoriesPage', () => {
         ]}
         status={{
           git: { available: true, executable: '/usr/bin/git' },
-          backends: [{ kind: 'claude-code', label: 'Claude Code', available: false, models: [] }],
+          backends: [
+            {
+              kind: 'claude-code',
+              label: 'Claude Code',
+              available: false,
+              models: [],
+              catalog: { source: 'catalog' as const },
+            },
+          ],
         }}
         canMutate={true}
         busy={false}
@@ -146,7 +154,8 @@ describe('DelegationPanel', () => {
             kind: 'claude-code',
             label: 'Claude Code',
             available: true,
-            models: [{ id: 'opus', label: 'Opus (current)' }],
+            models: [{ id: 'opus', label: 'Opus (current)', section: 'main', hidden: false }],
+            catalog: { source: 'catalog' as const },
           },
         ]}
         itemCompleted={false}
@@ -219,7 +228,13 @@ describe('DelegationPanel', () => {
         },
       },
       backends: [
-        { kind: 'claude-code' as const, label: 'Claude Code', available: true, models: [] },
+        {
+          kind: 'claude-code' as const,
+          label: 'Claude Code',
+          available: true,
+          models: [],
+          catalog: { source: 'catalog' as const },
+        },
       ],
       itemCompleted: false,
       canMutate: true,
@@ -265,7 +280,15 @@ describe('DelegationPanel', () => {
         worktrees={[worktree]}
         runs={[run({ status: 'running' })]}
         mergeGates={{ 'wt-1': { mergeable: false, reason: 'run-live' } }}
-        backends={[{ kind: 'claude-code', label: 'Claude Code', available: false, models: [] }]}
+        backends={[
+          {
+            kind: 'claude-code',
+            label: 'Claude Code',
+            available: false,
+            models: [],
+            catalog: { source: 'catalog' as const },
+          },
+        ]}
         itemCompleted={false}
         canMutate={true}
         busy={false}
@@ -599,13 +622,15 @@ it('offers per-agent models, resets the model on switch, and marks unavailable a
     kind: 'claude-code' as const,
     label: 'Claude Code',
     available: true,
-    models: [{ id: 'opus', label: 'Opus' }],
+    models: [{ id: 'opus', label: 'Opus', section: 'main', hidden: false }],
+    catalog: { source: 'catalog' as const },
   };
   const codex = {
     kind: 'codex' as const,
     label: 'Codex',
     available: true,
-    models: [{ id: 'gpt-5.6-luna', label: 'Luna' }],
+    models: [{ id: 'gpt-5.6-luna', label: 'Luna', section: 'main', hidden: false }],
+    catalog: { source: 'catalog' as const },
   };
   const view = render(<DelegationPanel {...props} backends={[claude, codex]} />);
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'opus' } });
@@ -632,13 +657,15 @@ const claude = {
   kind: 'claude-code' as const,
   label: 'Claude Code',
   available: true,
-  models: [{ id: 'opus', label: 'Opus' }],
+  models: [{ id: 'opus', label: 'Opus', section: 'main', hidden: false }],
+  catalog: { source: 'catalog' as const },
 };
 const codex = {
   kind: 'codex' as const,
   label: 'Codex',
   available: true,
-  models: [{ id: 'gpt-5.6-luna', label: 'Luna' }],
+  models: [{ id: 'gpt-5.6-luna', label: 'Luna', section: 'main', hidden: false }],
+  catalog: { source: 'catalog' as const },
 };
 const profiles: readonly AgentRunProfileEntry[] = [
   { role: 'design', backend: 'claude-code', permissionMode: 'auto', stored: false },
@@ -1028,7 +1055,8 @@ describe('automated cycle controls', () => {
       kind: 'claude-code' as const,
       label: 'Claude Code',
       available: true,
-      models: [{ id: 'review-model', label: 'Review model' }],
+      models: [{ id: 'review-model', label: 'Review model', section: 'main', hidden: false }],
+      catalog: { source: 'catalog' as const },
     },
   ];
   const profiles = [

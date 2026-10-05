@@ -163,7 +163,17 @@ export class HeldBackend implements AgentBackend {
   failResumes = false;
 
   describe() {
-    return { kind: this.kind, label: 'Held', executable: '/fake/claude', models: [] };
+    return {
+      kind: this.kind,
+      label: 'Held',
+      executable: '/fake/claude',
+      models: [],
+      catalog: { source: 'fallback' as const },
+    };
+  }
+
+  listModels() {
+    return Promise.resolve({ models: [], status: { source: 'fallback' as const } });
   }
 
   launch(request: AgentLaunchRequest): Promise<AgentSession> {

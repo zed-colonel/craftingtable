@@ -9,6 +9,8 @@ import {
   AGENT_RUN_STATUSES,
   AGENT_RUN_VERDICTS,
   type JsonValue,
+  MODEL_CATALOG_ISSUES,
+  MODEL_CATALOG_SOURCES,
   OUTCOME_SUMMARY_LIMIT_BYTES,
   SOURCE_REPOSITORY_STATUSES,
   WORKTREE_STATUSES,
@@ -58,6 +60,22 @@ export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   ]),
 );
 
+/** A model a backend offers, as its CLI's catalog names it (R-G15). */
+export const agentModelSchema = z.strictObject({
+  id: z.string().min(1).max(100),
+  label: z.string().min(1).max(100),
+  section: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/),
+  hidden: z.boolean(),
+});
+
+/** Where a backend's models came from, and how the last look at its catalog went (R-G15). */
+export const modelCatalogStatusSchema = z.strictObject({
+  source: z.enum(MODEL_CATALOG_SOURCES),
+  listedAt: z.iso.datetime().optional(),
+  checkedAt: z.iso.datetime().optional(),
+  issue: z.enum(MODEL_CATALOG_ISSUES).optional(),
+});
+
 export const executionStatusResponseSchema = z.strictObject({
   git: z.strictObject({
     available: z.boolean(),
@@ -70,11 +88,9 @@ export const executionStatusResponseSchema = z.strictObject({
         label: z.string().min(1).max(100),
         available: z.boolean(),
         executable: z.string().optional(),
-        models: z
-          .array(
-            z.strictObject({ id: z.string().min(1).max(100), label: z.string().min(1).max(100) }),
-          )
-          .max(50),
+        /** Hidden models are listed too: still valid ids, kept out of the picker (R-G15). */
+        models: z.array(agentModelSchema).max(100),
+        catalog: modelCatalogStatusSchema,
       }),
     )
     .max(10),

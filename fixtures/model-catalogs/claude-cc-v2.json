@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "fetchedAt": 1791012628875,
+  "staleAt": 1791016066460,
+  "catalog": {
+    "surface": "cc",
+    "config": {
+      "id": "cc",
+      "models": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Opus 5.5",
+          "short_name": "Opus",
+          "description": "For complex work and everyday tasks",
+          "section": "main",
+          "capabilities": { "web_search": true },
+          "thinking": { "type": "effort", "effort_options": [{ "id": "low", "name": "Low" }] },
+          "quick_select": true,
+          "min_claude_code_version": "2.1.280"
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Sonnet 5.5",
+          "short_name": "Sonnet",
+          "section": "main",
+          "quick_select": true
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "name": "Haiku 4.5",
+          "short_name": "Haiku",
+          "section": "main",
+          "quick_select": true
+        },
+        { "id": "claude-opus-5", "name": "Opus 5", "short_name": "Opus", "section": "overflow" },
+        {
+          "id": "claude-next-preview",
+          "name": "Next Preview",
+          "short_name": "Next",
+          "section": "overflow",
+          "min_claude_code_version": "9.0.0"
+        }
+      ],
+      "settings_vocabulary": { "effort_level": { "low": 1, "high": 3 } }
+    },
+    "state": { "id": "cc", "model": "claude-opus-5-5", "selection_source": "global_default" }
+  }
+}

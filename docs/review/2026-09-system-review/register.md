@@ -3105,7 +3105,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G15
 
-**Model pickers from each CLI's own catalog** · Phase P2 (after the review pass, before R-D5) · Effort S-M · Status: open
+**Model pickers from each CLI's own catalog** · Phase P2 (after the review pass, before R-D5) · Effort S-M · Status: partial (discovery; refresh, picker and profiles to follow)
 
 - **Added 2026-10-02** (operator decision) from [LIVE-34](findings/LIVE-live-run-2026-09-25.md#live-34-a-codex-run-failed-because-the-model-pickers-other-field-sent-a-models-display-name-instead-of-its-id).
   - The model lists are written by hand (`packages/agents/src/{claude-code,codex}/models.ts`, or `CRAFTINGTABLE_{CLAUDE,CODEX}_MODELS`), so each release needs a code change.
@@ -3122,6 +3122,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - A model added to a CLI's catalog appears in CraftingTable's picker without a code or configuration change, at the latest by the next refresh.
   - Choosing it sends its id.
   - A typed display name is caught before launch.
+- **Progress (2026-10-05), discovery:**
+  - **Vocabulary** (`packages/domain/src/agent-models.ts`). A model has `id`, `label` (the display name), `section` and `hidden`. A backend's list has a status: `source` (`catalog`, `fallback` or `environment`), `listedAt`, `checkedAt` and a typed `issue` (`catalog-missing`, `catalog-unreadable`, `catalog-format-unsupported`, `catalog-empty`, `catalog-request-failed`, `cli-version-unknown`). `modelSpelling(models, typed)` is the one check: an exact id (hidden or not) is `listed`; a case-insensitive match with an id, then with a display name, is `misnamed` and names the id; anything else is `unlisted`, a warning only.
+  - **`listModels()`** on each backend reads the CLI's catalog again; `describe()` offers what it found. A failed look keeps the list in use and records the issue; the built-in list is used until a catalog is read. `CRAFTINGTABLE_{CLAUDE,CODEX}_MODELS` still replace a list, and then nothing is read (`environment`).
+    - **Claude Code** (`claude-code/catalog.ts`): `<CLAUDE_CONFIG_DIR or ~/.claude>/cache/model-catalog/*-cc.json`, regular files up to 1 MiB, the most recently fetched valid one. Only `version: 2` is read; an entry whose id, name, section or minimum version is malformed makes the whole file unsupported. Entries whose `min_claude_code_version` is above `claude --version` are dropped; if the version cannot be read, every entry naming a minimum is (`cli-version-unknown`). The `opus`, `sonnet` and `haiku` aliases come first, in section `alias`.
+    - **Codex** (`codex/catalog.ts`): a short-lived app-server with the isolation flags (verified on 0.160.0 to start no MCP server for this), `model/list` with `includeHidden`, up to five pages. The thread's model is the entry's `model` slug; `displayName` and `hidden` are required. Any other shape is `catalog-format-unsupported`; an error, exit or timeout is `catalog-request-failed`.
+  - **Caught before launch.** A run whose model `modelSpelling` finds `misnamed` ends before anything starts, with the new exit reason `agent-model-misnamed` and a message naming the id; a cycle stops with the new operator-owned code `agent-model-misnamed` ("Model not named by its id"). Tests: LIVE-34's case (`GPT-6.1-Sol` against a catalog listing `gpt-6.1-sol`) stops a cycle and refuses a manual run with nothing launched, while a hidden id and an unlisted id are sent as typed. Catalog tests read only `fixtures/model-catalogs/` and a fake app-server.
+  - The execution status carries each backend's models with section and hidden, and its catalog status, runtime-validated.
 
 
 ### R-H1

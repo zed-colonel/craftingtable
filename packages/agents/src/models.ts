@@ -1,5 +1,5 @@
 import type { AgentModelOption } from './index.js';
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
+import { MODEL_ID } from './model-catalog.js';
 
 /**
  * Parses `id=Label,id2=Label 2,id3` into model options. Malformed entries are
@@ -21,7 +21,12 @@ export function parseModelList(
       continue;
     }
     const label = rest.join('=').trim();
-    options.push({ id, label: label.length === 0 ? id : label.slice(0, 100) });
+    options.push({
+      id,
+      label: label.length === 0 ? id : label.slice(0, 100),
+      section: 'main',
+      hidden: false,
+    });
   }
   return options.length === 0 ? fallback : options;
 }

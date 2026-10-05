@@ -88,15 +88,18 @@ export async function readCodexLoaded(
 }
 
 /**
- * Asks a short-lived app-server, started with the isolation flags, which MCP servers and user
- * skills the operator's configuration still adds, so the run's app-server can switch them off.
+ * Runs `use` against a short-lived app-server started with the isolation flags, then ends it.
+ * Nothing it says is journaled.
  */
-export async function probeCodexInventory(options: {
-  readonly executable: string;
-  readonly env: NodeJS.ProcessEnv;
-  readonly cwd: string;
-  readonly timeoutMs: number;
-}): Promise<CodexInventory> {
+export async function withCodexAppServer<T>(
+  options: {
+    readonly executable: string;
+    readonly env: NodeJS.ProcessEnv;
+    readonly cwd: string;
+    readonly timeoutMs: number;
+  },
+  use: (rpc: CodexRpc) => Promise<T>,
+): Promise<T> {
   const child = spawnSupervisedProcess({
     executable: options.executable,
     args: ['app-server', '--stdio', ...CODEX_ISOLATION_FLAGS],
@@ -128,13 +131,28 @@ export async function probeCodexInventory(options: {
       capabilities: { experimentalApi: true },
     });
     if (!rpc.write({ method: 'initialized' })) throw new Error('Codex initialization failed');
+    return await use(rpc);
+  } finally {
+    child.terminate();
+    await reading.catch(() => undefined);
+  }
+}
+
+/**
+ * Asks a short-lived app-server, started with the isolation flags, which MCP servers and user
+ * skills the operator's configuration still adds, so the run's app-server can switch them off.
+ */
+export function probeCodexInventory(options: {
+  readonly executable: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly cwd: string;
+  readonly timeoutMs: number;
+}): Promise<CodexInventory> {
+  return withCodexAppServer(options, async (rpc) => {
     const loaded = await readCodexLoaded(rpc, options.cwd);
     return {
       mcpServers: loaded.mcpServers.map((s) => s.name),
       userSkills: loaded.skills.filter((s) => s.scope === 'user').map((s) => s.name),
     };
-  } finally {
-    child.terminate();
-    await reading.catch(() => undefined);
-  }
+  });
 }

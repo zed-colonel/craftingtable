@@ -48,6 +48,9 @@ export const CYCLE_ATTENTION = {
   'restart-session-lost': 'operator',
   // The agent could not start with the tools its posture requires (LIVE-31); nothing ran.
   'agent-environment-unavailable': 'operator',
+  // The step's model is a display name or another spelling of a catalog id (R-G15, LIVE-34);
+  // nothing ran. Choosing the model by its id and resuming is the way on.
+  'agent-model-misnamed': 'operator',
   // Controller and workflow stops.
   'restart-resume': 'operator',
   'controller-error': 'operator',

@@ -28,9 +28,12 @@ export {
   type PinnedCargoManifest,
   cargoManifestDigest,
 } from './pinned-cargo.js';
+import type { ModelCatalogSnapshot } from './model-catalog.js';
 import type {
   AgentBackendKind,
   AgentExitReason,
+  AgentModel,
+  ModelCatalogStatus,
   AgentPermissionMode,
   AgentRunEventKind,
   AgentRunEventPayload,
@@ -129,11 +132,8 @@ export interface AgentSession {
   kill(): void;
 }
 
-export interface AgentModelOption {
-  /** The identifier handed to the backend, an alias or a full model id. */
-  readonly id: string;
-  readonly label: string;
-}
+/** A model the operator can pick: its id is what the backend is sent (R-G15). */
+export type AgentModelOption = AgentModel;
 
 export interface AgentBackendDescriptor {
   readonly kind: AgentBackendKind;
@@ -141,11 +141,18 @@ export interface AgentBackendDescriptor {
   readonly executable: string;
   /** Models the operator can pick from; the backend's own default is always allowed too. */
   readonly models: readonly AgentModelOption[];
+  /** Where `models` came from and how the last look at the CLI's catalog went (R-G15). */
+  readonly catalog: ModelCatalogStatus;
 }
 
 export interface AgentBackend {
   readonly kind: AgentBackendKind;
   describe(): AgentBackendDescriptor;
+  /**
+   * Reads the CLI's own model catalog again (R-G15); `describe()` offers what it found. A
+   * failed read keeps the list in use and says why; an operator's fixed list is not re-read.
+   */
+  listModels(): Promise<ModelCatalogSnapshot>;
   launch(request: AgentLaunchRequest): Promise<AgentSession>;
 }
 
@@ -159,7 +166,12 @@ export class AgentLaunchError extends Error {
       | 'executable-missing'
       | 'spawn-failed'
       | 'invalid-request'
-      | 'environment-unavailable',
+      | 'environment-unavailable'
+      /**
+       * `model-misnamed`: the model is a display name, or another spelling of an id, in the
+       * backend's catalog (R-G15, LIVE-34); found before anything starts.
+       */
+      | 'model-misnamed',
     message: string,
   ) {
     super(message);
@@ -170,11 +182,24 @@ export class AgentLaunchError extends Error {
 export { claudeCodeArguments, claudeUserMessageLine } from './claude-code/arguments.js';
 export { ClaudeCodeBackend, resolveClaudeExecutable } from './claude-code/backend.js';
 export { parseModelList } from './models.js';
-export { CLAUDE_CODE_MODELS } from './claude-code/models.js';
+export {
+  MODEL_CATALOG_LIMIT,
+  ModelCatalog,
+  ModelCatalogError,
+  type ModelCatalogSnapshot,
+  type ModelDiscovery,
+} from './model-catalog.js';
+export { CLAUDE_CODE_ALIASES, CLAUDE_CODE_MODELS } from './claude-code/models.js';
+export {
+  CLAUDE_CATALOG_VERSION,
+  claudeConfigDirectory,
+  readClaudeModelCatalog,
+} from './claude-code/catalog.js';
 export { ClaudeStreamNormalizer } from './claude-code/normalize.js';
 
 export { CodexBackend } from './codex/backend.js';
 export { CODEX_MODELS } from './codex/models.js';
+export { listCodexModels } from './codex/catalog.js';
 export { CodexStreamNormalizer } from './codex/normalize.js';
 
 export { observeRustToolchain } from './local-toolchain.js';

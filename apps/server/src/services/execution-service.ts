@@ -192,7 +192,9 @@ export interface ExecutionStatus {
     readonly label: string;
     readonly available: boolean;
     readonly executable?: string;
-    readonly models: readonly { readonly id: string; readonly label: string }[];
+    readonly models: readonly import('@craftingtable/domain').AgentModel[];
+    /** Where the models came from; a missing backend has none (R-G15). */
+    readonly catalog: import('@craftingtable/domain').ModelCatalogStatus;
   }[];
 }
 

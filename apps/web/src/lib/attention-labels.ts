@@ -36,6 +36,7 @@ export const ATTENTION_CODE_LABELS: Readonly<Record<AttentionItemCode, string>> 
   'review-needs-attention': 'Review needs attention',
   'restart-session-lost': 'Session lost in a restart',
   'agent-environment-unavailable': 'Agent tools unavailable',
+  'agent-model-misnamed': 'Model not named by its id',
   'restart-resume': 'Resume after restart',
   'controller-error': 'Controller error',
   'upstream-transition-undeclared': 'Upstream transition undeclared',

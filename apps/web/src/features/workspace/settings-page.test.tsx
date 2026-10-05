@@ -19,13 +19,15 @@ const backends = [
     kind: 'claude-code' as const,
     label: 'Claude Code',
     available: true,
-    models: [{ id: 'opus', label: 'Opus' }],
+    models: [{ id: 'opus', label: 'Opus', section: 'main', hidden: false }],
+    catalog: { source: 'catalog' as const },
   },
   {
     kind: 'codex' as const,
     label: 'Codex',
     available: true,
-    models: [{ id: 'gpt-5', label: 'GPT-5' }],
+    models: [{ id: 'gpt-5', label: 'GPT-5', section: 'main', hidden: false }],
+    catalog: { source: 'catalog' as const },
   },
 ];
 

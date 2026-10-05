@@ -129,6 +129,11 @@ export const AGENT_EXIT_REASONS = [
    * was missing. Nothing ran.
    */
   'agent-environment-unavailable',
+  /**
+   * The run named its model by another spelling of a catalog id, or by an entry's display name
+   * (R-G15, LIVE-34), found before it started. Nothing ran.
+   */
+  'agent-model-misnamed',
 ] as const;
 export type AgentExitReason = (typeof AGENT_EXIT_REASONS)[number];
 

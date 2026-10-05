@@ -333,6 +333,19 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'agent-environment-unavailable' },
   },
   {
+    name: 'a run refused for a misnamed model stops with that code (R-G15, LIVE-34)',
+    facts: {
+      run: failedRun,
+      ended: endedOf({
+        status: 'failed',
+        reason: 'agent-model-misnamed',
+        message:
+          'Codex\'s catalog lists "GPT-6.1-Sol" as GPT-6.1-Sol, whose id is "gpt-6.1-sol". Only the id can be sent, so nothing was started.',
+      }),
+    },
+    expected: { kind: 'attention', code: 'agent-model-misnamed' },
+  },
+  {
     name: 'a failed run without a known cause needs the operator',
     facts: { run: failedRun, ended: endedOf({ status: 'failed', exitCode: 1 }) },
     expected: { kind: 'attention', code: 'step-incomplete' },

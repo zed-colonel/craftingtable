@@ -37,7 +37,15 @@ function setup(
   wrap: (ui: import('react').ReactElement) => import('react').ReactElement = (ui) => ui,
 ) {
   vi.mocked(loadExecutionStatus).mockResolvedValue({
-    backends: [{ kind: 'codex', label: 'Codex', available: true, models: [] }],
+    backends: [
+      {
+        kind: 'codex',
+        label: 'Codex',
+        available: true,
+        models: [],
+        catalog: { source: 'catalog' as const },
+      },
+    ],
     git: { available: true },
   });
   vi.mocked(loadRunProfiles).mockResolvedValue({

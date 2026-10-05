@@ -41,6 +41,7 @@ import {
   asEventId,
   finalizationProfile,
   isTerminalAgentRunStatus,
+  modelSpelling,
   OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
   PROFILE_INHERITANCE,
@@ -185,6 +186,22 @@ const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
 const SHUTDOWN_GRACE_MS = 10_000;
 const DRAIN_INTERRUPTED_MESSAGE =
   'CraftingTable stopped for a restart while this run was live. A cycle step resumes its session automatically after a clean restart.';
+
+/**
+ * Refuses a model the backend's catalog lists under another id: a display name, or another
+ * spelling of an id (R-G15, LIVE-34). An id the catalog does not list at all is sent as typed,
+ * since a catalog can lag a release.
+ */
+function refuseMisnamedModel(backend: AgentBackend, model: string | undefined): void {
+  if (model === undefined) return;
+  const { label, models } = backend.describe();
+  const spelling = modelSpelling(models, model);
+  if (spelling.kind === 'misnamed')
+    throw new AgentLaunchError(
+      'model-misnamed',
+      `${label}'s catalog lists ${JSON.stringify(model)} as ${spelling.label}, whose id is ${JSON.stringify(spelling.id)}. Only the id can be sent, so nothing was started.`,
+    );
+}
 
 function summarise(text: string): string {
   return truncateUtf8Bytes(text, OUTCOME_SUMMARY_LIMIT_BYTES);
@@ -1823,6 +1840,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         };
         let session: AgentSession;
         try {
+          // A display name, or another spelling of a catalog id, never reaches the CLI (R-G15,
+          // LIVE-34): the run ends before anything starts, and a cycle stops saying which id.
+          refuseMisnamedModel(backend, launch.model);
           session = cycle
             ? await this.launchCycleSession(backend, launch, cycle)
             : controlled
@@ -1854,7 +1874,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
                 // The host lacks the agent's tools; the cycle stops saying so (LIVE-31).
                 ...(error instanceof AgentLaunchError && error.reason === 'environment-unavailable'
                   ? { reason: 'agent-environment-unavailable' as const }
-                  : {}),
+                  : error instanceof AgentLaunchError && error.reason === 'model-misnamed'
+                    ? { reason: 'agent-model-misnamed' as const }
+                    : {}),
               },
             );
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;

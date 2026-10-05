@@ -29,6 +29,7 @@ import type { ExecutionScope } from '@craftingtable/domain';
 import {
   type AgentBackendKind,
   type AgentExitReason,
+  type AgentModel,
   type AgentRunId,
   asPlanBundleId,
   asPlanVersionId,
@@ -210,14 +211,25 @@ export class ScriptedBackend implements AgentBackend {
   readonly sessions: ScriptedSession[] = [];
   repliesForNextRun: ScriptedReply[] = [];
   failNextLaunch = false;
+  /** The backend's catalog; a test sets its own (R-G15). */
+  models: readonly AgentModel[] = [
+    { id: 'scripted-model', label: 'Scripted model', section: 'main', hidden: false },
+  ];
 
   describe() {
     return {
       kind: this.kind,
       label: 'Scripted',
       executable: '/fake/claude',
-      models: [{ id: 'scripted-model', label: 'Scripted model' }],
+      models: this.models,
+      catalog: { source: 'catalog' as const },
     };
+  }
+
+  /** Each look reads `models` as the test last set it. */
+  listModels() {
+    const { models, catalog } = this.describe();
+    return Promise.resolve({ models, status: catalog });
   }
 
   launch(request: AgentLaunchRequest): Promise<AgentSession> {

@@ -52,6 +52,7 @@ const backends = [
     available: true,
     executable: 'claude',
     models: [],
+    catalog: { source: 'catalog' as const },
   },
 ];
 it('only discovers on request, defaults to bounded investigation, and retains guidance after a failed submission', async () => {

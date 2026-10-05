@@ -34,9 +34,10 @@ const backends = [
     label: 'Codex',
     available: true,
     models: [
-      { id: 'gpt-6-sol', label: 'GPT-6 Sol' },
-      { id: 'gpt-6-astra', label: 'GPT-6 Astra' },
+      { id: 'gpt-6-sol', label: 'GPT-6 Sol', section: 'main', hidden: false },
+      { id: 'gpt-6-astra', label: 'GPT-6 Astra', section: 'main', hidden: false },
     ],
+    catalog: { source: 'catalog' as const },
   },
 ];
 function show() {

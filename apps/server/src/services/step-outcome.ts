@@ -78,6 +78,7 @@ export const STEP_ATTENTION_CODES = [
   'review-needs-attention',
   'restart-session-lost',
   'agent-environment-unavailable',
+  'agent-model-misnamed',
 ] as const satisfies readonly CycleAttentionCode[];
 export type StepAttentionCode = (typeof STEP_ATTENTION_CODES)[number];
 
@@ -461,6 +462,16 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     return attention(
       'agent-environment-unavailable',
       `The agent could not start with the tools it needs, so nothing ran. ${ended.payload.message ?? ''} Fix the host, then resume.`.replace(
+        /\s+/g,
+        ' ',
+      ),
+    );
+  // The step's model is a display name or another spelling of a catalog id (R-G15, LIVE-34):
+  // the run ended before it started. The daemon's message names the id to choose.
+  if (ended?.payload.reason === 'agent-model-misnamed')
+    return attention(
+      'agent-model-misnamed',
+      `The agent was not started because its model is not named by its id. ${ended.payload.message ?? ''} Choose the model by its id in the agent profiles, then resume.`.replace(
         /\s+/g,
         ' ',
       ),

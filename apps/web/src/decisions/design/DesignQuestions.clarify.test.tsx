@@ -48,6 +48,7 @@ const backends = [
     available: true,
     executable: 'claude',
     models: [],
+    catalog: { source: 'catalog' as const },
   },
 ];
 const previewFor = (checkpointId: string) =>

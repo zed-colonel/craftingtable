@@ -137,10 +137,6 @@ const RUN_TEMPORARY_NAME = new RegExp(`^[0-9a-f]{${RUN_TEMPORARY_NAME_BYTES * 2}
 /** How many of the entries a start's sweep left it names in its one warning. */
 const LEFT_ENTRIES_NAMED = 20;
 
-/**
- * Whether `name` beneath `root` is a directory a run made (TS-H3): its name is one
- * `processTemporaryDirectory` gives, and it is a directory itself, never through a link.
- */
 /** The agents' root's own lock socket (R-G5), which the start sweep leaves unnamed. */
 function isRootLockSocket(root: string, name: string): boolean {
   if (name !== AGENTS_ROOT_LOCK_FILE) return false;
@@ -151,6 +147,10 @@ function isRootLockSocket(root: string, name: string): boolean {
   }
 }
 
+/**
+ * Whether `name` beneath `root` is a directory a run made (TS-H3): its name is one
+ * `processTemporaryDirectory` gives, and it is a directory itself, never through a link.
+ */
 function isRunTemporaryDirectory(root: string, name: string): boolean {
   if (!RUN_TEMPORARY_NAME.test(name)) return false;
   try {

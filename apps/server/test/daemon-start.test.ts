@@ -75,7 +75,10 @@ it('releases both locks when the runtime fails to start (R-G5)', async () => {
   const config = daemonConfig(directory('cta-'));
   // A database path the storage cannot open: the start fails after taking its locks.
   mkdirSync(config.databasePath, { recursive: true });
-  await expect(startDaemon(config, { logger: false })).rejects.toThrow();
+  // Refused by the storage, after the locks were taken: not by a lock.
+  const failed = await startDaemon(config, { logger: false }).catch((error: unknown) => error);
+  expect(failed).toBeInstanceOf(Error);
+  expect(failed).not.toBeInstanceOf(InstanceLockedError);
   const lock = await acquireDaemonLocks(config);
   await lock.release();
 });

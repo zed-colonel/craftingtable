@@ -109,7 +109,8 @@ const LOG_LEVELS = new Set<ServerConfig['logLevel']>([
   'silent',
 ]);
 
-function dataDirectory(env: NodeJS.ProcessEnv): string {
+/** The daemon's data directory: `CRAFTINGTABLE_DATA_DIR`, or `craftingtable` under the XDG data home. */
+export function dataDirectory(env: NodeJS.ProcessEnv): string {
   const override = env.CRAFTINGTABLE_DATA_DIR;
   if (override !== undefined) {
     if (!isAbsolute(override)) {

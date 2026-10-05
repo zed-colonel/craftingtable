@@ -25,7 +25,8 @@ declare module 'vitest' {
 
 /**
  * Where test daemons keep their data directories (TS-H8): the root `vitest.config.ts` chose
- * once for the run with `chooseTestDataRoot`, the user's runtime tmpfs when there is one.
+ * once for the run with `chooseTestDataRoot`: `CRAFTINGTABLE_TEST_DATA_ROOT`, or the user's
+ * runtime tmpfs when that is not set (R-I2).
  */
 export function testDataRoot(): string {
   const root = inject('testDataRoot');

@@ -3245,7 +3245,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I2
 
-**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: reopened (2026-10-02, operator; was done at 7bb4562, b0a0c0d, d08a143); its done-when met on `review-pass/a-r-i2` (2026-10-02), integrated on `remediation/p2` at 90a0dd1; TS-M13 rebalancing (a template database, two file splits) done on `review-pass/b-ts-m13`, awaiting review and integration
+**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: reopened (2026-10-02, operator; was done at 7bb4562, b0a0c0d, d08a143); its done-when met on `review-pass/a-r-i2` (2026-10-02), integrated on `remediation/p2` at 90a0dd1; TS-M13 rebalancing (a template database, two file splits) done on `review-pass/b-ts-m13`, awaiting review and integration; test daemons' data on the workhorse disk (operator decision 2026-10-05) built 2026-10-05
 
 - **Resolves:** [QA-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-01-server-executiontestts-is-the-whole-critical-path-of-the-unit-suite-and-should-be-split-by-aggregate), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Split server-execution.test.ts by aggregate (runs, merge gate, cycles, roadmaps, finalization, execution scopes) so files run in parallel; use the R-B2 stepping seam to remove wall-clock polling.
@@ -3323,7 +3323,29 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
         - Idle median per commit: tmpfs 0.02 ms, btrfs `~/.cache` 0.7 ms, ext4 workhorse 0.75 ms.
         - With 12 concurrent writers (median / worst p99 / worst max): tmpfs 0.03 / 0.1 / 1.6 ms, btrfs 1.2 / 4.5 / 20 ms, workhorse 1.2 / 5.3 / 14 ms.
         - Neither disk reproduced TS-H8's 1–8 s stalls at this load, so the decision rests on a full `pnpm test` and `pnpm test:e2e` on each location before the switch.
-      - Not yet built.
+      - **Built 2026-10-05.**
+        - **The variable.** `CRAFTINGTABLE_TEST_DATA_ROOT` names the root; the workstation sets it to `/mnt/workhorse/craftingtable-test` in `~/.bashrc`, above the line that ends non-interactive shells, so agents' shells get it too. That directory is a sibling of the live `/mnt/workhorse/craftingtable` (mode 700). `chooseTestDataRoot()` (unit A's chooser, `apps/server/test/e2e/test-data-root.ts`) reads it once per run, as before: `vitest.config.ts` provides the result to every test, and the e2e daemon calls it once at start.
+          - A named root must be an absolute directory this user can write, and must not be, lie inside, or hold the daemon's data directory (`CRAFTINGTABLE_DATA_DIR`, else `$XDG_DATA_HOME/craftingtable`, compared through links: the workstation's default is a link to the live directory). Either refusal stops the run with the variable's name; it never moves elsewhere silently.
+          - Without the variable the old rule applies (`$XDG_RUNTIME_DIR`, then TMPDIR), and the run prints one line saying so and that a confined check cannot see a tmpfs.
+          - `config.ts` exports `dataDirectory` for this; nothing else in production changed.
+        - **Measured before the switch** (`~/.cache/ct-p2-tmp/measure-ri2.sh`; each run a plain `pnpm test` or `pnpm test:e2e` after one `tsc -b`, alternating locations, nothing else of this work running; the live daemon ran throughout):
+
+          | Run | Location | Wall | Vitest duration | Sum of test times | 1-minute load, start → end |
+          |---|---|---|---|---|---|
+          | `pnpm test` 1 | tmpfs | 147.3 s | 146.8 s | 1,796 s | 1.9 → 22.0 |
+          | `pnpm test` 1 | disk | 153.4 s | 152.9 s | 1,891 s | 22.0 → 23.1 |
+          | `pnpm test` 2 | disk | 153.2 s | 152.8 s | 1,879 s | 4.0 → 20.7 |
+          | `pnpm test` 2 | tmpfs | 152.4 s | 151.9 s | 1,873 s | 20.7 → 24.7 |
+          | `pnpm test:e2e` 1 | tmpfs | 174.8 s | 21 + 1 passed (1.6 + 1.3 min) | | 23.1 → 5.0 |
+          | `pnpm test:e2e` 1 | disk | 177.2 s | 21 + 1 passed | | 5.0 → 4.0 |
+          | `pnpm test:e2e` 2 | disk | 177.0 s | 21 + 1 passed | | 24.7 → 5.2 |
+          | `pnpm test:e2e` 2 | tmpfs | 176.9 s | 21 + 1 passed | | 5.2 → 4.3 |
+
+          - Means: `pnpm test` 149.6 s on tmpfs and 153.3 s on the disk (+2.5%), against a 5.1 s spread between the two tmpfs runs alone; `pnpm test:e2e` 175.9 s and 177.1 s (+0.7%). The disk is not meaningfully slower, so **vitest moves too**: one root for both.
+          - Each tmpfs run of `pnpm test` failed exactly one test, the new confined-check test below, as it should there. The first disk run failed one other: `e2e-daemon-shutdown.test.mjs` steered the e2e daemon with `XDG_RUNTIME_DIR`, which the variable now overrides; it sets the variable instead. That failure left one e2e data directory on the disk root (the test stopped before its graceful shutdown), which was removed. No other run left anything there.
+        - **A confined check sees an e2e worktree.** `test-data-root.test.ts` builds an e2e daemon's configuration (`e2eEnvironment`, agents' root in `/tmp`) under the chosen root, puts a file in a worktree under its worktree root, and runs `/bin/sh` in a check unit with the daemon's confinement arguments (`confinedCheckArguments`: the worktree and run directory writable). The check reads the file and writes one beside it. The same daemon data under `$XDG_RUNTIME_DIR` fails: the unit exits with systemd's 200 (it cannot enter its working directory) and writes nothing. On the old chooser, and with the variable unset, the test fails with that 200.
+        - **C's refusals still accept it** (TS-H3, unit C). A new test configures a vitest daemon (default agents' root `<data>/t`), the e2e daemon (agents' root `/tmp/cte-…`) and an agents' root of its own beside them, all under the chosen root; each is accepted. The full disk runs above started every test daemon from it.
+        - **Tests.** `test-data-root.test.ts`: the variable wins over the runtime tmpfs; a relative, absent, file or read-only root throws with the variable's name; a root at, inside or above a data directory (through a link to it, or named by `CRAFTINGTABLE_DATA_DIR`) throws; without the variable the fallback is said, every time; the run's daemons live under the run's root. The four new tests failed on the old chooser.
     - Also noted: the directory is the login session's RAM-backed runtime directory. A daemon killed by SIGKILL leaves its data there until logout, about 100 MB at most in a vitest run.
   - **Done-when met: three consecutive default parallel `pnpm test` runs.** Each was a plain `pnpm test` (default workers, no flags, no serial rerun), on the branch head with the review fixes. Every run had 2,084 tests: 2,083 passed, 1 skipped (`sandbox-real`, which needs a host capability), and 0 failed.
 

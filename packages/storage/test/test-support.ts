@@ -22,9 +22,10 @@ declare module 'vitest' {
 }
 
 /**
- * Where test databases live (TS-H8): the root `vitest.config.ts` chose for the run, on tmpfs
- * when the user's runtime directory can hold it. Every commit fsyncs (`synchronous=FULL`,
- * unchanged), which on a disk TMPDIR stalls for up to seconds under load.
+ * Where test databases live (TS-H8, R-I2): the root `vitest.config.ts` chose for the run,
+ * `CRAFTINGTABLE_TEST_DATA_ROOT` or else the user's runtime tmpfs. Every commit fsyncs
+ * (`synchronous=FULL`, unchanged), which on the encrypted btrfs TMPDIR stalled for up to seconds
+ * under load.
  */
 export function testDataRoot(): string {
   const root = inject('testDataRoot');

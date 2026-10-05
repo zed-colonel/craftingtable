@@ -71,7 +71,11 @@ set one). It prompts twice, prints the database path, keeps your data, and revok
 login sessions.
 
 `pnpm check` is the local gate: format, lint, types, build, unit tests, browser end-to-end
-tests with scripted agents, and the forbidden-scope check.
+tests with scripted agents, and the forbidden-scope check. Test daemons keep their data in
+`CRAFTINGTABLE_TEST_DATA_ROOT`, set in your environment to a directory of its own on a disk,
+beside the daemon's data directory and never inside it, so a confined check can see their
+worktrees. Without it they use `$XDG_RUNTIME_DIR` (tmpfs), where it cannot, and the test
+that shows a confined check reaching an e2e worktree fails.
 
 ## Using it from the couch
 

@@ -3,9 +3,10 @@ import type { openDaemonStorage } from '../../src/persisted-records.js';
 import { initialStorageSettings } from '../../src/services/storage-service.js';
 
 /**
- * The free-space reserve of a test daemon, in GiB (TS-H8). Test daemons keep their data on the
- * user's runtime tmpfs, 10% of RAM by default, where the production default of 5 GiB would
- * refuse their launches; 1 GiB is the smallest reserve the storage settings allow.
+ * The free-space reserve of a test daemon, in GiB (TS-H8). Without a disk root (R-I2), test
+ * daemons keep their data on the user's runtime tmpfs, 10% of RAM by default, where the
+ * production default of 5 GiB would refuse their launches; 1 GiB is the smallest reserve the
+ * storage settings allow.
  */
 export const TEST_DAEMON_RESERVE_GIB = 1;
 

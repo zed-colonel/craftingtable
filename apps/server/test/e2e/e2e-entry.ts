@@ -9,7 +9,8 @@ import { chooseTestDataRoot } from './test-data-root.js';
 
 const E2E_USERNAME = 'e2e-admin';
 const E2E_PASSWORD = 'correct horse battery staple';
-// On tmpfs (TS-H8): a commit's fsync on a disk TMPDIR stalled this daemon for seconds.
+// The run's test data root (R-I2): a disk directory a confined check can see, beside the live
+// data directory, or the runtime tmpfs when none is named.
 const directory = mkdtempSync(join(chooseTestDataRoot(), 'craftingtable-e2e-'));
 // Agents' own short temporary directories (LIVE-31): the data directory's path is too long.
 const agents = mkdtempSync('/tmp/cte-');
@@ -17,7 +18,7 @@ const config = configFromEnv({
   ...e2eEnvironment(directory, process.env),
   CRAFTINGTABLE_AGENT_TMP_ROOT: agents,
 });
-// The tmpfs is small: the e2e daemon takes the test daemons' reserve, not the production 5 GiB.
+// The e2e daemon takes the test daemons' reserve, not the production 5 GiB.
 const seeding = openDaemonStorage(config.databasePath);
 seedTestDaemonStorage(seeding, config);
 seeding.close();

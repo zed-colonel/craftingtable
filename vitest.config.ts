@@ -31,8 +31,8 @@ const testTimeScale = (() => {
     throw new Error(`CRAFTINGTABLE_TEST_TIMEOUT_SCALE must be a positive number, not "${raw}"`);
   return scale;
 })();
-// Where test daemons keep their data (TS-H8): decided once for the whole run, and said when it
-// is not the runtime tmpfs. Tests read it with `testDataRoot()`.
+// Where test daemons keep their data (TS-H8, R-I2): decided once for the whole run, and said
+// when CRAFTINGTABLE_TEST_DATA_ROOT names none. Tests read it with `testDataRoot()`.
 const testDataRoot = chooseTestDataRoot();
 /**
  * One guard per project from one mechanism: a base scaled by `testTimeScale`. `expect.poll`

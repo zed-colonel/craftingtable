@@ -34,12 +34,18 @@ export class InstanceLockedError extends Error {
     readonly directory: string,
     readonly holder: InstanceLockHolder | undefined,
     readonly resource: InstanceLockResource = 'data-directory',
+    /** The lock socket that did not say who holds it, when one did not (R-G5 review). */
+    readonly socket?: string,
   ) {
     const what =
       resource === 'data-directory' ? directory : `the agents' temporary root ${directory}`;
     super(
       holder === undefined
-        ? `Another CraftingTable process is already using ${what}.`
+        ? `Another CraftingTable process is already using ${what}.${
+            socket === undefined
+              ? ''
+              : ` Its lock socket ${socket} did not say who holds it; if no CraftingTable process does, remove it.`
+          }`
         : `Another CraftingTable process (pid ${holder.pid}, started ${holder.startedAt} from ${holder.cwd}) is already using ${what}.`,
     );
     this.name = 'InstanceLockedError';
@@ -61,11 +67,11 @@ export const AGENTS_ROOT_LOCK_FILE = '.craftingtable-daemon.lock';
  *
  * Each lock is a socket file in the directory it locks (`state/daemon.lock.<id>`), which
  * a process in any network namespace that sees the directory finds (operator decision
- * 2026-10-05, R-G5). One nobody answers on was left by a crashed process and is reclaimed. On
- * Linux the lock is first an abstract socket named from the canonical directory as well: the
- * kernel releases it the instant the holder dies, so a crash never leaves it stale, and only
- * its holder reclaims a stale file. An abstract socket is scoped to its network namespace, so
- * it alone would not refuse a daemon started in a sandbox with one of its own.
+ * 2026-10-05, R-G5); `acquireFileLock` says how they are published and removed. On Linux the
+ * lock is first an abstract socket named from the canonical directory as well: the kernel
+ * releases it the instant the holder dies, so a crash never leaves it stale. An abstract socket
+ * is scoped to its network namespace, so it alone would not refuse a daemon started in a
+ * sandbox with one of its own.
  */
 export async function acquireInstanceLock(
   dataDir: string,
@@ -186,7 +192,10 @@ function holderServer(): { server: Server; release: () => Promise<void> } {
     // write error would end the daemon, and an open connection would keep it from closing
     // (R-G5 review).
     socket.on('error', () => socket.destroy());
-    socket.setTimeout(ANSWER_TIMEOUT_MS, () => socket.destroy());
+    // A deadline, not an idle timeout: a client that keeps sending is dropped too.
+    const deadline = setTimeout(() => socket.destroy(), ANSWER_TIMEOUT_MS);
+    deadline.unref();
+    socket.on('close', () => clearTimeout(deadline));
     socket.end(`${JSON.stringify(holder)}\n`);
   });
   server.unref();
@@ -242,6 +251,29 @@ async function acquireFileLock(
   files: SocketFiles,
   resource: InstanceLockResource,
 ): Promise<InstanceLock> {
+  // Two starts that publish together see each other and both withdraw (after a crash, two
+  // starts racing to replace its socket usually do). A withdrawal is retried after a random
+  // pause, so one of them goes ahead; a start refused by a holder that was already there is
+  // not retried (R-G5 review).
+  for (let attempt = 1; ; attempt++) {
+    const outcome = await publishFileLock(canonical, files, resource);
+    if (!(outcome instanceof Withdrawn)) return outcome;
+    if (attempt >= WITHDRAWN_RETRIES) throw outcome.refusal;
+    await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * 90 * attempt));
+  }
+}
+
+/** Withdrawn after publishing: another holder appeared meanwhile. */
+class Withdrawn {
+  constructor(readonly refusal: InstanceLockedError) {}
+}
+const WITHDRAWN_RETRIES = 5;
+
+async function publishFileLock(
+  canonical: string,
+  files: SocketFiles,
+  resource: InstanceLockResource,
+): Promise<InstanceLock | Withdrawn> {
   let descriptor: number | undefined;
   let base = files.directory;
   if (existsSync('/proc/self/fd')) {
@@ -257,21 +289,31 @@ async function acquireFileLock(
   const { server, release } = holderServer();
   let listening = false;
   try {
-    const refuse = async (except?: string) => {
+    const refusal = async (except?: string) => {
       const current = await liveHolder(base, files.prefix, except);
-      if (current !== undefined)
-        throw new InstanceLockedError(
-          canonical,
-          current === 'unknown' ? undefined : current,
-          resource,
-        );
+      if (current === undefined) return undefined;
+      return 'socket' in current
+        ? new InstanceLockedError(
+            canonical,
+            undefined,
+            resource,
+            current.socket.replace(base, files.directory),
+          )
+        : new InstanceLockedError(canonical, current, resource);
     };
-    await refuse();
+    const before = await refusal();
+    if (before) throw before;
     const temporary = join(base, `${files.prefix}-starting.${id}`);
     await listen(server, temporary);
     listening = true;
     renameSync(temporary, join(base, published));
-    await refuse(published);
+    const after = await refusal(published);
+    if (after) {
+      rmSync(join(base, published), { force: true });
+      await release();
+      closeDescriptor();
+      return new Withdrawn(after);
+    }
   } catch (error) {
     if (listening) {
       rmSync(join(base, published), { force: true });
@@ -297,17 +339,22 @@ async function acquireFileLock(
 }
 
 /**
- * The holder of a published socket in `base` that answers, `unknown` for one that does not
- * answer in time, or nothing. A published socket that refuses connections is a holder's that
+ * The holder of a published socket in `base` that answers, the socket that does not say who
+ * holds it (no answer in time, or no holder's answer), or nothing. A published socket that refuses connections is a holder's that
  * ended, and is removed; entries that are not published sockets are left alone.
  */
 async function liveHolder(
   base: string,
   prefix: string,
   except?: string,
-): Promise<InstanceLockHolder | 'unknown' | undefined> {
+): Promise<InstanceLockHolder | { readonly socket: string } | undefined> {
   for (const name of readdirSync(base)) {
-    if (name === except || !name.startsWith(`${prefix}.`)) continue;
+    const published = name.startsWith(`${prefix}.`);
+    // A starter's socket before it is published: one that refuses connections was left by a
+    // starter killed before renaming it, and goes too. A listening one is not a holder yet;
+    // its own second look settles who holds.
+    const starting = name.startsWith(`${prefix}-starting.`);
+    if (name === except || (!published && !starting)) continue;
     const path = join(base, name);
     if (lstatSync(path, { throwIfNoEntry: false })?.isSocket() !== true) continue;
     const answer = await askHolder(path);
@@ -315,7 +362,7 @@ async function liveHolder(
       rmSync(path, { force: true });
       continue;
     }
-    return answer ?? 'unknown';
+    if (published) return answer ?? { socket: path };
   }
   return undefined;
 }

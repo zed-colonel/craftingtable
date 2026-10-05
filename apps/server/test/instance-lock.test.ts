@@ -1,10 +1,12 @@
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import {
+  closeSync,
   existsSync,
   linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
@@ -338,7 +340,10 @@ describe.skipIf(process.platform !== 'linux')('the locks across network namespac
     killed.child.kill('SIGKILL');
     await new Promise((resolve) => killed.child.once('close', resolve));
     expect(lockSockets(root, AGENTS_ROOT_LOCK_FILE)).toHaveLength(1);
+    // A starter killed before publishing left its temporary socket: it goes too.
+    await staleSocket(root, `${AGENTS_ROOT_LOCK_FILE}-starting.0123456789ab`);
     held.push(await acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }));
+    expect(existsSync(join(root, `${AGENTS_ROOT_LOCK_FILE}-starting.0123456789ab`))).toBe(false);
     // Only this holder's socket is left, beside the entries that were never a lock.
     expect(lockSockets(root, AGENTS_ROOT_LOCK_FILE)).toHaveLength(1);
     expect(readFileSync(join(root, `${AGENTS_ROOT_LOCK_FILE}.notes`), 'utf8')).toBe('mine');
@@ -370,7 +375,13 @@ describe.skipIf(process.platform !== 'linux')('the locks across network namespac
     // A client that stays connected must not keep the release from finishing.
     const lingering = createConnection({ path, allowHalfOpen: true });
     lingering.on('error', () => {});
-    await new Promise((resolve) => lingering.once('connect', resolve));
+    // Settles either way, so a holder that died fails the test at once.
+    const connected = await new Promise<boolean>((resolve) => {
+      lingering.once('connect', () => resolve(true));
+      lingering.once('error', () => resolve(false));
+      lingering.once('close', () => resolve(false));
+    });
+    expect(connected).toBe(true);
     expect(await holder.send('release')).toBe('released');
     lingering.destroy();
     expect(holder.child.exitCode).toBeNull();
@@ -386,7 +397,13 @@ describe.skipIf(process.platform !== 'linux')('the locks across network namespac
     // The holder answers nobody while its loop is busy: not an ended holder, so refused.
     await expect(
       acquireDaemonLocks({ dataDir, execution: { agentTemporaryRoot: root } }, 'darwin'),
-    ).rejects.toMatchObject({ resource: 'data-directory', holder: undefined });
+    ).rejects.toMatchObject({
+      resource: 'data-directory',
+      holder: undefined,
+      // Named, so the operator can remove a socket no process holds (review).
+      socket: expect.stringMatching(new RegExp(`^${join(dataDir, 'state')}/daemon\\.lock\\.`)),
+      message: expect.stringContaining('did not say who holds it'),
+    });
     // Its lock stands, and it survives the asker that gave up.
     expect(await busy.send('release')).toBe('released');
   });
@@ -421,16 +438,24 @@ describe.skipIf(process.platform !== 'linux')('the locks across network namespac
       await ours?.release();
     }
     expect(both).toBe(0);
-    // Both refused is the safe outcome of a tie; it stays rare.
-    expect(neither).toBeLessThan(150);
+    // Both withdrawing is the safe outcome of a tie; a withdrawal is retried, so one goes ahead.
+    expect(neither).toBe(0);
   });
 });
 
-/** A socket file in `directory` that nobody listens on, as a killed holder leaves one. */
+/**
+ * A socket file in `directory` that nobody listens on, as a killed holder leaves one; named
+ * through a descriptor of the directory, so its path may be long.
+ */
 async function staleSocket(directory: string, name: string): Promise<void> {
-  const live = join(directory, `${name}.live`);
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(live, resolve));
-  linkSync(live, join(directory, name));
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  const descriptor = openSync(directory, 'r');
+  const base = `/proc/self/fd/${descriptor}`;
+  try {
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(join(base, `${name}.live`), resolve));
+    linkSync(join(base, `${name}.live`), join(base, name));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  } finally {
+    closeSync(descriptor);
+  }
 }

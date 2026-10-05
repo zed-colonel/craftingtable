@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -13,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { asUserId } from '@craftingtable/domain';
 import { afterEach, expect, inject, it } from 'vitest';
+import type { TestProject } from 'vitest/node';
 import { DEFAULT_MIGRATIONS_DIRECTORY, discoverMigrations } from '../src/migrations.js';
 import {
   migratedTemplate,
@@ -21,6 +23,7 @@ import {
   readTemplate,
   templateLedger,
 } from './template-test-support.js';
+import setup from './template-test-support-setup.js';
 import { pidNamespace, sweepEndedRuns } from './test-run-directory.js';
 import { temporaryStorage, testDataRoot } from './test-support.js';
 
@@ -144,8 +147,28 @@ it.skipIf(pidNamespace() === undefined)(
   "names this run's directory, which holds its template, by its PID namespace and process (TS-M13, R-I2)",
   () => {
     expect(inject('testTemplateDirectory')).toBe(join(testDataRoot(), 'template'));
-    expect(testDataRoot().split('/').at(-1)).toMatch(
-      new RegExp(`^ct-run-${pidNamespace()}-\\d+-`),
-    );
+    expect(testDataRoot().split('/').at(-1)).toMatch(new RegExp(`^ct-run-${pidNamespace()}-\\d+-`));
+  },
+);
+
+it.skipIf(pidNamespace() === undefined)(
+  "the node project's setup sweeps ended runs, takes its own run directory, and removes it at teardown (R-I2)",
+  async () => {
+    const root = scratchDirectory(testDataRoot());
+    const ended = join(root, `ct-run-${pidNamespace()}-${2 ** 22 + 1}-AbC123`);
+    mkdirSync(join(ended, 'template'), { recursive: true });
+    const provided = new Map<string, unknown>();
+    const project = {
+      getProvidedContext: () => ({ testDataRoot: root }),
+      provide: (key: string, value: unknown) => provided.set(key, value),
+    } as unknown as TestProject;
+    const teardown = setup(project);
+    const run = provided.get('testDataRoot') as string;
+    expect(existsSync(ended)).toBe(false);
+    expect(run.startsWith(join(root, `ct-run-${pidNamespace()}-${process.pid}-`))).toBe(true);
+    expect(provided.get('testTemplateDirectory')).toBe(join(run, 'template'));
+    expect(readdirSync(join(run, 'template')).length).toBeGreaterThan(0);
+    teardown();
+    expect(readdirSync(root)).toEqual([]);
   },
 );

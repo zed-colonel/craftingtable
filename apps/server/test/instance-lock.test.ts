@@ -7,13 +7,17 @@ import {
   type InstanceLock,
   InstanceLockedError,
 } from '../src/instance-lock.js';
-import { testDataRoot } from './test-support.js';
+/**
+ * Where these tests make their directories: a short base, since the socket-file lock lives in
+ * them and a Unix socket's path holds 107 bytes; no daemon keeps data here (R-I2 review).
+ */
+const SOCKET_BASE = '/tmp';
 
 describe('instance lock', () => {
   const held: InstanceLock[] = [];
   const directories: string[] = [];
   const dataDir = (): string => {
-    const path = mkdtempSync(join(testDataRoot(), 'ctl-'));
+    const path = mkdtempSync(join(SOCKET_BASE, 'ctl-'));
     directories.push(path);
     return path;
   };
@@ -61,7 +65,7 @@ describe("the agents' temporary root lock (R-G5)", () => {
   const held: InstanceLock[] = [];
   const directories: string[] = [];
   const directory = (prefix: string): string => {
-    const path = mkdtempSync(join(testDataRoot(), prefix));
+    const path = mkdtempSync(join(SOCKET_BASE, prefix));
     directories.push(path);
     return path;
   };

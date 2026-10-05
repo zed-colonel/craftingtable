@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
 import config from '../playwright.config.ts';
+import { pidNamespace } from '../packages/storage/test/test-run-directory.ts';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -69,6 +70,10 @@ it.skipIf(!built)('the e2e daemon leaves no data directory when Playwright stops
   expect(daemon).toBeDefined();
   const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-shutdown-'));
   temporary.push(scratch);
+  // A directory an earlier e2e daemon left when it was killed: the start sweeps it (R-I2).
+  const namespace = pidNamespace();
+  const ended = join(scratch, `craftingtable-e2e-${namespace}-${2 ** 22 + 1}-AbC123`);
+  if (namespace !== undefined) mkdirSync(ended);
   const port = await freePort();
   // Started as Playwright starts it: through a shell, in its own process group.
   const child = spawn(daemon.command, {
@@ -87,9 +92,13 @@ it.skipIf(!built)('the e2e daemon leaves no data directory when Playwright stops
   });
   running.push(child);
   await waitForHealth(`http://127.0.0.1:${port}/api/health`, child, Date.now() + 45_000);
-  expect(readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-'))).toHaveLength(
-    1,
-  );
+  const started = readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-'));
+  // Its own directory names its PID namespace and process; the ended run's is gone.
+  expect(started).toHaveLength(1);
+  if (namespace !== undefined) {
+    expect(started[0]).toMatch(new RegExp(`^craftingtable-e2e-${namespace}-${child.pid}-`));
+    expect(existsSync(ended)).toBe(false);
+  }
 
   const graceful = daemon.gracefulShutdown;
   process.kill(-child.pid, graceful?.signal ?? 'SIGKILL');

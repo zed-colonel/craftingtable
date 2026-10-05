@@ -153,9 +153,9 @@ it("sweeps only run directories from the agents' temporary root at a start, and 
 
 it("keeps the root's own lock socket without naming it in the start's warning (R-G5)", async () => {
   // Where there is no abstract socket namespace, the root's lock is a socket file in the root.
-  // Short names: a socket's path holds 107 bytes.
-  const root = mkdtempSync(join(testDataRoot(), 'cta-'));
-  const lockData = mkdtempSync(join(testDataRoot(), 'ctl-'));
+  // A short base: a socket's path holds 107 bytes, more than the run's data root leaves.
+  const root = mkdtempSync('/tmp/cta-');
+  const lockData = mkdtempSync('/tmp/ctl-');
   const lock = await acquireDaemonLocks(
     { dataDir: lockData, execution: { agentTemporaryRoot: root } },
     'darwin',

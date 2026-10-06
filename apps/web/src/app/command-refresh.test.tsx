@@ -1,6 +1,6 @@
 import type { AttentionItemView, WorkspaceOverview } from '@craftingtable/contracts';
 import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { InboxHost } from '../decisions/InboxHost.js';
@@ -450,4 +450,31 @@ it("keeps a work item's last cycles and slices while the view cannot read them",
   expect(item.scopesFailed).toBe(true);
   expect(item.cycles).toEqual(cycles);
   expect(item.scopes).toEqual(scopes);
+});
+
+// R-D5 second re-check: the inbox says a cycle decision's cycles could not be read, as the page
+// does, rather than loading forever or showing them as if current.
+it("says in the inbox when a cycle decision's cycles could not be read", async () => {
+  const good = await vi.mocked(loadWorkItemView)(ws, 'item-1' as never);
+  vi.mocked(loadWorkItemView).mockResolvedValueOnce({
+    ...good,
+    unavailable: ['cycles'],
+  } as never);
+  inApp(
+    <InboxHost
+      item={item({
+        code: 'service-failure-not-retryable',
+        subjectKey: 'cycle:c1',
+        refs: { workItemId: 'item-1', worktreeId: 'tree-1', cycleId: 'c1' } as never,
+      })}
+      attention={[]}
+      workspaceCycles={[]}
+    />,
+  );
+  expect(
+    await screen.findByText(
+      'Cycle status could not be loaded. Refresh before controlling automation.',
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText('Loading controls…')).toBeNull();
 });

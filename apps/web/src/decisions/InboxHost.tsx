@@ -87,26 +87,35 @@ export function InboxHost({
         // The item's cycles in full: the workspace list leaves out design-recovery detail.
         const view = work.cycles?.find((v) => v.cycle.id === cycleId);
         const worktree = worktreeOf(view?.cycle.worktreeId);
-        if (!view || !worktree) return loading;
+        // The item's cycles could not be read: shown as last read, if ever, and said so.
+        const stale = work.cyclesFailed && (
+          <p className="error-state" role="alert">
+            Cycle status could not be loaded. Refresh before controlling automation.
+          </p>
+        );
+        if (!view || !worktree) return stale || loading;
         return (
-          <CycleDecision
-            cycle={view.cycle}
-            projection={view.projection}
-            runs={work.execution?.runs ?? []}
-            readOnly={!!worktree.executionScope && worktree.executionScope.kind !== 'slice'}
-            backends={work.backends}
-            csrfToken={csrfToken}
-            canMutate={canMutate}
-            busy={work.commands.busy}
-            onChanged={work.refresh}
-            inInbox
-            onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
-            onOpenWorktree={(id) => {
-              focus.focus(id);
-              if (workItemId)
-                go({ name: 'work-item', workspaceId, workItemId: workItemId as WorkItemId });
-            }}
-          />
+          <>
+            {stale}
+            <CycleDecision
+              cycle={view.cycle}
+              projection={view.projection}
+              runs={work.execution?.runs ?? []}
+              readOnly={!!worktree.executionScope && worktree.executionScope.kind !== 'slice'}
+              backends={work.backends}
+              csrfToken={csrfToken}
+              canMutate={canMutate}
+              busy={work.commands.busy}
+              onChanged={work.refresh}
+              inInbox
+              onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
+              onOpenWorktree={(id) => {
+                focus.focus(id);
+                if (workItemId)
+                  go({ name: 'work-item', workspaceId, workItemId: workItemId as WorkItemId });
+              }}
+            />
+          </>
         );
       }
       case 'merge': {

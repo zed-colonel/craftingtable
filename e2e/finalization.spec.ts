@@ -1,7 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, expectSignedIn, git, sendCommand, submitSignIn, test } from './support';
+import {
+  E2E_PASSWORD,
+  expect,
+  expectSignedIn,
+  git,
+  sendCommand,
+  submitSignIn,
+  test,
+} from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 // New finalizations are staged (R-B10). 'remediate' exhausts the correctness stage's budget
@@ -9,6 +17,7 @@ const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url)
 for (const decision of ['remediate', 'staged'] as const) {
   test(`automates integration and performs plan finalization with explicit final approval (${decision})`, async ({
     page,
+    browserErrors,
   }, info) => {
     // The one file each variant's implementation run adds to the candidate.
     const candidateFile = decision === 'staged' ? 'POLISH-1.md' : 'REMEDIATED.md';
@@ -298,8 +307,18 @@ for (const decision of ['remediate', 'staged'] as const) {
       });
       await expect(removeIntegration).not.toBeChecked();
       if (decision === 'remediate') await removeIntegration.check();
+      // Final promotion asks for the password again first (R-G9): refused, then sent again.
+      const refusedPromotion = browserErrors.expectFailure({
+        method: 'POST',
+        path: /^\/api\/workspaces\/[^/]+\/finalizations\/[^/]+\/control$/,
+        status: 403,
+      });
       await promotion.getByRole('button', { name: 'Approve merge into main', exact: true }).click();
+      const password = page.getByRole('dialog', { name: 'Confirm your password' });
+      await password.getByLabel('Password').fill(E2E_PASSWORD);
+      await password.getByRole('button', { name: 'Continue' }).click();
       await expect(page.getByText('This item is resolved.')).toBeVisible();
+      refusedPromotion();
       await page.goto(planPage);
       await expect(finalization.getByText('Promoted by operator', { exact: true })).toBeVisible();
       const promoted = git(['rev-parse', 'main'], repository);

@@ -107,6 +107,6 @@ export function forgetLaunchOptions(store: QueryStore, workspaceId?: WorkspaceId
     (key[0] === 'work-item' || key[0] === 'run') &&
     key[3] === 'view' &&
     (workspaceId === undefined || key[1] === workspaceId);
-  store.clear((key) => !carries(key));
+  store.forget(carries);
   store.invalidate([['work-item'], ['run']]);
 }

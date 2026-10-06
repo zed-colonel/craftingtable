@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { forgetLaunchOptions } from '../app/reads.js';
 import { createQueryStore, type QueryKey, replaceEqualDeep } from './query-store.js';
 
 beforeEach(() => vi.useFakeTimers());
@@ -379,5 +380,24 @@ describe('a re-read that drops an optional field (TS-M9)', () => {
     expect(data).not.toBe(first);
     expect(data).toEqual({ id: 'c1', version: 3 });
     expect(data.investigation).toBeUndefined();
+  });
+});
+
+describe('forgetting launch options (R-D5 review)', () => {
+  it("forgets the views that carry them and keeps every other key's pending re-read", async () => {
+    const store = createQueryStore({ debounceMs: 100, maxWaitMs: 2000 });
+    const snapshot = vi.fn(async () => ({ n: 1 }));
+    const view = vi.fn(async () => ({ v: 1 }));
+    const viewKey: QueryKey = ['work-item', 'ws', 'wi', 'view'];
+    store.subscribe(['snapshot', 'ws'], snapshot, vi.fn());
+    store.subscribe(viewKey, view, vi.fn());
+    await settle();
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    // An event makes the snapshot stale; within the debounce a profile save forgets the views.
+    store.invalidate([['snapshot']]);
+    forgetLaunchOptions(store);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(snapshot).toHaveBeenCalledTimes(2);
+    expect(view).toHaveBeenCalledTimes(2);
   });
 });

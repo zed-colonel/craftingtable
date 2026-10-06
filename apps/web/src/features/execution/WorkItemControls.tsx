@@ -1,6 +1,10 @@
-import type { AttentionItemView, WorktreeDiffResponse } from '@craftingtable/contracts';
+import type {
+  AttentionItemView,
+  WorkItemView,
+  WorktreeDiffResponse,
+} from '@craftingtable/contracts';
 import type { WorkCycle, WorkItemId, WorktreeId } from '@craftingtable/domain';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useCommands } from '../../app/commands.js';
 import { useWorkItemView } from '../../app/reads.js';
 import {
@@ -39,6 +43,18 @@ export function useWorkItem(workItemId: WorkItemId | undefined) {
   const alive = useAlive();
   const view = useWorkItemView(workspaceId, workItemId);
   const data = view.data?.detail.workItem.id === workItemId ? view.data : undefined;
+  // A part the view could not read comes empty: the item's cycles and slices as last read stay,
+  // and before any good read they are unknown, never "none" (R-D5 review).
+  const held = useRef<{
+    id?: WorkItemId;
+    cycles?: WorkItemView['cycles'];
+    scopes?: WorkItemView['scopes'];
+  }>({});
+  if (held.current.id !== workItemId) held.current = { id: workItemId };
+  const cyclesFailed = data?.unavailable?.includes('cycles') ?? false;
+  const scopesFailed = data?.unavailable?.includes('scopes') ?? false;
+  if (data && !cyclesFailed) held.current.cycles = data.cycles;
+  if (data && !scopesFailed) held.current.scopes = data.scopes;
   const refresh = useCallback(
     () =>
       store.refreshNow([
@@ -75,13 +91,13 @@ export function useWorkItem(workItemId: WorkItemId | undefined) {
     workItemId,
     detail: data?.detail,
     execution: data?.execution,
-    cycles: data?.cycles,
+    cycles: data ? held.current.cycles : undefined,
     /** The item's slices and their phase readiness. */
-    scopes: data?.scopes,
-    /** The view could not read the item's cycles this time; they come empty (R-D5 review). */
-    cyclesFailed: data?.unavailable?.includes('cycles') ?? false,
+    scopes: data ? held.current.scopes : undefined,
+    /** The view could not read the item's cycles this time; the last read stay (R-D5 review). */
+    cyclesFailed,
     /** Likewise its slices. */
-    scopesFailed: data?.unavailable?.includes('scopes') ?? false,
+    scopesFailed,
     /** A read failed; whatever was read last stays visible. */
     refreshFailed: view.error !== undefined,
     /** Why the region could not be read, for panels that say so in place. */

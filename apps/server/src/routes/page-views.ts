@@ -27,7 +27,13 @@ export function registerPageViewRoutes(
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success)
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      const view = await views.workItem(context, workspaceId.data, workItemId.data, request.id);
+      const view = await views.workItem(
+        context,
+        workspaceId.data,
+        workItemId.data,
+        request.id,
+        (part, err) => request.log.error({ err, part }, 'A work item view part could not be read'),
+      );
       return noStore(reply).send(
         workItemViewSchema.parse({
           ...view,

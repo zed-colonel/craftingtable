@@ -42,8 +42,8 @@ afterEach(async () => {
 const at = '2026-09-20T10:00:00.000Z';
 const profile = { backend: 'claude-code' as const, permissionMode: 'auto' as const };
 
-async function fixture() {
-  const context = await createTestContext();
+async function fixture(options: Parameters<typeof createTestContext>[0] = {}) {
+  const context = await createTestContext(options);
   contexts.push(context);
   await context.bootstrap();
   const session = await context.login();
@@ -329,7 +329,11 @@ describe('work item view (R-D5, PERF-14)', () => {
   });
 
   it('answers with the parts it could read when the cycles or the slices cannot be (R-D5 review)', async () => {
-    const f = await fixture();
+    const log: string[] = [];
+    const f = await fixture({
+      env: { CRAFTINGTABLE_LOG_LEVEL: 'error' },
+      loggerStream: { write: (line) => log.push(line) },
+    });
     const base = `/api/workspaces/${f.workspaceId}`;
     const item = f.items[0];
     const cycles = vi.spyOn(f.context.services.workCycleService, 'views').mockImplementation(() => {
@@ -341,6 +345,10 @@ describe('work item view (R-D5, PERF-14)', () => {
     expect(withoutCycles.unavailable).toEqual(['cycles']);
     expect(withoutCycles.cycles).toEqual([]);
     expect(withoutCycles.detail.workItem.id).toBe(item);
+    // The failure is not lost: the daemon logs it with the part it emptied.
+    const logged = log.map((line) => JSON.parse(line)).find((entry) => entry.part === 'cycles');
+    expect(logged?.err?.message).toBe('projection failed');
+    expect(logged?.level).toBe(50);
     cycles.mockRestore();
     const scopes = vi
       .spyOn(f.context.services.executionService, 'scopesIn')

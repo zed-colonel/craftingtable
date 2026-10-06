@@ -284,6 +284,17 @@ vi.mock('./lib/api-client.js', () => ({
 }));
 
 // The event streams are irrelevant to this transition; keep them inert.
+// A page that fails while the shell stays (R-D5 review): the import page, when told to.
+vi.mock('./app/pages/ImportRoute.js', async (original) => {
+  const page = await original<typeof import('./app/pages/ImportRoute.js')>();
+  return {
+    ...page,
+    ImportRoute: (props: Parameters<typeof page.ImportRoute>[0]) => {
+      if (failing.has('import-page')) throw new Error('chunk unavailable');
+      return page.ImportRoute(props);
+    },
+  };
+});
 vi.mock('./lib/use-workspace-event-stream.js', () => ({
   useWorkspaceEventStream: vi.fn(),
 }));
@@ -798,6 +809,22 @@ describe('page reads after the split (R-D4 increment 4b review)', () => {
     expect(
       screen.queryByText('The latest refresh failed. The last committed state remains visible.'),
     ).toBeNull();
+  });
+
+  it('keeps the shell when a page fails, and shows the next page as itself (R-D5 review)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    failing.add('import-page');
+    window.history.pushState(null, '', '/workspaces/workspace-a/import');
+    renderApp();
+    expect(await screen.findByText(/This page could not be loaded/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+    // The shell around the page still works.
+    expect(screen.getByRole('navigation')).toBeTruthy();
+    failing.delete('import-page');
+    window.history.pushState(null, '', '/workspaces/workspace-a/settings');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await waitFor(() => expect(screen.queryByText(/This page could not be loaded/)).toBeNull());
+    vi.mocked(console.error).mockRestore();
   });
 
   it("says a work item's page could not be read, rather than showing nothing (F3)", async () => {

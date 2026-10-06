@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { InboxHost } from '../decisions/InboxHost.js';
 import { useWorkItem } from '../features/execution/WorkItemControls.js';
 import { queryKeys } from '../lib/event-invalidations.js';
-import { loadRunView, refreshModels } from '../lib/execution-api.js';
+import { loadRunView, loadWorkItemView, refreshModels } from '../lib/execution-api.js';
 import { NavigationProvider } from '../lib/navigation.js';
 import { createQueryStore, type QueryStore, QueryStoreProvider } from '../lib/query-store.js';
 import { AccountRoute, HomeRoute } from './pages/AccountRoutes.js';
@@ -415,4 +415,39 @@ it('reads the item, snapshot, agenda and cycles after admitting, completing or r
       queryKeys.cycles(ws),
     ),
   );
+});
+
+// R-D5 review: a view whose cycles or slices could not be read keeps those the page last read,
+// and before any good read leaves them unknown, never "none".
+it("keeps a work item's last cycles and slices while the view cannot read them", async () => {
+  const good = await vi.mocked(loadWorkItemView)(ws, 'item-1' as never);
+  const cycles = [{ cycle: { id: 'cycle-1', status: 'running' }, projection: { actions: [] } }];
+  const scopes = { choices: [{ title: 'Slice' }] };
+  const failed = {
+    ...good,
+    cycles: [],
+    scopes: { choices: [] },
+    unavailable: ['cycles', 'scopes'],
+  };
+  vi.mocked(loadWorkItemView)
+    .mockResolvedValueOnce(failed as never)
+    .mockResolvedValueOnce({ ...good, cycles, scopes } as never)
+    .mockResolvedValueOnce(failed as never);
+  let item!: ReturnType<typeof useWorkItem>;
+  function Probe() {
+    item = useWorkItem('item-1' as WorkItemId);
+    return null;
+  }
+  inApp(<Probe />);
+  await waitFor(() => expect(item.detail).toBeDefined());
+  expect(item.cyclesFailed).toBe(true);
+  expect(item.cycles).toBeUndefined();
+  expect(item.scopes).toBeUndefined();
+  await run(() => item.refresh());
+  await waitFor(() => expect(item.cycles).toEqual(cycles));
+  await run(() => item.refresh());
+  await waitFor(() => expect(item.cyclesFailed).toBe(true));
+  expect(item.scopesFailed).toBe(true);
+  expect(item.cycles).toEqual(cycles);
+  expect(item.scopes).toEqual(scopes);
 });

@@ -34,6 +34,8 @@ export class PageViews {
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
     requestId?: string,
+    /** Told of each part that failed and was left empty, so the failure is not lost. */
+    onPartFailed: (part: 'cycles' | 'scopes', error: unknown) => void = () => undefined,
   ) {
     this.workspaces.requireAuthorized(context, workspaceId, requestId);
     const read = this.storage.readTransaction((source) => {
@@ -45,8 +47,9 @@ export class PageViews {
       const part = <T>(name: 'cycles' | 'scopes', read: () => T, empty: T): T => {
         try {
           return read();
-        } catch {
+        } catch (error) {
           unavailable.push(name);
+          onPartFailed(name, error);
           return empty;
         }
       };

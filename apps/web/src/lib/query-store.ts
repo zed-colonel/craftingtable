@@ -52,6 +52,11 @@ export interface QueryStore {
    * read here: a component that watches a forgotten key again reads it.
    */
   clear(keep?: (key: QueryKey) => boolean): void;
+  /**
+   * Forgets the data of the keys `match` names, leaving every other key and its pending re-read
+   * as they are (R-D5 review). A component that watches a forgotten key again reads it.
+   */
+  forget(match: (key: QueryKey) => boolean): void;
   dispose(): void;
 }
 
@@ -284,6 +289,13 @@ export function createQueryStore(options: QueryStoreOptions): QueryStore {
       scheduler.reset();
       for (const target of entries.values()) {
         if (keep(target.key)) continue;
+        forget(target);
+        show(target, IDLE);
+      }
+    },
+    forget(match) {
+      for (const target of entries.values()) {
+        if (!match(target.key)) continue;
         forget(target);
         show(target, IDLE);
       }

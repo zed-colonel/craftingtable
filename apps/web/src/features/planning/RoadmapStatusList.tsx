@@ -47,25 +47,32 @@ type Entry = RoadmapStatusListResponse['entries'][number];
 
 export function RoadmapStatusList({
   roadmap,
+  page,
   onOpenWorkItem,
   onOpenAttention,
 }: {
   roadmap: Roadmap;
+  /**
+   * The status list as the roadmap page read it with its roadmap (R-D5); without it, the list
+   * reads its own.
+   */
+  page?: { readonly status: RoadmapStatusListResponse | undefined; readonly error?: unknown };
   onOpenWorkItem: (id: WorkItemId) => void;
   onOpenAttention?: (itemId: string) => void;
 }) {
   const { workspaceId, id } = roadmap;
   // Read again on the events that change a roadmap's entries, cycles or runs (R-D4); the store
   // keeps one request at a time, and an older response never overwrites a newer one.
-  const query = useQuery(queryKeys.roadmapStatus(workspaceId, id), () =>
+  const query = useQuery(page ? undefined : queryKeys.roadmapStatus(workspaceId, id), () =>
     loadRoadmapStatus({ workspaceId, id }),
   );
-  const status = query.data;
+  const status = page ? page.status : query.data;
+  const failure = page ? page.error : query.error;
   const error =
-    query.error === undefined
+    failure === undefined
       ? undefined
-      : query.error instanceof Error
-        ? query.error.message
+      : failure instanceof Error
+        ? failure.message
         : 'Status list is unavailable.';
   if (!status)
     return error ? (

@@ -50,6 +50,11 @@ export interface PageLoadReplay {
   /** The shell's reads on a cold load (sign-in check, workspace list, snapshot, attention, cycles). */
   readonly shell: readonly PageReadMeasure[];
   readonly pages: readonly PageLoadMeasure[];
+  /**
+   * Other pages' region reads (R-D5): the roadmaps page's list, each roadmap's status list and
+   * each map's evidence view, and the newest runs' views.
+   */
+  readonly regions?: readonly PageReadMeasure[];
 }
 
 type Get = (url: string) => Promise<{ status: number; body: string }>;
@@ -96,6 +101,47 @@ export async function workItemPageReads(ws: string, item: string, get: Get): Pro
   return reads;
 }
 
+/** The other pages' region reads: roadmaps, their statuses, maps' evidence, recent runs. */
+async function regionReads(ws: string, get: Get): Promise<PageRead[]> {
+  const base = `/api/workspaces/${ws}`;
+  const roadmaps = JSON.parse((await get(`${base}/roadmaps`)).body) as {
+    roadmaps?: readonly {
+      roadmap: { id: string; status: string; definition: { name: string; revision: number } };
+    }[];
+  };
+  const definitions = JSON.parse((await get(`${base}/concurrency-imports`)).body) as {
+    definitions?: readonly { id: string }[];
+  };
+  const runs = JSON.parse((await get(`${base}/runs`)).body) as {
+    runs?: readonly { id: string }[];
+  };
+  const active = (roadmaps.roadmaps ?? []).filter(
+    ({ roadmap }) => !['draft', 'completed'].includes(roadmap.status),
+  );
+  return [
+    // The list page's light rows, then each open roadmap's page: its region and its definition.
+    { name: 'roadmap-summaries', url: `${base}/roadmaps/summaries` },
+    ...active.flatMap(({ roadmap }) => [
+      {
+        name: `roadmap-view ${roadmap.definition.name}`,
+        url: `${base}/roadmaps/${roadmap.id}/view`,
+      },
+      {
+        name: `roadmap-definition ${roadmap.definition.name}`,
+        url: `${base}/roadmaps/${roadmap.id}/definitions/${roadmap.definition.revision}`,
+      },
+    ]),
+    ...(definitions.definitions ?? []).map((d) => ({
+      name: `runtime ${d.id.slice(0, 8)}`,
+      url: `${base}/concurrency-definitions/${d.id}/runtime`,
+    })),
+    ...(runs.runs ?? []).slice(0, 5).map((run) => ({
+      name: `run-view ${run.id.slice(0, 8)}`,
+      url: `${base}/runs/${run.id}/view`,
+    })),
+  ];
+}
+
 const median = (values: readonly number[]) =>
   [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
 
@@ -137,6 +183,7 @@ export async function replayPageLoads(
     await daemon.app.ready();
     const shell: PageReadMeasure[] = [];
     const pages: PageLoadMeasure[] = [];
+    const regions: PageReadMeasure[] = [];
     for (const ws of storage.workspaces.listActiveIds()) {
       const userId = memberOf(storage, ws);
       if (userId === undefined) continue;
@@ -190,6 +237,7 @@ export async function replayPageLoads(
         };
       };
       for (const read of shellReads(ws)) shell.push(await measure(read));
+      for (const read of await regionReads(ws, get)) regions.push(await measure(read));
       const agenda = JSON.parse(
         (await get(`/api/workspaces/${ws}/work-items?filter=all`)).body,
       ) as { items?: readonly { id: string; sourceId: string }[] };
@@ -208,7 +256,7 @@ export async function replayPageLoads(
         });
       }
     }
-    return { shell, pages };
+    return { shell, pages, regions };
   } finally {
     await daemon.close();
   }
@@ -248,6 +296,10 @@ export function formatPageLoads(replay: PageLoadReplay, top = 10): string {
             `${r.name} ${r.ms} ms ${r.bytes} B${r.status === 200 ? '' : ` [${r.status}]`}${r.gitCalls ? ` git ${r.gitCalls}` : ''}`,
         )
         .join(', ')}`,
+    );
+  if (replay.regions?.length)
+    lines.push(
+      `other regions: ${replay.regions.map((r) => `${r.name} ${r.ms} ms ${r.bytes} B (${r.wireBytes ?? r.bytes} B on the wire)${r.status === 200 ? '' : ` [${r.status}]`}`).join('; ')}`,
     );
   return `${lines.join('\n')}\n`;
 }

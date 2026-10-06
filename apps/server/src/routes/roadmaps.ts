@@ -6,8 +6,12 @@ import {
   prepareRoadmapDecisionSchema,
   roadmapAgentsSchema,
   roadmapCapacitiesSchema,
+  roadmapDefinitionSchema,
   roadmapHistoryResponseSchema,
   roadmapIdSchema,
+  roadmapPageSchema,
+  roadmapRevisionParamSchema,
+  roadmapSummariesSchema,
   roadmapsResponseSchema,
   roadmapStatusListSchema,
   roadmapViewSchema,
@@ -172,6 +176,52 @@ export function registerRoadmapRoutes(
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
         roadmapsResponseSchema.parse({ roadmaps: roadmaps.list(context, workspace.data) }),
+      );
+    },
+  );
+  // The roadmaps list page's light rows (R-D5).
+  app.get<{ Params: { workspaceId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/summaries',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        roadmapSummariesSchema.parse({ roadmaps: roadmaps.summaries(context, workspace.data) }),
+      );
+    },
+  );
+  // A roadmap page's region in one read (R-D5).
+  app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/view',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      if (!workspace.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        roadmapPageSchema.parse(roadmaps.page(context, workspace.data, id.data)),
+      );
+    },
+  );
+  // One revision of a roadmap's definition, which never changes (R-D5).
+  app.get<{ Params: { workspaceId: string; roadmapId: string; revision: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/definitions/:revision',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      const revision = roadmapRevisionParamSchema.safeParse(request.params.revision);
+      if (!workspace.success || !id.success || !revision.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        roadmapDefinitionSchema.parse(
+          roadmaps.definition(context, workspace.data, id.data, revision.data),
+        ),
       );
     },
   );

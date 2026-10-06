@@ -346,6 +346,35 @@ export const roadmapStatusListSchema = z.strictObject({
     }),
   ),
 });
+
+/** A definition revision as a path names it. */
+export const roadmapRevisionParamSchema = z.coerce.number().int().positive().safe();
+/**
+ * A roadmap page's region in one answer (R-D5, PERF-06/14): the roadmap's view without its
+ * definition, the revision to read that by, and its status list, read in one transaction over
+ * one map snapshot. The definition is read once per revision (`…/definitions/:revision`).
+ */
+export const roadmapPageSchema = z.strictObject({
+  view: roadmapViewSchema.extend({ roadmap: roadmapSchema.omit({ definition: true }) }),
+  definitionRevision: z.number().int().positive(),
+  status: roadmapStatusListSchema,
+});
+/** The roadmaps list page's rows: no definition, no per-entry progress (R-D5, PERF-06). */
+export const roadmapSummariesSchema = z.strictObject({
+  roadmaps: z.array(
+    z.strictObject({
+      id: z.string().uuid(),
+      name: z.string(),
+      status: z.enum(ROADMAP_STATUSES),
+      reason: z.string(),
+      attentionCode: z
+        .enum(ROADMAP_ATTENTION_CODES as [RoadmapAttentionCode, ...RoadmapAttentionCode[]])
+        .optional(),
+      completed: z.number().int().nonnegative(),
+      entries: z.number().int().nonnegative(),
+    }),
+  ),
+});
 export type RoadmapStatusListResponse = z.infer<typeof roadmapStatusListSchema>;
 export const roadmapHistoryResponseSchema = z.strictObject({
   definitions: z.array(roadmapDefinitionSchema),
@@ -400,3 +429,5 @@ export const decisionPreparationSettingsSchema = z.strictObject({
   ),
 });
 export type DecisionPreparationSettings = z.infer<typeof decisionPreparationSettingsSchema>;
+export type RoadmapPage = z.infer<typeof roadmapPageSchema>;
+export type RoadmapSummaries = z.infer<typeof roadmapSummariesSchema>;

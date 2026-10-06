@@ -2,6 +2,8 @@ import { type EntryCommand, RoadmapEntryRow } from './RoadmapEntryRow.js';
 import type {
   AttentionItemView,
   ExecutionScopeChoice,
+  RoadmapPage as RoadmapPageRead,
+  RoadmapSummaries,
   ExecutionStatusResponse,
   RuntimeEvidenceView,
   SaveRoadmapRequest,
@@ -21,7 +23,7 @@ import {
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { PageHeader } from '../../components/PageHeader.js';
@@ -46,8 +48,10 @@ import {
 } from './setup-steps.js';
 import {
   controlRoadmap,
+  loadRoadmapDefinition,
   loadRoadmapHistory,
-  loadRoadmaps,
+  loadRoadmapPage,
+  loadRoadmapSummaries,
   saveRoadmap,
 } from '../../lib/roadmap-api.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
@@ -96,37 +100,92 @@ function firstByEntry<T extends { readonly entryId: string }>(items: readonly T[
   return first;
 }
 
-function useRoadmaps(workspaceId: WorkspaceId) {
-  // The workspace's roadmaps, read again on the events that change them (R-D4) and shared with
-  // every view that lists them.
-  const store = useQueryStore();
-  const key = queryKeys.roadmaps(workspaceId);
-  const query = useQuery(key, () => loadRoadmaps(workspaceId));
-  const roadmaps: readonly RoadmapView[] = query.data?.roadmaps ?? [];
-  const [commandError, setError] = useState<string>();
+/** The roadmaps list page's light rows (R-D5): no definitions, no per-entry progress. */
+function useRoadmapSummaries(workspaceId: WorkspaceId) {
+  const query = useQuery(queryKeys.roadmapSummaries(workspaceId), () =>
+    loadRoadmapSummaries(workspaceId),
+  );
+  const roadmaps: RoadmapSummaries['roadmaps'] = query.data?.roadmaps ?? [];
   const error =
-    commandError ??
-    (query.status === 'error'
+    query.status === 'error'
       ? query.error instanceof Error
         ? query.error.message
         : 'Could not load roadmaps.'
-      : undefined);
-  /** A command's response: the roadmap it returned replaces the listed one. */
-  const apply = useCallback(
-    (view: RoadmapView) => {
-      const listed = queryKeys.roadmaps(workspaceId);
-      const current = store.view<{ roadmaps: RoadmapView[] }>(listed).data;
-      store.set(listed, {
-        ...current,
-        roadmaps: [
-          view,
-          ...(current?.roadmaps ?? []).filter((r) => r.roadmap.id !== view.roadmap.id),
-        ],
-      });
-    },
-    [store, workspaceId],
+      : undefined;
+  return { roadmaps, loaded: query.data !== undefined, error };
+}
+
+/**
+ * One roadmap page's region (R-D5): the roadmap and its status list in one read, and its
+ * definition by revision, which never changes and so is read once per revision. The view is put
+ * back together here, so the page reads the roadmap as before.
+ */
+function useRoadmapPage(workspaceId: WorkspaceId, roadmapId: string) {
+  const store = useQueryStore();
+  const pageKey = queryKeys.roadmapPage(workspaceId, roadmapId);
+  const page = useQuery(pageKey, () => loadRoadmapPage(workspaceId, roadmapId));
+  const revision = page.data?.definitionRevision;
+  const definition = useQuery(
+    revision === undefined
+      ? undefined
+      : queryKeys.roadmapDefinition(workspaceId, roadmapId, String(revision)),
+    () => loadRoadmapDefinition(workspaceId, roadmapId, revision as number),
   );
-  return { roadmaps, loaded: query.data !== undefined, error, setError, apply };
+  const view = useMemo<RoadmapView | undefined>(
+    () =>
+      page.data && definition.data?.revision === page.data.definitionRevision
+        ? {
+            ...page.data.view,
+            roadmap: { ...page.data.view.roadmap, definition: definition.data },
+          }
+        : undefined,
+    [page.data, definition.data],
+  );
+  const [commandError, setError] = useState<string>();
+  const failure = page.error ?? definition.error;
+  const error =
+    commandError ??
+    (failure === undefined
+      ? undefined
+      : failure instanceof Error
+        ? failure.message
+        : 'Could not load the roadmap.');
+  /** A command's response: the roadmap it returned replaces the one shown, and the list's. */
+  const apply = useCallback(
+    (next: RoadmapView) => {
+      const { definition: nextDefinition, ...roadmap } = next.roadmap;
+      store.set(
+        queryKeys.roadmapDefinition(workspaceId, next.roadmap.id, String(nextDefinition.revision)),
+        nextDefinition,
+      );
+      const current = store.view<RoadmapPageRead>(pageKey).data;
+      if (current)
+        store.set(pageKey, {
+          ...current,
+          view: { ...next, roadmap },
+          definitionRevision: nextDefinition.revision,
+        });
+      const listed = queryKeys.roadmaps(workspaceId);
+      const list = store.view<{ roadmaps: RoadmapView[] }>(listed).data;
+      if (list)
+        store.set(listed, {
+          ...list,
+          roadmaps: list.roadmaps.map((r) => (r.roadmap.id === next.roadmap.id ? next : r)),
+        });
+      // Its status list follows from the roadmap's next read.
+      store.invalidate([pageKey]);
+    },
+    [store, workspaceId, pageKey],
+  );
+  return {
+    view,
+    status: page.data?.status,
+    statusError: page.error,
+    loaded: view !== undefined || page.status === 'error',
+    error,
+    setError,
+    apply,
+  };
 }
 
 /** What the roadmap editor offers: the workspace's work items, backends and default profiles. */
@@ -647,24 +706,33 @@ export function RoadmapsPage({
   attention?: readonly AttentionItemView[];
 }) {
   const navigation = useNavigation();
-  const { roadmaps, loaded, error } = useRoadmaps(workspaceId);
+  const { roadmaps, loaded, error } = useRoadmapSummaries(workspaceId);
   const [draft, setDraft] = useState<Draft>();
   const cancel = useCallback(() => setDraft(undefined), []);
-  const active = roadmaps.filter((r) => !FINISHED.has(r.roadmap.status));
-  const finished = roadmaps.filter((r) => FINISHED.has(r.roadmap.status));
-  const row = ({ roadmap, progress }: RoadmapView) => {
-    const completed = progress.filter((p) => p.status === 'completed').length;
+  const active = roadmaps.filter((r) => !FINISHED.has(r.status));
+  const finished = roadmaps.filter((r) => FINISHED.has(r.status));
+  const row = (roadmap: RoadmapSummaries['roadmaps'][number]) => {
     const needsYou = attention.filter((item) => item.refs.roadmapId === roadmap.id).length;
     return (
       <li key={roadmap.id} className="roadmap-row">
         <Link route={{ name: 'roadmap', workspaceId, roadmapId: roadmap.id, tab: 'board' }}>
-          {roadmap.definition.name}
+          {roadmap.name}
         </Link>
         <StatusStrip
           compact
           facts={[
-            { label: 'Status', value: roadmapStatusLabel(roadmap, labels[roadmap.status]) },
-            { label: 'Completed', value: `${completed}/${progress.length}`, mono: true },
+            {
+              label: 'Status',
+              value:
+                roadmap.attentionCode === 'restart-resume'
+                  ? 'Resume required after restart'
+                  : labels[roadmap.status],
+            },
+            {
+              label: 'Completed',
+              value: `${roadmap.completed}/${roadmap.entries}`,
+              mono: true,
+            },
             ...(needsYou > 0
               ? [{ label: 'Needs you', value: needsYou, accent: 'var(--color-attention)' }]
               : []),
@@ -811,7 +879,10 @@ export function RoadmapPage({
   part?: RoadmapItemPart;
 }) {
   const navigation = useNavigation();
-  const { roadmaps, loaded, error, setError, apply } = useRoadmaps(workspaceId);
+  const { view, status, statusError, loaded, error, setError, apply } = useRoadmapPage(
+    workspaceId,
+    roadmapId,
+  );
   const [draft, setDraft] = useState<Draft>();
   const cancel = useCallback(() => setDraft(undefined), []);
   const [busy, setBusy] = useState(false);
@@ -831,7 +902,6 @@ export function RoadmapPage({
   const [history, setHistory] = useState<readonly RoadmapDefinition[]>();
   const embedded = tab === 'all';
   const shows = (part: RoadmapTab) => embedded || tab === part;
-  const view = roadmaps.find((r) => r.roadmap.id === roadmapId);
   // The history page loads its revisions, again only when the roadmap gains a revision.
   const historyOf = tab === 'history' ? view?.roadmap : undefined;
   const historyKey = historyOf && `${historyOf.id}:${historyOf.definition.revision}`;
@@ -1160,6 +1230,7 @@ export function RoadmapPage({
       {!embedded && !['draft', 'completed'].includes(roadmap.status) && (
         <RoadmapStatusList
           roadmap={roadmap}
+          page={{ status, error: statusError }}
           onOpenWorkItem={onOpenWorkItem}
           {...(onOpenAttention ? { onOpenAttention } : {})}
         />

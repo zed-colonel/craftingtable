@@ -29,12 +29,17 @@ vi.mock('./ScopeRecoveryPanel.js', () => ({
 vi.mock('./RoadmapStatusList.js', () => ({
   RoadmapStatusList: () => <section aria-label="Entry status" />,
 }));
-vi.mock('../../lib/roadmap-api.js', () => ({
-  loadRoadmaps: vi.fn(),
-  loadRoadmapHistory: vi.fn(),
-  controlRoadmap: vi.fn(),
-  saveRoadmap: vi.fn(),
-}));
+// The roadmaps the tests list stand for the daemon's records: the list page's rows, a roadmap
+// page's region and a definition by revision are each read from them, as the daemon would (R-D5).
+vi.mock('../../lib/roadmap-api.js', async () => {
+  const { roadmapApiFromList } = await import('./roadmap-api-testing.js');
+  return {
+    ...roadmapApiFromList(),
+    loadRoadmapHistory: vi.fn(),
+    controlRoadmap: vi.fn(),
+    saveRoadmap: vi.fn(),
+  };
+});
 vi.mock('../../lib/package-import-api.js', () => ({
   loadConcurrencyImports: vi.fn(),
   loadConcurrencyDefinition: vi.fn(),

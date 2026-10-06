@@ -11,6 +11,17 @@ export const queryKeys = {
   /** One roadmap's entry status list (R-E3a). */
   roadmapStatus: (workspaceId: string, roadmapId: string) =>
     ['roadmap-status', workspaceId, roadmapId] as const,
+  /** The roadmaps list page's light rows (R-D5): beneath the roadmaps, read with them. */
+  roadmapSummaries: (workspaceId: string) => ['roadmaps', workspaceId, 'summaries'] as const,
+  /**
+   * A roadmap page's region (R-D5): the roadmap and its status list, so it is read again
+   * whenever either would be.
+   */
+  roadmapPage: (workspaceId: string, roadmapId: string) =>
+    ['roadmap-page', workspaceId, roadmapId] as const,
+  /** One revision of a roadmap's definition: it never changes, so no event reads it again. */
+  roadmapDefinition: (workspaceId: string, roadmapId: string, revision: string) =>
+    ['roadmap-definition', workspaceId, roadmapId, revision] as const,
   /** A map's dependency environment and evidence view. */
   runtime: (workspaceId: string, definitionId: string) =>
     ['runtime', workspaceId, definitionId] as const,
@@ -126,7 +137,12 @@ const roadmapViews = (workspaceId: string): QueryKey[] => [
  * no row is an error, so a new event kind cannot go unmapped.
  */
 export function invalidationsFor(event: WorkspaceEventEnvelope): QueryKey[] {
-  return [...roadmapAndPlanKeys(event), ...panelKeys(event), ...pageKeys(event)];
+  const keys = [...roadmapAndPlanKeys(event), ...panelKeys(event), ...pageKeys(event)];
+  // A roadmap page shows its roadmap and its status list in one read (R-D5): it is read again
+  // whenever either of them would be.
+  return keys.some((key) => key[0] === 'roadmaps' || key[0] === 'roadmap-status')
+    ? [...keys, all('roadmap-page', event.workspaceId)]
+    : keys;
 }
 
 /**

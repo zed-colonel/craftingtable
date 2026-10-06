@@ -257,6 +257,7 @@ vi.mock('./lib/execution-api.js', async (original) => ({
 vi.mock('./lib/roadmap-api.js', async (original) => ({
   ...(await original<typeof import('./lib/roadmap-api.js')>()),
   loadRoadmaps: count('roadmaps', async () => ({ roadmaps: [] })),
+  loadRoadmapSummaries: count('roadmap-summaries', async () => ({ roadmaps: [] })),
 }));
 vi.mock('./lib/planning-api.js', async (original) => ({
   ...(await original<typeof import('./lib/planning-api.js')>()),

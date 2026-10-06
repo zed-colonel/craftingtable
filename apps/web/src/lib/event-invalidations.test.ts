@@ -350,3 +350,35 @@ it("reads the project a binding event names structurally, never the payload's", 
   expect(keys).toEqual(expect.arrayContaining([queryKeys.project(ws, 'structural-project')]));
   expect(keys.some((key) => key.includes('payload-project'))).toBe(false);
 });
+
+it('reads a roadmap page again whenever its roadmap or its status list would be (R-D5)', () => {
+  const page = queryKeys.roadmapPage(ws, 'r1');
+  const reads = (kind: string, fields: Record<string, unknown> = {}) =>
+    invalidationsFor(event(kind, fields)).some((key) =>
+      key.every((part, index) => page[index] === part),
+    );
+  // A run's change moves the status list; a roadmap's change, the roadmap itself.
+  expect(reads('agent-run-status-changed', { runId: 'run-1', payload: {} })).toBe(true);
+  expect(reads('roadmap-changed', { payload: { roadmapId: 'r1' } })).toBe(true);
+  expect(reads('work-cycle-changed', { workItemId: 'w1', payload: {} })).toBe(true);
+  for (const kind of ['notifications-changed', 'repository-registered', 'workspace-updated'])
+    expect(reads(kind, { repositoryId: 'repo', payload: {} }), kind).toBe(false);
+  // Every kind: read exactly when the roadmaps or a status list are.
+  for (const kind of KINDS) {
+    const keys = invalidationsFor(
+      event(kind, { payload: { roadmapId: 'r1', definitionId: 'd' }, runId: 'run-1' }),
+    );
+    expect(
+      keys.some((key) => key[0] === 'roadmap-page'),
+      kind,
+    ).toBe(keys.some((key) => key[0] === 'roadmaps' || key[0] === 'roadmap-status'));
+  }
+  // A definition's revision never changes: no event reads one again.
+  for (const kind of KINDS)
+    expect(
+      invalidationsFor(event(kind, { payload: { roadmapId: 'r1', definitionId: 'd' } })).some(
+        (key) => key[0] === 'roadmap-definition',
+      ),
+      kind,
+    ).toBe(false);
+});

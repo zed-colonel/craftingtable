@@ -5,6 +5,7 @@ import { queryKeys } from '../../lib/event-invalidations.js';
 import { testQueryStore } from '../../lib/query-store-testing.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { controlRoadmap, loadRoadmaps } from '../../lib/roadmap-api.js';
+import { roadmapPageOf } from './roadmap-api-testing.js';
 import { entryStatusLabel } from './roadmap-entry-status.js';
 import { RoadmapEntryRow } from './RoadmapEntryRow.js';
 import { RoadmapPage } from './RoadmapsPage.js';
@@ -22,12 +23,15 @@ vi.mock('./CrossProjectPanel.js', () => ({ CrossProjectPanel: () => null }));
 vi.mock('./RuntimeEvidencePanel.js', () => ({ RuntimeEvidencePanel: () => null }));
 vi.mock('./ScopeRecoveryPanel.js', () => ({ ScopeRecoveryPanel: () => null }));
 vi.mock('./RoadmapStatusList.js', () => ({ RoadmapStatusList: () => null }));
-vi.mock('../../lib/roadmap-api.js', () => ({
-  loadRoadmaps: vi.fn(),
-  loadRoadmapHistory: vi.fn(),
-  controlRoadmap: vi.fn(),
-  saveRoadmap: vi.fn(),
-}));
+vi.mock('../../lib/roadmap-api.js', async () => {
+  const { roadmapApiFromList } = await import('./roadmap-api-testing.js');
+  return {
+    ...roadmapApiFromList(),
+    loadRoadmapHistory: vi.fn(),
+    controlRoadmap: vi.fn(),
+    saveRoadmap: vi.fn(),
+  };
+});
 vi.mock('../../lib/execution-api.js', () => ({
   loadExecutionStatus: vi.fn(async () => ({ backends: [], git: { available: true } })),
   loadRunProfiles: vi.fn(async () => ({ profiles: [] })),
@@ -100,7 +104,7 @@ it('renders only the changed entry when the roadmap changes, and none for a new 
   // A changed entry renders its row alone (an unchanged read renders nothing at all: the store
   // keeps the data's identity, which the store's own tests cover).
   await act(async () => {
-    store.set(queryKeys.roadmaps(ws), { roadmaps: [view(7)] });
+    store.set(queryKeys.roadmapPage(ws, 'r'), roadmapPageOf(view(7)));
   });
   expect(vi.mocked(entryStatusLabel)).toHaveBeenCalledTimes(1);
   expect(screen.getByText('Running now.')).toBeTruthy();
@@ -133,9 +137,10 @@ it("sends an entry's command with the roadmap's latest version", async () => {
   await screen.findByText('AQ-0 · Item 0');
   const next = view(7);
   await act(async () => {
-    store.set(queryKeys.roadmaps(ws), {
-      roadmaps: [{ ...next, roadmap: { ...next.roadmap, version: 4 } }],
-    });
+    store.set(
+      queryKeys.roadmapPage(ws, 'r'),
+      roadmapPageOf({ ...next, roadmap: { ...next.roadmap, version: 4 } }),
+    );
   });
   fireEvent.click(screen.getAllByRole('button', { name: 'Pause item' })[2]!);
   expect(controlRoadmap).toHaveBeenCalledWith(

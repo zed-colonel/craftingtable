@@ -1,5 +1,12 @@
-import { roadmapStatusListSchema } from '@craftingtable/contracts';
-import { afterEach, expect, it } from 'vitest';
+import {
+  roadmapDefinitionSchema,
+  roadmapPageSchema,
+  roadmapStatusListSchema,
+  roadmapSummariesSchema,
+  roadmapsResponseSchema,
+} from '@craftingtable/contracts';
+import { effectiveRoadmapAttention } from '@craftingtable/domain';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   awaitRoadmapMerge,
   cleanupExecutionFixtures,
@@ -107,4 +114,69 @@ it('lists each open entry with what it waits on and who acts next (R-E3a, LIVE-0
     actor: 'operator',
     waitsOn: { source: 'entry-hold', code: 'paused' },
   });
+});
+
+/** A GET of the daemon's API as the fixture's user. */
+async function read(state: Ready, path: string) {
+  const response = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}${path}`,
+    headers: { cookie: state.cookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json();
+}
+
+it("answers a roadmap page's region in one read: the roadmap without its definition, and its status list (R-D5)", async () => {
+  const { state, input } = await parallelFixture();
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await state.context.services.roadmapService.tick();
+  await state.context.services.workCycleService.tick();
+  const reads = vi.spyOn(state.context.storage, 'readTransaction');
+  const page = roadmapPageSchema.parse(await read(state, `/roadmaps/${roadmapId}/view`));
+  expect(reads).toHaveBeenCalledTimes(1);
+  reads.mockRestore();
+  // The same roadmap and status the list and the status list give, at one instant.
+  const listed = roadmapsResponseSchema
+    .parse(await read(state, '/roadmaps'))
+    .roadmaps.find((view) => view.roadmap.id === roadmapId)!;
+  const { definition, ...withoutDefinition } = listed.roadmap;
+  expect(page.view).toEqual({ ...listed, roadmap: withoutDefinition });
+  expect(page.definitionRevision).toBe(definition.revision);
+  expect(page.status).toEqual(await read(state, `/roadmaps/${roadmapId}/status`));
+  // The definition is read by its revision, which never changes.
+  expect(
+    roadmapDefinitionSchema.parse(
+      await read(state, `/roadmaps/${roadmapId}/definitions/${definition.revision}`),
+    ),
+  ).toEqual(definition);
+  const missing = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/definitions/${definition.revision + 1}`,
+    headers: { cookie: state.cookie },
+  });
+  expect(missing.statusCode).toBe(404);
+});
+
+it('lists the roadmaps lightly: name, status, reason and how many entries are done (R-D5)', async () => {
+  const { state, input } = await parallelFixture();
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await state.context.services.roadmapService.tick();
+  const { roadmaps } = roadmapSummariesSchema.parse(await read(state, '/roadmaps/summaries'));
+  const full = roadmapsResponseSchema.parse(await read(state, '/roadmaps')).roadmaps;
+  expect(roadmaps).toEqual(
+    full.map(({ roadmap, progress }) => ({
+      id: roadmap.id,
+      name: roadmap.definition.name,
+      status: roadmap.status,
+      reason: roadmap.reason,
+      ...(effectiveRoadmapAttention(roadmap)
+        ? { attentionCode: effectiveRoadmapAttention(roadmap)!.code }
+        : {}),
+      completed: progress.filter((p) => p.status === 'completed').length,
+      entries: progress.length,
+    })),
+  );
 });

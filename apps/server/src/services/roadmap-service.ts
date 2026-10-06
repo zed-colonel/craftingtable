@@ -954,10 +954,15 @@ export class RoadmapService {
    * recorded: an open attention item (R-A4), the entry's hold, the scheduler's recorded wait
    * (R-C12), and last the entry's progress. Nothing here decides anything again.
    */
-  statusOf(roadmap: Roadmap): RoadmapStatusList {
+  statusOf(
+    roadmap: Roadmap,
+    snapshot: StorageRepositories = mapReadSnapshot(this.storage),
+    progress: readonly import('@craftingtable/domain').RoadmapEntryProgress[] = this.view(
+      roadmap,
+      snapshot,
+    ).progress,
+  ): RoadmapStatusList {
     const ws = roadmap.workspaceId;
-    const snapshot = mapReadSnapshot(this.storage);
-    const progress = this.view(roadmap, snapshot).progress;
     const needs = this.withOperatorNeeds(snapshot, roadmap).needs(progress);
     const items = this.storage.attention.open(ws);
     const attention = effectiveRoadmapAttention(roadmap);
@@ -1101,6 +1106,60 @@ export class RoadmapService {
       entries,
     };
   }
+  /**
+   * A roadmap page's region (R-D5, PERF-06/14): the roadmap's view without its definition, the
+   * revision to read that by, and its status list, in one transaction over one map snapshot. The
+   * status list reads the view's progress instead of evaluating the map again.
+   */
+  page(context: AuthContext, workspaceId: WorkspaceId, id: string) {
+    this.workspaces.requireAuthorized(context, workspaceId);
+    return this.storage.readTransaction((tx) => {
+      const snapshot = mapReadSnapshot(tx);
+      const roadmap = this.find(workspaceId, id);
+      const view = this.view(roadmap, snapshot);
+      const { definition, ...withoutDefinition } = view.roadmap;
+      return {
+        view: { ...view, roadmap: withoutDefinition },
+        definitionRevision: definition.revision,
+        status: this.statusOf(roadmap, snapshot, view.progress),
+      };
+    });
+  }
+
+  /** One revision of a roadmap's definition; revisions never change (R-B3, R-D5). */
+  definition(context: AuthContext, workspaceId: WorkspaceId, id: string, revision: number) {
+    this.workspaces.requireAuthorized(context, workspaceId);
+    this.find(workspaceId, id);
+    const definition = this.storage.roadmaps.definition(workspaceId, id, revision);
+    if (!definition) throw new NotFoundError();
+    return definition;
+  }
+
+  /**
+   * The roadmaps list page's rows (R-D5, PERF-06): each roadmap's name, status, reason and how
+   * many of its entries are done, without its definition or per-entry progress.
+   */
+  summaries(context: AuthContext, workspaceId: WorkspaceId) {
+    this.workspaces.requireAuthorized(context, workspaceId);
+    return this.storage.readTransaction((tx) => {
+      const snapshot = mapReadSnapshot(tx);
+      return snapshot.roadmaps.list(workspaceId).map((roadmap) => {
+        const attention = effectiveRoadmapAttention(roadmap);
+        return {
+          id: roadmap.id,
+          name: roadmap.definition.name,
+          status: roadmap.status,
+          reason: roadmap.reason,
+          ...(attention ? { attentionCode: attention.code } : {}),
+          completed: roadmap.definition.entries.filter((entry) =>
+            this.complete(roadmap, entry, snapshot),
+          ).length,
+          entries: roadmap.definition.entries.length,
+        };
+      });
+    });
+  }
+
   history(context: AuthContext, workspaceId: WorkspaceId, id: string) {
     this.workspaces.requireAuthorized(context, workspaceId);
     this.find(workspaceId, id);

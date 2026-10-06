@@ -1,6 +1,9 @@
 import {
   type SaveRoadmapRequest,
   type ScopeRecoveryPolicyRequest,
+  roadmapDefinitionSchema,
+  roadmapPageSchema,
+  roadmapSummariesSchema,
   roadmapsResponseSchema,
   roadmapViewSchema,
   roadmapHistoryResponseSchema,
@@ -27,6 +30,18 @@ export const configureScopeRecovery = (
   );
 export const loadRoadmaps = (workspaceId: WorkspaceId) =>
   request(base(workspaceId), roadmapsResponseSchema);
+/** The roadmaps list page's light rows (R-D5). */
+export const loadRoadmapSummaries = (workspaceId: WorkspaceId) =>
+  request(`${base(workspaceId)}/summaries`, roadmapSummariesSchema);
+/** A roadmap page's region in one read: its view without the definition, and its status (R-D5). */
+export const loadRoadmapPage = (workspaceId: WorkspaceId, id: string) =>
+  request(`${base(workspaceId)}/${encodeURIComponent(id)}/view`, roadmapPageSchema);
+/** One revision of a roadmap's definition, which never changes (R-D5). */
+export const loadRoadmapDefinition = (workspaceId: WorkspaceId, id: string, revision: number) =>
+  request(
+    `${base(workspaceId)}/${encodeURIComponent(id)}/definitions/${revision}`,
+    roadmapDefinitionSchema,
+  );
 export const loadRoadmapStatus = (roadmap: Pick<Roadmap, 'workspaceId' | 'id'>) =>
   request(`${base(roadmap.workspaceId)}/${roadmap.id}/status`, roadmapStatusListSchema);
 export const loadRoadmapHistory = (roadmap: Roadmap) =>

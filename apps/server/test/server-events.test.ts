@@ -178,6 +178,9 @@ describe('workspace SSE route', () => {
     );
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/event-stream');
+    // The stream writes its own response, with the security headers too (R-G9 review).
+    expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     const reader = responseReader(response);
     const frame = await nextFrame(reader, SSE_WORKSPACE_EVENT_NAME);
     const event = workspaceEventEnvelopeSchema.parse(JSON.parse(frame.data as string));

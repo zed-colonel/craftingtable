@@ -117,6 +117,16 @@ it("keeps the daemon's own files out of the sandbox's reach: its database, backu
   );
   // The operator's credentials stay denied beside them.
   expect(denyRead).toEqual(expect.arrayContaining(['~/.ssh', '~/.claude/.credentials.json']));
+  // Claude's own file tools are denied them too, not only sandboxed commands (R-G9 review).
+  const { permissions } = JSON.parse(args[args.indexOf('--settings') + 1]!);
+  expect(permissions.deny).toEqual([
+    'Read(//data/state/**)',
+    'Edit(//data/state/**)',
+    'Read(//data/backups/**)',
+    'Edit(//data/backups/**)',
+    'Read(//home/op/.config/craftingtable/**)',
+    'Edit(//home/op/.config/craftingtable/**)',
+  ]);
 });
 
 it('confines Bash in the OS sandbox on every posture but unrestricted, with no way out (R-G5, SEC-02)', () => {

@@ -26,6 +26,7 @@ import {
   roadmapId,
   roadmapInput,
   saveRoadmapRequest,
+  stepUp,
   storedRoadmap,
   waitFor,
 } from './execution-test-support.js';
@@ -249,6 +250,8 @@ describe('parallel roadmaps', () => {
     );
     expect(git(['status', '--porcelain'], tree.path)).toBe('');
     expect(() => git(['rev-parse', '--verify', 'MERGE_HEAD'], tree.path)).toThrow();
+    // A merge into the repository's default branch needs the password again (R-G9).
+    await stepUp(state);
     const merge = await state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${state.workspaceId}/worktrees/${tree.id}/merge`,

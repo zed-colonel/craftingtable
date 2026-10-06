@@ -28,6 +28,8 @@ export const apiErrorReasonSchema = z.enum([
   'login-rate-limited',
   /** The command needs the operator's password again first (R-G9): `POST /api/auth/step-up`. */
   'step-up-required',
+  /** The password given for a step-up did not match (R-G9): the browser asks again. */
+  'step-up-failed',
   /** A repository outside `CRAFTINGTABLE_REPOSITORY_ROOTS` cannot be registered (R-G9). */
   'repository-outside-roots',
 ]);

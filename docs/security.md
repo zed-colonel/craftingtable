@@ -14,13 +14,14 @@ your repositories.
   origin is HTTPS. Mutations require the session-bound CSRF header and an exact origin
   match; cross-site fetch metadata is rejected.
 - The built browser app can be served by the daemon so one TLS origin carries UI and API.
-- A request whose `Host` names neither the public origin's host nor a loopback name is refused
-  with 421 before any route runs, so a page that points its own name at this address (DNS
+- A request whose `Host` names neither the public origin's host, a loopback name, nor the address
+  the daemon listens on is refused with 421 before any route runs, so a page that points its own name at this address (DNS
   rebinding) reaches nothing (R-G9).
-- Every answer carries a content security policy (the app's own scripts, styles, images, fonts
+- Every answer, the event streams included, carries a content security policy (the app's own scripts, styles, images, fonts
   and requests only; no plugins, no base, no framing), `Referrer-Policy: no-referrer`,
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
-  `Cross-Origin-Opener-Policy: same-origin` (R-G9).
+  `Cross-Origin-Opener-Policy: same-origin`; a route that sets one more strictly keeps its own
+  (R-G9).
 
 ## Route access
 
@@ -44,28 +45,43 @@ never authenticate again, and the authenticating functions are private to the gu
 Services keep their own role checks. `route-access.test.ts` requests every live route as each
 kind of caller and compares the answer with the declaration.
 
-Once the body is parsed, a command that sets `permissionMode: 'unrestricted'` anywhere in its
-body, or a final promotion (a finalization's `merge` control), needs step-up: the operator's
-password again within the last 10 minutes, posted to `/api/auth/step-up`. Without it the command
-answers 403 with reason `step-up-required`, and the browser asks for the password and sends the
-command again. Step-up is held per session in the daemon's memory, so a restart or sign-out
-clears it; a wrong password counts toward the username's sign-in lock (R-G9).
+Once the body is parsed, these commands need step-up, the operator's password again within the
+last 10 minutes, posted to `/api/auth/step-up` (R-G9):
+- any command whose body sets `permissionMode: 'unrestricted'` anywhere (a launch, a cycle start,
+  saved profiles, roadmap agent and automation settings, finalization overrides);
+- a control command that starts or resumes agent work (anything but pause, stop or abandon) on a
+  roadmap, cycle or finalization whose stored settings grant unrestricted anywhere;
+- a final promotion: a finalization's `merge` control, or a worktree merge into its repository's
+  default branch.
+
+Without it the command answers 403 with reason `step-up-required`, and the browser asks for the
+password (once for every command waiting) and sends the command again. A wrong password answers
+403 with reason `step-up-failed` and counts toward the username's sign-in lock. Step-up is held
+per session in the daemon's memory, so a restart or sign-out clears it. Work that runs later on
+its own under settings granted that way (later cycle rounds, entries a roadmap adds) does not ask
+again: the grant was made with the password.
 
 ## Secrets and credentials
 
 - Bootstrap is interactive and refuses password arguments; there is no registration route.
 - Passwords are Argon2id hashes; session tokens are stored as SHA-256 digests.
 - Five failed sign-ins within 15 minutes, for a username or from a client address, refuse that
-  username's or address's sign-ins for 15 minutes (429, reason `login-rate-limited`). Behind
+  username's or address's sign-ins for 15 minutes (429, reason `login-rate-limited`, with
+  `Retry-After`). An attempt counts from the moment it arrives, before its password is checked,
+  so attempts sent at once get at most five checks; a success takes its own count back. Behind
   `tailscale serve` the address is the last one the loopback proxy names in `X-Forwarded-For`; a
-  client not on loopback cannot set it. One audit row stands for a username's window of failures
-  and one for each lock. At most two password verifications run at once. The counts are held in
-  memory (R-G9).
-- A session with no request for 24 hours ends (`CRAFTINGTABLE_SESSION_IDLE_SECONDS`); the 30-day
-  lifetime still bounds it (R-G9).
+  client not on loopback cannot set it, though any local process can, so the username's count is
+  the one that holds. One audit row stands for a username's window of failures and one for each
+  lock. At most two password verifications run at once and 32 wait; more are refused. The counts
+  are held in memory, at most 10,000 keys, and a key still counting is never dropped to make room
+  (R-G9).
+- A session with no request for 24 hours ends (`CRAFTINGTABLE_SESSION_IDLE_SECONDS`), and leaves
+  the session list; the 30-day lifetime still bounds it. An open tab reads every minute, so it
+  keeps its session (R-G9).
 - Repositories can be registered only under `CRAFTINGTABLE_REPOSITORY_ROOTS` (absolute,
-  colon-separated), both the path given and the repository's top level, links resolved; unset,
-  nothing can be registered. Registered repositories keep working (R-G9).
+  colon-separated): the path, links resolved, is checked before Git reads it, Git is given the
+  resolved path, and the top level Git answers is checked again; unset, nothing can be registered.
+  Registered repositories keep working (R-G9).
 - Logs redact cookies and authorization headers; audit metadata excludes bodies and tokens.
 - Claude Code and Codex use their own logins on the workstation. The daemon never handles API keys;
   it records only billing provenance or an environment-based API-key hint.
@@ -215,18 +231,22 @@ membership. Session expiry or logout does not revoke that standing configuration
 
 Application tokens and user keys are write-only and kept in plaintext in `credentials.json`
 under the operator's settings directory (`~/.config/craftingtable`, or
-`CRAFTINGTABLE_CONFIG_DIR`), mode 0600 in a 0700 directory, outside the database and so outside
-its backups and copies (R-G9). A daemon moves any still in the database there when it starts.
+`CRAFTINGTABLE_CONFIG_DIR`; a development daemon uses `craftingtable-dev` beside it), mode 0600
+in a directory the daemon makes 0700 whenever it writes, outside the database and so outside its
+backups and copies made since (R-G9). A daemon moves any still in the database there when it
+starts. A file it cannot read stops delivery, and the Notifications page says so.
 They are omitted from API responses, audit metadata, workspace events, logs, briefs, and
 spawned-agent environments. This uses the existing OS-user trust boundary: a process running
-with that user's full filesystem authority can read the file. Sandboxed Claude commands cannot:
-the file's directory, the database directory (with its pre-migration copies) and the backups are
-among their denied reads. A Codex run, or a Claude run with the unrestricted posture, runs as the
-operator and can read them. Database copies made before R-G9 may still hold credentials; clearing
-credentials does not securely erase SQLite pages or older backups.
+with that user's full filesystem authority can read the file. A Claude run in a sandboxed posture
+cannot: the file's directory, the database directory (with its pre-migration copies), the backups
+and the Settings backup root are among its sandbox's denied reads, and permission rules deny its
+own file tools (Read, Grep, Glob, Edit) the same paths. A Codex run, or a Claude run with the
+unrestricted posture, runs as the operator and can read them. Database copies made before the
+credentials moved still hold them, including the pre-migration copy taken at the start that moved
+them; clearing credentials does not securely erase SQLite pages or older backups.
 
-The daemon keeps one pre-migration copy of the database (the newest), removes copies older than
-14 days at every start, and writes each 0600 (R-G9).
+The daemon keeps one pre-migration copy of the database: making one removes the one before, and
+at every start any other over 14 days old goes, but never the newest. Each is written 0600 (R-G9).
 
 The daemon sends only to Pushover's fixed HTTPS endpoint, rejects redirects, bounds the
 response, and times out requests. Notifications expose project/item names, short workflow

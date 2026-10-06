@@ -29,10 +29,12 @@ declare module 'fastify' {
   interface FastifyContextConfig {
     readonly access?: RouteAccess;
     /**
-     * Whether a command with this body needs the operator's password again (R-G9), beyond the
-     * unrestricted permission mode every command is checked for: final promotion.
+     * Whether a command needs the operator's password again (R-G9), beyond the unrestricted
+     * permission mode every body is checked for: final promotion, a merge into a repository's
+     * default branch, or agent work under stored settings that grant unrestricted. Called after
+     * the caller's access is checked; it may read what the route names.
      */
-    readonly stepUp?: (body: unknown) => boolean;
+    readonly stepUp?: (body: unknown, request: FastifyRequest) => boolean;
   }
   interface FastifyRequest {
     /** The signed-in caller, attached by the access guard to every non-public route (R-G9). */
@@ -142,10 +144,28 @@ export function installRouteAccess(
   // the session to have given its password again recently (R-G9; operator decision 2026-10-05).
   app.addHook('preValidation', async (request) => {
     if (request.auth === undefined || !isMutation(request.method)) return;
-    const declared = request.routeOptions.config?.stepUp?.(request.body) ?? false;
+    const declared = request.routeOptions.config?.stepUp?.(request.body, request) ?? false;
     if ((declared || grantsUnrestricted(request.body)) && !auth.isSteppedUp(request.auth))
       throw new StepUpRequiredError();
   });
+}
+
+/** The control actions that start no agent work: they never need step-up. */
+const IDLE_ACTIONS: ReadonlySet<unknown> = new Set(['pause', 'stop', 'abandon']);
+
+/**
+ * A control route's step-up (R-G9 review): an action that starts or resumes agent work needs the
+ * password again when the stored record it works under grants unrestricted anywhere, since that
+ * work runs under the stored settings, whatever the body says.
+ */
+export function stepUpForStoredWork(
+  stored: (request: FastifyRequest) => unknown,
+): (body: unknown, request: FastifyRequest) => boolean {
+  return (body, request) => {
+    const action =
+      typeof body === 'object' && body !== null ? (body as { action?: unknown }).action : undefined;
+    return !IDLE_ACTIONS.has(action) && grantsUnrestricted(stored(request));
+  };
 }
 
 /** Whether a body sets `permissionMode: 'unrestricted'` anywhere in it (R-G9). */

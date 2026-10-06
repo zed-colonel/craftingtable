@@ -9,7 +9,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { FinalizationService } from '../services/finalization-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { contextOf, stepUpForStoredWork } from './route-access.js';
 export function registerFinalizationRoutes(
   app: FastifyInstance,
   service: FinalizationService,
@@ -51,14 +51,21 @@ export function registerFinalizationRoutes(
   );
   app.post<{ Params: { workspaceId: string; finalizationId: string } }>(
     '/api/workspaces/:workspaceId/finalizations/:finalizationId/control',
-    // Final promotion needs the operator's password again (R-G9).
+    // Final promotion, and work under profiles that grant unrestricted, ask again (R-G9).
     {
       config: {
         access: 'editor',
-        stepUp: (body) =>
-          typeof body === 'object' &&
-          body !== null &&
-          (body as { action?: unknown }).action === 'merge',
+        stepUp: (body, request) =>
+          (typeof body === 'object' &&
+            body !== null &&
+            (body as { action?: unknown }).action === 'merge') ||
+          stepUpForStoredWork((request) => {
+            const { workspaceId, finalizationId } = request.params as {
+              readonly workspaceId: string;
+              readonly finalizationId: string;
+            };
+            return service.storedWork(workspaceId, finalizationId);
+          })(body, request),
       },
     },
     async (request, reply) => {

@@ -46,6 +46,19 @@ describe('configFromEnv', () => {
     expect(retiredSettings({ CRAFTINGTABLE_GIT_EXECUTABLE: '/usr/bin/git' })).toEqual([]);
   });
 
+  it('ends idle sessions after 24 hours by default, within 10 minutes and the lifetime (R-G9)', () => {
+    const base = { CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable' };
+    expect(configFromEnv(base).sessionIdleSeconds).toBe(86_400);
+    expect(
+      configFromEnv({ ...base, CRAFTINGTABLE_SESSION_IDLE_SECONDS: '600' }).sessionIdleSeconds,
+    ).toBe(600);
+    for (const value of ['599', '2592001', '1.5', 'soon'])
+      expect(
+        () => configFromEnv({ ...base, CRAFTINGTABLE_SESSION_IDLE_SECONDS: value }),
+        value,
+      ).toThrow(/CRAFTINGTABLE_SESSION_IDLE_SECONDS/);
+  });
+
   it('reads the repository roots, absolute and colon-separated, and none by default (R-G9)', () => {
     const base = { CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable' };
     expect(configFromEnv(base).execution.repositoryRoots).toEqual([]);

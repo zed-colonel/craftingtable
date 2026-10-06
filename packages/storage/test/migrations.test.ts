@@ -437,6 +437,9 @@ describe('pre-migration snapshots (R-B9)', () => {
     expect(existsSync(recent)).toBe(true);
     expect(statSync(recent).mode & 0o777).toBe(0o600);
     expect(existsSync(unrelated)).toBe(true);
+    // The newest copy stays whatever its age: it is the one a rollback would need (R-G9 review).
+    retirePreMigrationSnapshots(path, () => new Date('2027-01-01T00:00:00.000Z'));
+    expect(existsSync(recent)).toBe(true);
     // No directory yet: nothing to do.
     expect(() => retirePreMigrationSnapshots(databasePath())).not.toThrow();
   });
@@ -446,9 +449,12 @@ describe('pre-migration snapshots (R-B9)', () => {
     const directory = join(storage.databasePath, '..', 'pre-migration');
     mkdirSync(directory, { recursive: true });
     const old = join(directory, 'craftingtable-schema-30-2020-01-01T00-00-00-000Z.sqlite');
+    const newer = join(directory, 'craftingtable-schema-31-2020-02-01T00-00-00-000Z.sqlite');
     writeFileSync(old, 'copy');
+    writeFileSync(newer, 'copy');
     openCraftingTableStorage(storage.databasePath, acceptAnyRecord).close();
     expect(existsSync(old)).toBe(false);
+    expect(existsSync(newer)).toBe(true);
     storage.cleanup();
   });
 });

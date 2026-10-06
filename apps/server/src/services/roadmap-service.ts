@@ -358,6 +358,14 @@ export class RoadmapService {
     private readonly agents?: import('./agent-run-service.js').AgentRunService,
     private readonly git?: import('@craftingtable/git').GitOperations,
   ) {}
+
+  /**
+   * The stored roadmap, for the access guard's step-up check (R-G9): read only after the caller's
+   * role was checked, and only to see whether its settings grant an unrestricted agent.
+   */
+  storedWork(workspaceId: string, roadmapId: string): unknown {
+    return this.storage.roadmaps.find(workspaceId as never, roadmapId as never);
+  }
   private attention: AttentionProjector | undefined;
   private passes: ControllerPasses | undefined;
   private observer: SchedulerObserver | undefined;

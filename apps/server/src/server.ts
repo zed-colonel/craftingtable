@@ -43,6 +43,7 @@ import {
   ForbiddenError,
   LoginRateLimitedError,
   NotFoundError,
+  StepUpFailedError,
   StepUpRequiredError,
   UnauthenticatedError,
 } from './services/errors.js';
@@ -228,10 +229,7 @@ export function buildServer(
       return sendApiError(reply, 400, 'invalid-request', 'Request body is not valid JSON');
     }
     if (error instanceof LoginRateLimitedError) {
-      reply.header(
-        'retry-after',
-        String(Math.max(1, Math.ceil((error.until.getTime() - Date.now()) / 1000))),
-      );
+      reply.header('retry-after', String(error.retryAfterSeconds));
       return sendApiError(reply, 429, 'rate-limited', error.message, {
         reason: 'login-rate-limited',
       });
@@ -241,6 +239,9 @@ export function buildServer(
     }
     if (error instanceof UnauthenticatedError) {
       return sendApiError(reply, 401, 'unauthenticated', 'Authentication required');
+    }
+    if (error instanceof StepUpFailedError) {
+      return sendApiError(reply, 403, 'forbidden', error.message, { reason: 'step-up-failed' });
     }
     if (error instanceof StepUpRequiredError) {
       return sendApiError(reply, 403, 'forbidden', error.message, { reason: 'step-up-required' });

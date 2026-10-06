@@ -284,6 +284,11 @@ export class WorkCycleService {
     private readonly runtimeEvidence?: RuntimeEvidenceService,
   ) {}
 
+  /** The stored cycle, for the access guard's step-up check (R-G9), as `RoadmapService.storedWork`. */
+  storedWork(workspaceId: string, cycleId: string): unknown {
+    return this.storage.execution.cycles.find(workspaceId as never, cycleId as never);
+  }
+
   /**
    * Cycles as the browser reads them.
    *

@@ -1,4 +1,14 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -50,4 +60,17 @@ it('makes a file it finds readable by others private again, and refuses one it c
   expect(statSync(path).mode & 0o777).toBe(0o600);
   writeFileSync(path, '{ not json');
   expect(() => file.pushover('ws-1')).toThrow(/credentials\.json/);
+});
+
+it('makes a settings directory it finds private, and leaves no temporary file behind (R-G9 review)', () => {
+  const dir = directory();
+  mkdirSync(dir, { recursive: true, mode: 0o755 });
+  chmodSync(dir, 0o755);
+  // What a crash between writing and renaming would leave.
+  const stale = join(dir, 'credentials.json.12345.tmp');
+  writeFileSync(stale, '{"version":1,"pushover":{}}', { mode: 0o600 });
+  new CredentialFile(dir).setPushover('ws-1', one);
+  expect(statSync(dir).mode & 0o777).toBe(0o700);
+  expect(existsSync(stale)).toBe(false);
+  expect(readdirSync(dir)).toEqual(['credentials.json']);
 });

@@ -7,9 +7,12 @@ export class AuthenticationError extends Error {
 
 /** Sign-in refused before verification: too many recent failures (R-G9, SEC-04). */
 export class LoginRateLimitedError extends Error {
-  constructor(readonly until: Date) {
+  /** Whole seconds until another attempt is admitted, by the daemon's clock (`Retry-After`). */
+  readonly retryAfterSeconds: number;
+  constructor(until: Date, now: Date) {
     super('Too many failed sign-ins; try again later');
     this.name = 'LoginRateLimitedError';
+    this.retryAfterSeconds = Math.max(1, Math.ceil((until.getTime() - now.getTime()) / 1000));
   }
 }
 
@@ -18,6 +21,14 @@ export class StepUpRequiredError extends Error {
   constructor() {
     super('Enter your password again to continue');
     this.name = 'StepUpRequiredError';
+  }
+}
+
+/** A step-up's password did not match (R-G9). Not 401: the session itself stands. */
+export class StepUpFailedError extends Error {
+  constructor() {
+    super('That password did not match');
+    this.name = 'StepUpFailedError';
   }
 }
 

@@ -127,9 +127,19 @@ export function claudeSandboxed(request: AgentLaunchRequest): boolean {
   return request.readOnly === true || request.permissionMode !== 'unrestricted';
 }
 
+/**
+ * Claude's own file tools (Read, Grep, Glob, Edit) may not touch the daemon's files either
+ * (R-G9 review): the sandbox governs only commands. `//` marks an absolute path in a rule.
+ */
+function deniedFileRules(request: AgentLaunchRequest): string[] {
+  return (request.deniedReads ?? []).flatMap((path) => [`Read(/${path}/**)`, `Edit(/${path}/**)`]);
+}
+
 function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown> {
+  const deny = deniedFileRules(request);
   return {
     autoMemoryEnabled: false,
+    ...(deny.length === 0 ? {} : { permissions: { deny } }),
     ...(!claudeSandboxed(request)
       ? {}
       : {

@@ -1,15 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { asAuditEventId, asSessionId, normalizeUsername } from '@craftingtable/domain';
 import type { CraftingTableStorage, StoredSession, StoredUser } from '@craftingtable/storage';
-import { ConcurrencyLimit, LoginThrottle } from '../security/login-throttle.js';
+import {
+  ConcurrencyLimit,
+  type LoginAttempt,
+  LoginThrottle,
+  QueueFullError,
+} from '../security/login-throttle.js';
 import type { PasswordHasher } from '../security/password-hasher.js';
 import type { SessionTokenService } from '../security/session-tokens.js';
 import {
   AuthenticationError,
   ExecutionRequestError,
-  ForbiddenError,
   LoginRateLimitedError,
   NotFoundError,
+  StepUpFailedError,
   UnauthenticatedError,
 } from './errors.js';
 
@@ -58,9 +63,40 @@ export class AuthService {
     this.throttle = new LoginThrottle(now);
   }
 
-  /** Checks a password with the bounded verifier. */
-  private verify(encodedHash: string, password: string): Promise<boolean> {
-    return this.verifications.run(() => this.passwordHasher.verify(encodedHash, password));
+  /** Checks a password with the bounded verifier; a full queue refuses for a second. */
+  private async verify(encodedHash: string, password: string): Promise<boolean> {
+    try {
+      return await this.verifications.run(() => this.passwordHasher.verify(encodedHash, password));
+    } catch (error) {
+      if (error instanceof QueueFullError)
+        throw new LoginRateLimitedError(new Date(this.now().getTime() + 1000), this.now());
+      throw error;
+    }
+  }
+
+  /**
+   * Counts an attempt on these keys before its password is verified (R-G9 review: attempts made
+   * at once cannot pass the limit), or refuses it while a key is locked.
+   */
+  private begin(keys: readonly string[]): LoginAttempt {
+    const outcome = this.throttle.begin(keys);
+    if ('refusedUntil' in outcome)
+      throw new LoginRateLimitedError(new Date(outcome.refusedUntil), this.now());
+    return outcome.attempt;
+  }
+
+  /** Verifies a counted attempt's password; one refused for load is taken back. */
+  private async verifyAttempt(
+    attempt: LoginAttempt,
+    encodedHash: string,
+    password: string,
+  ): Promise<boolean> {
+    try {
+      return await this.verify(encodedHash, password);
+    } catch (error) {
+      attempt.withdrawn();
+      throw error;
+    }
   }
 
   async login(input: {
@@ -76,13 +112,16 @@ export class AuthService {
       `user:${usernameNormalized}`,
       ...(input.address === undefined ? [] : [`address:${input.address}`]),
     ];
-    const blocked = this.throttle.blockedUntil(keys);
-    if (blocked !== undefined) throw new LoginRateLimitedError(new Date(blocked));
+    const attempt = this.begin(keys);
     const user = this.storage.users.findByNormalizedUsername(usernameNormalized);
-    const valid = await this.verify(user?.passwordHash ?? this.dummyPasswordHash, input.password);
+    const valid = await this.verifyAttempt(
+      attempt,
+      user?.passwordHash ?? this.dummyPasswordHash,
+      input.password,
+    );
     if (!valid || user === undefined || user.status !== 'active') {
       // One row stands for a username's window of failures, and one for a lock (SEC-04).
-      const { first, locked } = this.throttle.failed(keys);
+      const { first, locked } = attempt;
       const actions = [
         ...(first ? ['auth.login.failed' as const] : []),
         ...(locked ? ['auth.login.rate-limited' as const] : []),
@@ -105,7 +144,7 @@ export class AuthService {
         });
       throw new AuthenticationError();
     }
-    this.throttle.succeeded([`user:${usernameNormalized}`]);
+    attempt.succeeded();
 
     const token = this.tokenService.generate();
     const csrfToken = this.tokenService.generateCsrfToken();
@@ -146,20 +185,26 @@ export class AuthService {
     return { user, session, rawSessionToken: token.raw };
   }
 
+  /**
+   * Whether a session can still be used: active, within its lifetime, and not idle (R-G9): no
+   * request for the idle span ends it. The last request is recorded at most every
+   * LAST_SEEN_WRITE_INTERVAL_MS, so a session may end up to that much sooner than the span.
+   */
+  private usable(session: StoredSession, now: Date): boolean {
+    return (
+      session.status === 'active' &&
+      Date.parse(session.expiresAt) > now.getTime() &&
+      now.getTime() - Date.parse(session.lastSeenAt) < this.sessionIdleSeconds * 1000
+    );
+  }
+
   authenticate(rawToken: string | undefined, touch = true): AuthContext {
     if (rawToken === undefined || rawToken.length === 0) {
       throw new UnauthenticatedError();
     }
     const session = this.storage.sessions.findByTokenDigest(this.tokenService.digest(rawToken));
     const now = this.now();
-    if (
-      session === undefined ||
-      session.status !== 'active' ||
-      Date.parse(session.expiresAt) <= now.getTime() ||
-      // Idle: no request for the idle span ends the session (R-G9). The last request is
-      // recorded at most every LAST_SEEN_WRITE_INTERVAL_MS, so the span is that much longer.
-      now.getTime() - Date.parse(session.lastSeenAt) >= this.sessionIdleSeconds * 1000
-    ) {
+    if (session === undefined || !this.usable(session, now)) {
       throw new UnauthenticatedError();
     }
     const user = this.storage.users.findById(session.userId);
@@ -176,8 +221,12 @@ export class AuthService {
     return { user, session };
   }
 
+  /** The user's sessions, revoked ones included, but none that ended unrevoked (R-G9 review). */
   listSessions(context: AuthContext): readonly StoredSession[] {
-    return this.storage.sessions.listForUser(context.user.id);
+    const now = this.now();
+    return this.storage.sessions
+      .listForUser(context.user.id)
+      .filter((session) => session.status !== 'active' || this.usable(session, now));
   }
 
   /**
@@ -256,15 +305,13 @@ export class AuthService {
    * step-up for `STEP_UP_MS`. A mismatch counts toward the username's sign-in lock (R-G9).
    */
   async stepUp(context: AuthContext, password: string, requestId?: string): Promise<Date> {
-    const keys = [`user:${context.user.usernameNormalized}`];
-    const blocked = this.throttle.blockedUntil(keys);
-    if (blocked !== undefined) throw new LoginRateLimitedError(new Date(blocked));
-    const valid = await this.verify(context.user.passwordHash, password);
+    const attempt = this.begin([`user:${context.user.usernameNormalized}`]);
+    const valid = await this.verifyAttempt(attempt, context.user.passwordHash, password);
     const now = this.now();
-    const locked = valid ? false : this.throttle.failed(keys).locked;
+    const locked = !valid && attempt.locked;
     const until = new Date(now.getTime() + STEP_UP_MS);
     if (valid) {
-      this.throttle.succeeded(keys);
+      attempt.succeeded();
       this.forgetSteppedUp(now.getTime());
       this.steppedUp.set(context.session.id, until.getTime());
     }
@@ -287,7 +334,7 @@ export class AuthService {
           metadata: {},
         });
     });
-    if (!valid) throw new ForbiddenError();
+    if (!valid) throw new StepUpFailedError();
     return until;
   }
 

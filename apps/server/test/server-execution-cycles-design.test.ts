@@ -23,6 +23,7 @@ import {
   reviewText,
   runToFinish,
   startCycle,
+  stepUp,
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
@@ -97,6 +98,8 @@ describe('single work-item automation', () => {
         (event) => event.kind === 'work-cycle-changed' && event.payload.status === 'awaiting-merge',
       ),
     ).toBe(true);
+    // A merge into the repository's default branch needs the password again (R-G9).
+    await stepUp(state);
     const response = await state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/merge`,

@@ -232,6 +232,23 @@ export class ExecutionService {
   }
 
   /**
+   * Whether merging this worktree promotes into its repository's default branch, which needs the
+   * operator's password again (R-G9 review): the access guard asks after the caller's role.
+   */
+  mergesIntoDefaultBranch(workspaceId: string, worktreeId: string): boolean {
+    const worktree = this.storage.execution.worktrees.find(
+      workspaceId as never,
+      worktreeId as never,
+    );
+    if (worktree?.integrationBranch === undefined) return false;
+    const repository = this.storage.execution.sourceRepositories.find(
+      workspaceId as never,
+      worktree.repositoryId,
+    );
+    return repository !== undefined && worktree.integrationBranch === repository.defaultBranch;
+  }
+
+  /**
    * What merging a slice adopts (R-G13 increment 5, operator decision 2026-09-30): nothing
    * when the slice changes no check definition. Otherwise only a person's approval naming the
    * proposal they were shown may merge it, never a roadmap's, and a merge whose result cannot
@@ -435,8 +452,11 @@ export class ExecutionService {
     return this.storage.execution.sourceRepositories.list(workspaceId);
   }
 
-  /** Refuses a path that is not inside one of `CRAFTINGTABLE_REPOSITORY_ROOTS`, links resolved. */
-  private requireUnderRepositoryRoots(path: string): void {
+  /**
+   * Refuses a path that is not inside one of `CRAFTINGTABLE_REPOSITORY_ROOTS`, links resolved;
+   * returns the resolved path.
+   */
+  private requireUnderRepositoryRoots(path: string): string {
     const real = (value: string) => {
       try {
         return realpathSync(value);
@@ -455,6 +475,7 @@ export class ExecutionService {
         'Repositories can be registered only under CRAFTINGTABLE_REPOSITORY_ROOTS',
         { reason: 'repository-outside-roots' },
       );
+    return target;
   }
 
   async registerRepository(
@@ -466,14 +487,16 @@ export class ExecutionService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
-    // Only under the configured roots (R-G9), checked before Git reads the path. Inspection
-    // takes only a repository's top level, so this is the repository's own place, links resolved.
-    this.requireUnderRepositoryRoots(input.rootPath);
-    const inspection = await this.requireGit().inspectRepository(input.rootPath);
+    // Only under the configured roots (R-G9): the path, links resolved, is checked before Git
+    // reads it, and Git is given that resolved path; the top level it answers is checked again,
+    // so a link changed in between cannot move the repository outside them (R-G9 review).
+    const resolved = this.requireUnderRepositoryRoots(input.rootPath);
+    const inspection = await this.requireGit().inspectRepository(resolved);
     if (!inspection.ok) {
       throw new ExecutionRequestError('invalid-request', inspection.failure.message);
     }
     const identity = inspection.value;
+    this.requireUnderRepositoryRoots(identity.topLevel);
     const existing = this.storage.execution.sourceRepositories.findActiveByPath(
       workspaceId,
       identity.topLevel,

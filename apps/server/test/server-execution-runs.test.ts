@@ -50,6 +50,8 @@ import {
   admit,
   branchCommand,
   cleanupExecutionFixtures,
+  controlCycle,
+  cycleProfiles,
   directories,
   fixtureRepository,
   git,
@@ -64,6 +66,8 @@ import {
   runDetail,
   runToFinish,
   ScriptedBackend,
+  startCycle,
+  stepUp,
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
@@ -223,6 +227,43 @@ describe('repository registration', () => {
     expect(events.map((event) => event.kind)).toContain('source-repository-registered');
   });
 
+  it('knows a merge into the repository default branch, and a cycle whose profiles grant unrestricted (R-G9 review)', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository(), 'main');
+    const execution = state.context.services.executionService;
+    expect(execution.mergesIntoDefaultBranch(state.workspaceId, worktree.id)).toBe(true);
+    const other = await ready();
+    const released = fixtureRepository();
+    git(['branch', 'release'], released);
+    const { worktree: elsewhere } = await registerAndWorktree(other, released, 'release');
+    expect(
+      other.context.services.executionService.mergesIntoDefaultBranch(
+        other.workspaceId,
+        elsewhere.id,
+      ),
+    ).toBe(false);
+    expect(execution.mergesIntoDefaultBranch(state.workspaceId, 'missing')).toBe(false);
+    // A cycle started with an unrestricted step asks again to resume, from another session.
+    await admit(state);
+    await stepUp(state);
+    const cycle = await startCycle(state, worktree.id, {
+      profiles: {
+        ...cycleProfiles,
+        implement: { ...cycleProfiles.implement, permissionMode: 'unrestricted' },
+      },
+    });
+    const paused = await controlCycle(state, cycle, 'pause');
+    const another = await state.context.login();
+    const resumed = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders({ ...state, ...another }),
+      payload: { action: 'resume', expectedVersion: paused.version },
+    });
+    expect(resumed.statusCode).toBe(403);
+    expect(resumed.json().error.reason).toBe('step-up-required');
+  });
+
   it('registers a repository only under a configured root (R-G9)', async () => {
     const repository = fixtureRepository();
     const register = (state: Ready) =>
@@ -259,6 +300,8 @@ describe('repository registration', () => {
       payload: { rootPath: plain },
     });
     expect(outside(outsideDirectory)).toBe(true);
+    // A root that is the repository itself holds it.
+    expect((await register(elsewhere)).statusCode).toBe(200);
     // A link under a root to a repository elsewhere is where it leads.
     const linkRoot = mkdtempSync(join(tmpdir(), 'craftingtable-link-root-'));
     directories.push(linkRoot);
@@ -407,6 +450,24 @@ describe('agent runs', () => {
     expect(run.permissionMode).toBe('auto');
 
     const launch = state.backend.launches[0];
+    // The run's event stream writes its own response, with the security headers (R-G9 review).
+    await state.context.app.listen({ host: '127.0.0.1', port: 0 });
+    const { port } = state.context.app.server.address() as { port: number };
+    const stream = new AbortController();
+    const streamed = await fetch(
+      `http://127.0.0.1:${port}/api/workspaces/${state.workspaceId}/runs/${run.id}/events`,
+      { headers: { cookie: state.cookie }, signal: stream.signal },
+    );
+    expect(streamed.status).toBe(200);
+    expect(streamed.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+    expect(streamed.headers.get('x-frame-options')).toBe('DENY');
+    stream.abort();
+    // Another site's page cannot open it.
+    const crossSite = await fetch(
+      `http://127.0.0.1:${port}/api/workspaces/${state.workspaceId}/runs/${run.id}/events`,
+      { headers: { cookie: state.cookie, origin: 'https://evil.example' } },
+    );
+    expect(crossSite.status).toBe(403);
     expect(launch?.cwd).toBe(worktree.path);
     expect(launch?.prompt).toContain('# Work item AQ-01: Establish the queue');
     expect(launch?.prompt).toContain('Keep it small.');

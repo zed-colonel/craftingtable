@@ -21,11 +21,12 @@ import type { FastifyInstance } from 'fastify';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import type { WorkCycleService } from '../services/work-cycle-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { contextOf, stepUpForStoredWork } from './route-access.js';
 
 export function registerWorkCycleRoutes(
   app: FastifyInstance,
-  cycles: WorkCycleService /** Owns repairs of a roadmap's reviews as recovery rounds. */,
+  cycles: WorkCycleService,
+  /** Owns repairs of a roadmap's reviews as recovery rounds. */
   roadmaps: Pick<RoadmapService, 'delegateScopeRepair'>,
 ): void {
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
@@ -257,7 +258,19 @@ export function registerWorkCycleRoutes(
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/control',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        // Resuming work under profiles that grant unrestricted asks again (R-G9).
+        stepUp: stepUpForStoredWork((request) => {
+          const { workspaceId, cycleId } = request.params as {
+            readonly workspaceId: string;
+            readonly cycleId: string;
+          };
+          return cycles.storedWork(workspaceId, cycleId);
+        }),
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

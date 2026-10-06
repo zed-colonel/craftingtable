@@ -1,4 +1,13 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 export interface PushoverCredentials {
@@ -75,11 +84,17 @@ export class CredentialFile implements PushoverCredentialStore {
   }
 
   private write(contents: CredentialFileContents): void {
-    if (!existsSync(this.directory)) mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    // A directory found readable by others is made private (R-G9 review).
+    chmodSync(this.directory, 0o700);
     const next = `${this.path}.${process.pid}.tmp`;
     writeFileSync(next, `${JSON.stringify(contents, null, 2)}\n`, { mode: 0o600 });
     chmodSync(next, 0o600);
     renameSync(next, this.path);
+    // A crash between writing and renaming leaves a copy holding secrets: it goes now.
+    for (const name of readdirSync(this.directory))
+      if (/^credentials\.json\.\d+\.tmp$/.test(name))
+        rmSync(join(this.directory, name), { force: true });
   }
 }
 

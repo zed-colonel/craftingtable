@@ -370,7 +370,19 @@ export function registerExecutionRoutes(
    */
   app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/merge',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        // A merge into the repository's default branch is a final promotion (R-G9).
+        stepUp: (_body, request) => {
+          const { workspaceId, worktreeId } = request.params as {
+            readonly workspaceId: string;
+            readonly worktreeId: string;
+          };
+          return executionService.mergesIntoDefaultBranch(workspaceId, worktreeId);
+        },
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);

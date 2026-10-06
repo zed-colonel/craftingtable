@@ -16,7 +16,11 @@ import type {
   StorageRepositories,
   StoredNotificationSettings,
 } from '@craftingtable/storage';
-import { MemoryCredentials, type PushoverCredentialStore } from '../security/credential-file.js';
+import {
+  MemoryCredentials,
+  type PushoverCredentialStore,
+  type PushoverCredentials,
+} from '../security/credential-file.js';
 import type { ControllerPasses, OperatorPresence } from './attention-gates.js';
 import { inboxPath } from './attention-service.js';
 import type { AuthContext } from './auth-service.js';
@@ -139,9 +143,26 @@ export class NotificationService {
     return moved;
   }
 
+  /**
+   * A workspace's credentials, or why the credentials file cannot be read (R-G9 review): the
+   * page says so, and delivery waits for it, rather than every workspace's delivery failing.
+   */
+  private readCredentials(workspaceId: WorkspaceId): {
+    readonly held?: PushoverCredentials;
+    readonly unreadable?: string;
+  } {
+    try {
+      const held = this.credentials.pushover(workspaceId);
+      return held === undefined ? {} : { held };
+    } catch (error) {
+      return { unreadable: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   get(context: AuthContext, workspaceId: WorkspaceId): NotificationStatus {
     this.workspaces.requireRole(context, workspaceId, ['owner']);
     const settings = this.storage.notifications.settings(workspaceId);
+    const credentials = this.readCredentials(workspaceId);
     const installation = this.storage.maintenance.ownsInstallation(context.user.id);
     const items = this.storage.attention
       .recent(workspaceId, 50)
@@ -182,8 +203,8 @@ export class NotificationService {
     return {
       preferences: settings?.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES,
       version: settings?.version ?? 0,
-      credentialsConfigured: this.credentials.pushover(workspaceId) !== undefined,
-      blockedReason: settings?.blockedReason ?? null,
+      credentialsConfigured: credentials.held !== undefined,
+      blockedReason: settings?.blockedReason ?? credentials.unreadable ?? null,
       retryAt: settings?.retryAt ?? null,
       // Open items first, then by last activity, so a current alert is never pushed off (NOTIF-07).
       records: [...items, ...tests]
@@ -423,7 +444,7 @@ export class NotificationService {
       if (
         !settings ||
         !this.authorized(tx, settings) ||
-        this.credentials.pushover(workspaceId) === undefined ||
+        this.readCredentials(workspaceId).held === undefined ||
         settings.blockedReason ||
         (settings.retryAt !== null && settings.retryAt > this.now().toISOString())
       )
@@ -477,7 +498,7 @@ export class NotificationService {
         const claim = this.claim(initial.workspaceId);
         if (claim === undefined) break;
         const settings = this.storage.notifications.settings(initial.workspaceId)!;
-        const credentials = this.credentials.pushover(settings.workspaceId);
+        const credentials = this.readCredentials(settings.workspaceId).held;
         const message = this.message(settings.workspaceId, claim);
         let delivery: DeliveryResult;
         try {

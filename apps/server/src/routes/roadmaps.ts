@@ -24,7 +24,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { contextOf, stepUpForStoredWork } from './route-access.js';
 export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapService): void {
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations',
@@ -314,7 +314,19 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
   );
   app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/control',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        // Starting or resuming work under settings that grant unrestricted asks again (R-G9).
+        stepUp: stepUpForStoredWork((request) => {
+          const { workspaceId, roadmapId } = request.params as {
+            readonly workspaceId: string;
+            readonly roadmapId: string;
+          };
+          return roadmaps.storedWork(workspaceId, roadmapId);
+        }),
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

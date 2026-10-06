@@ -38,6 +38,24 @@ export class FinalizationService {
     private readonly notifier: WorkspaceEventNotifier,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /**
+   * The stored finalization and its cycle, for the access guard's step-up check (R-G9), as
+   * `RoadmapService.storedWork`.
+   */
+  storedWork(workspaceId: string, finalizationId: string): unknown {
+    const finalization = this.storage.execution.finalizations.find(
+      workspaceId as never,
+      finalizationId as never,
+    );
+    return {
+      finalization,
+      cycle:
+        finalization === undefined
+          ? undefined
+          : this.storage.execution.cycles.find(workspaceId as never, finalization.cycleId),
+    };
+  }
   list(context: AuthContext, workspaceId: WorkspaceId, planVersionId: PlanVersionId) {
     this.workspaces.requireAuthorized(context, workspaceId);
     return this.storage.execution.finalizations

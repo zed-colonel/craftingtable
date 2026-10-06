@@ -24,6 +24,7 @@ import {
   scopeTree,
   slicedFixture,
   startCycle,
+  stepUp,
   storedRoadmap,
   supervisedMapFixture,
   waitFor,
@@ -137,13 +138,16 @@ async function adoptionFixture(
       resultText: `## Open questions\nnone\n\n## Review report\n${scopeReport(f.state, tree.executionScope!)}`,
     };
   };
-  const post = (payload: object) =>
-    f.state.context.app.inject({
+  // A merge into the repository's default branch needs the password again (R-G9).
+  const post = async (payload: object) => {
+    await stepUp(f.state);
+    return f.state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${ws}/worktrees/${tree.id}/merge`,
       headers: mutationHeaders(f.state),
       payload,
     });
+  };
   // An approval names the adoption it was shown against; the current one, unless a test says.
   const merge = (payload: { adoptChecks?: object } = {}) =>
     post(
@@ -536,6 +540,8 @@ itNeedsCargo(
       headers: { cookie: state.cookie },
     });
     const diagnosis = checkDefinitionDiagnosisSchema.parse(response.json());
+    // A merge into the repository's default branch needs the password again (R-G9).
+    await stepUp(state);
     const merged = await state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${ws}/worktrees/${tree.id}/merge`,

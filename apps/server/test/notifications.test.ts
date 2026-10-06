@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { attentionFeedSchema, notificationStatusSchema } from '@craftingtable/contracts';
 import {
   asAgentRunEventId,
@@ -787,6 +788,22 @@ describe('notification routes and credentials', () => {
     expect(() => f.service.test(viewer, f.workspaceId)).toThrow();
     expect(() => f.service.get(viewer, asWorkspaceId('unrelated'))).toThrow();
   });
+  it('says the credentials file cannot be read, and sends nothing until it can (R-G9 review)', async () => {
+    const f = await fixture();
+    const path = join(f.context.config.configDir, 'credentials.json');
+    const good = readFileSync(path, 'utf8');
+    writeFileSync(path, '{ not json');
+    const status = f.status();
+    expect(status.credentialsConfigured).toBe(false);
+    expect(status.blockedReason).toContain('credentials.json');
+    await expect(f.service.tick()).resolves.toBeUndefined();
+    expect(f.send).not.toHaveBeenCalled();
+    writeFileSync(path, good);
+    expect(f.status()).toMatchObject({ credentialsConfigured: true, blockedReason: null });
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalled();
+  });
+
   it('moves credentials stored in the database into the credentials file at start (R-G9)', async () => {
     const f = await fixture();
     const file = new CredentialFile(f.context.config.configDir);

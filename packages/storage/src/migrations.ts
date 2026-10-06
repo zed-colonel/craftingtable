@@ -216,8 +216,9 @@ function snapshotTakenAt(name: string): number {
 }
 
 /**
- * At every start: removes the pre-migration snapshots older than `PRE_MIGRATION_SNAPSHOT_DAYS`
- * and makes the rest readable only by the operator (R-G9). Other files are left alone.
+ * At every start: removes the pre-migration snapshots older than `PRE_MIGRATION_SNAPSHOT_DAYS`,
+ * except the newest, and makes the rest readable only by the operator (R-G9). Other files are
+ * left alone.
  */
 export function retirePreMigrationSnapshots(
   databasePath: string,
@@ -226,11 +227,15 @@ export function retirePreMigrationSnapshots(
   const directory = join(dirname(databasePath), 'pre-migration');
   if (!existsSync(directory)) return;
   const cutoff = now().getTime() - PRE_MIGRATION_SNAPSHOT_DAYS * 86_400_000;
-  for (const name of readdirSync(directory).filter((entry) => SNAPSHOT_FILE.test(entry))) {
+  const names = readdirSync(directory)
+    .filter((entry) => SNAPSHOT_FILE.test(entry))
+    .toSorted((left, right) => snapshotTakenAt(right) - snapshotTakenAt(left));
+  // The newest stays whatever its age: it is the copy a rollback would need (R-G9 review).
+  names.forEach((name, index) => {
     const path = join(directory, name);
-    if (snapshotTakenAt(name) < cutoff) rmSync(path, { force: true });
+    if (index > 0 && snapshotTakenAt(name) < cutoff) rmSync(path, { force: true });
     else chmodSync(path, 0o600);
-  }
+  });
 }
 
 /**

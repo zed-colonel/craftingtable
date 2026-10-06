@@ -31,6 +31,7 @@ describe('browser security (R-G9, SEC-07)', () => {
       expect(response.headers['referrer-policy']).toBe('no-referrer');
       expect(response.headers['x-frame-options']).toBe('DENY');
       expect(response.headers['x-content-type-options']).toBe('nosniff');
+      expect(response.headers['cross-origin-opener-policy']).toBe('same-origin');
     }
   });
 
@@ -65,9 +66,17 @@ describe('browser security (R-G9, SEC-07)', () => {
     expect(headerHostname('[::1]:4600')).toBe('[::1]');
     expect(headerHostname(':4600')).toBeUndefined();
     expect(headerHostname(undefined)).toBeUndefined();
-    const config = { publicOrigin: 'https://studio.tailnet.ts.net' } as never;
+    const config = { publicOrigin: 'https://studio.tailnet.ts.net', host: '127.0.0.1' } as never;
     expect(allowedHost(undefined, config)).toBe(false);
     expect(allowedHost('studio.tailnet.ts.net.evil.example', config)).toBe(false);
+    // The address the daemon listens on is its own name too (the deploy's health check).
+    const bound = { publicOrigin: 'https://studio.tailnet.ts.net', host: '192.168.1.20' } as never;
+    expect(allowedHost('192.168.1.20:4600', bound)).toBe(true);
+    expect(allowedHost('192.168.1.21:4600', bound)).toBe(false);
+    // A wildcard listen address names no host.
+    expect(allowedHost('0.0.0.0:4600', { ...(bound as object), host: '0.0.0.0' } as never)).toBe(
+      false,
+    );
   });
 
   it('sends the policy with the built app', async () => {

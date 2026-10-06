@@ -14,6 +14,7 @@ import {
   type WorkspaceEventStreamService,
 } from '../services/workspace-event-stream-service.js';
 import type { WorkspaceService } from '../services/workspace-service.js';
+import { eventStreamHeaders } from './browser-security.js';
 import { sendApiError } from './http.js';
 import { contextOf } from './route-access.js';
 
@@ -72,12 +73,7 @@ export function registerWorkspaceEventRoute(
     const controller = new AbortController();
     activeStreams.add(controller);
     reply.hijack();
-    reply.raw.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-store, no-transform',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no',
-    });
+    reply.raw.writeHead(200, eventStreamHeaders());
     reply.raw.write('retry: 1000\n:connected\n\n');
     const heartbeat = setInterval(() => {
       reply.raw.write(':hb\n\n');

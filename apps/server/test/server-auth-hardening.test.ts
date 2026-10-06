@@ -1,5 +1,5 @@
 import { openDatabase } from '@craftingtable/storage';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PasswordHasher } from '../src/security/password-hasher.js';
 import {
   createTestContext,
@@ -88,6 +88,23 @@ describe('idle sessions end (R-G9)', () => {
     advance(24 * HOUR - MINUTE);
     expect((await read(fresh.cookie)).statusCode).toBe(200);
   });
+});
+
+it('lists only sessions that can still be used: an idle-ended one is gone (R-G9 review)', async () => {
+  const { context, advance } = await clock();
+  const idle = await context.login();
+  advance(25 * HOUR);
+  const fresh = await context.login();
+  const listed = await context.app.inject({
+    method: 'GET',
+    url: '/api/auth/sessions',
+    headers: { cookie: fresh.cookie },
+  });
+  expect(listed.statusCode).toBe(200);
+  const sessions = listed.json().sessions as { current: boolean }[];
+  expect(sessions).toHaveLength(1);
+  expect(sessions[0]?.current).toBe(true);
+  expect(idle.cookie).not.toBe(fresh.cookie);
 });
 
 it('ends a session after the configured idle span', async () => {
@@ -194,6 +211,16 @@ describe('sign-in rate limit (R-G9)', () => {
         })
       ).statusCode,
     ).toBe(200);
+    // A proxy on IPv6 loopback, or IPv4 loopback written as IPv6, names its client too.
+    for (const proxy of ['::1', '::ffff:127.0.0.1'])
+      expect(
+        (
+          await signIn(context, TEST_USERNAME, TEST_PASSWORD, {
+            remoteAddress: proxy,
+            forwardedFor: '100.64.0.5',
+          })
+        ).statusCode,
+      ).toBe(429);
     // The proxy names its client last; a client's own entries before it change nothing.
     expect(
       (
@@ -237,14 +264,59 @@ describe('sign-in rate limit (R-G9)', () => {
     contexts.push(context);
     await context.bootstrap();
     const answers = await Promise.all(
-      [1, 2, 3, 4, 5, 6].map((n) =>
+      [1, 2, 3, 4, 5].map((n) =>
         signIn(context, TEST_USERNAME, n % 2 ? TEST_PASSWORD : 'wrong password value', {
           remoteAddress: `10.0.1.${n}`,
         }),
       ),
     );
-    expect(answers.map((a) => a.statusCode).toSorted()).toEqual([200, 200, 200, 401, 401, 401]);
+    expect(answers.map((a) => a.statusCode).toSorted()).toEqual([200, 200, 200, 401, 401]);
     expect(most).toBe(2);
+  });
+
+  it('counts sign-ins made at once before any is verified, so a burst gets at most 5 guesses (R-G9 review)', async () => {
+    let verified = 0;
+    const fast = new FastTestPasswordHasher();
+    const slow: PasswordHasher = {
+      hash: (password) => fast.hash(password),
+      verify: async (hash, password) => {
+        verified += 1;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return fast.verify(hash, password);
+      },
+    };
+    const context = await createTestContext({ passwordHasher: slow });
+    contexts.push(context);
+    await context.bootstrap();
+    verified = 0;
+    // 39 wrong guesses and the right one last, all at once, from one address.
+    const answers = await Promise.all(
+      Array.from({ length: 40 }, (_, n) =>
+        signIn(context, TEST_USERNAME, n === 39 ? TEST_PASSWORD : `wrong password ${n}`, {
+          remoteAddress: '10.9.9.9',
+        }),
+      ),
+    );
+    const codes = answers.map((answer) => answer.statusCode);
+    expect(codes.filter((code) => code === 401)).toHaveLength(5);
+    expect(codes.filter((code) => code === 429)).toHaveLength(35);
+    expect(verified).toBe(5);
+    // The username stays locked from any address, the right password included.
+    expect(
+      (await signIn(context, TEST_USERNAME, TEST_PASSWORD, { remoteAddress: '10.9.9.8' }))
+        .statusCode,
+    ).toBe(429);
+  });
+
+  it('says when to try again', async () => {
+    const { context } = await clock();
+    for (let attempt = 0; attempt < 5; attempt++)
+      await signIn(context, TEST_USERNAME, 'wrong password value', { remoteAddress: '10.2.0.1' });
+    const locked = await signIn(context, TEST_USERNAME, TEST_PASSWORD, {
+      remoteAddress: '10.2.0.2',
+    });
+    expect(locked.statusCode).toBe(429);
+    expect(locked.headers['retry-after']).toBe(String(15 * 60));
   });
 });
 
@@ -325,6 +397,7 @@ describe('step-up (R-G9)', () => {
     const { context, advance, command, stepUp } = await signedIn();
     const wrong = await stepUp('not the password');
     expect(wrong.statusCode).toBe(403);
+    expect(wrong.json().error.reason).toBe('step-up-failed');
     expect(refusedForStepUp(await command(finalization, { action: 'merge' }))).toBe(true);
     const right = await stepUp(TEST_PASSWORD);
     expect(right.statusCode, right.body).toBe(200);
@@ -339,6 +412,41 @@ describe('step-up (R-G9)', () => {
     expect(auditActions(context)).toEqual(
       expect.arrayContaining(['auth.step-up.failed', 'auth.step-up']),
     );
+  });
+
+  it('asks before work under stored settings granting unrestricted, and before a merge into the default branch (R-G9 review)', async () => {
+    const { context, command } = await signedIn();
+    const services = context.services;
+    const id = '00000000-0000-4000-8000-000000000000';
+    const granting = { profiles: { implement: { permissionMode: 'unrestricted' } } };
+    const roadmap = vi.spyOn(services.roadmapService, 'storedWork').mockReturnValue(granting);
+    const cycle = vi.spyOn(services.workCycleService, 'storedWork').mockReturnValue(granting);
+    const finalizationWork = vi
+      .spyOn(services.finalizationService, 'storedWork')
+      .mockReturnValue({ cycle: granting });
+    const target = vi
+      .spyOn(services.executionService, 'mergesIntoDefaultBranch')
+      .mockReturnValue(true);
+    const controls = [`/roadmaps/${id}/control`, `/cycles/${id}/control`, finalization];
+    for (const url of controls) {
+      expect(refusedForStepUp(await command(url, { action: 'resume' })), url).toBe(true);
+      // Stopping work never asks.
+      for (const action of ['pause', 'stop', 'abandon'])
+        expect(refusedForStepUp(await command(url, { action })), `${url} ${action}`).toBe(false);
+    }
+    expect(refusedForStepUp(await command(`/worktrees/${id}/merge`, {}))).toBe(true);
+    // The routes ask about the record they name.
+    expect(roadmap).toHaveBeenCalledWith(expect.any(String), id);
+    expect(cycle).toHaveBeenCalledWith(expect.any(String), id);
+    expect(finalizationWork).toHaveBeenCalledWith(expect.any(String), id);
+    expect(target).toHaveBeenCalledWith(expect.any(String), id);
+    // Settings that grant nothing more, and a merge elsewhere, are not asked about.
+    for (const spy of [roadmap, cycle]) spy.mockReturnValue({ permissionMode: 'auto' });
+    finalizationWork.mockReturnValue({ cycle: { permissionMode: 'auto' } });
+    target.mockReturnValue(false);
+    for (const url of controls)
+      expect(refusedForStepUp(await command(url, { action: 'resume' })), url).toBe(false);
+    expect(refusedForStepUp(await command(`/worktrees/${id}/merge`, {}))).toBe(false);
   });
 
   it('counts failed step-ups toward the username lock', async () => {

@@ -9,8 +9,8 @@ import { openDaemonStorage } from '../src/persisted-records.js';
 /* -------------------------------------------------------------------------- */
 
 import {
-  commitFile,
   cleanupExecutionFixtures,
+  commitFile,
   currentCycle,
   cycleFixture,
   designDone,
@@ -20,6 +20,7 @@ import {
   present,
   reviewText,
   startCycle,
+  stepUp,
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
@@ -71,6 +72,8 @@ describe('single work-item automation', () => {
       // Only the unstructured report is a format fault the agent gets two repairs for (R-C2).
       expect(backend.repairs).toBe(reason === 'structured' ? 2 : 0);
       expect(backend.launches).toHaveLength(3 + backend.repairs);
+      // A merge into the repository's default branch needs the password again (R-G9).
+      await stepUp(state);
       const merge = await state.context.app.inject({
         method: 'POST',
         url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/merge`,

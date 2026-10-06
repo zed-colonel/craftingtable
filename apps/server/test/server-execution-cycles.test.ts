@@ -35,6 +35,7 @@ import {
   ScriptedBackend,
   startCycle,
   stepDaemons,
+  stepUp,
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
@@ -113,6 +114,8 @@ describe('single work-item automation', () => {
     writeFileSync(join(worktree.path, 'later.txt'), 'unreviewed');
     git(['add', '.'], worktree.path);
     git(['commit', '-m', 'later'], worktree.path);
+    // A merge into the repository's default branch needs the password again (R-G9).
+    await stepUp(state);
     const merge = await state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/merge`,

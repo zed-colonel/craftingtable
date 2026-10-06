@@ -22,7 +22,7 @@ export const CONTENT_SECURITY_POLICY = [
 ].join('; ');
 
 /** The headers every answer carries, unless its route set its own. */
-const SECURITY_HEADERS: readonly (readonly [string, string])[] = [
+export const SECURITY_HEADERS: readonly (readonly [string, string])[] = [
   ['content-security-policy', CONTENT_SECURITY_POLICY],
   ['referrer-policy', 'no-referrer'],
   ['x-frame-options', 'DENY'],
@@ -30,6 +30,21 @@ const SECURITY_HEADERS: readonly (readonly [string, string])[] = [
   ['cross-origin-opener-policy', 'same-origin'],
 ];
 
+/**
+ * An event stream's response headers. A stream writes its own response, past the hook that adds
+ * the security headers to every other answer, so it names them itself (R-G9 review).
+ */
+export function eventStreamHeaders(): Record<string, string> {
+  return {
+    ...Object.fromEntries(SECURITY_HEADERS),
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-store, no-transform',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  };
+}
+
+const WILDCARD_HOSTS = new Set(['0.0.0.0', '::', '[::]']);
 const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 /** The host a `Host` header names, without its port, lower-cased; undefined if malformed. */
@@ -45,14 +60,20 @@ export function headerHostname(host: string | undefined): string | undefined {
 }
 
 /**
- * Whether a request's `Host` names this daemon: the public origin's host, or a loopback name.
+ * Whether a request's `Host` names this daemon: the public origin's host, a loopback name, or
+ * the address it listens on.
  * Anything else is a page that resolved its own name to this address (DNS rebinding) or a
  * misdirected request, and is refused before any route runs (R-G9, SEC-07).
  */
 export function allowedHost(host: string | undefined, config: ServerConfig): boolean {
   const name = headerHostname(host);
   if (name === undefined) return false;
-  return LOOPBACK_NAMES.has(name) || name === new URL(config.publicOrigin).hostname.toLowerCase();
+  return (
+    LOOPBACK_NAMES.has(name) ||
+    name === new URL(config.publicOrigin).hostname.toLowerCase() ||
+    // The address it listens on, unless a wildcard (R-G9 review: the deploy's health check).
+    (!WILDCARD_HOSTS.has(config.host) && name === config.host.toLowerCase())
+  );
 }
 
 /** Installs the Host check and the security headers every answer carries (R-G9, SEC-07). */

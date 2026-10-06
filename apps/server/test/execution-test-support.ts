@@ -892,6 +892,8 @@ export async function merge(
   worktreeId: string,
   payload: Record<string, unknown> = {},
 ): Promise<LightMyRequestResponse> {
+  // A merge into the repository's default branch needs the password again (R-G9).
+  await stepUp(state);
   return state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/worktrees/${worktreeId}/merge`,
@@ -1204,6 +1206,8 @@ export async function awaitRoadmapMerge(state: Ready, index: number) {
   return attempt;
 }
 export async function mergeRoadmapAttempt(state: Ready, worktreeId: WorktreeId) {
+  // A merge into the repository's default branch needs the password again (R-G9).
+  await stepUp(state);
   const merged = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/worktrees/${worktreeId}/merge`,

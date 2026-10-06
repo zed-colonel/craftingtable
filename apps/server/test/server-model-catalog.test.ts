@@ -344,10 +344,12 @@ it('lets a saved display name stay through other changes, while a new one is ref
   };
   const kept = await save([review, design]);
   expect(kept.statusCode, kept.body).toBe(200);
-  // A display name newly entered is refused.
+  // A display name newly entered is refused, even one another role already saved.
   const entered = await save([review, { ...design, model: 'GPT-5.5' }]);
   expect(entered.statusCode).toBe(400);
   expect(entered.json().error.message).toContain('"gpt-5.5"');
+  const copied = await save([review, { ...design, model: 'GPT-6.1-Sol' }]);
+  expect(copied.statusCode).toBe(400);
 });
 
 it('waits for the first catalog look before checking a launch after a start (R-G15)', async () => {
@@ -388,4 +390,30 @@ it('waits for the first catalog look before checking a launch after a start (R-G
     'refused once the catalog was read',
   );
   expect(backend.launches).toHaveLength(0);
+});
+
+it('refuses a display name entered on a roadmap, and keeps one it already saved (R-G15)', async () => {
+  const { state, backend } = await roadmapFixture([designDone]);
+  const known = backend.models;
+  const input = roadmapInput(state, [state.workItemId]);
+  const withDesign = (model: string, version = 0) => ({
+    ...input,
+    expectedVersion: version,
+    entries: input.entries.map((entry) => ({
+      ...entry,
+      profiles: { ...entry.profiles, design: { ...entry.profiles.design, model } },
+    })),
+  });
+  const refused = await saveRoadmapRequest(state, withDesign('Scripted model'));
+  expect(refused.statusCode).toBe(400);
+  expect(refused.json().error.message).toContain('"scripted-model"');
+  // Saved while the catalog did not list it, then kept through another save.
+  backend.models = [];
+  expect((await saveRoadmapRequest(state, withDesign('Scripted model'))).statusCode).toBe(200);
+  backend.models = known;
+  const resaved = await saveRoadmapRequest(state, {
+    ...withDesign('Scripted model', storedRoadmap(state).version),
+    name: 'Renamed',
+  });
+  expect(resaved.statusCode, resaved.body).toBe(200);
 });

@@ -42,6 +42,8 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     return reply({data: catalog.data.slice(page * 2, page * 2 + 2), nextCursor: page === 0 ? 'page-2' : null});
   }
   if (mode === 'empty') return reply({data: [], nextCursor: null});
+  // Every page is answered in time, but the whole catalog takes longer than one look may.
+  if (mode === 'slow-pages') return setTimeout(() => reply({data: catalog.data.slice(0, 1), nextCursor: 'more'}), 150);
   reply(catalog);
 });
 `;
@@ -69,7 +71,8 @@ function fakeCodex(mode = '', catalog = FIXTURE.pathname) {
     allowEnvironment: ['FAKE_MODE', 'FAKE_CATALOG', 'FAKE_TRACE'],
     catalogDirectory: root,
     // Only a fake that never answers waits this out; the others answer at once, at any load.
-    requestTimeoutMs: mode === 'silent' ? 500 : 30_000 * testTimeScale(),
+    requestTimeoutMs:
+      mode === 'silent' ? 500 : mode === 'slow-pages' ? 400 : 30_000 * testTimeScale(),
   });
   const traced = () =>
     readFileSync(trace, 'utf8')
@@ -180,4 +183,10 @@ it('refuses a catalog whose display name the execution status could not carry (R
     source: 'fallback',
     issue: 'catalog-format-unsupported',
   });
+});
+
+it('gives up a look that takes longer than its one deadline, however many pages (R-G15)', async () => {
+  // Five pages of 150 ms each: every request is in time, the look as a whole is not.
+  const snapshot = await fakeCodex('slow-pages').backend.listModels();
+  expect(snapshot.status).toMatchObject({ source: 'fallback', issue: 'catalog-request-failed' });
 });

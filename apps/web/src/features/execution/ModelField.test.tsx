@@ -108,3 +108,17 @@ it('keeps a chosen model visible under Other… when the list no longer has it (
   expect((screen.getByLabelText('Model id') as HTMLInputElement).value).toBe('claude-opus-5');
   expect(screen.getByRole('note')).toBeTruthy();
 });
+
+it("does not flag an unlisted id while the backend offers only the release's own list (R-G15)", () => {
+  render(
+    <ModelField
+      models={CATALOG}
+      catalog={{ source: 'fallback', issue: 'catalog-request-failed' }}
+      value="claude-retired-1"
+      disabled={false}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(select().value).toBe('__custom__');
+  expect(screen.queryByRole('note')).toBeNull();
+});

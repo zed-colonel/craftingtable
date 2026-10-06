@@ -187,6 +187,7 @@ export function DecisionPreparationPanel({
           </label>
           <ModelField
             models={backends.find((b) => b.kind === profile.backend)?.models ?? []}
+            catalog={backends.find((b) => b.kind === profile.backend)?.catalog}
             value={profile.model ?? ''}
             disabled={locked}
             onChange={(model) => {

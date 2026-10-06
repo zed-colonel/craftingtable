@@ -35,6 +35,7 @@ export function AgentSelectionFields({
       </label>
       <ModelField
         models={backends.find((b) => b.kind === value.backend)?.models ?? []}
+        catalog={backends.find((b) => b.kind === value.backend)?.catalog}
         value={value.model ?? ''}
         disabled={disabled}
         onChange={(model) => {

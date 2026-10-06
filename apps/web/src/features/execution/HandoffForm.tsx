@@ -93,6 +93,7 @@ export function HandoffForm({
       <ModelField
         key={backend}
         models={selected?.models ?? []}
+        catalog={selected?.catalog}
         value={model}
         onChange={setModel}
         disabled={busy}

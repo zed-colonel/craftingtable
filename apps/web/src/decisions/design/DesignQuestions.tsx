@@ -386,6 +386,7 @@ export function DesignQuestions({
                 <ModelField
                   key={backend}
                   models={backends.find((entry) => entry.kind === backend)?.models ?? []}
+                  catalog={backends.find((entry) => entry.kind === backend)?.catalog}
                   value={model}
                   onChange={setModel}
                   disabled={busy}

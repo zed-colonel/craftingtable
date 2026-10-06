@@ -517,6 +517,7 @@ export function DelegationPanel({
             <ModelField
               key={`${selectedBackend?.kind}:${role}`}
               models={models}
+              catalog={selectedBackend?.catalog}
               value={model}
               onChange={setModel}
               disabled={busy}

@@ -226,12 +226,14 @@ export class WorkCycleService {
    * launches meet the launch check, which stops with `agent-model-misnamed`.
    */
   requireModelIds(
-    selections: Iterable<import('@craftingtable/domain').AgentSelection | undefined>,
-    saved: Iterable<import('@craftingtable/domain').AgentSelection | undefined> = [],
+    selections: Iterable<
+      readonly [string, import('@craftingtable/domain').AgentSelection | undefined]
+    >,
+    saved: Iterable<
+      readonly [string, import('@craftingtable/domain').AgentSelection | undefined]
+    > = [],
   ): void {
-    const present = <T>(values: Iterable<T | undefined>) =>
-      [...values].filter((value): value is T => value !== undefined);
-    this.runs.requireModelIds(present(selections), present(saved));
+    this.runs.requireModelIds(selections, saved);
   }
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
@@ -1161,6 +1163,21 @@ export class WorkCycleService {
     this.validateAgentSelections(input.profiles);
     if (this.git === undefined)
       throw new ExecutionRequestError('unavailable', 'Git is required for an automated cycle');
+  }
+
+  /**
+   * The operator's own start: a display name in its profiles is refused, after the role check
+   * (R-G15). A roadmap's starts meet the launch check instead.
+   */
+  startRequested(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    input: StartWorkCycleRequest,
+  ): WorkCycle {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    this.requireModelIds(Object.entries(input.profiles));
+    return this.start(context, workspaceId, workItemId, input);
   }
 
   start(

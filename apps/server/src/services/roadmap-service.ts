@@ -58,6 +58,7 @@ import {
   type Worktree,
   type ExecutionScope,
   startedAttempts,
+  type AgentSelection,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { cycleAgentSelection, entryAgentSelections } from './agent-profile-policy.js';
@@ -434,10 +435,10 @@ export class RoadmapService {
       conflict('Select current entries from this roadmap.');
     this.cycles.validateAgentSelections(input.selections);
     this.cycles.requireModelIds(
-      Object.values(input.selections),
+      Object.entries(input.selections),
       old.definition.entries
         .filter((entry) => input.entryIds.includes(entry.id))
-        .flatMap((entry) => Object.values(entryAgentSelections(old, entry).selections)),
+        .flatMap((entry) => Object.entries(entryAgentSelections(old, entry).selections)),
     );
     const assignment = {
       id: randomUUID(),
@@ -524,7 +525,7 @@ export class RoadmapService {
       ...entryAgentSelections(old, target.entry).selections,
       investigation: input.profile,
     });
-    this.cycles.requireModelIds([input.profile]);
+    this.cycles.requireModelIds([['investigation', input.profile]]);
     this.controlling.add(id);
     try {
       await this.launchPreparation(old, target, input, context, () =>
@@ -837,8 +838,10 @@ export class RoadmapService {
         conflict: input.automation.resolutionProfile,
       });
       this.cycles.requireModelIds(
-        [input.automation.resolutionProfile],
-        old.delegationAssignments?.map((grant) => grant.automation.resolutionProfile) ?? [],
+        [['conflict', input.automation.resolutionProfile]],
+        old.delegationAssignments?.map(
+          (grant) => ['conflict', grant.automation.resolutionProfile] as const,
+        ) ?? [],
       );
     }
     const { expectedVersion: _version, ...grant } = input;
@@ -1185,10 +1188,15 @@ export class RoadmapService {
     if (old && this.storage.amendments.pending(workspaceId, id) && !amendment)
       conflict('Decide the pending planning amendment before editing settings.');
     // A display name is refused when it is entered; one this roadmap already saved is not (R-G15).
-    this.cycles.requireModelIds(
-      input.entries.flatMap((entry) => Object.values(entry.profiles)),
-      old?.definition.entries.flatMap((entry) => Object.values(entry.profiles)) ?? [],
-    );
+    const slots = (
+      entries: readonly { id: string; profiles: Readonly<Record<string, AgentSelection>> }[],
+    ) =>
+      entries.flatMap((entry) =>
+        Object.entries(entry.profiles).map(
+          ([step, profile]) => [`${entry.id}:${step}`, profile] as const,
+        ),
+      );
+    this.cycles.requireModelIds(slots(input.entries), slots(old?.definition.entries ?? []));
     if (old?.definition.crossProject && !crossProject)
       conflict('Use the imported map supervisor to edit this roadmap.');
     if ((old?.version ?? 0) !== input.expectedVersion)

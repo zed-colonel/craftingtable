@@ -81,6 +81,7 @@ export function RoadmapAutomationFields({
             <>
               <ModelField
                 models={backends.find((b) => b.kind === profile.backend)?.models ?? []}
+                catalog={backends.find((b) => b.kind === profile.backend)?.catalog}
                 value={profile.model ?? ''}
                 disabled={disabled}
                 onChange={(model) => {

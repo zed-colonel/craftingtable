@@ -133,6 +133,9 @@ export interface RunLog {
 class CycleLaunchCancelledError extends Error {}
 
 /** A run's own directory beneath the agents' temporary root: random bytes, in hex (LIVE-31). */
+/** The part of an agent selection the model checks read (R-G15). */
+type ModelSelection = { readonly backend: AgentBackendKind; readonly model?: string };
+
 const RUN_TEMPORARY_NAME_BYTES = 6;
 const RUN_TEMPORARY_NAME = new RegExp(`^[0-9a-f]{${RUN_TEMPORARY_NAME_BYTES * 2}}$`);
 /** How many of the entries a start's sweep left it names in its one warning. */
@@ -519,17 +522,22 @@ export class AgentRunService {
   /**
    * Refuses agent selections an operator submits whose model is a display name, or another
    * spelling of a catalog id (R-G15, LIVE-34): caught when it is chosen, not at a later launch.
-   * Only what a command submits is checked, and a model the record already saved (`saved`) is
-   * let through, so a saved selection is a warning and never blocks another change; the launch
-   * check still stops it.
+   * Each selection is named by its slot (a role, an entry's step, a purpose). Only what a command
+   * submits is checked, and a slot that keeps the model the record already saved there (`saved`)
+   * is let through, so a saved selection is a warning and never blocks another change; the
+   * launch check still stops it.
    */
   requireModelIds(
-    selections: Iterable<{ readonly backend: AgentBackendKind; readonly model?: string }>,
-    saved: Iterable<{ readonly backend: AgentBackendKind; readonly model?: string }> = [],
+    selections: Iterable<readonly [slot: string, selection: ModelSelection | undefined]>,
+    saved: Iterable<readonly [slot: string, selection: ModelSelection | undefined]> = [],
   ): void {
-    const kept = new Set([...saved].map((selection) => `${selection.backend}\0${selection.model}`));
-    for (const selection of selections) {
-      if (kept.has(`${selection.backend}\0${selection.model}`)) continue;
+    const key = (slot: string, selection: ModelSelection) =>
+      `${slot}\0${selection.backend}\0${selection.model}`;
+    const kept = new Set(
+      [...saved].flatMap(([slot, selection]) => (selection ? [key(slot, selection)] : [])),
+    );
+    for (const [slot, selection] of selections) {
+      if (selection === undefined || kept.has(key(slot, selection))) continue;
       const backend = this.backends.get(selection.backend);
       const misnamed = backend && misnamedModel(backend, selection.model);
       if (misnamed !== undefined) throw new ExecutionRequestError('invalid-request', misnamed);
@@ -571,7 +579,12 @@ export class AgentRunService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
-    this.requireModelIds(profiles, this.storage.execution.runProfiles.list(workspaceId));
+    this.requireModelIds(
+      profiles.map((profile) => [profile.role, profile] as const),
+      this.storage.execution.runProfiles
+        .list(workspaceId)
+        .map((profile) => [profile.role, profile] as const),
+    );
     const occurredAt = this.now().toISOString();
     this.storage.transaction((tx) => {
       tx.execution.runProfiles.replace({
@@ -1890,10 +1903,6 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         };
         let session: AgentSession;
         try {
-          // A display name, or another spelling of a catalog id, never reaches the CLI (R-G15,
-          // LIVE-34): the run ends before anything starts, and a cycle stops saying which id.
-          if (launch.model !== undefined) await firstCatalogLook(backend);
-          refuseMisnamedModel(backend, launch.model);
           session = cycle
             ? await this.launchCycleSession(backend, launch, cycle)
             : controlled
@@ -1901,7 +1910,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
                   currentRunId: controlled.runId,
                   runDeadlineAt: controlled.deadlineAt,
                 })
-              : await backend.launch(launch);
+              : await this.checkedLaunch(backend, launch, () => false);
           try {
             controlled?.check();
           } catch (e) {
@@ -2075,7 +2084,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     // A late backend result must be terminated without touching storage after shutdown.
     const launching = Promise.resolve().then(async () => {
       if (cancelled) throw new CycleLaunchCancelledError('Cycle launch cancelled');
-      const session = await backend.launch(request);
+      const session = await this.checkedLaunch(backend, request, () => cancelled);
       if (cancelled) {
         session.kill();
         throw new CycleLaunchCancelledError('Cycle launch cancelled');
@@ -2088,6 +2097,24 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       clearTimeout(timeout);
       this.pendingCycleLaunches.delete(cycle.currentRunId);
     }
+  }
+
+  /**
+   * A display name, or another spelling of a catalog id, never reaches the CLI (R-G15, LIVE-34):
+   * the launch fails before anything starts, and a cycle stops saying which id. Right after a
+   * start it first waits for the backend's first catalog look; a launch cancelled meanwhile, or
+   * one a drain or restart overtook, starts nothing (R-G15 re-check).
+   */
+  private async checkedLaunch(
+    backend: AgentBackend,
+    request: AgentLaunchRequest,
+    cancelled: () => boolean,
+  ): Promise<AgentSession> {
+    if (request.model !== undefined) await firstCatalogLook(backend);
+    if (cancelled() || this.draining || this.interrupting)
+      throw new CycleLaunchCancelledError('Launch cancelled while the model catalog was read');
+    refuseMisnamedModel(backend, request.model);
+    return backend.launch(request);
   }
 
   sendMessage(

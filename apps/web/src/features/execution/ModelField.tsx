@@ -31,11 +31,17 @@ function sections(models: readonly ModelOption[], value: string) {
  */
 export function ModelField({
   models,
+  catalog,
   value,
   onChange,
   disabled,
 }: {
   models: readonly ModelOption[];
+  /**
+   * Where `models` came from. While it is only the release's own list, which may be older than
+   * the model, an unlisted id is not flagged (as `SavedModelNotes` does not flag it).
+   */
+  catalog?: ExecutionStatusResponse['backends'][number]['catalog'] | undefined;
   value: string;
   onChange: (model: string) => void;
   disabled: boolean;
@@ -113,7 +119,7 @@ export function ModelField({
           </button>
         </p>
       )}
-      {spelling?.kind === 'unlisted' && (
+      {spelling?.kind === 'unlisted' && catalog?.source !== 'fallback' && (
         <p className="warning-state" role="note">
           Not in this agent’s model list. It is sent as typed, so check it is a model id.
         </p>

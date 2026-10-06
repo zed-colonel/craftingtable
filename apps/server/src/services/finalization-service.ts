@@ -63,9 +63,14 @@ export class FinalizationService {
       this.cycles.validateSettings({
         profiles: { design: profile, implement: profile, review: profile, remediate: profile },
       });
-    this.cycles.requireModelIds(input.stages.flatMap((s) => [s.review, s.implement]));
     const value = await this.execution.branches.duringMerge(repo.rootPath, async () => {
       this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+      this.cycles.requireModelIds(
+        input.stages.flatMap((stage, index) => [
+          [`${index}:review`, stage.review] as const,
+          [`${index}:implement`, stage.implement] as const,
+        ]),
+      );
       if (
         repo.status !== 'active' ||
         this.storage.execution.branchSettings.find(workspaceId, planVersionId)?.version !==

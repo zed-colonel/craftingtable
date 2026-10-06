@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import type { EvidenceSubmission } from '@craftingtable/domain';
 import { join, resolve } from 'node:path';
 import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
+import { formatPageLoads, replayPageLoads } from './page-load-replay.js';
 import { openDaemonStorage } from './persisted-records.js';
 import {
   canonicalJson,
@@ -38,6 +39,9 @@ import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
  *       scheduler pass takes for every roadmap entry, and checkpoint readiness (R-I10)
  *   pnpm controller:replay <snapshot.sqlite> --evidence-view [...]  render each map's evidence
  *       view with Git stubbed, and print its size and CPU (R-H4)
+ *   pnpm controller:replay <snapshot.sqlite> --page-load [--json <file>]  load every work item
+ *       page through the daemon's routes with Git stubbed, and print its requests and server
+ *       time (R-D5)
  *   ... --check <file> --report <report.json>   also write the comparison as JSON; the
  *       versioned replay gate reads it (`pnpm replays`, `scripts/replays.mjs`)
  *
@@ -204,12 +208,37 @@ async function evidenceView(
   }
 }
 
+async function pageLoad(snapshot: string, jsonPath?: string): Promise<number> {
+  const copy = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
+  try {
+    const path = join(copy, 'snapshot.sqlite');
+    copyFileSync(snapshot, path);
+    const replay = await replayPageLoads(path, copy, snapshotTime(path));
+    process.stdout.write(formatPageLoads(replay));
+    if (jsonPath) writeFileSync(jsonPath, `${JSON.stringify(replay, null, 2)}\n`, { mode: 0o600 });
+    return 0;
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
+}
+
 async function main(args: readonly string[]): Promise<number> {
   // pnpm runs the script in the server package; paths are relative to where it was invoked.
   const base = process.env.INIT_CWD ?? process.cwd();
   const everyRun = args.includes('--every-run');
   const schedulerMode = args.includes('--scheduler');
   const viewMode = args.includes('--evidence-view');
+  if (args.includes('--page-load')) {
+    const [snapshotArg, flag, jsonArg, extra] = args.filter((arg) => arg !== '--page-load');
+    const snapshot = snapshotArg && resolve(base, snapshotArg);
+    if (!snapshot || !existsSync(snapshot) || extra || (flag && (flag !== '--json' || !jsonArg))) {
+      process.stderr.write(
+        'Usage: pnpm controller:replay <snapshot.sqlite> --page-load [--json <file>]\n',
+      );
+      return 2;
+    }
+    return pageLoad(snapshot, jsonArg && resolve(base, jsonArg));
+  }
   const reportAt = args.indexOf('--report');
   const reportArg = reportAt < 0 ? undefined : args[reportAt + 1];
   const [snapshotArg, mode, goldenArg, extra] = args.filter(

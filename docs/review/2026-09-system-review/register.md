@@ -1869,12 +1869,19 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-D5
 
-**Server view models, compression and git-fact caching** · Phase P2 · Effort M-L · Status: open
+**Server view models, compression and git-fact caching** · Phase P2 · Effort M-L · Status: in progress (2026-10-05)
 
 - **Resolves:** [CTRL-22](findings/CTRL-controller.md#ctrl-22-the-api-returns-projection-fields-mixed-into-the-domain-workcycle) (moved from R-A3), [PERF-09](findings/PERF-browser-and-read-performance.md#perf-09-git-subprocess-fan-out-on-refreshed-read-paths), [PERF-14](findings/PERF-browser-and-read-performance.md#perf-14-work-item-and-run-pages-are-assembled-from-15-independent-requests-with-duplicates-and-static-data), [PERF-16](findings/PERF-browser-and-read-performance.md#perf-16-no-compression-no-validators-etag-on-large-json-responses), [PERF-20](findings/PERF-browser-and-read-performance.md#perf-20-single-768-kb-bundle-no-code-splitting)
 - **Change:** Return cycles as `{cycle, projection}` so `nextAgentSelections`, `scopeReviewWait`, `mergeRequirementsWait` and rewritten `workflow.questions` stop posing as stored state (CTRL-22). One endpoint per page region evaluated in one read transaction and one map snapshot (work-item view, run view, roadmap list + roadmap progress, definitions by revision); gzip above ~8 KB and weak ETags with 304s; git-derived facts behind a cache keyed by resolved SHA; branch status fetched lazily; per-route code splitting.
 - **Done when:** A work-item page loads with <=3 requests and <100 ms server time on the live dataset.
 - **Stays in P2 (operator decision 2026-10-02):** it is next after the review pass.
+- **How it is measured (2026-10-05).** `pnpm controller:replay <snapshot> --page-load [--json <file>]` (`apps/server/src/page-load-replay.ts`) builds the real daemon (`createDaemon`: routes, access guard, handlers, schemas) over a copy of a snapshot, with its workers stopped and Git stubbed, writes a session for a member of each workspace, and loads every work item page through `inject`: the reads the browser app makes on navigating to the page, the shell's already held, each timed as the median of five after one warm-up. "Server time" is the sum of those medians, with no network and no Git (Git calls are counted). The shell's own reads on a cold load (sign-in check, workspace list, snapshot, attention, open cycles) are measured apart. Reading of the done-when: "loads" is a navigation to the page inside the app; the cold load is reported beside it.
+- **Before (2026-10-05, at 1c4864d, snapshot `replay/2026-10-01e`).** 47 work item pages.
+  - **Requests:** median 9, maximum 13 (work item, execution, the item's cycles, repositories, execution status, run profiles, execution scopes, plan branches, repository policy, one branch status per active worktree).
+  - **Server time:** median 64.9 ms, p90 89.1 ms, maximum 147.3 ms (EXO-04); four pages are over 100 ms (EXO-04 147.3, WI-03 145.8, EXO-01 143.2, EXO-18 139.2).
+  - **Where it goes:** `execution-scopes` median 58 ms (maximum 70.1) and the item's cycles up to 65 ms when a cycle is open; both evaluate the map's accepted evidence, which decodes the definition's evidence submissions (about 75% of the replay's CPU), each in its own read. Everything else is under 13 ms.
+  - **Bytes:** median 30 KB, maximum 534 KB (EXO-01: its execution answer alone is 440 KB), uncompressed.
+  - **Cold load's shell:** 5 requests, 88.4 ms, of which the workspace's open cycles take 80.2 ms.
 
 ### R-D6
 

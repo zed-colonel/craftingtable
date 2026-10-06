@@ -14,6 +14,13 @@ your repositories.
   origin is HTTPS. Mutations require the session-bound CSRF header and an exact origin
   match; cross-site fetch metadata is rejected.
 - The built browser app can be served by the daemon so one TLS origin carries UI and API.
+- A request whose `Host` names neither the public origin's host nor a loopback name is refused
+  with 421 before any route runs, so a page that points its own name at this address (DNS
+  rebinding) reaches nothing (R-G9).
+- Every answer carries a content security policy (the app's own scripts, styles, images, fonts
+  and requests only; no plugins, no base, no framing), `Referrer-Policy: no-referrer`,
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
+  `Cross-Origin-Opener-Policy: same-origin` (R-G9).
 
 ## Route access
 

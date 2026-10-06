@@ -23,6 +23,7 @@ import { registerPackageImportRoutes } from './routes/package-imports.js';
 import { registerPageViewRoutes } from './routes/page-views.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
+import { installBrowserSecurity } from './routes/browser-security.js';
 import { installResponseEncoding } from './routes/response-encoding.js';
 import { installRouteAccess } from './routes/route-access.js';
 import { registerRuntimeEvidenceRoutes } from './routes/runtime-evidence.js';
@@ -143,6 +144,9 @@ export function buildServer(
           },
         }) as unknown as FastifyInstance);
   void app.register(cookie);
+  // Before any route: a request naming another host is refused; every answer carries the
+  // security headers (R-G9, SEC-07).
+  installBrowserSecurity(app, config);
   installRouteAccess(app, deps.authService, deps.workspaceService, config);
   installResponseEncoding(app);
   registerDiagnosticsRoutes(app, deps.workspaceService, new DaemonDiagnostics());

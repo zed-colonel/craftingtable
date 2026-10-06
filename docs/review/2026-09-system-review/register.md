@@ -727,7 +727,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C3
 
-**Design stage: continue automatically and batch real decisions ahead of time** · Phase P2 · Effort M (larger: split into R-C3a, S, and R-C3b, M-L) · Status: R-C3a done; R-C3b code done and preparing live since 2026-09-29, done-when not yet met
+**Design stage: continue automatically and batch real decisions ahead of time** · Phase P2 · Effort M (larger: split into R-C3a, S, and R-C3b, M-L) · Status: R-C3a done; R-C3b code done and preparing live since 2026-09-29. The done-when's measurement is an open to-do outside the phases (program.md, "Open to-dos"; operator decision 2026-10-06), and no longer holds P2
 
 - **Resolves:** [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes), [HIST-19](findings/HIST-history-and-live-usage.md#hist-19-real-cross-project-workload-is-10-the-scale-the-uis-lists-were-designed-for-progress-and-dependencies-are-hard-to-see)
 - **Change:** When a design investigation finishes and every question has a cited answer with no operator-classified decision left, continue without a stop. Build the per-roadmap decision queue before dependent slices start (extend ADR-065 decision preparation) so shared architecture decisions are answered once, in a batch, in the inbox.

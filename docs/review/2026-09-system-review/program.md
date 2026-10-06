@@ -436,7 +436,8 @@ Exit criteria:
 - The push log, rail count, inbox and roadmap page always agree.
 - No in-app navigation reloads the document.
 - An idle tab makes no requests: a hidden tab none, a visible one only its Git-derived queries once a minute (restated by operator decision 2026-10-01, R-D4).
-- The design-stage stop rate is well below the 10-of-11 baseline.
+- ~~The design-stage stop rate is well below the 10-of-11 baseline.~~ Moved to the open to-dos below the
+  phases by operator decision 2026-10-06: it is measured on live use and no longer holds P2.
 - Loaded from the 2026-09-27 snapshot, the status list (R-E3a) states what each open entry is
   doing or waiting on, and who acts, with no database query (added 2026-09-27).
 - No scheduler path leaves a stopped item without a recorded reason (R-C12).
@@ -1051,6 +1052,18 @@ design step, recorded as an operator-approved format ADR before Studio UI work b
 daemon, designed together with persistent agents) follow where the Studio's first real
 plans show the need. The operator decided on 2026-09-23 that the Appendix A format improvements
 are scheduled work, split between R-F5 (P4) and R-F6 (P5), not last-resort items.
+
+## Open to-dos (outside the phases)
+
+Work that should be recorded but does not hold any phase or later remediation work. Each says what
+finishes it; when it is done, record the result in its register item and strike it here.
+
+- **Measure R-C3b's design-stage stop rate** (moved out of P2's exit criteria by operator decision
+  2026-10-06). R-C3b's code is deployed, but nothing could be measured yet: no slice had started with
+  a standing preparation grant set (see the R-G4/R-G5/R-E1 batch's carry-overs). Once slices start on the
+  cross-project roadmap with a grant set, count design stops per started slice against the 10-of-11
+  baseline, and check that decisions show "unblocks N slices". Record the figure in R-C3's entry. It is
+  done when that rate is well below the baseline, or the operator decides what to do if it is not.
 
 ## Dependencies worth knowing
 

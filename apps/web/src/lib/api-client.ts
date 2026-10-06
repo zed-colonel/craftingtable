@@ -106,7 +106,9 @@ export async function request<T>(
         });
         break;
       } catch (refusal) {
-        if (!(refusal instanceof ApiError) || refusal.status !== 403) throw refusal;
+        // Only a password that did not match is asked for again; any other refusal stands.
+        if (!(refusal instanceof ApiError) || refusal.detail.reason !== 'step-up-failed')
+          throw refusal;
       }
     }
     return send(url, schema, init);

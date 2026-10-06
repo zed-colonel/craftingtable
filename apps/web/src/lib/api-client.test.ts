@@ -205,9 +205,12 @@ describe('step-up (R-G9)', () => {
   it('asks again after a wrong password, and gives up when the operator cancels', async () => {
     const fetch = vi.fn(async (url: string) =>
       url === '/api/auth/step-up'
-        ? new Response(JSON.stringify({ error: { code: 'forbidden', message: 'No.' } }), {
-            status: 403,
-          })
+        ? new Response(
+            JSON.stringify({
+              error: { code: 'forbidden', message: 'No.', reason: 'step-up-failed' },
+            }),
+            { status: 403 },
+          )
         : stepUpRequired(),
     );
     vi.stubGlobal('fetch', fetch);
@@ -222,6 +225,29 @@ describe('step-up (R-G9)', () => {
     });
     expect(prompt.mock.calls).toEqual([[false], [true]]);
     expect(fetch.mock.calls.filter(([url]) => url === '/api/command')).toHaveLength(1);
+  });
+
+  it('gives up when the step-up itself is refused for anything but the password (R-G9 review)', async () => {
+    for (const refusal of [
+      { status: 403, error: { code: 'forbidden', message: 'Request forbidden' } },
+      {
+        status: 429,
+        error: { code: 'rate-limited', message: 'Wait.', reason: 'login-rate-limited' },
+      },
+    ]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) =>
+          url === '/api/auth/step-up'
+            ? new Response(JSON.stringify({ error: refusal.error }), { status: refusal.status })
+            : stepUpRequired(),
+        ),
+      );
+      const prompt = vi.fn(async () => 'the password');
+      setStepUpPrompt(prompt);
+      await expect(command()).rejects.toMatchObject({ status: refusal.status });
+      expect(prompt).toHaveBeenCalledTimes(1);
+    }
   });
 
   it('never asks about a read, another refusal, or without a prompt', async () => {

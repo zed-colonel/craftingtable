@@ -54,3 +54,28 @@ it('stops answering for the app once it is gone (sign-out)', () => {
   view.unmount();
   expect(set).toHaveBeenLastCalledWith(undefined);
 });
+
+it('answers every command that asked at once, with one prompt (R-G9 review)', async () => {
+  const prompt = registered();
+  let first!: Promise<string | undefined>;
+  let second!: Promise<string | undefined>;
+  act(() => {
+    first = prompt(false);
+    second = prompt(false);
+  });
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'the password' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  await expect(first).resolves.toBe('the password');
+  await expect(second).resolves.toBe('the password');
+  // A cancel answers them all too.
+  act(() => {
+    first = prompt(false);
+    second = prompt(true);
+  });
+  // One of them was told its password did not match: the prompt says so.
+  expect(screen.getByRole('alert').textContent).toBe('That password did not match.');
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await expect(first).resolves.toBeUndefined();
+  await expect(second).resolves.toBeUndefined();
+});

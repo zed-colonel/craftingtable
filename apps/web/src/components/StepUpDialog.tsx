@@ -3,7 +3,8 @@ import { setStepUpPrompt } from '../lib/api-client.js';
 
 interface Asking {
   readonly failed: boolean;
-  readonly answer: (password: string | undefined) => void;
+  /** Every command waiting: commands that ask at once share one prompt (R-G9 review). */
+  readonly answers: readonly ((password: string | undefined) => void)[];
 }
 
 /**
@@ -16,7 +17,15 @@ export function StepUpDialog() {
   const [password, setPassword] = useState('');
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    setStepUpPrompt((failed) => new Promise((resolve) => setAsking({ failed, answer: resolve })));
+    setStepUpPrompt(
+      (failed) =>
+        new Promise((resolve) =>
+          setAsking((current) => ({
+            failed: failed || (current?.failed ?? false),
+            answers: [...(current?.answers ?? []), resolve],
+          })),
+        ),
+    );
     return () => setStepUpPrompt(undefined);
   }, []);
   useEffect(() => {
@@ -26,7 +35,7 @@ export function StepUpDialog() {
   const close = (answer: string | undefined) => {
     setAsking(undefined);
     setPassword('');
-    asking.answer(answer);
+    for (const resolve of asking.answers) resolve(answer);
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();

@@ -8,8 +8,11 @@ import type {
   WorktreeSummary,
 } from '@craftingtable/contracts';
 import {
+  agentSelections,
   CYCLE_STEPS,
   type CycleProfiles,
+  type CycleProjection,
+  type CycleView,
   cycleActions,
   DEFAULT_COMPLETION_POLICY,
   type WorkCycle,
@@ -1075,9 +1078,19 @@ describe('review handoff', () => {
   });
 });
 
-/** Cycles as the daemon sends them, with the actions it offers (R-A6). */
-const daemon = (cycles: readonly WorkCycle[]): WorkCycle[] =>
-  cycles.map((cycle) => ({ ...cycle, actions: cycleActions(cycle) }));
+/** Cycles as the daemon sends them: beside their projections, with the actions offered (R-A6). */
+const daemon = (
+  cycles: readonly WorkCycle[],
+  projected: Partial<CycleProjection> = {},
+): CycleView[] =>
+  cycles.map((cycle) => ({
+    cycle,
+    projection: {
+      nextAgentSelections: agentSelections(cycle.profiles),
+      actions: cycleActions({ ...cycle, ...projected }),
+      ...projected,
+    },
+  }));
 /** The cycle commands posted, by the one module that posts them (R-A6). */
 const posted = () =>
   vi
@@ -1270,11 +1283,10 @@ describe('automated cycle controls', () => {
           checkpointId: id,
         })),
       },
-      unsettledDecisions: ['EXO-ADR-022', 'EXO-ADR-030'],
     } as unknown as WorkCycle;
     render(
       <CyclePanel
-        cycles={daemon([cycle])}
+        cycles={daemon([cycle], { unsettledDecisions: ['EXO-ADR-022', 'EXO-ADR-030'] })}
         worktrees={[worktree]}
         runs={[]}
         backends={backends}

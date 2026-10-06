@@ -1,4 +1,8 @@
-import { effectiveCycleAttention, type WorkCycle } from '@craftingtable/domain';
+import {
+  effectiveCycleAttention,
+  type WorkCycle,
+  type WorkflowQuestion,
+} from '@craftingtable/domain';
 import { Link } from '../../lib/navigation.js';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import type { Route } from '../../lib/route.js';
@@ -6,9 +10,19 @@ import type { Route } from '../../lib/route.js';
  * The cycle's controller work and its questions. `decidedIn`: the inbox item that decides the
  * cycle's stop, where questions are answered when the page shows only a banner (R-A6).
  */
-export function WorkflowStatus({ cycle, decidedIn }: { cycle: WorkCycle; decidedIn?: Route }) {
+export function WorkflowStatus({
+  cycle,
+  questionRoutes,
+  decidedIn,
+}: {
+  cycle: WorkCycle;
+  /** The projection's routed questions, which stand for the recorded ones when present. */
+  questionRoutes?: readonly WorkflowQuestion[];
+  decidedIn?: Route;
+}) {
   const workflow = cycle.workflow;
-  if (!workflow) return null;
+  const questions = questionRoutes ?? workflow?.questions ?? [];
+  if (!workflow && questions.length === 0) return null;
   const roadmap: Route =
     cycle.owner?.roadmapId === undefined
       ? { name: 'roadmaps', workspaceId: cycle.workspaceId }
@@ -20,7 +34,7 @@ export function WorkflowStatus({ cycle, decidedIn }: { cycle: WorkCycle; decided
         };
   return (
     <section aria-label="Controller work and operator questions">
-      {workflow.activeReview && (
+      {workflow?.activeReview && (
         <p>
           <strong>Controller review:</strong>{' '}
           {workflow.activeReview.kind === 'security'
@@ -31,7 +45,7 @@ export function WorkflowStatus({ cycle, decidedIn }: { cycle: WorkCycle; decided
           . This uses a separate read-only run.
         </p>
       )}
-      {workflow.securityRequired && (
+      {workflow?.securityRequired && (
         <p>
           Required security review:{' '}
           {workflow.securityReceipt
@@ -39,16 +53,16 @@ export function WorkflowStatus({ cycle, decidedIn }: { cycle: WorkCycle; decided
             : 'Queued after technical remediation.'}
         </p>
       )}
-      {workflow.waiting && (
+      {workflow?.waiting && (
         <p role="status">
           <strong>Waiting for prerequisites:</strong> {workflow.waiting}{' '}
           <Link route={roadmap}>Open roadmap requirements</Link>
         </p>
       )}
-      {workflow.questions.length > 0 && (
+      {questions.length > 0 && (
         <div>
           <h3>Questions needing your decision</h3>
-          {workflow.questions.map((q) => (
+          {questions.map((q) => (
             <article key={`${q.destination}:${q.checkpointId ?? 'local'}:${q.question}`}>
               <p style={{ whiteSpace: 'pre-wrap' }}>{q.question}</p>
               {q.destination === 'shared-decision' && cycle.executionScope ? (

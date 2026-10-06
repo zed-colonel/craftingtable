@@ -3,8 +3,8 @@ import {
   executionScopeKey,
   PHASE_BLOCKERS,
   phaseBlockerCode,
+  type CycleView,
   type SourceRepositoryId,
-  type WorkCycle,
   type WorktreeId,
   type WorkItemId,
   type WorkItemStatus,
@@ -35,11 +35,12 @@ export function ExecutionScopesPanel({
   canMutate,
   itemStatus,
   onChanged,
-  cycles = [],
+  cycles: views = [],
   onOpenCycle,
   decisionItemFor,
 }: {
-  cycles?: readonly WorkCycle[];
+  /** The work item's cycles as the daemon read them: each record beside its projection. */
+  cycles?: readonly CycleView[];
   /** The open inbox item that carries a worktree's merge: its checkpoint is decided there (R-A6). */
   decisionItemFor?: (worktreeId: string) => string | undefined;
   onOpenCycle?: (id: WorktreeId) => void;
@@ -55,6 +56,9 @@ export function ExecutionScopesPanel({
   // completed parent. A completed parent still takes fresh verification and acceptance when
   // its evidence goes stale, for example after a decision is approved.
   const admitted = itemStatus === 'admitted' || itemStatus === 'completed';
+  const cycles = views.map((view) => view.cycle);
+  const reviewWait = (id: string) =>
+    views.find((view) => view.cycle.id === id)?.projection.scopeReviewWait;
   // Read again on its work item's events and after its own commands (R-D4 increment 4b).
   const store = useQueryStore();
   const key = queryKeys.workItemScopes(workspaceId, workItemId);
@@ -275,7 +279,7 @@ export function ExecutionScopesPanel({
             <p className="hint">Map binding revision {choice.scope.bindingRevision}.</p>
             {existing && onOpenCycle && (choice.scope.kind === 'slice' || cycle) ? (
               <div className="stack">
-                {cycle && <p role="status">{cycle.scopeReviewWait ?? cycle.reason}</p>}
+                {cycle && <p role="status">{reviewWait(cycle.id) ?? cycle.reason}</p>}
                 <button type="button" onClick={() => onOpenCycle(existing.id)}>
                   {cycle?.step === 'design' && ['paused', 'needs-attention'].includes(cycle.status)
                     ? 'Open cycle to resolve design questions'

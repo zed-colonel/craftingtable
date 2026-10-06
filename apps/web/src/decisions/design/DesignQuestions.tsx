@@ -4,7 +4,7 @@ import type {
   ExecutionStatusResponse,
   RecoverDesignRequest,
 } from '@craftingtable/contracts';
-import type { AgentBackendKind, WorkCycle } from '@craftingtable/domain';
+import type { AgentBackendKind, AgentSelections, WorkCycle } from '@craftingtable/domain';
 import { useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { revealElement } from '../../lib/reveal-element.js';
@@ -26,11 +26,14 @@ import { useRouteFocus } from '../../lib/navigation.js';
  */
 export function DesignQuestions({
   cycle,
+  nextAgentSelections,
   backends,
   csrfToken,
   onChanged,
 }: {
   cycle: WorkCycle;
+  /** The agents the next steps would use, from the cycle's projection. */
+  nextAgentSelections?: AgentSelections;
   backends: ExecutionStatusResponse['backends'];
   csrfToken: string;
   onChanged: () => void;
@@ -41,8 +44,8 @@ export function DesignQuestions({
   const [error, setError] = useState<string>();
   const [instructions, setInstructions] = useState('');
   const [mode, setMode] = useState<'investigate' | 'continue'>('investigate');
-  const future = cycle.nextAgentSelections ?? agentSelections(cycle.profiles);
-  const previousProfile = cycle.nextAgentSelections
+  const future = nextAgentSelections ?? agentSelections(cycle.profiles);
+  const previousProfile = nextAgentSelections
     ? selectionsForPurpose(future, 'investigation')
     : (cycle.designRecovery?.profile ?? selectionsForPurpose(future, 'investigation'));
   const [backend, setBackend] = useState<AgentBackendKind>(previousProfile.backend);

@@ -84,7 +84,9 @@ describe('single work-item automation', () => {
       url: `/api/workspaces/${state.workspaceId}/cycles`,
       headers: { cookie: state.cookie },
     });
-    expect(workCyclesResponseSchema.parse(listing.json()).cycles[0]?.status).toBe('awaiting-merge');
+    expect(workCyclesResponseSchema.parse(listing.json()).cycles[0]?.cycle.status).toBe(
+      'awaiting-merge',
+    );
     const events = state.context.storage.workspaceEvents.listAfter({
       workspaceId: state.workspaceId,
       after: 0,

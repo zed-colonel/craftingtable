@@ -58,8 +58,8 @@ export function registerWorkCycleRoutes(
       if (!input.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid scope repair request');
       return noStore(reply).send(
-        workCycleResponseSchema.parse({
-          cycle: cycles.present(
+        workCycleResponseSchema.parse(
+          cycles.present(
             await roadmaps.delegateScopeRepair(
               context,
               workspace.data,
@@ -67,7 +67,7 @@ export function registerWorkCycleRoutes(
               input.data,
             ),
           ),
-        }),
+        ),
       );
     },
   );
@@ -110,11 +110,9 @@ export function registerWorkCycleRoutes(
       if (!body.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid cycle settings');
       return noStore(reply).send(
-        workCycleResponseSchema.parse({
-          cycle: cycles.present(
-            cycles.startRequested(context, workspace.data, item.data, body.data),
-          ),
-        }),
+        workCycleResponseSchema.parse(
+          cycles.present(cycles.startRequested(context, workspace.data, item.data, body.data)),
+        ),
       );
     },
   );
@@ -171,8 +169,8 @@ export function registerWorkCycleRoutes(
       if (!input.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid baseline preparation');
       return noStore(reply).send(
-        workCycleResponseSchema.parse({
-          cycle: cycles.present(
+        workCycleResponseSchema.parse(
+          cycles.present(
             await cycles.prepareBaseline(
               context,
               workspace.data,
@@ -180,7 +178,7 @@ export function registerWorkCycleRoutes(
               input.data,
             ),
           ),
-        }),
+        ),
       );
     },
   );
@@ -200,7 +198,7 @@ export function registerWorkCycleRoutes(
         request.params.cycleId,
         input.data,
       );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle: cycles.present(cycle) }));
+      return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
   // A question stop's read-only investigation (R-C16), and ending it.
@@ -220,7 +218,7 @@ export function registerWorkCycleRoutes(
         request.params.cycleId,
         input.data,
       );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+      return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
@@ -239,7 +237,7 @@ export function registerWorkCycleRoutes(
         request.params.cycleId,
         input.data.expectedVersion,
       );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+      return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
   // The worktree changed while the stop's investigation ran: the operator has seen it (R-C16).
@@ -259,7 +257,7 @@ export function registerWorkCycleRoutes(
         request.params.cycleId,
         input.data.expectedVersion,
       );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+      return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
@@ -296,7 +294,7 @@ export function registerWorkCycleRoutes(
                 body.data.expectedVersion,
                 body.data.action === 'resume' ? body.data.instructions : undefined,
               );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle: cycles.present(cycle) }));
+      return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
@@ -320,7 +318,7 @@ export function registerWorkCycleRoutes(
         request.params.cycleId,
         body.data,
       );
-      return noStore(reply).send(workCycleResponseSchema.parse({ cycle: cycles.present(cycle) }));
+      return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
 }

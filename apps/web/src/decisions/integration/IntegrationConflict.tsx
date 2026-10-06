@@ -6,6 +6,7 @@ import {
 } from '@craftingtable/contracts';
 import {
   type AgentRunId,
+  type AgentSelections,
   effectiveCycleAttention,
   ownsIntegrationResolution,
   type WorkCycle,
@@ -50,6 +51,7 @@ function resolveIntegration(
  */
 export function IntegrationConflict({
   cycle,
+  nextAgentSelections,
   backends,
   disabled,
   canMutate,
@@ -60,6 +62,8 @@ export function IntegrationConflict({
   runIds,
 }: {
   cycle: WorkCycle;
+  /** The agents the next steps would use, from the cycle's projection; absent for a finalization's. */
+  nextAgentSelections?: AgentSelections;
   backends: ExecutionStatusResponse['backends'];
   disabled: boolean;
   canMutate: boolean;
@@ -200,8 +204,8 @@ export function IntegrationConflict({
               maxInstructionsLength={16000}
               backends={backends}
               defaults={{
-                ...(cycle.nextAgentSelections
-                  ? selectionsForPurpose(cycle.nextAgentSelections, 'conflict')
+                ...(nextAgentSelections
+                  ? selectionsForPurpose(nextAgentSelections, 'conflict')
                   : (resolution?.profile ??
                     selectionsForPurpose(agentSelections(cycle.profiles), 'conflict'))),
                 permissionMode: cycle.profiles.remediate.permissionMode,

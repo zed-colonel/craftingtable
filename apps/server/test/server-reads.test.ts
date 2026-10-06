@@ -270,10 +270,10 @@ describe('cycle reads (PERF-05)', () => {
     const response = await f.get(`/api/workspaces/${f.workspaceId}/cycles`);
     expect(response.statusCode, response.body).toBe(200);
     const { cycles } = workCyclesResponseSchema.parse(response.json());
-    expect(cycles.map((c) => c.id).toSorted()).toEqual(
+    expect(cycles.map((v) => v.cycle.id).toSorted()).toEqual(
       [f.cycles.paused.id, f.cycles.live.id].toSorted(),
     );
-    expect(cycles.every((c) => c.designRecovery === undefined)).toBe(true);
+    expect(cycles.every((v) => v.cycle.designRecovery === undefined)).toBe(true);
     expect(response.body).not.toContain('Investigate the design question.');
   });
 
@@ -284,12 +284,14 @@ describe('cycle reads (PERF-05)', () => {
     );
     expect(response.statusCode, response.body).toBe(200);
     const { cycles } = workCyclesResponseSchema.parse(response.json());
-    expect(cycles.map((c) => c.id).toSorted()).toEqual(
+    expect(cycles.map((v) => v.cycle.id).toSorted()).toEqual(
       [f.cycles.history.id, f.cycles.paused.id].toSorted(),
     );
-    expect(cycles.every((c) => c.designRecovery?.instructions)).toBe(true);
+    expect(cycles.every((v) => v.cycle.designRecovery?.instructions)).toBe(true);
     // The completed cycle is history: it still says which agents would run next.
-    expect(cycles.find((c) => c.id === f.cycles.history.id)?.nextAgentSelections).toBeDefined();
+    expect(
+      cycles.find((v) => v.cycle.id === f.cycles.history.id)?.projection.nextAgentSelections,
+    ).toBeDefined();
   });
 
   it('rejects a malformed work item filter', async () => {

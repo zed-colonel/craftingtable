@@ -144,8 +144,10 @@ export function stopCode(
 
 export function cycleActions(
   cycle: Parameters<typeof effectiveCycleAttention>[0] &
-    Pick<WorkCycle, 'status' | 'currentRunId'> &
-    Partial<Pick<WorkCycle, 'unsettledDecisions'>>,
+    Pick<WorkCycle, 'status' | 'currentRunId'> & {
+      /** The shared decisions the stop still waits on (the projection's, LIVE-18). */
+      readonly unsettledDecisions?: readonly string[];
+    },
   latestRunId?: string,
   /**
    * The current review asks for remediation and the allowance is spent. Guidance alone cannot

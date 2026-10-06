@@ -74,12 +74,13 @@ export function InboxHost({
       case 'cycle': {
         // The cycle's decision alone, chosen from its state (R-A6 increment 2a).
         // The item's cycles in full: the workspace list leaves out design-recovery detail.
-        const cycle = work.cycles?.find((c) => c.id === cycleId);
-        const worktree = worktreeOf(cycle?.worktreeId);
-        if (!cycle || !worktree) return loading;
+        const view = work.cycles?.find((v) => v.cycle.id === cycleId);
+        const worktree = worktreeOf(view?.cycle.worktreeId);
+        if (!view || !worktree) return loading;
         return (
           <CycleDecision
-            cycle={cycle}
+            cycle={view.cycle}
+            projection={view.projection}
             runs={work.execution?.runs ?? []}
             readOnly={!!worktree.executionScope && worktree.executionScope.kind !== 'slice'}
             backends={work.backends}

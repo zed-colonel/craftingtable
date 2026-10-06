@@ -1,5 +1,10 @@
 import { afterEach, expect } from 'vitest';
-import type { ConcurrencySource, WorkCycle } from '@craftingtable/domain';
+import type {
+  ConcurrencySource,
+  CycleProjection,
+  CycleView,
+  WorkCycle,
+} from '@craftingtable/domain';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
@@ -237,7 +242,7 @@ itNeedsCargo(
         })
       )
         .json()
-        .cycles.find((c: WorkCycle) => c.id === cycle.id) as WorkCycle;
+        .cycles.find((v: CycleView) => v.cycle.id === cycle.id).projection as CycleProjection;
     expect((await listed()).unsettledDecisions).toEqual([...DECISIONS]);
     // The stop's inbox item opens the roadmap's decision cards.
     const item = tx.attention

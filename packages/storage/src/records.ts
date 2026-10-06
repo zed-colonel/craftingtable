@@ -116,6 +116,15 @@ export interface RecordUpcaster {
   readonly upcast: (record: Readonly<Record<string, unknown>>) => Record<string, unknown>;
 }
 
+/** The read projections a cycle carried before R-D5 (CTRL-22). */
+const CYCLE_PROJECTIONS = [
+  'nextAgentSelections',
+  'unsettledDecisions',
+  'actions',
+  'scopeReviewWait',
+  'mergeRequirementsWait',
+] as const;
+
 function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -131,7 +140,21 @@ function payloadOf(record: Readonly<Record<string, unknown>>) {
  */
 export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly RecordUpcaster[] } =
   {
-    'work-cycle': [],
+    'work-cycle': [
+      {
+        // Read projections were once fields of the cycle type (CTRL-22). They travel beside
+        // the stored cycle since R-D5; a stored one reads without them, and a writer that
+        // still stores one is refused by the write's read-back.
+        name: 'read projections stored in the cycle (before R-D5)',
+        applies: (cycle) => CYCLE_PROJECTIONS.some((field) => field in cycle),
+        upcast: (cycle) =>
+          Object.fromEntries(
+            Object.entries(cycle).filter(
+              ([field]) => !(CYCLE_PROJECTIONS as readonly string[]).includes(field),
+            ),
+          ),
+      },
+    ],
     roadmap: [],
     'roadmap-definition': [],
     finalization: [],

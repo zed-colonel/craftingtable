@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
 import {
+  type CycleAction,
+  type CycleProjection,
   effectiveCycleAttention,
   remediationAllowance,
   type WorkCycle,
@@ -57,8 +59,14 @@ function useCommand(onChanged: () => void) {
 /** How a stopped cycle is continued, from the actions the daemon returned with it. */
 export type Continuation = 'scope-review' | 'remediation' | 'guidance' | 'resume';
 
-export function continuationOf(cycle: WorkCycle): Continuation | undefined {
-  const actions = cycle.actions ?? [];
+/** What a continuation reads of the cycle's projection: its actions and routed questions. */
+export type ContinuationProjection = Pick<CycleProjection, 'actions' | 'questionRoutes'>;
+
+export function continuationOf(
+  cycle: WorkCycle,
+  projection: ContinuationProjection,
+): Continuation | undefined {
+  const { actions } = projection;
   // A stop that waits on shared decisions is answered there, not here (LIVE-18), and one being
   // investigated takes no answer until the investigation ends, nor one whose worktree changed
   // while it ran until the change is acknowledged (R-C16).
@@ -87,7 +95,7 @@ export function continuationOf(cycle: WorkCycle): Continuation | undefined {
     cycle.step !== 'design' &&
     ['paused', 'needs-attention'].includes(cycle.status) &&
     (actions.includes('continue-with-guidance') ||
-      !!cycle.workflow?.questions.length ||
+      !!(projection.questionRoutes ?? cycle.workflow?.questions)?.length ||
       effectiveCycleAttention(cycle)?.code === 'remediation-stalled')
   )
     return 'guidance';
@@ -102,12 +110,14 @@ export function continuationOf(cycle: WorkCycle): Continuation | undefined {
  */
 export function CycleContinuation({
   cycle,
+  projection,
   csrfToken,
   disabled,
   onChanged,
   answer,
 }: {
   cycle: WorkCycle;
+  projection: ContinuationProjection;
   csrfToken: string;
   disabled: boolean;
   onChanged: () => void;
@@ -119,7 +129,7 @@ export function CycleContinuation({
     answer?.clear?.();
     onChanged();
   });
-  const kind = continuationOf(cycle);
+  const kind = continuationOf(cycle, projection);
   if (!kind) return null;
   const locked = disabled || busy;
   return (
@@ -187,19 +197,21 @@ export function CycleContinuation({
  */
 export function CycleControlButtons({
   cycle,
+  actions,
   csrfToken,
   disabled,
   resumable,
   onChanged,
 }: {
   cycle: WorkCycle;
+  /** The actions the daemon offers now, from the cycle's projection. */
+  actions: readonly CycleAction[];
   csrfToken: string;
   disabled: boolean;
   resumable: boolean;
   onChanged: () => void;
 }) {
   const { busy, error, run } = useCommand(onChanged);
-  const actions = cycle.actions ?? [];
   const locked = disabled || busy;
   return (
     <>

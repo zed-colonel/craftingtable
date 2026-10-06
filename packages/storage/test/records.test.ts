@@ -197,6 +197,28 @@ describe('persisted record registry (R-H3)', () => {
     expect(readRecord('agent-run', current as never)).toBe(current);
   });
 
+  it('reads a cycle without the read projections a writer once stored in it (CTRL-22, R-D5)', () => {
+    const upcasts: string[] = [];
+    const stored = {
+      id: 'cycle',
+      status: 'running',
+      nextAgentSelections: {},
+      unsettledDecisions: ['ADR-1'],
+      actions: ['pause', 'stop'],
+      scopeReviewWait: 'waits',
+      mergeRequirementsWait: 'waits',
+    };
+    const cycle = observeUpcasts(
+      (kind, upcaster) => upcasts.push(`${kind}: ${upcaster.name}`),
+      () => readRecord('work-cycle', stored as never),
+    );
+    expect(cycle).toEqual({ id: 'cycle', status: 'running' });
+    expect(upcasts).toEqual(['work-cycle: read projections stored in the cycle (before R-D5)']);
+    // A cycle without them is the same object, untouched.
+    const current = { id: 'cycle', status: 'running' };
+    expect(readRecord('work-cycle', current as never)).toBe(current);
+  });
+
   it('refuses a write the guard rejects and leaves nothing behind', () => {
     const f = fixture();
     const seed = seedWorkspace(f.storage);

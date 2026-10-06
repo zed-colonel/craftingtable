@@ -221,7 +221,7 @@ itNeedsCargo(
     expect(
       state.context.services.workCycleService
         .list(f.auth, ws, cycle.workItemId ? { workItemId: cycle.workItemId } : {})
-        .find((c) => c.id === cycle.id)?.scopeReviewWait,
+        .find((v) => v.cycle.id === cycle.id)?.projection.scopeReviewWait,
     ).toContain('Preparing the requested recovery');
     const duplicate = await command();
     expect(duplicate.statusCode, duplicate.body).toBe(409);
@@ -349,8 +349,8 @@ itNeedsCargo(
       .listForWorkspace(ws)
       .find((c) => c.executionScope?.kind === 'slice-verification')!;
     expect(
-      state.context.services.workCycleService.list(f.auth, ws).find((c) => c.id === source.id)
-        ?.scopeReviewWait,
+      state.context.services.workCycleService.list(f.auth, ws).find((v) => v.cycle.id === source.id)
+        ?.projection.scopeReviewWait,
     ).toContain('roadmap recovery');
     await roadmapControl(state, 'pause');
     expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toHaveLength(1);

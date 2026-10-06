@@ -218,18 +218,6 @@ export interface WorkCycle {
    * has backfilled; `cycleOwnership` derives those from the roadmaps' attempts.
    */
   readonly owner?: CycleOwner | null;
-  /** Read projection: future model selections, never persisted as original settings. */
-  readonly nextAgentSelections?: import('./agent-profiles.js').AgentSelections;
-  /**
-   * Read projection (LIVE-18): the shared decisions a `shared-decision-required` stop still
-   * waits on. Computed when cycles are read, never persisted.
-   */
-  readonly unsettledDecisions?: readonly string[];
-  /**
-   * Read projection (R-A6): the operator actions the daemon offers now, from `cycleActions`.
-   * Computed when cycles are read, never persisted.
-   */
-  readonly actions?: readonly import('./cycle-actions.js').CycleAction[];
   readonly workflow?: import('./workflow.js').CycleWorkflow;
   readonly designDependencyContinuations?: number;
   readonly designWait?: {
@@ -240,9 +228,6 @@ export interface WorkCycle {
     )[];
   } | null;
 
-  /** Read projection only: an older review waits for current prerequisite work. */
-  readonly scopeReviewWait?: string;
-  readonly mergeRequirementsWait?: string;
   /** Explicit repair delegation, with immutable journal turns from related scope reviews. */
   readonly scopeRepair?: {
     readonly sourceCycleId: string;
@@ -357,6 +342,34 @@ export interface WorkCycle {
    * `effectiveCycleAttention`.
    */
   readonly attention?: import('./attention.js').CycleAttention;
+}
+
+/**
+ * What the daemon derives for a cycle when it reads one (CTRL-22, R-D5). It is never stored,
+ * and it travels beside the stored cycle (`CycleView`), never inside it, so a reader can tell
+ * the controller's record from what was computed for this response.
+ */
+export interface CycleProjection {
+  /** The model selections the next steps would launch with, from the cycle's profiles now. */
+  readonly nextAgentSelections: import('./agent-profiles.js').AgentSelections;
+  /** The operator actions the daemon offers now, from `cycleActions` (R-A6). */
+  readonly actions: readonly import('./cycle-actions.js').CycleAction[];
+  /** The shared decisions a `shared-decision-required` stop still waits on (LIVE-18). */
+  readonly unsettledDecisions?: readonly string[];
+  /** An older review waits for current prerequisite work. */
+  readonly scopeReviewWait?: string;
+  /** A slice's merge waits for its merge requirements. */
+  readonly mergeRequirementsWait?: string;
+  /**
+   * Where a slice's open questions at its stop go, read from the current turn's report. Absent
+   * when they route nowhere; the cycle's own `workflow.questions` stay as recorded.
+   */
+  readonly questionRoutes?: readonly import('./workflow.js').WorkflowQuestion[];
+}
+/** A cycle as a read returns it: the stored record and its projection, side by side. */
+export interface CycleView {
+  readonly cycle: WorkCycle;
+  readonly projection: CycleProjection;
 }
 export function remediationAllowance(
   cycle: Pick<WorkCycle, 'policy' | 'additionalRemediationRounds' | 'finalizationProgress'>,

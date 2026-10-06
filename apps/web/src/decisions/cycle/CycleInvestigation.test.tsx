@@ -1,5 +1,11 @@
 import type { AgentRunSummary } from '@craftingtable/contracts';
-import type { CycleAction, WorkCycle, WorktreeId } from '@craftingtable/domain';
+import {
+  type AgentSelections,
+  agentSelections,
+  type CycleAction,
+  type WorkCycle,
+  type WorktreeId,
+} from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
@@ -80,12 +86,18 @@ function decision(
     backends?: typeof backends;
     onOpenRun?: (id: string) => void;
     onChanged?: () => void;
+    /** The projection's agents; by default, the cycle's own profiles. */
+    nextAgentSelections?: AgentSelections;
   } = {},
 ) {
   return (
     <CycleDecision
       inInbox
-      cycle={{ ...cycle, actions }}
+      cycle={cycle}
+      projection={{
+        actions,
+        nextAgentSelections: options.nextAgentSelections ?? agentSelections(cycle.profiles),
+      }}
       runs={options.liveRuns ?? runs}
       readOnly={false}
       backends={options.backends ?? backends}
@@ -317,17 +329,16 @@ it('cuts proposals to what the control accepts (L1)', () => {
 });
 
 it('starts from the cycle investigation profile, refuses an unavailable agent or a bad limit, and trims the prompt (M5)', () => {
-  const profiled = {
-    ...base,
-    nextAgentSelections: {
-      design: { backend: 'claude-code', model: 'design-model' },
-      implement: { backend: 'claude-code' },
-      review: { backend: 'claude-code' },
-      remediate: { backend: 'claude-code' },
-      investigation: { backend: 'claude-code', model: 'investigation-model' },
-    },
-  } as unknown as WorkCycle;
-  show(profiled, ['continue-with-guidance', 'investigate', 'stop']);
+  const nextAgentSelections = {
+    design: { backend: 'claude-code', model: 'design-model' },
+    implement: { backend: 'claude-code' },
+    review: { backend: 'claude-code' },
+    remediate: { backend: 'claude-code' },
+    investigation: { backend: 'claude-code', model: 'investigation-model' },
+  } as unknown as AgentSelections;
+  render(
+    decision(base, ['continue-with-guidance', 'investigate', 'stop'], { nextAgentSelections }),
+  );
   const form = screen.getByRole('form', { name: 'Investigate these questions' });
   expect(within(form).getByText(/Agent: Claude Code · investigation-model/)).toBeTruthy();
   const start = within(form).getByRole('button', {

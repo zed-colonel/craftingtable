@@ -98,6 +98,7 @@ it('shows both colliding findings and preserves guidance across a stale-preview 
       cycle: structuredClone({ ...cycle, id: 'repair' }) as Awaited<
         ReturnType<typeof delegateScopeRepair>
       >['cycle'],
+      projection: { nextAgentSelections: {} as never, actions: [] },
     });
   const { onStarted } = panel();
   await screen.findByText('R1.F-003 · major · Contribution guidance');

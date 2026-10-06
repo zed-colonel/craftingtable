@@ -1,5 +1,12 @@
 import type { ExecutionScopeChoice } from '@craftingtable/contracts';
-import { cycleActions, DEFAULT_COMPLETION_POLICY, type WorkCycle } from '@craftingtable/domain';
+import {
+  type AgentSelections,
+  type CycleProjection,
+  type CycleView,
+  cycleActions,
+  DEFAULT_COMPLETION_POLICY,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
@@ -14,8 +21,8 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-/** A cycle as the daemon sends it: with the actions it offers (R-A6). */
-function cycle(fields: Partial<WorkCycle>): WorkCycle {
+/** A cycle as the daemon sends it: beside its projection, with the actions it offers (R-A6). */
+function cycle(fields: Partial<WorkCycle>, projected: Partial<CycleProjection> = {}): CycleView {
   const base = {
     id: 'c1',
     workspaceId: 'ws',
@@ -31,8 +38,16 @@ function cycle(fields: Partial<WorkCycle>): WorkCycle {
     reason: 'Stopped.',
     ...fields,
   } as WorkCycle;
-  return { ...base, actions: cycleActions(base) };
+  return {
+    cycle: base,
+    projection: {
+      nextAgentSelections: {} as AgentSelections,
+      actions: cycleActions({ ...base, ...projected }),
+      ...projected,
+    },
+  };
 }
+const continuation = (view: CycleView) => continuationOf(view.cycle, view.projection);
 const posted = () =>
   vi.mocked(request).mock.calls.map(([url, , init]) => ({
     url: String(url),
@@ -41,15 +56,15 @@ const posted = () =>
 
 it('continues each stop the way the daemon allows (R-A6 review)', () => {
   // A transient stop: a plain resume is its only way on.
-  expect(continuationOf(cycle({ attention: { code: 'step-time-limit', owner: 'operator' } }))).toBe(
+  expect(continuation(cycle({ attention: { code: 'step-time-limit', owner: 'operator' } }))).toBe(
     'resume',
   );
   expect(
-    continuationOf(cycle({ attention: { code: 'workflow-report-invalid', owner: 'operator' } })),
+    continuation(cycle({ attention: { code: 'workflow-report-invalid', owner: 'operator' } })),
   ).toBe('guidance');
   // Open questions, even on a paused step.
   expect(
-    continuationOf(
+    continuation(
       cycle({
         status: 'paused',
         workflow: {
@@ -64,9 +79,9 @@ it('continues each stop the way the daemon allows (R-A6 review)', () => {
     remediationRounds: DEFAULT_COMPLETION_POLICY.maxRemediationRounds,
     attention: { code: 'remediation-exhausted' as const, owner: 'operator' as const },
   };
-  expect(continuationOf(cycle(exhausted))).toBe('remediation');
+  expect(continuation(cycle(exhausted))).toBe('remediation');
   // The daemon refuses more rounds outside a review: no form that would fail.
-  expect(continuationOf(cycle({ ...exhausted, step: 'remediate' }))).toBeUndefined();
+  expect(continuation(cycle({ ...exhausted, step: 'remediate' }))).toBeUndefined();
   // A parent or verification review, stopped or completed: resume, or review again.
   const parent = {
     executionScope: {
@@ -76,14 +91,14 @@ it('continues each stop the way the daemon allows (R-A6 review)', () => {
       sourceId: 'wi/WI-01',
     },
   };
-  expect(continuationOf(cycle({ ...parent, status: 'completed' }))).toBe('scope-review');
-  expect(continuationOf(cycle(parent))).toBe('scope-review');
+  expect(continuation(cycle({ ...parent, status: 'completed' }))).toBe('scope-review');
+  expect(continuation(cycle(parent))).toBe('scope-review');
   expect(
-    continuationOf(
-      cycle({
-        attention: { code: 'shared-decision-required', owner: 'operator' },
-        unsettledDecisions: ['ADR-1'],
-      }),
+    continuation(
+      cycle(
+        { attention: { code: 'shared-decision-required', owner: 'operator' } },
+        { unsettledDecisions: ['ADR-1'] },
+      ),
     ),
   ).toBeUndefined();
 });
@@ -93,7 +108,13 @@ it('resumes a transient stop with the daemon command', async () => {
   const stopped = cycle({ attention: { code: 'step-time-limit', owner: 'operator' } });
   const onChanged = vi.fn();
   render(
-    <CycleContinuation cycle={stopped} csrfToken="csrf" disabled={false} onChanged={onChanged} />,
+    <CycleContinuation
+      cycle={stopped.cycle}
+      projection={stopped.projection}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={onChanged}
+    />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Resume automation' }));
   await waitFor(() => expect(onChanged).toHaveBeenCalled());
@@ -121,7 +142,7 @@ it('reviews a completed parent review again, with its instructions', async () =>
   });
   render(
     <CycleContinuation
-      cycle={cycle({ status: 'completed', executionScope: scope })}
+      {...cycle({ status: 'completed', executionScope: scope })}
       csrfToken="csrf"
       disabled={false}
       onChanged={vi.fn()}
@@ -190,10 +211,11 @@ it.each([
     const onChanged = vi.fn();
     // The stop's decision holds its answer for the session, as `CycleDecision` does.
     function Decision() {
-      const answer = useStopDraft(`${stopped.id}:${stopped.currentRunId}:stop`);
+      const answer = useStopDraft(`${stopped.cycle.id}:${stopped.cycle.currentRunId}:stop`);
       return (
         <CycleContinuation
-          cycle={stopped}
+          cycle={stopped.cycle}
+          projection={stopped.projection}
           csrfToken="csrf"
           disabled={false}
           onChanged={onChanged}

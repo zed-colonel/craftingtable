@@ -5,6 +5,7 @@ import {
   evidenceSubmissionRequestSchema,
   registerSourceRepositoryResponseSchema,
   workCycleResponseSchema,
+  workCyclesResponseSchema,
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
@@ -883,9 +884,9 @@ it('a slice review question at the remediation limit keeps the question and the 
       url: `/api/workspaces/${state.workspaceId}/cycles`,
       headers: { cookie: state.cookie },
     });
-    return (response.json() as { cycles: { id: string; actions: string[] }[] }).cycles.find(
-      (c) => c.id === cycle.id,
-    )?.actions;
+    return workCyclesResponseSchema
+      .parse(response.json())
+      .cycles.find((v) => v.cycle.id === cycle.id)?.projection.actions;
   };
   // Each of these stops still asks its question, so each also offers Investigate (R-C16).
   expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'stop']);

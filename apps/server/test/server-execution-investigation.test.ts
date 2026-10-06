@@ -101,14 +101,22 @@ const post = (state: Ready, path: string, payload: unknown) =>
     headers: mutationHeaders(state),
     payload: payload as Record<string, unknown>,
   });
-async function investigate(state: Ready, cycle: WorkCycle, payload: Record<string, unknown> = {}) {
+async function investigateView(
+  state: Ready,
+  cycle: WorkCycle,
+  payload: Record<string, unknown> = {},
+) {
   const response = await post(state, `/cycles/${cycle.id}/investigation`, {
     expectedVersion: currentCycle(state, cycle).version,
     ...payload,
   });
   expect(response.statusCode, response.body).toBe(200);
-  return workCycleResponseSchema.parse(response.json()).cycle;
+  return workCycleResponseSchema.parse(response.json());
 }
+async function investigate(state: Ready, cycle: WorkCycle, payload: Record<string, unknown> = {}) {
+  return (await investigateView(state, cycle, payload)).cycle;
+}
+/** The cycle's projection as the work item's read returns it. */
 async function presented(state: Ready, cycle: WorkCycle) {
   const response = await state.context.app.inject({
     method: 'GET',
@@ -118,9 +126,9 @@ async function presented(state: Ready, cycle: WorkCycle) {
   expect(response.statusCode, response.body).toBe(200);
   const found = workCyclesResponseSchema
     .parse(response.json())
-    .cycles.find((c) => c.id === cycle.id);
+    .cycles.find((v) => v.cycle.id === cycle.id);
   if (!found) throw new Error('Missing cycle');
-  return found;
+  return found.projection;
 }
 const launchesReadOnly = (launches: readonly AgentLaunchRequest[]) =>
   launches.filter((launch) => launch.readOnly);
@@ -168,7 +176,8 @@ describe('question stop investigations (R-C16)', () => {
     ]);
     const tree = treeState(f.worktree.path);
 
-    const started = await investigate(state, cycle, { instructions: 'Check the format spec.' });
+    const view = await investigateView(state, cycle, { instructions: 'Check the format spec.' });
+    const started = view.cycle;
     const record = started.investigation;
     if (!record) throw new Error('No investigation');
     expect(record).toMatchObject({
@@ -178,7 +187,7 @@ describe('question stop investigations (R-C16)', () => {
       instructions: 'Check the format spec.',
       profile: { backend: 'claude-code', model: 'design-model' },
     });
-    expect(started.actions).toEqual(['end-investigation']);
+    expect(view.projection.actions).toEqual(['end-investigation']);
     expect(started.status).toBe('needs-attention');
     expect(started.currentRunId).toBe(stopped.currentRunId);
 
@@ -297,7 +306,7 @@ describe('question stop investigations (R-C16)', () => {
     });
     const brief = workCyclesResponseSchema
       .parse(listed.json())
-      .cycles.find((c) => c.id === cycle.id);
+      .cycles.find((v) => v.cycle.id === cycle.id)?.cycle;
     expect(brief?.investigation?.result).toEqual({
       endedAt: ended.investigation?.result?.endedAt,
       outcome: 'finished',

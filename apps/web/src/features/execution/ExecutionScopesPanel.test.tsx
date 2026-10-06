@@ -53,7 +53,10 @@ function view(
       itemStatus={itemStatus}
       onChanged={vi.fn()}
       worktrees={trees}
-      cycles={cycles}
+      cycles={cycles.map((cycle) => ({
+        cycle,
+        projection: { nextAgentSelections: {} as never, actions: [] },
+      }))}
       onOpenCycle={onOpenCycle}
     />,
   );

@@ -43,6 +43,8 @@ import {
   remediationAllowance,
   remediationUsed,
   sameExecutionScope,
+  type CycleProjection,
+  type CycleView,
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
@@ -297,32 +299,43 @@ export class WorkCycleService {
     context: CommandContext,
     workspaceId: WorkspaceId,
     filter: { readonly workItemId?: WorkItemId } = {},
-  ): readonly WorkCycle[] {
+  ): readonly CycleView[] {
     this.workspaceService.requireAuthorized(context, workspaceId);
-    const tx = mapReadSnapshot(this.storage);
-    const stored = this.storage.execution.cycles.listForWorkspace(workspaceId);
+    return this.views(mapReadSnapshot(this.storage), workspaceId, filter);
+  }
+
+  /**
+   * `list` inside a read the caller holds (one transaction and one map snapshot per page
+   * region, R-D5).
+   */
+  views(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    filter: { readonly workItemId?: WorkItemId } = {},
+  ): readonly CycleView[] {
+    const stored = tx.execution.cycles.listForWorkspace(workspaceId);
     const selected =
       filter.workItemId === undefined
         ? stored
             .filter((c) => !TERMINAL_CYCLE_STATUSES.has(c.status))
             .map(({ designRecovery: _omitted, ...c }): WorkCycle => withoutFindings(c))
         : stored.filter((c) => c.workItemId === filter.workItemId);
-    return selected.map((c) => this.presented(tx, c));
+    return selected.map((c) => ({ cycle: c, projection: this.projection(tx, c) }));
   }
 
-  /** A cycle as a response returns it, with its read projections (R-A6: its actions). */
-  present(cycle: WorkCycle): WorkCycle {
-    return this.presented(mapReadSnapshot(this.storage), cycle);
+  /** A cycle as a response returns it: the record beside its projection (CTRL-22, R-D5). */
+  present(cycle: WorkCycle): CycleView {
+    return { cycle, projection: this.projection(mapReadSnapshot(this.storage), cycle) };
   }
 
-  private presented(tx: StorageRepositories, c: WorkCycle): WorkCycle {
+  private projection(tx: StorageRepositories, c: WorkCycle): CycleProjection {
+    const nextAgentSelections = agentSelections(effectiveCycleProfiles(tx, c));
     if (TERMINAL_CYCLE_STATUSES.has(c.status))
       return {
-        ...c,
-        nextAgentSelections: agentSelections(effectiveCycleProfiles(tx, c)),
+        nextAgentSelections,
+        actions: [],
         // A completed cycle can be reviewed again; its preparation still shows.
         ...(this.isTransitioning(c.id) ? { scopeReviewWait: PREPARING_RECOVERY } : {}),
-        actions: [],
       };
     const wait = this.isTransitioning(c.id)
       ? PREPARING_RECOVERY
@@ -351,17 +364,13 @@ export class WorkCycleService {
       turn?.kind === 'turn-completed'
         ? operatorQuestionRoutes(tx, c, turn.payload.resultText)
         : [];
-
     return {
-      ...c,
-      nextAgentSelections: agentSelections(effectiveCycleProfiles(tx, c)),
-      ...(routes.length
-        ? { workflow: { ...(c.workflow ?? { reassessments: 0 }), questions: routes } }
-        : {}),
+      nextAgentSelections,
+      actions,
+      ...(unsettled.length ? { unsettledDecisions: unsettled } : {}),
       ...(wait ? { scopeReviewWait: wait } : {}),
       ...(mergeWait ? { mergeRequirementsWait: mergeWait } : {}),
-      ...(unsettled.length ? { unsettledDecisions: unsettled } : {}),
-      actions,
+      ...(routes.length ? { questionRoutes: routes } : {}),
     };
   }
 
@@ -709,7 +718,7 @@ export class WorkCycleService {
     } finally {
       this.launchingInvestigations.delete(record.id);
     }
-    return this.present(this.storage.execution.cycles.find(workspaceId, id) ?? updated);
+    return this.storage.execution.cycles.find(workspaceId, id) ?? updated;
   }
 
   /**
@@ -754,7 +763,7 @@ export class WorkCycleService {
         context,
       );
       await this.settleInvestigation(requested);
-      return this.present(this.storage.execution.cycles.find(workspaceId, id) ?? requested);
+      return this.storage.execution.cycles.find(workspaceId, id) ?? requested;
     }
     const ended =
       run && isTerminalAgentRunStatus(run.status)
@@ -764,13 +773,11 @@ export class WorkCycleService {
             outcome: 'cancelled' as const,
             message: 'Ended by the operator.',
           };
-    return this.present(
-      this.change(
-        cycle,
-        { investigation: { ...investigation, result: ended } },
-        'investigation-ended',
-        context,
-      ),
+    return this.change(
+      cycle,
+      { investigation: { ...investigation, result: ended } },
+      'investigation-ended',
+      context,
     );
   }
 
@@ -899,22 +906,20 @@ export class WorkCycleService {
         'No worktree change of this stop’s investigation is waiting to be acknowledged.',
       );
     this.restoredChecks.delete(cycle.investigation.id);
-    return this.present(
-      this.change(
-        cycle,
-        {
-          investigation: {
-            ...cycle.investigation,
-            result: {
-              ...result,
-              acknowledgedAt: this.now().toISOString(),
-              acknowledgedByUserId: context.user.id,
-            },
+    return this.change(
+      cycle,
+      {
+        investigation: {
+          ...cycle.investigation,
+          result: {
+            ...result,
+            acknowledgedAt: this.now().toISOString(),
+            acknowledgedByUserId: context.user.id,
           },
         },
-        'investigation-change-acknowledged',
-        context,
-      ),
+      },
+      'investigation-change-acknowledged',
+      context,
     );
   }
 

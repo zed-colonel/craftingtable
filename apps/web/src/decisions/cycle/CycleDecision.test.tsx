@@ -1,5 +1,11 @@
 import type { AgentRunSummary } from '@craftingtable/contracts';
-import { cycleActions, type WorkCycle, type WorktreeId } from '@craftingtable/domain';
+import {
+  agentSelections,
+  type CycleProjection,
+  cycleActions,
+  type WorkCycle,
+  type WorktreeId,
+} from '@craftingtable/domain';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
@@ -30,13 +36,19 @@ const base = {
     ]),
   ),
 } as unknown as WorkCycle;
-const withActions = (cycle: WorkCycle) => ({ ...cycle, actions: cycleActions(cycle) });
+/** The projection the daemon sends beside a cycle: the actions it offers. */
+const projectionOf = (cycle: WorkCycle, projected: Partial<CycleProjection> = {}) => ({
+  nextAgentSelections: agentSelections(cycle.profiles),
+  actions: cycleActions(cycle),
+  ...projected,
+});
 const run = { id: 'run-1', worktreeId: 'wt-1', status: 'finished' } as AgentRunSummary;
 function show(cycle: WorkCycle, readOnly = false, inInbox = false) {
   render(
     <CycleDecision
       inInbox={inInbox}
-      cycle={withActions(cycle)}
+      cycle={cycle}
+      projection={projectionOf(cycle)}
       runs={[run]}
       readOnly={readOnly}
       backends={[]}
@@ -94,16 +106,16 @@ it("in the inbox, shows the cycle's questions, its run and its shared decisions,
       inInbox
       cycle={
         {
-          ...withActions({
-            ...base,
-            attention: { code: 'shared-decision-required', owner: 'operator' },
-            workflow: { questions: [{ destination: 'local', question: 'Which queue backs it?' }] },
-          } as unknown as WorkCycle),
-          actions: ['open-shared-decisions'],
-          unsettledDecisions: [{ checkpointId: 'ADR-1' }],
+          ...base,
+          attention: { code: 'shared-decision-required', owner: 'operator' },
+          workflow: { questions: [{ destination: 'local', question: 'Which queue backs it?' }] },
           executionScope: { kind: 'slice', definitionId: 'm', bindingRevision: 1, sourceId: 's' },
         } as unknown as WorkCycle
       }
+      projection={projectionOf(base, {
+        actions: ['open-shared-decisions'],
+        unsettledDecisions: ['ADR-1'],
+      })}
       runs={[run]}
       readOnly={false}
       backends={[]}

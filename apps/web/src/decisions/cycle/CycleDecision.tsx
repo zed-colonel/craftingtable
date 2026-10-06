@@ -1,5 +1,11 @@
 import type { AgentRunSummary, ExecutionStatusResponse } from '@craftingtable/contracts';
-import { type AgentRunId, stopCode, type WorkCycle, type WorktreeId } from '@craftingtable/domain';
+import {
+  type AgentRunId,
+  type CycleProjection,
+  stopCode,
+  type WorkCycle,
+  type WorktreeId,
+} from '@craftingtable/domain';
 import { DesignQuestions } from '../design/DesignQuestions.js';
 import { IntegrationConflict } from '../integration/IntegrationConflict.js';
 import { ScopeRepair } from '../scope-repair/ScopeRepair.js';
@@ -17,6 +23,7 @@ import { CycleInvestigation } from './CycleInvestigation.js';
  */
 export function cycleDecisions(
   cycle: WorkCycle,
+  projection: CycleProjection,
   runs: readonly AgentRunSummary[],
   readOnly: boolean,
 ) {
@@ -28,9 +35,9 @@ export function cycleDecisions(
     (!runs.some((run) => run.id === cycle.currentRunId) || latestRun?.id === cycle.currentRunId);
   const designFromRun = design && runs.some((run) => run.id === cycle.currentRunId);
   const continuation =
-    !(designFromRun && continuationOf(cycle) === 'resume') &&
+    !(designFromRun && continuationOf(cycle, projection) === 'resume') &&
     cycle.integrationResolution?.status !== 'detected'
-      ? continuationOf(cycle)
+      ? continuationOf(cycle, projection)
       : undefined;
   return {
     continuation,
@@ -47,6 +54,7 @@ export function cycleDecisions(
  */
 export function CycleDecision({
   cycle,
+  projection,
   runs,
   readOnly,
   backends,
@@ -59,6 +67,8 @@ export function CycleDecision({
   inInbox = false,
 }: {
   cycle: WorkCycle;
+  /** What the daemon derived for the cycle when it was read (CTRL-22). */
+  projection: CycleProjection;
   /** The work item's runs; the cycle's own are read from them. */
   runs: readonly AgentRunSummary[];
   /** A verification or acceptance review, which records evidence and never merges. */
@@ -91,11 +101,16 @@ export function CycleDecision({
       run.worktreeId === cycle.worktreeId &&
       ['starting', 'running', 'waiting'].includes(run.status),
   );
-  const applies = cycleDecisions(cycle, runs, readOnly);
-  const openDecisions = (cycle.actions ?? []).includes('open-shared-decisions');
+  const applies = cycleDecisions(cycle, projection, runs, readOnly);
+  const openDecisions = projection.actions.includes('open-shared-decisions');
   return (
     <>
-      {inInbox && <WorkflowStatus cycle={cycle} />}
+      {inInbox && (
+        <WorkflowStatus
+          cycle={cycle}
+          {...(projection.questionRoutes ? { questionRoutes: projection.questionRoutes } : {})}
+        />
+      )}
       {inInbox && (runs.some((run) => run.id === cycle.currentRunId) || openDecisions) && (
         <p className="inline-actions">
           {runs.some((run) => run.id === cycle.currentRunId) && (
@@ -109,7 +124,7 @@ export function CycleDecision({
           )}
           {openDecisions && (
             <Link className="primary-button" route={sharedDecisionsRoute(cycle)}>
-              Open shared decisions ({cycle.unsettledDecisions?.length})
+              Open shared decisions ({projection.unsettledDecisions?.length})
             </Link>
           )}
         </p>
@@ -135,6 +150,7 @@ export function CycleDecision({
       )}
       <CycleInvestigation
         cycle={cycle}
+        projection={projection}
         backends={backends}
         csrfToken={csrfToken}
         disabled={disabled}
@@ -157,6 +173,7 @@ export function CycleDecision({
       {applies.continuation && (
         <CycleContinuation
           cycle={cycle}
+          projection={projection}
           csrfToken={csrfToken}
           disabled={disabled || liveRun}
           onChanged={onChanged}
@@ -168,6 +185,7 @@ export function CycleDecision({
           <DesignQuestions
             key={`${cycle.id}-${cycle.currentRunId}`}
             cycle={cycle}
+            nextAgentSelections={projection.nextAgentSelections}
             backends={backends}
             csrfToken={csrfToken}
             onChanged={onChanged}
@@ -178,6 +196,7 @@ export function CycleDecision({
         <IntegrationConflict
           offerInspect={!inInbox}
           cycle={cycle}
+          nextAgentSelections={projection.nextAgentSelections}
           backends={backends}
           disabled={disabled}
           canMutate={canMutate}

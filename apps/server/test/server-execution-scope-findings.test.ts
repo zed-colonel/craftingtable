@@ -293,12 +293,12 @@ itNeedsCargo.each([false, true])(
     expect(blockedReview.statusCode, blockedReview.body).toBe(409);
     expect(blockedReview.body).toContain('active owning-slice');
     const projected = state.context.services.workCycleService.list(f.auth, ws);
-    expect(projected.find((c) => c.id === parent.id)?.scopeReviewWait).toContain(
+    expect(projected.find((v) => v.cycle.id === parent.id)?.projection.scopeReviewWait).toContain(
       'Waiting for prerequisite work',
     );
-    expect(projected.find((c) => c.id === verification.id)?.scopeReviewWait).toContain(
-      'active owning-slice',
-    );
+    expect(
+      projected.find((v) => v.cycle.id === verification.id)?.projection.scopeReviewWait,
+    ).toContain('active owning-slice');
     expect(tx.execution.cycles.find(ws, parent.id)?.reason).toBe(parent.reason);
     await stepDaemons();
     await notifications.tick();

@@ -332,7 +332,7 @@ it('does not lose earlier cycle findings when an unrelated manual run is resumed
       })
     )
       .json()
-      .cycles.find((c: { id: string }) => c.id === cycle.id)?.actions;
+      .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
   expect(await listedActions()).toEqual(['authorize-remediation', 'stop']);
   await runToFinish(state, worktree.id, { role: 'implement' });
   expect(await listedActions()).toEqual(['resume', 'stop']);

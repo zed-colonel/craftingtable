@@ -1,4 +1,4 @@
-import { type ReactElement, useCallback, useEffect, useRef } from 'react';
+import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
 import { NeedsYou } from '../components/NeedsYou.js';
 import { ConcurrencyImports } from '../features/planning/ConcurrencyImports.js';
 import { ProjectCards } from '../features/planning/ProjectCards.js';
@@ -37,7 +37,10 @@ export function WorkspaceView({
   const attentionQuery = useAttention(seeded);
   const cyclesQuery = useCycles(seeded);
   const attention = attentionQuery.data?.items ?? [];
-  const cycles = cyclesQuery.data?.cycles ?? [];
+  // The pages that share the workspace's open cycles read the stored records; the projections
+  // they need come with each work item's own cycles (CTRL-22).
+  const cycleViews = cyclesQuery.data?.cycles;
+  const cycles = useMemo(() => (cycleViews ?? []).map((view) => view.cycle), [cycleViews]);
   // Every item this workspace has listed, by id: a page links the item it last read, which may
   // have resolved since; the inbox then offers the subject's current item (TS-M1).
   const subjects = useRef(new Map<string, string>());

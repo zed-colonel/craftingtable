@@ -95,15 +95,27 @@ describe('offer only actions that can make progress (R-A7)', () => {
           url: `/api/workspaces/${f.workspaceId}/cycles`,
           headers: f.headers,
         })
-      ).json().cycles as { id: string; actions?: string[] }[];
-    expect((await listed()).find((c) => c.id === started.id)?.actions).toEqual([
-      'resolve-design',
-      'stop',
-    ]);
+      ).json().cycles as { cycle: Record<string, unknown>; projection: { actions: string[] } }[];
+    const listedFor = async () => (await listed()).find((v) => v.cycle.id === started.id);
+    expect((await listedFor())?.projection.actions).toEqual(['resolve-design', 'stop']);
     const paused = await control(f, started.id, 'pause');
     expect(paused.statusCode, paused.body).toBe(200);
-    expect(workCycleResponseSchema.parse(paused.json()).cycle.actions).toEqual(['resume', 'stop']);
-    expect((await listed()).find((c) => c.id === started.id)?.actions).toEqual(['resume', 'stop']);
+    expect(workCycleResponseSchema.parse(paused.json()).projection.actions).toEqual([
+      'resume',
+      'stop',
+    ]);
+    expect((await listedFor())?.projection.actions).toEqual(['resume', 'stop']);
+    // The projection travels beside the stored cycle, never inside it (CTRL-22, R-D5).
+    const view = (await listedFor())!;
+    for (const field of [
+      'actions',
+      'nextAgentSelections',
+      'unsettledDecisions',
+      'scopeReviewWait',
+      'mergeRequirementsWait',
+    ])
+      expect(view.cycle, field).not.toHaveProperty(field);
+    expect(view.cycle).toEqual(JSON.parse(JSON.stringify(storedCycle(f, started.id))));
   });
 
   it('checks predecessor ancestry when a failed step is resumed, before accepting', async () => {

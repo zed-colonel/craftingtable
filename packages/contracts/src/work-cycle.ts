@@ -6,6 +6,7 @@ import {
   CYCLE_STATUSES,
   CYCLE_STEPS,
   type CycleAttentionCode,
+  type CycleProjection,
   INVESTIGATION_WORKTREE_PARTS,
   type InvestigationWorktreePart,
   OUTPUT_REPAIR_LIMIT,
@@ -35,7 +36,8 @@ import {
 import { providerFailureSchema } from './provider-failure.js';
 import { reviewFindingSchema } from './review.js';
 import { architectureDecisionInboxSchema } from './runtime-evidence.js';
-import { cycleWorkflowSchema } from './workflow.js';
+import { equivalentSchema } from './type-equivalence.js';
+import { cycleWorkflowSchema, workflowQuestionSchema } from './workflow.js';
 
 export const completionPolicySchema = z.strictObject({
   maxNits: z.number().int().min(0).max(100),
@@ -262,12 +264,6 @@ export const workCycleSchema = z
       })
       .nullable()
       .optional(),
-    nextAgentSelections: agentSelectionsSchema.optional(),
-    unsettledDecisions: z.array(z.string().min(1).max(200)).max(200).optional(),
-    /** The operator actions the daemon offers now (R-A6); computed per response, never stored. */
-    actions: z.array(z.enum(CYCLE_ACTIONS)).optional(),
-    scopeReviewWait: z.string().optional(),
-    mergeRequirementsWait: z.string().optional(),
     scopeRepair: z
       .strictObject({
         sourceCycleId: z.uuid(),
@@ -459,8 +455,24 @@ export const workCycleSchema = z
         : cycle.planVersionId !== undefined && cycle.finalizationId !== undefined,
     { message: 'A cycle requires a work item or an explicit plan finalization subject' },
   );
-export const workCyclesResponseSchema = z.strictObject({ cycles: z.array(workCycleSchema) });
-export const workCycleResponseSchema = z.strictObject({ cycle: workCycleSchema });
+/** What the daemon derives for a cycle on each read (CTRL-22, R-D5); never stored. */
+export const cycleProjectionSchema = equivalentSchema<CycleProjection>()(
+  z.strictObject({
+    nextAgentSelections: agentSelectionsSchema,
+    actions: z.array(z.enum(CYCLE_ACTIONS)),
+    unsettledDecisions: z.array(z.string().min(1).max(200)).max(200).optional(),
+    scopeReviewWait: z.string().optional(),
+    mergeRequirementsWait: z.string().optional(),
+    questionRoutes: z.array(workflowQuestionSchema).max(40).optional(),
+  }),
+);
+/** A cycle as reads and commands return it: the stored record beside its projection. */
+export const cycleViewSchema = z.strictObject({
+  cycle: workCycleSchema,
+  projection: cycleProjectionSchema,
+});
+export const workCyclesResponseSchema = z.strictObject({ cycles: z.array(cycleViewSchema) });
+export const workCycleResponseSchema = cycleViewSchema;
 export const scopeRepairPreviewSchema = z.strictObject({
   cycleVersion: z.number().int().positive(),
   snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),

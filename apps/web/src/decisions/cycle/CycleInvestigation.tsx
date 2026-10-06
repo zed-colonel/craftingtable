@@ -2,8 +2,9 @@ import type { ExecutionStatusResponse } from '@craftingtable/contracts';
 import {
   type AgentRunId,
   type AgentSelection,
-  agentSelections,
+  type AgentSelections,
   type CycleInvestigation as Investigation,
+  type CycleProjection,
   selectionsForPurpose,
   type WorkCycle,
 } from '@craftingtable/domain';
@@ -59,6 +60,7 @@ const OUTCOME: Record<NonNullable<Investigation['result']>['outcome'], string> =
  */
 export function CycleInvestigation({
   cycle,
+  projection,
   backends,
   csrfToken,
   disabled,
@@ -68,6 +70,8 @@ export function CycleInvestigation({
   proposalsAdded = false,
 }: {
   cycle: WorkCycle;
+  /** What the daemon offers at the stop, and the agents a new investigation would use. */
+  projection: Pick<CycleProjection, 'actions' | 'nextAgentSelections'>;
   backends: ExecutionStatusResponse['backends'];
   csrfToken: string;
   disabled: boolean;
@@ -80,7 +84,7 @@ export function CycleInvestigation({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const actions = cycle.actions ?? [];
+  const { actions } = projection;
   const record = cycle.investigation;
   // The record says whether it runs; the daemon offers only End while it does.
   const live = !!record && !record.result;
@@ -254,7 +258,7 @@ export function CycleInvestigation({
       {offered && !live && (
         <InvestigateForm
           key={`${cycle.id}:${cycle.version}`}
-          cycle={cycle}
+          nextAgentSelections={projection.nextAgentSelections}
           {...(record ? { previous: record } : {})}
           backends={backends}
           disabled={locked}
@@ -267,13 +271,13 @@ export function CycleInvestigation({
 }
 
 function InvestigateForm({
-  cycle,
+  nextAgentSelections,
   previous,
   backends,
   disabled,
   onStart,
 }: {
-  cycle: WorkCycle;
+  nextAgentSelections: AgentSelections;
   /** The last investigation of this stop: another try starts from what it asked. */
   previous?: Investigation;
   backends: ExecutionStatusResponse['backends'];
@@ -283,12 +287,7 @@ function InvestigateForm({
   const [instructions, setInstructions] = useState(previous?.instructions ?? '');
   const [minutes, setMinutes] = useState(previous?.minutes ?? 30);
   const [profile, setProfile] = useState<AgentSelection>(
-    () =>
-      previous?.profile ??
-      selectionsForPurpose(
-        cycle.nextAgentSelections ?? agentSelections(cycle.profiles),
-        'investigation',
-      ),
+    () => previous?.profile ?? selectionsForPurpose(nextAgentSelections, 'investigation'),
   );
   const backend = backends.find((b) => b.kind === profile.backend);
   const available = backend?.available === true;

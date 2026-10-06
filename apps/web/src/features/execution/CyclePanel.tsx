@@ -7,17 +7,16 @@ import type {
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import {
   AGENT_BACKEND_LABELS,
-  agentSelections,
   PROFILE_LABELS,
   SPECIALIST_PROFILES,
   selectionsForPurpose,
   type AgentRunId,
   CYCLE_STEPS,
   type CycleProfiles,
+  type CycleView,
   cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
   remediationAllowance,
-  type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
 import { useState } from 'react';
@@ -57,7 +56,8 @@ export function CyclePanel({
 }: {
   selectedWorktreeId?: WorktreeId;
   onSelectWorktree?: (id: WorktreeId) => void;
-  cycles: readonly WorkCycle[];
+  /** The work item's cycles as the daemon read them: each record beside its projection. */
+  cycles: readonly CycleView[];
   worktrees: readonly WorktreeSummary[];
   runs: readonly AgentRunSummary[];
   backends: ExecutionStatusResponse['backends'];
@@ -81,14 +81,16 @@ export function CyclePanel({
   const preferred =
     activeWorktrees.find((t) =>
       cycles.some(
-        (c) =>
+        ({ cycle: c, projection: p }) =>
           c.worktreeId === t.id &&
-          !c.scopeReviewWait &&
+          !p.scopeReviewWait &&
           ['needs-attention', 'paused'].includes(c.status),
       ),
     ) ??
     activeWorktrees.find((t) =>
-      cycles.some((c) => c.worktreeId === t.id && !['completed', 'stopped'].includes(c.status)),
+      cycles.some(
+        ({ cycle: c }) => c.worktreeId === t.id && !['completed', 'stopped'].includes(c.status),
+      ),
     ) ??
     activeWorktrees.find((t) => !t.executionScope || t.executionScope.kind === 'slice') ??
     activeWorktrees[0];
@@ -101,15 +103,17 @@ export function CyclePanel({
   const readOnly = activeWorktrees.some(
     (t) => t.id === selected && t.executionScope && t.executionScope.kind !== 'slice',
   );
-  const active =
+  const activeView =
     cycles.find(
-      (cycle) =>
+      ({ cycle }) =>
         (!selected || cycle.worktreeId === selected) &&
         !['stopped', 'completed'].includes(cycle.status),
     ) ??
     (readOnly
-      ? cycles.find((cycle) => cycle.worktreeId === selected && cycle.status === 'completed')
+      ? cycles.find(({ cycle }) => cycle.worktreeId === selected && cycle.status === 'completed')
       : undefined);
+  const active = activeView?.cycle;
+  const projection = activeView?.projection;
   const [policy, setPolicy] = useState(DEFAULT_COMPLETION_POLICY);
   const [instructions, setInstructions] = useState('');
   const [choices, setChoices] = useState<CycleProfiles>(() =>
@@ -125,12 +129,14 @@ export function CyclePanel({
   const liveRun = runs.some(
     (run) => run.worktreeId === selected && ['starting', 'running', 'waiting'].includes(run.status),
   );
-  const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
+  const previous = cycles
+    .map(({ cycle }) => cycle)
+    .filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
   // A stop that waits on shared decisions is answered there, not with guidance (LIVE-18).
-  const openDecisions =
-    active !== undefined && (active.actions ?? []).includes('open-shared-decisions');
+  const openDecisions = !!projection?.actions.includes('open-shared-decisions');
   // The cycle's decisions, chosen from its state (R-A6): continuation, design, repair, conflict.
-  const continuation = active && cycleDecisions(active, runs, readOnly).continuation;
+  const continuation =
+    active && projection && cycleDecisions(active, projection, runs, readOnly).continuation;
   // A stop an open inbox item carries is decided there; the page links to it (R-A6).
   const decisionItem =
     active && ['paused', 'needs-attention'].includes(active.status)
@@ -138,11 +144,11 @@ export function CyclePanel({
       : undefined;
   const attention =
     active !== undefined &&
-    !active.scopeReviewWait &&
+    !projection?.scopeReviewWait &&
     ['needs-attention', 'awaiting-merge'].includes(active.status);
-  const statusLabel = active?.scopeReviewWait
+  const statusLabel = projection?.scopeReviewWait
     ? 'Waiting for prerequisite work'
-    : active?.mergeRequirementsWait
+    : projection?.mergeRequirementsWait
       ? 'Merge blocked by requirements'
       : active && readOnly && active.status === 'awaiting-merge'
         ? 'Ready for scope acceptance'
@@ -181,16 +187,17 @@ export function CyclePanel({
           </select>
         </label>
       )}
-      {active ? (
+      {active && projection ? (
         <>
           <p role="status">
-            {active.scopeReviewWait ?? active.mergeRequirementsWait ?? active.reason}
+            {projection.scopeReviewWait ?? projection.mergeRequirementsWait ?? active.reason}
           </p>
-          {active.mergeRequirementsWait && !active.workflow?.waiting && (
+          {projection.mergeRequirementsWait && !active.workflow?.waiting && (
             <a href="#slices">Resolve checkpoint evidence for this slice</a>
           )}
           <WorkflowStatus
             cycle={active}
+            {...(projection.questionRoutes ? { questionRoutes: projection.questionRoutes } : {})}
             {...(decisionItem
               ? {
                   decidedIn: {
@@ -234,11 +241,12 @@ export function CyclePanel({
             )}
             {openDecisions && (
               <Link className="primary-button" route={sharedDecisionsRoute(active)}>
-                Open shared decisions ({active.unsettledDecisions?.length})
+                Open shared decisions ({projection.unsettledDecisions?.length})
               </Link>
             )}
             <CycleControlButtons
               cycle={active}
+              actions={projection.actions}
               csrfToken={csrfToken}
               disabled={disabled}
               // A paused cycle resumes here; a stopped one is continued below.
@@ -276,6 +284,7 @@ export function CyclePanel({
           ) : (
             <CycleDecision
               cycle={active}
+              projection={projection}
               runs={runs}
               readOnly={readOnly}
               backends={backends}
@@ -309,18 +318,10 @@ export function CyclePanel({
               {(readOnly ? (['review'] as const) : CYCLE_STEPS).map((step) => (
                 <li key={step}>
                   {PROFILE_LABELS[step]}:{' '}
-                  {
-                    AGENT_BACKEND_LABELS[
-                      (active.nextAgentSelections ?? active.profiles)[step].backend
-                    ]
-                  }{' '}
-                  ·{' '}
-                  {(active.nextAgentSelections ?? active.profiles)[step].model ?? 'Backend default'}{' '}
-                  ·{' '}
-                  {(active.nextAgentSelections ?? active.profiles)[step].reasoningEffort ??
-                    defaultEffortLabel(
-                      (active.nextAgentSelections ?? active.profiles)[step].backend,
-                    )}{' '}
+                  {AGENT_BACKEND_LABELS[projection.nextAgentSelections[step].backend]} ·{' '}
+                  {projection.nextAgentSelections[step].model ?? 'Backend default'} ·{' '}
+                  {projection.nextAgentSelections[step].reasoningEffort ??
+                    defaultEffortLabel(projection.nextAgentSelections[step].backend)}{' '}
                   · {PERMISSION_MODE_LABELS[active.profiles[step].permissionMode]}
                 </li>
               ))}
@@ -332,20 +333,14 @@ export function CyclePanel({
                 ...SPECIALIST_PROFILES,
               ].map(
                 (purpose) =>
-                  [
-                    PROFILE_LABELS[purpose],
-                    (active.nextAgentSelections ?? agentSelections(active.profiles))[purpose],
-                  ] as const,
+                  [PROFILE_LABELS[purpose], projection.nextAgentSelections[purpose]] as const,
               )}
             />
             <details>
               <summary>Future specialist agents</summary>
               <ul>
                 {SPECIALIST_PROFILES.map((purpose) => {
-                  const selection = selectionsForPurpose(
-                    active.nextAgentSelections ?? agentSelections(active.profiles),
-                    purpose,
-                  );
+                  const selection = selectionsForPurpose(projection.nextAgentSelections, purpose);
                   return (
                     <li key={purpose}>
                       {PROFILE_LABELS[purpose]}: {AGENT_BACKEND_LABELS[selection.backend]} ·{' '}

@@ -5,7 +5,13 @@ import { resetFallbackQueryStore } from '../../lib/query-store.js';
 import { testQueryStore } from '../../lib/query-store-testing.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { loadConcurrencyDefinition, loadConcurrencyImports } from '../../lib/package-import-api.js';
-import { controlRoadmap, loadRoadmapHistory, loadRoadmaps } from '../../lib/roadmap-api.js';
+import {
+  controlRoadmap,
+  loadRoadmapDefinition,
+  loadRoadmapHistory,
+  loadRoadmapPage,
+  loadRoadmaps,
+} from '../../lib/roadmap-api.js';
 import { ConcurrencyImports } from './ConcurrencyImports.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { AmendmentDecision } from '../../decisions/amendment/AmendmentDecision.js';
@@ -452,8 +458,44 @@ it("shows a command's returned roadmap at once, in the list every view shares (R
   // A read after the command answers late; the command's own response shows meanwhile.
   vi.mocked(loadRoadmaps).mockImplementation(() => new Promise(() => undefined));
   vi.mocked(controlRoadmap).mockResolvedValue(resumed as never);
+  const pageReads = vi.mocked(loadRoadmapPage).mock.calls.length;
   fireEvent.click(resume);
   await waitFor(() => expect(controlRoadmap).toHaveBeenCalled());
   expect(await screen.findByRole('button', { name: 'Pause roadmap' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Resume roadmap' })).toBeNull();
+  // Its status list follows from reading the region again (R-D5).
+  await waitFor(() => expect(vi.mocked(loadRoadmapPage).mock.calls.length).toBe(pageReads + 1));
+});
+
+// R-D5 review: a roadmap read again at a new revision keeps the page as it was until that
+// revision's definition arrives, and never shows the new region with the old definition.
+it("keeps showing a roadmap until its new revision's definition arrives", async () => {
+  const { wrap, send } = testQueryStore();
+  render(wrap(<RoadmapPage {...common} roadmapId="r-active" tab="board" />));
+  await screen.findByText('Cross-project roadmap scheduler reason.');
+  const next = roadmap('r-active', 'Cross-project roadmap', 'paused', {
+    definitionId: 'def-1',
+    bindingRevision: 4,
+  });
+  const revised = {
+    ...next,
+    roadmap: {
+      ...next.roadmap,
+      reason: 'Revised reason.',
+      definition: { ...next.roadmap.definition, revision: 3, name: 'Renamed roadmap' },
+    },
+  };
+  let answer!: (definition: unknown) => void;
+  vi.mocked(loadRoadmapDefinition).mockImplementationOnce(
+    () => new Promise((resolve) => (answer = resolve)) as never,
+  );
+  vi.mocked(loadRoadmaps).mockResolvedValue({ roadmaps: [revised] } as never);
+  await send('roadmap-changed', { workspaceId: ws, payload: { roadmapId: 'r-active' } });
+  await waitFor(() => expect(loadRoadmapDefinition).toHaveBeenCalled());
+  // The new region waits for its definition: the page shows the roadmap as it was.
+  expect(screen.getByText('Cross-project roadmap scheduler reason.')).toBeTruthy();
+  expect(screen.queryByText('Revised reason.')).toBeNull();
+  expect(screen.queryByText(/Loading roadmap/)).toBeNull();
+  await act(async () => answer(revised.roadmap.definition));
+  expect(await screen.findByText('Revised reason.')).toBeTruthy();
 });

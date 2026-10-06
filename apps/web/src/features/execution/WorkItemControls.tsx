@@ -78,6 +78,10 @@ export function useWorkItem(workItemId: WorkItemId | undefined) {
     cycles: data?.cycles,
     /** The item's slices and their phase readiness. */
     scopes: data?.scopes,
+    /** The view could not read the item's cycles this time; they come empty (R-D5 review). */
+    cyclesFailed: data?.unavailable?.includes('cycles') ?? false,
+    /** Likewise its slices. */
+    scopesFailed: data?.unavailable?.includes('scopes') ?? false,
     /** A read failed; whatever was read last stays visible. */
     refreshFailed: view.error !== undefined,
     /** Why the region could not be read, for panels that say so in place. */
@@ -268,7 +272,11 @@ export function ScopeControls({
       workItemId={detail.workItem.id}
       worktrees={item.execution?.worktrees ?? []}
       scopes={item.scopes}
-      {...(item.readError === undefined ? {} : { loadError: item.readError })}
+      {...(item.readError !== undefined
+        ? { loadError: item.readError }
+        : item.scopesFailed
+          ? { loadError: new Error('Execution slices could not be loaded. Refresh to retry.') }
+          : {})}
       csrfToken={csrfToken}
       canMutate={canMutate}
       itemStatus={detail.workItem.status}

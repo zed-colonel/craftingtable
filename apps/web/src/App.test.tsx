@@ -366,6 +366,7 @@ vi.mock('./lib/execution-api.js', () => ({
       repositories: [],
       backends: [],
       profiles: [],
+      ...(failing.has('view-parts') ? { unavailable: ['cycles', 'scopes'] } : {}),
     });
   },
   loadWorkspaceRuns: () => Promise.resolve({ runs: [], liveCount: 0 }),
@@ -779,6 +780,24 @@ describe('page reads after the split (R-D4 increment 4b review)', () => {
         'Cycle status could not be loaded. Refresh before controlling automation.',
       ),
     ).toBeTruthy();
+  });
+
+  it("shows a work item's page when its cycles or slices could not be read, and says which (R-D5 review)", async () => {
+    failing.add('view-parts');
+    window.history.pushState(null, '', '/workspaces/workspace-a/work-items/item-workspace-a');
+    renderApp();
+    await screen.findByRole('heading', { name: /AQ-01 · Alpha work item/ });
+    expect(
+      await screen.findByText(
+        'Cycle status could not be loaded. Refresh before controlling automation.',
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText('Execution slices could not be loaded. Refresh to retry.'),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText('The latest refresh failed. The last committed state remains visible.'),
+    ).toBeNull();
   });
 
   it("says a work item's page could not be read, rather than showing nothing (F3)", async () => {

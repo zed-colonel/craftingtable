@@ -175,7 +175,7 @@ export function WorktreeBranchPanel({
               ))}
             </select>
           </label>
-          <button type="submit" className="secondary-button" disabled={busy || !target || !data}>
+          <button type="submit" className="secondary-button" disabled={busy || !target}>
             Set target and require review
           </button>
           <button

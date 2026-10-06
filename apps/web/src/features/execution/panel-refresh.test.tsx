@@ -3,12 +3,14 @@ import type { PlanVersionId, WorkspaceId } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
+  changeWorktreeBranch,
   loadPlanBranchSettings,
   loadRepositoryPolicy,
   loadWorktreeBranchStatus,
 } from '../../lib/branch-api.js';
 import {
   loadRepositories,
+  loadRepositoryBranches,
   loadRepositoryCheckReceipts,
   loadRepositoryChecks,
 } from '../../lib/execution-api.js';
@@ -170,4 +172,44 @@ it("re-reads a repository's checks and receipts on repository and run events, no
   await send('agent-run-status-changed', { workspaceId: ws });
   expect(loadRepositoryChecks).toHaveBeenCalledTimes(2);
   expect(loadRepositoryCheckReceipts).toHaveBeenCalledTimes(2);
+});
+
+// R-D5 review finding 1: with the branch status read only on request, adopting or retargeting an
+// integration branch must not wait for it.
+it('adopts an integration branch without a branch status read first (R-D5)', async () => {
+  vi.mocked(loadRepositoryBranches).mockResolvedValue({ branches: ['main', 'release'] });
+  vi.mocked(changeWorktreeBranch).mockResolvedValue({} as never);
+  const { wrap } = testQueryStore();
+  render(
+    wrap(
+      <WorktreeBranchPanel
+        workspaceId={ws}
+        worktree={{ ...worktree, integrationBranch: undefined } as WorktreeSummary}
+        csrfToken="csrf"
+        canMutate
+        onChanged={vi.fn()}
+      />,
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Adopt integration branch…' }));
+  fireEvent.change(await screen.findByLabelText('Integration target'), {
+    target: { value: 'release' },
+  });
+  await screen.findByRole('option', { name: 'release' });
+  fireEvent.change(screen.getByLabelText('Integration target'), { target: { value: 'release' } });
+  const submit = screen.getByRole<HTMLButtonElement>('button', {
+    name: 'Set target and require review',
+  });
+  expect(submit.disabled).toBe(false);
+  fireEvent.click(submit);
+  await waitFor(() =>
+    expect(changeWorktreeBranch).toHaveBeenCalledWith(
+      ws,
+      'tree-1',
+      'retarget',
+      { expectedVersion: 1, integrationBranch: 'release' },
+      'csrf',
+    ),
+  );
+  expect(loadWorktreeBranchStatus).not.toHaveBeenCalled();
 });

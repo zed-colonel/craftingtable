@@ -118,4 +118,21 @@ describe('static web routes', () => {
       await app.close();
     }
   });
+
+  it("answers 404 for a built file that does not exist, so an old page's missing chunk fails as one (R-D5 review)", async () => {
+    const dist = distFixture();
+    const app = fastify({ logger: false });
+    registerStaticWebRoutes(app, dist);
+    try {
+      const missing = await app.inject({ method: 'GET', url: '/assets/RunRoute-oldhash.js' });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.body).not.toContain('CraftingTable');
+      // A deep link still gets the app.
+      const deep = await app.inject({ method: 'GET', url: '/workspaces/abc/runs/def' });
+      expect(deep.statusCode).toBe(200);
+      expect(deep.body).toContain('CraftingTable');
+    } finally {
+      await app.close();
+    }
+  });
 });

@@ -131,7 +131,7 @@ function useRoadmapPage(workspaceId: WorkspaceId, roadmapId: string) {
       : queryKeys.roadmapDefinition(workspaceId, roadmapId, String(revision)),
     () => loadRoadmapDefinition(workspaceId, roadmapId, revision as number),
   );
-  const view = useMemo<RoadmapView | undefined>(
+  const composed = useMemo<RoadmapView | undefined>(
     () =>
       page.data && definition.data?.revision === page.data.definitionRevision
         ? {
@@ -141,6 +141,12 @@ function useRoadmapPage(workspaceId: WorkspaceId, roadmapId: string) {
         : undefined,
     [page.data, definition.data],
   );
+  // While a new revision's definition loads, the roadmap as last put together stays shown, so
+  // the page keeps its forms and drafts; a region is never shown with another revision's
+  // definition (R-D5 review).
+  const last = useRef<RoadmapView | undefined>(undefined);
+  if (composed !== undefined) last.current = composed;
+  const view = composed ?? (last.current?.roadmap.id === roadmapId ? last.current : undefined);
   const [commandError, setError] = useState<string>();
   const failure = page.error ?? definition.error;
   const error =

@@ -26,6 +26,14 @@ export const workItemViewSchema = z.strictObject({
   repositories: sourceRepositoryListResponseSchema.shape.repositories,
   backends: executionStatusResponseSchema.shape.backends,
   profiles: runProfilesResponseSchema.shape.profiles,
+  /**
+   * The parts that could not be read this time (R-D5 review): they come empty, and the page says
+   * so where they show, while the rest of the region still works.
+   */
+  unavailable: z
+    .array(z.enum(['cycles', 'scopes']))
+    .min(1)
+    .optional(),
 });
 export type WorkItemView = z.infer<typeof workItemViewSchema>;
 

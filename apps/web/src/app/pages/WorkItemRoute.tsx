@@ -23,10 +23,13 @@ export function WorkItemRoute({
   workItemId,
   attention,
   cycles,
+  workspaceCyclesFailed,
 }: {
   workItemId: WorkItemId;
   attention: readonly AttentionItemView[];
   cycles: readonly WorkCycle[];
+  /** The shell already says the workspace's cycles could not be read. */
+  workspaceCyclesFailed: boolean;
 }) {
   const { workspaceId, canMutate } = useWorkspaceScope();
   const { csrfToken } = useSession();
@@ -54,6 +57,11 @@ export function WorkItemRoute({
   return (
     <div className="page">
       <RefreshFailed failed={item.refreshFailed} />
+      {item.cyclesFailed && !workspaceCyclesFailed && (
+        <p className="warning-state" role="alert">
+          Cycle status could not be loaded. Refresh before controlling automation.
+        </p>
+      )}
       <WorkItemPage
         detail={detail}
         inProgress={inProgress}

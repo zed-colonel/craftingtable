@@ -113,6 +113,9 @@ export function registerStaticWebRoutes(app: FastifyInstance, distDir: string): 
         // Fall through to the SPA index.
       }
     }
+    // A built file that is not there (an old page's chunk after a deploy) fails as itself, so
+    // the page that asked for it can say so; only page routes fall back to the index.
+    if (requestPath.startsWith('/assets/')) return reply.code(404).send();
     return sendFile(index, request, reply);
   });
 }

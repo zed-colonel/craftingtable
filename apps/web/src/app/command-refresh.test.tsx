@@ -396,7 +396,14 @@ it("offers a check adoption that names no work item, with the workspace's reposi
 });
 
 it('reads the item, snapshot, agenda and cycles after admitting, completing or removing it', async () => {
-  inApp(<WorkItemRoute workItemId={'item-1' as WorkItemId} attention={[]} cycles={[]} />);
+  inApp(
+    <WorkItemRoute
+      workItemId={'item-1' as WorkItemId}
+      attention={[]}
+      cycles={[]}
+      workspaceCyclesFailed={false}
+    />,
+  );
   await waitFor(() => expect(props.workItem).toBeDefined());
   vi.spyOn(store, 'refreshNow');
   await run(() => props.workItem!.onAdmit!());

@@ -3,6 +3,7 @@ import { NeedsYou } from '../components/NeedsYou.js';
 import { ProjectCards } from '../features/planning/ProjectCards.js';
 import type { Route } from '../lib/route.js';
 import { seededWorkspaceId, type WorkspaceProjectionState } from '../lib/workspace-projection.js';
+import { PageBoundary } from './PageBoundary.js';
 import { DashboardRoute } from './pages/DashboardRoute.js';
 import { useAttention, useCycles } from './reads.js';
 import { useGo, useSession, useWorkspaceScope } from './session.js';
@@ -127,81 +128,86 @@ export function WorkspaceView({
       {route.name === 'dashboard' && (
         <DashboardRoute projection={projection} attention={attention} cycles={cycles} />
       )}
-      <Suspense fallback={<p className="empty-state">Loading page…</p>}>
-        {route.name === 'runs' && <RunsRoute />}
-        {route.name === 'agenda' && <AgendaRoute filter={route.filter} />}
-        {route.name === 'roadmaps' && (
-          <RoadmapsPage
-            workspaceId={workspaceId}
-            csrfToken={csrfToken}
-            canMutate={canMutate}
-            attention={attention}
-          />
-        )}
-        {route.name === 'roadmap' && (
-          <RoadmapPage
-            key={`${route.roadmapId}:${route.tab}`}
-            workspaceId={workspaceId}
-            roadmapId={route.roadmapId}
-            tab={route.tab}
-            csrfToken={csrfToken}
-            canMutate={canMutate}
-            onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
-            attention={attention}
-            onOpenAttention={(itemId) => go({ name: 'inbox', workspaceId, itemId })}
-          />
-        )}
-        {route.name === 'roadmap-map' && (
-          <ConcurrencyImports
-            key={route.definitionId}
-            workspaceId={workspaceId}
-            csrfToken={csrfToken}
-            canMutate={canMutate}
-            definitionId={route.definitionId}
-          />
-        )}
-        {route.name === 'inbox' && (
-          <InboxRoute
-            attention={attention}
-            loaded={attentionQuery.data !== undefined}
-            subjectOf={subjectOf}
-            cycles={cycles}
-            {...(route.itemId === undefined ? {} : { selectedId: route.itemId })}
-          />
-        )}
-        {route.name === 'settings' && <SettingsRoute />}
-        {route.name === 'projects' && (
-          <div className="page">
-            <header className="page-header">
-              <h1>Projects</h1>
-            </header>
-            <ProjectCards
-              projects={projection.projects}
-              onOpen={(projectId) => go({ name: 'project', workspaceId, projectId })}
-              onImport={() => go({ name: 'import', workspaceId })}
+      <PageBoundary key={route.name}>
+        <Suspense fallback={<p className="empty-state">Loading page…</p>}>
+          {route.name === 'runs' && <RunsRoute />}
+          {route.name === 'agenda' && <AgendaRoute filter={route.filter} />}
+          {route.name === 'roadmaps' && (
+            <RoadmapsPage
+              workspaceId={workspaceId}
+              csrfToken={csrfToken}
+              canMutate={canMutate}
+              attention={attention}
             />
-          </div>
-        )}
-        {route.name === 'import' && <ImportRoute projects={projection.projects} />}
-        {route.name === 'project' && <ProjectRoute projectId={route.projectId} />}
-        {route.name === 'plan-version' && (
-          <PlanVersionRoute
-            projectId={route.projectId}
-            planVersionId={route.planVersionId}
-            attention={attention}
-          />
-        )}
-        {route.name === 'work-item' && (
-          <WorkItemRoute
-            key={route.workItemId}
-            workItemId={route.workItemId}
-            attention={attention}
-            cycles={cycles}
-          />
-        )}
-        {route.name === 'repositories' && <RepositoriesRoute />}
-        {route.name === 'run' && <RunRoute key={route.runId} runId={route.runId} cycles={cycles} />}
-      </Suspense>
+          )}
+          {route.name === 'roadmap' && (
+            <RoadmapPage
+              key={`${route.roadmapId}:${route.tab}`}
+              workspaceId={workspaceId}
+              roadmapId={route.roadmapId}
+              tab={route.tab}
+              csrfToken={csrfToken}
+              canMutate={canMutate}
+              onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
+              attention={attention}
+              onOpenAttention={(itemId) => go({ name: 'inbox', workspaceId, itemId })}
+            />
+          )}
+          {route.name === 'roadmap-map' && (
+            <ConcurrencyImports
+              key={route.definitionId}
+              workspaceId={workspaceId}
+              csrfToken={csrfToken}
+              canMutate={canMutate}
+              definitionId={route.definitionId}
+            />
+          )}
+          {route.name === 'inbox' && (
+            <InboxRoute
+              attention={attention}
+              loaded={attentionQuery.data !== undefined}
+              subjectOf={subjectOf}
+              cycles={cycles}
+              {...(route.itemId === undefined ? {} : { selectedId: route.itemId })}
+            />
+          )}
+          {route.name === 'settings' && <SettingsRoute />}
+          {route.name === 'projects' && (
+            <div className="page">
+              <header className="page-header">
+                <h1>Projects</h1>
+              </header>
+              <ProjectCards
+                projects={projection.projects}
+                onOpen={(projectId) => go({ name: 'project', workspaceId, projectId })}
+                onImport={() => go({ name: 'import', workspaceId })}
+              />
+            </div>
+          )}
+          {route.name === 'import' && <ImportRoute projects={projection.projects} />}
+          {route.name === 'project' && <ProjectRoute projectId={route.projectId} />}
+          {route.name === 'plan-version' && (
+            <PlanVersionRoute
+              projectId={route.projectId}
+              planVersionId={route.planVersionId}
+              attention={attention}
+            />
+          )}
+          {route.name === 'work-item' && (
+            <WorkItemRoute
+              key={route.workItemId}
+              workItemId={route.workItemId}
+              attention={attention}
+              cycles={cycles}
+              workspaceCyclesFailed={cyclesFailed}
+            />
+          )}
+          {route.name === 'repositories' && <RepositoriesRoute />}
+          {route.name === 'run' && (
+            <RunRoute key={route.runId} runId={route.runId} cycles={cycles} />
+          )}
+        </Suspense>
+      </PageBoundary>
     </>
   );
 }

@@ -2,7 +2,6 @@ import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain'
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { AuthContext } from './auth-service.js';
-import { scopeChoices } from './execution-scope.js';
 import type { ExecutionService, ExecutionStatus } from './execution-service.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import type { PlanningQueryService } from './planning-query-service.js';
@@ -39,13 +38,28 @@ export class PageViews {
     this.workspaces.requireAuthorized(context, workspaceId, requestId);
     const read = this.storage.readTransaction((source) => {
       const tx = mapReadSnapshot(source);
+      // The cycles' projections and the slices evaluate the map; one that fails leaves its
+      // part empty and named, so the rest of the page still works (R-D5 review). The item's
+      // own detail and execution failing fail the read, as their own reads did.
+      const unavailable: ('cycles' | 'scopes')[] = [];
+      const part = <T>(name: 'cycles' | 'scopes', read: () => T, empty: T): T => {
+        try {
+          return read();
+        } catch {
+          unavailable.push(name);
+          return empty;
+        }
+      };
       return {
         detail: this.planning.workItemDetailIn(tx, workspaceId, workItemId),
         execution: this.execution.executionIn(tx, workspaceId, workItemId),
-        cycles: this.cycles.views(tx, workspaceId, { workItemId }),
-        scopes: { choices: scopeChoices(tx, workspaceId, workItemId) },
+        cycles: part('cycles', () => this.cycles.views(tx, workspaceId, { workItemId }), []),
+        scopes: part('scopes', () => this.execution.scopesIn(tx, workspaceId, workItemId), {
+          choices: [],
+        }),
         repositories: tx.execution.sourceRepositories.list(workspaceId),
         profiles: this.runs.profilesIn(tx, workspaceId),
+        ...(unavailable.length ? { unavailable } : {}),
       };
     });
     return {

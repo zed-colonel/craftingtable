@@ -328,6 +328,78 @@ describe('work item view (R-D5, PERF-14)', () => {
     expect(view.backends).toEqual((await f.get('/api/execution-status')).json().backends);
   });
 
+  it('answers with the parts it could read when the cycles or the slices cannot be (R-D5 review)', async () => {
+    const f = await fixture();
+    const base = `/api/workspaces/${f.workspaceId}`;
+    const item = f.items[0];
+    const cycles = vi.spyOn(f.context.services.workCycleService, 'views').mockImplementation(() => {
+      throw new Error('projection failed');
+    });
+    const brokenCycles = await f.get(`${base}/work-items/${item}/view`);
+    expect(brokenCycles.statusCode, brokenCycles.body).toBe(200);
+    const withoutCycles = workItemViewSchema.parse(brokenCycles.json());
+    expect(withoutCycles.unavailable).toEqual(['cycles']);
+    expect(withoutCycles.cycles).toEqual([]);
+    expect(withoutCycles.detail.workItem.id).toBe(item);
+    cycles.mockRestore();
+    const scopes = vi
+      .spyOn(f.context.services.executionService, 'scopesIn')
+      .mockImplementation(() => {
+        throw new Error('map failed');
+      });
+    const withoutScopes = workItemViewSchema.parse(
+      (await f.get(`${base}/work-items/${item}/view`)).json(),
+    );
+    expect(withoutScopes.unavailable).toEqual(['scopes']);
+    expect(withoutScopes.scopes).toEqual({ choices: [] });
+    expect(withoutScopes.cycles.length).toBeGreaterThan(0);
+    scopes.mockRestore();
+    // Every part read: nothing is named unavailable.
+    expect(
+      workItemViewSchema.parse((await f.get(`${base}/work-items/${item}/view`)).json()).unavailable,
+    ).toBeUndefined();
+  });
+
+  it("closes a mergeable gate whose reviewed branches moved, and leaves a merge's recovery open (R-D5 review)", async () => {
+    const f = await fixture();
+    const base = `/api/workspaces/${f.workspaceId}`;
+    const item = f.items[0];
+    const execution = f.context.services.executionService;
+    // The view's gates are the ones Git confirmed after the read.
+    const confirm = vi.spyOn(execution, 'confirmGates').mockImplementation(async (read) => ({
+      ...read,
+      mergeGates: { [f.trees[0]]: { mergeable: false, reason: 'branch-review-required' } },
+    }));
+    const view = workItemViewSchema.parse((await f.get(`${base}/work-items/${item}/view`)).json());
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(view.execution.mergeGates).toEqual({
+      [f.trees[0]]: { mergeable: false, reason: 'branch-review-required' },
+    });
+    confirm.mockRestore();
+    // Confirming asks Git only for a gate that would open the merge, never a merge's recovery.
+    const assertReview = vi.spyOn(execution.branches, 'assertReview').mockImplementation(() => {
+      throw new Error('moved');
+    });
+    const tree = f.context.storage.execution.worktrees.find(f.workspaceId, f.trees[0])!;
+    const confirmed = await execution.confirmGates({
+      worktrees: [tree, { ...tree, id: f.trees[1] }],
+      runs: [],
+      mergeGates: {
+        [f.trees[0]]: { mergeable: true, reason: 'merge-recovery-required' },
+        [f.trees[1]]: { mergeable: true, reviewRunId: f.finishedRun } as never,
+      },
+    });
+    expect(confirmed.mergeGates[f.trees[0]]).toEqual({
+      mergeable: true,
+      reason: 'merge-recovery-required',
+    });
+    expect(confirmed.mergeGates[f.trees[1]]).toMatchObject({
+      mergeable: false,
+      reason: 'branch-review-required',
+    });
+    expect(assertReview).toHaveBeenCalledOnce();
+  });
+
   it('refuses an unknown work item', async () => {
     const f = await fixture();
     const base = `/api/workspaces/${f.workspaceId}`;

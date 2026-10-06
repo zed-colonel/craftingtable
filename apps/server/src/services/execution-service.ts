@@ -732,7 +732,12 @@ export class ExecutionService {
   executionScopes(context: AuthContext, workspaceId: WorkspaceId, workItemId: WorkItemId) {
     this.workspaceService.requireAuthorized(context, workspaceId);
     if (!this.storage.planning.workItems.find(workspaceId, workItemId)) throw new NotFoundError();
-    return { choices: scopeChoices(this.storage, workspaceId, workItemId) };
+    return this.scopesIn(this.storage, workspaceId, workItemId);
+  }
+
+  /** A work item's execution slices, read in the caller's transaction (R-D5). */
+  scopesIn(tx: StorageRepositories, workspaceId: WorkspaceId, workItemId: WorkItemId) {
+    return { choices: scopeChoices(tx, workspaceId, workItemId) };
   }
 
   authorizeEarlyDevelopment(

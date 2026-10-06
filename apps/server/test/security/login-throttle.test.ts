@@ -42,6 +42,16 @@ describe('login throttle (R-G9)', () => {
     for (let attempt = 0; attempt < 4; attempt++) expect(begun(throttle, keys).locked).toBe(false);
   });
 
+  it("forgets a key's failures when its lock ends, even ones still inside the window (R-G9 review)", () => {
+    let now = 0;
+    const throttle = new LoginThrottle(() => new Date(now), { lockMs: minutes(5) });
+    const keys = ['user:keith'];
+    for (let attempt = 0; attempt < 5; attempt++) begun(throttle, keys);
+    now = minutes(5);
+    // The five failures are still inside the fifteen-minute window; the lock's end clears them.
+    for (let attempt = 0; attempt < 4; attempt++) expect(begun(throttle, keys).locked).toBe(false);
+  });
+
   it('counts attempts made at once before any of them is verified', () => {
     const throttle = new LoginThrottle(() => new Date(0));
     const keys = ['user:keith', 'address:10.0.0.2'];
@@ -80,7 +90,7 @@ describe('login throttle (R-G9)', () => {
     begun(throttle, ['user:a']);
     begun(throttle, ['user:b']);
     // Full of live keys: a new one is refused, and the lock stays.
-    expect('refusedUntil' in throttle.begin(['user:c'])).toBe(true);
+    expect(throttle.begin(['user:c'])).toEqual({ refusedUntil: minutes(15) });
     expect('refusedUntil' in throttle.begin(['user:keith'])).toBe(true);
     expect(throttle.size).toBe(3);
     // Once a key has nothing left to remember, it makes room.
@@ -115,6 +125,35 @@ describe('concurrency limit (R-G9)', () => {
     await Promise.all(all);
     expect(most).toBe(2);
     expect(order).toEqual([1, 2, 3, 4]);
+  });
+
+  it("hands a finished task's place to the next in line, and a newcomer then waits (R-G9 review)", async () => {
+    const limit = new ConcurrencyLimit(1);
+    let running = 0;
+    let most = 0;
+    const releases: (() => void)[] = [];
+    const task = () =>
+      limit.run(async () => {
+        running += 1;
+        most = Math.max(most, running);
+        await new Promise<void>((release) => releases.push(release));
+        running -= 1;
+      });
+    const first = task();
+    const second = task();
+    await Promise.resolve();
+    releases.shift()?.();
+    await first;
+    // The second holds the place now: a third arriving at this moment must wait for it.
+    const third = task();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(most).toBe(1);
+    while (releases.length) {
+      releases.shift()?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await Promise.all([second, third]);
+    expect(most).toBe(1);
   });
 
   it('frees its place when a task fails', async () => {

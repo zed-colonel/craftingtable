@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -38,6 +39,7 @@ import {
   asWorktreeId,
   TOOL_RESULT_PREVIEW_BYTES,
 } from '@craftingtable/domain';
+import { createGitOperations } from '@craftingtable/git';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { recordedFindings } from '../src/services/run-handoff.js';
@@ -63,11 +65,16 @@ import {
   ready,
   registerAndWorktree,
   reviewText,
+  roadmapFixture,
+  roadmapId,
+  roadmapInput,
   runDetail,
   runToFinish,
   ScriptedBackend,
+  saveRoadmapRequest,
   startCycle,
   stepUp,
+  storedRoadmap,
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
@@ -262,6 +269,75 @@ describe('repository registration', () => {
     });
     expect(resumed.statusCode).toBe(403);
     expect(resumed.json().error.reason).toBe('step-up-required');
+  });
+
+  it('asks before starting a roadmap whose stored entries grant unrestricted (R-G9 review)', async () => {
+    const { state } = await roadmapFixture();
+    const input = roadmapInput(state);
+    const granting = {
+      ...input,
+      entries: input.entries.map((entry) => ({
+        ...entry,
+        profiles: {
+          ...entry.profiles,
+          implement: { ...entry.profiles.implement, permissionMode: 'unrestricted' },
+        },
+      })),
+    };
+    // Saving the grant asks for the password itself.
+    await stepUp(state);
+    const saved = await saveRoadmapRequest(state, granting);
+    expect(saved.statusCode, saved.body).toBe(200);
+    // Another session, which has not given its password, is asked before the start.
+    const another = await state.context.login();
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/control`,
+      headers: mutationHeaders({ ...state, ...another }),
+      payload: { action: 'start', expectedVersion: storedRoadmap(state).version },
+    });
+    expect(started.statusCode).toBe(403);
+    expect(started.json().error.reason).toBe('step-up-required');
+  });
+
+  it('gives Git the resolved path, and checks the top level Git answers against the roots (R-G9 review)', async () => {
+    const repository = fixtureRepository();
+    const linkRoot = mkdtempSync(join(tmpdir(), 'craftingtable-link-root-'));
+    directories.push(linkRoot);
+    symlinkSync(repository, join(linkRoot, 'linked'));
+    const real = createGitOperations({ gitExecutable: 'git' });
+    const given: string[] = [];
+    let answer: string | undefined;
+    const state = await ready({
+      env: { CRAFTINGTABLE_REPOSITORY_ROOTS: dirname(realpathSync(repository)) },
+      gitOperations: {
+        ...real,
+        // Git answers another top level, as if a link moved between the check and its read.
+        inspectRepository: async (path) => {
+          given.push(path);
+          const inspection = await real.inspectRepository(path);
+          return inspection.ok && answer !== undefined
+            ? { ...inspection, value: { ...inspection.value, topLevel: answer } }
+            : inspection;
+        },
+      },
+    });
+    const register = () =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/repositories`,
+        headers: mutationHeaders(state),
+        payload: { rootPath: join(linkRoot, 'linked') },
+      });
+    answer = '/outside-every-root';
+    const moved = await register();
+    expect(moved.statusCode).toBe(400);
+    expect(moved.json().error.reason).toBe('repository-outside-roots');
+    // Git read the path the check resolved, not the link it was given.
+    expect(given).toEqual([realpathSync(repository)]);
+    answer = undefined;
+    const registered = await register();
+    expect(registered.statusCode, registered.body).toBe(200);
   });
 
   it('registers a repository only under a configured root (R-G9)', async () => {

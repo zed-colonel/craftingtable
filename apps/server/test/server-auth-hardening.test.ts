@@ -308,6 +308,56 @@ describe('sign-in rate limit (R-G9)', () => {
     ).toBe(429);
   });
 
+  it('refuses a sign-in beyond the waiting queue for a second, without counting it (R-G9 review)', async () => {
+    let hold = false;
+    let verifying = 0;
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => (open = resolve));
+    const fast = new FastTestPasswordHasher();
+    const held: PasswordHasher = {
+      hash: (password) => fast.hash(password),
+      verify: async (hash, password) => {
+        if (hold) {
+          verifying += 1;
+          await opened;
+        }
+        return fast.verify(hash, password);
+      },
+    };
+    const state = { now: new Date('2026-10-06T08:00:00.000Z') };
+    const context = await createTestContext({ passwordHasher: held, now: () => state.now });
+    contexts.push(context);
+    await context.bootstrap();
+    // Four failures for the operator's username, each from its own address.
+    for (let n = 0; n < 4; n++)
+      await signIn(context, TEST_USERNAME, 'wrong password value', {
+        remoteAddress: `10.3.0.${n}`,
+      });
+    hold = true;
+    // 2 verifications run and 32 wait, each sign-in under its own username and address.
+    const queued = Array.from({ length: 34 }, (_, n) =>
+      signIn(context, `someone-${n}`, 'wrong password value', { remoteAddress: `10.4.0.${n}` }),
+    );
+    while (verifying < 2) await new Promise((resolve) => setTimeout(resolve, 1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The operator's fifth guess finds the queue full: refused for a second, and taken back.
+    const refused = await signIn(context, TEST_USERNAME, 'wrong password value', {
+      remoteAddress: '10.3.1.1',
+    });
+    expect(refused.statusCode).toBe(429);
+    expect(refused.headers['retry-after']).toBe('1');
+    hold = false;
+    open();
+    expect((await Promise.all(queued)).map((answer) => answer.statusCode)).toEqual(
+      Array(34).fill(401),
+    );
+    // Had it counted, it would have been the fifth failure and locked the username.
+    const signedIn = await signIn(context, TEST_USERNAME, TEST_PASSWORD, {
+      remoteAddress: '10.3.1.2',
+    });
+    expect(signedIn.statusCode).toBe(200);
+  });
+
   it('says when to try again', async () => {
     const { context } = await clock();
     for (let attempt = 0; attempt < 5; attempt++)
@@ -450,11 +500,15 @@ describe('step-up (R-G9)', () => {
   });
 
   it('counts failed step-ups toward the username lock', async () => {
-    const { stepUp } = await signedIn();
+    const { context, stepUp } = await signedIn();
     for (let attempt = 0; attempt < 5; attempt++)
       expect((await stepUp('not the password')).statusCode).toBe(403);
     const locked = await stepUp(TEST_PASSWORD);
     expect(locked.statusCode).toBe(429);
     expect(locked.json().error.reason).toBe('login-rate-limited');
+    // The step-up that locked the username is audited as a lock (R-G9 review).
+    expect(
+      auditActions(context).filter((action) => action === 'auth.login.rate-limited'),
+    ).toHaveLength(1);
   });
 });

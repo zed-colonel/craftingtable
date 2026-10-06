@@ -70,10 +70,10 @@ it('answers every command that asked at once, with one prompt (R-G9 review)', as
   await expect(second).resolves.toBe('the password');
   // A cancel answers them all too.
   act(() => {
-    first = prompt(false);
-    second = prompt(true);
+    first = prompt(true);
+    second = prompt(false);
   });
-  // One of them was told its password did not match: the prompt says so.
+  // The first was told its password did not match: the prompt still says so once another joins.
   expect(screen.getByRole('alert').textContent).toBe('That password did not match.');
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   await expect(first).resolves.toBeUndefined();

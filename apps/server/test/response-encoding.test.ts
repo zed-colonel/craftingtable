@@ -101,7 +101,7 @@ describe('response encoding (R-D5, PERF-16)', () => {
     expect(changed.body).toContain('Another workspace');
   });
 
-  it('gives no validator to errors or commands, and never touches the event streams', async () => {
+  it('gives no validator to errors or commands', async () => {
     const { context, session, get } = await fixture(0);
     const missing = await get('/api/workspaces/00000000-0000-4000-8000-000000000000/snapshot');
     expect(missing.statusCode).toBe(404);
@@ -120,9 +120,18 @@ describe('response encoding (R-D5, PERF-16)', () => {
     });
     expect(created.statusCode).toBe(200);
     expect(created.headers.etag).toBeUndefined();
-    // Sign-in answers carry the CSRF token: never compressed, whatever their size.
+  });
+
+  it('never compresses a sign-in answer, which carries the CSRF token, however large', async () => {
+    const { context, session, get } = await fixture(0);
+    // Enough sessions that the session list is well over the threshold.
+    for (let count = 0; count < 40; count++) await context.login();
+    const sessions = await get('/api/auth/sessions', { 'accept-encoding': 'gzip' });
+    expect(sessions.statusCode).toBe(200);
+    expect(Buffer.byteLength(sessions.body)).toBeGreaterThan(8 * 1024);
+    expect(sessions.headers['content-encoding']).toBeUndefined();
     const signedIn = await get('/api/auth/session', { 'accept-encoding': 'gzip' });
-    expect(signedIn.statusCode).toBe(200);
     expect(signedIn.headers['content-encoding']).toBeUndefined();
+    expect(session.csrfToken).toBeTruthy();
   });
 });

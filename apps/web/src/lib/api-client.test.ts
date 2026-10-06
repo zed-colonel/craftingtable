@@ -1,6 +1,6 @@
 import { asWorkspaceId } from '@craftingtable/domain';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { forgetValidators, request } from './api-client.js';
+import { forgetValidators, login, logout, request } from './api-client.js';
 import { importConcurrencyZip } from './package-import-api.js';
 import { importPlanBundle } from './planning-api.js';
 
@@ -100,4 +100,63 @@ it('forgets a validator when an answer comes without one', async () => {
   await request('/api/forget', refuses);
   expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get('if-none-match')).toBe('W/"two"');
   expect(new Headers(fetch.mock.calls[2]?.[1]?.headers).get('if-none-match')).toBeNull();
+});
+
+it('forgets every validator on signing in and on signing out, even a sign-out that fails (R-D5 review)', async () => {
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === '/api/auth/login')
+      return new Response(
+        JSON.stringify({
+          user: { id: 'u', username: 'keith', status: 'active' },
+          session: {
+            id: 's',
+            createdAt: '2026-10-06T00:00:00.000Z',
+            lastSeenAt: '2026-10-06T00:00:00.000Z',
+            expiresAt: '2026-11-06T00:00:00.000Z',
+            status: 'active',
+            current: true,
+          },
+          csrfToken: 'c'.repeat(43),
+        }),
+        { status: 200 },
+      );
+    if (url === '/api/auth/logout')
+      return new Response(JSON.stringify({ error: { code: 'forbidden', message: 'No.' } }), {
+        status: 403,
+      });
+    return new Headers(init?.headers).get('if-none-match')
+      ? new Response(null, { status: 304, headers: { etag: 'W/"v"' } })
+      : new Response(JSON.stringify({ ok: true }), { status: 200, headers: { etag: 'W/"v"' } });
+  });
+  vi.stubGlobal('fetch', fetch);
+  const sentValidator = () =>
+    new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('if-none-match');
+  await request('/api/held', refuses);
+  await request('/api/held', refuses);
+  expect(sentValidator()).toBe('W/"v"');
+  await login({ username: 'keith', password: 'a correct password' });
+  await request('/api/held', refuses);
+  expect(sentValidator()).toBeNull();
+  await request('/api/held', refuses);
+  expect(sentValidator()).toBe('W/"v"');
+  await expect(logout('csrf')).rejects.toThrow();
+  await request('/api/held', refuses);
+  expect(sentValidator()).toBeNull();
+});
+
+it('keeps the validators of the newest 64 reads', async () => {
+  const fetch = vi.fn(
+    async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { etag: 'W/"v"' } }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  for (let index = 0; index <= 64; index++) await request(`/api/bound/${index}`, refuses);
+  const sent = (url: string) =>
+    new Headers(fetch.mock.calls.findLast(([called]) => called === url)?.[1]?.headers).get(
+      'if-none-match',
+    );
+  await request('/api/bound/0', refuses);
+  expect(sent('/api/bound/0')).toBeNull();
+  await request('/api/bound/64', refuses);
+  expect(sent('/api/bound/64')).toBe('W/"v"');
 });

@@ -171,3 +171,50 @@ it('shows why the slices could not be read, over the ones last read', () => {
   );
   expect(screen.getByRole('alert').textContent).toBe('Daemon unavailable');
 });
+
+it("shows a scope's cycle by the projection's review wait, not its stored reason (CTRL-22, R-D5)", async () => {
+  vi.mocked(createWorktree).mockReset();
+  render(
+    <ExecutionScopesPanel
+      workspaceId={'ws' as WorkspaceId}
+      workItemId={'wi' as WorkItemId}
+      csrfToken="csrf"
+      canMutate
+      itemStatus="admitted"
+      onChanged={vi.fn()}
+      worktrees={[{ ...tree, executionScope: scope } as WorktreeSummary]}
+      onOpenCycle={vi.fn()}
+      cycles={[
+        {
+          cycle: {
+            id: 'c1',
+            worktreeId: tree.id,
+            status: 'needs-attention',
+            reason: 'The stored reason.',
+          } as WorkCycle,
+          projection: {
+            nextAgentSelections: {} as never,
+            actions: [],
+            scopeReviewWait: 'Waiting for prerequisite work.',
+          },
+        },
+      ]}
+      scopes={{
+        choices: [
+          {
+            scope,
+            title: 'Implementation',
+            description: 'Slice',
+            status: 'in-progress',
+            excludes: [],
+            blockers: [],
+            repositoryId: 'repo',
+            phases: [],
+          } as unknown as ExecutionScopeChoice,
+        ],
+      }}
+    />,
+  );
+  expect(await screen.findByText('Waiting for prerequisite work.')).toBeTruthy();
+  expect(screen.queryByText('The stored reason.')).toBeNull();
+});

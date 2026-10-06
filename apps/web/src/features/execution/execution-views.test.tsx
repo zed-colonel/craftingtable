@@ -1130,6 +1130,57 @@ describe('automated cycle controls', () => {
       model: 'review-model',
     },
   ];
+  it("shows the projection's waits in place of the cycle's reason (CTRL-22, R-D5)", () => {
+    const waiting = {
+      id: 'a0000000-0000-4000-8000-000000000009',
+      workspaceId: worktree.workspaceId,
+      projectId: worktree.projectId,
+      workItemId: worktree.workItemId,
+      workItemSourceId: 'AQ-01',
+      workItemTitle: 'Queue',
+      worktreeId: worktree.id,
+      createdByUserId: worktree.createdByUserId,
+      createdAt: worktree.createdAt,
+      updatedAt: worktree.createdAt,
+      version: 3,
+      status: 'awaiting-merge',
+      step: 'review',
+      policy: DEFAULT_COMPLETION_POLICY,
+      profiles: Object.fromEntries(
+        CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+      ) as unknown as CycleProfiles,
+      instructions: '',
+      currentRunId: run().id,
+      runDeadlineAt: worktree.createdAt,
+      remediationRounds: 0,
+      stalledReviews: 0,
+      reason: 'The stored reason.',
+    } as WorkCycle;
+    const panel = (projected: Partial<CycleProjection>) => (
+      <CyclePanel
+        cycles={daemon([waiting], projected)}
+        worktrees={[worktree]}
+        runs={[]}
+        backends={backends}
+        profiles={profiles}
+        canMutate
+        busy={false}
+        admitted
+        onStart={vi.fn()}
+        csrfToken="csrf"
+        onChanged={vi.fn()}
+        onOpenRun={vi.fn()}
+      />
+    );
+    const view = render(panel({ mergeRequirementsWait: 'Checkpoint C-1 needs evidence.' }));
+    expect(screen.getAllByText('Merge blocked by requirements').length).toBeGreaterThan(0);
+    expect(screen.getByText('Checkpoint C-1 needs evidence.')).toBeTruthy();
+    expect(screen.queryByText('The stored reason.')).toBeNull();
+    view.rerender(panel({ scopeReviewWait: 'Waiting for the owning slice to merge.' }));
+    expect(screen.getAllByText('Waiting for prerequisite work').length).toBeGreaterThan(0);
+    expect(screen.getByText('Waiting for the owning slice to merge.')).toBeTruthy();
+  });
+
   it('shows the selected worktree\u2019s cycle, not the first that needs attention (inbox, R-A5)', () => {
     const second: WorktreeSummary = {
       ...worktree,

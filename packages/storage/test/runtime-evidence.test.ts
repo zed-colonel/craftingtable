@@ -101,6 +101,29 @@ describe('evidence submissions, decoded once (R-D5)', () => {
     ]);
   });
 
+  it('never keeps what a read inside a rolled-back write saw, even when the next insert reuses its row (R-D5 review)', () => {
+    const { f, workspaceId, submission, add } = fixture();
+    const a = submission('map-1');
+    add(a);
+    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1')).toHaveLength(1);
+    const lost = submission('map-1');
+    expect(() =>
+      f.storage.transaction((tx) => {
+        tx.runtimeEvidence.addSubmission(lost);
+        tx.runtimeEvidence.submissions(workspaceId, 'map-1');
+        throw new Error('roll back');
+      }),
+    ).toThrow('roll back');
+    // No read in between: the next submission takes the rolled-back one's row, so the count and
+    // newest row are what the rolled-back read saw.
+    const next = submission('map-1');
+    add(next);
+    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1').map((s) => s.id)).toEqual([
+      next.id,
+      a.id,
+    ]);
+  });
+
   it('sees a submission another connection added', () => {
     const { f, workspaceId, submission, add } = fixture();
     add(submission('map-1'));

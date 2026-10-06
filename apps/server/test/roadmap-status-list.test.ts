@@ -9,6 +9,7 @@ import { effectiveRoadmapAttention } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   awaitRoadmapMerge,
+  mergeRoadmapAttempt,
   cleanupExecutionFixtures,
   entryIds,
   mutationHeaders,
@@ -164,7 +165,26 @@ it('lists the roadmaps lightly: name, status, reason and how many entries are do
   expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
   await roadmapControl(state, 'start');
   await state.context.services.roadmapService.tick();
+  // One entry merged, and the roadmap held for a restart: both show in its row.
+  const first = await awaitRoadmapMerge(state, 0);
+  await mergeRoadmapAttempt(state, first.worktreeId);
+  await state.context.services.roadmapService.tick();
+  await roadmapControl(state, 'pause');
+  const paused = storedRoadmap(state);
+  expect(
+    state.context.storage.roadmaps.save(
+      {
+        ...paused,
+        status: 'needs-attention',
+        reason: 'Daemon restarted. Resume when ready.',
+        attention: { code: 'restart-resume', owner: 'operator' },
+        version: paused.version + 1,
+      },
+      paused.version,
+    ),
+  ).toBe(true);
   const { roadmaps } = roadmapSummariesSchema.parse(await read(state, '/roadmaps/summaries'));
+  expect(roadmaps[0]).toMatchObject({ completed: 1, attentionCode: 'restart-resume' });
   const full = roadmapsResponseSchema.parse(await read(state, '/roadmaps')).roadmaps;
   expect(roadmaps).toEqual(
     full.map(({ roadmap, progress }) => ({

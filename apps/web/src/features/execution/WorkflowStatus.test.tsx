@@ -114,3 +114,31 @@ it('points a question at the inbox item that decides the stop, when the page sho
     screen.getByRole('link', { name: 'Answer in this work item’s Continue with guidance form' }),
   ).toBeDefined();
 });
+
+// CTRL-22 (R-D5): the routed questions travel in the projection, beside the recorded ones they
+// stand for; a cycle without a workflow still shows them.
+it("shows the projection's routed questions in place of the recorded ones", () => {
+  const cycle = {
+    id: 'cycle',
+    workspaceId: 'workspace',
+    executionScope: { definitionId: 'map' },
+    workflow: {
+      reassessments: 0,
+      questions: [{ question: 'The recorded question', destination: 'work-item' }],
+    },
+  } as unknown as WorkCycle;
+  const routed = [
+    {
+      question: 'The routed question',
+      destination: 'shared-decision' as const,
+      checkpointId: 'EXO-ADR-004',
+    },
+  ];
+  const { unmount } = render(<WorkflowStatus cycle={cycle} questionRoutes={routed} />);
+  expect(screen.getByText('The routed question')).toBeTruthy();
+  expect(screen.queryByText('The recorded question')).toBeNull();
+  unmount();
+  const { workflow: _none, ...bare } = cycle;
+  render(<WorkflowStatus cycle={bare as WorkCycle} questionRoutes={routed} />);
+  expect(screen.getByText('The routed question')).toBeTruthy();
+});

@@ -824,6 +824,22 @@ it("investigates the stop run's own question, not one an earlier report routed",
   );
   // The stored routing still holds the earlier question.
   expect(currentCycle(state, cycle).workflow?.questions[0]?.question).toBe(old);
+  // The read routes the current turn's question beside it, in the projection (CTRL-22, R-D5).
+  const listed = workCyclesResponseSchema
+    .parse(
+      (
+        await state.context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${state.workspaceId}/cycles`,
+          headers: { cookie: state.cookie },
+        })
+      ).json(),
+    )
+    .cycles.find((v) => v.cycle.id === cycle.id)!;
+  expect(listed.cycle.workflow?.questions[0]?.question).toBe(old);
+  expect(listed.projection.questionRoutes).toEqual([
+    { question: expect.stringContaining(current), destination: 'work-item' },
+  ]);
   const response = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/investigation`,

@@ -18,8 +18,13 @@ import { openDaemonStorage } from './persisted-records.js';
  * "server time" is routing, the access check, the handler, its schema and serialization, with
  * no network. A session is written for a member of each workspace.
  *
- * The page's reads are listed in `workItemPageReads` as the browser app at this commit makes
- * them; a change to what the page reads changes that list in the same commit.
+ * The page's reads are listed by hand in `workItemPageReads`, as the browser app at this commit
+ * makes them on every load; a change to what the page reads changes that list in the same commit.
+ * Reads a page makes only in some states are left out: a scope review's repair preview and its
+ * recovery form's slices, and a worktree's branch status, read only once asked for. Git calls are
+ * stubbed to fail, so their time is not counted (a real one adds about three Git spawns per page:
+ * the plan's integration branch and its policy's refs); a snapshot without a mergeable gate never
+ * reaches the gate's Git check.
  */
 
 export interface PageRead {

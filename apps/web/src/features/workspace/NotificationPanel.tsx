@@ -235,8 +235,7 @@ export function NotificationPanel({
               {status.credentialsConfigured
                 ? 'Credentials configured. Leave password fields blank to keep them.'
                 : 'Credentials not configured.'}{' '}
-              Credentials are kept in a private file on the daemon’s host, outside its database and
-              backups, and never displayed again.
+              Kept in a private file outside the database, never displayed again.
             </p>
             <div className="inline-actions">
               <button type="submit" className="primary-button" disabled={busy}>

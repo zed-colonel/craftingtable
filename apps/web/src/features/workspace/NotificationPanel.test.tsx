@@ -89,7 +89,7 @@ it('says where the credentials are kept: a private file, not the database or its
   const { wrap } = testQueryStore();
   render(wrap(<NotificationPanel workspaceId={asWorkspaceId('ws')} csrfToken="csrf" />));
   expect(
-    await screen.findByText(/kept in a private file on the daemon’s host, outside its database/),
+    await screen.findByText(/Kept in a private file outside the database, never displayed again/),
   ).toBeTruthy();
   expect(screen.queryByText(/private database/)).toBeNull();
 });

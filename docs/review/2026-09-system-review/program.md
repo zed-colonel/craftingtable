@@ -1002,6 +1002,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - **Gate.** `pnpm check` in `~/src/craftingtable-gate` at 5a83c61: green with no serial rerun, 2,295 unit tests (1 skipped), 22 e2e plus the walkthrough rehearsal. The first gate (at 9341b87) failed `check:scope`: `claude --version` ran through `child_process` outside a listed process authority; fixed in 3b46c32. `pnpm replays` at 5a83c61: 49 of 51 at 0 changed, LIVE-32's 2 expected, 0 failed, arguments compared.
     - **Walkthrough.** `2026-10-05-2026-10-05-model-catalog-before` (the label repeated the date) and `2026-10-05-model-catalog-after`.
     - **Before the deploy:** no schema change. A run can end with the exit reason `agent-model-misnamed` and a cycle stop with that code; a release before 5d2686a cannot read either. The daemon makes `<data>/model-catalog` (Codex's catalog app-server runs there) and, at start, runs `claude --version` and a short-lived `codex app-server`. The live unit's environment decides the Claude catalog: `CLAUDE_CONFIG_DIR` if set, else `~/.claude`.
+    - **Operator decisions 2026-10-05 (recorded on R-G15):** keep the command-time refusal of newly entered display names; accept the bounded first-start wait; accept the listed LOWs; the deploy notes stand.
     - **Next:** R-D5, then R-G9.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.

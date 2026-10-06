@@ -169,6 +169,7 @@ export async function createServices(
     dummyPasswordHash,
     config.sessionLifetimeSeconds,
     now,
+    config.sessionIdleSeconds,
   );
   const workspaceService = new WorkspaceService(storage, now, notifier);
   const planImportService = new PlanImportService(storage, workspaceService, notifier, now);

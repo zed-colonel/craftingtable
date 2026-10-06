@@ -1,4 +1,5 @@
 import {
+  type ApiErrorResponse,
   type AuthenticatedSessionResponse,
   apiErrorResponseSchema,
   type SessionSummary,
@@ -6,7 +7,13 @@ import {
 import type { StoredSession, StoredUser } from '@craftingtable/storage';
 import type { FastifyReply } from 'fastify';
 import type { ServerConfig } from '../config.js';
-import type { ExecutionErrorDetail } from '../services/errors.js';
+
+/** What an error says beyond its code: a reason the browser acts on, and paths it names. */
+export interface ApiErrorDetail {
+  readonly reason: NonNullable<ApiErrorResponse['error']['reason']>;
+  readonly paths?: readonly string[];
+  readonly pathCount?: number;
+}
 
 export function noStore(reply: FastifyReply): FastifyReply {
   return reply.header('cache-control', 'no-store');
@@ -23,9 +30,10 @@ export function sendApiError(
     | 'not-found'
     | 'conflict'
     | 'unavailable'
+    | 'rate-limited'
     | 'internal-error',
   message: string,
-  detail?: ExecutionErrorDetail,
+  detail?: ApiErrorDetail,
 ): FastifyReply {
   return noStore(reply)
     .code(statusCode)

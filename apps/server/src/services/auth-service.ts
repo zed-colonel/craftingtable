@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { asAuditEventId, asSessionId, normalizeUsername } from '@craftingtable/domain';
 import type { CraftingTableStorage, StoredSession, StoredUser } from '@craftingtable/storage';
+import { ConcurrencyLimit, LoginThrottle } from '../security/login-throttle.js';
 import type { PasswordHasher } from '../security/password-hasher.js';
 import type { SessionTokenService } from '../security/session-tokens.js';
 import {
   AuthenticationError,
   ExecutionRequestError,
+  LoginRateLimitedError,
   NotFoundError,
   UnauthenticatedError,
 } from './errors.js';
@@ -29,6 +31,11 @@ export interface LoginResult extends AuthContext {
 }
 
 export class AuthService {
+  /** Failed sign-ins per username and client address (R-G9, operator decision 2026-10-05). */
+  private readonly throttle: LoginThrottle;
+  /** About 64 MiB per verification: at most 2 at once (R-G9, SEC-04). */
+  private readonly verifications = new ConcurrencyLimit(2);
+
   constructor(
     private readonly storage: CraftingTableStorage,
     private readonly passwordHasher: PasswordHasher,
@@ -36,37 +43,60 @@ export class AuthService {
     private readonly dummyPasswordHash: string,
     private readonly sessionLifetimeSeconds: number,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+    /** A session with no request for this long ends (R-G9: 24 h). */
+    private readonly sessionIdleSeconds = 86_400,
+  ) {
+    this.throttle = new LoginThrottle(now);
+  }
+
+  /** Checks a password with the bounded verifier. */
+  private verify(encodedHash: string, password: string): Promise<boolean> {
+    return this.verifications.run(() => this.passwordHasher.verify(encodedHash, password));
+  }
 
   async login(input: {
     readonly username: string;
     readonly password: string;
     readonly userAgent?: string;
     readonly requestId?: string;
+    /** The client's address, as the route reads it; failures are also counted per address. */
+    readonly address?: string;
   }): Promise<LoginResult> {
     const usernameNormalized = normalizeUsername(input.username);
+    const keys = [
+      `user:${usernameNormalized}`,
+      ...(input.address === undefined ? [] : [`address:${input.address}`]),
+    ];
+    const blocked = this.throttle.blockedUntil(keys);
+    if (blocked !== undefined) throw new LoginRateLimitedError(new Date(blocked));
     const user = this.storage.users.findByNormalizedUsername(usernameNormalized);
-    const valid = await this.passwordHasher.verify(
-      user?.passwordHash ?? this.dummyPasswordHash,
-      input.password,
-    );
+    const valid = await this.verify(user?.passwordHash ?? this.dummyPasswordHash, input.password);
     if (!valid || user === undefined || user.status !== 'active') {
-      this.storage.transaction((tx) => {
-        tx.audit.append({
-          id: asAuditEventId(randomUUID()),
-          occurredAt: this.now().toISOString(),
-          actorKind: 'system',
-          ...(user === undefined ? {} : { actorUserId: user.id }),
-          ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
-          action: 'auth.login.failed',
-          targetType: 'user',
-          targetId: usernameNormalized,
-          outcome: 'failed',
-          metadata: { usernameNormalized },
+      // One row stands for a username's window of failures, and one for a lock (SEC-04).
+      const { first, locked } = this.throttle.failed(keys);
+      const actions = [
+        ...(first ? ['auth.login.failed' as const] : []),
+        ...(locked ? ['auth.login.rate-limited' as const] : []),
+      ];
+      if (actions.length)
+        this.storage.transaction((tx) => {
+          for (const action of actions)
+            tx.audit.append({
+              id: asAuditEventId(randomUUID()),
+              occurredAt: this.now().toISOString(),
+              actorKind: 'system',
+              ...(user === undefined ? {} : { actorUserId: user.id }),
+              ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+              action,
+              targetType: 'user',
+              targetId: usernameNormalized,
+              outcome: 'failed',
+              metadata: { usernameNormalized },
+            });
         });
-      });
       throw new AuthenticationError();
     }
+    this.throttle.succeeded([`user:${usernameNormalized}`]);
 
     const token = this.tokenService.generate();
     const csrfToken = this.tokenService.generateCsrfToken();
@@ -116,7 +146,10 @@ export class AuthService {
     if (
       session === undefined ||
       session.status !== 'active' ||
-      Date.parse(session.expiresAt) <= now.getTime()
+      Date.parse(session.expiresAt) <= now.getTime() ||
+      // Idle: no request for the idle span ends the session (R-G9). The last request is
+      // recorded at most every LAST_SEEN_WRITE_INTERVAL_MS, so the span is that much longer.
+      now.getTime() - Date.parse(session.lastSeenAt) >= this.sessionIdleSeconds * 1000
     ) {
       throw new UnauthenticatedError();
     }
@@ -147,10 +180,7 @@ export class AuthService {
     input: { readonly currentPassword: string; readonly newPassword: string },
     requestId?: string,
   ): Promise<{ readonly revokedSessionCount: number }> {
-    const valid = await this.passwordHasher.verify(
-      context.user.passwordHash,
-      input.currentPassword,
-    );
+    const valid = await this.verify(context.user.passwordHash, input.currentPassword);
     if (!valid) {
       throw new AuthenticationError();
     }

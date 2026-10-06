@@ -40,6 +40,7 @@ import {
   AuthenticationError,
   ExecutionRequestError,
   ForbiddenError,
+  LoginRateLimitedError,
   NotFoundError,
   UnauthenticatedError,
 } from './services/errors.js';
@@ -220,6 +221,15 @@ export function buildServer(
         error.code === 'FST_ERR_CTP_EMPTY_JSON_BODY')
     ) {
       return sendApiError(reply, 400, 'invalid-request', 'Request body is not valid JSON');
+    }
+    if (error instanceof LoginRateLimitedError) {
+      reply.header(
+        'retry-after',
+        String(Math.max(1, Math.ceil((error.until.getTime() - Date.now()) / 1000))),
+      );
+      return sendApiError(reply, 429, 'rate-limited', error.message, {
+        reason: 'login-rate-limited',
+      });
     }
     if (error instanceof AuthenticationError) {
       return sendApiError(reply, 401, 'invalid-credentials', 'Invalid username or password');

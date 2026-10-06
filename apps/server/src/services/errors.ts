@@ -5,6 +5,14 @@ export class AuthenticationError extends Error {
   }
 }
 
+/** Sign-in refused before verification: too many recent failures (R-G9, SEC-04). */
+export class LoginRateLimitedError extends Error {
+  constructor(readonly until: Date) {
+    super('Too many failed sign-ins; try again later');
+    this.name = 'LoginRateLimitedError';
+  }
+}
+
 export class UnauthenticatedError extends Error {
   constructor() {
     super('Authentication required');

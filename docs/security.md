@@ -41,6 +41,14 @@ kind of caller and compares the answer with the declaration.
 
 - Bootstrap is interactive and refuses password arguments; there is no registration route.
 - Passwords are Argon2id hashes; session tokens are stored as SHA-256 digests.
+- Five failed sign-ins within 15 minutes, for a username or from a client address, refuse that
+  username's or address's sign-ins for 15 minutes (429, reason `login-rate-limited`). Behind
+  `tailscale serve` the address is the last one the loopback proxy names in `X-Forwarded-For`; a
+  client not on loopback cannot set it. One audit row stands for a username's window of failures
+  and one for each lock. At most two password verifications run at once. The counts are held in
+  memory (R-G9).
+- A session with no request for 24 hours ends (`CRAFTINGTABLE_SESSION_IDLE_SECONDS`); the 30-day
+  lifetime still bounds it (R-G9).
 - Logs redact cookies and authorization headers; audit metadata excludes bodies and tokens.
 - Claude Code and Codex use their own logins on the workstation. The daemon never handles API keys;
   it records only billing provenance or an environment-based API-key hint.

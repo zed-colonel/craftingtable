@@ -10,6 +10,8 @@ export const apiErrorCodeSchema = z.enum([
   'not-found',
   'conflict',
   'unavailable',
+  /** Too many attempts: wait before the next (R-G9). */
+  'rate-limited',
   'internal-error',
 ]);
 
@@ -22,6 +24,8 @@ export const apiErrorReasonSchema = z.enum([
    * is not acknowledged (R-C16). `paths` names what differs from HEAD.
    */
   'investigation-worktree-changed',
+  /** Sign-in refused: too many failed attempts for the username or the client (R-G9). */
+  'login-rate-limited',
 ]);
 
 export const apiErrorResponseSchema = z.strictObject({

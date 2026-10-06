@@ -22,7 +22,7 @@ import {
   sendApiError,
   sessionSummary,
 } from './http.js';
-import { browserHeaders } from './request-security.js';
+import { browserHeaders, clientAddress } from './request-security.js';
 import { contextOf } from './route-access.js';
 
 export function registerAuthRoutes(
@@ -52,6 +52,7 @@ export function registerAuthRoutes(
         ? {}
         : { userAgent: request.headers['user-agent'] }),
       requestId: request.id,
+      address: clientAddress(request),
     });
     reply.setCookie(
       SESSION_COOKIE_NAME,

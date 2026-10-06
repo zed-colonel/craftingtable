@@ -77,6 +77,8 @@ export interface ServerConfig {
   /** Built browser app to serve from the daemon; absent means API only. */
   readonly webDistDir?: string;
   readonly sessionLifetimeSeconds: number;
+  /** A session with no request for this long ends (R-G9; operator decision 2026-10-05: 24 h). */
+  readonly sessionIdleSeconds: number;
   readonly logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   readonly execution: ExecutionConfig;
   /**
@@ -501,6 +503,17 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     );
   }
 
+  const sessionIdleSeconds = Number(env.CRAFTINGTABLE_SESSION_IDLE_SECONDS ?? 86_400);
+  if (
+    !Number.isInteger(sessionIdleSeconds) ||
+    sessionIdleSeconds < 600 ||
+    sessionIdleSeconds > sessionLifetimeSeconds
+  ) {
+    throw new Error(
+      'CRAFTINGTABLE_SESSION_IDLE_SECONDS must be an integer between 600 and the session lifetime',
+    );
+  }
+
   const configuredLogLevel = env.CRAFTINGTABLE_LOG_LEVEL ?? 'info';
   if (!LOG_LEVELS.has(configuredLogLevel as ServerConfig['logLevel'])) {
     throw new Error(`Invalid CRAFTINGTABLE_LOG_LEVEL "${configuredLogLevel}"`);
@@ -528,6 +541,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     ...(tls === undefined ? {} : { tls }),
     ...(webDistDir === undefined ? {} : { webDistDir }),
     sessionLifetimeSeconds,
+    sessionIdleSeconds,
     logLevel: configuredLogLevel as ServerConfig['logLevel'],
     execution,
     drainTimeoutMs: drainTimeoutSeconds * 1000,

@@ -19,6 +19,23 @@ export function browserHeaders(request: FastifyRequest): BrowserSecurityHeaders 
   };
 }
 
+const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/**
+ * The client a request comes from, for counting sign-in failures (R-G9). Behind `tailscale
+ * serve` every request comes from a loopback proxy, which names its client last in
+ * `X-Forwarded-For`; a client that is not on loopback cannot choose its address that way.
+ */
+export function clientAddress(request: FastifyRequest): string {
+  const peer = request.socket.remoteAddress ?? 'unknown';
+  const forwarded = request.headers['x-forwarded-for'];
+  const named =
+    LOOPBACK_PEERS.has(peer) && typeof forwarded === 'string'
+      ? forwarded.split(',').at(-1)?.trim()
+      : undefined;
+  return named || peer;
+}
+
 export function requireAllowedOrigin(request: FastifyRequest, config: ServerConfig): void {
   if (!isAllowedBrowserRequest(browserHeaders(request), config.publicOrigin)) {
     throw new ForbiddenError();

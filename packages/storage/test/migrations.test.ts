@@ -100,7 +100,10 @@ const DEPLOYED_MIGRATIONS: readonly PinnedMigration[] = [
  * together with its file while no daemon has applied it; the deploy that applies it moves it to
  * `DEPLOYED_MIGRATIONS`, unchanged.
  */
-const PENDING_MIGRATIONS: readonly PinnedMigration[] = [];
+// biome-ignore format: one row per migration, appended in order.
+const PENDING_MIGRATIONS: readonly PinnedMigration[] = [
+  { version: 37, name: 'authentication-hardening', checksum: 'd6de10ea4b993dd1aa50b899adb64fda3d253bcace4a2330abb630c5e074c0f9' },
+];
 
 const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];
 
@@ -199,7 +202,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(36);
+    ).toBe(37);
     second.close();
   });
 
@@ -221,7 +224,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(36);
+    ).toBe(37);
     database.close();
   });
 
@@ -281,10 +284,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 36,
+      supportedVersion: 37,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
       ],
     });
 
@@ -300,10 +303,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 36,
+      supportedVersion: 37,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
       ],
     });
     expect(existsSync(path)).toBe(false);

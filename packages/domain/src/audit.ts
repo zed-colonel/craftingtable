@@ -19,6 +19,9 @@ export const AUDIT_ACTIONS = [
   'admin.bootstrap.denied',
   'auth.login',
   'auth.login.failed',
+  'auth.login.rate-limited',
+  'auth.step-up',
+  'auth.step-up.failed',
   'auth.logout',
   'auth.session.revoked',
   'workspace.created',
@@ -85,6 +88,9 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'admin.bootstrap.denied': 1,
   'auth.login': 1,
   'auth.login.failed': 1,
+  'auth.login.rate-limited': 37,
+  'auth.step-up': 37,
+  'auth.step-up.failed': 37,
   'auth.logout': 1,
   'auth.session.revoked': 1,
   'workspace.created': 1,
@@ -165,6 +171,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
     | 34
     | 35
     | 36
+    | 37
   >
 >;
 

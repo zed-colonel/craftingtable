@@ -417,3 +417,41 @@ it('refuses a display name entered on a roadmap, and keeps one it already saved 
   });
   expect(resaved.statusCode, resaved.body).toBe(200);
 });
+
+it('starts nothing for a cycle stopped while its launch waits for the first catalog look (R-G15)', async () => {
+  const { state, backend, worktree } = await cycleFixture([designDone], undefined, undefined, {
+    workers: true,
+  });
+  let release: (() => void) | undefined;
+  let read = false;
+  const describe = backend.describe.bind(backend);
+  backend.describe = () =>
+    read ? describe() : { ...describe(), models: [], catalog: { source: 'fallback' as const } };
+  let asked: () => void = () => undefined;
+  const askedForCatalog = new Promise<void>((resolve) => {
+    asked = resolve;
+  });
+  backend.listModels = () =>
+    new Promise((resolve) => {
+      asked();
+      release = () => {
+        read = true;
+        resolve({ models: backend.models, status: { source: 'catalog' } });
+      };
+    });
+  const cycle = await startCycle(state, worktree.id);
+  await withinHangGuard(askedForCatalog, 'the launch asked for the catalog');
+  await controlCycle(state, currentCycle(state, cycle), 'stop');
+  release?.();
+  // The abandoned launch goes on in microtasks once the look settles; one turn of the event
+  // loop lets every one of them run before the launches are counted.
+  await new Promise((resolve) => setImmediate(resolve));
+  await waitFor(() => {
+    const run = state.context.storage.execution.runs.find(
+      state.workspaceId,
+      currentCycle(state, cycle).currentRunId,
+    );
+    return run !== undefined && !['starting', 'running', 'waiting'].includes(run.status);
+  }, 'the launch ended');
+  expect(backend.launches).toHaveLength(0);
+});

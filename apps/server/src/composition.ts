@@ -54,6 +54,7 @@ import { PlanningQueryService } from './services/planning-query-service.js';
 import { RoadmapService } from './services/roadmap-service.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { CheckRequestService } from './services/check-request-service.js';
+import { GitFacts } from './services/git-facts.js';
 import { RefWatch } from './services/ref-watch.js';
 import { RepositoryChecksService } from './services/repository-checks-service.js';
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
@@ -190,7 +191,8 @@ export async function createServices(
             ),
           })
       : (overrides.gitOperations ?? undefined);
-  const gitOperations = unwatchedGit && refWatch.wrap(unwatchedGit);
+  // Ancestry between resolved commits is asked of Git once (R-D5, PERF-09).
+  const gitOperations = unwatchedGit && refWatch.wrap(new GitFacts().wrap(unwatchedGit));
   const backends = new Map<AgentBackendKind, AgentBackend>(
     overrides.agentBackends === 'host' ? [] : overrides.agentBackends,
   );

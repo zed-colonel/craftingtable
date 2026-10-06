@@ -95,7 +95,13 @@ it("re-reads a worktree's branch on worktree, branch, cycle and run events, not 
       />,
     ),
   );
+  // Branch status is read from Git, so only once asked for (R-D5, PERF-09): not on mount, and
+  // not on the events that would re-read it once watched.
   await screen.findByText('Check branch status');
+  await send('branches-changed', { workspaceId: ws });
+  expect(loadWorktreeBranchStatus).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Check branch status' }));
+  await waitFor(() => expect(loadWorktreeBranchStatus).toHaveBeenCalledTimes(1));
   await send('notifications-changed', { workspaceId: ws });
   await send('repository-registered', { workspaceId: ws, repositoryId: 'repo-1' });
   await send('roadmap-changed', { workspaceId: ws, payload: { roadmapId: 'r' } });

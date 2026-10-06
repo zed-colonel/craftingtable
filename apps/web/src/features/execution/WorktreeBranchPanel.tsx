@@ -21,10 +21,14 @@ export function WorktreeBranchPanel({
   canMutate: boolean;
   onChanged: () => void;
 }) {
-  // Read from Git: again on the worktree's events, each minute and after a command (R-D4 4b).
+  // Read from Git, so only once asked for (R-D5, PERF-09); from then on again on the
+  // worktree's events, each minute and after a command (R-D4 4b).
   const store = useQueryStore();
   const key = queryKeys.worktreeBranch(workspaceId, worktree.id);
-  const status = useQuery(key, () => loadWorktreeBranchStatus(workspaceId, worktree.id));
+  const [checked, setChecked] = useState(false);
+  const status = useQuery(checked ? key : undefined, () =>
+    loadWorktreeBranchStatus(workspaceId, worktree.id),
+  );
   const data: WorktreeBranchStatusResponse | undefined = status.data;
   const [branches, setBranches] = useState<readonly string[]>([]);
   const [target, setTarget] = useState(worktree.integrationBranch ?? '');
@@ -40,7 +44,6 @@ export function WorktreeBranchPanel({
         ? status.error.message
         : 'Could not inspect worktree');
   const mutate = (action: 'update' | 'retarget') => {
-    if (!data) return;
     setBusy(true);
     setError(undefined);
     void changeWorktreeBranch(
@@ -48,13 +51,15 @@ export function WorktreeBranchPanel({
       worktree.id,
       action,
       {
-        expectedVersion: action === 'retarget' ? editingVersion : data.worktree.version,
+        expectedVersion:
+          action === 'retarget' ? editingVersion : (data?.worktree.version ?? worktree.version),
         ...(action === 'retarget' ? { integrationBranch: target } : {}),
       },
       csrfToken,
     )
       .then(() => {
         setEditing(false);
+        setChecked(true);
         onChanged();
         store.refreshNow([key]);
       })
@@ -105,7 +110,8 @@ export function WorktreeBranchPanel({
           className="text-button"
           disabled={busy}
           onClick={() => {
-            store.refreshNow([key]);
+            if (checked) store.refreshNow([key]);
+            else setChecked(true);
             onChanged();
           }}
         >
@@ -117,7 +123,7 @@ export function WorktreeBranchPanel({
               <button
                 type="button"
                 className="secondary-button"
-                disabled={busy || !data}
+                disabled={busy}
                 onClick={() => mutate('update')}
               >
                 Update from integration

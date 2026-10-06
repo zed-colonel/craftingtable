@@ -371,15 +371,15 @@ const BUDGET: Record<string, Record<string, number>> = {
     'project-repository-bound': 1,
     'project-repository-binding-retired': 1,
     'source-repository-registered': 1,
-    'worktree-created': 4,
-    'worktree-removed': 4,
+    'worktree-created': 3,
+    'worktree-removed': 3,
     'agent-run-started': 3,
-    'agent-run-status-changed': 4,
+    'agent-run-status-changed': 3,
     'workspace-updated': 2,
     'work-item-completed': 9,
-    'worktree-merged': 9,
-    'work-cycle-changed': 4,
-    'branches-changed': 5,
+    'worktree-merged': 8,
+    'work-cycle-changed': 3,
+    'branches-changed': 4,
   },
   ownWorkItem: {
     'runtime-evidence-changed': 7,
@@ -399,15 +399,15 @@ const BUDGET: Record<string, Record<string, number>> = {
     'project-repository-bound': 1,
     'project-repository-binding-retired': 1,
     'source-repository-registered': 1,
-    'worktree-created': 8,
-    'worktree-removed': 8,
+    'worktree-created': 7,
+    'worktree-removed': 7,
     'agent-run-started': 7,
-    'agent-run-status-changed': 8,
+    'agent-run-status-changed': 7,
     'workspace-updated': 2,
     'work-item-completed': 9,
-    'worktree-merged': 9,
-    'work-cycle-changed': 8,
-    'branches-changed': 9,
+    'worktree-merged': 8,
+    'work-cycle-changed': 7,
+    'branches-changed': 8,
   },
   settings: {
     'runtime-evidence-changed': 3,
@@ -500,8 +500,8 @@ const heading = () => screen.findByRole('heading', { name: /AQ-01 · Alpha work 
 /**
  * The pages measured, and so the reads the budget covers: the dashboard (snapshot, workspaces,
  * attention, cycles, audit, live runs), a work item with a worktree (its detail, worktrees and
- * runs, cycles, slices, plan branches and the repository policy, the worktree's branch,
- * repositories, profiles, agent backends), the settings (notifications, profiles, agent
+ * runs, cycles, slices, plan branches and the repository policy, repositories, profiles,
+ * agent backends; the worktree's branch only once asked for, R-D5), the settings (notifications, profiles, agent
  * backends), the roadmaps list, and the repositories (each one's checks and receipts). Not
  * measured: a roadmap's own views, its runtime evidence and the cross-project map.
  */

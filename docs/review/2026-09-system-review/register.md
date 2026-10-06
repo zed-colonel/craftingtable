@@ -3182,6 +3182,23 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - Both adapters read it.
   - Codex's sandbox cannot allow a single host, so it needs its own route: for example, a daemon-run fetch, or a proxy the daemon owns.
 - **Done when:** A source added in that one place reaches both agents' sandboxes, and nothing else does.
+- **Design, decided by the operator 2026-10-06 (P3 design pass).**
+  - *Today:* the hosts are a constant in the Claude adapter (`claude-code/arguments.ts`), and the writable caches are fixed to the daemon's Cargo home. Codex's sandbox has no network (`codex/arguments.ts`) and cannot write the Cargo caches, yet every brief tells agents to run `cargo fetch` first, so that instruction fails for every Codex run. Codex 0.160.0 appears to offer per-host network permission profiles (seen in its app-server schema and binary, not tried), which contradicts this entry's premise that Codex cannot allow a single host.
+  - *Decisions:*
+    - **Named kinds.** A source is a known kind, for now only `cargo`, with fixed hosts and a daemon-owned cache, plus optional extra exact hosts. A new kind (npm, for example) is added only once the daemon's own checks refuse to trust what agents fetched into its cache, as R-G5 and R-G13 settled for Cargo.
+    - **Configured in a file:** a small JSON file under the settings directory (`~/.config/craftingtable/`), applied at restart. The effective list is shown read-only on Repositories → Tools and noted in each run's journal at launch. Not a settings page.
+    - **Per installation** only, for now.
+    - **Codex `auto` escalations:** its own reviewer may approve a command outside the sandbox, which then has full network. Documented in `docs/security.md` now; the Codex experiment's result goes back to the operator, who chooses between keeping this and switching Codex `auto` to never escalate.
+    - **Claude's WebFetch and WebSearch stay ungated, and that is documented.** Since R-G9 they cannot read the credentials or the database, and limiting them would stop agents reading documentation.
+  - *Change, as separate commits:*
+    1. A Codex experiment, with no product code: a per-run permission profile limiting the network to the source's hosts and writes to the worktree, run directories and cache. If it fails, Codex gets a daemon-run fetch instead (a `ct-fetch` launcher in a confined unit, like `ct-check`).
+    2. `outsideSources` on `AgentLaunchRequest`; the Claude adapter reads it in place of the constant, with no change in behavior.
+    3. Parsing and validation in `config.ts`: known kinds only; exact lowercase host names (no wildcard, IP address, port or apex domain); caches under a daemon-owned root, never overlapping the database, backups or other daemon roots; never read from a worktree.
+    4. Codex receives the same sources by the route step 1 found, including the writable cache.
+    5. The effective list in the execution status and on Repositories → Tools; the journal note at launch.
+    6. `docs/security.md`, `docs/operations.md`.
+  - *Unchanged:* `unrestricted` runs have no sandbox, and read-only runs get no sources.
+  - **Sharper done-when:** with `cargo` the only configured source, sandboxed Claude and Codex runs (`auto` and `edit-only`) each complete `cargo fetch` into the daemon's Cargo home and are both refused `example.com` and a crates.io host not in the kind. Removing the source refuses both. Both adapters' argument tests cover the sources, and a live check per CLI is recorded here. WebFetch, WebSearch and `unrestricted` are out of scope.
 
 ### R-G15
 

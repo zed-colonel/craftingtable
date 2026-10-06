@@ -1022,6 +1022,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
 | R-G10, R-G11, R-H5 | Git adapter robustness, supervisor loose ends, route rationalization. |
 | R-H6 (added 2026-09-24) | Journal cleanup of the empty registry tables. It needs a `workspace_events` rebuild, so it waits for R-H3's preservation tests and should share a rebuild with any other journal change. |
 | R-G6, R-G13 increment 4, R-H4 (rest) (moved from P2, 2026-10-02) | Briefs around the task; check-only manifests (AGT-08); evidence storage as an index row plus a lazily decoded body. |
+| R-G14 (added 2026-09-28; row added 2026-10-06) | Operator-configured outside sources for agent sandboxes: named kinds (`cargo` first) in a settings file, read by both adapters; Codex's route is found by experiment first. |
 
 Exit criteria:
 - From the board, the operator can answer "what is this waiting on, and what does this decision

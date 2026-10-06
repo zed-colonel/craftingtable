@@ -14,6 +14,64 @@ import { type PersistedRecordKind, parseRecord, type RecordGuard } from '../reco
 
 const decode = <K extends PersistedRecordKind>(kind: K, rows: unknown[]) =>
   rows.map((row) => parseRecord(kind, (row as { record_json: string }).record_json));
+
+/**
+ * Decoded evidence submissions, shared by every read on this database (R-D5). A map's
+ * submissions carry their artifacts' contents, megabytes for a live map, and every read of a
+ * work item's slices or a scope's evidence decoded all of them again. Submissions are immutable
+ * and only ever inserted (triggers refuse updates and deletes), so once committed a workspace's
+ * set is named by its count and its newest row; each read checks both through the index, without
+ * parsing a row, and decodes the set again only when they changed. A read inside a write
+ * transaction neither uses nor fills the cache, so a submission that transaction adds and then
+ * rolls back is never kept. The records are frozen: readers share them.
+ */
+export class SubmissionCache {
+  private readonly byWorkspace = new Map<
+    string,
+    { readonly count: number; readonly newest: number; readonly all: readonly EvidenceSubmission[] }
+  >();
+  private writing = 0;
+
+  /** Brackets one (possibly nested) write transaction. */
+  begin(): void {
+    this.writing += 1;
+  }
+  end(): void {
+    this.writing -= 1;
+  }
+
+  /** The workspace's submissions, newest first. */
+  read(db: Database.Database, ws: string): readonly EvidenceSubmission[] {
+    const load = () =>
+      decode(
+        'evidence-submission',
+        db
+          .prepare(
+            'SELECT record_json FROM evidence_submissions WHERE workspace_id=? ORDER BY rowid DESC',
+          )
+          .all(ws),
+      );
+    if (this.writing > 0) return load();
+    const head = db
+      .prepare(
+        'SELECT count(*) AS count, coalesce(max(rowid), 0) AS newest FROM evidence_submissions WHERE workspace_id=?',
+      )
+      .get(ws) as { count: number; newest: number };
+    const cached = this.byWorkspace.get(ws);
+    if (cached?.count === head.count && cached.newest === head.newest) return cached.all;
+    const all = deepFreeze(load());
+    this.byWorkspace.set(ws, { ...head, all });
+    return all;
+  }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
 export interface RuntimeEvidenceRepository {
   nativeApprovals(
     ws: string,
@@ -52,6 +110,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
   constructor(
     private readonly db: Database.Database,
     private readonly guard: RecordGuard,
+    private readonly submissionCache: SubmissionCache = new SubmissionCache(),
   ) {}
   nativeApprovals(
     ws: string,
@@ -136,14 +195,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       .run(v.id, v.workspaceId, v.definitionId, v.bindingRevision, v.generation, JSON.stringify(v));
   }
   submissions(ws: string, definitionId: string): readonly EvidenceSubmission[] {
-    return decode(
-      'evidence-submission',
-      this.db
-        .prepare(
-          "SELECT record_json FROM evidence_submissions WHERE workspace_id=? AND json_extract(record_json,'$.definitionId')=? ORDER BY rowid DESC",
-        )
-        .all(ws, definitionId),
-    );
+    return this.submissionCache.read(this.db, ws).filter((s) => s.definitionId === definitionId);
   }
   submission(ws: string, definitionId: string, id: string): EvidenceSubmission | undefined {
     return decode(

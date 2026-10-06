@@ -22,7 +22,10 @@ describe('service composition', () => {
     try {
       const services = await createServices(
         storage,
-        configFromEnv({ CRAFTINGTABLE_DATA_DIR: directory }),
+        configFromEnv({
+          CRAFTINGTABLE_DATA_DIR: directory,
+          CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+        }),
         { passwordHasher: new FastTestPasswordHasher(), gitOperations: null },
       );
       expect(services.authService).toBeDefined();
@@ -44,7 +47,10 @@ describe('service composition', () => {
       expect(storage.maintenance.settings()).toBeFalsy();
       const services = await createServices(
         storage,
-        configFromEnv({ CRAFTINGTABLE_DATA_DIR: directory }),
+        configFromEnv({
+          CRAFTINGTABLE_DATA_DIR: directory,
+          CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+        }),
         { passwordHasher: new FastTestPasswordHasher(), gitOperations: null },
       );
       expect(storage.maintenance.settings()).toMatchObject({
@@ -74,7 +80,10 @@ describe('service composition', () => {
     const storage = openDaemonStorage(join(directory, 'state.sqlite'));
     const daemon = await createDaemon(
       storage,
-      configFromEnv({ CRAFTINGTABLE_DATA_DIR: directory }),
+      configFromEnv({
+        CRAFTINGTABLE_DATA_DIR: directory,
+        CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+      }),
       {
         overrides: { passwordHasher: new FastTestPasswordHasher(), gitOperations: null },
         server: { logger: false, startWorkers: false },
@@ -97,7 +106,10 @@ describe('service composition', () => {
     let checked = false;
     const daemon = await createDaemon(
       storage,
-      configFromEnv({ CRAFTINGTABLE_DATA_DIR: directory }),
+      configFromEnv({
+        CRAFTINGTABLE_DATA_DIR: directory,
+        CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+      }),
       {
         overrides: { passwordHasher: new FastTestPasswordHasher(), gitOperations: null },
         server: { logger: false, startWorkers: false },

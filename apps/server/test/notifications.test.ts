@@ -26,6 +26,7 @@ import {
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
+import { CredentialFile } from '../src/security/credential-file.js';
 import { ControllerPasses, OperatorPresence } from '../src/services/attention-gates.js';
 import {
   NOTIFICATION_SETTLE_MS,
@@ -194,7 +195,8 @@ async function fixture(
     context.services.operatorPresence,
     now,
     cycleTransitioning,
-    options,
+    // The test daemon's own credentials file, which its routes read too (R-G9).
+    { credentials: new CredentialFile(context.config.configDir), ...options },
   );
   service.save(auth, workspaceId, {
     preferences,
@@ -272,7 +274,7 @@ function restartedService(
     new OperatorPresence(),
     f.now,
     undefined,
-    options,
+    { credentials: new CredentialFile(f.context.config.configDir), ...options },
   );
 }
 function roadmapFixture(f: Fixture, changes: Partial<Roadmap> = {}): Roadmap {
@@ -785,6 +787,28 @@ describe('notification routes and credentials', () => {
     expect(() => f.service.test(viewer, f.workspaceId)).toThrow();
     expect(() => f.service.get(viewer, asWorkspaceId('unrelated'))).toThrow();
   });
+  it('moves credentials stored in the database into the credentials file at start (R-G9)', async () => {
+    const f = await fixture();
+    const file = new CredentialFile(f.context.config.configDir);
+    const stored = f.context.storage.notifications.settings(f.workspaceId)!;
+    file.setPushover(f.workspaceId, undefined);
+    // As a daemon before R-G9 kept them.
+    f.context.storage.transaction((tx) =>
+      tx.notifications.saveSettings({ ...stored, applicationToken: token, userKey: key }),
+    );
+    expect(f.service.adoptStoredCredentials()).toBe(1);
+    expect(file.pushover(f.workspaceId)).toEqual({ applicationToken: token, userKey: key });
+    expect(f.context.storage.notifications.settings(f.workspaceId)).toEqual(stored);
+    expect(f.status().credentialsConfigured).toBe(true);
+    // Nothing left to move; a file entry already there wins over the database's.
+    expect(f.service.adoptStoredCredentials()).toBe(0);
+    f.context.storage.transaction((tx) =>
+      tx.notifications.saveSettings({ ...stored, applicationToken: 'old', userKey: 'old' }),
+    );
+    f.service.adoptStoredCredentials();
+    expect(file.pushover(f.workspaceId)?.applicationToken).toBe(token);
+  });
+
   it('validates settings, prevents stale writes, preserves write-only keys, and keeps secrets out of journals and responses', async () => {
     const f = await fixture();
     const url = `/api/workspaces/${f.workspaceId}/notifications`;
@@ -822,7 +846,15 @@ describe('notification routes and credentials', () => {
       (await f.context.app.inject({ method: 'POST', url, headers: f.headers, payload: body }))
         .statusCode,
     ).toBe(409);
-    expect(f.context.storage.notifications.settings(f.workspaceId)?.applicationToken).toBe(token);
+    // The credentials are kept in the credentials file, never in the database (R-G9).
+    expect(f.context.storage.notifications.settings(f.workspaceId)).toMatchObject({
+      applicationToken: null,
+      userKey: null,
+    });
+    expect(new CredentialFile(f.context.config.configDir).pushover(f.workspaceId)).toEqual({
+      applicationToken: token,
+      userKey: key,
+    });
     const audit = f.context.storage.audit.listWorkspace({ workspaceId: f.workspaceId, limit: 100 });
     const events = f.context.storage.workspaceEvents.listAfter({
       workspaceId: f.workspaceId,
@@ -843,6 +875,15 @@ describe('notification routes and credentials', () => {
     expect(JSON.stringify(f.context.storage.attention.deliveries(f.workspaceId, 10))).not.toContain(
       token,
     );
+    // A save refused for clearing the credentials of enabled notifications leaves them be.
+    expect(() =>
+      f.service.save(f.auth, f.workspaceId, {
+        preferences: { ...preferences, enabled: true },
+        expectedVersion: f.status().version,
+        clearCredentials: true,
+      }),
+    ).toThrow(/credentials/);
+    expect(f.status().credentialsConfigured).toBe(true);
     f.service.save(f.auth, f.workspaceId, {
       preferences: { ...preferences, enabled: false },
       expectedVersion: f.status().version,
@@ -2037,7 +2078,7 @@ describe('durable attention items (R-A4)', () => {
       new OperatorPresence(),
       f.now,
       undefined,
-      scheduling,
+      { credentials: new CredentialFile(f.context.config.configDir), ...scheduling },
     );
     try {
       await service.tick();

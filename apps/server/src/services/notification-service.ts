@@ -16,6 +16,7 @@ import type {
   StorageRepositories,
   StoredNotificationSettings,
 } from '@craftingtable/storage';
+import { MemoryCredentials, type PushoverCredentialStore } from '../security/credential-file.js';
 import type { ControllerPasses, OperatorPresence } from './attention-gates.js';
 import { inboxPath } from './attention-service.js';
 import type { AuthContext } from './auth-service.js';
@@ -69,6 +70,8 @@ export interface AttentionSource {
 }
 
 export interface NotificationServiceOptions {
+  /** Where the Pushover credentials are kept (R-G9): the daemon's credentials file. */
+  readonly credentials?: PushoverCredentialStore;
   readonly settleMs?: number;
   readonly presenceGraceMs?: number;
   readonly presenceWindowMs?: number;
@@ -82,6 +85,7 @@ export class NotificationService {
   private readonly abort = new AbortController();
   private worker: Promise<void> | undefined;
   private ticking: Promise<void> | undefined;
+  private readonly credentials: PushoverCredentialStore;
   private readonly settleMs: number;
   private readonly presenceGraceMs: number;
   private readonly presenceWindowMs: number;
@@ -102,10 +106,37 @@ export class NotificationService {
       false,
     options: NotificationServiceOptions = {},
   ) {
+    this.credentials = options.credentials ?? new MemoryCredentials();
     this.settleMs = options.settleMs ?? NOTIFICATION_SETTLE_MS;
     this.bootedAt = now().getTime();
     this.presenceGraceMs = options.presenceGraceMs ?? PRESENCE_GRACE_MS;
     this.presenceWindowMs = options.presenceWindowMs ?? PRESENCE_WINDOW_MS;
+  }
+
+  /**
+   * Moves Pushover credentials still in the database into the credentials file, at start
+   * (R-G9). One the file already holds for that workspace is kept; the database's are cleared
+   * either way. The settings' version is unchanged: what they say has not.
+   */
+  adoptStoredCredentials(): number {
+    let moved = 0;
+    this.storage.transaction((tx) => {
+      for (const settings of tx.notifications.listSettings()) {
+        if (settings.applicationToken === null && settings.userKey === null) continue;
+        if (
+          settings.applicationToken &&
+          settings.userKey &&
+          this.credentials.pushover(settings.workspaceId) === undefined
+        )
+          this.credentials.setPushover(settings.workspaceId, {
+            applicationToken: settings.applicationToken,
+            userKey: settings.userKey,
+          });
+        tx.notifications.saveSettings({ ...settings, applicationToken: null, userKey: null });
+        moved += 1;
+      }
+    });
+    return moved;
   }
 
   get(context: AuthContext, workspaceId: WorkspaceId): NotificationStatus {
@@ -151,7 +182,7 @@ export class NotificationService {
     return {
       preferences: settings?.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES,
       version: settings?.version ?? 0,
-      credentialsConfigured: Boolean(settings?.applicationToken && settings.userKey),
+      credentialsConfigured: this.credentials.pushover(workspaceId) !== undefined,
       blockedReason: settings?.blockedReason ?? null,
       retryAt: settings?.retryAt ?? null,
       // Open items first, then by last activity, so a current alert is never pushed off (NOTIF-07).
@@ -178,10 +209,11 @@ export class NotificationService {
           'conflict',
           'Notification settings changed. Reload settings before saving.',
         );
+      const held = this.credentials.pushover(workspaceId);
       const applicationToken = input.clearCredentials
         ? null
-        : (input.applicationToken ?? previous?.applicationToken ?? null);
-      const userKey = input.clearCredentials ? null : (input.userKey ?? previous?.userKey ?? null);
+        : (input.applicationToken ?? held?.applicationToken ?? null);
+      const userKey = input.clearCredentials ? null : (input.userKey ?? held?.userKey ?? null);
       if (input.preferences.enabled && !(applicationToken && userKey))
         throw new ExecutionRequestError(
           'invalid-request',
@@ -191,8 +223,9 @@ export class NotificationService {
         workspaceId,
         ownerUserId: context.user.id,
         preferences: input.preferences,
-        applicationToken,
-        userKey,
+        // The credentials are kept in the credentials file, never the database (R-G9).
+        applicationToken: null,
+        userKey: null,
         version: input.expectedVersion + 1,
         blockedReason: null,
         retryAt: null,
@@ -220,6 +253,12 @@ export class NotificationService {
       for (const record of tx.notifications.records(workspaceId, true))
         if (record.failures > 0) tx.notifications.saveRecord({ ...record, nextAttemptAt: now });
       this.journal(tx, workspaceId, 'settings', context);
+      // Last, so a save the database refuses changes no credentials; a file that cannot be
+      // written fails the save.
+      this.credentials.setPushover(
+        workspaceId,
+        applicationToken && userKey ? { applicationToken, userKey } : undefined,
+      );
     });
     this.notifier.notify('activity');
     return this.get(context, workspaceId);
@@ -228,7 +267,7 @@ export class NotificationService {
     this.workspaces.requireRole(context, workspaceId, ['owner']);
     this.storage.transaction((tx) => {
       const settings = tx.notifications.settings(workspaceId);
-      if (!settings?.applicationToken || !settings.userKey)
+      if (!settings || this.credentials.pushover(workspaceId) === undefined)
         throw new ExecutionRequestError('invalid-request', 'Save your Pushover credentials first.');
       if (
         tx.notifications
@@ -384,8 +423,7 @@ export class NotificationService {
       if (
         !settings ||
         !this.authorized(tx, settings) ||
-        !settings.applicationToken ||
-        !settings.userKey ||
+        this.credentials.pushover(workspaceId) === undefined ||
         settings.blockedReason ||
         (settings.retryAt !== null && settings.retryAt > this.now().toISOString())
       )
@@ -439,13 +477,15 @@ export class NotificationService {
         const claim = this.claim(initial.workspaceId);
         if (claim === undefined) break;
         const settings = this.storage.notifications.settings(initial.workspaceId)!;
+        const credentials = this.credentials.pushover(settings.workspaceId);
         const message = this.message(settings.workspaceId, claim);
         let delivery: DeliveryResult;
         try {
+          if (credentials === undefined) throw new Error('The Pushover credentials were removed.');
           delivery = await this.transport.send(
             {
-              applicationToken: settings.applicationToken as string,
-              userKey: settings.userKey as string,
+              applicationToken: credentials.applicationToken,
+              userKey: credentials.userKey,
               device: settings.preferences.device,
               ...message,
               url: new URL(message.path, this.publicOrigin).href,

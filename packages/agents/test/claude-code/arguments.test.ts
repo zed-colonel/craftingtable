@@ -104,6 +104,21 @@ it("keeps the sandbox off the network, the Docker socket and the operator's cred
   expect(settings('edit-only').autoAllowBashIfSandboxed).toBe(false);
 });
 
+it("keeps the daemon's own files out of the sandbox's reach: its database, backups and credentials (R-G9)", () => {
+  const args = claudeCodeArguments({
+    cwd: '/work/x',
+    prompt: 'Go',
+    permissionMode: 'auto',
+    deniedReads: ['/data/state', '/data/backups', '/home/op/.config/craftingtable'],
+  });
+  const { denyRead } = JSON.parse(args[args.indexOf('--settings') + 1]!).sandbox.filesystem;
+  expect(denyRead).toEqual(
+    expect.arrayContaining(['/data/state', '/data/backups', '/home/op/.config/craftingtable']),
+  );
+  // The operator's credentials stay denied beside them.
+  expect(denyRead).toEqual(expect.arrayContaining(['~/.ssh', '~/.claude/.credentials.json']));
+});
+
 it('confines Bash in the OS sandbox on every posture but unrestricted, with no way out (R-G5, SEC-02)', () => {
   const settings = (request: Partial<Parameters<typeof claudeCodeArguments>[0]>) => {
     const args = claudeCodeArguments({

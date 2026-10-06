@@ -517,6 +517,8 @@ export async function replaySchedulerDecisions(
     );
     const config = configFromEnv({
       CRAFTINGTABLE_DATA_DIR: dataDir,
+      // Its own credentials file, never the operator's (R-G9).
+      CRAFTINGTABLE_CONFIG_DIR: join(dataDir, 'config'),
       CRAFTINGTABLE_PUBLIC_ORIGIN: 'http://127.0.0.1:5173',
       CRAFTINGTABLE_LOG_LEVEL: 'silent',
       CRAFTINGTABLE_WEB_DIST: '',

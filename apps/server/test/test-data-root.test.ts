@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -11,6 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { confinedCheckArguments } from '@craftingtable/agents';
 import { afterEach, expect, inject, it } from 'vitest';
 import {
@@ -250,4 +252,38 @@ it("passes the configuration's root refusals for test daemons under the chosen r
     configFromEnv({ CRAFTINGTABLE_DATA_DIR: data, CRAFTINGTABLE_AGENT_TMP_ROOT: own }).execution
       .agentTemporaryRoot,
   ).toBe(own);
+});
+
+it("never builds a daemon over the operator's settings directory (R-G9)", () => {
+  // A daemon reads and writes its credentials file under the settings directory, which
+  // defaults to the operator's `~/.config/craftingtable`. Every test that builds one from a
+  // configuration of its own names a directory of its own (or takes the e2e environment's).
+  const tests = fileURLToPath(new URL('.', import.meta.url));
+  const offenders: string[] = [];
+  const files = (directory: string): string[] =>
+    readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory()
+        ? files(join(directory, entry.name))
+        : entry.name.endsWith('.ts')
+          ? [join(directory, entry.name)]
+          : [],
+    );
+  for (const file of files(tests)) {
+    const source = readFileSync(file, 'utf8');
+    if (!/\b(createRuntime|createDaemon|createServices|startDaemon)\(/.test(source)) continue;
+    for (const call of source.matchAll(/configFromEnv\(\{/g)) {
+      let depth = 0;
+      let end = call.index + 'configFromEnv('.length;
+      for (; end < source.length; end++) {
+        if (source[end] === '{') depth++;
+        if (source[end] === '}' && --depth === 0) break;
+      }
+      const settings = source.slice(call.index, end);
+      if (!/CRAFTINGTABLE_CONFIG_DIR|e2eEnvironment\(/.test(settings))
+        offenders.push(
+          `${file.slice(tests.length)}:${source.slice(0, call.index).split('\n').length}`,
+        );
+    }
+  }
+  expect(offenders).toEqual([]);
 });

@@ -9,9 +9,11 @@ import {
   workspaceListResponseSchema,
   workspaceSnapshotResponseSchema,
 } from '@craftingtable/contracts';
+import { DEFAULT_NOTIFICATION_PREFERENCES } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type CraftingTableRuntime, createRuntime } from '../src/composition.js';
 import { CSRF_HEADER_NAME, configFromEnv } from '../src/config.js';
+import { CredentialFile } from '../src/security/credential-file.js';
 import { buildMultipartBody } from './multipart-test-support.js';
 import {
   FastTestPasswordHasher,
@@ -38,6 +40,8 @@ describe('daemon restart reconstruction', () => {
     directories.push(directory);
     const config = configFromEnv({
       CRAFTINGTABLE_DATA_DIR: directory,
+      // Its own credentials file, never the operator's (R-G9).
+      CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
       CRAFTINGTABLE_LOG_LEVEL: 'silent',
     });
     const passwordHasher = new FastTestPasswordHasher();
@@ -170,11 +174,56 @@ describe('daemon restart reconstruction', () => {
     expect(workItem.workItem.readiness).toBe('active');
   });
 
+  it('moves Pushover credentials kept in the database into the credentials file when it starts (R-G9)', async () => {
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-restart-credentials-'));
+    directories.push(directory);
+    const config = configFromEnv({
+      CRAFTINGTABLE_DATA_DIR: directory,
+      CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+      CRAFTINGTABLE_LOG_LEVEL: 'silent',
+    });
+    const options = {
+      logger: false,
+      overrides: { passwordHasher: new FastTestPasswordHasher(), agentBackends: NO_AGENTS },
+    } as const;
+    const first = await createRuntime(config, options);
+    runtimes.push(first);
+    await first.services.bootstrapService.bootstrap(TEST_USERNAME, TEST_PASSWORD);
+    const owner = first.storage.users.findByNormalizedUsername(TEST_USERNAME)!;
+    const workspaceId = first.storage.workspaces.listAuthorized(owner.id)[0]!.workspace.id;
+    // As a daemon before R-G9 kept them.
+    const credentials = { applicationToken: 'a'.repeat(30), userKey: 'u'.repeat(30) };
+    first.storage.transaction((tx) =>
+      tx.notifications.saveSettings({
+        workspaceId,
+        ownerUserId: owner.id,
+        preferences: DEFAULT_NOTIFICATION_PREFERENCES,
+        ...credentials,
+        version: 1,
+        blockedReason: null,
+        retryAt: null,
+      }),
+    );
+    await first.close();
+    runtimes.splice(runtimes.indexOf(first), 1);
+
+    const second = await createRuntime(config, options);
+    runtimes.push(second);
+    expect(new CredentialFile(config.configDir).pushover(workspaceId)).toEqual(credentials);
+    expect(second.storage.notifications.settings(workspaceId)).toMatchObject({
+      applicationToken: null,
+      userKey: null,
+      version: 1,
+    });
+  });
+
   it('reopens the same database with user, session, audit, event, and snapshot state', async () => {
     const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-restart-test-'));
     directories.push(directory);
     const config = configFromEnv({
       CRAFTINGTABLE_DATA_DIR: directory,
+      // Its own credentials file, never the operator's (R-G9).
+      CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
       CRAFTINGTABLE_LOG_LEVEL: 'silent',
     });
     const passwordHasher = new FastTestPasswordHasher();

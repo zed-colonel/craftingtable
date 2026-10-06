@@ -1,7 +1,12 @@
 import { chmodSync } from 'node:fs';
 import type Database from 'better-sqlite3';
 import { openDatabase } from './database.js';
-import { discoverMigrations, runMigrations, snapshotBeforeMigration } from './migrations.js';
+import {
+  discoverMigrations,
+  retirePreMigrationSnapshots,
+  runMigrations,
+  snapshotBeforeMigration,
+} from './migrations.js';
 import {
   RETIRED_TABLES,
   type ScannedRecord,
@@ -218,6 +223,7 @@ export function openCraftingTableStorage(
   const database = openDatabase(databasePath);
   try {
     const migrations = discoverMigrations();
+    retirePreMigrationSnapshots(databasePath);
     snapshotBeforeMigration(database, databasePath, migrations);
     const status = runMigrations(database, migrations);
     return new SqliteCraftingTableStorage(databasePath, database, status, guard);

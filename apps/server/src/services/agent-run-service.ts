@@ -1866,6 +1866,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
                 })
             : brief) + declared;
         const launch: AgentLaunchRequest = {
+          // The daemon's database, backups and credentials, unreadable to sandboxed commands.
+          deniedReads: this.config.protectedReads ?? [],
           ...(pinned
             ? { buildEnvironment: { binDirectory: pinned.binDirectory, namespace: runId } }
             : {}),

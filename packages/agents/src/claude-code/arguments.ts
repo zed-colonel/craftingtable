@@ -84,6 +84,8 @@ function sandboxDeniedReads(request: AgentLaunchRequest): string[] {
     // Cargo's registry tokens, which would let a command publish or yank as the operator.
     join(cargoHome(request), 'credentials.toml'),
     join(cargoHome(request), 'credentials'),
+    // The daemon's database, its copies and the credentials file (R-G9).
+    ...(request.deniedReads ?? []),
   ];
 }
 

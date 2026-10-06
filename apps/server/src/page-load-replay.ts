@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import type { AgentBackend } from '@craftingtable/agents';
@@ -160,6 +161,8 @@ export async function replayPageLoads(
   const storage = openDaemonStorage(database);
   const config = configFromEnv({
     CRAFTINGTABLE_DATA_DIR: dataDir,
+    // Its own credentials file, never the operator's (R-G9).
+    CRAFTINGTABLE_CONFIG_DIR: join(dataDir, 'config'),
     CRAFTINGTABLE_PUBLIC_ORIGIN: 'http://127.0.0.1:5173',
     CRAFTINGTABLE_LOG_LEVEL: 'silent',
     CRAFTINGTABLE_WEB_DIST: '',

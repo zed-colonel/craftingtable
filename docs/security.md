@@ -147,7 +147,8 @@ crates.io's index over HTTPS, runs offline, and cannot see the shared one; opera
 registry's index and downloads (`index.crates.io`, `static.crates.io`, a strict allowlist, so
 that `cargo fetch` can download dependencies; operator decision 2026-09-28; not the `crates.io`
 API, which publishes), unable to read Cargo's registry tokens, the user's runtime directory (the rootless Docker socket
-and session bus), system Docker sockets or the operator's credentials, and with no way to leave
+and session bus), system Docker sockets, the operator's credentials, or the daemon's database,
+backups and credentials file (R-G9), and with no way to leave
 it. Claude loads no settings file from any scope, not even the repository's, so a worktree cannot
 widen its sandbox or add hooks. Claude's Edit and Write tools stay under the permission posture,
 and the network allowlist gates sandboxed commands only: Claude Code's own in-process tools
@@ -212,12 +213,20 @@ a test; mutation routes retain session, CSRF, and origin checks. Background deli
 rechecks the configuring owner's active account, active workspace, and current owner
 membership. Session expiry or logout does not revoke that standing configuration.
 
-Application tokens and user keys are write-only and stored as plaintext in the existing
-private SQLite database (0700 data directory, 0600 database). They are omitted from API
-responses, audit metadata, workspace events, logs, briefs, and spawned-agent environments.
-This uses the existing OS-user trust boundary: a process running with that user's full
-filesystem authority can read the database. Backups require the same care. Clearing
-credentials removes the active values but does not securely erase SQLite pages or backups.
+Application tokens and user keys are write-only and kept in plaintext in `credentials.json`
+under the operator's settings directory (`~/.config/craftingtable`, or
+`CRAFTINGTABLE_CONFIG_DIR`), mode 0600 in a 0700 directory, outside the database and so outside
+its backups and copies (R-G9). A daemon moves any still in the database there when it starts.
+They are omitted from API responses, audit metadata, workspace events, logs, briefs, and
+spawned-agent environments. This uses the existing OS-user trust boundary: a process running
+with that user's full filesystem authority can read the file. Sandboxed Claude commands cannot:
+the file's directory, the database directory (with its pre-migration copies) and the backups are
+among their denied reads. A Codex run, or a Claude run with the unrestricted posture, runs as the
+operator and can read them. Database copies made before R-G9 may still hold credentials; clearing
+credentials does not securely erase SQLite pages or older backups.
+
+The daemon keeps one pre-migration copy of the database (the newest), removes copies older than
+14 days at every start, and writes each 0600 (R-G9).
 
 The daemon sends only to Pushover's fixed HTTPS endpoint, rejects redirects, bounds the
 response, and times out requests. Notifications expose project/item names, short workflow

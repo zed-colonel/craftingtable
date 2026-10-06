@@ -255,6 +255,23 @@ it('requires authentication, CSRF, and ownership of every workspace; rejects arb
     (await s.context.app.inject({ method: 'GET', url: s.url, headers: s.headers })).statusCode,
   ).toBe(403);
 });
+it("keeps the backups out of a sandboxed command's reach wherever they are moved (R-G9)", async () => {
+  const s = await runFixture();
+  // The default backups sit in the data directory, denied once.
+  expect(s.service.executionConfig.protectedReads).toEqual(
+    s.context.config.execution.protectedReads,
+  );
+  const old = s.service.get(s.auth, s.workspaceId);
+  const backupRoot = join(s.context.directory, 'elsewhere-backups');
+  s.service.save(s.auth, s.workspaceId, {
+    expectedVersion: old.version,
+    policy: { ...old.policy, backupRoot },
+  });
+  expect(s.service.executionConfig.protectedReads).toEqual([
+    ...(s.context.config.execution.protectedReads ?? []),
+    backupRoot,
+  ]);
+});
 it('changes future placement durably while old run paths and merge scratch stay fixed', async () => {
   const s = await runFixture();
   const old = s.service.get(s.auth, s.workspaceId);

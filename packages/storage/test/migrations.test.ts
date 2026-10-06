@@ -1,6 +1,8 @@
 import {
+  chmodSync,
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -20,10 +22,13 @@ import {
   type MigrationValidationError,
   migrationStatus,
   PRE_MIGRATION_SNAPSHOTS_KEPT,
+  retirePreMigrationSnapshots,
   runMigrations,
   snapshotBeforeMigration,
 } from '../src/migrations.js';
-import { testDataRoot } from './test-support.js';
+import { acceptAnyRecord } from '../src/records.js';
+import { openCraftingTableStorage } from '../src/storage.js';
+import { temporaryStorage, testDataRoot } from './test-support.js';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -410,5 +415,40 @@ describe('pre-migration snapshots (R-B9)', () => {
     runMigrations(database, migrations);
     expect(snapshotBeforeMigration(database, path, migrations, clock)).toBeUndefined();
     database.close();
+  });
+
+  it('keeps only the newest copy, and at every start drops copies over 14 days old and makes the rest private (R-G9)', () => {
+    expect(PRE_MIGRATION_SNAPSHOTS_KEPT).toBe(1);
+    const path = databasePath();
+    const directory = join(path, '..', 'pre-migration');
+    mkdirSync(directory, { recursive: true });
+    const copy = (stamp: string) => {
+      const file = join(directory, `craftingtable-schema-35-${stamp}.sqlite`);
+      writeFileSync(file, 'copy', { mode: 0o644 });
+      chmodSync(file, 0o644);
+      return file;
+    };
+    const old = copy('2026-09-20T00-00-00-000Z');
+    const recent = copy('2026-10-01T00-00-00-000Z');
+    const unrelated = join(directory, 'notes.txt');
+    writeFileSync(unrelated, 'kept');
+    retirePreMigrationSnapshots(path, () => new Date('2026-10-05T12:00:00.000Z'));
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(recent)).toBe(true);
+    expect(statSync(recent).mode & 0o777).toBe(0o600);
+    expect(existsSync(unrelated)).toBe(true);
+    // No directory yet: nothing to do.
+    expect(() => retirePreMigrationSnapshots(databasePath())).not.toThrow();
+  });
+
+  it('retires old copies whenever the database is opened (R-G9)', () => {
+    const storage = temporaryStorage();
+    const directory = join(storage.databasePath, '..', 'pre-migration');
+    mkdirSync(directory, { recursive: true });
+    const old = join(directory, 'craftingtable-schema-30-2020-01-01T00-00-00-000Z.sqlite');
+    writeFileSync(old, 'copy');
+    openCraftingTableStorage(storage.databasePath, acceptAnyRecord).close();
+    expect(existsSync(old)).toBe(false);
+    storage.cleanup();
   });
 });

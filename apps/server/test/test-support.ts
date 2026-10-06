@@ -86,6 +86,8 @@ export async function createTestContext(
   const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-server-test-'));
   const config = configFromEnv({
     CRAFTINGTABLE_DATA_DIR: directory,
+    // Its own credentials file, never the operator's (R-G9).
+    CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
     CRAFTINGTABLE_PUBLIC_ORIGIN: options.publicOrigin ?? 'http://127.0.0.1:5173',
     CRAFTINGTABLE_LOG_LEVEL: 'silent',
     // Fixture repositories are made under the temporary directory and the test data root (R-G9).

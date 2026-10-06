@@ -26,6 +26,11 @@ export interface ExecutionConfig {
    * repositories already registered keep working.
    */
   readonly repositoryRoots?: readonly string[];
+  /**
+   * The daemon's own files no sandboxed agent command may read (R-G9): the database directory
+   * (its pre-migration copies included), the backups, and the credentials directory.
+   */
+  readonly protectedReads?: readonly string[];
   /** `id=Label,id=Label` model options for the launch form; absent means the built-in list. */
   readonly claudeModels?: string;
   readonly codexModels?: string;
@@ -88,6 +93,11 @@ export interface ServerConfig {
   readonly logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   readonly execution: ExecutionConfig;
   /**
+   * The operator's settings directory, which holds the credentials file (R-G9):
+   * `CRAFTINGTABLE_CONFIG_DIR`, or `craftingtable` under the XDG config home.
+   */
+  readonly configDir: string;
+  /**
    * How long a stop waits for live agent turns to finish before interrupting them for an
    * automatic resume after restart (R-B9). The service manager's stop timeout must exceed it.
    */
@@ -116,6 +126,18 @@ const LOG_LEVELS = new Set<ServerConfig['logLevel']>([
   'trace',
   'silent',
 ]);
+
+/** The daemon's settings directory (R-G9), like `dataDirectory` under the XDG config home. */
+export function configDirectory(env: NodeJS.ProcessEnv): string {
+  const override = env.CRAFTINGTABLE_CONFIG_DIR;
+  if (override !== undefined) {
+    if (!isAbsolute(override)) throw new Error('CRAFTINGTABLE_CONFIG_DIR must be an absolute path');
+    return override;
+  }
+  const xdg = env.XDG_CONFIG_HOME;
+  const base = xdg !== undefined && isAbsolute(xdg) ? xdg : join(homedir(), '.config');
+  return join(base, 'craftingtable');
+}
 
 /** The daemon's data directory: `CRAFTINGTABLE_DATA_DIR`, or `craftingtable` under the XDG data home. */
 export function dataDirectory(env: NodeJS.ProcessEnv): string {
@@ -542,7 +564,15 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
   }
 
   const dataDir = dataDirectory(env);
-  const execution = executionConfig(env, dataDir);
+  const configDir = configDirectory(env);
+  const execution: ExecutionConfig = Object.freeze({
+    ...executionConfig(env, dataDir),
+    protectedReads: [
+      join(dataDir, DATABASE_DIRECTORY),
+      join(dataDir, DATABASE_BACKUP_DIRECTORY),
+      configDir,
+    ],
+  });
   return {
     host,
     port,
@@ -557,6 +587,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     sessionIdleSeconds,
     logLevel: configuredLogLevel as ServerConfig['logLevel'],
     execution,
+    configDir,
     drainTimeoutMs: drainTimeoutSeconds * 1000,
   };
 }

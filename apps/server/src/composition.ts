@@ -24,6 +24,7 @@ import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
+import { CredentialFile } from './security/credential-file.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
 import { type BuildServerOptions, buildServer } from './server.js';
@@ -404,6 +405,8 @@ export async function createServices(
       operatorPresence,
       now,
       (id, workspaceId) => workCycleService.holdsReminders(workspaceId, id),
+      // The operator's credentials file, outside the database (R-G9).
+      { credentials: new CredentialFile(config.configDir) },
     ),
     attention,
     controllerPasses,
@@ -493,6 +496,8 @@ export async function createDaemon(
   options: DaemonOptions = {},
 ): Promise<CraftingTableRuntime> {
   const services = await createServices(storage, config, options.overrides);
+  // Pushover credentials still in the database move to the credentials file (R-G9).
+  services.notificationService.adoptStoredCredentials();
   const app = buildServer(
     {
       crossProjectService: services.crossProjectService,

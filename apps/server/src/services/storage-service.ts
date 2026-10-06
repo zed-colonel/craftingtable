@@ -117,6 +117,15 @@ export class StorageService {
     const self = this;
     this.executionConfig = {
       ...config.execution,
+      // The backup root is a setting, so where the backups are is read at each launch (R-G9).
+      get protectedReads() {
+        return [
+          ...new Set([
+            ...(config.execution.protectedReads ?? []),
+            self.settings.roots.backupRoot.path,
+          ]),
+        ];
+      },
       get worktreeRoot() {
         self.requireSpace('worktreeRoot');
         return self.settings.roots.worktreeRoot.path;

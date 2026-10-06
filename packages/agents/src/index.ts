@@ -52,6 +52,11 @@ import type {
 export interface AgentLaunchRequest {
   /** Controller-only preparation: disable write and escalation tools. */
   readonly readOnly?: boolean;
+  /**
+   * The daemon's own files no sandboxed command may read (R-G9): its database and the copies of
+   * it, and the credentials file. An agent outside a sandbox runs as the operator and can.
+   */
+  readonly deniedReads?: readonly string[];
   /** Where the run's launchers are; the daemon puts them on `pathPrefix`. */
   readonly buildEnvironment?: { readonly binDirectory: string; readonly namespace?: string };
   /**

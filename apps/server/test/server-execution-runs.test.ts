@@ -414,6 +414,14 @@ describe('agent runs', () => {
     expect(launch?.additionalDirectories?.[0]).toBe(
       join(state.context.config.execution.runsRoot, run.id),
     );
+    // The daemon's database, backups and credentials stay out of a sandboxed command's reach,
+    // wherever the backups were moved to (R-G9).
+    const { dataDir, configDir } = state.context.config;
+    expect(launch?.deniedReads).toEqual([
+      join(dataDir, 'state'),
+      join(dataDir, 'backups'),
+      configDir,
+    ]);
 
     await waitFor(
       () =>

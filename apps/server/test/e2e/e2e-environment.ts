@@ -1,4 +1,5 @@
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 /**
  * The e2e daemon's configuration (R-I9): a fresh data directory and fixed test settings, plus
@@ -12,6 +13,8 @@ export function e2eEnvironment(
 ): Record<string, string> {
   return {
     CRAFTINGTABLE_DATA_DIR: directory,
+    // Its own credentials file, never the operator's (R-G9).
+    CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
     CRAFTINGTABLE_HOST: '127.0.0.1',
     // Defaults match `playwright.config.ts`, away from the 4600/5173 an operator
     // daemon or `pnpm dev` uses; Playwright passes both explicitly.

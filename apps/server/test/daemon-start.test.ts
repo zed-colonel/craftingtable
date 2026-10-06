@@ -26,14 +26,18 @@ const directory = (prefix: string): string => {
 };
 
 /** A daemon's configuration as the operator's unit gives it, with its own data directory. */
-const daemonConfig = (agentRoot: string) =>
-  configFromEnv({
-    CRAFTINGTABLE_DATA_DIR: directory('craftingtable-start-'),
+const daemonConfig = (agentRoot: string) => {
+  const data = directory('craftingtable-start-');
+  return configFromEnv({
+    CRAFTINGTABLE_DATA_DIR: data,
+    // Its own credentials file, never the operator's (R-G9).
+    CRAFTINGTABLE_CONFIG_DIR: join(data, 'config'),
     CRAFTINGTABLE_AGENT_TMP_ROOT: agentRoot,
     CRAFTINGTABLE_LOG_LEVEL: 'silent',
     CRAFTINGTABLE_WEB_DIST: '',
     CRAFTINGTABLE_CHECK_CONFINEMENT: 'none',
   });
+};
 
 it("refuses a second daemon on another daemon's agents' temporary root before its start sweeps it (R-G5)", async () => {
   const root = directory('cta-');

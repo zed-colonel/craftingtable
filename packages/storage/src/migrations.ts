@@ -197,9 +197,41 @@ export function runMigrations(
   return migrationStatus(database, migrations);
 }
 
-/** Pre-migration snapshots kept per database directory; older ones are removed. */
-export const PRE_MIGRATION_SNAPSHOTS_KEPT = 3;
+/**
+ * Pre-migration snapshots kept per database directory: the newest only, and none older than
+ * `PRE_MIGRATION_SNAPSHOT_DAYS` (R-G9; operator decision 2026-10-05). Each is a full copy of the
+ * database, credentials' former home included, so fewer copies are fewer to protect.
+ */
+export const PRE_MIGRATION_SNAPSHOTS_KEPT = 1;
+export const PRE_MIGRATION_SNAPSHOT_DAYS = 14;
 const SNAPSHOT_FILE = /^craftingtable-schema-\d+-[0-9TZ-]+\.sqlite$/;
+
+/** When a snapshot was taken, from its name (`…-2026-09-23T12-00-00-000Z.sqlite`). */
+function snapshotTakenAt(name: string): number {
+  const stamp = name
+    .replace(/^craftingtable-schema-\d+-/, '')
+    .replace(/\.sqlite$/, '')
+    .replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, 'T$1:$2:$3.$4Z');
+  return Date.parse(stamp);
+}
+
+/**
+ * At every start: removes the pre-migration snapshots older than `PRE_MIGRATION_SNAPSHOT_DAYS`
+ * and makes the rest readable only by the operator (R-G9). Other files are left alone.
+ */
+export function retirePreMigrationSnapshots(
+  databasePath: string,
+  now: () => Date = () => new Date(),
+): void {
+  const directory = join(dirname(databasePath), 'pre-migration');
+  if (!existsSync(directory)) return;
+  const cutoff = now().getTime() - PRE_MIGRATION_SNAPSHOT_DAYS * 86_400_000;
+  for (const name of readdirSync(directory).filter((entry) => SNAPSHOT_FILE.test(entry))) {
+    const path = join(directory, name);
+    if (snapshotTakenAt(name) < cutoff) rmSync(path, { force: true });
+    else chmodSync(path, 0o600);
+  }
+}
 
 /**
  * Copies a populated database aside before pending migrations change it (HIST-13, R-B9).

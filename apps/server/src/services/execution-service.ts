@@ -35,8 +35,8 @@ import {
   latestSliceMerge,
 } from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import {
   type AgentRun,
   type AgentRunId,
@@ -435,6 +435,28 @@ export class ExecutionService {
     return this.storage.execution.sourceRepositories.list(workspaceId);
   }
 
+  /** Refuses a path that is not inside one of `CRAFTINGTABLE_REPOSITORY_ROOTS`, links resolved. */
+  private requireUnderRepositoryRoots(path: string): void {
+    const real = (value: string) => {
+      try {
+        return realpathSync(value);
+      } catch {
+        return resolve(value);
+      }
+    };
+    const target = real(path);
+    const inside = (this.config.repositoryRoots ?? []).some((root) => {
+      const base = real(root);
+      return target === base || target.startsWith(base.endsWith(sep) ? base : `${base}${sep}`);
+    });
+    if (!inside)
+      throw new ExecutionRequestError(
+        'invalid-request',
+        'Repositories can be registered only under CRAFTINGTABLE_REPOSITORY_ROOTS',
+        { reason: 'repository-outside-roots' },
+      );
+  }
+
   async registerRepository(
     context: AuthContext,
     workspaceId: WorkspaceId,
@@ -444,6 +466,9 @@ export class ExecutionService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
+    // Only under the configured roots (R-G9), checked before Git reads the path. Inspection
+    // takes only a repository's top level, so this is the repository's own place, links resolved.
+    this.requireUnderRepositoryRoots(input.rootPath);
     const inspection = await this.requireGit().inspectRepository(input.rootPath);
     if (!inspection.ok) {
       throw new ExecutionRequestError('invalid-request', inspection.failure.message);

@@ -46,6 +46,23 @@ describe('configFromEnv', () => {
     expect(retiredSettings({ CRAFTINGTABLE_GIT_EXECUTABLE: '/usr/bin/git' })).toEqual([]);
   });
 
+  it('reads the repository roots, absolute and colon-separated, and none by default (R-G9)', () => {
+    const base = { CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable' };
+    expect(configFromEnv(base).execution.repositoryRoots).toEqual([]);
+    expect(
+      configFromEnv({ ...base, CRAFTINGTABLE_REPOSITORY_ROOTS: '/home/keith/src::/srv/repos' })
+        .execution.repositoryRoots,
+    ).toEqual(['/home/keith/src', '/srv/repos']);
+    expect(() => configFromEnv({ ...base, CRAFTINGTABLE_REPOSITORY_ROOTS: 'src:/srv' })).toThrow(
+      /CRAFTINGTABLE_REPOSITORY_ROOTS/,
+    );
+    expect(() =>
+      configFromEnv({ ...base, CRAFTINGTABLE_REPOSITORY_ROOTS: '/home/keith/../etc' }),
+    ).toThrow(/CRAFTINGTABLE_REPOSITORY_ROOTS/);
+    // It is a live setting again, no longer named as retired at startup.
+    expect(retiredSettings({ CRAFTINGTABLE_REPOSITORY_ROOTS: '/home/keith/src' })).toEqual([]);
+  });
+
   it('accepts explicit loopback hosts, HTTPS origin, and an absolute test directory', () => {
     const config = configFromEnv({
       CRAFTINGTABLE_HOST: '::1',

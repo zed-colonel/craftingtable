@@ -58,9 +58,13 @@ export interface ExecutionErrorDetail {
   /**
    * `worktree-has-changes`: a removal would discard uncommitted work. `investigation-worktree-
    * changed`: the stop's investigation found its worktree changed, unacknowledged (R-C16).
+   * `repository-outside-roots`: registration outside `CRAFTINGTABLE_REPOSITORY_ROOTS` (R-G9).
    */
-  readonly reason: 'worktree-has-changes' | 'investigation-worktree-changed';
-  readonly paths: readonly string[];
+  readonly reason:
+    | 'worktree-has-changes'
+    | 'investigation-worktree-changed'
+    | 'repository-outside-roots';
+  readonly paths?: readonly string[];
   readonly pathCount?: number;
 }
 

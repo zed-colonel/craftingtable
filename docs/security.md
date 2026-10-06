@@ -56,6 +56,9 @@ clears it; a wrong password counts toward the username's sign-in lock (R-G9).
   memory (R-G9).
 - A session with no request for 24 hours ends (`CRAFTINGTABLE_SESSION_IDLE_SECONDS`); the 30-day
   lifetime still bounds it (R-G9).
+- Repositories can be registered only under `CRAFTINGTABLE_REPOSITORY_ROOTS` (absolute,
+  colon-separated), both the path given and the repository's top level, links resolved; unset,
+  nothing can be registered. Registered repositories keep working (R-G9).
 - Logs redact cookies and authorization headers; audit metadata excludes bodies and tokens.
 - Claude Code and Codex use their own logins on the workstation. The daemon never handles API keys;
   it records only billing provenance or an environment-based API-key hint.

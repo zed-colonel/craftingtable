@@ -495,6 +495,8 @@ export async function ready(
      * other daemon is stepped by `waitFor` and `stepDaemons` (R-B2 seam).
      */
     readonly workers?: boolean;
+    /** Settings over the test daemon's, as `createTestContext` takes them. */
+    readonly env?: Readonly<Record<string, string>>;
   } = {},
 ): Promise<Ready> {
   const backend = options.backend === undefined ? new ScriptedBackend() : options.backend;
@@ -503,6 +505,7 @@ export async function ready(
     gitOperations: options.gitOperations ?? createGitOperations({ gitExecutable: 'git' }),
     agentBackends: options.backends ?? new Map(backend === null ? [] : [[backend.kind, backend]]),
     workers: options.workers ?? false,
+    ...(options.env === undefined ? {} : { env: options.env }),
   });
   contexts.push(context);
   if (options.workers) freeRunning.add(context);

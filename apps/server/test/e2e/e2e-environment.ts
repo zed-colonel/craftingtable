@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+
 /**
  * The e2e daemon's configuration (R-I9): a fresh data directory and fixed test settings, plus
  * the few variables the Playwright config passes through. Everything else of the caller's
@@ -17,6 +19,8 @@ export function e2eEnvironment(
     CRAFTINGTABLE_PUBLIC_ORIGIN: env.CRAFTINGTABLE_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5183',
     CRAFTINGTABLE_LOG_LEVEL: 'warn',
     CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '0',
+    // The specs make their fixture repositories under the temporary directory (R-G9).
+    CRAFTINGTABLE_REPOSITORY_ROOTS: tmpdir(),
     ...(env.CRAFTINGTABLE_CLAUDE_EXECUTABLE === undefined
       ? {}
       : { CRAFTINGTABLE_CLAUDE_EXECUTABLE: env.CRAFTINGTABLE_CLAUDE_EXECUTABLE }),

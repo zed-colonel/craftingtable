@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type {
   AgentBackend,
@@ -50,6 +57,7 @@ import {
   mergeGate,
   mutationHeaders,
   present,
+  type Ready,
   ready,
   registerAndWorktree,
   reviewText,
@@ -213,6 +221,63 @@ describe('repository registration', () => {
       limit: 10,
     });
     expect(events.map((event) => event.kind)).toContain('source-repository-registered');
+  });
+
+  it('registers a repository only under a configured root (R-G9)', async () => {
+    const repository = fixtureRepository();
+    const register = (state: Ready) =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/repositories`,
+        headers: mutationHeaders(state),
+        payload: { rootPath: repository },
+      });
+    const outside = (response: { statusCode: number; json: () => unknown }) =>
+      response.statusCode === 400 &&
+      (response.json() as { error?: { reason?: string } }).error?.reason ===
+        'repository-outside-roots';
+    // No roots set: nothing can be registered.
+    expect(
+      outside(await register(await ready({ env: { CRAFTINGTABLE_REPOSITORY_ROOTS: '' } }))),
+    ).toBe(true);
+    // A root that shares only a prefix with the repository's path does not hold it.
+    expect(
+      outside(
+        await register(
+          await ready({ env: { CRAFTINGTABLE_REPOSITORY_ROOTS: repository.slice(0, -2) } }),
+        ),
+      ),
+    ).toBe(true);
+    // A path outside every root is refused before Git reads it: a plain directory says so too.
+    const plain = mkdtempSync(join(tmpdir(), 'craftingtable-plain-outside-'));
+    directories.push(plain);
+    const elsewhere = await ready({ env: { CRAFTINGTABLE_REPOSITORY_ROOTS: repository } });
+    const outsideDirectory = await elsewhere.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${elsewhere.workspaceId}/repositories`,
+      headers: mutationHeaders(elsewhere),
+      payload: { rootPath: plain },
+    });
+    expect(outside(outsideDirectory)).toBe(true);
+    // A link under a root to a repository elsewhere is where it leads.
+    const linkRoot = mkdtempSync(join(tmpdir(), 'craftingtable-link-root-'));
+    directories.push(linkRoot);
+    symlinkSync(repository, join(linkRoot, 'linked'));
+    const linked = await ready({ env: { CRAFTINGTABLE_REPOSITORY_ROOTS: linkRoot } });
+    const throughLink = await linked.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${linked.workspaceId}/repositories`,
+      headers: mutationHeaders(linked),
+      payload: { rootPath: join(linkRoot, 'linked') },
+    });
+    expect(outside(throughLink)).toBe(true);
+    // Its parent, among other roots, holds it.
+    const admitted = await register(
+      await ready({
+        env: { CRAFTINGTABLE_REPOSITORY_ROOTS: `/nonexistent-root:${dirname(repository)}` },
+      }),
+    );
+    expect(admitted.statusCode, admitted.body).toBe(200);
   });
 
   it('requires CSRF and origin for mutations and hides other workspaces', async () => {

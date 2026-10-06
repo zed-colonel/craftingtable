@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentBackend } from '@craftingtable/agents';
 import { CYCLE_ATTENTION } from '@craftingtable/domain';
@@ -87,6 +88,8 @@ export async function createTestContext(
     CRAFTINGTABLE_DATA_DIR: directory,
     CRAFTINGTABLE_PUBLIC_ORIGIN: options.publicOrigin ?? 'http://127.0.0.1:5173',
     CRAFTINGTABLE_LOG_LEVEL: 'silent',
+    // Fixture repositories are made under the temporary directory and the test data root (R-G9).
+    CRAFTINGTABLE_REPOSITORY_ROOTS: [tmpdir(), testDataRoot()].join(':'),
     // The API surface under test is the route allowlist; static serving is opt-in.
     CRAFTINGTABLE_WEB_DIST: '',
     // Closing a test daemon interrupts live fake runs at once instead of draining them.

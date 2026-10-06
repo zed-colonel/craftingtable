@@ -250,7 +250,7 @@ export function buildServer(
     if (error instanceof ExecutionRequestError) {
       switch (error.code) {
         case 'invalid-request':
-          return sendApiError(reply, 400, 'invalid-request', error.message);
+          return sendApiError(reply, 400, 'invalid-request', error.message, error.detail);
         case 'conflict':
           return sendApiError(reply, 409, 'conflict', error.message, error.detail);
         case 'unavailable':

@@ -20,6 +20,12 @@ export interface ExecutionConfig {
   readonly runsRoot: string;
   /** Upper bound on a single diff response's patch text. */
   readonly maxPatchBytes: number;
+  /**
+   * The directories repositories may be registered under (R-G9; operator decision 2026-10-05):
+   * `CRAFTINGTABLE_REPOSITORY_ROOTS`, colon-separated. None set refuses every registration;
+   * repositories already registered keep working.
+   */
+  readonly repositoryRoots?: readonly string[];
   /** `id=Label,id=Label` model options for the launch form; absent means the built-in list. */
   readonly claudeModels?: string;
   readonly codexModels?: string;
@@ -301,6 +307,13 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
       throw new Error(`${label} must be a normalized absolute path`);
     }
   }
+  const repositoryRoots = (env.CRAFTINGTABLE_REPOSITORY_ROOTS ?? '')
+    .split(':')
+    .filter((root) => root !== '');
+  if (!repositoryRoots.every(isNormalizedAbsolutePath))
+    throw new Error(
+      'CRAFTINGTABLE_REPOSITORY_ROOTS must list normalized absolute paths, colon-separated',
+    );
   const worktreeRoot = env.CRAFTINGTABLE_WORKTREE_ROOT ?? join(dataDir, 'worktrees');
   const runsRoot = env.CRAFTINGTABLE_RUNS_ROOT ?? join(dataDir, 'runs');
   for (const [label, value] of [
@@ -378,6 +391,7 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
       : { codexModels: env.CRAFTINGTABLE_CODEX_MODELS }),
     worktreeRoot,
     runsRoot,
+    repositoryRoots,
     checkConfinement,
     checkLogRoot,
     agentEnvironmentAllow,
@@ -428,7 +442,6 @@ const RETIRED_SETTINGS = [
   'CRAFTINGTABLE_GIT_TIMEOUT_MS',
   'CRAFTINGTABLE_MANAGED_WORKTREE_ROOT',
   'CRAFTINGTABLE_REPOSITORY_PROVIDER_RETRY_DELAY_MS',
-  'CRAFTINGTABLE_REPOSITORY_ROOTS',
 ] as const;
 
 /** The retired settings present in `env`, for a startup warning. */

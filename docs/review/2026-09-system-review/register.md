@@ -2821,7 +2821,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G9
 
-**Authentication and authorization hardening** · Phase P2 · Effort M · Status: in progress (2026-10-05)
+**Authentication and authorization hardening** · Phase P2 · Effort M · Status: done (2026-10-06, to ceac800)
 
 - **Resolves:** [SEC-04](findings/AGT-GIT-SEC-agents-git-security.md#sec-04-authentication-hardening-is-weak-for-a-session-that-amounts-to-code-execution), [SEC-05](findings/AGT-GIT-SEC-agents-git-security.md#sec-05-route-authorization-depends-on-every-handler-remembering-to-call-it), [SEC-06](findings/AGT-GIT-SEC-agents-git-security.md#sec-06-the-browser-can-register-any-host-path-as-a-repository), [SEC-07](findings/AGT-GIT-SEC-agents-git-security.md#sec-07-missing-browser-security-headers-and-host-check), [SEC-08](findings/AGT-GIT-SEC-agents-git-security.md#sec-08-stored-credentials-are-readable-by-agents-and-old-db-copies-are-retained), [QA-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-03-the-authorization-surface-has-no-systematic-tests-and-the-no-approve-route-test-checks-spelling)
 - **Change:** Login rate limiting, idle session expiry, step-up authentication for unrestricted runs and final promotion; a global route auth hook with an explicit public allowlist; repository registration limited to configured roots; security headers and Host check; credentials not readable from agent-writable locations; retire old DB copies.
@@ -2872,6 +2872,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *Repository roots:* Git is given the resolved path, and a top level Git answers outside the roots is refused. These are shown with a Git double that answers as if a link moved between the check and the read (`server-execution-runs.test.ts`).
     - *Left, equivalent:* a finalization's cycle not read for the step-up check. The cycle's profiles are copied from the finalization's own stages (`WorkCycleService.startFinalization`), which the check already reads. Also the guard skipping `HEAD` (the handler then answers 401) and, from the first round, the cycle stream's touch and the temporary file's chmod.
   - *Gate at d77ef1c:* green (2,397 unit tests, 23 e2e, the walkthrough rehearsal, the scope check).
+- **Gate and replays at ceac800 (2026-10-06):** `pnpm check` green: 2,402 unit tests (1 skipped), 23 e2e plus the walkthrough rehearsal, the scope check. `pnpm replays`: 49 of 51 at 0 changed, LIVE-32's 2 as expected, 0 failed.
   - *Register and docs:* `docs/security.md` now says exactly what each part does where the review found it overstated (rate limit, step-up scope, headers, roots, retention, credentials directory and copies, Claude's tools). Commit messages from here name the findings (SEC-04, SEC-05, SEC-07, QA-03).
 
 ### R-G10

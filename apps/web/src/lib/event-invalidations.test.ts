@@ -283,15 +283,18 @@ it("re-reads each page's data on the events that change it, and on nothing else"
     for (const kind of KINDS) expect(touches(kind, family), `${kind} -> ${family}`).toBe(false);
 });
 
-it("narrows a project's and a run's reads to the ones an event names", () => {
+it("narrows a project's reads to the one an event names; a run's event reads every run page", () => {
   const own = invalidationsFor(
     event('agent-run-status-changed', { projectId: 'p1', runId: 'run-1', payload: {} }),
   );
-  expect(own).toEqual(
-    expect.arrayContaining([queryKeys.project(ws, 'p1'), queryKeys.run(ws, 'run-1')]),
-  );
+  expect(own).toEqual(expect.arrayContaining([queryKeys.project(ws, 'p1')]));
   expect(own).not.toEqual(expect.arrayContaining([['project', ws]]));
-  expect(own).not.toEqual(expect.arrayContaining([['run', ws]]));
+  // A run page's view lists its item's runs, so another run's start or change reads it (R-D5).
+  for (const kind of ['agent-run-started', 'agent-run-status-changed'])
+    expect(invalidationsFor(event(kind, { runId: 'run-2', payload: {} })), kind).toEqual(
+      expect.arrayContaining([['run', ws]]),
+    );
+  expect(queryKeys.runView(ws, 'run-1').slice(0, 2)).toEqual(['run', ws]);
   // A plan version sits beneath its project.
   expect(queryKeys.planVersion(ws, 'p1', 'v1').slice(0, 3)).toEqual(queryKeys.project(ws, 'p1'));
   // Without identifiers, every project's and run's reads.

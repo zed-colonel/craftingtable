@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { InboxHost } from '../decisions/InboxHost.js';
 import { useWorkItem } from '../features/execution/WorkItemControls.js';
 import { queryKeys } from '../lib/event-invalidations.js';
-import { loadRun, refreshModels } from '../lib/execution-api.js';
+import { loadRunView, refreshModels } from '../lib/execution-api.js';
 import { NavigationProvider } from '../lib/navigation.js';
 import { createQueryStore, type QueryStore, QueryStoreProvider } from '../lib/query-store.js';
 import { AccountRoute, HomeRoute } from './pages/AccountRoutes.js';
@@ -85,12 +85,6 @@ vi.mock('../lib/execution-api.js', async (original) => ({
   saveRunProfiles: vi.fn(async () => ({ profiles: [] })),
   registerRepository: vi.fn(async () => undefined),
   refreshModels: vi.fn(async () => ({ git: { available: true }, backends: [], refreshed: true })),
-  loadWorkItemExecution: vi.fn(async (_ws: string, workItemId: string) => ({
-    workItemId,
-    worktrees: [{ id: 'tree-1', repositoryId: 'repo' }],
-    runs: [],
-    mergeGates: {},
-  })),
   // A work item page's region in one read (R-D5).
   loadWorkItemView: vi.fn(async (_ws: string, workItemId: string) => ({
     detail: {
@@ -112,14 +106,21 @@ vi.mock('../lib/execution-api.js', async (original) => ({
     run: { id: 'run-1', workItemId: 'item-1' },
     worktree: { id: 'tree-1', status: 'active' },
   })),
+  // A run page's region in one read (R-D5).
+  loadRunView: vi.fn(async () => ({
+    detail: {
+      run: { id: 'run-1', workItemId: 'item-1' },
+      worktree: { id: 'tree-1', status: 'active' },
+    },
+    runs: [],
+    backends: [],
+    profiles: [],
+  })),
   loadRunEvents: vi.fn(async () => ({ events: [], nextAfter: 0 })),
   endRun: vi.fn(async () => undefined),
 }));
 vi.mock('../lib/planning-api.js', async (original) => ({
   ...(await original<typeof import('../lib/planning-api.js')>()),
-  loadWorkItem: vi.fn(async () => ({
-    workItem: { id: 'item-1', status: 'proposed', planVersionId: 'plan-1', projectId: 'p1' },
-  })),
   admitWorkItem: vi.fn(async () => undefined),
 }));
 vi.mock('../lib/work-cycle-api.js', async (original) => ({
@@ -196,7 +197,7 @@ it("refreshes a work item's own reads, the workspace's cycles and attention", as
 it("refreshes a run, its work item and the cycles after a run command and the run's end", async () => {
   // The run's detail arrives after its stream opened (F4).
   let answer!: (detail: unknown) => void;
-  vi.mocked(loadRun).mockReturnValueOnce(
+  vi.mocked(loadRunView).mockReturnValueOnce(
     new Promise((resolve) => {
       answer = resolve;
     }) as never,
@@ -204,7 +205,12 @@ it("refreshes a run, its work item and the cycles after a run command and the ru
   inApp(<RunRoute runId={'run-1' as AgentRunId} cycles={[]} />);
   await waitFor(() => expect(stream.handlers?.size).toBe(1));
   await act(async () => {
-    answer({ run: { id: 'run-1', workItemId: 'item-1' }, worktree: { id: 'tree-1' } });
+    answer({
+      detail: { run: { id: 'run-1', workItemId: 'item-1' }, worktree: { id: 'tree-1' } },
+      runs: [],
+      backends: [],
+      profiles: [],
+    });
   });
   await waitFor(() => expect(props.run).toBeDefined());
   vi.spyOn(store, 'refreshNow');

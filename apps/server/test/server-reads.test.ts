@@ -3,6 +3,7 @@ import {
   daemonDiagnosticsResponseSchema,
   runEventPageResponseSchema,
   workCyclesResponseSchema,
+  runViewSchema,
   workItemViewSchema,
   workspaceRunsResponseSchema,
 } from '@craftingtable/contracts';
@@ -331,6 +332,34 @@ describe('work item view (R-D5, PERF-14)', () => {
     const f = await fixture();
     const base = `/api/workspaces/${f.workspaceId}`;
     expect((await f.get(`${base}/work-items/no-such-item/view`)).statusCode).toBe(404);
+  });
+});
+
+describe('run view (R-D5, PERF-14)', () => {
+  it("answers the run page's region in one read: its detail, its item's runs, launch options", async () => {
+    const f = await fixture();
+    const base = `/api/workspaces/${f.workspaceId}`;
+    const reads = vi.spyOn(f.context.storage, 'readTransaction');
+    const response = await f.get(`${base}/runs/${f.finishedRun}/view`);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(reads).toHaveBeenCalledTimes(1);
+    reads.mockRestore();
+    const view = runViewSchema.parse(response.json());
+    const part = async (url: string) => (await f.get(`${base}${url}`)).json();
+    expect(view.detail).toEqual(await part(`/runs/${f.finishedRun}`));
+    // The runs a hand-off can start from: the run's work item's, as its execution lists them.
+    expect(view.runs).toEqual((await part(`/work-items/${f.items[0]}/execution`)).runs);
+    expect(view.runs.map((run) => run.id)).toEqual([f.finishedRun]);
+    expect(view.profiles).toEqual((await part('/run-profiles')).profiles);
+    expect(view.backends).toEqual((await f.get('/api/execution-status')).json().backends);
+  });
+
+  it('refuses an unknown run', async () => {
+    const f = await fixture();
+    const missing = await f.get(
+      `/api/workspaces/${f.workspaceId}/runs/00000000-0000-4000-8000-000000000000/view`,
+    );
+    expect(missing.statusCode).toBe(404);
   });
 });
 

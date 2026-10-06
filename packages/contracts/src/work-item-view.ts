@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import {
+  agentRunDetailResponseSchema,
+  agentRunSummarySchema,
   executionStatusResponseSchema,
   runProfilesResponseSchema,
   sourceRepositoryListResponseSchema,
@@ -26,3 +28,16 @@ export const workItemViewSchema = z.strictObject({
   profiles: runProfilesResponseSchema.shape.profiles,
 });
 export type WorkItemView = z.infer<typeof workItemViewSchema>;
+
+/**
+ * A run page's region in one answer (R-D5, PERF-14): the run's detail, the runs of its work item
+ * that a hand-off can start from, and what the hand-off form offers. The run's events stay their
+ * own reads: pages of the journal, then the stream.
+ */
+export const runViewSchema = z.strictObject({
+  detail: agentRunDetailResponseSchema,
+  runs: z.array(agentRunSummarySchema).max(200),
+  backends: executionStatusResponseSchema.shape.backends,
+  profiles: runProfilesResponseSchema.shape.profiles,
+});
+export type RunView = z.infer<typeof runViewSchema>;

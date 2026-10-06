@@ -16,18 +16,12 @@ import { queryKeys } from '../lib/event-invalidations.js';
 import {
   loadExecutionStatus,
   loadRepositories,
-  loadRun,
   loadRunProfiles,
-  loadWorkItemExecution,
+  loadRunView,
   loadWorkItemView,
   loadWorkspaceRuns,
 } from '../lib/execution-api.js';
-import {
-  loadPlanVersion,
-  loadProject,
-  loadWorkItem,
-  loadWorkspaceWorkItems,
-} from '../lib/planning-api.js';
+import { loadPlanVersion, loadProject, loadWorkspaceWorkItems } from '../lib/planning-api.js';
 import { useQuery } from '../lib/query-store.js';
 import type { AgendaFilter } from '../lib/route.js';
 import { loadWorkCycles } from '../lib/work-cycle-api.js';
@@ -82,32 +76,14 @@ export const usePlanVersion = (
     loadPlanVersion(workspaceId, projectId, planVersionId),
   );
 
-export const useRun = (workspaceId: WorkspaceId, runId: AgentRunId) =>
-  useQuery(queryKeys.run(workspaceId, runId), () => loadRun(workspaceId, runId));
-
-export const useWorkItemDetail = (workspaceId: WorkspaceId, workItemId: WorkItemId | undefined) =>
-  useQuery(workItemId && queryKeys.workItemDetail(workspaceId, workItemId), () =>
-    loadWorkItem(workspaceId, workItemId as WorkItemId),
-  );
-
-export const useWorkItemExecution = (
-  workspaceId: WorkspaceId,
-  workItemId: WorkItemId | undefined,
-) =>
-  useQuery(workItemId && queryKeys.workItemExecution(workspaceId, workItemId), () =>
-    loadWorkItemExecution(workspaceId, workItemId as WorkItemId),
-  );
+/** A run page's region in one read (R-D5). */
+export const useRunView = (workspaceId: WorkspaceId, runId: AgentRunId) =>
+  useQuery(queryKeys.runView(workspaceId, runId), () => loadRunView(workspaceId, runId));
 
 /** A work item page's region in one read (R-D5). */
 export const useWorkItemView = (workspaceId: WorkspaceId, workItemId: WorkItemId | undefined) =>
   useQuery(workItemId && queryKeys.workItemView(workspaceId, workItemId), () =>
     loadWorkItemView(workspaceId, workItemId as WorkItemId),
-  );
-
-/** A work item's own cycles, history and design recovery included (PERF-05). */
-export const useWorkItemCycles = (workspaceId: WorkspaceId, workItemId: WorkItemId | undefined) =>
-  useQuery(workItemId && queryKeys.workItemCycles(workspaceId, workItemId), () =>
-    loadWorkCycles(workspaceId, workItemId),
   );
 
 export const useRepositories = (workspaceId: WorkspaceId) =>

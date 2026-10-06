@@ -34,11 +34,11 @@ import {
   type StartAgentRunResponse,
   sourceRepositoryListResponseSchema,
   startAgentRunResponseSchema,
-  type WorkItemExecutionResponse,
+  type RunView,
   type WorkItemView,
   type WorkspaceRunsResponse,
   type WorktreeDiffResponse,
-  workItemExecutionResponseSchema,
+  runViewSchema,
   workItemViewSchema,
   workspaceRunsResponseSchema,
   worktreeDiffResponseSchema,
@@ -105,13 +105,12 @@ export function retireRepository(
   );
 }
 
-export function loadWorkItemExecution(
-  workspaceId: WorkspaceId,
-  workItemId: WorkItemId,
-): Promise<WorkItemExecutionResponse> {
+
+/** A run page's region in one read (R-D5): its detail, its item's runs, the hand-off's options. */
+export function loadRunView(workspaceId: WorkspaceId, runId: AgentRunId): Promise<RunView> {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/execution`,
-    workItemExecutionResponseSchema,
+    `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/view`,
+    runViewSchema,
   );
 }
 

@@ -66,13 +66,8 @@ export const queryKeys = {
     ['project', workspaceId, projectId, 'plan-version', planVersionId] as const,
   /** One run's detail. */
   run: (workspaceId: string, runId: string) => ['run', workspaceId, runId] as const,
-  /** A work item's own detail, worktrees and runs, and cycles in full. */
-  workItemDetail: (workspaceId: string, workItemId: string) =>
-    ['work-item', workspaceId, workItemId, 'detail'] as const,
-  workItemExecution: (workspaceId: string, workItemId: string) =>
-    ['work-item', workspaceId, workItemId, 'execution'] as const,
-  workItemCycles: (workspaceId: string, workItemId: string) =>
-    ['work-item', workspaceId, workItemId, 'cycles'] as const,
+  /** A run page's region in one read (R-D5): its detail, its item's runs, the hand-off's options. */
+  runView: (workspaceId: string, runId: string) => ['run', workspaceId, runId, 'view'] as const,
   /**
    * A work item page's region in one read (R-D5): beneath the item's prefix, so every event
    * that touched one of its parts reads it again.
@@ -151,7 +146,6 @@ function pageKeys(event: WorkspaceEventEnvelope): QueryKey[] {
   const audit = queryKeys.audit(ws);
   const project =
     event.projectId === undefined ? all('project', ws) : queryKeys.project(ws, event.projectId);
-  const run = event.runId === undefined ? all('run', ws) : queryKeys.run(ws, event.runId);
   const summary = [...snapshot, all('agenda', ws), project];
   switch (event.kind) {
     case 'notifications-changed':
@@ -191,9 +185,11 @@ function pageKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'worktree-merged':
     case 'branches-changed':
       return [...summary, cycles, all('run', ws), audit];
+    // A run page's view lists its work item's runs, so a run's start or change reads every
+    // run page, not only the run's own (R-D5).
     case 'agent-run-started':
     case 'agent-run-status-changed':
-      return [...summary, cycles, all('runs', ws), run, audit];
+      return [...summary, cycles, all('runs', ws), all('run', ws), audit];
     default: {
       const unmapped: never = event;
       throw new Error(

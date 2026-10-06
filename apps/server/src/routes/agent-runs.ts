@@ -26,7 +26,7 @@ import { parseEventCursor, selectEventCursor } from '../services/workspace-event
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
 import { authenticate, authorizeMutation } from './request-security.js';
-import { runSummary } from './run-summary.js';
+import { runDetail, runSummary } from './run-summary.js';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const EVENT_PAGE_LIMIT = 500;
@@ -102,17 +102,7 @@ export function registerAgentRunRoutes(
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
       const detail = agentRunService.detail(context, workspaceId.data, runId.data, request.id);
-      return noStore(reply).send(
-        agentRunDetailResponseSchema.parse({
-          run: runSummary(detail.run),
-          worktree: detail.worktree,
-          brief: detail.run.brief,
-          eventCount: detail.eventCount,
-          ...(detail.completionIssue ? { completionIssue: detail.completionIssue } : {}),
-          ...(detail.latestOutcome ? { latestOutcome: detail.latestOutcome } : {}),
-          ...(detail.reviewReport === undefined ? {} : { reviewReport: detail.reviewReport }),
-        }),
-      );
+      return noStore(reply).send(agentRunDetailResponseSchema.parse(runDetail(detail)));
     },
   );
 

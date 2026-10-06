@@ -231,13 +231,19 @@ vi.mock('./lib/execution-api.js', async (original) => ({
     repositoryId: 'repo-a',
     runs: [],
   })),
-  loadWorkItemExecution: count('work-item-execution', async () => ({
-    workItemId: ITEM,
-    worktrees: fixture.worktrees,
-    runs: [],
-    mergeGates: {},
-  })),
   loadWorkspaceRuns: count('runs', async () => ({ runs: [], liveCount: 0 })),
+  loadRunView: count('run-view', async () => ({
+    detail: {
+      run: { id: 'run-a', workItemId: ITEM, worktreeId: 'tree-a', status: 'finished' },
+      worktree: { ...WORKTREE },
+      brief: 'Brief',
+      eventCount: 0,
+    },
+    runs: [],
+    backends: [],
+    profiles: [],
+  })),
+  loadRunEvents: count('run-events', async () => ({ events: [], nextAfter: 0 })),
   loadWorkItemView: count('work-item-view', async () => ({
     detail: WORK_ITEM,
     execution: { workItemId: ITEM, worktrees: fixture.worktrees, runs: [], mergeGates: {} },
@@ -254,7 +260,6 @@ vi.mock('./lib/roadmap-api.js', async (original) => ({
 }));
 vi.mock('./lib/planning-api.js', async (original) => ({
   ...(await original<typeof import('./lib/planning-api.js')>()),
-  loadWorkItem: count('work-item', async () => WORK_ITEM),
   loadWorkspaceWorkItems: count('agenda', async () => ({ filter: 'all', items: [] })),
 }));
 
@@ -560,4 +565,26 @@ it('loads a work item page with at most three requests (R-D5)', async () => {
   const loaded = requests.slice(before).sort();
   expect(loaded).toEqual(['plan-branches', 'repository-policy', 'work-item-view']);
   fixture.worktrees = [];
+});
+
+/**
+ * A run page loads with its region in one read (R-D5): the run's detail, its item's runs and the
+ * hand-off's options, then the first page of its events; the stream (mocked here) follows them.
+ */
+it('loads a run page with its view and its first page of events (R-D5)', async () => {
+  window.history.replaceState(null, '', '/workspaces/ws-a');
+  render(<App />);
+  await screen.findByText('Alpha Project');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  const before = requests.length;
+  act(() => {
+    window.history.pushState(null, '', '/workspaces/ws-a/runs/run-a');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  expect(requests.slice(before).sort()).toEqual(['run-events', 'run-view']);
 });

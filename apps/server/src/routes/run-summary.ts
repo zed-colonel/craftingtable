@@ -1,3 +1,4 @@
+import type { AgentRunService } from '../services/agent-run-service.js';
 import type { AgentRun } from '@craftingtable/domain';
 
 /**
@@ -17,4 +18,17 @@ export function runSummary(run: AgentRun): Omit<AgentRun, 'brief'> {
 export function runListRow(run: AgentRun): Omit<AgentRun, 'brief' | 'outcomeSummary'> {
   const { brief: _brief, outcomeSummary: _outcome, ...row } = run;
   return row;
+}
+
+/** A run's detail as its read answers it, and the run view with it (R-D5). */
+export function runDetail(detail: ReturnType<AgentRunService['detail']>) {
+  return {
+    run: runSummary(detail.run),
+    worktree: detail.worktree,
+    brief: detail.run.brief,
+    eventCount: detail.eventCount,
+    ...(detail.completionIssue ? { completionIssue: detail.completionIssue } : {}),
+    ...(detail.latestOutcome ? { latestOutcome: detail.latestOutcome } : {}),
+    ...(detail.reviewReport === undefined ? {} : { reviewReport: detail.reviewReport }),
+  };
 }

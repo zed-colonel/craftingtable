@@ -2244,7 +2244,12 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     readonly reviewReport?: ReviewReportAssessment;
   } {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    return this.storage.readTransaction((tx) => {
+    return this.storage.readTransaction((tx) => this.detailIn(tx, workspaceId, runId));
+  }
+
+  /** A run's detail, read in the caller's transaction (R-D5). */
+  detailIn(tx: StorageRepositories, workspaceId: WorkspaceId, runId: AgentRunId) {
+    {
       const run = tx.execution.runs.find(workspaceId, runId);
       if (run === undefined) {
         throw new NotFoundError();
@@ -2284,7 +2289,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         eventCount: tx.execution.runEvents.countForRun(workspaceId, runId),
         ...(reviewReport === undefined ? {} : { reviewReport }),
       };
-    });
+    }
   }
 
   listEvents(

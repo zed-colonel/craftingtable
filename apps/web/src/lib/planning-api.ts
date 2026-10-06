@@ -14,10 +14,8 @@ import {
   projectDetailResponseSchema,
   projectListResponseSchema,
   removeFromAgendaResponseSchema,
-  type WorkItemDetailResponse,
   type WorkspaceWorkItemFilter,
   type WorkspaceWorkItemListResponse,
-  workItemDetailResponseSchema,
   workspaceWorkItemListResponseSchema,
 } from '@craftingtable/contracts';
 import type {
@@ -58,15 +56,6 @@ export function loadPlanVersion(
   );
 }
 
-export function loadWorkItem(
-  workspaceId: WorkspaceId,
-  workItemId: WorkItemId,
-): Promise<WorkItemDetailResponse> {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}`,
-    workItemDetailResponseSchema,
-  );
-}
 
 export function loadImportAttempts(
   workspaceId: WorkspaceId,

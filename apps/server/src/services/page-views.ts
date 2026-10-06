@@ -1,4 +1,4 @@
-import type { WorkItemId, WorkspaceId } from '@craftingtable/domain';
+import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { AuthContext } from './auth-service.js';
@@ -53,5 +53,25 @@ export class PageViews {
       execution: await this.execution.confirmGates(read.execution),
       backends: this.executionStatus().backends,
     };
+  }
+
+  /**
+   * A run page's region: the run's detail, the runs of its work item a hand-off can start from,
+   * and what the hand-off form offers. The run's events are read by page and stream apart.
+   */
+  run(context: AuthContext, workspaceId: WorkspaceId, runId: AgentRunId, requestId?: string) {
+    this.workspaces.requireAuthorized(context, workspaceId, requestId);
+    const read = this.storage.readTransaction((tx) => {
+      const detail = this.runs.detailIn(tx, workspaceId, runId);
+      return {
+        detail,
+        runs:
+          detail.run.workItemId === undefined
+            ? []
+            : tx.execution.runs.listForWorkItem(workspaceId, detail.run.workItemId),
+        profiles: this.runs.profilesIn(tx, workspaceId),
+      };
+    });
+    return { ...read, backends: this.executionStatus().backends };
   }
 }

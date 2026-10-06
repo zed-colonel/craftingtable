@@ -19,7 +19,7 @@ import { useRunEventStream } from '../../lib/use-run-event-stream.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { useCommands } from '../commands.js';
 import { RefreshFailed } from '../RefreshFailed.js';
-import { useExecutionStatus, useRun, useRunProfiles, useWorkItemExecution } from '../reads.js';
+import { useRunView } from '../reads.js';
 import { useAlive, useCycleFocus, useGo, useSession, useWorkspaceScope } from '../session.js';
 
 /** Pages the initial run-event load walks before handing over to the stream. */
@@ -36,13 +36,11 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
   const go = useGo();
   const focus = useCycleFocus();
   const alive = useAlive();
-  const runQuery = useRun(workspaceId, runId);
-  const detail = runQuery.data;
-  const run = detail?.run.id === runId ? detail : undefined;
+  // The run's detail, its item's runs and the hand-off's options in one read (R-D5).
+  const runQuery = useRunView(workspaceId, runId);
+  const view = runQuery.data?.detail.run.id === runId ? runQuery.data : undefined;
+  const run = view?.detail;
   const workItemId = run?.run.workItemId as WorkItemId | undefined;
-  const execution = useWorkItemExecution(workspaceId, workItemId).data;
-  const status = useExecutionStatus().data;
-  const profiles = useRunProfiles(workspaceId).data;
   /** What a run's command or end changes: the run, its work item and the workspace's cycles. */
   const refreshKeys = useCallback(
     () => [
@@ -182,8 +180,7 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
         }
         onLoadDiff={loadDiff}
         onCloseDiff={() => setDiff(undefined)}
-        {...(status === undefined ? {} : { backends: status.backends })}
-        {...(profiles === undefined ? {} : { profiles: profiles.profiles })}
+        {...(view === undefined ? {} : { backends: view.backends, profiles: view.profiles })}
         {...(canMutate &&
         run.run.workItemId &&
         cycles.some(
@@ -200,9 +197,7 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
               },
             }
           : {})}
-        {...(execution !== undefined && execution.workItemId === run.run.workItemId
-          ? { runs: execution.runs }
-          : {})}
+        {...(view === undefined ? {} : { runs: view.runs })}
         {...(canMutate && run.run.workItemId && run.worktree.status === 'active'
           ? { onHandoff: launch }
           : {})}

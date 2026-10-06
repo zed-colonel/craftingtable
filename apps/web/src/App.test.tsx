@@ -354,10 +354,6 @@ vi.mock('./lib/execution-api.js', () => ({
   loadExecutionStatus: () => Promise.resolve({ git: { available: true }, backends: [] }),
   loadRunProfiles: () => Promise.resolve({ profiles: [] }),
   loadRepositories: () => Promise.resolve({ repositories: [] }),
-  loadWorkItemExecution: (_workspaceId: string, workItemId: string) => {
-    readCalls.push('execution');
-    return Promise.resolve({ workItemId, worktrees: [], runs: [], mergeGates: {} });
-  },
   // A work item page's region in one read (R-D5): its detail and execution come with it.
   loadWorkItemView: (workspaceId: string, workItemId: string) => {
     readCalls.push('view');
@@ -398,11 +394,6 @@ vi.mock('./lib/planning-api.js', () => ({
   loadProjects: () => new Promise(() => undefined),
   loadProject: (workspaceId: string) => Promise.resolve(projectDetailFor(workspaceId)),
   loadPlanVersion: () => new Promise(() => undefined),
-  loadWorkItem: (workspaceId: string) => {
-    readCalls.push('work-item');
-    if (failing.has('work-item')) return Promise.reject(new Error('work item unavailable'));
-    return Promise.resolve(workItemDetailFor(workspaceId));
-  },
   loadImportAttempts: () => new Promise(() => undefined),
   loadArtifactText: () => planning.artifact.promise,
   admitWorkItem: () => planning.admit.promise,

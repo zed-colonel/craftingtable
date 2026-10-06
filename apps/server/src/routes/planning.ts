@@ -22,8 +22,6 @@ import {
 import type { PlanDiagnostic } from '@craftingtable/planning';
 import multipart from '@fastify/multipart';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { PlanImportResult, PlanImportService } from '../services/plan-import-service.js';
 import type { PlanningQueryService } from '../services/planning-query-service.js';
 import type { WorkItemService } from '../services/work-item-service.js';
@@ -33,7 +31,7 @@ import {
   MULTIPART_PLUGIN_LIMITS,
   readPlanImportParts,
 } from './multipart.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 
 /**
  * Thin planning routes.
@@ -92,11 +90,9 @@ export function importResponse(result: PlanImportResult) {
 
 export function registerPlanningRoutes(
   app: FastifyInstance,
-  authService: AuthService,
   planImportService: PlanImportService,
   queryService: PlanningQueryService,
   workItemService: WorkItemService,
-  config: ServerConfig,
 ): void {
   // `throwFileSizeLimit: false` so an oversized file becomes a recorded
   // `artifact-too-large` diagnostic on a durable import attempt rather than an
@@ -111,7 +107,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/plan-imports',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const parsedWorkspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!parsedWorkspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -179,7 +175,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/projects',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -196,7 +192,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/projects/:projectId',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const projectId = projectIdSchema.safeParse(request.params.projectId);
       if (!workspaceId.success || !projectId.success) {
@@ -214,7 +210,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const projectId = projectIdSchema.safeParse(request.params.projectId);
       const planVersionId = planVersionIdSchema.safeParse(request.params.planVersionId);
@@ -239,7 +235,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success) {
@@ -257,7 +253,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/work-items',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -278,7 +274,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/complete',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success) {
@@ -307,7 +303,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/remove-from-agenda',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success)
@@ -336,7 +332,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/admit',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success) {
@@ -360,7 +356,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/plan-imports',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -384,7 +380,7 @@ export function registerPlanningRoutes(
     '/api/workspaces/:workspaceId/plan-artifacts/:artifactId',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const artifactId = planArtifactIdSchema.safeParse(request.params.artifactId);
       if (!workspaceId.success || !artifactId.success) {

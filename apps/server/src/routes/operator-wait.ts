@@ -1,20 +1,15 @@
 import { operatorWaitReportSchema, workspaceIdSchema } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { AuthService } from '../services/auth-service.js';
 import type { OperatorWaitService } from '../services/operator-wait-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate } from './request-security.js';
+import { contextOf } from './route-access.js';
 
-export function registerOperatorWaitRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  service: OperatorWaitService,
-) {
+export function registerOperatorWaitRoutes(app: FastifyInstance, service: OperatorWaitService) {
   app.get<{ Params: { workspaceId: string }; Querystring: { days?: string } }>(
     '/api/workspaces/:workspaceId/operator-wait',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!id.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       const days = request.query.days === undefined ? 7 : Number(request.query.days);

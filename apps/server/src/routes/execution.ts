@@ -28,14 +28,12 @@ import {
   worktreeIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
 import type { AgentRunService } from '../services/agent-run-service.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { ExecutionService, ExecutionStatus } from '../services/execution-service.js';
 import type { ModelCatalogService } from '../services/model-catalog-service.js';
 import { registerBranchRoutes } from './branches.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 import { runListRow, runSummary } from './run-summary.js';
 
 /**
@@ -49,19 +47,17 @@ import { runListRow, runSummary } from './run-summary.js';
  */
 export function registerExecutionRoutes(
   app: FastifyInstance,
-  authService: AuthService,
   executionService: ExecutionService,
   agentRunService: AgentRunService,
   status: () => ExecutionStatus,
   modelCatalogs: ModelCatalogService,
-  config: ServerConfig,
 ): void {
-  registerBranchRoutes(app, authService, executionService.branches, config);
+  registerBranchRoutes(app, executionService.branches);
   app.get<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/execution-scopes',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         item = workItemIdSchema.safeParse(request.params.workItemId);
       if (!ws.success || !item.success)
@@ -77,7 +73,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/scope-scheduling',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         item = workItemIdSchema.safeParse(request.params.workItemId);
       if (!ws.success || !item.success)
@@ -96,7 +92,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/scope-evidence',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         tree = worktreeIdSchema.safeParse(request.params.worktreeId);
       if (!ws.success || !tree.success)
@@ -116,8 +112,7 @@ export function registerExecutionRoutes(
       );
     },
   );
-  app.get('/api/execution-status', { config: { access: 'session' } }, async (request, reply) => {
-    authenticate(request, authService);
+  app.get('/api/execution-status', { config: { access: 'session' } }, async (_request, reply) => {
     return noStore(reply).send(executionStatusResponseSchema.parse(status()));
   });
   // "Refresh models" (R-G15): reads each CLI's catalog now and answers with the new status.
@@ -125,7 +120,6 @@ export function registerExecutionRoutes(
     '/api/execution-status/refresh-models',
     { config: { access: 'session' } },
     async (request, reply) => {
-      authorizeMutation(request, authService, config);
       if (!refreshModelsRequestSchema.safeParse(request.body).success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid model refresh request');
       await modelCatalogs.refresh();
@@ -137,7 +131,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/run-profiles',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -154,7 +148,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/run-profiles',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -180,7 +174,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/repositories',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -197,7 +191,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/repositories',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -220,7 +214,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/repositories/:repositoryId/retire',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const repositoryId = sourceRepositoryIdSchema.safeParse(request.params.repositoryId);
       if (!workspaceId.success || !repositoryId.success) {
@@ -243,7 +237,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/repositories/:repositoryId/branches',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const repositoryId = sourceRepositoryIdSchema.safeParse(request.params.repositoryId);
       if (!workspaceId.success || !repositoryId.success) {
@@ -263,7 +257,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/execution',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success) {
@@ -292,7 +286,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/runs',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -323,7 +317,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/worktrees',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success) {
@@ -348,7 +342,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/remove',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const worktreeId = worktreeIdSchema.safeParse(request.params.worktreeId);
       if (!workspaceId.success || !worktreeId.success) {
@@ -378,7 +372,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/merge',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const worktreeId = worktreeIdSchema.safeParse(request.params.worktreeId);
       if (!workspaceId.success || !worktreeId.success) {
@@ -403,7 +397,7 @@ export function registerExecutionRoutes(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/diff',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const worktreeId = worktreeIdSchema.safeParse(request.params.worktreeId);
       if (!workspaceId.success || !worktreeId.success) {

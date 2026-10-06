@@ -6,23 +6,18 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { AuthService } from '../services/auth-service.js';
 import type { PageViews } from '../services/page-views.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate } from './request-security.js';
+import { contextOf } from './route-access.js';
 import { runDetail, runSummary } from './run-summary.js';
 
 /** One read per page region (R-D5, PERF-14). */
-export function registerPageViewRoutes(
-  app: FastifyInstance,
-  authService: AuthService,
-  views: PageViews,
-): void {
+export function registerPageViewRoutes(app: FastifyInstance, views: PageViews): void {
   app.get<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/view',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success)
@@ -51,7 +46,7 @@ export function registerPageViewRoutes(
     '/api/workspaces/:workspaceId/runs/:runId/view',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const runId = agentRunIdSchema.safeParse(request.params.runId);
       if (!workspaceId.success || !runId.success)

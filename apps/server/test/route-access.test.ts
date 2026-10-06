@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   asUserId,
   asWorkspaceId,
@@ -8,11 +11,14 @@ import {
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CSRF_HEADER_NAME, SESSION_COOKIE_NAME } from '../src/config.js';
+import type { FastifyRequest } from 'fastify';
 import {
+  contextOf,
   declaredRouteAccess,
   type RouteAccess,
   routeAccessProblem,
 } from '../src/routes/route-access.js';
+import { UnauthenticatedError } from '../src/services/errors.js';
 import { createTestContext, routeTable, TEST_USERNAME, type TestContext } from './test-support.js';
 
 /**
@@ -266,5 +272,51 @@ describe('operator wait read', () => {
       workspaceId: f.workspaceId,
     });
     expect(outsider.statusCode, outsider.body).toBe(404);
+  });
+});
+
+// R-G9: the guard authenticates once, before the body is read, and attaches the caller; a handler
+// reads it with `contextOf` and never authenticates again.
+describe('the authenticated context (R-G9)', () => {
+  it('is what the guard attached, and a request it did not reach has none', () => {
+    const auth = { user: { id: 'u' } } as never;
+    expect(contextOf({ auth } as unknown as FastifyRequest)).toBe(auth);
+    expect(() => contextOf({} as FastifyRequest)).toThrow(UnauthenticatedError);
+  });
+
+  it('is never authenticated again by a route module', () => {
+    const routes = fileURLToPath(new URL('../src/routes/', import.meta.url));
+    const offenders = readdirSync(routes)
+      .filter((name) => name.endsWith('.ts') && name !== 'route-access.ts')
+      .filter((name) =>
+        /\b(?:authenticate|authorizeMutation)\(/.test(readFileSync(join(routes, name), 'utf8')),
+      );
+    expect(offenders).toEqual([]);
+  });
+
+  it('reaches the handler of a signed-in read and a signed-in command', async () => {
+    const context = await createTestContext({ workers: false });
+    contexts.push(context);
+    await context.bootstrap();
+    const session = await context.login();
+    const read = await context.app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { cookie: session.cookie },
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().user.username).toBe(TEST_USERNAME);
+    const command = await context.app.inject({
+      method: 'POST',
+      url: '/api/workspaces',
+      headers: {
+        cookie: session.cookie,
+        [CSRF_HEADER_NAME]: session.csrfToken,
+        origin: context.config.publicOrigin,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Attached' },
+    });
+    expect(command.statusCode, command.body).toBe(200);
   });
 });

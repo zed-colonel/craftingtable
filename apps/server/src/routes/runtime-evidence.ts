@@ -21,23 +21,19 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { RuntimeEvidenceService } from '../services/runtime-evidence-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 export function registerRuntimeEvidenceRoutes(
   app: FastifyInstance,
-  auth: AuthService,
   service: RuntimeEvidenceService,
-  config: ServerConfig,
 ) {
   const base = '/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime';
   app.get<{ Params: { workspaceId: string; id: string; worktreeId: string } }>(
     `${base}/checkpoint-recovery/:worktreeId`,
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authenticate(request, auth),
+      const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -56,7 +52,7 @@ export function registerRuntimeEvidenceRoutes(
     base,
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth),
+      const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -68,7 +64,7 @@ export function registerRuntimeEvidenceRoutes(
     `${base}/submissions/:submissionId`,
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth),
+      const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -82,7 +78,7 @@ export function registerRuntimeEvidenceRoutes(
     `${base}/runs/:runId/build-record`,
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth),
+      const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       const record = service.buildRecord(context, ws.data, request.params.id, request.params.runId);
@@ -113,7 +109,7 @@ export function registerRuntimeEvidenceRoutes(
       `${base}/${action}`,
       { config: { access: 'editor' }, bodyLimit: 5 * 1024 * 1024 },
       async (request, reply) => {
-        const context = authorizeMutation(request, auth, config),
+        const context = contextOf(request),
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         const id = request.params.id;

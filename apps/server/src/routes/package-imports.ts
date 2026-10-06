@@ -12,13 +12,11 @@ import {
 } from '@craftingtable/contracts';
 import { ARCHIVE_LIMITS } from '@craftingtable/planning';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import { ExecutionRequestError } from '../services/errors.js';
 import type { PackageImportService } from '../services/package-import-service.js';
 import { noStore, sendApiError } from './http.js';
 import { importResponse } from './planning.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 
 async function readArchiveUpload(request: FastifyRequest) {
   if (!request.isMultipart())
@@ -76,18 +74,13 @@ async function readArchiveUpload(request: FastifyRequest) {
   if (!file) throw new ExecutionRequestError('invalid-request', 'Choose one ZIP archive.');
   return { ...file, fields };
 }
-export function registerPackageImportRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  imports: PackageImportService,
-  config: ServerConfig,
-) {
+export function registerPackageImportRoutes(app: FastifyInstance, imports: PackageImportService) {
   for (const action of ['preview', 'import'] as const)
     app.post<{ Params: { workspaceId: string } }>(
       `/api/workspaces/:workspaceId/plan-archives/${action}`,
       { config: { access: 'editor' }, bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384 },
       async (request, reply) => {
-        const context = authorizeMutation(request, auth, config);
+        const context = contextOf(request);
         const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         const upload = await readArchiveUpload(request);
@@ -149,7 +142,7 @@ export function registerPackageImportRoutes(
     '/api/workspaces/:workspaceId/concurrency-imports',
     { config: { access: 'editor' }, bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384 },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       const upload = await readArchiveUpload(request);
@@ -171,7 +164,7 @@ export function registerPackageImportRoutes(
     '/api/workspaces/:workspaceId/concurrency-imports',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -183,7 +176,7 @@ export function registerPackageImportRoutes(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -195,7 +188,7 @@ export function registerPackageImportRoutes(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/bindings',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = saveConcurrencyBindingsSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -212,7 +205,7 @@ export function registerPackageImportRoutes(
     '/api/workspaces/:workspaceId/import-archives/:id',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       const archive = imports.archiveContent(context, workspace.data, request.params.id);

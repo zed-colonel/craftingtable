@@ -22,7 +22,8 @@ import {
   sendApiError,
   sessionSummary,
 } from './http.js';
-import { authenticate, authorizeMutation, browserHeaders } from './request-security.js';
+import { browserHeaders } from './request-security.js';
+import { contextOf } from './route-access.js';
 
 export function registerAuthRoutes(
   app: FastifyInstance,
@@ -63,7 +64,7 @@ export function registerAuthRoutes(
   });
 
   app.get('/api/auth/session', { config: { access: 'session' } }, async (request, reply) => {
-    const context = authenticate(request, authService);
+    const context = contextOf(request);
     return noStore(reply).send(
       authenticatedSessionResponseSchema.parse(
         authenticatedResponse(context.user, context.session),
@@ -72,7 +73,7 @@ export function registerAuthRoutes(
   });
 
   app.get('/api/auth/sessions', { config: { access: 'session' } }, async (request, reply) => {
-    const context = authenticate(request, authService);
+    const context = contextOf(request);
     return noStore(reply).send(
       sessionListResponseSchema.parse({
         sessions: authService
@@ -83,7 +84,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/auth/logout', { config: { access: 'session' } }, async (request, reply) => {
-    const context = authorizeMutation(request, authService, config);
+    const context = contextOf(request);
     if (!logoutRequestSchema.safeParse(request.body).success) {
       return sendApiError(reply, 400, 'invalid-request', 'Invalid logout request');
     }
@@ -98,7 +99,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/auth/password', { config: { access: 'session' } }, async (request, reply) => {
-    const context = authorizeMutation(request, authService, config);
+    const context = contextOf(request);
     const parsed = changePasswordRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendApiError(reply, 400, 'invalid-request', 'Invalid password change request');
@@ -116,7 +117,7 @@ export function registerAuthRoutes(
     '/api/auth/sessions/:sessionId/revoke',
     { config: { access: 'session' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       if (!revokeSessionRequestSchema.safeParse(request.body).success) {
         return sendApiError(reply, 400, 'invalid-request', 'Invalid session revocation request');
       }

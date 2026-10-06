@@ -9,24 +9,17 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { MapAmendmentService } from '../services/map-amendment-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
-export function registerMapAmendmentRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  service: MapAmendmentService,
-  config: ServerConfig,
-) {
+import { contextOf } from './route-access.js';
+export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAmendmentService) {
   const base = '/api/workspaces/:workspaceId/roadmaps/:roadmapId';
   type Params = { workspaceId: string; roadmapId: string };
   app.get<{ Params: Params }>(
     `${base}/amendments`,
     { config: { access: 'member' } },
     async (req, reply) => {
-      const context = authenticate(req, auth),
+      const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
         id = roadmapIdSchema.safeParse(req.params.roadmapId);
       if (!ws.success || !id.success)
@@ -40,7 +33,7 @@ export function registerMapAmendmentRoutes(
     `${base}/finalization-readiness`,
     { config: { access: 'member' } },
     async (req, reply) => {
-      const context = authenticate(req, auth),
+      const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
         id = roadmapIdSchema.safeParse(req.params.roadmapId);
       if (!ws.success || !id.success)
@@ -54,7 +47,7 @@ export function registerMapAmendmentRoutes(
     `${base}/amendments/preview`,
     { config: { access: 'editor' } },
     async (req, reply) => {
-      const context = authorizeMutation(req, auth, config),
+      const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
         id = roadmapIdSchema.safeParse(req.params.roadmapId),
         input = mapSelectionSchema.safeParse(req.body);
@@ -74,7 +67,7 @@ export function registerMapAmendmentRoutes(
     `${base}/amendments`,
     { config: { access: 'editor' } },
     async (req, reply) => {
-      const context = authorizeMutation(req, auth, config),
+      const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
         id = roadmapIdSchema.safeParse(req.params.roadmapId),
         input = proposeMapAmendmentSchema.safeParse(req.body);
@@ -94,7 +87,7 @@ export function registerMapAmendmentRoutes(
     `${base}/amendments/decision`,
     { config: { access: 'editor' } },
     async (req, reply) => {
-      const context = authorizeMutation(req, auth, config),
+      const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
         id = roadmapIdSchema.safeParse(req.params.roadmapId),
         input = decideMapAmendmentSchema.safeParse(req.body);

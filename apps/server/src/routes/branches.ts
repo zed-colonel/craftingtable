@@ -15,18 +15,11 @@ import {
   worktreeIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { BranchService } from '../services/branch-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 
-export function registerBranchRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  branches: BranchService,
-  config: ServerConfig,
-) {
+export function registerBranchRoutes(app: FastifyInstance, branches: BranchService) {
   app.get<{
     Params: { workspaceId: string; planVersionId: string };
     Querystring: { freezeBranch?: string };
@@ -34,7 +27,7 @@ export function registerBranchRoutes(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
       const freeze = gitBranchNameSchema.optional().safeParse(request.query.freezeBranch);
@@ -53,7 +46,7 @@ export function registerBranchRoutes(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
       const input = saveRepositoryPolicyRequestSchema.safeParse(request.body);
@@ -72,7 +65,7 @@ export function registerBranchRoutes(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
       if (!ws.success || !plan.success)
@@ -88,7 +81,7 @@ export function registerBranchRoutes(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
       if (!ws.success || !plan.success)
@@ -107,7 +100,7 @@ export function registerBranchRoutes(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/branch-status',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const wt = worktreeIdSchema.safeParse(request.params.worktreeId);
       if (!ws.success || !wt.success)
@@ -121,7 +114,7 @@ export function registerBranchRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/integration-evidence',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const item = workItemIdSchema.safeParse(request.params.workItemId);
       if (!ws.success || !item.success)
@@ -141,7 +134,7 @@ export function registerBranchRoutes(
       `/api/workspaces/:workspaceId/worktrees/:worktreeId/${action}`,
       { config: { access: 'editor' } },
       async (request, reply) => {
-        const context = authorizeMutation(request, auth, config);
+        const context = contextOf(request);
         const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         const wt = worktreeIdSchema.safeParse(request.params.worktreeId);
         if (!ws.success || !wt.success)

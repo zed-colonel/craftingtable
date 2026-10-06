@@ -6,22 +6,15 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { StorageService } from '../services/storage-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
-export function registerStorageRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  service: StorageService,
-  config: ServerConfig,
-): void {
+import { contextOf } from './route-access.js';
+export function registerStorageRoutes(app: FastifyInstance, service: StorageService): void {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/storage',
     { config: { access: 'installation' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(storageStatusSchema.parse(service.get(context, workspace.data)));
@@ -31,7 +24,7 @@ export function registerStorageRoutes(
     '/api/workspaces/:workspaceId/storage',
     { config: { access: 'installation' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = saveStorageRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -47,7 +40,7 @@ export function registerStorageRoutes(
       `/api/workspaces/:workspaceId/storage/${action}`,
       { config: { access: 'installation' } },
       async (request, reply) => {
-        const context = authorizeMutation(request, auth, config);
+        const context = contextOf(request);
         const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         if (action === 'clean') {

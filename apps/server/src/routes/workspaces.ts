@@ -8,12 +8,10 @@ import {
   workspaceListResponseSchema,
   workspaceSnapshotResponseSchema,
 } from '@craftingtable/contracts';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
+import type { FastifyInstance } from 'fastify';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 
 function workspaceId(value: string) {
   return workspaceIdSchema.safeParse(value);
@@ -33,25 +31,19 @@ function positiveCursor(value: unknown): number | undefined {
   return parsed;
 }
 
-function authenticate(request: FastifyRequest, authService: AuthService) {
-  return authService.authenticate(request.cookies[SESSION_COOKIE_NAME]);
-}
-
 export function registerWorkspaceRoutes(
   app: FastifyInstance,
-  authService: AuthService,
   workspaceService: WorkspaceService,
-  config: ServerConfig,
 ): void {
   app.get('/api/workspaces', { config: { access: 'session' } }, async (request, reply) => {
-    const context = authenticate(request, authService);
+    const context = contextOf(request);
     return noStore(reply).send(
       workspaceListResponseSchema.parse({ workspaces: workspaceService.list(context) }),
     );
   });
 
   app.post('/api/workspaces', { config: { access: 'session' } }, async (request, reply) => {
-    const context = authorizeMutation(request, authService, config);
+    const context = contextOf(request);
     const body = createWorkspaceRequestSchema.safeParse(request.body ?? {});
     if (!body.success) {
       return sendApiError(reply, 400, 'invalid-request', 'Invalid workspace request');
@@ -64,7 +56,7 @@ export function registerWorkspaceRoutes(
     '/api/workspaces/:workspaceId/rename',
     { config: { access: 'owner' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const parsed = workspaceId(request.params.workspaceId);
       if (!parsed.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -85,7 +77,7 @@ export function registerWorkspaceRoutes(
     '/api/workspaces/:workspaceId/snapshot',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const parsed = workspaceId(request.params.workspaceId);
       if (!parsed.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -105,7 +97,7 @@ export function registerWorkspaceRoutes(
     '/api/workspaces/:workspaceId/audit',
     { config: { access: 'owner' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const parsed = workspaceId(request.params.workspaceId);
       if (!parsed.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');

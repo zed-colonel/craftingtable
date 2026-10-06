@@ -7,22 +7,18 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { FinalizationService } from '../services/finalization-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 export function registerFinalizationRoutes(
   app: FastifyInstance,
-  auth: AuthService,
   service: FinalizationService,
-  config: ServerConfig,
 ): void {
   app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plans/:planVersionId/finalizations',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
       if (!workspace.success || !plan.success)
@@ -38,7 +34,7 @@ export function registerFinalizationRoutes(
     '/api/workspaces/:workspaceId/plans/:planVersionId/finalizations',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
       const body = startFinalizationRequestSchema.safeParse(request.body);
@@ -57,7 +53,7 @@ export function registerFinalizationRoutes(
     '/api/workspaces/:workspaceId/finalizations/:finalizationId/control',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = controlFinalizationRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');

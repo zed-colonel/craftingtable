@@ -18,26 +18,21 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import type { WorkCycleService } from '../services/work-cycle-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 
 export function registerWorkCycleRoutes(
   app: FastifyInstance,
-  auth: AuthService,
-  cycles: WorkCycleService,
-  config: ServerConfig,
-  /** Owns repairs of a roadmap's reviews as recovery rounds. */
+  cycles: WorkCycleService /** Owns repairs of a roadmap's reviews as recovery rounds. */,
   roadmaps: Pick<RoadmapService, 'delegateScopeRepair'>,
 ): void {
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -51,7 +46,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const input = scopeRepairRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -77,7 +72,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       const item =
@@ -101,7 +96,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/cycles',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const item = workItemIdSchema.safeParse(request.params.workItemId);
       const body = startWorkCycleRequestSchema.safeParse(request.body);
@@ -120,7 +115,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-evidence',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -134,7 +129,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -148,7 +143,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -162,7 +157,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const input = prepareBaselineRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -186,7 +181,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
     { config: { access: 'editor' }, bodyLimit: 2 * 1024 * 1024 },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const input = recoverDesignRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -206,7 +201,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/investigation',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const input = startInvestigationRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -225,7 +220,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/investigation/end',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const input = endInvestigationRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -245,7 +240,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/investigation/acknowledge-change',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const input = acknowledgeInvestigationChangeRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -264,7 +259,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/control',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = controlWorkCycleRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -301,7 +296,7 @@ export function registerWorkCycleRoutes(
     '/api/workspaces/:workspaceId/cycles/:cycleId/integration-resolution',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = integrationResolutionRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');

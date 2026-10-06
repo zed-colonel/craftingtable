@@ -10,21 +10,17 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type {
   CheckDefinitionDiagnosis,
   RepositoryChecksService,
 } from '../services/repository-checks-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 
 /** A repository's declared checks (R-G13): read them, preview a proposal, adopt it. */
 export function registerRepositoryChecksRoutes(
   app: FastifyInstance,
-  auth: AuthService,
   service: RepositoryChecksService,
-  config: ServerConfig,
 ) {
   const base = '/api/workspaces/:workspaceId/repositories/:repositoryId/checks';
   type Params = { Params: { workspaceId: string; repositoryId: string } };
@@ -36,7 +32,7 @@ export function registerRepositoryChecksRoutes(
       : undefined;
   };
   app.get<Params>(base, { config: { access: 'member' } }, async (request, reply) => {
-    const context = authenticate(request, auth);
+    const context = contextOf(request);
     const target = ids(request.params);
     if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
     return noStore(reply).send(
@@ -44,7 +40,7 @@ export function registerRepositoryChecksRoutes(
     );
   });
   app.get<Params>(`${base}/receipts`, { config: { access: 'member' } }, async (request, reply) => {
-    const context = authenticate(request, auth);
+    const context = contextOf(request);
     const target = ids(request.params);
     if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
     return noStore(reply).send(
@@ -52,7 +48,7 @@ export function registerRepositoryChecksRoutes(
     );
   });
   app.post<Params>(`${base}/preview`, { config: { access: 'editor' } }, async (request, reply) => {
-    const context = authorizeMutation(request, auth, config);
+    const context = contextOf(request);
     const target = ids(request.params);
     const input = checkDeclarationPreviewRequestSchema.safeParse(request.body);
     if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
@@ -68,7 +64,7 @@ export function registerRepositoryChecksRoutes(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/check-definitions',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const tree = worktreeIdSchema.safeParse(request.params.worktreeId);
       if (!ws.success || !tree.success)
@@ -85,7 +81,7 @@ export function registerRepositoryChecksRoutes(
     },
   );
   app.post<Params>(`${base}/adopt`, { config: { access: 'editor' } }, async (request, reply) => {
-    const context = authorizeMutation(request, auth, config);
+    const context = contextOf(request);
     const target = ids(request.params);
     const input = adoptCheckDeclarationRequestSchema.safeParse(request.body);
     if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');

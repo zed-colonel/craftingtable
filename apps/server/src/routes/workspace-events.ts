@@ -8,7 +8,6 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
-import type { AuthService } from '../services/auth-service.js';
 import { ForbiddenError } from '../services/errors.js';
 import {
   selectEventCursor,
@@ -16,12 +15,12 @@ import {
 } from '../services/workspace-event-stream-service.js';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { sendApiError } from './http.js';
+import { contextOf } from './route-access.js';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
 export function registerWorkspaceEventRoute(
   app: FastifyInstance,
-  authService: AuthService,
   workspaceService: WorkspaceService,
   streamService: WorkspaceEventStreamService,
   config: ServerConfig,
@@ -41,7 +40,7 @@ export function registerWorkspaceEventRoute(
     Querystring: { after?: string };
   }>('/api/workspaces/:workspaceId/events', { config: { access: 'member' } }, (request, reply) => {
     const rawSessionToken = request.cookies[SESSION_COOKIE_NAME];
-    const context = authService.authenticate(rawSessionToken);
+    const context = contextOf(request);
     if (
       !isAllowedBrowserRequest(
         {

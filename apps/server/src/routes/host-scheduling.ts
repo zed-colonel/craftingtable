@@ -4,22 +4,15 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { HostSchedulingService } from '../services/host-scheduling-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
-export function registerHostSchedulingRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  service: HostSchedulingService,
-  config: ServerConfig,
-) {
+import { contextOf } from './route-access.js';
+export function registerHostSchedulingRoutes(app: FastifyInstance, service: HostSchedulingService) {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/host-scheduling',
     { config: { access: 'installation' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!id.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(hostSchedulingSchema.parse(service.get(context, id.data)));
@@ -29,7 +22,7 @@ export function registerHostSchedulingRoutes(
     '/api/workspaces/:workspaceId/host-scheduling',
     { config: { access: 'installation' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);
       const input = saveHostSchedulingSchema.safeParse(request.body);
       if (!id.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');

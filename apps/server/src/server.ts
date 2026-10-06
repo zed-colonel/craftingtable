@@ -143,7 +143,7 @@ export function buildServer(
   void app.register(cookie);
   installRouteAccess(app, deps.authService, deps.workspaceService, config);
   installResponseEncoding(app);
-  registerDiagnosticsRoutes(app, deps.authService, deps.workspaceService, new DaemonDiagnostics());
+  registerDiagnosticsRoutes(app, deps.workspaceService, new DaemonDiagnostics());
 
   app.addHook('onReady', async () => {
     if (options.startWorkers === false) return;
@@ -161,61 +161,44 @@ export function buildServer(
     await deps.daemonDrain.drain(config.drainTimeoutMs, app.log);
     await deps.notificationService.shutdown();
   });
-  registerPackageImportRoutes(app, deps.authService, deps.packageImportService, config);
-  registerCrossProjectRoutes(app, deps.authService, deps.crossProjectService, config);
-  registerMapAmendmentRoutes(app, deps.authService, deps.mapAmendmentService, config);
-  registerRuntimeEvidenceRoutes(app, deps.authService, deps.runtimeEvidenceService, config);
-  registerRepositoryChecksRoutes(app, deps.authService, deps.repositoryChecksService, config);
-  registerStorageRoutes(app, deps.authService, deps.storageService, config);
-  registerHostSchedulingRoutes(app, deps.authService, deps.hostSchedulingService, config);
-  registerOperatorWaitRoutes(app, deps.authService, deps.operatorWaitService);
-  registerAttentionRoutes(app, deps.authService, deps.attentionService, config);
-  registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
-  registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
-  registerNotificationRoutes(app, deps.authService, deps.notificationService, config);
-  registerWorkCycleRoutes(
-    app,
-    deps.authService,
-    deps.workCycleService,
-    config,
-    deps.roadmapService,
-  );
+  registerPackageImportRoutes(app, deps.packageImportService);
+  registerCrossProjectRoutes(app, deps.crossProjectService);
+  registerMapAmendmentRoutes(app, deps.mapAmendmentService);
+  registerRuntimeEvidenceRoutes(app, deps.runtimeEvidenceService);
+  registerRepositoryChecksRoutes(app, deps.repositoryChecksService);
+  registerStorageRoutes(app, deps.storageService);
+  registerHostSchedulingRoutes(app, deps.hostSchedulingService);
+  registerOperatorWaitRoutes(app, deps.operatorWaitService);
+  registerAttentionRoutes(app, deps.attentionService);
+  registerFinalizationRoutes(app, deps.finalizationService);
+  registerRoadmapRoutes(app, deps.roadmapService);
+  registerNotificationRoutes(app, deps.notificationService);
+  registerWorkCycleRoutes(app, deps.workCycleService, deps.roadmapService);
   registerHealthRoute(app);
   registerAuthRoutes(app, deps.authService, config);
-  registerWorkspaceRoutes(app, deps.authService, deps.workspaceService, config);
+  registerWorkspaceRoutes(app, deps.workspaceService);
   registerPlanningRoutes(
     app,
-    deps.authService,
     deps.planImportService,
     deps.planningQueryService,
     deps.workItemService,
-    config,
   );
-  registerWorkspaceEventRoute(
-    app,
-    deps.authService,
-    deps.workspaceService,
-    deps.workspaceEventStreamService,
-    config,
-  );
+  registerWorkspaceEventRoute(app, deps.workspaceService, deps.workspaceEventStreamService, config);
   registerExecutionRoutes(
     app,
-    deps.authService,
     deps.executionService,
     deps.agentRunService,
     deps.executionStatus,
     deps.modelCatalogService,
-    config,
   );
   registerAgentRunRoutes(
     app,
-    deps.authService,
     deps.workspaceService,
     deps.agentRunService,
     deps.runEventStreamService,
     config,
   );
-  registerPageViewRoutes(app, deps.authService, deps.pageViews);
+  registerPageViewRoutes(app, deps.pageViews);
   if (config.webDistDir !== undefined) {
     registerStaticWebRoutes(app, config.webDistDir);
   }

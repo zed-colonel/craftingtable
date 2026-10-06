@@ -8,22 +8,15 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { CrossProjectService } from '../services/cross-project-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authorizeMutation } from './request-security.js';
-export function registerCrossProjectRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  service: CrossProjectService,
-  config: ServerConfig,
-) {
+import { contextOf } from './route-access.js';
+export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossProjectService) {
   app.post<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview',
     { config: { access: 'editor' } },
     async (req, reply) => {
-      const context = authorizeMutation(req, auth, config),
+      const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
         input = mapSelectionSchema.safeParse(req.body);
       if (!ws.success || !input.success || input.data.definitionId !== req.params.id)
@@ -42,7 +35,7 @@ export function registerCrossProjectRoutes(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt',
     { config: { access: 'editor' } },
     async (req, reply) => {
-      const context = authorizeMutation(req, auth, config),
+      const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
         id = roadmapIdSchema.safeParse(req.params.id),
         input = adoptMapSchema.safeParse(req.body);
@@ -60,7 +53,7 @@ export function registerCrossProjectRoutes(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap',
     { config: { access: 'editor' }, bodyLimit: 2 * 1024 * 1024 },
     async (req, reply) => {
-      const context = authorizeMutation(req, auth, config),
+      const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
         input = saveCrossProjectSchema.safeParse(req.body);
       if (!ws.success || !input.success || input.data.configuration.definitionId !== req.params.id)

@@ -12,10 +12,9 @@ import {
   type FastifyRequest,
   LogController,
 } from 'fastify';
-import type { AuthService } from '../services/auth-service.js';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate } from './request-security.js';
+import { contextOf } from './route-access.js';
 
 /** Completed requests kept per route for percentiles; older ones are overwritten. */
 const SAMPLES_PER_ROUTE = 512;
@@ -187,7 +186,6 @@ export class RequestLogController extends LogController {
  */
 export function registerDiagnosticsRoutes(
   app: FastifyInstance,
-  auth: AuthService,
   workspaces: WorkspaceService,
   diagnostics: DaemonDiagnostics,
 ): void {
@@ -205,7 +203,7 @@ export function registerDiagnosticsRoutes(
     '/api/workspaces/:workspaceId/diagnostics',
     { config: { access: 'owner' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       workspaces.requireRole(context, workspace.data, ['owner'], { requestId: request.id });

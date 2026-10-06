@@ -22,22 +22,15 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
-export function registerRoadmapRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  roadmaps: RoadmapService,
-  config: ServerConfig,
-): void {
+import { contextOf } from './route-access.js';
+export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapService): void {
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth),
+      const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         id = roadmapIdSchema.safeParse(request.params.roadmapId);
       if (!ws.success || !id.success)
@@ -53,7 +46,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/prepare-decision',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config),
+      const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         id = roadmapIdSchema.safeParse(request.params.roadmapId),
         input = prepareRoadmapDecisionSchema.safeParse(request.body);
@@ -77,7 +70,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/delegation',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         id = roadmapIdSchema.safeParse(request.params.roadmapId),
         input = applyRoadmapDelegationSchema.safeParse(request.body);
@@ -99,7 +92,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/agent-profiles',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth),
+      const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -111,7 +104,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config),
+      const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         id = roadmapIdSchema.safeParse(request.params.roadmapId),
         body = applyRoadmapAgentsSchema.safeParse(request.body);
@@ -135,7 +128,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/capacities',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -147,7 +140,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/capacity',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const id = roadmapIdSchema.safeParse(request.params.roadmapId);
       const input = saveRoadmapCapacitySchema.safeParse(request.body);
@@ -171,7 +164,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -184,7 +177,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/summaries',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -197,7 +190,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/view',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const id = roadmapIdSchema.safeParse(request.params.roadmapId);
       if (!workspace.success || !id.success)
@@ -212,7 +205,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/definitions/:revision',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const id = roadmapIdSchema.safeParse(request.params.roadmapId);
       const revision = roadmapRevisionParamSchema.safeParse(request.params.revision);
@@ -229,7 +222,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/status',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const id = roadmapIdSchema.safeParse(request.params.roadmapId);
       if (!workspace.success || !id.success)
@@ -243,7 +236,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/history',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -257,7 +250,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparation-grant',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = decisionPreparationGrantRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -279,7 +272,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/scope-recovery',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = scopeRecoveryPolicyRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -301,7 +294,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId',
     { config: { access: 'editor' }, bodyLimit: 2 * 1024 * 1024 },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const id = roadmapIdSchema.safeParse(request.params.roadmapId);
       const body = saveRoadmapRequestSchema.safeParse(request.body);
@@ -323,7 +316,7 @@ export function registerRoadmapRoutes(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/control',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = controlRoadmapRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');

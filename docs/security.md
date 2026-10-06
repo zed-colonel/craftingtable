@@ -32,8 +32,10 @@ the handler validates input:
 - a non-member: 404, recorded as a denied access;
 - a member below the declared role: 403.
 
-Handlers and services keep their own checks. `route-access.test.ts` requests every live route as
-each kind of caller and compares the answer with the declaration.
+The guard attaches the signed-in caller to the request; handlers read it with `contextOf` and
+never authenticate again, and the authenticating functions are private to the guard (R-G9).
+Services keep their own role checks. `route-access.test.ts` requests every live route as each
+kind of caller and compares the answer with the declaration.
 
 ## Secrets and credentials
 

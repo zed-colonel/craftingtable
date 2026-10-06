@@ -19,13 +19,12 @@ import type { FastifyInstance } from 'fastify';
 import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
 import type { AgentRunService } from '../services/agent-run-service.js';
-import type { AuthService } from '../services/auth-service.js';
 import { ForbiddenError } from '../services/errors.js';
 import type { RunEventStreamService } from '../services/run-event-stream-service.js';
 import { parseEventCursor, selectEventCursor } from '../services/workspace-event-stream-service.js';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 import { runDetail, runSummary } from './run-summary.js';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -49,7 +48,6 @@ function withoutRaw<T extends { readonly raw?: string }>(event: T): Omit<T, 'raw
  */
 export function registerAgentRunRoutes(
   app: FastifyInstance,
-  authService: AuthService,
   workspaceService: WorkspaceService,
   agentRunService: AgentRunService,
   streamService: RunEventStreamService,
@@ -70,7 +68,7 @@ export function registerAgentRunRoutes(
     '/api/workspaces/:workspaceId/work-items/:workItemId/runs',
     { config: { access: 'editor' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, authService, config);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success) {
@@ -95,7 +93,7 @@ export function registerAgentRunRoutes(
     '/api/workspaces/:workspaceId/runs/:runId',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const runId = agentRunIdSchema.safeParse(request.params.runId);
       if (!workspaceId.success || !runId.success) {
@@ -112,7 +110,7 @@ export function registerAgentRunRoutes(
     '/api/workspaces/:workspaceId/runs/:runId/tool-results/:digest',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const runId = agentRunIdSchema.safeParse(request.params.runId);
       if (!workspaceId.success || !runId.success || !/^[a-f0-9]{64}$/.test(request.params.digest)) {
@@ -140,7 +138,7 @@ export function registerAgentRunRoutes(
     '/api/workspaces/:workspaceId/runs/:runId/event-page',
     { config: { access: 'member' } },
     async (request, reply) => {
-      const context = authenticate(request, authService);
+      const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const runId = agentRunIdSchema.safeParse(request.params.runId);
       if (!workspaceId.success || !runId.success) {
@@ -182,7 +180,7 @@ export function registerAgentRunRoutes(
       `/api/workspaces/:workspaceId/runs/:runId/${action}`,
       { config: { access: 'editor' } },
       async (request, reply) => {
-        const context = authorizeMutation(request, authService, config);
+        const context = contextOf(request);
         const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
         const runId = agentRunIdSchema.safeParse(request.params.runId);
         if (!workspaceId.success || !runId.success) {
@@ -219,7 +217,7 @@ export function registerAgentRunRoutes(
     { config: { access: 'member' } },
     (request, reply) => {
       const rawSessionToken = request.cookies[SESSION_COOKIE_NAME];
-      const context = authService.authenticate(rawSessionToken);
+      const context = contextOf(request);
       if (
         !isAllowedBrowserRequest(
           {

@@ -5,22 +5,18 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
 import type { NotificationService } from '../services/notification-service.js';
 import { noStore, sendApiError } from './http.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { contextOf } from './route-access.js';
 export function registerNotificationRoutes(
   app: FastifyInstance,
-  auth: AuthService,
   notifications: NotificationService,
-  config: ServerConfig,
 ): void {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/notifications',
     { config: { access: 'owner' } },
     async (request, reply) => {
-      const context = authenticate(request, auth);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
@@ -32,7 +28,7 @@ export function registerNotificationRoutes(
     '/api/workspaces/:workspaceId/notifications',
     { config: { access: 'owner' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const body = saveNotificationsRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
@@ -47,7 +43,7 @@ export function registerNotificationRoutes(
     '/api/workspaces/:workspaceId/notifications/test',
     { config: { access: 'owner' } },
     async (request, reply) => {
-      const context = authorizeMutation(request, auth, config);
+      const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       if (!testNotificationsRequestSchema.safeParse(request.body).success)

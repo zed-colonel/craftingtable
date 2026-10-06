@@ -1,11 +1,13 @@
 import { workspaceIdSchema } from '@craftingtable/contracts';
 import type { WorkspaceRole } from '@craftingtable/domain';
-import type { FastifyInstance } from 'fastify';
-import type { ServerConfig } from '../config.js';
-import type { AuthService } from '../services/auth-service.js';
-import { ForbiddenError, NotFoundError } from '../services/errors.js';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { CSRF_HEADER_NAME, SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
+import { csrfTokensEqual } from '../security/csrf.js';
+import { isAllowedBrowserRequest } from '../security/origin-policy.js';
+import type { AuthContext, AuthService } from '../services/auth-service.js';
+import { ForbiddenError, NotFoundError, UnauthenticatedError } from '../services/errors.js';
 import type { WorkspaceService } from '../services/workspace-service.js';
-import { authenticate, authorizeMutation } from './request-security.js';
+import { browserHeaders } from './request-security.js';
 
 /**
  * Every API route declares who may call it (R-I3, SEC-05):
@@ -22,6 +24,20 @@ declare module 'fastify' {
   interface FastifyContextConfig {
     readonly access?: RouteAccess;
   }
+  interface FastifyRequest {
+    /** The signed-in caller, attached by the access guard to every non-public route (R-G9). */
+    auth?: AuthContext;
+  }
+}
+
+/**
+ * The caller of a route that declared any access but `public`: the guard authenticated it (and,
+ * for a mutation, checked its CSRF token and origin) before the body was read, and attached it.
+ * Handlers read it here and never authenticate again (R-G9, QA-03).
+ */
+export function contextOf(request: FastifyRequest): AuthContext {
+  if (request.auth === undefined) throw new UnauthenticatedError();
+  return request.auth;
 }
 
 export const ROUTE_ACCESS_ROLES: Readonly<
@@ -80,6 +96,7 @@ export function installRouteAccess(
 ): void {
   const declared = new Map<string, RouteAccess>();
   declarations.set(app, declared);
+  app.decorateRequest('auth', undefined);
   app.addHook('onRoute', (route) => {
     if (!route.url.startsWith('/api/')) return;
     const methods = [route.method].flat();
@@ -98,6 +115,7 @@ export function installRouteAccess(
     const context = isMutation(request.method)
       ? authorizeMutation(request, auth, config)
       : authenticate(request, auth);
+    request.auth = context;
     if (access === 'session') return;
     const workspaceId = workspaceIdSchema.safeParse(
       (request.params as { readonly workspaceId?: unknown }).workspaceId,
@@ -109,4 +127,31 @@ export function installRouteAccess(
     if (access === 'installation' && !workspaces.ownsInstallation(context))
       throw new ForbiddenError();
   });
+}
+
+// The guard alone authenticates: handlers read what it attached, with `contextOf` (R-G9).
+function authenticate(request: FastifyRequest, authService: AuthService): AuthContext {
+  return authService.authenticate(request.cookies[SESSION_COOKIE_NAME]);
+}
+
+/**
+ * Authenticates, then requires a session-bound CSRF token and an allowed
+ * origin. Authentication runs first so an unauthenticated request always
+ * receives 401 regardless of its other headers (CT-02 finding F5).
+ */
+function authorizeMutation(
+  request: FastifyRequest,
+  authService: AuthService,
+  config: ServerConfig,
+): AuthContext {
+  const context = authenticate(request, authService);
+  const csrf = request.headers[CSRF_HEADER_NAME];
+  if (
+    typeof csrf !== 'string' ||
+    !csrfTokensEqual(context.session.csrfToken, csrf) ||
+    !isAllowedBrowserRequest(browserHeaders(request), config.publicOrigin)
+  ) {
+    throw new ForbiddenError();
+  }
+  return context;
 }

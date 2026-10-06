@@ -113,3 +113,5 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-05-model-catalog-after | `6665f26` | 2026-10-05 | 67 (1 phone only) | 1× |
 | 2026-10-06-view-models-before | `4b71aec` | 2026-10-06 | 67 (1 phone only) | 1× |
 | 2026-10-06-view-models-after | `4360904` | 2026-10-06 | 67 (1 phone only) | 1× |
+| 2026-10-06-auth-hardening-before | `790e8e2` | 2026-10-06 | 67 (1 phone only) | 1× |
+| 2026-10-06-auth-hardening-after | `6bfd21f` | 2026-10-06 | 67 (1 phone only) | 1× |

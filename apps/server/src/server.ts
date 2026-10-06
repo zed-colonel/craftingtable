@@ -22,6 +22,7 @@ import { registerAttentionRoutes } from './routes/attention.js';
 import { registerPackageImportRoutes } from './routes/package-imports.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
+import { installResponseEncoding } from './routes/response-encoding.js';
 import { installRouteAccess } from './routes/route-access.js';
 import { registerRuntimeEvidenceRoutes } from './routes/runtime-evidence.js';
 import { registerStaticWebRoutes } from './routes/static-web.js';
@@ -138,6 +139,7 @@ export function buildServer(
         }) as unknown as FastifyInstance);
   void app.register(cookie);
   installRouteAccess(app, deps.authService, deps.workspaceService, config);
+  installResponseEncoding(app);
   registerDiagnosticsRoutes(app, deps.authService, deps.workspaceService, new DaemonDiagnostics());
 
   app.addHook('onReady', async () => {

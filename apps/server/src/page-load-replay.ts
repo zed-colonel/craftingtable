@@ -28,7 +28,10 @@ export interface PageRead {
 }
 export interface PageReadMeasure extends PageRead {
   readonly status: number;
+  /** The body's size as JSON. */
   readonly bytes: number;
+  /** What crosses the wire to a browser, which accepts gzip (R-D5). */
+  readonly wireBytes?: number;
   /** Median of the measured repetitions, in ms. */
   readonly ms: number;
   readonly gitCalls: number;
@@ -41,6 +44,7 @@ export interface PageLoadMeasure {
   /** Sum of the reads' medians: the page's server time. */
   readonly totalMs: number;
   readonly totalBytes: number;
+  readonly totalWireBytes?: number;
 }
 export interface PageLoadReplay {
   /** The shell's reads on a cold load (sign-in check, workspace list, snapshot, attention, cycles). */
@@ -173,19 +177,28 @@ export async function replayPageLoads(
         const times: number[] = [];
         let status = 0;
         let bytes = 0;
+        let wireBytes = 0;
         await get(read.url);
         gitCalls = 0;
         for (let run = 0; run < repetitions; run++) {
+          // As a browser asks: gzip accepted, and no validator held (a first read).
           const start = performance.now();
-          const response = await get(read.url);
+          const response = await daemon.app.inject({
+            method: 'GET',
+            url: read.url,
+            cookies: { [SESSION_COOKIE_NAME]: raw },
+            headers: { 'accept-encoding': 'gzip' },
+          });
           times.push(performance.now() - start);
-          status = response.status;
-          bytes = Buffer.byteLength(response.body);
+          status = response.statusCode;
+          wireBytes = response.rawPayload.length;
         }
+        bytes = Buffer.byteLength((await get(read.url)).body);
         return {
           ...read,
           status,
           bytes,
+          wireBytes,
           ms: Math.round(median(times) * 10) / 10,
           gitCalls: gitCalls / repetitions,
         };
@@ -205,6 +218,7 @@ export async function replayPageLoads(
           reads,
           totalMs: Math.round(reads.reduce((sum, r) => sum + r.ms, 0) * 10) / 10,
           totalBytes: reads.reduce((sum, r) => sum + r.bytes, 0),
+          totalWireBytes: reads.reduce((sum, r) => sum + (r.wireBytes ?? r.bytes), 0),
         });
       }
     }
@@ -242,7 +256,7 @@ export function formatPageLoads(replay: PageLoadReplay, top = 10): string {
   );
   for (const page of pages.slice(0, top))
     lines.push(
-      `  ${page.sourceId} (${page.workItemId}): ${page.reads.length} requests, ${page.totalMs} ms, ${page.totalBytes} B\n    ${page.reads
+      `  ${page.sourceId} (${page.workItemId}): ${page.reads.length} requests, ${page.totalMs} ms, ${page.totalBytes} B (${page.totalWireBytes} B on the wire)\n    ${page.reads
         .map(
           (r) =>
             `${r.name} ${r.ms} ms ${r.bytes} B${r.status === 200 ? '' : ` [${r.status}]`}${r.gitCalls ? ` git ${r.gitCalls}` : ''}`,

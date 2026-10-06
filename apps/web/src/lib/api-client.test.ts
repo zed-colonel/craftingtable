@@ -1,6 +1,6 @@
 import { asWorkspaceId } from '@craftingtable/domain';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { request } from './api-client.js';
+import { forgetValidators, request } from './api-client.js';
 import { importConcurrencyZip } from './package-import-api.js';
 import { importPlanBundle } from './planning-api.js';
 
@@ -59,4 +59,45 @@ it('says so for the plan and package uploads too, which read their answers thems
   expect(consoleError).toHaveBeenCalledTimes(2);
   expect(String(consoleError.mock.calls[0]?.[0])).toContain('/plan-imports');
   expect(String(consoleError.mock.calls[1]?.[0])).toContain('/concurrency');
+});
+
+it('revalidates a read in memory: an unchanged answer is the same value, without a body (R-D5, PERF-16)', async () => {
+  const fetch = vi.fn(async (_url: string, init?: RequestInit) =>
+    new Headers(init?.headers).get('if-none-match') === 'W/"one"'
+      ? new Response(null, { status: 304, headers: { etag: 'W/"one"' } })
+      : new Response(JSON.stringify({ ok: true }), { status: 200, headers: { etag: 'W/"one"' } }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const first = await request('/api/example', refuses);
+  const second = await request('/api/example', refuses);
+  expect(second).toBe(first);
+  expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get('if-none-match')).toBeNull();
+  expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get('if-none-match')).toBe('W/"one"');
+  // Another read has a validator of its own; a command never sends one.
+  await request('/api/other', refuses);
+  expect(new Headers(fetch.mock.calls[2]?.[1]?.headers).get('if-none-match')).toBeNull();
+  await request('/api/example', refuses, { method: 'POST', body: '{}' });
+  expect(new Headers(fetch.mock.calls[3]?.[1]?.headers).get('if-none-match')).toBeNull();
+  // Signing in or out forgets every validator.
+  forgetValidators();
+  await request('/api/example', refuses);
+  expect(new Headers(fetch.mock.calls[4]?.[1]?.headers).get('if-none-match')).toBeNull();
+});
+
+it('forgets a validator when an answer comes without one', async () => {
+  let tagged = true;
+  const fetch = vi.fn(
+    async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: tagged ? { etag: 'W/"two"' } : {},
+      }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  await request('/api/forget', refuses);
+  tagged = false;
+  await request('/api/forget', refuses);
+  await request('/api/forget', refuses);
+  expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get('if-none-match')).toBe('W/"two"');
+  expect(new Headers(fetch.mock.calls[2]?.[1]?.headers).get('if-none-match')).toBeNull();
 });

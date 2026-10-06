@@ -46,19 +46,41 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The last validator and value of each read (R-D5, PERF-16), in memory only: the daemon answers
+ * `no-store`, so no authenticated answer reaches the browser's disk cache, and the app revalidates
+ * itself. An unchanged read comes back as 304 with no body and returns the same value, which the
+ * query store then sees as unchanged. The newest `VALIDATOR_LIMIT` reads are kept.
+ */
+const validators = new Map<string, { readonly tag: string; readonly value: unknown }>();
+const VALIDATOR_LIMIT = 64;
+
+/** Forgets every read's validator: on signing in or out, and between tests. */
+export function forgetValidators(): void {
+  validators.clear();
+}
+
 export async function request<T>(
   url: string,
   schema: ResponseSchema<T>,
   init: RequestInit = {},
 ): Promise<T> {
+  const read = (init.method ?? 'GET').toUpperCase() === 'GET';
+  const held = read ? validators.get(url) : undefined;
   const response = await fetch(url, {
     credentials: 'same-origin',
     ...init,
     headers: {
       ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(held === undefined ? {} : { 'if-none-match': held.tag }),
       ...init.headers,
     },
   });
+  if (held !== undefined && response.status === 304) {
+    validators.delete(url);
+    validators.set(url, held);
+    return held.value as T;
+  }
   const body: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
     const error = apiErrorResponseSchema.safeParse(body);
@@ -71,7 +93,19 @@ export async function request<T>(
     const { code, message, ...detail } = error.data.error;
     throw new ApiError(response.status, code, message, detail);
   }
-  return parseAnswer(url, schema, body);
+  const value = parseAnswer(url, schema, body);
+  if (read) {
+    validators.delete(url);
+    const tag = response.headers.get('etag');
+    if (tag !== null) {
+      validators.set(url, { tag, value });
+      for (const oldest of validators.keys()) {
+        if (validators.size <= VALIDATOR_LIMIT) break;
+        validators.delete(oldest);
+      }
+    }
+  }
+  return value;
 }
 
 /**
@@ -103,6 +137,7 @@ export async function loadSession(): Promise<AuthenticatedSessionResponse | unde
 }
 
 export function login(input: LoginRequest): Promise<AuthenticatedSessionResponse> {
+  forgetValidators();
   return request('/api/auth/login', authenticatedSessionResponseSchema, {
     method: 'POST',
     body: JSON.stringify(input),
@@ -114,11 +149,15 @@ export function loadSessions(): Promise<SessionListResponse> {
 }
 
 export async function logout(csrfToken: string): Promise<void> {
-  await request('/api/auth/logout', logoutResponseSchema, {
-    method: 'POST',
-    headers: { 'x-craftingtable-csrf': csrfToken },
-    body: JSON.stringify({}),
-  });
+  try {
+    await request('/api/auth/logout', logoutResponseSchema, {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': csrfToken },
+      body: JSON.stringify({}),
+    });
+  } finally {
+    forgetValidators();
+  }
 }
 
 export async function revokeSession(sessionId: SessionId, csrfToken: string): Promise<boolean> {

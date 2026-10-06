@@ -37,6 +37,13 @@ never authenticate again, and the authenticating functions are private to the gu
 Services keep their own role checks. `route-access.test.ts` requests every live route as each
 kind of caller and compares the answer with the declaration.
 
+Once the body is parsed, a command that sets `permissionMode: 'unrestricted'` anywhere in its
+body, or a final promotion (a finalization's `merge` control), needs step-up: the operator's
+password again within the last 10 minutes, posted to `/api/auth/step-up`. Without it the command
+answers 403 with reason `step-up-required`, and the browser asks for the password and sends the
+command again. Step-up is held per session in the daemon's memory, so a restart or sign-out
+clears it; a wrong password counts toward the username's sign-in lock (R-G9).
+
 ## Secrets and credentials
 
 - Bootstrap is interactive and refuses password arguments; there is no registration route.

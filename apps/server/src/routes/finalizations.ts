@@ -51,7 +51,16 @@ export function registerFinalizationRoutes(
   );
   app.post<{ Params: { workspaceId: string; finalizationId: string } }>(
     '/api/workspaces/:workspaceId/finalizations/:finalizationId/control',
-    { config: { access: 'editor' } },
+    // Final promotion needs the operator's password again (R-G9).
+    {
+      config: {
+        access: 'editor',
+        stepUp: (body) =>
+          typeof body === 'object' &&
+          body !== null &&
+          (body as { action?: unknown }).action === 'merge',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

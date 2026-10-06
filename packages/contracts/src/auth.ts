@@ -26,6 +26,8 @@ export const apiErrorReasonSchema = z.enum([
   'investigation-worktree-changed',
   /** Sign-in refused: too many failed attempts for the username or the client (R-G9). */
   'login-rate-limited',
+  /** The command needs the operator's password again first (R-G9): `POST /api/auth/step-up`. */
+  'step-up-required',
 ]);
 
 export const apiErrorResponseSchema = z.strictObject({
@@ -81,6 +83,16 @@ export const revokeSessionResponseSchema = z.strictObject({
 
 export const logoutResponseSchema = z.strictObject({
   success: z.literal(true),
+});
+
+/** The current password again, before an unrestricted run or a final promotion (R-G9). */
+export const stepUpRequestSchema = z.strictObject({
+  password: z.string().min(1).max(1024),
+});
+
+export const stepUpResponseSchema = z.strictObject({
+  /** Until when this session may run commands that need step-up. */
+  steppedUpUntil: z.iso.datetime(),
 });
 
 export const changePasswordRequestSchema = z.strictObject({

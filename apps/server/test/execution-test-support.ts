@@ -64,7 +64,7 @@ import {
   withoutScaffolding,
 } from './map-test-support.js';
 import { FIXTURE_GIT_ENVIRONMENT } from '../../../packages/git/test/test-support.js';
-import { createTestContext, type TestContext } from './test-support.js';
+import { createTestContext, TEST_PASSWORD, type TestContext } from './test-support.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -1467,12 +1467,27 @@ export function finalizationCycle(
 ) {
   return present(state.context.storage.execution.cycles.find(state.workspaceId, value.cycleId));
 }
+/**
+ * Gives the session's password again (R-G9), as the browser does when a command needs it: final
+ * promotion, or anything that lets an agent run unrestricted.
+ */
+export async function stepUp(state: SignedIn): Promise<void> {
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: '/api/auth/step-up',
+    headers: mutationHeaders(state),
+    payload: { password: TEST_PASSWORD },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+}
+
 export async function finalizationCommand(
   state: Ready,
   value: import('@craftingtable/domain').Finalization,
   action: string,
   extra: Record<string, unknown> = {},
 ): Promise<LightMyRequestResponse> {
+  if (action === 'merge') await stepUp(state);
   const current = present(
     state.context.storage.execution.finalizations.find(state.workspaceId, value.id),
   );

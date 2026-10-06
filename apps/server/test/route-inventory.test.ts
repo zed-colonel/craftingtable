@@ -122,6 +122,7 @@ const EXPECTED_ROUTES = [
   'POST /api/auth/logout',
   'POST /api/auth/password',
   'POST /api/auth/sessions/:sessionId/revoke',
+  'POST /api/auth/step-up',
   'POST /api/workspaces',
   'GET /api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
   'POST /api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',

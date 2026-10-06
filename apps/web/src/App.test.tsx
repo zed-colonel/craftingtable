@@ -7,6 +7,7 @@ import type {
 } from '@craftingtable/contracts';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setStepUpPrompt } from './lib/api-client.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
 import { asEventId } from '@craftingtable/domain';
 
@@ -281,9 +282,9 @@ vi.mock('./lib/api-client.js', () => ({
   renameWorkspace: () => new Promise(() => undefined),
   changePassword: () => new Promise(() => undefined),
   request: () => Promise.reject(new Error('not used')),
+  setStepUpPrompt: vi.fn(),
 }));
 
-// The event streams are irrelevant to this transition; keep them inert.
 // A page that fails while the shell stays (R-D5 review): the import page, when told to.
 vi.mock('./app/pages/ImportRoute.js', async (original) => {
   const page = await original<typeof import('./app/pages/ImportRoute.js')>();
@@ -295,6 +296,8 @@ vi.mock('./app/pages/ImportRoute.js', async (original) => {
     },
   };
 });
+
+// The event streams are irrelevant to this transition; keep them inert.
 vi.mock('./lib/use-workspace-event-stream.js', () => ({
   useWorkspaceEventStream: vi.fn(),
 }));
@@ -825,6 +828,13 @@ describe('page reads after the split (R-D4 increment 4b review)', () => {
     window.dispatchEvent(new PopStateEvent('popstate'));
     await waitFor(() => expect(screen.queryByText(/This page could not be loaded/)).toBeNull());
     vi.mocked(console.error).mockRestore();
+  });
+
+  it('asks for the password again through the signed-in app (R-G9)', async () => {
+    vi.mocked(setStepUpPrompt).mockClear();
+    renderApp();
+    await screen.findByText('Alpha Project');
+    expect(vi.mocked(setStepUpPrompt).mock.lastCall?.[0]).toBeTypeOf('function');
   });
 
   it("says a work item's page could not be read, rather than showing nothing (F3)", async () => {

@@ -9,6 +9,8 @@ import {
   revokeSessionResponseSchema,
   sessionIdSchema,
   sessionListResponseSchema,
+  stepUpRequestSchema,
+  stepUpResponseSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
@@ -97,6 +99,15 @@ export function registerAuthRoutes(
       secure: config.secureCookies,
     });
     return noStore(reply).send(logoutResponseSchema.parse({ success: true }));
+  });
+
+  // The current password again, before an unrestricted run or a final promotion (R-G9).
+  app.post('/api/auth/step-up', { config: { access: 'session' } }, async (request, reply) => {
+    const context = contextOf(request);
+    const parsed = stepUpRequestSchema.safeParse(request.body);
+    if (!parsed.success) return sendApiError(reply, 400, 'invalid-request', 'Invalid step-up');
+    const until = await authService.stepUp(context, parsed.data.password, request.id);
+    return noStore(reply).send(stepUpResponseSchema.parse({ steppedUpUntil: until.toISOString() }));
   });
 
   app.post('/api/auth/password', { config: { access: 'session' } }, async (request, reply) => {

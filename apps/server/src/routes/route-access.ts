@@ -5,7 +5,12 @@ import { CSRF_HEADER_NAME, SESSION_COOKIE_NAME, type ServerConfig } from '../con
 import { csrfTokensEqual } from '../security/csrf.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
 import type { AuthContext, AuthService } from '../services/auth-service.js';
-import { ForbiddenError, NotFoundError, UnauthenticatedError } from '../services/errors.js';
+import {
+  ForbiddenError,
+  NotFoundError,
+  StepUpRequiredError,
+  UnauthenticatedError,
+} from '../services/errors.js';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { browserHeaders } from './request-security.js';
 
@@ -23,6 +28,11 @@ export type RouteAccess = 'public' | 'session' | 'member' | 'editor' | 'owner' |
 declare module 'fastify' {
   interface FastifyContextConfig {
     readonly access?: RouteAccess;
+    /**
+     * Whether a command with this body needs the operator's password again (R-G9), beyond the
+     * unrestricted permission mode every command is checked for: final promotion.
+     */
+    readonly stepUp?: (body: unknown) => boolean;
   }
   interface FastifyRequest {
     /** The signed-in caller, attached by the access guard to every non-public route (R-G9). */
@@ -127,6 +137,26 @@ export function installRouteAccess(
     if (access === 'installation' && !workspaces.ownsInstallation(context))
       throw new ForbiddenError();
   });
+  // Once the body is parsed, and the caller is known to be allowed the route: a command that
+  // grants an agent unrestricted permissions, or that a route declares (final promotion), needs
+  // the session to have given its password again recently (R-G9; operator decision 2026-10-05).
+  app.addHook('preValidation', async (request) => {
+    if (request.auth === undefined || !isMutation(request.method)) return;
+    const declared = request.routeOptions.config?.stepUp?.(request.body) ?? false;
+    if ((declared || grantsUnrestricted(request.body)) && !auth.isSteppedUp(request.auth))
+      throw new StepUpRequiredError();
+  });
+}
+
+/** Whether a body sets `permissionMode: 'unrestricted'` anywhere in it (R-G9). */
+export function grantsUnrestricted(body: unknown, depth = 0): boolean {
+  if (depth > 32 || body === null || typeof body !== 'object') return false;
+  if (Array.isArray(body)) return body.some((value) => grantsUnrestricted(value, depth + 1));
+  return Object.entries(body).some(
+    ([key, value]) =>
+      (key === 'permissionMode' && value === 'unrestricted') ||
+      grantsUnrestricted(value, depth + 1),
+  );
 }
 
 // The guard alone authenticates: handlers read what it attached, with `contextOf` (R-G9).

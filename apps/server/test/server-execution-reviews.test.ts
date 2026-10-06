@@ -39,6 +39,7 @@ import {
   slicedFixture,
   startCycle,
   stepDaemons,
+  stepUp,
   storedRoadmap,
   supervisedMapFixture,
   waitFor,
@@ -1636,6 +1637,8 @@ it('applies model-only roadmap choices without expiring accepted saved-plan evid
       })
     ).statusCode,
   ).toBe(403);
+  // The guard asks for the password again before it reads an unrestricted body (R-G9).
+  await stepUp(f.state);
   expect(
     (
       await context.app.inject({

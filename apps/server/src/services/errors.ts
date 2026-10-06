@@ -13,6 +13,14 @@ export class LoginRateLimitedError extends Error {
   }
 }
 
+/** The command needs the operator's password again first (R-G9): `POST /api/auth/step-up`. */
+export class StepUpRequiredError extends Error {
+  constructor() {
+    super('Enter your password again to continue');
+    this.name = 'StepUpRequiredError';
+  }
+}
+
 export class UnauthenticatedError extends Error {
   constructor() {
     super('Authentication required');

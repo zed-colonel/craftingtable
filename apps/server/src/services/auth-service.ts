@@ -7,6 +7,7 @@ import type { SessionTokenService } from '../security/session-tokens.js';
 import {
   AuthenticationError,
   ExecutionRequestError,
+  ForbiddenError,
   LoginRateLimitedError,
   NotFoundError,
   UnauthenticatedError,
@@ -30,11 +31,19 @@ export interface LoginResult extends AuthContext {
   readonly rawSessionToken: string;
 }
 
+/** How long a step-up lasts (R-G9; operator decision 2026-10-05). */
+export const STEP_UP_MS = 10 * 60_000;
+
 export class AuthService {
   /** Failed sign-ins per username and client address (R-G9, operator decision 2026-10-05). */
   private readonly throttle: LoginThrottle;
   /** About 64 MiB per verification: at most 2 at once (R-G9, SEC-04). */
   private readonly verifications = new ConcurrencyLimit(2);
+  /**
+   * Sessions that gave their password again, and until when (R-G9; operator decision
+   * 2026-10-05: 10 minutes, in memory, so a restart or sign-out clears it).
+   */
+  private readonly steppedUp = new Map<string, number>();
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -240,6 +249,55 @@ export class AuthService {
       });
       return { revokedSessionCount };
     });
+  }
+
+  /**
+   * The signed-in user's password again: on a match the session may run commands that need
+   * step-up for `STEP_UP_MS`. A mismatch counts toward the username's sign-in lock (R-G9).
+   */
+  async stepUp(context: AuthContext, password: string, requestId?: string): Promise<Date> {
+    const keys = [`user:${context.user.usernameNormalized}`];
+    const blocked = this.throttle.blockedUntil(keys);
+    if (blocked !== undefined) throw new LoginRateLimitedError(new Date(blocked));
+    const valid = await this.verify(context.user.passwordHash, password);
+    const now = this.now();
+    const locked = valid ? false : this.throttle.failed(keys).locked;
+    const until = new Date(now.getTime() + STEP_UP_MS);
+    if (valid) {
+      this.throttle.succeeded(keys);
+      this.forgetSteppedUp(now.getTime());
+      this.steppedUp.set(context.session.id, until.getTime());
+    }
+    this.storage.transaction((tx) => {
+      for (const action of [
+        valid ? ('auth.step-up' as const) : ('auth.step-up.failed' as const),
+        ...(locked ? ['auth.login.rate-limited' as const] : []),
+      ])
+        tx.audit.append({
+          id: asAuditEventId(randomUUID()),
+          occurredAt: now.toISOString(),
+          actorKind: 'user',
+          actorUserId: context.user.id,
+          sessionId: context.session.id,
+          ...(requestId === undefined ? {} : { requestId }),
+          action,
+          targetType: 'session',
+          targetId: context.session.id,
+          outcome: action === 'auth.step-up' ? 'succeeded' : 'failed',
+          metadata: {},
+        });
+    });
+    if (!valid) throw new ForbiddenError();
+    return until;
+  }
+
+  /** Whether this session gave its password again within `STEP_UP_MS`. */
+  isSteppedUp(context: AuthContext): boolean {
+    return (this.steppedUp.get(context.session.id) ?? 0) > this.now().getTime();
+  }
+
+  private forgetSteppedUp(at: number): void {
+    for (const [session, until] of this.steppedUp) if (until <= at) this.steppedUp.delete(session);
   }
 
   logout(context: AuthContext, requestId?: string): void {

@@ -1,6 +1,6 @@
 import { asWorkspaceId } from '@craftingtable/domain';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { forgetValidators, login, logout, request } from './api-client.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { forgetValidators, login, logout, request, setStepUpPrompt } from './api-client.js';
 import { importConcurrencyZip } from './package-import-api.js';
 import { importPlanBundle } from './planning-api.js';
 
@@ -159,4 +159,91 @@ it('keeps the validators of the newest 64 reads', async () => {
   expect(sent('/api/bound/0')).toBeNull();
   await request('/api/bound/64', refuses);
   expect(sent('/api/bound/64')).toBe('W/"v"');
+});
+
+describe('step-up (R-G9)', () => {
+  const stepUpRequired = () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: 'forbidden',
+          message: 'Enter your password again',
+          reason: 'step-up-required',
+        },
+      }),
+      { status: 403 },
+    );
+  const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
+  const command = () =>
+    request('/api/command', refuses, {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': 'csrf' },
+      body: JSON.stringify({ permissionMode: 'unrestricted' }),
+    });
+  afterEach(() => setStepUpPrompt(undefined));
+
+  it('asks for the password, steps up and sends the command again', async () => {
+    let refused = 0;
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url === '/api/auth/step-up')
+        return new Response(JSON.stringify({ steppedUpUntil: '2026-10-05T10:10:00.000Z' }), {
+          status: 200,
+        });
+      return refused++ === 0 ? stepUpRequired() : ok();
+    });
+    vi.stubGlobal('fetch', fetch);
+    const prompt = vi.fn(async () => 'the password');
+    setStepUpPrompt(prompt);
+    await expect(command()).resolves.toEqual({ ok: true });
+    expect(prompt).toHaveBeenCalledTimes(1);
+    const stepUp = fetch.mock.calls.find(([url]) => url === '/api/auth/step-up');
+    expect(JSON.parse(String(stepUp?.[1]?.body))).toEqual({ password: 'the password' });
+    expect(new Headers(stepUp?.[1]?.headers).get('x-craftingtable-csrf')).toBe('csrf');
+    expect(fetch.mock.calls.filter(([url]) => url === '/api/command')).toHaveLength(2);
+  });
+
+  it('asks again after a wrong password, and gives up when the operator cancels', async () => {
+    const fetch = vi.fn(async (url: string) =>
+      url === '/api/auth/step-up'
+        ? new Response(JSON.stringify({ error: { code: 'forbidden', message: 'No.' } }), {
+            status: 403,
+          })
+        : stepUpRequired(),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const prompt = vi
+      .fn<(failed: boolean) => Promise<string | undefined>>()
+      .mockResolvedValueOnce('wrong')
+      .mockResolvedValueOnce(undefined);
+    setStepUpPrompt(prompt);
+    await expect(command()).rejects.toMatchObject({
+      status: 403,
+      detail: { reason: 'step-up-required' },
+    });
+    expect(prompt.mock.calls).toEqual([[false], [true]]);
+    expect(fetch.mock.calls.filter(([url]) => url === '/api/command')).toHaveLength(1);
+  });
+
+  it('never asks about a read, another refusal, or without a prompt', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => stepUpRequired()),
+    );
+    await expect(command()).rejects.toMatchObject({ detail: { reason: 'step-up-required' } });
+    const prompt = vi.fn(async () => 'x');
+    setStepUpPrompt(prompt);
+    await expect(request('/api/read', refuses)).rejects.toMatchObject({ status: 403 });
+    // Nor about a command refused for any other reason.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: 'forbidden', message: 'No.' } }), {
+            status: 403,
+          }),
+      ),
+    );
+    await expect(command()).rejects.toMatchObject({ status: 403 });
+    expect(prompt).not.toHaveBeenCalled();
+  });
 });

@@ -247,3 +247,106 @@ describe('sign-in rate limit (R-G9)', () => {
     expect(most).toBe(2);
   });
 });
+
+describe('step-up (R-G9)', () => {
+  async function signedIn() {
+    const { context, advance } = await clock();
+    const session = await context.login();
+    const workspaceId = context.storage.workspaces.listAuthorized(
+      context.storage.users.findByNormalizedUsername(TEST_USERNAME)!.id,
+    )[0]?.workspace.id;
+    const command = (url: string, payload: unknown, caller = session) =>
+      context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${workspaceId}${url}`,
+        headers: {
+          cookie: caller.cookie,
+          'x-craftingtable-csrf': caller.csrfToken,
+          origin: context.config.publicOrigin,
+          'content-type': 'application/json',
+        },
+        payload: payload as Record<string, unknown>,
+      });
+    const stepUp = (password: string) =>
+      context.app.inject({
+        method: 'POST',
+        url: '/api/auth/step-up',
+        headers: {
+          cookie: session.cookie,
+          'x-craftingtable-csrf': session.csrfToken,
+          origin: context.config.publicOrigin,
+          'content-type': 'application/json',
+        },
+        payload: { password },
+      });
+    return { context, advance, session, command, stepUp };
+  }
+  const refusedForStepUp = (response: { statusCode: number; json: () => unknown }) =>
+    response.statusCode === 403 &&
+    (response.json() as { error?: { reason?: string } }).error?.reason === 'step-up-required';
+  const finalization = '/finalizations/00000000-0000-4000-8000-000000000000/control';
+
+  it('asks for the password again before a command that sets an unrestricted permission mode, anywhere in its body', async () => {
+    const { command } = await signedIn();
+    expect(
+      refusedForStepUp(
+        await command('/work-items/00000000-0000-4000-8000-000000000000/runs', {
+          backend: 'claude-code',
+          permissionMode: 'unrestricted',
+        }),
+      ),
+    ).toBe(true);
+    // Nested, as in a cycle's profiles or a saved profile set.
+    expect(
+      refusedForStepUp(
+        await command('/run-profiles', {
+          profiles: [{ name: 'p', settings: { permissionMode: 'unrestricted' } }],
+        }),
+      ),
+    ).toBe(true);
+    // Any other mode is not asked about.
+    expect(
+      refusedForStepUp(
+        await command('/work-items/00000000-0000-4000-8000-000000000000/runs', {
+          backend: 'claude-code',
+          permissionMode: 'auto',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('asks before final promotion, and only before that control', async () => {
+    const { command } = await signedIn();
+    expect(refusedForStepUp(await command(finalization, { action: 'merge' }))).toBe(true);
+    expect(refusedForStepUp(await command(finalization, { action: 'pause' }))).toBe(false);
+  });
+
+  it('lets the session through for 10 minutes once the password is given again', async () => {
+    const { context, advance, command, stepUp } = await signedIn();
+    const wrong = await stepUp('not the password');
+    expect(wrong.statusCode).toBe(403);
+    expect(refusedForStepUp(await command(finalization, { action: 'merge' }))).toBe(true);
+    const right = await stepUp(TEST_PASSWORD);
+    expect(right.statusCode, right.body).toBe(200);
+    expect(refusedForStepUp(await command(finalization, { action: 'merge' }))).toBe(false);
+    // Another session of the same user is not stepped up.
+    const other = await context.login();
+    expect(refusedForStepUp(await command(finalization, { action: 'merge' }, other))).toBe(true);
+    advance(9 * MINUTE);
+    expect(refusedForStepUp(await command(finalization, { action: 'merge' }))).toBe(false);
+    advance(MINUTE);
+    expect(refusedForStepUp(await command(finalization, { action: 'merge' }))).toBe(true);
+    expect(auditActions(context)).toEqual(
+      expect.arrayContaining(['auth.step-up.failed', 'auth.step-up']),
+    );
+  });
+
+  it('counts failed step-ups toward the username lock', async () => {
+    const { stepUp } = await signedIn();
+    for (let attempt = 0; attempt < 5; attempt++)
+      expect((await stepUp('not the password')).statusCode).toBe(403);
+    const locked = await stepUp(TEST_PASSWORD);
+    expect(locked.statusCode).toBe(429);
+    expect(locked.json().error.reason).toBe('login-rate-limited');
+  });
+});

@@ -14,6 +14,7 @@ import {
   revokeSessionResponseSchema,
   type SessionListResponse,
   sessionListResponseSchema,
+  stepUpResponseSchema,
   type WorkspaceAuditPageResponse,
   type WorkspaceListResponse,
   type WorkspaceSnapshotResponse,
@@ -60,11 +61,59 @@ export function forgetValidators(): void {
   validators.clear();
 }
 
+/**
+ * Asks the operator for their password again: `failed` when the last one given did not match.
+ * Resolves undefined when they decline (R-G9).
+ */
+export type StepUpPrompt = (failed: boolean) => Promise<string | undefined>;
+let stepUpPrompt: StepUpPrompt | undefined;
+
+/** The signed-in app's password prompt, for commands that need step-up; undefined removes it. */
+export function setStepUpPrompt(prompt: StepUpPrompt | undefined): void {
+  stepUpPrompt = prompt;
+}
+
+/**
+ * Sends a request and reads its answer. A command the daemon refuses until the operator gives
+ * their password again (an unrestricted run, a final promotion: R-G9) asks for it through the
+ * app's prompt, steps the session up, and is sent once more; declining leaves the refusal.
+ */
 export async function request<T>(
   url: string,
   schema: ResponseSchema<T>,
   init: RequestInit = {},
 ): Promise<T> {
+  try {
+    return await send(url, schema, init);
+  } catch (error) {
+    const prompt = stepUpPrompt;
+    if (
+      prompt === undefined ||
+      !(error instanceof ApiError) ||
+      error.detail.reason !== 'step-up-required' ||
+      (init.method ?? 'GET').toUpperCase() === 'GET'
+    )
+      throw error;
+    const csrf = new Headers(init.headers).get('x-craftingtable-csrf') ?? '';
+    for (let failed = false; ; failed = true) {
+      const password = await prompt(failed);
+      if (password === undefined) throw error;
+      try {
+        await send('/api/auth/step-up', stepUpResponseSchema, {
+          method: 'POST',
+          headers: { 'x-craftingtable-csrf': csrf },
+          body: JSON.stringify({ password }),
+        });
+        break;
+      } catch (refusal) {
+        if (!(refusal instanceof ApiError) || refusal.status !== 403) throw refusal;
+      }
+    }
+    return send(url, schema, init);
+  }
+}
+
+async function send<T>(url: string, schema: ResponseSchema<T>, init: RequestInit): Promise<T> {
   const read = (init.method ?? 'GET').toUpperCase() === 'GET';
   const held = read ? validators.get(url) : undefined;
   const response = await fetch(url, {

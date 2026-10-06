@@ -42,6 +42,7 @@ import {
   ForbiddenError,
   LoginRateLimitedError,
   NotFoundError,
+  StepUpRequiredError,
   UnauthenticatedError,
 } from './services/errors.js';
 import type { ExecutionService, ExecutionStatus } from './services/execution-service.js';
@@ -236,6 +237,9 @@ export function buildServer(
     }
     if (error instanceof UnauthenticatedError) {
       return sendApiError(reply, 401, 'unauthenticated', 'Authentication required');
+    }
+    if (error instanceof StepUpRequiredError) {
+      return sendApiError(reply, 403, 'forbidden', error.message, { reason: 'step-up-required' });
     }
     if (error instanceof ForbiddenError) {
       return sendApiError(reply, 403, 'forbidden', 'Request forbidden');

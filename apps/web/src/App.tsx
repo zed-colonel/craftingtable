@@ -15,6 +15,7 @@ import {
 import { useWorkspaceProjection } from './app/workspace-projection.js';
 import { WorkspaceView } from './app/WorkspaceView.js';
 import { LoginPage } from './components/LoginPage.js';
+import { StepUpDialog } from './components/StepUpDialog.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { loadSession, login, logout } from './lib/api-client.js';
 import { type AuthenticationStatus, authenticationMessage } from './lib/auth-state.js';
@@ -286,6 +287,7 @@ function AppShell() {
                 </WorkspaceProvider>
               ))}
           </WorkspaceShell>
+          <StepUpDialog />
         </NavigationProvider>
       </CycleFocusProvider>
     </SessionProvider>

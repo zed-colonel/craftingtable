@@ -78,14 +78,22 @@ beforeEach(() => {
     runs: [],
   } as never);
 });
+/** Each test's store, disposed after it so no re-read it scheduled reaches the next test. */
+const stores: ReturnType<typeof testQueryStore>['store'][] = [];
+function ownStore() {
+  const created = testQueryStore();
+  stores.push(created.store);
+  return created;
+}
 afterEach(() => {
   cleanup();
+  for (const store of stores.splice(0)) store.dispose();
   vi.resetAllMocks();
 });
 
 // R-D4 increment 4b: these panels re-read on the events that change them, not on every event.
 it("re-reads a worktree's branch on worktree, branch, cycle and run events, not on others", async () => {
-  const { wrap, send } = testQueryStore();
+  const { wrap, send } = ownStore();
   render(
     wrap(
       <WorktreeBranchPanel
@@ -117,7 +125,7 @@ it("re-reads a worktree's branch on worktree, branch, cycle and run events, not 
 });
 
 it("re-reads a plan's branch settings, repositories and policy each on their own events", async () => {
-  const { wrap, send } = testQueryStore();
+  const { wrap, send } = ownStore();
   render(
     wrap(
       <PlanBranchPanel
@@ -153,7 +161,7 @@ it("re-reads a plan's branch settings, repositories and policy each on their own
 });
 
 it("re-reads a repository's checks and receipts on repository and run events, not on others", async () => {
-  const { wrap, send } = testQueryStore();
+  const { wrap, send } = ownStore();
   render(
     wrap(
       <RepositoryChecksPanel
@@ -179,7 +187,7 @@ it("re-reads a repository's checks and receipts on repository and run events, no
 it('adopts an integration branch without a branch status read first (R-D5)', async () => {
   vi.mocked(loadRepositoryBranches).mockResolvedValue({ branches: ['main', 'release'] });
   vi.mocked(changeWorktreeBranch).mockResolvedValue({} as never);
-  const { wrap } = testQueryStore();
+  const { wrap } = ownStore();
   render(
     wrap(
       <WorktreeBranchPanel

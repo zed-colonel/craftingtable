@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { fastify } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { registerStaticWebRoutes } from '../../src/routes/static-web.js';
@@ -59,6 +60,60 @@ describe('static web routes', () => {
       expect(api.json()).toEqual({ ok: true });
       const missingApi = await app.inject({ method: 'GET', url: '/api/nope' });
       expect(missingApi.statusCode).toBe(404);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('gzips a large text asset for a client that accepts it, and reads the file again when it changes (R-D5)', async () => {
+    const dist = distFixture();
+    const bundle = join(dist, 'assets', 'bundle-def456.js');
+    const code = `export const chunk = ${JSON.stringify('x'.repeat(20_000))};`;
+    writeFileSync(bundle, code);
+    writeFileSync(join(dist, 'assets', 'icon.png'), Buffer.alloc(20_000, 1));
+    const app = fastify({ logger: false });
+    registerStaticWebRoutes(app, dist);
+    try {
+      const zipped = await app.inject({
+        method: 'GET',
+        url: '/assets/bundle-def456.js',
+        headers: { 'accept-encoding': 'gzip, br' },
+      });
+      expect(zipped.statusCode).toBe(200);
+      expect(zipped.headers['content-encoding']).toBe('gzip');
+      expect(zipped.headers.vary).toContain('accept-encoding');
+      expect(zipped.headers['content-type']).toContain('text/javascript');
+      expect(zipped.headers['cache-control']).toContain('immutable');
+      expect(gunzipSync(zipped.rawPayload).toString('utf8')).toBe(code);
+      expect(zipped.rawPayload.length).toBeLessThan(code.length / 10);
+      // Without gzip, the file as it is.
+      const plain = await app.inject({ method: 'GET', url: '/assets/bundle-def456.js' });
+      expect(plain.headers['content-encoding']).toBeUndefined();
+      expect(plain.body).toBe(code);
+      // A small file, or one that is not text, goes as it is.
+      const small = await app.inject({
+        method: 'GET',
+        url: '/assets/app-abc123.js',
+        headers: { 'accept-encoding': 'gzip' },
+      });
+      expect(small.headers['content-encoding']).toBeUndefined();
+      const image = await app.inject({
+        method: 'GET',
+        url: '/assets/icon.png',
+        headers: { 'accept-encoding': 'gzip' },
+      });
+      expect(image.headers['content-encoding']).toBeUndefined();
+      // A rebuilt file is compressed again, not served from what was compressed before.
+      const rebuilt = `export const chunk = ${JSON.stringify('y'.repeat(30_000))};`;
+      writeFileSync(bundle, rebuilt);
+      const later = new Date(Date.now() + 5_000);
+      utimesSync(bundle, later, later);
+      const again = await app.inject({
+        method: 'GET',
+        url: '/assets/bundle-def456.js',
+        headers: { 'accept-encoding': 'gzip' },
+      });
+      expect(gunzipSync(again.rawPayload).toString('utf8')).toBe(rebuilt);
     } finally {
       await app.close();
     }

@@ -3,7 +3,7 @@ import {
   type WorkspaceEventEnvelope,
   workspaceEventEnvelopeSchema,
 } from '@craftingtable/contracts';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
 
@@ -584,6 +584,8 @@ it('loads a run page with its view and its first page of events (R-D5)', async (
     window.history.pushState(null, '', '/workspaces/ws-a/runs/run-a');
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
+  // The run page is its own chunk: wait for it to load and read.
+  await waitFor(() => expect(requests.slice(before)).toContain('run-events'));
   await act(async () => {
     await vi.advanceTimersByTimeAsync(5_000);
   });

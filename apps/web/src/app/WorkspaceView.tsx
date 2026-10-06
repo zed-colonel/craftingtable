@@ -1,21 +1,55 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
+import { lazy, type ReactElement, Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { NeedsYou } from '../components/NeedsYou.js';
-import { ConcurrencyImports } from '../features/planning/ConcurrencyImports.js';
 import { ProjectCards } from '../features/planning/ProjectCards.js';
-import { RoadmapPage, RoadmapsPage } from '../features/planning/RoadmapsPage.js';
 import type { Route } from '../lib/route.js';
 import { seededWorkspaceId, type WorkspaceProjectionState } from '../lib/workspace-projection.js';
 import { DashboardRoute } from './pages/DashboardRoute.js';
-import { ImportRoute } from './pages/ImportRoute.js';
-import { InboxRoute } from './pages/InboxRoute.js';
-import { AgendaRoute, RunsRoute } from './pages/ListRoutes.js';
-import { PlanVersionRoute, ProjectRoute } from './pages/ProjectRoute.js';
-import { RepositoriesRoute } from './pages/RepositoriesRoute.js';
-import { RunRoute } from './pages/RunRoute.js';
-import { SettingsRoute } from './pages/SettingsRoute.js';
-import { WorkItemRoute } from './pages/WorkItemRoute.js';
 import { useAttention, useCycles } from './reads.js';
 import { useGo, useSession, useWorkspaceScope } from './session.js';
+
+/*
+ * Pages loaded with their routes (R-D5, PERF-20): the dashboard comes with the app; every other
+ * page is its own chunk, fetched the first time its route opens.
+ */
+const ConcurrencyImports = lazy(() =>
+  import('../features/planning/ConcurrencyImports.js').then((m) => ({
+    default: m.ConcurrencyImports,
+  })),
+);
+const RoadmapsPage = lazy(() =>
+  import('../features/planning/RoadmapsPage.js').then((m) => ({ default: m.RoadmapsPage })),
+);
+const RoadmapPage = lazy(() =>
+  import('../features/planning/RoadmapsPage.js').then((m) => ({ default: m.RoadmapPage })),
+);
+const ImportRoute = lazy(() =>
+  import('./pages/ImportRoute.js').then((m) => ({ default: m.ImportRoute })),
+);
+const InboxRoute = lazy(() =>
+  import('./pages/InboxRoute.js').then((m) => ({ default: m.InboxRoute })),
+);
+const AgendaRoute = lazy(() =>
+  import('./pages/ListRoutes.js').then((m) => ({ default: m.AgendaRoute })),
+);
+const RunsRoute = lazy(() =>
+  import('./pages/ListRoutes.js').then((m) => ({ default: m.RunsRoute })),
+);
+const ProjectRoute = lazy(() =>
+  import('./pages/ProjectRoute.js').then((m) => ({ default: m.ProjectRoute })),
+);
+const PlanVersionRoute = lazy(() =>
+  import('./pages/ProjectRoute.js').then((m) => ({ default: m.PlanVersionRoute })),
+);
+const RepositoriesRoute = lazy(() =>
+  import('./pages/RepositoriesRoute.js').then((m) => ({ default: m.RepositoriesRoute })),
+);
+const RunRoute = lazy(() => import('./pages/RunRoute.js').then((m) => ({ default: m.RunRoute })));
+const SettingsRoute = lazy(() =>
+  import('./pages/SettingsRoute.js').then((m) => ({ default: m.SettingsRoute })),
+);
+const WorkItemRoute = lazy(() =>
+  import('./pages/WorkItemRoute.js').then((m) => ({ default: m.WorkItemRoute })),
+);
 
 /**
  * One workspace's pages (R-D4 increment 4b). Each page reads its own data through the store;
@@ -93,79 +127,81 @@ export function WorkspaceView({
       {route.name === 'dashboard' && (
         <DashboardRoute projection={projection} attention={attention} cycles={cycles} />
       )}
-      {route.name === 'runs' && <RunsRoute />}
-      {route.name === 'agenda' && <AgendaRoute filter={route.filter} />}
-      {route.name === 'roadmaps' && (
-        <RoadmapsPage
-          workspaceId={workspaceId}
-          csrfToken={csrfToken}
-          canMutate={canMutate}
-          attention={attention}
-        />
-      )}
-      {route.name === 'roadmap' && (
-        <RoadmapPage
-          key={`${route.roadmapId}:${route.tab}`}
-          workspaceId={workspaceId}
-          roadmapId={route.roadmapId}
-          tab={route.tab}
-          csrfToken={csrfToken}
-          canMutate={canMutate}
-          onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
-          attention={attention}
-          onOpenAttention={(itemId) => go({ name: 'inbox', workspaceId, itemId })}
-        />
-      )}
-      {route.name === 'roadmap-map' && (
-        <ConcurrencyImports
-          key={route.definitionId}
-          workspaceId={workspaceId}
-          csrfToken={csrfToken}
-          canMutate={canMutate}
-          definitionId={route.definitionId}
-        />
-      )}
-      {route.name === 'inbox' && (
-        <InboxRoute
-          attention={attention}
-          loaded={attentionQuery.data !== undefined}
-          subjectOf={subjectOf}
-          cycles={cycles}
-          {...(route.itemId === undefined ? {} : { selectedId: route.itemId })}
-        />
-      )}
-      {route.name === 'settings' && <SettingsRoute />}
-      {route.name === 'projects' && (
-        <div className="page">
-          <header className="page-header">
-            <h1>Projects</h1>
-          </header>
-          <ProjectCards
-            projects={projection.projects}
-            onOpen={(projectId) => go({ name: 'project', workspaceId, projectId })}
-            onImport={() => go({ name: 'import', workspaceId })}
+      <Suspense fallback={<p className="empty-state">Loading page…</p>}>
+        {route.name === 'runs' && <RunsRoute />}
+        {route.name === 'agenda' && <AgendaRoute filter={route.filter} />}
+        {route.name === 'roadmaps' && (
+          <RoadmapsPage
+            workspaceId={workspaceId}
+            csrfToken={csrfToken}
+            canMutate={canMutate}
+            attention={attention}
           />
-        </div>
-      )}
-      {route.name === 'import' && <ImportRoute projects={projection.projects} />}
-      {route.name === 'project' && <ProjectRoute projectId={route.projectId} />}
-      {route.name === 'plan-version' && (
-        <PlanVersionRoute
-          projectId={route.projectId}
-          planVersionId={route.planVersionId}
-          attention={attention}
-        />
-      )}
-      {route.name === 'work-item' && (
-        <WorkItemRoute
-          key={route.workItemId}
-          workItemId={route.workItemId}
-          attention={attention}
-          cycles={cycles}
-        />
-      )}
-      {route.name === 'repositories' && <RepositoriesRoute />}
-      {route.name === 'run' && <RunRoute key={route.runId} runId={route.runId} cycles={cycles} />}
+        )}
+        {route.name === 'roadmap' && (
+          <RoadmapPage
+            key={`${route.roadmapId}:${route.tab}`}
+            workspaceId={workspaceId}
+            roadmapId={route.roadmapId}
+            tab={route.tab}
+            csrfToken={csrfToken}
+            canMutate={canMutate}
+            onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
+            attention={attention}
+            onOpenAttention={(itemId) => go({ name: 'inbox', workspaceId, itemId })}
+          />
+        )}
+        {route.name === 'roadmap-map' && (
+          <ConcurrencyImports
+            key={route.definitionId}
+            workspaceId={workspaceId}
+            csrfToken={csrfToken}
+            canMutate={canMutate}
+            definitionId={route.definitionId}
+          />
+        )}
+        {route.name === 'inbox' && (
+          <InboxRoute
+            attention={attention}
+            loaded={attentionQuery.data !== undefined}
+            subjectOf={subjectOf}
+            cycles={cycles}
+            {...(route.itemId === undefined ? {} : { selectedId: route.itemId })}
+          />
+        )}
+        {route.name === 'settings' && <SettingsRoute />}
+        {route.name === 'projects' && (
+          <div className="page">
+            <header className="page-header">
+              <h1>Projects</h1>
+            </header>
+            <ProjectCards
+              projects={projection.projects}
+              onOpen={(projectId) => go({ name: 'project', workspaceId, projectId })}
+              onImport={() => go({ name: 'import', workspaceId })}
+            />
+          </div>
+        )}
+        {route.name === 'import' && <ImportRoute projects={projection.projects} />}
+        {route.name === 'project' && <ProjectRoute projectId={route.projectId} />}
+        {route.name === 'plan-version' && (
+          <PlanVersionRoute
+            projectId={route.projectId}
+            planVersionId={route.planVersionId}
+            attention={attention}
+          />
+        )}
+        {route.name === 'work-item' && (
+          <WorkItemRoute
+            key={route.workItemId}
+            workItemId={route.workItemId}
+            attention={attention}
+            cycles={cycles}
+          />
+        )}
+        {route.name === 'repositories' && <RepositoriesRoute />}
+        {route.name === 'run' && <RunRoute key={route.runId} runId={route.runId} cycles={cycles} />}
+      </Suspense>
     </>
   );
 }

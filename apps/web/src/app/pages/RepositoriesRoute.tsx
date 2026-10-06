@@ -3,7 +3,7 @@ import { queryKeys } from '../../lib/event-invalidations.js';
 import { refreshModels, registerRepository, retireRepository } from '../../lib/execution-api.js';
 import { useQueryStore } from '../../lib/query-store.js';
 import { useCommands } from '../commands.js';
-import { useExecutionStatus, useRepositories } from '../reads.js';
+import { forgetLaunchOptions, useExecutionStatus, useRepositories } from '../reads.js';
 import { useSession, useWorkspaceScope } from '../session.js';
 
 /** The workspace's registered repositories and their adopted checks. */
@@ -28,6 +28,7 @@ export function RepositoriesRoute() {
       onRefreshModels={() =>
         commands.run(async () => {
           store.set(queryKeys.executionStatus(), await refreshModels(csrfToken));
+          forgetLaunchOptions(store);
         }, 'The models could not be refreshed')
       }
       checks={{ workspaceId, csrfToken }}

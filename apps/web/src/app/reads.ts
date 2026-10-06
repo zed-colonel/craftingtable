@@ -22,7 +22,7 @@ import {
   loadWorkspaceRuns,
 } from '../lib/execution-api.js';
 import { loadPlanVersion, loadProject, loadWorkspaceWorkItems } from '../lib/planning-api.js';
-import { useQuery } from '../lib/query-store.js';
+import { type QueryKey, type QueryStore, useQuery } from '../lib/query-store.js';
 import type { AgendaFilter } from '../lib/route.js';
 import { loadWorkCycles } from '../lib/work-cycle-api.js';
 
@@ -95,3 +95,18 @@ export const useRunProfiles = (workspaceId: WorkspaceId) =>
   useQuery(queryKeys.runProfiles(workspaceId), () => loadRunProfiles(workspaceId));
 
 export const useSessions = () => useQuery(queryKeys.sessions(), loadSessions);
+
+/**
+ * Work item and run views carry the workspace's profiles and the daemon's agent backends (R-D5),
+ * which no event reports. After a profile save (one workspace's) or a model refresh (every
+ * workspace's), they are forgotten, so a page shown again waits for its options instead of
+ * starting its forms from the old ones; the ones on screen are read again.
+ */
+export function forgetLaunchOptions(store: QueryStore, workspaceId?: WorkspaceId): void {
+  const carries = (key: QueryKey) =>
+    (key[0] === 'work-item' || key[0] === 'run') &&
+    key[3] === 'view' &&
+    (workspaceId === undefined || key[1] === workspaceId);
+  store.clear((key) => !carries(key));
+  store.invalidate([['work-item'], ['run']]);
+}

@@ -247,6 +247,30 @@ it('reads the workspace list and snapshot after a rename, and keeps saved profil
   );
 });
 
+it('forgets the work item and run views, which carry profiles and backends, after a profile save or a model refresh (R-D5)', async () => {
+  const seed = () => {
+    store.set(queryKeys.workItemView(ws, 'item-1'), { stale: 'profiles' });
+    store.set(queryKeys.runView(ws, 'run-1'), { stale: 'backends' });
+    store.set(queryKeys.repositories(ws), { repositories: [] });
+  };
+  const forgotten = () => [
+    store.view(queryKeys.workItemView(ws, 'item-1')).data,
+    store.view(queryKeys.runView(ws, 'run-1')).data,
+  ];
+  inApp(<SettingsRoute />);
+  await waitFor(() => expect(props.settings).toBeDefined());
+  seed();
+  await run(() => (props.settings!.onSaveProfiles as (p: never[]) => void)([]));
+  expect(forgotten()).toEqual([undefined, undefined]);
+  expect(store.view(queryKeys.repositories(ws)).data).toEqual({ repositories: [] });
+  cleanup();
+  inApp(<RepositoriesRoute />);
+  await waitFor(() => expect(props.repositories).toBeDefined());
+  seed();
+  await run(() => (props.repositories!.onRefreshModels as () => void)());
+  expect(forgotten()).toEqual([undefined, undefined]);
+});
+
 it('reads the repositories after registering one', async () => {
   inApp(<RepositoriesRoute />);
   await waitFor(() => expect(props.repositories).toBeDefined());

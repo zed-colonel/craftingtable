@@ -9,7 +9,7 @@ import { ApiError, renameWorkspace } from '../../lib/api-client.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { saveRunProfiles } from '../../lib/execution-api.js';
 import { useQueryStore } from '../../lib/query-store.js';
-import { useExecutionStatus, useRunProfiles } from '../reads.js';
+import { forgetLaunchOptions, useExecutionStatus, useRunProfiles } from '../reads.js';
 import { useAlive, useSession, useWorkspaceScope } from '../session.js';
 
 /** The workspace's settings: its name, agent profiles, host scheduling, storage, notifications. */
@@ -56,6 +56,7 @@ export function SettingsRoute() {
         // A save for a workspace no longer shown is not written into the store (4b review).
         if (!alive()) return;
         store.set(queryKeys.runProfiles(workspaceId), response);
+        forgetLaunchOptions(store, workspaceId);
         setProfilesNotice('Profiles saved.');
       })
       .catch((failure: unknown) => {

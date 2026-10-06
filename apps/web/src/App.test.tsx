@@ -358,6 +358,20 @@ vi.mock('./lib/execution-api.js', () => ({
     readCalls.push('execution');
     return Promise.resolve({ workItemId, worktrees: [], runs: [], mergeGates: {} });
   },
+  // A work item page's region in one read (R-D5): its detail and execution come with it.
+  loadWorkItemView: (workspaceId: string, workItemId: string) => {
+    readCalls.push('view');
+    if (failing.has('work-item')) return Promise.reject(new Error('work item unavailable'));
+    return Promise.resolve({
+      detail: workItemDetailFor(workspaceId),
+      execution: { workItemId, worktrees: [], runs: [], mergeGates: {} },
+      cycles: [],
+      scopes: { choices: [] },
+      repositories: [],
+      backends: [],
+      profiles: [],
+    });
+  },
   loadWorkspaceRuns: () => Promise.resolve({ runs: [], liveCount: 0 }),
   loadRepositoryBranches: () => Promise.resolve({ branches: [] }),
   loadRun: () => new Promise(() => undefined),
@@ -664,23 +678,23 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
     await screen.findByRole('heading', { name: /AQ-01 · Alpha work item/ });
     await settle();
     const count = (name: string) => readCalls.filter((call) => call === name).length;
-    const [item, execution] = [count('work-item'), count('execution')];
+    const views = count('view');
     const onEvent = vi.mocked(useWorkspaceEventStream).mock.lastCall![2].onEvent;
     for (const unrelated of [
       streamEvent(40, 'work-cycle-changed', { workItemId: 'item-other' }),
       streamEvent(41, 'notifications-changed', { payload: { action: 'delivery' } }),
-      streamEvent(42, 'repository-registered', { repositoryId: 'repo' }),
+      streamEvent(42, 'workspace-updated', {}),
     ])
       act(() => onEvent(unrelated));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect([count('work-item'), count('execution')]).toEqual([item, execution]);
+    expect(count('view')).toBe(views);
     act(() => onEvent(streamEvent(43, 'work-cycle-changed', { workItemId: 'item-workspace-a' })));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect([count('work-item'), count('execution')]).toEqual([item + 1, execution + 1]);
+    expect(count('view')).toBe(views + 1);
   });
 
   it('refreshes what its own command changed, at once, and nothing else (R-D4 increment 4b)', async () => {
@@ -690,7 +704,7 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
     await settle();
     const count = (name: string) => readCalls.filter((call) => call === name).length;
     const before = {
-      item: count('work-item'),
+      item: count('view'),
       snapshot: snapshotCalls.length,
       attention: count('attention'),
     };
@@ -698,7 +712,7 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
     await act(async () => {
       planning.admit.resolve(undefined);
     });
-    await waitFor(() => expect(count('work-item')).toBe(before.item + 1));
+    await waitFor(() => expect(count('view')).toBe(before.item + 1));
     expect(snapshotCalls.length).toBe(before.snapshot + 1);
     expect(count('attention')).toBe(before.attention);
   });

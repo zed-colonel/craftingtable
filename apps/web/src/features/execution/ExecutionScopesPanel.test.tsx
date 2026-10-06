@@ -2,11 +2,8 @@ import type { ExecutionScopeChoice, WorktreeSummary } from '@craftingtable/contr
 import type { WorkCycle, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
-import { testQueryStore } from '../../lib/query-store-testing.js';
 import { createWorktree } from '../../lib/execution-api.js';
 import { ExecutionScopesPanel } from './ExecutionScopesPanel.js';
-vi.mock('../../lib/execution-scope-api.js', () => ({ loadExecutionScopes: vi.fn() }));
 vi.mock('../../lib/execution-api.js', () => ({ createWorktree: vi.fn() }));
 afterEach(() => {
   cleanup();
@@ -24,12 +21,13 @@ const tree = {
   branchName: 'ct/verification',
   executionScope: { ...scope, kind: 'slice-verification' },
 } as WorktreeSummary;
+const onChanged = vi.fn();
 function view(
   trees: WorktreeSummary[],
   cycles: WorkCycle[] = [],
   itemStatus: 'proposed' | 'admitted' | 'completed' = 'admitted',
 ) {
-  vi.mocked(loadExecutionScopes).mockResolvedValue({
+  const scopes = {
     choices: [
       {
         scope,
@@ -42,7 +40,7 @@ function view(
         phases: [{ phase: 'verify', blockers: [], resources: [], reservations: [] }],
       } as unknown as ExecutionScopeChoice,
     ],
-  });
+  };
   const onOpenCycle = vi.fn();
   render(
     <ExecutionScopesPanel
@@ -51,8 +49,9 @@ function view(
       csrfToken="csrf"
       canMutate
       itemStatus={itemStatus}
-      onChanged={vi.fn()}
+      onChanged={onChanged}
       worktrees={trees}
+      scopes={scopes}
       cycles={cycles.map((cycle) => ({
         cycle,
         projection: { nextAgentSelections: {} as never, actions: [] },
@@ -98,8 +97,8 @@ it('offers fresh verification on a completed parent, as the daemon allows', asyn
     { repositoryId: 'repo', executionScope: { ...scope, kind: 'slice-verification' } },
     'csrf',
   );
-  // Its own command reads the slices again at once (R-D4 increment 4b).
-  await waitFor(() => expect(loadExecutionScopes).toHaveBeenCalledTimes(2));
+  // Its own command has the host read the item's region, slices included, again at once (R-D5).
+  await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
 });
 it('still asks for admission before scoped work on a proposed item', async () => {
   view([], [], 'proposed');
@@ -148,40 +147,27 @@ it("links a slice's checkpoint to the inbox item that carries its merge, else pr
     onChanged: vi.fn(),
     worktrees: [slice],
   };
-  vi.mocked(loadExecutionScopes).mockResolvedValue(choices);
-  render(<ExecutionScopesPanel {...props} decisionItemFor={() => 'item-3'} />);
+  render(<ExecutionScopesPanel {...props} scopes={choices} decisionItemFor={() => 'item-3'} />);
   expect(await screen.findByText(/This checkpoint is decided in Needs you/)).toBeDefined();
   expect(screen.queryByRole('region', { name: 'Checkpoint recovery' })).toBeNull();
   cleanup();
-  vi.mocked(loadExecutionScopes).mockResolvedValue(choices);
-  render(<ExecutionScopesPanel {...props} />);
+  render(<ExecutionScopesPanel {...props} scopes={choices} />);
   expect(await screen.findByRole('region', { name: 'Checkpoint recovery' })).toBeDefined();
 });
 
-// R-D4 increment 4b: the slices re-read on their own work item's events, not on every event.
-it("re-reads its work item's slices when an event names the item, and not for another item's", async () => {
-  vi.mocked(loadExecutionScopes).mockResolvedValue({ choices: [] });
-  const { wrap, send } = testQueryStore();
+it('shows why the slices could not be read, over the ones last read', () => {
   render(
-    wrap(
-      <ExecutionScopesPanel
-        workspaceId={'ws' as WorkspaceId}
-        workItemId={'wi' as WorkItemId}
-        csrfToken="csrf"
-        canMutate
-        itemStatus="admitted"
-        onChanged={vi.fn()}
-        worktrees={[]}
-      />,
-    ),
+    <ExecutionScopesPanel
+      workspaceId={'ws' as WorkspaceId}
+      workItemId={'wi' as WorkItemId}
+      csrfToken="csrf"
+      canMutate
+      itemStatus="admitted"
+      onChanged={vi.fn()}
+      worktrees={[]}
+      scopes={undefined}
+      loadError={new Error('Daemon unavailable')}
+    />,
   );
-  await send('notifications-changed', { workspaceId: 'ws' });
-  expect(loadExecutionScopes).toHaveBeenCalledTimes(1);
-  await send('work-cycle-changed', { workspaceId: 'ws', workItemId: 'other' });
-  await send('repository-registered', { workspaceId: 'ws', repositoryId: 'repo' });
-  expect(loadExecutionScopes).toHaveBeenCalledTimes(1);
-  await send('work-cycle-changed', { workspaceId: 'ws', workItemId: 'wi' });
-  expect(loadExecutionScopes).toHaveBeenCalledTimes(2);
-  await send('roadmap-changed', { workspaceId: 'ws', payload: { roadmapId: 'r' } });
-  expect(loadExecutionScopes).toHaveBeenCalledTimes(3);
+  expect(screen.getByRole('alert').textContent).toBe('Daemon unavailable');
 });

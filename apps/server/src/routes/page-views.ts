@@ -1,0 +1,38 @@
+import { workItemIdSchema, workItemViewSchema, workspaceIdSchema } from '@craftingtable/contracts';
+import type { FastifyInstance } from 'fastify';
+import type { AuthService } from '../services/auth-service.js';
+import type { PageViews } from '../services/page-views.js';
+import { noStore, sendApiError } from './http.js';
+import { authenticate } from './request-security.js';
+import { runSummary } from './run-summary.js';
+
+/** One read per page region (R-D5, PERF-14). */
+export function registerPageViewRoutes(
+  app: FastifyInstance,
+  authService: AuthService,
+  views: PageViews,
+): void {
+  app.get<{ Params: { workspaceId: string; workItemId: string } }>(
+    '/api/workspaces/:workspaceId/work-items/:workItemId/view',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
+      if (!workspaceId.success || !workItemId.success)
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const view = await views.workItem(context, workspaceId.data, workItemId.data, request.id);
+      return noStore(reply).send(
+        workItemViewSchema.parse({
+          ...view,
+          execution: {
+            workItemId: workItemId.data,
+            worktrees: view.execution.worktrees,
+            runs: view.execution.runs.map(runSummary),
+            mergeGates: view.execution.mergeGates,
+          },
+        }),
+      );
+    },
+  );
+}

@@ -68,29 +68,18 @@ export function shellReads(ws: string): PageRead[] {
 
 /**
  * A work item page's reads as the browser app makes them on navigation, the shell's already
- * held. Later reads depend on earlier answers (the plan version, the worktrees), as the panels
- * that make them mount only once those are known.
+ * held (R-D5): its region in one read, then its plan's branches and, once those name a
+ * repository, the plan's repository policy. A worktree's branch status is read only when the
+ * operator checks it, so not here.
  */
 export async function workItemPageReads(ws: string, item: string, get: Get): Promise<PageRead[]> {
   const base = `/api/workspaces/${ws}`;
-  const detail = { name: 'work-item', url: `${base}/work-items/${item}` };
-  const execution = { name: 'execution', url: `${base}/work-items/${item}/execution` };
-  const answer = JSON.parse((await get(detail.url)).body) as {
-    workItem?: { planVersionId: string };
+  const view = { name: 'work-item-view', url: `${base}/work-items/${item}/view` };
+  const answer = JSON.parse((await get(view.url)).body) as {
+    detail?: { workItem?: { planVersionId: string } };
   };
-  const trees = JSON.parse((await get(execution.url)).body) as {
-    worktrees?: readonly { id: string; status: string }[];
-  };
-  const planVersionId = answer.workItem?.planVersionId;
-  const reads: PageRead[] = [
-    detail,
-    execution,
-    { name: 'item-cycles', url: `${base}/cycles?workItemId=${item}` },
-    { name: 'repositories', url: `${base}/repositories` },
-    { name: 'execution-status', url: '/api/execution-status' },
-    { name: 'run-profiles', url: `${base}/run-profiles` },
-    { name: 'execution-scopes', url: `${base}/work-items/${item}/execution-scopes` },
-  ];
+  const planVersionId = answer.detail?.workItem?.planVersionId;
+  const reads: PageRead[] = [view];
   if (planVersionId !== undefined) {
     const branches = {
       name: 'plan-branches',
@@ -104,9 +93,6 @@ export async function workItemPageReads(ws: string, item: string, get: Get): Pro
         url: `${base}/plan-versions/${planVersionId}/repository-policy`,
       });
   }
-  for (const tree of trees.worktrees ?? [])
-    if (tree.status === 'active')
-      reads.push({ name: 'worktree-branch', url: `${base}/worktrees/${tree.id}/branch-status` });
   return reads;
 }
 

@@ -78,3 +78,4 @@ export const recordScopeReceiptResponseSchema = z.strictObject({
 });
 
 export type ExecutionScopeChoice = z.infer<typeof executionScopeChoiceSchema>;
+export type ExecutionScopeChoices = z.infer<typeof executionScopeChoicesSchema>;

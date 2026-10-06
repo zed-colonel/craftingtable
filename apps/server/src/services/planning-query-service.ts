@@ -134,7 +134,12 @@ export class PlanningQueryService {
     requestId?: string,
   ) {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    const detail = this.storage.readTransaction((tx) => {
+    return this.storage.readTransaction((tx) => this.workItemDetailIn(tx, workspaceId, workItemId));
+  }
+
+  /** A work item's detail, read in the caller's transaction (R-D5). */
+  workItemDetailIn(tx: StorageRepositories, workspaceId: WorkspaceId, workItemId: WorkItemId) {
+    const detail = (() => {
       const item = tx.planning.workItems.find(workspaceId, workItemId);
       if (item === undefined) {
         return undefined;
@@ -164,7 +169,7 @@ export class PlanningQueryService {
         recommendedPredecessors: predecessors.filter((entry) => entry.kind === 'recommended'),
         dependents: tx.planning.dependencies.listSuccessors(workspaceId, workItemId),
       };
-    });
+    })();
     if (detail === undefined) {
       throw new NotFoundError();
     }

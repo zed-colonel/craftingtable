@@ -69,6 +69,7 @@ import {
   NotFoundError,
 } from './errors.js';
 import { stagedPromotionIssue } from './finalization-stage-policy.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
 import { latestReviewReport } from './run-handoff.js';
 import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -205,6 +206,13 @@ export interface ExecutionStatus {
  * durable state, audit, and workspace events. Every mutation is one immediate
  * transaction followed by a notifier signal.
  */
+/** A work item's worktrees, runs and merge gates, as its page reads them. */
+export interface WorkItemExecution {
+  readonly worktrees: readonly (Worktree & { mergeCleanupError?: string })[];
+  readonly runs: readonly AgentRun[];
+  readonly mergeGates: Readonly<Record<string, MergeGate>>;
+}
+
 export class ExecutionService {
   readonly branches: BranchService;
   constructor(
@@ -592,89 +600,96 @@ export class ExecutionService {
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
     requestId?: string,
-  ): Promise<{
-    readonly worktrees: readonly (Worktree & { mergeCleanupError?: string })[];
-    readonly runs: readonly AgentRun[];
-    readonly mergeGates: Readonly<Record<string, MergeGate>>;
-  }> {
+  ): Promise<WorkItemExecution> {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    const result = this.storage.readTransaction((tx) => {
-      if (tx.planning.workItems.find(workspaceId, workItemId) === undefined) {
-        throw new NotFoundError();
+    const read = this.storage.readTransaction((tx) =>
+      this.executionIn(mapReadSnapshot(tx), workspaceId, workItemId),
+    );
+    return this.confirmGates(read);
+  }
+
+  /**
+   * A work item's worktrees, runs and merge gates, read in the caller's transaction (R-D5): all
+   * but Git's check that a mergeable gate's reviewed branches are still where its review saw
+   * them, which `confirmGates` adds after the read.
+   */
+  executionIn(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+  ): WorkItemExecution {
+    if (tx.planning.workItems.find(workspaceId, workItemId) === undefined) {
+      throw new NotFoundError();
+    }
+    const worktrees = tx.execution.worktrees
+      .listForWorkItem(workspaceId, workItemId)
+      .map((tree) => ({
+        ...tree,
+        mergeCleanupError: tx.execution.merges.latest(workspaceId, tree.id)?.cleanupError,
+      }));
+    const runs = tx.execution.runs.listForWorkItem(workspaceId, workItemId);
+    const mergeGates: Record<string, MergeGate> = {};
+    for (const worktree of worktrees) {
+      if (worktree.status === 'active') {
+        const cycle = tx.execution.cycles.activeForWorktree(workspaceId, worktree.id);
+        mergeGates[worktree.id] =
+          cycle !== undefined && cycle.status !== 'awaiting-merge'
+            ? { mergeable: false, reason: 'automation-active' }
+            : mergeGateFor(worktree, runs);
       }
-      const worktrees = tx.execution.worktrees
-        .listForWorkItem(workspaceId, workItemId)
-        .map((tree) => ({
-          ...tree,
-          mergeCleanupError: tx.execution.merges.latest(workspaceId, tree.id)?.cleanupError,
-        }));
-      const runs = tx.execution.runs.listForWorkItem(workspaceId, workItemId);
-      const mergeGates: Record<string, MergeGate> = {};
-      for (const worktree of worktrees) {
-        if (worktree.status === 'active') {
-          const cycle = tx.execution.cycles.activeForWorktree(workspaceId, worktree.id);
-          mergeGates[worktree.id] =
-            cycle !== undefined && cycle.status !== 'awaiting-merge'
-              ? { mergeable: false, reason: 'automation-active' }
-              : mergeGateFor(worktree, runs);
-        }
-      }
-      return { worktrees, runs, mergeGates };
-    });
-    for (const worktree of result.worktrees) {
-      const gate = result.mergeGates[worktree.id];
-      if (this.storage.execution.merges.latest(workspaceId, worktree.id)?.status === 'reserved') {
-        result.mergeGates[worktree.id] = { mergeable: true, reason: 'merge-recovery-required' };
+    }
+    for (const worktree of worktrees) {
+      const gate = mergeGates[worktree.id];
+      if (tx.execution.merges.latest(workspaceId, worktree.id)?.status === 'reserved') {
+        mergeGates[worktree.id] = { mergeable: true, reason: 'merge-recovery-required' };
         continue;
       }
       if (worktree.executionScope?.kind && worktree.executionScope.kind !== 'slice') {
-        result.mergeGates[worktree.id] = { mergeable: false, reason: 'scope-review-only' };
+        mergeGates[worktree.id] = { mergeable: false, reason: 'scope-review-only' };
         continue;
       }
       if (worktree.executionScope && gate?.mergeable) {
         // A slice whose merge adopts changed check definitions is a person's to merge with
         // them (R-G13 increment 5); the merge itself reads the definitions again.
         const adopts = mergeAdoptsChecks(
-          this.storage.execution.cycles.activeForWorktree(workspaceId, worktree.id)?.attention,
+          tx.execution.cycles.activeForWorktree(workspaceId, worktree.id)?.attention,
         );
         try {
-          requireTreeScope(this.storage, worktree, 'merge');
-          const run = result.runs.find((r) => r.id === gate.reviewRunId);
+          requireTreeScope(tx, worktree, 'merge');
+          const run = runs.find((r) => r.id === gate.reviewRunId);
           try {
-            if (run) this.runtimeEvidence?.assertRun(worktree, run.id);
+            if (run) this.runtimeEvidence?.assertRun(worktree, run.id, tx);
           } catch (error) {
             if (!adopts || !(error instanceof CheckDefinitionChangedError)) throw error;
           }
-          if (
-            !run ||
-            scopedReviewIssue(
-              this.storage,
-              worktree,
-              latestReviewReport(this.storage.execution, run),
-            )
-          )
+          if (!run || scopedReviewIssue(tx, worktree, latestReviewReport(tx.execution, run)))
             throw new Error('Scoped review required');
         } catch {
-          result.mergeGates[worktree.id] = { mergeable: false, reason: 'scope-blocked' };
+          mergeGates[worktree.id] = { mergeable: false, reason: 'scope-blocked' };
           continue;
         }
-        if (adopts) result.mergeGates[worktree.id] = { ...gate, reason: 'check-adoption' };
+        if (adopts) mergeGates[worktree.id] = { ...gate, reason: 'check-adoption' };
       }
-      if (!gate?.mergeable) continue;
+    }
+    return { worktrees, runs, mergeGates };
+  }
+
+  /** Closes each mergeable gate whose reviewed branches have moved since the review (Git). */
+  async confirmGates(read: WorkItemExecution): Promise<WorkItemExecution> {
+    const mergeGates = { ...read.mergeGates };
+    for (const worktree of read.worktrees) {
+      const gate = mergeGates[worktree.id];
+      if (!gate?.mergeable || gate.reason === 'merge-recovery-required') continue;
       try {
         await this.branches.assertReview(
           worktree,
-          result.runs.find((run) => run.id === gate.reviewRunId),
+          read.runs.find((run) => run.id === gate.reviewRunId),
         );
       } catch {
-        result.mergeGates[worktree.id] = {
-          ...gate,
-          mergeable: false,
-          reason: 'branch-review-required',
-        };
+        mergeGates[worktree.id] = { ...gate, mergeable: false, reason: 'branch-review-required' };
       }
     }
-    return result;
+    return { ...read, mergeGates };
   }
 
   /** Live runs first, then recent ones, with the context to list them anywhere. */

@@ -35,9 +35,11 @@ import {
   sourceRepositoryListResponseSchema,
   startAgentRunResponseSchema,
   type WorkItemExecutionResponse,
+  type WorkItemView,
   type WorkspaceRunsResponse,
   type WorktreeDiffResponse,
   workItemExecutionResponseSchema,
+  workItemViewSchema,
   workspaceRunsResponseSchema,
   worktreeDiffResponseSchema,
 } from '@craftingtable/contracts';
@@ -110,6 +112,17 @@ export function loadWorkItemExecution(
   return request(
     `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/execution`,
     workItemExecutionResponseSchema,
+  );
+}
+
+/** A work item page's region in one read (R-D5): detail, execution, cycles, slices and launch. */
+export function loadWorkItemView(
+  workspaceId: WorkspaceId,
+  workItemId: WorkItemId,
+): Promise<WorkItemView> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/view`,
+    workItemViewSchema,
   );
 }
 

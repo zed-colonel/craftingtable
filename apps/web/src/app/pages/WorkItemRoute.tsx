@@ -23,12 +23,10 @@ export function WorkItemRoute({
   workItemId,
   attention,
   cycles,
-  workspaceCyclesFailed,
 }: {
   workItemId: WorkItemId;
   attention: readonly AttentionItemView[];
   cycles: readonly WorkCycle[];
-  workspaceCyclesFailed: boolean;
 }) {
   const { workspaceId, canMutate } = useWorkspaceScope();
   const { csrfToken } = useSession();
@@ -56,11 +54,6 @@ export function WorkItemRoute({
   return (
     <div className="page">
       <RefreshFailed failed={item.refreshFailed} />
-      {item.cyclesFailed && !workspaceCyclesFailed && (
-        <p className="warning-state" role="alert">
-          Cycle status could not be loaded. Refresh before controlling automation.
-        </p>
-      )}
       <WorkItemPage
         detail={detail}
         inProgress={inProgress}
@@ -104,6 +97,7 @@ export function WorkItemRoute({
         planVersionId={detail.workItem.planVersionId}
         csrfToken={csrfToken}
         editable={false}
+        repositories={item.repositories}
         onChanged={item.refresh}
         collapsible
         defaultOpen={!inProgress && detail.workItem.status !== 'completed'}

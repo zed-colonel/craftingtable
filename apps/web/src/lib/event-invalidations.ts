@@ -73,6 +73,12 @@ export const queryKeys = {
     ['work-item', workspaceId, workItemId, 'execution'] as const,
   workItemCycles: (workspaceId: string, workItemId: string) =>
     ['work-item', workspaceId, workItemId, 'cycles'] as const,
+  /**
+   * A work item page's region in one read (R-D5): beneath the item's prefix, so every event
+   * that touched one of its parts reads it again.
+   */
+  workItemView: (workspaceId: string, workItemId: string) =>
+    ['work-item', workspaceId, workItemId, 'view'] as const,
   /** Git and the agent backends the daemon found; read again on each visit. */
   executionStatus: () => ['execution-status'] as const,
   /** The workspace's agent profiles; a save sets them. */
@@ -222,17 +228,18 @@ function panelKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     // A new plan version leaves the earlier one's slices inactive.
     case 'plan-version-imported':
       return [all('work-item', ws)];
+    // A work item's view lists the workspace's repositories for its launch forms (R-D5).
     case 'repository-registered':
-      return [repositories, checks];
+      return [repositories, checks, all('work-item', ws)];
     // A repository's status shows in every slice that builds from it (4b review F2).
     case 'repository-status-changed':
       return [repositories, checks, policy, all('work-item', ws)];
     case 'repository-evidence-changed':
-      return [repositories, checks, policy];
+      return [repositories, checks, policy, all('work-item', ws)];
     case 'source-repository-registered':
     case 'project-repository-bound':
     case 'project-repository-binding-retired':
-      return [repositories];
+      return [repositories, all('work-item', ws)];
     // An item's admission, completion, evidence or merge changes its dependents' readiness,
     // slices and waits, and the event names only the item (4b review F2).
     case 'work-item-admitted':

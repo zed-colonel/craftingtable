@@ -111,3 +111,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-05-worktree-check-after | `1cd5f85` | 2026-10-05 | 67 (1 phone only) | 1× |
 | 2026-10-05-2026-10-05-model-catalog-before | `ce8053f` | 2026-10-05 | 67 (1 phone only) | 1× |
 | 2026-10-05-model-catalog-after | `6665f26` | 2026-10-05 | 67 (1 phone only) | 1× |
+| 2026-10-06-view-models-before | `4b71aec` | 2026-10-06 | 67 (1 phone only) | 1× |

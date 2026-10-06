@@ -19,6 +19,7 @@ import {
   loadRun,
   loadRunProfiles,
   loadWorkItemExecution,
+  loadWorkItemView,
   loadWorkspaceRuns,
 } from '../lib/execution-api.js';
 import {
@@ -95,6 +96,12 @@ export const useWorkItemExecution = (
 ) =>
   useQuery(workItemId && queryKeys.workItemExecution(workspaceId, workItemId), () =>
     loadWorkItemExecution(workspaceId, workItemId as WorkItemId),
+  );
+
+/** A work item page's region in one read (R-D5). */
+export const useWorkItemView = (workspaceId: WorkspaceId, workItemId: WorkItemId | undefined) =>
+  useQuery(workItemId && queryKeys.workItemView(workspaceId, workItemId), () =>
+    loadWorkItemView(workspaceId, workItemId as WorkItemId),
   );
 
 /** A work item's own cycles, history and design recovery included (PERF-05). */

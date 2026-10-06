@@ -1,4 +1,8 @@
-import type { ExecutionScopeChoice, WorktreeSummary } from '@craftingtable/contracts';
+import type {
+  ExecutionScopeChoice,
+  ExecutionScopeChoices,
+  WorktreeSummary,
+} from '@craftingtable/contracts';
 import {
   executionScopeKey,
   PHASE_BLOCKERS,
@@ -17,15 +21,9 @@ import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
 import { CheckpointPreparation } from '../../decisions/checkpoint/CheckpointPreparation.js';
 import { createWorktree } from '../../lib/execution-api.js';
-import {
-  authorizeScopeScheduling,
-  loadExecutionScopes,
-  recordScopeEvidence,
-} from '../../lib/execution-scope-api.js';
+import { authorizeScopeScheduling, recordScopeEvidence } from '../../lib/execution-scope-api.js';
 import { distinct } from '../../lib/distinct.js';
-import { queryKeys } from '../../lib/event-invalidations.js';
 import { Link } from '../../lib/navigation.js';
-import { useQuery, useQueryStore } from '../../lib/query-store.js';
 
 export function ExecutionScopesPanel({
   workspaceId,
@@ -36,9 +34,15 @@ export function ExecutionScopesPanel({
   itemStatus,
   onChanged,
   cycles: views = [],
+  scopes,
+  loadError,
   onOpenCycle,
   decisionItemFor,
 }: {
+  /** The item's slices and their phase readiness, read with its page region (R-D5). */
+  scopes: ExecutionScopeChoices | undefined;
+  /** Why the region could not be read; the slices last read stay shown. */
+  loadError?: unknown;
   /** The work item's cycles as the daemon read them: each record beside its projection. */
   cycles?: readonly CycleView[];
   /** The open inbox item that carries a worktree's merge: its checkpoint is decided there (R-A6). */
@@ -59,18 +63,15 @@ export function ExecutionScopesPanel({
   const cycles = views.map((view) => view.cycle);
   const reviewWait = (id: string) =>
     views.find((view) => view.cycle.id === id)?.projection.scopeReviewWait;
-  // Read again on its work item's events and after its own commands (R-D4 increment 4b).
-  const store = useQueryStore();
-  const key = queryKeys.workItemScopes(workspaceId, workItemId);
-  const scopes = useQuery(key, () => loadExecutionScopes(workspaceId, workItemId));
-  const choices: readonly ExecutionScopeChoice[] = scopes.data?.choices ?? [];
+  // Read with the item's region, again on its events and after its commands (R-D5).
+  const choices: readonly ExecutionScopeChoice[] = scopes?.choices ?? [];
   const [busy, setBusy] = useState(false),
     [commandError, setError] = useState<string>();
   const error =
     commandError ??
-    (scopes.error !== undefined
-      ? scopes.error instanceof Error
-        ? scopes.error.message
+    (loadError !== undefined
+      ? loadError instanceof Error
+        ? loadError.message
         : 'Could not load execution scopes.'
       : undefined);
   const command = async (operation: () => Promise<unknown>) => {
@@ -78,7 +79,6 @@ export function ExecutionScopesPanel({
     setError(undefined);
     try {
       await operation();
-      store.refreshNow([key]);
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Scope operation failed.');

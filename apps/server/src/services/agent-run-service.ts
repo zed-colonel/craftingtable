@@ -619,13 +619,20 @@ export class AgentRunService {
     return this.resolveProfiles(workspaceId);
   }
 
-  private resolveProfiles(
+  /** The workspace's profiles as `listRunProfiles` returns them, read in the caller's read (R-D5). */
+  profilesIn(
+    tx: StorageRepositories,
     workspaceId: WorkspaceId,
   ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
+    return this.resolveProfiles(workspaceId, tx);
+  }
+
+  private resolveProfiles(
+    workspaceId: WorkspaceId,
+    tx: StorageRepositories = this.storage,
+  ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
     const stored = new Map(
-      this.storage.execution.runProfiles
-        .list(workspaceId)
-        .map((profile) => [profile.role, profile]),
+      tx.execution.runProfiles.list(workspaceId).map((profile) => [profile.role, profile]),
     );
     const fallbackBackend = this.defaultBackend() ?? AGENT_BACKENDS[0];
     return AGENT_PROFILE_PURPOSES.map((role) => {

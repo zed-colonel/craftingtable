@@ -26,6 +26,7 @@ export * from './snapshot.js';
 export * from './storage-policy.js';
 export * from './type-equivalence.js';
 export * from './work-cycle.js';
+export * from './work-item-view.js';
 export * from './workflow.js';
 export * from './workspace.js';
 export * from './workspace-event.js';

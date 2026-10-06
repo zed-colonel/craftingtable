@@ -162,7 +162,6 @@ export function WorkspaceView({
           workItemId={route.workItemId}
           attention={attention}
           cycles={cycles}
-          workspaceCyclesFailed={cyclesFailed}
         />
       )}
       {route.name === 'repositories' && <RepositoriesRoute />}

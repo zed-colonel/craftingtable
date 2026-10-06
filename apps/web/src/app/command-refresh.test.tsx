@@ -91,6 +91,23 @@ vi.mock('../lib/execution-api.js', async (original) => ({
     runs: [],
     mergeGates: {},
   })),
+  // A work item page's region in one read (R-D5).
+  loadWorkItemView: vi.fn(async (_ws: string, workItemId: string) => ({
+    detail: {
+      workItem: { id: workItemId, status: 'proposed', planVersionId: 'plan-1', projectId: 'p1' },
+    },
+    execution: {
+      workItemId,
+      worktrees: [{ id: 'tree-1', repositoryId: 'repo' }],
+      runs: [],
+      mergeGates: {},
+    },
+    cycles: [],
+    scopes: { choices: [] },
+    repositories: [{ id: 'repo', displayName: 'repo', status: 'active' }],
+    backends: [],
+    profiles: [],
+  })),
   loadRun: vi.fn(async () => ({
     run: { id: 'run-1', workItemId: 'item-1' },
     worktree: { id: 'tree-1', status: 'active' },
@@ -333,15 +350,23 @@ it("reads what an inbox decision changed: checks, a finalization's state, the at
   expect(refreshed()).toEqual(named(queryKeys.attention(ws)));
 });
 
-it('reads the item, snapshot, agenda and cycles after admitting, completing or removing it', async () => {
+it("offers a check adoption that names no work item, with the workspace's repositories (R-D5)", async () => {
   inApp(
-    <WorkItemRoute
-      workItemId={'item-1' as WorkItemId}
+    <InboxHost
+      item={item({
+        code: 'check-definition-changed',
+        subjectKey: 'cycle:c1',
+        refs: { cycleId: 'c1' } as never,
+      })}
       attention={[]}
-      cycles={[]}
-      workspaceCyclesFailed={false}
+      workspaceCycles={[{ id: 'c1', attention: { refs: { repositoryId: 'repo' } } } as never]}
     />,
   );
+  await waitFor(() => expect(props.checks).toBeDefined());
+});
+
+it('reads the item, snapshot, agenda and cycles after admitting, completing or removing it', async () => {
+  inApp(<WorkItemRoute workItemId={'item-1' as WorkItemId} attention={[]} cycles={[]} />);
   await waitFor(() => expect(props.workItem).toBeDefined());
   vi.spyOn(store, 'refreshNow');
   await run(() => props.workItem!.onAdmit!());

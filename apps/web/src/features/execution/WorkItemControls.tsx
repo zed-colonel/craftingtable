@@ -2,14 +2,7 @@ import type { AttentionItemView, WorktreeDiffResponse } from '@craftingtable/con
 import type { WorkCycle, WorkItemId, WorktreeId } from '@craftingtable/domain';
 import { useCallback, useState } from 'react';
 import { useCommands } from '../../app/commands.js';
-import {
-  useExecutionStatus,
-  useRepositories,
-  useRunProfiles,
-  useWorkItemCycles,
-  useWorkItemDetail,
-  useWorkItemExecution,
-} from '../../app/reads.js';
+import { useWorkItemView } from '../../app/reads.js';
 import {
   useAlive,
   useCycleFocus,
@@ -36,19 +29,16 @@ import { WorktreeBranchPanel } from './WorktreeBranchPanel.js';
 
 /**
  * One work item's reads and commands, shared by its page and its inbox items (R-D4 increment
- * 4b). A command refreshes the item's own keys, the workspace's cycles and attention; events
- * refresh the rest.
+ * 4b). The item's region is one read (R-D5): its detail, worktrees, runs, cycles, slices and
+ * what its launch forms offer. A command refreshes the item's own keys, the workspace's cycles
+ * and attention; events refresh the rest.
  */
 export function useWorkItem(workItemId: WorkItemId | undefined) {
   const { workspaceId } = useWorkspaceScope();
   const store = useQueryStore();
   const alive = useAlive();
-  const detail = useWorkItemDetail(workspaceId, workItemId);
-  const execution = useWorkItemExecution(workspaceId, workItemId);
-  const cycles = useWorkItemCycles(workspaceId, workItemId);
-  const repositories = useRepositories(workspaceId);
-  const status = useExecutionStatus();
-  const profiles = useRunProfiles(workspaceId);
+  const view = useWorkItemView(workspaceId, workItemId);
+  const data = view.data?.detail.workItem.id === workItemId ? view.data : undefined;
   const refresh = useCallback(
     () =>
       store.refreshNow([
@@ -81,19 +71,20 @@ export function useWorkItem(workItemId: WorkItemId | undefined) {
     setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
     refresh();
   };
-  const own = <T extends { readonly workItemId?: unknown }>(value: T | undefined) =>
-    value !== undefined && value.workItemId === workItemId ? value : undefined;
   return {
     workItemId,
-    detail: detail.data?.workItem.id === workItemId ? detail.data : undefined,
-    execution: own(execution.data),
-    cycles: cycles.data?.cycles,
-    cyclesFailed: cycles.error !== undefined,
+    detail: data?.detail,
+    execution: data?.execution,
+    cycles: data?.cycles,
+    /** The item's slices and their phase readiness. */
+    scopes: data?.scopes,
     /** A read failed; whatever was read last stays visible. */
-    refreshFailed: detail.error !== undefined || execution.error !== undefined,
-    repositories: repositories.data?.repositories ?? [],
-    backends: status.data?.backends ?? [],
-    profiles: profiles.data?.profiles,
+    refreshFailed: view.error !== undefined,
+    /** Why the region could not be read, for panels that say so in place. */
+    readError: view.error,
+    repositories: data?.repositories ?? [],
+    backends: data?.backends ?? [],
+    profiles: data?.profiles,
     refresh,
     commands,
     diff,
@@ -276,6 +267,8 @@ export function ScopeControls({
       workspaceId={workspaceId}
       workItemId={detail.workItem.id}
       worktrees={item.execution?.worktrees ?? []}
+      scopes={item.scopes}
+      {...(item.readError === undefined ? {} : { loadError: item.readError })}
       csrfToken={csrfToken}
       canMutate={canMutate}
       itemStatus={detail.workItem.status}

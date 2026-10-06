@@ -3,6 +3,7 @@ import {
   daemonDiagnosticsResponseSchema,
   runEventPageResponseSchema,
   workCyclesResponseSchema,
+  workItemViewSchema,
   workspaceRunsResponseSchema,
 } from '@craftingtable/contracts';
 import {
@@ -20,7 +21,7 @@ import {
   DEFAULT_COMPLETION_POLICY,
   type WorkCycle,
 } from '@craftingtable/domain';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE_NAME } from '../src/config.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
@@ -298,6 +299,38 @@ describe('cycle reads (PERF-05)', () => {
     const f = await fixture();
     const response = await f.get(`/api/workspaces/${f.workspaceId}/cycles?workItemId=%20x`);
     expect(response.statusCode).toBe(400);
+  });
+});
+
+describe('work item view (R-D5, PERF-14)', () => {
+  it('answers the page region in one read: the same parts the separate reads give', async () => {
+    const f = await fixture();
+    const base = `/api/workspaces/${f.workspaceId}`;
+    const item = f.items[0];
+    const reads = vi.spyOn(f.context.storage, 'readTransaction');
+    const response = await f.get(`${base}/work-items/${item}/view`);
+    expect(response.statusCode, response.body).toBe(200);
+    // One transaction over one map snapshot, for every part of the region.
+    expect(reads).toHaveBeenCalledTimes(1);
+    reads.mockRestore();
+    const view = workItemViewSchema.parse(response.json());
+    const part = async (url: string) => (await f.get(`${base}${url}`)).json();
+    expect(view.detail).toEqual(await part(`/work-items/${item}`));
+    expect(view.execution).toEqual(await part(`/work-items/${item}/execution`));
+    expect(view.cycles).toEqual((await part(`/cycles?workItemId=${item}`)).cycles);
+    expect(view.cycles.map((v) => v.cycle.id).toSorted()).toEqual(
+      [f.cycles.history.id, f.cycles.paused.id].toSorted(),
+    );
+    expect(view.scopes).toEqual(await part(`/work-items/${item}/execution-scopes`));
+    expect(view.repositories).toEqual((await part('/repositories')).repositories);
+    expect(view.profiles).toEqual((await part('/run-profiles')).profiles);
+    expect(view.backends).toEqual((await f.get('/api/execution-status')).json().backends);
+  });
+
+  it('refuses an unknown work item', async () => {
+    const f = await fixture();
+    const base = `/api/workspaces/${f.workspaceId}`;
+    expect((await f.get(`${base}/work-items/no-such-item/view`)).statusCode).toBe(404);
   });
 });
 

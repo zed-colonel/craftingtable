@@ -55,6 +55,7 @@ import { RoadmapService } from './services/roadmap-service.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { CheckRequestService } from './services/check-request-service.js';
 import { GitFacts } from './services/git-facts.js';
+import { PageViews } from './services/page-views.js';
 import { RefWatch } from './services/ref-watch.js';
 import { RepositoryChecksService } from './services/repository-checks-service.js';
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
@@ -100,6 +101,8 @@ export interface ServiceSet {
   readonly workCycleService: WorkCycleService;
   readonly runEventStreamService: RunEventStreamService;
   readonly executionStatus: () => ExecutionStatus;
+  /** One answer per page region (R-D5). */
+  readonly pageViews: PageViews;
   /** Each backend's model catalog, read again at start, about hourly and on request (R-G15). */
   readonly modelCatalogService: ModelCatalogService;
   readonly daemonDrain: DaemonDrain;
@@ -437,6 +440,15 @@ export async function createServices(
       overrides.streamHooks,
     ),
     executionStatus,
+    pageViews: new PageViews(
+      storage,
+      workspaceService,
+      planningQueryService,
+      executionService,
+      workCycleService,
+      agentRunService,
+      executionStatus,
+    ),
     modelCatalogService: new ModelCatalogService(backends, overrides.runLog),
     daemonDrain: new DaemonDrain(
       storage,
@@ -505,6 +517,7 @@ export async function createDaemon(
       roadmapService: services.roadmapService,
       runEventStreamService: services.runEventStreamService,
       executionStatus: services.executionStatus,
+      pageViews: services.pageViews,
       modelCatalogService: services.modelCatalogService,
       daemonDrain: services.daemonDrain,
     },

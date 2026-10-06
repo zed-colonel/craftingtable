@@ -27,6 +27,7 @@ export function PlanBranchPanel({
   creating,
   collapsible = false,
   defaultOpen = true,
+  repositories: given,
 }: {
   workspaceId: WorkspaceId;
   planVersionId: PlanVersionId;
@@ -39,6 +40,8 @@ export function PlanBranchPanel({
   /** Reference placement (an item page): the body starts closed once a worktree exists. */
   collapsible?: boolean;
   defaultOpen?: boolean;
+  /** The workspace's repositories, when the host has read them (a work item's view, R-D5). */
+  repositories?: readonly SourceRepositorySummary[];
 }) {
   const integrationInputId = useId();
   const [editingVersion, setEditingVersion] = useState(0);
@@ -50,11 +53,13 @@ export function PlanBranchPanel({
   const settingsQuery = useQuery(branchesKey, () =>
     loadPlanBranchSettings(workspaceId, planVersionId),
   );
-  const repositoriesQuery = useQuery(repositoriesKey, () => loadRepositories(workspaceId));
+  const repositoriesQuery = useQuery(given === undefined ? repositoriesKey : undefined, () =>
+    loadRepositories(workspaceId),
+  );
   const data: PlanBranchSettingsResponse | undefined = settingsQuery.data;
   const setData = (next: PlanBranchSettingsResponse) => store.set(branchesKey, next);
   const repositories: readonly SourceRepositorySummary[] =
-    repositoriesQuery.data?.repositories ?? [];
+    given ?? repositoriesQuery.data?.repositories ?? [];
   const [branches, setBranches] = useState<readonly string[]>([]);
   const [repositoryId, setRepositoryId] = useState('');
   const [target, setTarget] = useState('');

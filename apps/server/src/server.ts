@@ -20,6 +20,7 @@ import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerOperatorWaitRoutes } from './routes/operator-wait.js';
 import { registerAttentionRoutes } from './routes/attention.js';
 import { registerPackageImportRoutes } from './routes/package-imports.js';
+import { registerPageViewRoutes } from './routes/page-views.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
 import { installResponseEncoding } from './routes/response-encoding.js';
@@ -49,6 +50,7 @@ import type { MapAmendmentService } from './services/map-amendment-service.js';
 import type { NotificationService } from './services/notification-service.js';
 import type { OperatorWaitService } from './services/operator-wait-service.js';
 import type { PackageImportService } from './services/package-import-service.js';
+import type { PageViews } from './services/page-views.js';
 import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
 import type { RoadmapService } from './services/roadmap-service.js';
@@ -86,6 +88,7 @@ export interface ServerDependencies {
   readonly workCycleService: WorkCycleService;
   readonly runEventStreamService: RunEventStreamService;
   readonly executionStatus: () => ExecutionStatus;
+  readonly pageViews: PageViews;
   readonly modelCatalogService: ModelCatalogService;
   readonly daemonDrain: DaemonDrain;
 }
@@ -212,6 +215,7 @@ export function buildServer(
     deps.runEventStreamService,
     config,
   );
+  registerPageViewRoutes(app, deps.authService, deps.pageViews);
   if (config.webDistDir !== undefined) {
     registerStaticWebRoutes(app, config.webDistDir);
   }

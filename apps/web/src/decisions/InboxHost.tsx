@@ -20,7 +20,8 @@ import { AcknowledgeMoves } from '../features/inbox/AcknowledgeMoves.js';
 import { queryKeys } from '../lib/event-invalidations.js';
 import { MERGE_GATE_LABELS } from '../lib/execution-labels.js';
 import { Link } from '../lib/navigation.js';
-import { useQueryStore } from '../lib/query-store.js';
+import { loadRepositories } from '../lib/execution-api.js';
+import { useQuery, useQueryStore } from '../lib/query-store.js';
 import { AmendmentDecision } from './amendment/AmendmentDecision.js';
 import { CheckAdoption } from './checks/CheckAdoption.js';
 import { CheckpointPreparation } from './checkpoint/CheckpointPreparation.js';
@@ -66,6 +67,16 @@ export function InboxHost({
   const store = useQueryStore();
   const { workItemId, roadmapId, planVersionId, projectId, runId, cycleId } = item.refs;
   const work = useWorkItem(workItemId as WorkItemId | undefined);
+  // A work item's view lists the repositories (R-D5); an item that names none, such as a
+  // finalization's check adoption, reads them itself.
+  const ownRepositories = useQuery(
+    workItemId === undefined && decisionsFor(item).some((d) => d.kind === 'check-adoption')
+      ? queryKeys.repositories(workspaceId)
+      : undefined,
+    () => loadRepositories(workspaceId),
+  );
+  const repositories =
+    workItemId === undefined ? (ownRepositories.data?.repositories ?? []) : work.repositories;
   const loading = <p className="empty-state">Loading controls…</p>;
   const worktreeOf = (id: string | undefined) =>
     work.execution?.worktrees.find((tree) => tree.id === id);
@@ -154,7 +165,7 @@ export function InboxHost({
         const repositoryId =
           workspaceCycles.find((c) => c.id === cycleId)?.attention?.refs?.repositoryId ??
           worktreeOf(item.refs.worktreeId)?.repositoryId;
-        const repository = work.repositories.find((r) => r.id === repositoryId);
+        const repository = repositories.find((r) => r.id === repositoryId);
         const worktree = worktreeOf(item.refs.worktreeId);
         return repository ? (
           <CheckAdoption

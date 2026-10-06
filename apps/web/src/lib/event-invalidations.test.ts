@@ -139,13 +139,32 @@ it("narrows a work item's reads to the work item an event names, and reads them 
   expect(invalidationsFor(event('work-cycle-changed', { payload: {} }))).toEqual(
     expect.arrayContaining([['work-item', ws]]),
   );
-  for (const kind of ['notifications-changed', 'repository-registered', 'workspace-updated'])
+  for (const kind of ['notifications-changed', 'workspace-updated', 'attention-changed'])
     expect(
       invalidationsFor(event(kind, { repositoryId: 'repo', payload: {} })).some(
         (key) => key[0] === 'work-item',
       ),
       kind,
     ).toBe(false);
+});
+
+it("reads a work item's view again when a repository changes, since the view lists them (R-D5)", () => {
+  const view = queryKeys.workItemView(ws, 'w1');
+  const under = (prefix: readonly string[]) => prefix.every((part, index) => view[index] === part);
+  for (const kind of [
+    'repository-registered',
+    'repository-status-changed',
+    'repository-evidence-changed',
+    'source-repository-registered',
+    'project-repository-bound',
+    'project-repository-binding-retired',
+  ])
+    expect(
+      invalidationsFor(event(kind, { repositoryId: 'repo', projectId: 'p', payload: {} })).some(
+        (key) => under(key),
+      ),
+      kind,
+    ).toBe(true);
 });
 
 it('re-reads branches, repositories, checks and policy on the events that change them, and on nothing else', () => {

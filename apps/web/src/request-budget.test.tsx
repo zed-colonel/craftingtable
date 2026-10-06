@@ -238,6 +238,15 @@ vi.mock('./lib/execution-api.js', async (original) => ({
     mergeGates: {},
   })),
   loadWorkspaceRuns: count('runs', async () => ({ runs: [], liveCount: 0 })),
+  loadWorkItemView: count('work-item-view', async () => ({
+    detail: WORK_ITEM,
+    execution: { workItemId: ITEM, worktrees: fixture.worktrees, runs: [], mergeGates: {} },
+    cycles: [],
+    scopes: { choices: [] },
+    repositories: [REPOSITORY],
+    backends: [],
+    profiles: [],
+  })),
 }));
 vi.mock('./lib/roadmap-api.js', async (original) => ({
   ...(await original<typeof import('./lib/roadmap-api.js')>()),
@@ -354,19 +363,19 @@ const BUDGET: Record<string, Record<string, number>> = {
     'branches-changed': 4,
   },
   workItem: {
-    'runtime-evidence-changed': 7,
-    'scope-evidence-recorded': 8,
-    'scope-scheduling-authorized': 7,
+    'runtime-evidence-changed': 4,
+    'scope-evidence-recorded': 5,
+    'scope-scheduling-authorized': 4,
     'notifications-changed': 0,
     'attention-changed': 3,
-    'roadmap-changed': 8,
+    'roadmap-changed': 5,
     'workspace-created': 2,
     'project-created': 2,
-    'plan-version-imported': 6,
-    'work-item-admitted': 7,
-    'work-item-removed-from-agenda': 7,
+    'plan-version-imported': 3,
+    'work-item-admitted': 4,
+    'work-item-removed-from-agenda': 4,
     'repository-registered': 1,
-    'repository-status-changed': 6,
+    'repository-status-changed': 2,
     'repository-evidence-changed': 2,
     'project-repository-bound': 1,
     'project-repository-binding-retired': 1,
@@ -376,38 +385,38 @@ const BUDGET: Record<string, Record<string, number>> = {
     'agent-run-started': 3,
     'agent-run-status-changed': 3,
     'workspace-updated': 2,
-    'work-item-completed': 9,
-    'worktree-merged': 8,
+    'work-item-completed': 6,
+    'worktree-merged': 5,
     'work-cycle-changed': 3,
     'branches-changed': 4,
   },
   ownWorkItem: {
-    'runtime-evidence-changed': 7,
-    'scope-evidence-recorded': 8,
-    'scope-scheduling-authorized': 7,
+    'runtime-evidence-changed': 4,
+    'scope-evidence-recorded': 5,
+    'scope-scheduling-authorized': 4,
     'notifications-changed': 0,
     'attention-changed': 3,
-    'roadmap-changed': 8,
+    'roadmap-changed': 5,
     'workspace-created': 2,
     'project-created': 2,
-    'plan-version-imported': 6,
-    'work-item-admitted': 7,
-    'work-item-removed-from-agenda': 7,
+    'plan-version-imported': 3,
+    'work-item-admitted': 4,
+    'work-item-removed-from-agenda': 4,
     'repository-registered': 1,
-    'repository-status-changed': 6,
+    'repository-status-changed': 2,
     'repository-evidence-changed': 2,
     'project-repository-bound': 1,
     'project-repository-binding-retired': 1,
     'source-repository-registered': 1,
-    'worktree-created': 7,
-    'worktree-removed': 7,
-    'agent-run-started': 7,
-    'agent-run-status-changed': 7,
+    'worktree-created': 4,
+    'worktree-removed': 4,
+    'agent-run-started': 4,
+    'agent-run-status-changed': 4,
     'workspace-updated': 2,
-    'work-item-completed': 9,
-    'worktree-merged': 8,
-    'work-cycle-changed': 7,
-    'branches-changed': 8,
+    'work-item-completed': 6,
+    'worktree-merged': 5,
+    'work-cycle-changed': 4,
+    'branches-changed': 5,
   },
   settings: {
     'runtime-evidence-changed': 3,
@@ -523,4 +532,32 @@ it('reads only what each event changed, on the pages measured (R-D4 4c)', async 
   const measured = { dashboard, workItem, ownWorkItem, settings, roadmaps, repositories };
   // The reads behind each count, shown when the budget fails.
   expect(measured, `requests per event; the reads were ${JSON.stringify(reads)}`).toEqual(BUDGET);
+});
+
+/**
+ * R-D5's done-when: a work item page loads with at most three requests. Navigating to it from
+ * another page of the app, with the shell's reads held, it reads its region (one answer for the
+ * detail, worktrees, runs, cycles, slices, repositories, profiles and agent backends), its plan's
+ * branches and that plan's repository policy; a worktree's branch only once asked for.
+ */
+it('loads a work item page with at most three requests (R-D5)', async () => {
+  fixture.worktrees = [WORKTREE];
+  window.history.replaceState(null, '', '/workspaces/ws-a');
+  render(<App />);
+  await screen.findByText('Alpha Project');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  const before = requests.length;
+  act(() => {
+    window.history.pushState(null, '', `/workspaces/ws-a/work-items/${ITEM}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await heading();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  const loaded = requests.slice(before).sort();
+  expect(loaded).toEqual(['plan-branches', 'repository-policy', 'work-item-view']);
+  fixture.worktrees = [];
 });

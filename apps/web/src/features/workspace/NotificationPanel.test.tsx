@@ -83,3 +83,13 @@ it('reloads after a conflict from the status read now, not the cached one (R-D4 
   await waitFor(() => expect(saveNotifications).toHaveBeenCalledTimes(2));
   expect(vi.mocked(saveNotifications).mock.calls[1]![1]).toMatchObject({ expectedVersion: 2 });
 });
+
+it('says where the credentials are kept: a private file, not the database or its backups (R-G9)', async () => {
+  vi.mocked(loadNotifications).mockResolvedValue(status as never);
+  const { wrap } = testQueryStore();
+  render(wrap(<NotificationPanel workspaceId={asWorkspaceId('ws')} csrfToken="csrf" />));
+  expect(
+    await screen.findByText(/kept in a private file on the daemon’s host, outside its database/),
+  ).toBeTruthy();
+  expect(screen.queryByText(/private database/)).toBeNull();
+});

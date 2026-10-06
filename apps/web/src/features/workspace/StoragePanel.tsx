@@ -296,7 +296,9 @@ export function StoragePanel({
             </button>
           </div>
           <h4>Backups</h4>
-          <p className="hint">Backups include credentials but not repositories or working files.</p>
+          <p className="hint">
+            Backups include the database but not credentials, repositories or working files.
+          </p>
           <About label="About backups">
             <p>
               Private SQLite snapshots include plans, run history, settings and credentials. They do

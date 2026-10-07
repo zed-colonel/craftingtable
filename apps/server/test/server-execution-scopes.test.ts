@@ -6,6 +6,7 @@ import {
   asProjectId,
   asWorkItemDependencyId,
   asWorkItemId,
+  type ExecutionScope,
 } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -20,6 +21,9 @@ import {
   admit,
   branchCommand,
   cleanupExecutionFixtures,
+  controlRoadmapEntry,
+  delegateLocalReviewers,
+  entryCycle,
   commitFile,
   currentCycle,
   declareFixtureChecks,
@@ -32,8 +36,12 @@ import {
   mergeRoadmapAttempt,
   mutationHeaders,
   recordScope,
+  replyByScope,
+  roadmapEntry,
+  runScopedFixtureCheck,
   reviewScope,
   roadmapControl,
+  roadmapId,
   roadmapInput,
   saveRoadmapRequest,
   scopeKey,
@@ -51,7 +59,13 @@ afterEach(cleanupExecutionFixtures);
 describe('execution slices and parent acceptance', () => {
   it('keeps sibling merges separate, verifies exact scopes and accepts the independently reviewed parent', async () => {
     const f = await slicedFixture(),
-      { state, root } = f;
+      { state, root } = f,
+      ws = state.workspaceId;
+    // The reviewer role is the delegated roadmap's (R-F2 decision 4). The slices are developed
+    // and merged by hand; the roadmap verifies them and reviews the parent, whose acceptance the
+    // operator records.
+    await delegateLocalReviewers(f, { hold: (e) => e.executionScope?.kind === 'slice' });
+    const receipts = () => state.context.storage.scopeReceipts.list(ws, state.workItemId);
     const a = await scopeTree(f, f.scopes[0]!),
       b = await scopeTree(f, f.scopes[1]!);
     expect(a.branchName).not.toBe(b.branchName);
@@ -63,12 +77,9 @@ describe('execution slices and parent acceptance', () => {
       'Merge this slice',
     );
     await expect(
-      state.context.services.executionService.createWorktree(
-        f.auth,
-        state.workspaceId,
-        state.workItemId,
-        { repositoryId: f.repository.id },
-      ),
+      state.context.services.executionService.createWorktree(f.auth, ws, state.workItemId, {
+        repositoryId: f.repository.id,
+      }),
     ).rejects.toThrow('uses execution slices');
     commitFile(a.path, 'a.txt', 'A');
     await reviewScope(f, a, true);
@@ -77,14 +88,30 @@ describe('execution slices and parent acceptance', () => {
     const landedA = await merge(state, a.id);
     expect(landedA.statusCode, landedA.body).toBe(200);
     expect(landedA.json().workItemCompleted).toBe(false);
-    expect(
-      state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
-    ).toBe('admitted');
+    expect(state.context.storage.planning.workItems.find(ws, state.workItemId)?.status).toBe(
+      'admitted',
+    );
     const bypass = await branchCommand(state, `work-items/${state.workItemId}/complete`, {});
     expect(bypass.statusCode, bypass.body).toBe(409);
-    const evidenceA = await recordScope(f, a);
-    expect(evidenceA.statusCode, evidenceA.body).toBe(200);
-    expect(evidenceA.json()).toEqual({ recorded: true, workItemCompleted: false });
+    // Slice a's exact scope is verified by the roadmap's own verification attempt.
+    const verification = (sourceId: string) =>
+      entryCycle(
+        state,
+        roadmapEntry(state, { ...f.scopes[0]!, kind: 'slice-verification', sourceId }).id,
+      );
+    replyByScope(f);
+    await waitFor(() => receipts().length === 1, 'slice a verified');
+    const verifiedA = verification(f.scopes[0]!.sourceId)!;
+    expect(receipts().map((r) => [r.scope, r.worktreeId, r.reviewRunId])).toEqual([
+      [f.scopes[0], verifiedA.worktreeId, verifiedA.currentRunId],
+    ]);
+    // Recording the same review again records nothing.
+    const again = await recordScope(
+      f,
+      state.context.storage.execution.worktrees.find(ws, verifiedA.worktreeId)!,
+    );
+    expect(again.statusCode, again.body).toBe(200);
+    expect(again.json()).toEqual({ recorded: false, workItemCompleted: false });
     // Sibling branch must refresh and receive its own fresh review after integration advances.
     git(['merge', '--no-edit', 'main'], b.path);
     commitFile(b.path, 'b.txt', 'B');
@@ -92,28 +119,68 @@ describe('execution slices and parent acceptance', () => {
     const landedB = await merge(state, b.id);
     expect(landedB.statusCode, landedB.body).toBe(200);
     await expect(scopeTree(f, f.parentScope)).rejects.toThrow('has not been verified');
-    expect((await recordScope(f, b)).statusCode).toBe(200);
-    const acceptance = await scopeTree(f, f.parentScope);
+    replyByScope(f);
+    await waitFor(() => receipts().length === 2, 'slice b verified');
+    expect(
+      receipts()
+        .map((r) => r.scope.sourceId)
+        .sort(),
+    ).toEqual(f.scopes.map((x) => x.sourceId));
+    expect(receipts().every((r) => r.scope.kind === 'slice')).toBe(true);
+    // The roadmap's parent review omits the parent's case first.
+    let omitted = false;
+    const full = f.backend.replyForRequest;
+    f.backend.replyForRequest = async (request) => {
+      const tree = state.context.storage.execution.worktrees
+        .listActive(ws)
+        .find((t) => t.path === request.cwd);
+      if (
+        request.model === 'review-model' &&
+        tree?.executionScope?.kind === 'parent-acceptance' &&
+        !omitted
+      ) {
+        omitted = true;
+        await runScopedFixtureCheck(request);
+        return {
+          resultText: `## Open questions\nnone\n## Review report\n${scopeReport(state, f.parentScope, false, true)}`,
+        };
+      }
+      return full!(request);
+    };
+    const parentCycle = () => entryCycle(state, roadmapEntry(state, f.parentScope).id);
+    await waitFor(() => {
+      const c = parentCycle();
+      if (c?.status === 'needs-attention') throw new Error(c.reason);
+      return c?.status === 'awaiting-merge';
+    }, 'parent reviewed');
+    const acceptance = state.context.storage.execution.worktrees.find(
+      ws,
+      parentCycle()!.worktreeId,
+    )!;
     const disallowed = await branchCommand(state, `work-items/${state.workItemId}/runs`, {
       worktreeId: acceptance.id,
       role: 'implement',
     });
     expect(disallowed.statusCode, disallowed.body).toBe(409);
-    await reviewScope(f, acceptance, false, true);
     const missingCase = await recordScope(f, acceptance);
     expect(missingCase.statusCode, missingCase.body).toBe(409);
     expect(missingCase.body).toContain('CASE-PARENT');
-    await reviewScope(f, acceptance);
     expect((await merge(state, acceptance.id)).statusCode).toBe(409);
     commitFile(root, 'post-review.txt', 'Integration advanced after review');
     const staleParent = await recordScope(f, acceptance);
     expect(staleParent.statusCode, staleParent.body).toBe(409);
-    git(['merge', '--no-edit', 'main'], acceptance.path);
-    await reviewScope(f, acceptance);
-    const accepted = await recordScope(f, acceptance);
+    // A fresh review of the current integration, by the roadmap's reviewer, is recorded.
+    const stale = parentCycle()!.currentRunId;
+    await waitFor(() => {
+      const c = parentCycle();
+      if (c?.status === 'needs-attention') throw new Error(c.reason);
+      return c?.status === 'awaiting-merge' && c.currentRunId !== stale;
+    }, 'fresh parent review');
+    const current = state.context.storage.execution.worktrees.find(ws, acceptance.id)!;
+    const accepted = await recordScope(f, current);
     expect(accepted.statusCode, accepted.body).toBe(200);
     expect(accepted.json()).toEqual({ recorded: true, workItemCompleted: true });
-    expect((await recordScope(f, acceptance)).json()).toEqual({
+    expect((await recordScope(f, current)).json()).toEqual({
       recorded: false,
       workItemCompleted: true,
     });
@@ -232,23 +299,63 @@ describe('execution slices and parent acceptance', () => {
   it('rejects stale integration evidence, supports fresh verification, and keeps older bound attempts visible', async () => {
     const f = await slicedFixture(),
       { state, root } = f;
+    // The reviewer role is the delegated roadmap's (R-F2 decision 4): it verifies slice a,
+    // while slice a's development and every other entry stay manual.
+    const verifyA = (e: { executionScope?: ExecutionScope }) =>
+      e.executionScope?.kind === 'slice-verification' &&
+      e.executionScope.sourceId === f.scopes[0]!.sourceId;
+    await delegateLocalReviewers(f, { hold: (e) => !verifyA(e) });
+    const entry = storedRoadmap(state).definition.entries.find(verifyA)!;
     const a = await scopeTree(f, f.scopes[0]!);
     commitFile(a.path, 'a.txt', 'A');
     await reviewScope(f, a);
     expect((await merge(state, a.id)).statusCode).toBe(200);
     commitFile(root, 'later.txt', 'Later integration change');
+    // A development review is never the assigned verification reviewer, so recording it as the
+    // slice's evidence is refused before its integration is even compared.
     const stale = await recordScope(f, a);
     expect(stale.statusCode, stale.body).toBe(409);
-    expect(stale.body).toContain('fresh slice verification');
-    const verification = await scopeTree(f, { ...f.scopes[0]!, kind: 'slice-verification' });
-    await reviewScope(f, verification);
+    expect(stale.body).toContain('lacks the explicitly assigned independent reviewer roles');
+    // The roadmap verifies a; hold its evidence before the scheduler records it.
+    replyByScope(f);
+    await waitFor(
+      () => entryCycle(state, entry.id)?.status === 'awaiting-merge',
+      'verification reviewed',
+    );
+    await controlRoadmapEntry(f, entry.id, 'pause');
+    const verification = state.context.storage.execution.worktrees.find(
+      state.workspaceId,
+      entryCycle(state, entry.id)!.worktreeId,
+    )!;
+    const reviewedBefore = entryCycle(state, entry.id)!.currentRunId;
+    commitFile(root, 'later-again.txt', 'Integration advanced after the verification review');
+    const outdated = await recordScope(f, verification);
+    expect(outdated.statusCode, outdated.body).toBe(409);
+    expect(outdated.body).toContain('Integration branch advanced');
     const badCsrf = await recordScope(f, verification, {
       ...mutationHeaders(state),
       'x-craftingtable-csrf': 'bad',
     });
     expect(badCsrf.statusCode).toBe(403);
-    const accepted = await recordScope(f, verification);
-    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(state.context.storage.scopeReceipts.list(state.workspaceId, state.workItemId)).toEqual(
+      [],
+    );
+    // Resumed, the roadmap reviews the current integration afresh and records that evidence.
+    await controlRoadmapEntry(f, entry.id, 'resume');
+    await waitFor(
+      () =>
+        state.context.storage.scopeReceipts.list(state.workspaceId, state.workItemId).length > 0,
+      'fresh verification recorded',
+    );
+    // The evidence is a fresh review of the current integration, by the assigned reviewer.
+    expect(
+      state.context.storage.scopeReceipts
+        .list(state.workspaceId, state.workItemId)
+        .map((r) => [r.scope.kind, r.scope.sourceId, r.worktreeId, r.reviewRunId]),
+    ).toEqual([
+      ['slice', f.scopes[0]!.sourceId, verification.id, entryCycle(state, entry.id)!.currentRunId],
+    ]);
+    expect(entryCycle(state, entry.id)!.currentRunId).not.toBe(reviewedBefore);
     const old = state.context.storage.imports.bindings(
       state.workspaceId,
       f.scopes[0]!.definitionId,
@@ -385,6 +492,8 @@ it('phase gates let development merge while qualified verification waits without
       resources_by_phase: { ...s.resources_by_phase, verify: ['controlled-native-test-host'] },
     })),
   }));
+  // The reviewer role is assigned by a delegating roadmap, paused so the work stays manual.
+  await delegateLocalReviewers(f, { pause: true });
   const a = await scopeTree(f, f.scopes[0]!);
   commitFile(a.path, 'a.txt', 'A');
   await reviewScope(f, a);
@@ -624,6 +733,20 @@ it('phase verification worktrees do not consume roadmap development capacity', a
     { state } = f;
   // A roadmap's cycles in a repository without adopted checks stop (R-G13 increment 4).
   declareFixtureChecks(state);
+  // The one delegated roadmap assigns the reviewer role (R-F2 decision 4). Its development of
+  // slice b waits until the hand-made verification tree exists; slice a and every verification
+  // and acceptance entry stay manual.
+  const develop = (e: { executionScope?: ExecutionScope }) =>
+    e.executionScope?.kind === 'slice' && e.executionScope.sourceId === f.scopes[1]!.sourceId;
+  await delegateLocalReviewers(f, {
+    hold: () => true,
+    scheduling: {
+      mode: 'parallel',
+      maxInFlight: 1,
+      maxPerRepository: 1,
+      maxIntegrationRefreshes: 3,
+    },
+  });
   const a = await scopeTree(f, f.scopes[0]!);
   commitFile(a.path, 'a.txt', 'A');
   await reviewScope(f, a);
@@ -635,19 +758,15 @@ it('phase verification worktrees do not consume roadmap development capacity', a
       : request.model === 'review-model'
         ? { resultText: scopeReport(state, f.scopes[1]!) }
         : implementationDone;
-  const input = roadmapInput(state, [state.workItemId]);
-  const saved = await saveRoadmapRequest(state, {
-    ...input,
-    scheduling: {
-      mode: 'parallel',
-      maxInFlight: 1,
-      maxPerRepository: 1,
-      maxIntegrationRefreshes: 3,
-    },
-    entries: input.entries.map((e) => ({ ...e, executionScope: f.scopes[1] })),
-  });
-  expect(saved.statusCode, saved.body).toBe(200);
-  await roadmapControl(state, 'start');
+  const entry = storedRoadmap(state).definition.entries.find(develop)!;
+  await state.context.services.roadmapService.controlEntry(
+    f.auth,
+    state.workspaceId,
+    roadmapId,
+    entry.id,
+    'resume',
+    storedRoadmap(state).version,
+  );
   await waitFor(
     () =>
       state.context.storage.execution.cycles
@@ -655,6 +774,11 @@ it('phase verification worktrees do not consume roadmap development capacity', a
         .some((c) => c.status === 'awaiting-merge'),
     'development beside pending verification',
   );
+  expect(
+    state.context.storage.execution.cycles
+      .listForWorkspace(state.workspaceId)
+      .map((c) => c.executionScope?.sourceId),
+  ).toEqual([f.scopes[1]!.sourceId]);
   expect(
     state.context.storage.execution.worktrees.find(state.workspaceId, verification.id)?.status,
   ).toBe('active');
@@ -744,4 +868,39 @@ it('derives from the fixture maps exactly the scope evidence the scenario tests 
   expect({ requirements: scopeRequirements(resolved), caseIds: scopeCases(resolved) }).toEqual(
     expectedScopeEvidence(supervised.state, second),
   );
+});
+
+// R-F2 decision 4: a lone `review` or `independent-reviewer` role was treated as assigned, an
+// undeclared bypass of reviewer qualification for any map using those names.
+it('holds verification and acceptance for every unassigned reviewer role, whatever it is named', async () => {
+  const { scopePhaseBlockers } = await import('../src/services/execution-scope.js');
+  for (const role of ['independent-reviewer', 'review']) {
+    const f = await slicedFixture((source) => ({
+      ...source,
+      evidence_profiles: source.evidence_profiles.map((p) => ({ ...p, reviewer_roles: [role] })),
+    }));
+    const { state } = f;
+    const verification = { ...f.scopes[0]!, kind: 'slice-verification' as const };
+    for (const [scope, phase] of [
+      [verification, 'verify'],
+      [f.parentScope, 'accept'],
+    ] as const)
+      expect(
+        scopePhaseBlockers(
+          state.context.storage,
+          state.workspaceId,
+          state.workItemId,
+          scope,
+          phase,
+          { resources: false },
+        ).filter((b) => b.code === 'reviewer-assignment'),
+        `${role} ${scope.kind}`,
+      ).toEqual([
+        expect.objectContaining({
+          kind: 'review',
+          message: expect.stringContaining(`unassigned reviewer qualifications: ${role}.`),
+        }),
+      ]);
+    await cleanupExecutionFixtures();
+  }
 });

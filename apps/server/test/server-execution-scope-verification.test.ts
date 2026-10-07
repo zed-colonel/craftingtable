@@ -1,6 +1,5 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { latestReviewReport } from '../src/services/run-handoff.js';
 
@@ -15,7 +14,9 @@ import {
   cleanupExecutionFixtures,
   commitFile,
   currentCycle,
-  cycleProfiles,
+  controlRoadmapEntry,
+  delegateLocalReviewers,
+  entryCycle,
   git,
   implementationDone,
   itNeedsCargo,
@@ -26,6 +27,8 @@ import {
   recordScope,
   reviewScope,
   roadmapControl,
+  replyByScope,
+  roadmapEntry,
   roadmapId,
   roadmapInput,
   runScopedFixtureCheck,
@@ -42,35 +45,47 @@ afterEach(cleanupExecutionFixtures);
 
 it('recovers parent review with durable guidance only after current verification gates clear', async () => {
   const f = await slicedFixture(),
-    { state } = f;
+    { state } = f,
+    ws = state.workspaceId;
+  // The reviewer role is the delegated roadmap's (R-F2 decision 4): the slices are developed and
+  // merged by hand, and the roadmap then verifies them and owns the parent-acceptance cycle.
+  await delegateLocalReviewers(f, {
+    hold: (e) => e.executionScope?.kind !== 'parent-acceptance',
+    instructions: 'Keep the original parent gate.',
+  });
   for (const scope of f.scopes) {
     const tree = await scopeTree(f, scope);
     commitFile(tree.path, `${scope.sourceId.replaceAll('/', '-')}.txt`, 'slice implementation');
     await reviewScope(f, tree);
     expect((await merge(state, tree.id)).statusCode).toBe(200);
-    expect((await recordScope(f, tree)).statusCode).toBe(200);
   }
-  const tree = await scopeTree(f, f.parentScope);
-  f.backend.replyForRequest = async (request) => {
-    await runScopedFixtureCheck(request);
-    return {
-      resultText: `## Open questions\nWhich policy applies?\n\n## Review report\n${scopeReport(state, f.parentScope)}`,
+  replyByScope(f);
+  const verified = f.backend.replyForRequest!;
+  for (const scope of f.scopes)
+    await controlRoadmapEntry(
+      f,
+      roadmapEntry(state, { ...scope, kind: 'slice-verification' }).id,
+      'resume',
+    );
+  const parentReview = (questions: string) => {
+    f.backend.replyForRequest = async (request) => {
+      const tree = state.context.storage.execution.worktrees
+        .listActive(ws)
+        .find((t) => t.path === request.cwd);
+      if (request.model !== 'review-model' || tree?.executionScope?.kind !== 'parent-acceptance')
+        return verified(request);
+      await runScopedFixtureCheck(request);
+      return {
+        resultText: `## Open questions\n${questions}\n\n## Review report\n${scopeReport(state, f.parentScope)}`,
+      };
     };
   };
-  const cycle = state.context.services.workCycleService.start(
-    f.auth,
-    state.workspaceId,
-    state.workItemId,
-    {
-      worktreeId: tree.id,
-      profiles: cycleProfiles,
-      policy: DEFAULT_COMPLETION_POLICY,
-      instructions: 'Keep the original parent gate.',
-    },
-    undefined,
-    true,
-  );
+  parentReview('Which policy applies?');
+  const parentEntry = roadmapEntry(state, f.parentScope);
+  await waitFor(() => !!entryCycle(state, parentEntry.id), 'parent attempt');
+  const cycle = entryCycle(state, parentEntry.id)!;
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'parent question');
+  expect(state.context.storage.scopeReceipts.list(ws, state.workItemId)).toHaveLength(2);
   const saved = await branchCommand(state, 'plan-versions/version-1/repository-policy', {
     expectedVersion: 0,
     expectedBranchSettingsVersion: 1,
@@ -99,17 +114,22 @@ it('recovers parent review with durable guidance only after current verification
   expect(blocked.body).toContain('has not been verified');
   expect(currentCycle(state, cycle)).toEqual(prior);
   expect((await resume(prior.version, { cookie: state.cookie })).statusCode).toBe(403);
+  // The adopted policy made both verifications stale; the roadmap re-verifies them.
   for (const scope of f.scopes) {
-    const verification = await scopeTree(f, { ...scope, kind: 'slice-verification' });
-    await reviewScope(f, verification);
-    expect((await recordScope(f, verification)).statusCode).toBe(200);
+    const entry = roadmapEntry(state, { ...scope, kind: 'slice-verification' });
+    await state.context.services.roadmapService.reverifyEntry(
+      f.auth,
+      ws,
+      roadmapId,
+      entry.id,
+      storedRoadmap(state).version,
+    );
   }
-  f.backend.replyForRequest = async (request) => {
-    await runScopedFixtureCheck(request);
-    return {
-      resultText: `## Open questions\nnone\n\n## Review report\n${scopeReport(state, f.parentScope)}`,
-    };
-  };
+  await waitFor(
+    () => state.context.storage.scopeReceipts.list(ws, state.workItemId).length === 4,
+    'current verifications recorded',
+  );
+  parentReview('none');
   expect((await resume(prior.version + 1)).statusCode).toBe(409);
   const result = await resume();
   expect(result.statusCode, result.body).toBe(200);

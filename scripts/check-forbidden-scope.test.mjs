@@ -650,7 +650,8 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
       'packages/domain/src/map-capabilities.ts': VOCABULARY,
       'apps/server/src/policy.ts': [
         "export const role = (r: string) => r === 'plan-owner';",
-        'export const host = (id: string) => `Resource native-host for ${id}`;',
+        // A template with a substitution: `Resource native-host for ${id}`.
+        `export const host = (id: string) => \`Resource native-host for \${id}\`;`,
         "export const ok = (c: string[]) => c.includes('Plan is valid.');",
         'export const maturity = /^independent\\b/i;',
         "export const built = new RegExp('^independent\\\\b');",

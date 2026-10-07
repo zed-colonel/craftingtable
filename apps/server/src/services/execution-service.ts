@@ -946,10 +946,6 @@ export class ExecutionService {
           const reviewerRoles = scopeReviewerRoles(this.storage, workspaceId, scope, run.id);
           if (
             !resolved.profile.reviewer_roles.every((role) => reviewerRoles.includes(role)) &&
-            !(
-              resolved.profile.reviewer_roles.length === 1 &&
-              ['review', 'independent-reviewer'].includes(resolved.profile.reviewer_roles[0] ?? '')
-            ) &&
             !acceptedEvidence(
               this.storage,
               workspaceId,

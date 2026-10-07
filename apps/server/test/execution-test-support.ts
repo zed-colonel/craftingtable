@@ -43,6 +43,7 @@ import {
   type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
   FINALIZATION_STAGE_KINDS,
+  type Roadmap,
   type UserId,
   type WorkCycle,
   type WorkItemId,
@@ -1190,9 +1191,11 @@ export async function saveRoadmapRequest(
     payload: input as Record<string, unknown>,
   });
 }
-export function storedRoadmap(state: Ready) {
+export function storedRoadmap(state: Ready): Roadmap;
+export function storedRoadmap(state: Ready, required: false): Roadmap | undefined;
+export function storedRoadmap(state: Ready, required = true) {
   const roadmap = state.context.storage.roadmaps.find(state.workspaceId, roadmapId);
-  if (!roadmap) throw new Error('Missing roadmap');
+  if (!roadmap && required) throw new Error('Missing roadmap');
   return roadmap;
 }
 export async function roadmapControl(
@@ -2063,4 +2066,135 @@ export async function adoptSupervisedMap(f: Awaited<ReturnType<typeof supervised
     rationale: 'Reviewed exact definition and retained obligations.',
   });
   expect(result.statusCode, result.body).toBe(200);
+}
+
+/**
+ * Assigns the local map's reviewer role the only way a role is assigned (R-F2 decision 4): a
+ * cross-project roadmap over the whole local plan whose reviewer delegation names it. It
+ * configures the local runtime, adopts the map's decisions, saves the roadmap with
+ * `independent-reviewer` delegated, and starts it. Entries `hold` selects are item-paused before
+ * the scheduler first runs, so hand-made trees for those scopes do not collide with its
+ * attempts; `pause` pauses the whole roadmap instead, which keeps the delegation and starts
+ * nothing. The roadmap's own verification attempts record their scope evidence.
+ */
+export async function delegateLocalReviewers(
+  f: Awaited<ReturnType<typeof slicedFixture>>,
+  options: {
+    parentAcceptance?: 'manual' | 'automatic';
+    hold?: (entry: import('@craftingtable/domain').RoadmapEntry) => boolean;
+    pause?: boolean;
+    configureRuntime?: boolean;
+    scheduling?: typeof parallelScheduling;
+    integrationMerge?: 'automatic' | 'manual';
+    bindingRevision?: number;
+    instructions?: string;
+  } = {},
+) {
+  const { state, auth } = f,
+    ws = state.workspaceId,
+    definitionId = f.parentScope.definitionId;
+  if (options.configureRuntime !== false) await configureLocalRuntime(auth, state, definitionId);
+  const definition = present(state.context.storage.imports.definition(ws, definitionId));
+  const adopted = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/concurrency-definitions/${definitionId}/supervision/adopt`,
+    headers: mutationHeaders(state),
+    payload: {
+      bindingRevision: options.bindingRevision ?? 1,
+      decisionIds: definition.source.decisions.map((d) => d.id),
+      rationale: 'Reviewed exact definition and retained obligations.',
+    },
+  });
+  expect(adopted.statusCode, adopted.body).toBe(200);
+  const base = roadmapInput(state, [state.workItemId]).entries[0]!;
+  const target = definition.source.planning_targets[0]!.id;
+  state.context.services.crossProjectService.save(auth, ws, {
+    roadmapId,
+    expectedVersion: storedRoadmap(state, false)?.version ?? 0,
+    name: 'Local delegation',
+    configuration: {
+      definitionId,
+      bindingRevision: options.bindingRevision ?? 1,
+      targetId: target,
+      selection: 'prioritize-full',
+      parentAcceptance: options.parentAcceptance ?? 'manual',
+      defaults: {
+        reviewerRoles: ['independent-reviewer'],
+        profiles: base.profiles,
+        policy: base.policy,
+        instructions: options.instructions ?? 'Preserve exact scope.',
+        automation: {
+          integrationMerge: options.integrationMerge ?? 'manual',
+          integrationConflicts: 'automatic',
+        },
+      },
+      overrides: [],
+    },
+    scheduling: options.scheduling ?? parallelScheduling,
+  });
+  await roadmapControl(state, 'start');
+  for (const entry of storedRoadmap(state).definition.entries.filter(
+    (e) => options.hold?.(e) ?? false,
+  ))
+    await state.context.services.roadmapService.controlEntry(
+      auth,
+      ws,
+      roadmapId,
+      entry.id,
+      'pause',
+      storedRoadmap(state).version,
+    );
+  if (options.pause) await roadmapControl(state, 'pause');
+  return storedRoadmap(state);
+}
+/** The delegated roadmap's entry for an execution scope. */
+export function roadmapEntry(state: Ready, scope: ExecutionScope) {
+  return present(
+    storedRoadmap(state).definition.entries.find(
+      (e) => e.executionScope?.kind === scope.kind && e.executionScope.sourceId === scope.sourceId,
+    ),
+  );
+}
+/**
+ * Answers each agent by the scope of the tree it runs in, as the supervised fixture does: a
+ * design is done, a review reports that tree's exact scope evidence, an implementation commits.
+ */
+export function replyByScope(f: Awaited<ReturnType<typeof slicedFixture>>) {
+  const ws = f.state.workspaceId;
+  f.backend.replyForRequest = async (request) => {
+    if (request.model === 'design-model') return designDone;
+    if (request.model === 'review-model') {
+      await runScopedFixtureCheck(request);
+      const tree = f.state.context.storage.execution.worktrees
+        .listActive(ws)
+        .find((t) => t.path === request.cwd)!;
+      return {
+        resultText:
+          '## Open questions\nnone\n## Review report\n' +
+          scopeReport(f.state, tree.executionScope!),
+      };
+    }
+    commitFile(request.cwd, `slice-${basename(request.cwd)}.txt`, 'Implemented bounded slice');
+    return implementationDone;
+  };
+}
+/** The cycle of the delegated roadmap's latest attempt at an entry. */
+export function entryCycle(state: Ready, entryId: string) {
+  const attempt = storedRoadmap(state).attempts.findLast((a) => a.entryId === entryId);
+  return attempt && state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId);
+}
+/** Item-pauses or resumes one entry of the running delegated roadmap. */
+export async function controlRoadmapEntry(
+  f: Awaited<ReturnType<typeof slicedFixture>>,
+  entryId: string,
+  action: 'pause' | 'resume',
+) {
+  return f.state.context.services.roadmapService.controlEntry(
+    f.auth,
+    f.state.workspaceId,
+    roadmapId,
+    entryId,
+    action,
+    storedRoadmap(f.state).version,
+  );
 }

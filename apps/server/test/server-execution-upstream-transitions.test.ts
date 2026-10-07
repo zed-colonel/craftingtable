@@ -16,6 +16,7 @@ import {
   controlCycle,
   currentCycle,
   declareFixtureChecks,
+  delegateLocalReviewers,
   fixtureRepository,
   git,
   HOST_CARGO,
@@ -350,6 +351,8 @@ itNeedsCargo(
     commitFile(early.path, 'domain.txt', 'domain work');
     git(['merge', '--no-edit', '--no-gpg-sign', migrationSha], early.path);
     merged(early, git(['rev-parse', 'HEAD'], early.path).trim());
+    // The reviewer role is assigned by a delegating roadmap, paused so the work stays manual.
+    await delegateLocalReviewers(f, { pause: true, configureRuntime: false, bindingRevision: 2 });
     const verification = await scopeTree(f, scope('slice-verification', B));
     const after = await prepared(verification);
     expect(after.launch.dependencies).toEqual([

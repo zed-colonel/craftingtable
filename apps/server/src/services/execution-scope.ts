@@ -383,9 +383,7 @@ export function scopePhaseBlockers(
     }) &&
     !r.profile.reviewer_roles.every((role) =>
       scopeReviewerRoles(tx, workspaceId, scope).includes(role),
-    ) &&
-    (r.profile.reviewer_roles.length !== 1 ||
-      !['review', 'independent-reviewer'].includes(r.profile.reviewer_roles[0] ?? ''))
+    )
   )
     add(
       'reviewer-assignment',

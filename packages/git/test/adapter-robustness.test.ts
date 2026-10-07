@@ -729,4 +729,193 @@ process.exit(result.status ?? 1);
   });
 });
 
+/**
+ * A Git that, when a command's arguments include `match`, first runs each of `before` with the
+ * real Git in the repository, and logs every command's arguments to `log`.
+ */
+function hookedGit(
+  repo: RepositoryFixture,
+  match: string,
+  before: readonly (readonly string[])[],
+): { git: ReturnType<typeof createGitOperations>; commands: () => string[][] } {
+  const log = join(repo.root, `hooked-${match}.log`);
+  writeFileSync(log, '');
+  const executable = makeExecutableProxy(
+    repo.root,
+    `hooked-git-${match.replace(/[^a-z]/g, '')}`,
+    `
+import { appendFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
+const env = { ...process.env };
+delete env.GIT_DIR; delete env.GIT_WORK_TREE; delete env.GIT_INDEX_FILE;
+if (args.includes(${JSON.stringify(match)}))
+  for (const hook of ${JSON.stringify(before)})
+    spawnSync(${JSON.stringify(GIT_EXECUTABLE)}, ['-C', ${JSON.stringify(repo.repository)}, ...hook], { env, stdio: 'ignore' });
+const result = spawnSync(${JSON.stringify(GIT_EXECUTABLE)}, args, { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`,
+  );
+  return {
+    git: createGitOperations({ gitExecutable: executable }),
+    commands: () =>
+      readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as string[]),
+  };
+}
+
+describe('independent review: merges (R-G10 F2, F5, F6, F7, F8)', () => {
+  /** main, checked out, with a README commit that conflicts with `other`'s. */
+  function rebaseFixture() {
+    const fixtureRepo = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    const { repo, git } = fixtureRepo;
+    git('checkout', '-q', '-b', 'other', 'main');
+    writeFileSync(join(repo.repository, 'README.md'), 'other\n');
+    git('commit', '-q', '--no-gpg-sign', '-am', 'other readme');
+    git('checkout', '-q', 'main');
+    writeFileSync(join(repo.repository, 'README.md'), 'main\n');
+    git('commit', '-q', '--no-gpg-sign', '-am', 'main readme');
+    return { ...fixtureRepo, main: git('rev-parse', 'main') };
+  }
+
+  for (const backend of ['--merge', '--apply'])
+    it(`refuses a target being rebased (${backend}) in the primary checkout, typed, and moves nothing`, async () => {
+      const { repo, git, main } = rebaseFixture();
+      expect(() => git('rebase', backend, 'other')).toThrow();
+      const merged = await operations.mergeBranch(mergeInput(repo.repository));
+      expect(!merged.ok && merged.failure.kind).toBe('target-checked-out');
+      expect(!merged.ok && merged.failure.message).toMatch(/rebased/);
+      expect(git('rev-parse', 'refs/heads/main')).toBe(main);
+    });
+
+  it('refuses a target being bisected in a linked worktree', async () => {
+    const { repo, git, main } = rebaseFixture();
+    git('checkout', '-q', '-b', 'elsewhere');
+    const linked = join(repo.root, 'bisecting');
+    git('worktree', 'add', '-q', linked, 'main');
+    const inLinked = (...args: string[]) => runFixtureGit(args, { cwd: linked });
+    inLinked('bisect', 'start');
+    inLinked('bisect', 'bad');
+    inLinked('bisect', 'good', `${main}~4`);
+    expect(git('worktree', 'list', '--porcelain')).not.toContain('branch refs/heads/main');
+    const merged = await operations.mergeBranch(mergeInput(repo.repository));
+    expect(!merged.ok && merged.failure.kind).toBe('target-checked-out');
+    expect(!merged.ok && merged.failure.message).toMatch(/bisected/);
+    expect(git('rev-parse', 'refs/heads/main')).toBe(main);
+  });
+
+  it('refuses, typed, a target checked out while the merge was built, and moves nothing (F5)', async () => {
+    const { repo, git, main } = mergeFixture('', { checkedOut: false });
+    writeFileSync(
+      join(repo.root, 'driver'),
+      `#!/bin/sh\nenv -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE ${GIT_EXECUTABLE} -C ${repo.repository} checkout -q main && ${TAKE_THEIRS}\n`,
+    );
+    const merged = await operations.mergeBranch(mergeInput(repo.repository));
+    expect(!merged.ok && merged.failure.kind).toBe('target-checked-out');
+    expect(git('rev-parse', 'main')).toBe(main);
+    expect(git('status', '--porcelain', '--untracked-files=no')).toBe('');
+  });
+
+  it('reports a target checked out just as its ref moved (F5)', async () => {
+    const { repo, git } = mergeFixture(TAKE_THEIRS, { checkedOut: false });
+    const { git: racing } = hookedGit(repo, 'update-ref', [['checkout', '-q', 'main']]);
+    const merged = await racing.mergeBranch(mergeInput(repo.repository));
+    if (!merged.ok) throw new Error(JSON.stringify(merged.failure));
+    expect(git('rev-parse', 'main')).toBe(merged.value.mergeSha);
+    expect(merged.value.checkedOutDuringMerge).toBe(repo.repository);
+  });
+
+  it('ends the merge commit message with a newline, as git merge -m did (F8)', async () => {
+    const { repo, git } = mergeFixture(TAKE_THEIRS, { checkedOut: false });
+    const merged = await operations.mergeBranch(mergeInput(repo.repository));
+    if (!merged.ok) throw new Error(JSON.stringify(merged.failure));
+    expect(
+      runFixtureGit(['cat-file', 'commit', merged.value.mergeSha], { cwd: repo.repository })
+        .toString()
+        .endsWith('\n\nMerge ct/feature\n'),
+    ).toBe(true);
+    expect(git('log', '-1', '--format=%s', 'main')).toBe('CraftingTable integration merge 1');
+  });
+
+  it('leaves the target as it is when it already contains the source (M15)', async () => {
+    const { repo, git, main } = mergeFixture(TAKE_THEIRS, { checkedOut: false });
+    git('branch', 'ct/contained', `${main}~1`);
+    const merged = await operations.mergeBranch({
+      ...mergeInput(repo.repository),
+      branchName: 'ct/contained',
+    });
+    if (!merged.ok) throw new Error(JSON.stringify(merged.failure));
+    expect(merged.value.mergeSha).toBe(main);
+    expect(git('rev-parse', 'main')).toBe(main);
+  });
+
+  it('refuses a promotion where an untracked directory sits at a path the merge adds (M11)', async () => {
+    const { repo, git, main } = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    mkdirSync(join(repo.repository, 'feature.txt'));
+    writeFileSync(join(repo.repository, 'feature.txt', 'inside'), 'operator\n');
+    const refused = await operations.mergeBranch(mergeInput(repo.repository));
+    expect(!refused.ok && refused.failure).toMatchObject({
+      kind: 'checkout-would-overwrite',
+      changedPaths: ['feature.txt'],
+    });
+    expect(git('rev-parse', 'main')).toBe(main);
+  });
+
+  it('refuses an ignored file at a path the merge adds (F7)', async () => {
+    const { repo, git, main } = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    writeFileSync(join(repo.repository, '.gitignore'), 'build/\n');
+    git('add', '.gitignore');
+    git('commit', '-q', '--no-gpg-sign', '-m', 'ignore build');
+    const target = git('rev-parse', 'main');
+    git('checkout', '-q', 'ct/feature');
+    mkdirSync(join(repo.repository, 'build'));
+    writeFileSync(join(repo.repository, 'build', 'out.txt'), 'committed\n');
+    git('add', '-f', '--', 'build/out.txt');
+    git('commit', '-q', '--no-gpg-sign', '-m', 'build output');
+    git('checkout', '-q', 'main');
+    mkdirSync(join(repo.repository, 'build'), { recursive: true });
+    writeFileSync(join(repo.repository, 'build', 'out.txt'), 'precious\n');
+    const refused = await operations.mergeBranch(mergeInput(repo.repository));
+    expect(!refused.ok && refused.failure).toMatchObject({
+      kind: 'checkout-would-overwrite',
+      changedPaths: ['build/out.txt'],
+    });
+    expect(git('rev-parse', 'main')).toBe(target);
+    expect(main).not.toBe(target);
+    expect(readFileSync(join(repo.repository, 'build', 'out.txt'), 'utf8')).toBe('precious\n');
+  });
+
+  it('refuses when the checkout leaves the target as it fast-forwards (M9)', async () => {
+    const { repo, git, main } = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    const { git: racing } = hookedGit(repo, '--ff-only', [['checkout', '-q', '-b', 'experiment']]);
+    const merged = await racing.mergeBranch(mergeInput(repo.repository));
+    expect(!merged.ok && merged.failure.kind).toBe('git-failed');
+    expect(git('rev-parse', 'main')).toBe(main);
+  });
+
+  it('does not fast-forward a checked-out target that moved during the merge (M6)', async () => {
+    const { repo, git, mover } = mergeFixture('', { checkedOut: true });
+    writeFileSync(join(repo.root, 'driver'), `#!/bin/sh\n${moveMain(repo.repository, mover)}\n`);
+    const { git: logging, commands } = hookedGit(repo, '--never--', []);
+    const merged = await logging.mergeBranch(mergeInput(repo.repository));
+    expect(!merged.ok && merged.failure.kind).toBe('target-moved');
+    expect(commands().some((args) => args.includes('--ff-only'))).toBe(false);
+    expect(git('rev-parse', 'main')).toBe(mover);
+  });
+
+  it('gives target-moved when the target moves as the fast-forward starts (M7)', async () => {
+    const { repo, git, mover } = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    const { git: racing } = hookedGit(repo, '--ff-only', [
+      ['update-ref', 'refs/heads/main', mover],
+    ]);
+    const merged = await racing.mergeBranch(mergeInput(repo.repository));
+    expect(!merged.ok && merged.failure.kind).toBe('target-moved');
+    expect(git('rev-parse', 'main')).toBe(mover);
+  });
+});
+
 const GOLDEN_FINGERPRINT = '1415402c6aec5826d171fd6615b9bc4d9f91c1c2781af5b2d5b29dd19b8d78b8';

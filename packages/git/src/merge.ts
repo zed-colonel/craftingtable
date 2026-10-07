@@ -1,8 +1,8 @@
 import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { inspectRepository, listWorktrees } from './worktrees.js';
+import { type BranchHolder, branchHolder, inspectRepository } from './worktrees.js';
 import { branchExists, isAncestor, commitOf } from './refs.js';
-import type { GitResult, GitOperations } from './operations.js';
+import type { GitOperations, GitResult, MergeResult } from './operations.js';
 import type { CommandResult, GitRunner } from './runner.js';
 import {
   fail,
@@ -249,7 +249,8 @@ export async function buildMergeCommit(
     ],
     cwd,
     [0],
-    { input: input.message },
+    // As `git merge -m` stored it: ending with a newline (R-G10 review F8).
+    { input: input.message.endsWith('\n') ? input.message : `${input.message}\n` },
   );
   if (!committed.ok) return committed;
   return { ok: true, value: committed.value.stdout.toString('utf8').trim() };
@@ -346,7 +347,7 @@ export async function mergeBranch(
     readonly createTargetFrom?: string;
     readonly message: string;
   },
-): Promise<GitResult<{ readonly mergeSha: string; readonly createdTarget: boolean }>> {
+): Promise<GitResult<MergeResult>> {
   const repository = await canonicalDirectory(input.repositoryPath);
   if (!repository.ok) return repository;
   if (!isSafeBranchName(input.branchName) || !isSafeBranchName(input.targetBranch)) {
@@ -379,17 +380,12 @@ export async function mergeBranch(
       );
     }
   }
-  const worktrees = await listWorktrees(ctx, cwd);
-  if (!worktrees.ok) return worktrees;
-  const primary = worktrees.value[0];
-  const holder = worktrees.value.find((entry) => entry.branch === input.targetBranch);
-  const checkedOut = !createdTarget && holder !== undefined && holder === primary;
-  if (holder !== undefined && !checkedOut) {
-    return fail(
-      'git-failed',
-      `Branch ${input.targetBranch} is checked out in another worktree (${holder.path})`,
-    );
-  }
+  const holder = await branchHolder(ctx, cwd, input.targetBranch);
+  if (!holder.ok) return holder;
+  const checkedOut =
+    !createdTarget && holder.value?.primary === true && holder.value.how === 'checked-out';
+  if (holder.value !== undefined && !checkedOut)
+    return targetHeld(input.targetBranch, holder.value);
   if (checkedOut) {
     // The primary checkout has the target: the merge moves it, which needs it clean so the
     // operator's working tree is never mixed in.
@@ -438,6 +434,11 @@ export async function mergeBranch(
     // A compare-and-swap: the ref moves only from the commit the merge was built on, and a
     // missing target is created only if it is still missing.
     const expected = createdTarget ? '0'.repeat(target.value.length) : target.value;
+    // A worktree that took the target while the merge was built (R-G10 review F5, operator
+    // decision 2026-10-07): moving the ref under it would leave its files behind its HEAD.
+    const before = await branchHolder(ctx, cwd, input.targetBranch);
+    if (!before.ok) return before;
+    if (before.value !== undefined) return targetHeld(input.targetBranch, before.value);
     const moved = await ctx.run(
       ['update-ref', '-m', `merge ${input.branchName}: ${subject}`, ref, built.value, expected],
       cwd,
@@ -449,7 +450,18 @@ export async function mergeBranch(
         : fail('git-failed', `Could not move ${input.targetBranch} to the merge`, {
             stderr: moved.value.stderr.toString('utf8').slice(0, 4000),
           });
-    return { ok: true, value: { mergeSha: built.value, createdTarget } };
+    // One that took it in the moment between that check and the move is reported.
+    const after = await branchHolder(ctx, cwd, input.targetBranch);
+    return {
+      ok: true,
+      value: {
+        mergeSha: built.value,
+        createdTarget,
+        ...(after.ok && after.value !== undefined
+          ? { checkedOutDuringMerge: after.value.path }
+          : {}),
+      },
+    };
   }
   // The checked-out target (R-G10 D4): a fast-forward to the merge commit, which refuses
   // a target that moved since the commit was built on it.
@@ -490,6 +502,12 @@ async function onBranch(ctx: GitRunner, cwd: string, ref: string): Promise<boole
   const head = await ctx.run(['symbolic-ref', '-q', 'HEAD'], cwd);
   return head.ok && head.value.exitCode === 0 && head.value.stdout.toString('utf8').trim() === ref;
 }
+
+const targetHeld = (branch: string, holder: BranchHolder) =>
+  fail<never>(
+    'target-checked-out',
+    `Branch ${branch} is ${holder.how === 'checked-out' ? 'checked out' : `being ${holder.how}`} in the worktree at ${holder.path}; nothing was merged. Finish there, or check out another branch, and retry.`,
+  );
 
 const leftTarget = (branch: string) =>
   fail<never>(

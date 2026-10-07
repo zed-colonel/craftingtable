@@ -14,6 +14,7 @@ export type {
   GitOperations,
   IntegrationMergeContext,
   IntegrationMergeState,
+  MergeResult,
   GitOperationsOptions,
   GitResult,
   RepositoryIdentity,

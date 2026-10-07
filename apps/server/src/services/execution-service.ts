@@ -1705,6 +1705,8 @@ export class ExecutionService {
             operation?.status === 'merged' || operation?.status === 'cleaned'
               ? operation.mergeSha
               : undefined;
+          // A worktree that checked the target out as its ref moved (R-G10 review F5).
+          let checkedOutDuringMerge: string | undefined;
           if (operation?.status === 'reserved') {
             const recovered = await git.inspectMergeOperation({
               repositoryPath: repository.rootPath,
@@ -1916,7 +1918,10 @@ export class ExecutionService {
                   gitRefusalDetail(merged.failure),
                 );
               mergeSha = recovered.value;
-            } else mergeSha = merged.value.mergeSha;
+            } else {
+              mergeSha = merged.value.mergeSha;
+              checkedOutDuringMerge = merged.value.checkedOutDuringMerge;
+            }
           }
           if (!operation || !mergeSha)
             throw new ExecutionRequestError('conflict', 'Missing merge reservation');
@@ -1986,6 +1991,7 @@ export class ExecutionService {
                 reviewRunId: committed.reviewRunId,
                 operationId: committed.id,
                 removeIntegrationBranch: committed.removeIntegrationBranch ?? false,
+                ...(checkedOutDuringMerge ? { checkedOutDuringMerge } : {}),
                 ...(committed.roadmapId
                   ? {
                       roadmapId: committed.roadmapId,

@@ -84,12 +84,14 @@ export interface ExecutionErrorDetail {
 
 /**
  * Git refusals the browser is told by code (R-G10): `target-moved`, the branch a merge moves
- * changed after the merge read it, so nothing was merged; `checkout-dirty`, a promotion into
+ * changed after the merge read it, so nothing was merged; `target-checked-out`, that branch is
+ * checked out, rebased or bisected in another worktree; `checkout-dirty`, a promotion into
  * the primary checkout meets uncommitted changes to tracked files; `checkout-would-overwrite`,
  * it would overwrite files the checkout does not track. The last two name the paths.
  */
 const GIT_REFUSALS = [
   'target-moved',
+  'target-checked-out',
   'checkout-dirty',
   'checkout-would-overwrite',
 ] as const satisfies readonly GitFailureKind[];

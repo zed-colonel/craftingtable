@@ -144,7 +144,7 @@ by compare-and-swap (`update-ref <new> <expected>`), and a target the primary ch
 out fast-forwards to it there: uncommitted tracked changes refuse that (`checkout-dirty`), and
 untracked files only where the merge would overwrite them (`checkout-would-overwrite`, naming
 them). A target that moved since the merge read it is refused as
-`target-moved`, and nothing moves. Reservations written by releases that merged in a scratch
+`target-moved`, and one checked out, rebased or bisected in another worktree, read again just before the ref moves, as `target-checked-out`; either way nothing moves. Reservations written by releases that merged in a scratch
 worktree under the worktree root still have that scratch recovered and removed. The Git commit is reconciled into database completion
 before worktree and branch cleanup, and cleanup can be retried independently (ADR-021, ADR-033).
 

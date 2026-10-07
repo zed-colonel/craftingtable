@@ -42,6 +42,11 @@ export type GitFailureKind =
   | 'merge-in-progress'
   /** The branch a merge moves changed after the merge read it; nothing was merged. */
   | 'target-moved'
+  /**
+   * The branch a merge moves is checked out, or being rebased or bisected, in a worktree other
+   * than a clean primary checkout of it; nothing was merged.
+   */
+  | 'target-checked-out'
   /** The primary checkout has uncommitted changes to tracked files (`changedPaths`). */
   | 'checkout-dirty'
   /** A merge would overwrite files the primary checkout does not track (`changedPaths`). */
@@ -310,7 +315,7 @@ export interface GitOperations {
     /** A branch name or object name to start a missing target from. */
     readonly createTargetFrom?: string;
     readonly message: string;
-  }): Promise<GitResult<{ readonly mergeSha: string; readonly createdTarget: boolean }>>;
+  }): Promise<GitResult<MergeResult>>;
   /** Deletes a branch already merged into `mergedInto`; a missing branch is not an error. */
   deleteBranch(input: {
     readonly repositoryPath: string;
@@ -318,6 +323,16 @@ export interface GitOperations {
     readonly mergedInto: string;
     readonly expectedHeadSha?: string;
   }): Promise<GitResult<undefined>>;
+}
+
+export interface MergeResult {
+  readonly mergeSha: string;
+  readonly createdTarget: boolean;
+  /**
+   * A worktree that checked out the target in the moment its ref moved (R-G10 review F5): its
+   * files and index are still the earlier commit, so its status shows the merge reversed.
+   */
+  readonly checkedOutDuringMerge?: string;
 }
 
 export interface BranchListing {

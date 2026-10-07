@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   mergeWorktreeResponseSchema,
   repositoryBranchesResponseSchema,
@@ -258,6 +258,47 @@ describe('review-gated merge', () => {
     expect(
       state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id)?.status,
     ).toBe('active');
+  });
+
+  it('refuses a destination checked out in another worktree with the code target-checked-out, and records a checkout taken as the ref moved (R-G10 review F2, F5)', async () => {
+    const realGit = createGitOperations({ gitExecutable: 'git' });
+    let reported: string | undefined;
+    const state = await ready({
+      gitOperations: {
+        ...realGit,
+        mergeBranch: async (input) => {
+          const merged = await realGit.mergeBranch(input);
+          return merged.ok && reported
+            ? { ok: true, value: { ...merged.value, checkedOutDuringMerge: reported } }
+            : merged;
+        },
+      },
+    });
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    await admit(state);
+    writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+    git(['add', '--all'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+    git(['checkout', '-q', '-b', 'elsewhere'], repositoryPath);
+    const linked = join(dirname(repositoryPath), 'holding-main');
+    git(['worktree', 'add', '-q', linked, 'main'], repositoryPath);
+
+    const refused = await merge(state, worktree.id);
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json()).toMatchObject({
+      error: { code: 'conflict', reason: 'target-checked-out' },
+    });
+
+    git(['worktree', 'remove', linked], repositoryPath);
+    reported = linked;
+    const merged = await merge(state, worktree.id);
+    expect(merged.statusCode, merged.body).toBe(200);
+    const audit = state.context.storage.audit
+      .listWorkspace({ workspaceId: state.workspaceId, limit: 100 })
+      .find((row) => row.action === 'worktree.merged');
+    expect(audit?.metadata).toMatchObject({ checkedOutDuringMerge: linked });
   });
 
   it('promotes past untracked files in the primary checkout, and refuses one it would overwrite by code with its path (R-G10)', async () => {

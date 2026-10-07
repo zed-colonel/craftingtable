@@ -1,5 +1,5 @@
-import { mkdir, realpath, stat } from 'node:fs/promises';
-import { dirname, isAbsolute } from 'node:path';
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { GitResult, RepositoryIdentity, GitOperations } from './operations.js';
 import type { GitRunner } from './runner.js';
 import { fail, SHA_PATTERN, splitNul, canonicalDirectory, CHANGED_PATH_LIMIT } from './support.js';
@@ -203,6 +203,67 @@ export async function listWorktrees(
     });
   }
   return { ok: true, value: entries };
+}
+
+/** Where a branch is held: checked out, or being rebased or bisected, in a worktree. */
+export interface BranchHolder {
+  readonly path: string;
+  readonly primary: boolean;
+  readonly how: 'checked-out' | 'rebased' | 'bisected';
+}
+
+/** A file's contents, trimmed; none when it is absent. */
+async function contents(path: string): Promise<string | undefined> {
+  try {
+    return (await readFile(path, 'utf8')).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The worktree holding `branch`, as Git's own checkout refuses it (R-G10 review F2): checked
+ * out, or being rebased (`rebase-merge/head-name`, `rebase-apply/head-name`) or bisected
+ * (`BISECT_START`) there, where `worktree list` shows the worktree detached.
+ */
+export async function branchHolder(
+  ctx: GitRunner,
+  cwd: string,
+  branch: string,
+): Promise<GitResult<BranchHolder | undefined>> {
+  const worktrees = await listWorktrees(ctx, cwd);
+  if (!worktrees.ok) return worktrees;
+  const primary = worktrees.value[0];
+  const checkedOut = worktrees.value.find((entry) => entry.branch === branch);
+  if (checkedOut)
+    return {
+      ok: true,
+      value: { path: checkedOut.path, primary: checkedOut === primary, how: 'checked-out' },
+    };
+  const common = await ctx.runOk(['rev-parse', '--path-format=absolute', '--git-common-dir'], cwd);
+  if (!common.ok) return common;
+  const commonDir = common.value.stdout.toString('utf8').trim();
+  // The primary checkout's Git directory is the common one; a linked worktree's is under
+  // `worktrees/`, whose `gitdir` file names the worktree's `.git` file.
+  const linked = await readdir(join(commonDir, 'worktrees')).catch(() => [] as string[]);
+  const directories = [
+    { gitDir: commonDir, path: primary?.path ?? dirname(commonDir), primary: true },
+    ...(await Promise.all(
+      linked.sort().map(async (name) => {
+        const gitDir = join(commonDir, 'worktrees', name);
+        const pointer = await contents(join(gitDir, 'gitdir'));
+        return { gitDir, path: pointer ? dirname(pointer) : gitDir, primary: false };
+      }),
+    )),
+  ];
+  for (const { gitDir, path, primary: isPrimary } of directories) {
+    for (const file of ['rebase-merge/head-name', 'rebase-apply/head-name'])
+      if ((await contents(join(gitDir, file))) === `refs/heads/${branch}`)
+        return { ok: true, value: { path, primary: isPrimary, how: 'rebased' } };
+    if ((await contents(join(gitDir, 'BISECT_START'))) === branch)
+      return { ok: true, value: { path, primary: isPrimary, how: 'bisected' } };
+  }
+  return { ok: true, value: undefined };
 }
 
 /** The operations of this module, bound to one runner, as `createGitOperations` spreads them. */

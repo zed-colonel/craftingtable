@@ -3364,7 +3364,29 @@ export class WorkCycleService {
       const choices = report.findings.filter(
         (f) => f.status === 'open' && optionalFinding(f) && f.category === stage.kind,
       );
-      if (choices.length) {
+      // R-C7 D6: started with "optional findings: follow-up", discovery keeps them all as
+      // follow-up work, as an empty selection would, and the stage completes.
+      if (choices.length && stage.optionalFindings === 'follow-up') {
+        const followUps = new Map(updated.followUps.map((f) => [f.id, f]));
+        for (const f of choices) followUps.set(f.id, f);
+        if (followUps.size > 500) {
+          this.attention(
+            cycle,
+            'finalization-ledger-full',
+            'The finalization ledger reached its bounded size. Consolidate individually actionable obligations or follow-ups before continuing.',
+          );
+          return;
+        }
+        cycle = this.change(
+          cycle,
+          {
+            finalizationProgress: { ...updated, followUps: [...followUps.values()] },
+            reason: `${stage.name}: ${choices.length} optional finding(s) kept as follow-up work, as chosen at the start.`,
+          },
+          'stage-optional-follow-ups',
+        );
+        await this.completeFinalizationStage(cycle, run);
+      } else if (choices.length) {
         this.change(
           cycle,
           {

@@ -59,7 +59,9 @@ export function finalizationInstructions(value: Finalization, cycle: WorkCycle):
         : stage.kind === 'final-review'
           ? 'Independently assess the whole final candidate for correctness, conformance and regressions. Run ALL repository-required checks, including cross-boundary checks, and report every configured requiredChecks name across ALL stages. Revalidate EVERY adopted obligation against this exact candidate; previous passes are claims, never approval. Evidence reuse is forbidden in this final review.'
           : discovery
-            ? 'Discover worthwhile optional improvements only in this stage category. Report them for operator selection; do not edit code. Discovery happens once. The operator may choose none.'
+            ? stage.optionalFindings === 'follow-up'
+              ? 'Discover worthwhile optional improvements only in this stage category. The operator chose at the start to keep them as follow-up work, so report them open; do not edit code. Discovery happens once.'
+              : 'Discover worthwhile optional improvements only in this stage category. Report them for operator selection; do not edit code. Discovery happens once. The operator may choose none.'
             : `Implement or verify ONLY the selected batch: ${(cycle.findingFocus ?? []).join(', ') || 'none'}. Do not restart optional discovery or fix unselected suggestions. New discretionary ideas belong in follow-up findings and do not prolong this batch.`,
     // R-C7 D5: AQ's reviewer stopped to ask this policy (stop 8); the controller decides it.
     stage.kind !== 'final-review' && state?.completedRunId === undefined

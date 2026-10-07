@@ -8,6 +8,7 @@ import {
   asPlanVersionId,
   evaluateCycleCompletion,
   FINALIZATION_STAGE_KINDS,
+  type Finalization,
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -32,6 +33,7 @@ import {
   finalizationFixture,
   git,
   implementsFinalization,
+  mutationHeaders,
   present,
   runDetail,
   stagedInput,
@@ -954,6 +956,61 @@ describe('staged finalization', () => {
       expect(promoted.statusCode, promoted.body).toBe(200);
     },
   );
+
+  it('keeps optional findings as follow-ups without a batch selection when started so (R-C7 D6)', async () => {
+    const fixture = await finalizationFixture();
+    const { state, backend } = fixture;
+    const polishIdea = { ...stageIdea, id: 'P-1', category: 'polish', severity: 'nit' };
+    backend.replyForRequest = (request) => ({
+      resultText: stagedText(
+        request,
+        stagedKind(request) === 'simplification'
+          ? [stageIdea]
+          : stagedKind(request) === 'polish'
+            ? [stageIdea, polishIdea]
+            : [],
+      ),
+    });
+    const input = stagedInput(fixture.legacyInput);
+    const start = (optionalFindings: 'follow-up' | 'select', kinds: readonly string[]) =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
+        headers: mutationHeaders(state),
+        payload: {
+          ...input,
+          stages: input.stages.map((s) =>
+            kinds.includes(s.kind) ? { ...s, optionalFindings } : s,
+          ),
+        },
+      });
+    // Only discovery stages have optional findings to keep.
+    const refused = await start('follow-up', ['correctness']);
+    expect(refused.statusCode, refused.body).toBe(400);
+    expect(state.context.storage.execution.finalizations.list()).toHaveLength(0);
+    const started = await start('follow-up', ['simplification', 'polish']);
+    expect(started.statusCode, started.body).toBe(200);
+    const value = started.json().finalization as Finalization;
+    expect(value.stages?.map((s) => s.optionalFindings)).toEqual([
+      undefined,
+      undefined,
+      'follow-up',
+      'follow-up',
+      undefined,
+    ]);
+    await waitFor(
+      () => ['needs-attention', 'awaiting-merge'].includes(finalizationCycle(state, value).status),
+      'promotion',
+    );
+    const cycle = finalizationCycle(state, value);
+    expect(cycle.attention?.code).toBe('final-promotion');
+    expect(cycle.finalizationProgress?.followUps.map((f) => f.id).sort()).toEqual(['P-1', 'S-1']);
+    expect(cycle.finalizationProgress?.decisions).toEqual([]);
+    // Each discovery reviewed once: nothing was selected, so nothing was verified again.
+    expect(backend.launches.map((r) => r.model)).toEqual(
+      FINALIZATION_STAGE_KINDS.map((kind) => `${kind}-review`),
+    );
+  });
 
   it('requires an explicit plan adjustment and revalidation without waiving questions or failed checks', async () => {
     const fixture = await finalizationFixture();

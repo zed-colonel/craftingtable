@@ -33,6 +33,8 @@ export const finalizationStageSchema = z.strictObject({
   implement: profile,
   policy: completionPolicySchema,
   requiredChecks: z.array(z.string().trim().min(1).max(200)).max(100),
+  /** R-C7 D6: absent means `select`. Only simplification and polish stages discover any. */
+  optionalFindings: z.enum(['select', 'follow-up']).optional(),
 });
 export const finalizationStagesSchema = z
   .array(finalizationStageSchema)
@@ -55,6 +57,16 @@ export const finalizationStagesSchema = z
         code: 'custom',
         message:
           'Use unique stage IDs in correctness, conformance, simplification, polish, final-review order; final review occurs once.',
+      });
+    if (
+      stages.some(
+        (s) =>
+          s.optionalFindings !== undefined && s.kind !== 'simplification' && s.kind !== 'polish',
+      )
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Only simplification and polish stages choose what happens to optional findings.',
       });
     for (const kind of ['correctness', 'conformance', 'final-review'])
       if (stages.filter((s) => s.kind === kind).at(-1)?.workItemSourceIds.length)

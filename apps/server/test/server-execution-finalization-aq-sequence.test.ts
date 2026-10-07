@@ -100,7 +100,9 @@ type Mechanism =
   /** R-C8 (ADR-062): a session limit with a known reset is retried after it. */
   | 'service-retry'
   /** R-C7 D5: nits alone at a stage's spent allowance become follow-ups; the stage goes on. */
-  | 'nits-parked';
+  | 'nits-parked'
+  /** R-C7 D6: started with "optional findings: follow-up", discovery parks its ideas. */
+  | 'optional-follow-up';
 /** How the scenario's operator answers a stop, as the AQ operator did. */
 type Answer = 'resume' | 'authorize-remediation' | 'remediate-findings' | 'select-none' | 'promote';
 interface Expectation {
@@ -138,12 +140,12 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
     why: 'Kept by D5: the final review’s minor (and new nits) reopen correctness at its spent allowance (ADR-042); the parked nits stay follow-ups.',
   },
   simplification: {
-    stops: [{ code: 'stage-batch-selection', answer: 'select-none' }],
-    why: 'Staged only: discovery stops to select its optional ideas.',
+    mechanisms: ['optional-follow-up'],
+    why: 'D6: started with optional findings as follow-ups, discovery does not stop to select.',
   },
   polish: {
-    stops: [{ code: 'stage-batch-selection', answer: 'select-none' }],
-    why: 'Staged only: discovery stops to select its optional ideas.',
+    mechanisms: ['optional-follow-up'],
+    why: 'D6: started with optional findings as follow-ups, discovery does not stop to select.',
   },
   promotion: {
     stops: [{ code: 'final-promotion', answer: 'promote' }],
@@ -186,9 +188,11 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
   let served = 0;
   let current = 'start';
   const observed: { label: string; code: CycleAttentionCode }[] = [];
+  /** How many of each row's operator stops have been answered. */
+  const answered: Record<string, number> = {};
   const mechanisms: Record<string, Mechanism[]> = {};
-  const note = (mechanism: Mechanism) => {
-    mechanisms[current] = [...(mechanisms[current] ?? []), mechanism];
+  const note = (mechanism: Mechanism, label = current) => {
+    mechanisms[label] = [...(mechanisms[label] ?? []), mechanism];
   };
   /** The next recorded stop, when this launch is where it happened. */
   const situation = (step: RecordedStop['step'], stage: string | undefined) => {
@@ -221,6 +225,9 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
       if (seen.has(f.id)) continue;
       seen.add(f.id);
       if (!optionalFinding(f) && !mechanisms[current]?.includes('nits-parked')) note('nits-parked');
+      // An optional idea parked without the operator selecting its stage's batch.
+      if (optionalFinding(f) && f.category && !answered[f.category])
+        note('optional-follow-up', f.category);
     }
     if (implementsFinalization(request)) {
       if (request.prompt.includes('Review changed the worktree')) note('housekeeping');
@@ -316,7 +323,12 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
         ...present(correctness),
         policy: { ...present(correctness).policy, maxRemediationRounds: 3 },
       },
-      ...rest,
+      // D6: the operator chose at the start to keep optional findings as follow-up work.
+      ...rest.map((s) =>
+        s.kind === 'simplification' || s.kind === 'polish'
+          ? { ...s, optionalFindings: 'follow-up' as const }
+          : s,
+      ),
     ],
   };
   value = await beginFinalization(fixture, input);
@@ -348,7 +360,6 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
     );
     expect(response.statusCode, `${answer}: ${response.body}`).toBe(200);
   };
-  const answered: Record<string, number> = {};
   for (;;) {
     await waitFor(
       () =>
@@ -396,6 +407,9 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
       ),
     ),
   );
+  // R-C7's done-when: besides the promotion, the operator answers only the genuine question
+  // (S4) and the stop D5 keeps (S10: a minor reopening correctness at its spent allowance).
+  expect(observed.map((o) => o.label)).toEqual(['S4', 'S10', 'promotion']);
   expect(served).toBe(record.stops.length);
   expect(
     present(

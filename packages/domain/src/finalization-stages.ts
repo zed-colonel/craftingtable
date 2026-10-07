@@ -29,6 +29,12 @@ export interface FinalizationStage {
   readonly implement: Omit<AgentRunProfile, 'role'>;
   readonly policy: CompletionPolicy;
   readonly requiredChecks: readonly string[];
+  /**
+   * R-C7 D6, chosen at the start: what a simplification or polish discovery does with its
+   * optional findings. `select` (the default when absent) stops for the operator's batch
+   * selection; `follow-up` keeps them all as follow-up work and the stage completes.
+   */
+  readonly optionalFindings?: 'select' | 'follow-up';
 }
 export interface ObligationReport {
   readonly id: string;

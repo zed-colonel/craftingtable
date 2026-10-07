@@ -568,6 +568,20 @@ every adopted check, run the same way against the pins, so the agent cannot choo
 committed Cargo configuration other than the root `.cargo/config.toml` is refused, and each manifest
 the check names must take every pinned crate from the daemon's checkouts. Finalization runs are
 held to adopted checks too, and every run held to them needs them even where no build is required.
+Since R-G13's fourth increment (operator decisions 2026-10-06), a run with no pinned dependency
+environment (a whole-item roadmap entry, a manual run, a slice of a map without a runtime) is held to
+its repository's adopted checks whenever the repository has an adoption: a check-only manifest names
+the current adoption and gives the run one launcher, `ct-check`, and no Cargo launcher, and the daemon
+runs the adopted checks before its review as for any run held to them. The daemon runs nothing but
+`ct-check` for a check-only manifest (`cargo`, `ct-act` and `ct-native` are refused), and its receipts
+carry no runtime. Its record must name the adoption and the daemon's receipt authority (a database
+check and the contract both refuse otherwise). The delegated merge and the operator's merge of such a
+run both need a clean, successful receipt the daemon recorded of each adopted check, run from the
+run's manifest on the reviewed head; `ct-check -- …` counts for nothing. In a repository without an
+adoption only a roadmap's cycle fails closed (`repository-checks-undeclared`); other runs there, and
+runs prepared before the increment, keep the earlier rule, under which their merge rests on the
+review alone. Adoption at merge stays a scoped slice's: a check-only run whose definitions changed
+stops as `check-definition-changed`, and a person adopts on the Repositories page.
 Every adopted check runs the commit's rustup-managed toolchain (a `path` toolchain is refused), with
 the tree's rustc wrappers cleared, and is refused if the tree has a Cargo configuration or toolchain
 file, at any depth, that the check was not adopted with. A pinned build also clears its rustflags,

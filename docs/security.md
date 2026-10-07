@@ -150,7 +150,7 @@ context, and every diff passes `--no-ext-diff --no-textconv`. It starts from nam
 daemon-written file holding the operator's `user.name` and `user.email`
 (`<data>/git-identity.gitconfig`): the operator's aliases, rerere and diff settings do not apply.
 One variable is passed only when the daemon sets it for a single command (R-G10): `GIT_INDEX_FILE`,
-naming a copy of a worktree's index in a daemon temp file, to which `worktreeDiff` adds the untracked
+naming an empty index in a daemon temp file, to which `worktreeDiff` adds the untracked
 files as intent-to-add so one diff shows them all; the worktree's own index never changes, and an
 inherited `GIT_INDEX_FILE` never reaches daemon Git.
 A repository's own configuration still does, including its identity, merge drivers, signing

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFile, lstat, mkdtemp, readdir, readFile, readlink, rm } from 'node:fs/promises';
+import { lstat, mkdtemp, readdir, readFile, readlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { inspectRepository } from './worktrees.js';
@@ -14,7 +14,7 @@ import type {
   GitOperations,
 } from './operations.js';
 import type { GitRunner } from './runner.js';
-import { fail, SHA_PATTERN, splitNul, canonicalDirectory } from './support.js';
+import { canonicalDirectory, fail, SHA_PATTERN, splitNul, splitNulBytes } from './support.js';
 
 /** A worktree's diff, changes and snapshot. */
 
@@ -125,32 +125,24 @@ const SNAPSHOT_ENTRIES = 20_000;
 
 /**
  * Untracked files' line counts, and their patch appended to `patch`, from one diff (R-G10):
- * the paths are added as intent-to-add to a copy of the worktree's index in a daemon temp
- * file, which `GIT_INDEX_FILE` names for those commands alone, so a diff of that index
- * against the working tree shows them as new files. The worktree's own index never changes.
+ * the paths are added as intent-to-add to an empty index in a daemon temp file (operator
+ * decision 2026-10-07), which `GIT_INDEX_FILE` names for those commands alone, so a diff of that
+ * index against the working tree shows them, and only them, as new files. The worktree's own
+ * index is never read or changed. Paths go to Git as their raw bytes; counts are keyed by name.
  */
 export async function untrackedPass(
   ctx: GitRunner,
   cwd: string,
-  paths: readonly string[],
+  paths: readonly { readonly name: string; readonly raw: Buffer }[],
   patch: ReturnType<typeof patchCollector>,
 ): Promise<GitResult<Map<string, { additions: number; binary: boolean }>>> {
   const counts = new Map<string, { additions: number; binary: boolean }>();
   if (paths.length === 0) return { ok: true, value: counts };
-  const index = await ctx.runOk(
-    ['rev-parse', '--path-format=absolute', '--git-path', 'index'],
-    cwd,
-  );
-  if (!index.ok) return index;
   const scratch = await mkdtemp(join(tmpdir(), 'ct-untracked-index-'));
+  // Git creates it: an index that does not exist yet is an empty one.
   const indexFile = join(scratch, 'index');
   try {
-    try {
-      await copyFile(index.value.stdout.toString('utf8').trim(), indexFile);
-    } catch (error) {
-      return fail('git-failed', error instanceof Error ? error.message : 'index copy failed');
-    }
-    const addIntents = (list: readonly string[]) =>
+    const addIntents = (list: readonly { readonly raw: Buffer }[]) =>
       ctx.runOk(
         [
           // A split index would write its shared part into the repository's Git directory.
@@ -164,32 +156,34 @@ export async function untrackedPass(
         ],
         cwd,
         [0],
-        { input: list.join('\0'), indexFile },
+        { input: Buffer.concat(list.flatMap(({ raw }) => [raw, Buffer.of(0)])), indexFile },
       );
     let added = await addIntents(paths);
     if (!added.ok && added.failure.kind === 'git-failed') {
       // A file removed since it was listed (an agent's temporary file) fails the whole add:
       // once more, without the files that are gone.
+      const root = Buffer.from(`${cwd}/`);
       const present = (
         await Promise.all(
           paths.map((path) =>
-            lstat(join(cwd, path)).then(
+            lstat(Buffer.concat([root, path.raw])).then(
               () => path,
               () => undefined,
             ),
           ),
         )
-      ).filter((path): path is string => path !== undefined);
-      added = present.length > 0 ? await addIntents(present) : added;
+      ).filter((path) => path !== undefined);
+      if (present.length === 0) return { ok: true, value: counts };
+      added = await addIntents(present);
     }
     if (!added.ok) return added;
-    // Index against working tree: only the intent-to-add entries are additions.
+    // Index against working tree: the index holds only the intent-to-add entries.
     const newFiles = ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--diff-filter=A'];
     const numstat = await ctx.runOk([...newFiles, '--numstat', '-z', '--'], cwd, [0], {
       indexFile,
     });
     if (!numstat.ok) return numstat;
-    const wanted = new Set(paths);
+    const wanted = new Set(paths.map(({ name }) => name));
     for (const entry of splitNul(numstat.value.stdout)) {
       // `added<TAB>deleted<TAB>path`: a path may hold tabs itself.
       const [additions = '-', , ...name] = entry.split('\t');
@@ -325,7 +319,8 @@ export async function worktreeDiff(
     }
   }
 
-  const untrackedPaths = splitNul(untracked.value.stdout);
+  const untrackedRaw = splitNulBytes(untracked.value.stdout);
+  const untrackedPaths = untrackedRaw.map((raw) => raw.toString('utf8'));
   // The patch streams, keeping its first `maxPatchBytes` (R-G10, GIT-03).
   const patch = patchCollector(input.maxPatchBytes);
   const tracked = await ctx.stream(
@@ -340,7 +335,9 @@ export async function worktreeDiff(
   const untrackedCounts = await untrackedPass(
     ctx,
     cwd,
-    untrackedPaths.filter((path) => !path.endsWith('/')),
+    untrackedRaw
+      .map((raw, index) => ({ name: untrackedPaths[index] ?? '', raw }))
+      .filter(({ name }) => !name.endsWith('/')),
     patch,
   );
   if (!untrackedCounts.ok) return untrackedCounts;

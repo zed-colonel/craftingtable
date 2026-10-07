@@ -26,7 +26,7 @@ export type CommandResult = GitResult<CommandOutcome>;
 
 export interface RunOptions {
   /** Written to the command's stdin. */
-  readonly input?: string;
+  readonly input?: string | Buffer;
   /** This command's stdout ceiling; the runner's output limit by default. */
   readonly limit?: number;
   /** A daemon-owned index file for this command alone (`GIT_INDEX_FILE`, R-G10). */

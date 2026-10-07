@@ -1,10 +1,20 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createGitOperations } from '../src/operations.js';
 import {
   createRepositoryFixture,
+  FIXTURE_GIT_ENVIRONMENT,
   GIT_EXECUTABLE,
   makeExecutableProxy,
   type RepositoryFixture,
@@ -559,6 +569,163 @@ process.exit(result.status ?? 1);
     expect(git('log', '-1', '--format=%P', 'refs/heads/deadbeef')).toBe(
       `${main} ${git('rev-parse', 'ct/feature')}`,
     );
+  });
+});
+
+describe('independent review: the untracked pass (R-G10 F3, F4, F6)', () => {
+  const baseOf = (repo: RepositoryFixture) =>
+    runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+  const diffOf = async (repo: RepositoryFixture, git = operations) => {
+    const diff = await git.worktreeDiff({
+      worktreePath: repo.repository,
+      baseSha: baseOf(repo),
+      maxPatchBytes: 4 * 1024 * 1024,
+    });
+    if (!diff.ok) throw new Error(JSON.stringify(diff.failure));
+    return diff.value;
+  };
+
+  it('keeps the untracked counts and patch the per-file implementation gave, byte for byte', async () => {
+    const repo = fixture();
+    const base = baseOf(repo);
+    writeFileSync(join(repo.repository, 'README.md'), '# fixture\n\nchanged\n');
+    writeFileSync(join(repo.repository, 'b-text.txt'), 'one\ntwo\n');
+    writeFileSync(join(repo.repository, 'a-data.bin'), Buffer.from([0, 1, 2, 255]));
+    writeFileSync(join(repo.repository, 'c-no-newline'), 'last');
+    symlinkSync('README.md', join(repo.repository, 'd-link'));
+    const diff = await diffOf(repo);
+    // What the per-file loop ran for each untracked file, in `ls-files` order.
+    const untracked = ['a-data.bin', 'b-text.txt', 'c-no-newline', 'd-link'];
+    const perFile = (args: string[], path: string) =>
+      spawnSync(
+        GIT_EXECUTABLE,
+        ['diff', '--no-ext-diff', '--no-textconv', '--no-index', ...args, '--', '/dev/null', path],
+        { cwd: repo.repository, env: { ...FIXTURE_GIT_ENVIRONMENT } },
+      ).stdout;
+    const tracked = runFixtureGit(
+      ['diff', '--no-ext-diff', '--no-textconv', '--find-renames', base, '--'],
+      { cwd: repo.repository },
+    );
+    expect(diff.patch).toBe(
+      Buffer.concat([tracked, ...untracked.map((path) => perFile([], path))]).toString('utf8'),
+    );
+    expect(diff.files.filter((file) => file.status === 'untracked')).toEqual(
+      untracked.map((path) => {
+        const [added = '-'] = perFile(['--numstat'], path).toString('utf8').split('\t');
+        const binary = added === '-';
+        return {
+          path,
+          status: 'untracked',
+          additions: binary ? 0 : Number(added),
+          deletions: 0,
+          binary,
+        };
+      }),
+    );
+  });
+
+  it("shows a file the agent added as intent-to-add once, and leaves the worktree's index alone", async () => {
+    const repo = fixture();
+    writeFileSync(join(repo.repository, 'planned.md'), 'planned\n');
+    runFixtureGit(['add', '--intent-to-add', '--', 'planned.md'], { cwd: repo.repository });
+    writeFileSync(join(repo.repository, 'README.md'), '# fixture\n\nchanged\n');
+    writeFileSync(join(repo.repository, 'new.txt'), 'new\n');
+    const index = readFileSync(join(repo.repository, '.git', 'index'));
+    const diff = await diffOf(repo);
+    for (const path of ['planned.md', 'README.md', 'new.txt'])
+      expect(diff.patch.split(`diff --git a/${path} b/${path}\n`)).toHaveLength(2);
+    expect(diff.files.map((file) => [file.path, file.status])).toEqual([
+      ['README.md', 'modified'],
+      ['planned.md', 'added'],
+      ['new.txt', 'untracked'],
+    ]);
+    expect(readFileSync(join(repo.repository, '.git', 'index'))).toEqual(index);
+  });
+
+  it('diffs a worktree that has no index file', async () => {
+    const repo = fixture();
+    writeFileSync(join(repo.repository, 'new.txt'), 'new\n');
+    rmSync(join(repo.repository, '.git', 'index'));
+    const diff = await diffOf(repo);
+    expect(diff.files).toContainEqual({
+      path: 'new.txt',
+      status: 'untracked',
+      additions: 1,
+      deletions: 0,
+      binary: false,
+    });
+    expect(diff.patch).toContain('+new');
+  });
+
+  it('counts and patches an untracked file whose name is not UTF-8', async () => {
+    const repo = fixture();
+    writeFileSync(
+      Buffer.concat([
+        Buffer.from(`${repo.repository}/bad`),
+        Buffer.from([0xff]),
+        Buffer.from('.txt'),
+      ]),
+      'not utf-8\n',
+    );
+    const diff = await diffOf(repo);
+    expect(diff.files).toEqual([
+      { path: 'bad�.txt', status: 'untracked', additions: 1, deletions: 0, binary: false },
+    ]);
+    expect(diff.patch).toContain('+not utf-8');
+  });
+
+  it('returns the diff when every untracked file vanished before it was added', async () => {
+    const repo = fixture();
+    const vanishing = join(repo.repository, 'gone.txt');
+    writeFileSync(vanishing, 'gone soon\n');
+    const racing = makeExecutableProxy(
+      repo.root,
+      'racing-git',
+      `
+import { rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+if (args.includes('--intent-to-add')) rmSync(${JSON.stringify(vanishing)}, { force: true });
+const result = spawnSync(${JSON.stringify(GIT_EXECUTABLE)}, args, { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`,
+    );
+    const diff = await diffOf(repo, createGitOperations({ gitExecutable: racing }));
+    expect(diff.files).toEqual([
+      { path: 'gone.txt', status: 'untracked', additions: 0, deletions: 0, binary: false },
+    ]);
+  });
+
+  it('never lets an inherited GIT_INDEX_FILE reach daemon Git (R6)', async () => {
+    const repo = fixture();
+    writeFileSync(join(repo.repository, 'new.txt'), 'new\n');
+    const decoy = join(repo.root, 'decoy-index');
+    const index = readFileSync(join(repo.repository, '.git', 'index'));
+    const previous = process.env.GIT_INDEX_FILE;
+    process.env.GIT_INDEX_FILE = decoy;
+    try {
+      const identity = await operations.inspectRepository(repo.repository);
+      expect(identity.ok && identity.value.clean).toBe(false);
+      const changes = await operations.inspectWorktreeChanges(repo.repository);
+      expect(changes.ok && changes.value.paths).toEqual([]);
+      const diff = await diffOf(repo);
+      expect(diff.files.map((file) => file.path)).toEqual(['new.txt']);
+    } finally {
+      if (previous === undefined) delete process.env.GIT_INDEX_FILE;
+      else process.env.GIT_INDEX_FILE = previous;
+    }
+    expect(existsSync(decoy)).toBe(false);
+    expect(readFileSync(join(repo.repository, '.git', 'index'))).toEqual(index);
+  });
+
+  it('writes no shared index into the repository when it splits its own (D1)', async () => {
+    const repo = fixture();
+    runFixtureGit(['config', 'core.splitIndex', 'true'], { cwd: repo.repository });
+    writeFileSync(join(repo.repository, 'new.txt'), 'new\n');
+    const before = readdirSync(join(repo.repository, '.git')).sort();
+    const diff = await diffOf(repo);
+    expect(diff.files.map((file) => file.path)).toEqual(['new.txt']);
+    expect(readdirSync(join(repo.repository, '.git')).sort()).toEqual(before);
   });
 });
 

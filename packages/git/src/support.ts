@@ -38,6 +38,18 @@ export function fail<T>(
   return { ok: false, failure: failure(kind, message, extra) };
 }
 
+/** NUL-separated entries as their raw bytes: a name need not be UTF-8. */
+export function splitNulBytes(buffer: Buffer): Buffer[] {
+  const parts: Buffer[] = [];
+  let start = 0;
+  for (let end = buffer.indexOf(0); end >= 0; end = buffer.indexOf(0, start)) {
+    parts.push(buffer.subarray(start, end));
+    start = end + 1;
+  }
+  if (start < buffer.length) parts.push(buffer.subarray(start));
+  return parts;
+}
+
 export function splitNul(buffer: Buffer): string[] {
   const text = buffer.toString('utf8');
   const parts = text.split('\0');

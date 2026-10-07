@@ -55,6 +55,23 @@ describe('configFromEnv', () => {
     expect(retiredSettings({ CRAFTINGTABLE_GIT_EXECUTABLE: '/usr/bin/git' })).toEqual([]);
   });
 
+  it('reads one Git command timeout, 60 s by default, from 10 s to 30 min (R-G10 D1)', () => {
+    const base = { CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable' };
+    expect(configFromEnv(base).execution.gitCommandTimeoutMs).toBe(60_000);
+    expect(
+      configFromEnv({ ...base, CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS: '600000' }).execution
+        .gitCommandTimeoutMs,
+    ).toBe(600_000);
+    for (const value of ['9999', '1800001', '1.5', 'soon'])
+      expect(() => configFromEnv({ ...base, CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS: value })).toThrow(
+        /CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS must be an integer between 10000 and 1800000/,
+      );
+    // The retired inspector setting still only warns; it sets nothing.
+    const retired = { ...base, CRAFTINGTABLE_GIT_TIMEOUT_MS: '1' };
+    expect(configFromEnv(retired).execution.gitCommandTimeoutMs).toBe(60_000);
+    expect(retiredSettings(retired)).toEqual(['CRAFTINGTABLE_GIT_TIMEOUT_MS']);
+  });
+
   it('ends idle sessions after 24 hours by default, within 10 minutes and the lifetime (R-G9)', () => {
     const base = { CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable' };
     expect(configFromEnv(base).sessionIdleSeconds).toBe(86_400);

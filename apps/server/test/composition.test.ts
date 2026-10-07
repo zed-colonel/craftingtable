@@ -1,5 +1,6 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { GitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDaemon, createServices } from '../src/composition.js';
 import { configFromEnv } from '../src/config.js';
@@ -31,6 +32,39 @@ describe('service composition', () => {
       expect(services.authService).toBeDefined();
       expect(services.planningQueryService).toBeDefined();
       expect(services.workCycleService).toBeDefined();
+      await services.daemonDrain.drain(0);
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("gives the daemon's Git the configured command timeout (R-G10 D1)", async () => {
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
+    directories.push(directory);
+    // A Git whose `rev-parse` outlasts the 10 s timeout but not the 60 s default.
+    const slowGit = join(directory, 'slow-git');
+    writeFileSync(
+      slowGit,
+      `#!${process.execPath}\nif (process.argv.includes('rev-parse')) setTimeout(() => {}, 30_000);\nelse process.exit(1);\n`,
+      { mode: 0o755 },
+    );
+    const storage = openDaemonStorage(join(directory, 'state.sqlite'));
+    try {
+      const services = await createServices(
+        storage,
+        configFromEnv({
+          CRAFTINGTABLE_DATA_DIR: directory,
+          CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+          CRAFTINGTABLE_GIT_EXECUTABLE: slowGit,
+          CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS: '10000',
+        }),
+        { passwordHasher: new FastTestPasswordHasher() },
+      );
+      const git = (services.executionService as unknown as { git: GitOperations }).git;
+      const started = Date.now();
+      const inspected = await git.inspectRepository(directory);
+      expect(!inspected.ok && inspected.failure.kind).toBe('timed-out');
+      expect(Date.now() - started).toBeLessThan(25_000);
       await services.daemonDrain.drain(0);
     } finally {
       storage.close();

@@ -27,6 +27,12 @@ export interface ExecutionConfig {
   readonly mergeRoot?: string;
   /** Explicit Git executable; when absent the daemon searches PATH at startup. */
   readonly gitExecutable?: string;
+  /**
+   * How long one daemon Git command may run (`CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS`, R-G10 D1):
+   * 60 s by default, from 10 s to 30 min. Worktree creation, merges and merge drivers on a large
+   * repository can need more.
+   */
+  readonly gitCommandTimeoutMs: number;
   /** Explicit Claude Code executable; when absent the daemon searches PATH and ~/.local/bin. */
   readonly claudeExecutable?: string;
   readonly codexExecutable?: string;
@@ -462,6 +468,13 @@ function executionConfig(
       32,
       'CRAFTINGTABLE_VERIFICATION_CAPACITY',
     ),
+    gitCommandTimeoutMs: boundedInteger(
+      env.CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS,
+      60_000,
+      10_000,
+      30 * 60_000,
+      'CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS',
+    ),
     maxPatchBytes: boundedInteger(
       env.CRAFTINGTABLE_DIFF_LIMIT_BYTES,
       4 * 1024 * 1024,
@@ -733,7 +746,8 @@ function parseOutsideSources(
 /**
  * Settings of the removed CT-04A1 repository inspector (R-B8). They no longer do anything;
  * startup names any that are still set, because `CRAFTINGTABLE_GIT_BIN` differs from the live
- * `CRAFTINGTABLE_GIT_EXECUTABLE` by one word and would otherwise be ignored silently.
+ * `CRAFTINGTABLE_GIT_EXECUTABLE` by one word and would otherwise be ignored silently, and
+ * `CRAFTINGTABLE_GIT_TIMEOUT_MS` from the live `CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS` (R-G10).
  */
 const RETIRED_SETTINGS = [
   'CRAFTINGTABLE_ARTIFACT_ROOT',

@@ -120,6 +120,7 @@ variables an operator usually sets:
 | `CRAFTINGTABLE_SESSION_IDLE_SECONDS` | `86400` | A session with no request for this long ends (at least 600, at most the session lifetime). |
 | `CRAFTINGTABLE_WORKTREE_ROOT`, `CRAFTINGTABLE_RUNS_ROOT` | `<data>/worktrees`, `<data>/runs` | Seed the storage settings on first start; afterwards **Settings** owns them. |
 | `CRAFTINGTABLE_CLAUDE_EXECUTABLE`, `CRAFTINGTABLE_CODEX_EXECUTABLE`, `CRAFTINGTABLE_GIT_EXECUTABLE` | found on PATH (agents also in `~/.local/bin`) | Absolute path overrides. |
+| `CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS` | `60000` | How long one daemon Git command (a worktree creation, a merge and its merge drivers) may run, 10 s to 30 min. |
 | `CRAFTINGTABLE_DEVELOPMENT_CAPACITY`, `CRAFTINGTABLE_VERIFICATION_CAPACITY` | `2`, `1` | Workstation slots until saved under **Settings → Execution capacity**. |
 | `CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS` | `180` | How long a stop waits for live agent turns before interrupting them. |
 | `CRAFTINGTABLE_TEST_DATA_ROOT` | unset (`$XDG_RUNTIME_DIR`) | Tests only: where test daemons keep their data. A disk directory of its own, beside the data directory, never inside it; read from the test process's environment, not the daemon's unit. |

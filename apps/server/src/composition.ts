@@ -189,6 +189,8 @@ export async function createServices(
         ? undefined
         : createGitOperations({
             gitExecutable,
+            // The one Git timeout setting (R-G10 D1); the output limit stays the adapter's.
+            commandTimeoutMs: config.execution.gitCommandTimeoutMs,
             // The operator's identity, and nothing else of their global Git configuration (R-G5).
             identityConfigPath: writeDaemonGitIdentity(
               gitExecutable,

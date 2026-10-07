@@ -15,7 +15,7 @@ const retired = retiredSettings();
 if (retired.length > 0)
   runtime.app.log.warn(
     { settings: retired },
-    'ignoring settings of the removed repository inspector; use CRAFTINGTABLE_GIT_EXECUTABLE for the git binary',
+    'ignoring settings of the removed repository inspector; use CRAFTINGTABLE_GIT_EXECUTABLE for the git binary and CRAFTINGTABLE_GIT_COMMAND_TIMEOUT_MS for its timeout',
   );
 
 let shuttingDown = false;

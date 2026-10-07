@@ -1430,13 +1430,13 @@ export class WorkCycleService {
       report?.status !== 'complete'
     )
       return [];
-    const parked = stagedFollowUps(cycle);
+    // Parked nits are listed too (operator decision 2026-10-07): choosing one un-parks it.
     return report.report.findings.filter(
       (f) =>
         f.status === 'open' &&
         (!cycle.finalizationProgress ||
           currentFinalizationStage(cycle)?.status === 'selecting' ||
-          (!optionalFinding(f) && !parkedFollowUp(parked, f)) ||
+          !optionalFinding(f) ||
           cycle.findingFocus?.includes(f.id) ||
           currentFinalizationStage(cycle)?.selectedFindingIds.includes(f.id)),
     );
@@ -1526,6 +1526,17 @@ export class WorkCycleService {
         remediationRounds: cycle.remediationRounds + 1,
         stalledReviews: 0,
         findingFocus: input.findingIds,
+        // A parked nit the operator chose is required work again (R-C7, operator 2026-10-07).
+        ...(cycle.finalizationProgress?.followUps.some((f) => input.findingIds.includes(f.id))
+          ? {
+              finalizationProgress: {
+                ...cycle.finalizationProgress,
+                followUps: cycle.finalizationProgress.followUps.filter(
+                  (f) => !input.findingIds.includes(f.id),
+                ),
+              },
+            }
+          : {}),
         stepGuidance: instructions,
         housekeepingInstructions: this.housekeepingGuidance(),
         reason: `Authorized focused remediation for ${input.findingIds.join(', ')}.`,
@@ -3658,8 +3669,9 @@ export class WorkCycleService {
       );
     const parked = stagedFollowUps(cycle);
     if (
-      // Selection happens only in simplification and polish discovery, never the final review.
-      (!report.report.exitGate.met && !heldOnlyByParkedNits(cycle, report)) ||
+      // A selection stop always has a met gate: the parked-nit waiver never applies while
+      // optional findings are open.
+      !report.report.exitGate.met ||
       report.report.finalization?.checks.some((c) => c.status !== 'passed') ||
       report.report.finalization?.obligations.some((o) => o.status !== 'met') ||
       report.report.findings.some(

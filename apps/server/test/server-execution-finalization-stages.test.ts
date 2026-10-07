@@ -868,6 +868,10 @@ describe('staged finalization', () => {
     let cycle = finalizationCycle(state, value);
     expect(cycle.reason).toContain('limit');
     expect(cycle.finalizationProgress?.stageIndex).toBe(0);
+    // The nit-parking rule is the stage's own first pass only: the reopened stage is not told it.
+    const correctnessReviews = backend.launches.filter((r) => r.model === 'correctness-review');
+    expect(correctnessReviews[0]?.prompt).toContain('keeps those nits as follow-up work');
+    expect(correctnessReviews.at(-1)?.prompt).not.toContain('keeps those nits as follow-up work');
     expect(cycle.finalizationProgress?.stages[0]?.remediationRounds).toBe(1);
     expect(cycle.finalizationProgress?.stages[4]?.status).toBe('pending');
     expect(
@@ -971,6 +975,207 @@ describe('staged finalization', () => {
       expect(promoted.statusCode, promoted.body).toBe(200);
     },
   );
+
+  describe('the limits of nit parking (R-C7 D5, independent review 2026-10-07)', () => {
+    const nit = { ...structuredFinding, id: 'C-1', category: 'correctness', severity: 'nit' };
+    const idea = { ...stageIdea, status: 'open' };
+    /** A staged finalization with no remediation attempts in any stage, replying per stage. */
+    async function begin(
+      reply: (request: AgentLaunchRequest) => Parameters<typeof stagedText>[2] & {
+        findings?: readonly unknown[];
+      },
+    ) {
+      const fixture = await finalizationFixture();
+      fixture.backend.replyForRequest = (request) => {
+        if (implementsFinalization(request)) return committed;
+        const { findings = [], ...overrides } = reply(request);
+        return { resultText: stagedText(request, findings, overrides) };
+      };
+      const value = await beginFinalization(
+        fixture,
+        stagedInput(fixture.legacyInput, { maxRemediationRounds: 0 }),
+      );
+      const stopped = () =>
+        waitFor(
+          () =>
+            ['needs-attention', 'awaiting-merge'].includes(
+              finalizationCycle(fixture.state, value).status,
+            ),
+          'stop',
+        );
+      await stopped();
+      return { ...fixture, value, stopped, cycle: () => finalizationCycle(fixture.state, value) };
+    }
+    const failedCheck = {
+      checks: [{ name: 'fixture checks', status: 'failed', evidence: 'A required test failed.' }],
+    };
+
+    it.each(['failing check', 'obligation gap', 'selected finding'] as const)(
+      'does not park nits at a spent allowance with a %s; the stop keeps them required',
+      async (blocker) => {
+        let decided = false;
+        const f = await begin((request) => ({
+          findings: [nit],
+          met: false,
+          ...(blocker === 'failing check' ? { evidence: failedCheck } : {}),
+          ...(blocker === 'obligation gap'
+            ? {
+                evidence: {
+                  obligations: stagedLedger(request).progress.obligations.map((o) => ({
+                    id: o.id,
+                    status: 'gap',
+                    evidence: 'Not yet verified.',
+                  })),
+                },
+              }
+            : {}),
+          // The operator selects the nit at a question stop; it is still open after the attempt.
+          ...(blocker === 'selected finding' && !decided ? { questions: 'Fix this nit now?' } : {}),
+        }));
+        if (blocker === 'selected finding') {
+          expect(f.cycle().attention?.code).toBe('finalization-needs-input');
+          decided = true;
+          const response = await finalizationCommand(f.state, f.value, 'remediate-findings', {
+            findingIds: ['C-1'],
+            rationale: 'Fix this nit.',
+            additionalRounds: 1,
+          });
+          expect(response.statusCode, response.body).toBe(200);
+          await waitFor(() => f.cycle().status === 'needs-attention', 'stop after the attempt');
+        }
+        expect(f.cycle().attention?.code).toBe('remediation-exhausted');
+        expect(f.cycle().finalizationProgress?.stageIndex).toBe(0);
+        expect(f.cycle().finalizationProgress?.followUps).toEqual([]);
+      },
+    );
+
+    // Operator decision 2026-10-07 (L2): a withheld gate or verdict is waived only while every
+    // open finding is a parked nit; a reviewer withholding it for anything else says so.
+    it.each(['only an optional idea', 'a parked nit and an optional idea'] as const)(
+      'does not waive a withheld gate with %s open',
+      async (open) => {
+        const f = await begin((request) =>
+          open === 'only an optional idea'
+            ? { findings: [idea], met: false }
+            : stagedKind(request) === 'correctness'
+              ? { findings: [nit], met: false }
+              : { findings: [nit, idea], met: false },
+        );
+        expect(f.cycle().attention?.code).toBe('remediation-exhausted');
+        expect(f.cycle().finalizationProgress?.stageIndex).toBe(
+          open === 'only an optional idea' ? 0 : 1,
+        );
+        expect(
+          f
+            .cycle()
+            .finalizationProgress?.followUps.map((x) => x.id)
+            .sort(),
+        ).toEqual(open === 'only an optional idea' ? ['S-1'] : ['C-1', 'S-1']);
+      },
+    );
+
+    it('lets a discovery select its batch while a parked nit is still reported', async () => {
+      const f = await begin((request) =>
+        stagedKind(request) === 'correctness'
+          ? { findings: [nit], met: false }
+          : stagedKind(request) === 'simplification'
+            ? { findings: [nit, idea] }
+            : { findings: [nit] },
+      );
+      expect(f.cycle().attention?.code).toBe('stage-batch-selection');
+      const selected = await finalizationCommand(f.state, f.value, 'select-stage-findings', {
+        selectedFindingIds: [],
+        rationale: 'Keep it as follow-up work.',
+      });
+      expect(selected.statusCode, selected.body).toBe(200);
+      await f.stopped();
+      expect(f.cycle().attention?.code).toBe('final-promotion');
+      expect(
+        f
+          .cycle()
+          .finalizationProgress?.followUps.map((x) => x.id)
+          .sort(),
+      ).toEqual(['C-1', 'S-1']);
+    });
+
+    it.each(['resolved', 'raised to minor'] as const)(
+      'drops a parked nit from the follow-ups once a later review reports it %s',
+      async (later) => {
+        let reviews = 0;
+        const f = await begin(() =>
+          reviews++ === 0
+            ? { findings: [nit], met: false }
+            : {
+                findings: [
+                  later === 'resolved'
+                    ? { ...nit, status: 'resolved', disposition: 'Fixed in passing.' }
+                    : { ...nit, severity: 'minor' },
+                ],
+                met: later === 'resolved',
+              },
+        );
+        expect(f.cycle().attention?.code).toBe(
+          later === 'resolved' ? 'final-promotion' : 'remediation-exhausted',
+        );
+        expect(f.cycle().finalizationProgress?.followUps).toEqual([]);
+      },
+    );
+
+    // Operator decision 2026-10-07 (L3): a parked nit can be chosen at a later operator stop.
+    it('offers parked nits among the findings to remediate, and choosing one makes it required', async () => {
+      let fixed = false;
+      const regression = { ...nit, id: 'C-2', severity: 'minor' };
+      let finalSeen = false;
+      const f = await begin((request) => {
+        const kind = stagedKind(request);
+        if (kind === 'final-review') finalSeen = true;
+        if (fixed)
+          return {
+            findings: [nit, regression].map((x) => ({
+              ...x,
+              status: 'resolved',
+              disposition: 'Fixed.',
+            })),
+          };
+        return finalSeen
+          ? { findings: [nit, regression], met: false }
+          : { findings: [nit], met: kind !== 'correctness' };
+      });
+      // The final review's minor reopened correctness at its spent allowance.
+      expect(f.cycle().attention?.code).toBe('remediation-exhausted');
+      expect(f.cycle().finalizationProgress?.stageIndex).toBe(0);
+      expect(f.cycle().finalizationProgress?.followUps.map((x) => x.id)).toEqual(['C-1']);
+      const listed = await f.state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${f.state.workspaceId}/plans/version-1/finalizations`,
+        headers: { cookie: f.state.cookie },
+      });
+      expect(
+        finalizationsResponseSchema
+          .parse(listed.json())
+          .finalizations[0]?.checkpointFindings.map((x) => x.id)
+          .sort(),
+      ).toEqual(['C-1', 'C-2']);
+      f.backend.onLaunch = (request) => {
+        if (implementsFinalization(request)) {
+          expect(request.prompt).toContain('Operator decision for C-1, C-2');
+          commitFile(request.cwd, 'fixed.txt', 'fixed\n');
+          fixed = true;
+        }
+      };
+      const decided = await finalizationCommand(f.state, f.value, 'remediate-findings', {
+        findingIds: ['C-1', 'C-2'],
+        rationale: 'Fix the regression and the nit with it.',
+        additionalRounds: 1,
+      });
+      expect(decided.statusCode, decided.body).toBe(200);
+      // Un-parked by the decision itself, not only while it is the focus.
+      expect(f.cycle().finalizationProgress?.followUps).toEqual([]);
+      await f.stopped();
+      expect(f.cycle().attention?.code).toBe('final-promotion');
+      expect(f.cycle().finalizationProgress?.followUps).toEqual([]);
+    });
+  });
 
   it('keeps optional findings as follow-ups without a batch selection when started so (R-C7 D6)', async () => {
     const fixture = await finalizationFixture();

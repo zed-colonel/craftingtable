@@ -750,6 +750,28 @@ const rows: readonly Row[] = [
     expected: { kind: 'approve-review', reviewOnly: true },
   },
   {
+    name: 'a slice verification with only minor findings and open questions still stops',
+    cycle: { step: 'review', executionScope: { kind: 'slice-verification' } },
+    facts: {
+      run: reviewRun,
+      reviewOnly: true,
+      turn: turnOf(withQuestions),
+      reviewAssessment: () => review([minor]),
+    },
+    expected: { kind: 'attention', code: 'scope-review-open-questions' },
+  },
+  {
+    name: 'a slice verification with a blocking finding on a met gate still stops',
+    cycle: { step: 'review', executionScope: { kind: 'slice-verification' } },
+    facts: {
+      run: reviewRun,
+      reviewOnly: true,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () => review([minor, { ...minor, id: 'F-2', severity: 'blocking' }]),
+    },
+    expected: { kind: 'attention', code: 'scope-review-recovery' },
+  },
+  {
     name: 'a slice verification with a major finding still stops',
     cycle: { step: 'review', executionScope: { kind: 'slice-verification' } },
     facts: {

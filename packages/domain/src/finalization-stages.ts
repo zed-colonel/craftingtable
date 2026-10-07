@@ -145,8 +145,9 @@ export function parkedFollowUp(
 /**
  * R-C7 D5: a gate or verdict a reviewer withheld for parked nits alone does not hold a stage
  * before the final review (the final review's verdict keeps its full force, and promotion
- * requires it). True when at least one parked nit is open, every other open finding is parked or
- * optional, every reported check passed and every reported obligation is met.
+ * requires it). True only when every open finding is a parked nit (operator decision
+ * 2026-10-07: a reviewer withholding for anything else states it as a finding), every reported
+ * check passed and every reported obligation is met.
  */
 export function heldOnlyByParkedNits(
   cycle: WorkCycle,
@@ -157,8 +158,8 @@ export function heldOnlyByParkedNits(
   const parked = stagedFollowUps(cycle);
   const open = findings.filter((f) => f.status === 'open');
   return (
-    open.some((f) => !optionalFinding(f) && parkedFollowUp(parked, f)) &&
-    open.every((f) => optionalFinding(f) || parkedFollowUp(parked, f)) &&
+    open.length > 0 &&
+    open.every((f) => !optionalFinding(f) && parkedFollowUp(parked, f)) &&
     !!finalization &&
     finalization.checks.every((c) => c.status === 'passed') &&
     finalization.obligations.every((o) => o.status === 'met')

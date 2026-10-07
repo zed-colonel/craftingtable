@@ -2861,6 +2861,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **LIVE-26, fixed 2026-09-30:** the brief said CARGO_TARGET_DIR is the worktree's build cache and to keep build outputs there, while the daemon-run launchers (`ct-native`, the Cargo launcher, `ct-check`) build in a directory the daemon chooses, so WI-03's agent stopped to ask for a corrected manifest. The pinned-environment paragraph now says those builds use their own directory, that receipts do not depend on it, that CARGO_TARGET_DIR is for Cargo commands the agent runs directly, and not to edit the manifest or override it. Test: `server-execution-receipt-gates.test.ts` (the brief says so; it failed before the change).
   - **Independent review of 1016bf6 (2026-09-30, isolated worktree).** No HIGH or MEDIUM. Fixed (mutations B1, B2, killed): *LOW,* the sentence was false for a run with no worktree cache, whose CARGO_TARGET_DIR is the manifest's own `scratch/target`, and *LOW,* "CARGO_TARGET_DIR is for Cargo commands you run directly" described almost nothing, since the launcher is first on PATH and runs its non-build commands locally with the manifest's target: the paragraph now says the launcher's builds and CraftingTable's checks use a directory CraftingTable chooses, and the launcher's other Cargo commands the manifest's (the run's `scratch/target`), whatever CARGO_TARGET_DIR says. *LOW,* the Temporary files section still said to keep builds in the worktree cache; for a run with the launchers it now adds that they use their own directories. *NIT,* `ct-act` is listed. *NIT, disposition:* "do not override the build directory" is advice (`--target-dir` is not refused for dirty-tree builds, which no gate accepts); the test covers the run with a worktree cache only.
 - **Moved to P3 (operator decision 2026-10-02),** when P2 was re-scoped before landing. Only LIVE-26's brief fix was done in P2.
+- **Decisions, by the operator 2026-10-06 (P3 design pass; detail is left to the building session).**
+  - *Today (live, runs since 2026-09-24, n=335):* median brief 35.3 KB (largest 82 KB); the goal section is a median 1.0% of it. Shares of all brief bytes: step rules 24.9%, the inlined parent `## Review report` 16.7% (in 160 briefs), the plan-documents listing 13.8%, execution scope 11.2%, role 7.9%. The pinned-environment trailer (median 3.1 KB) has no heading; 286 of 335 carry the incident sentence and Kata lines, all 335 CARGO_TARGET_DIR. Each brief is stored three times (`agent_runs.brief` 17.6 MB, the `user-message` event 18.3 MB, `brief.md`). Done already: LIVE-26's wording, and AGT-51/52 by R-G3 (separate step-rule and operator sections).
+  - *Decisions:*
+    - **G6-1, output formats unchanged:** the `craftingtable-review`, `-workflow` and `-design` blocks and `## Open questions` stay exactly as they are; only the instructions are consolidated, one module per role.
+    - **G6-2, the parent's message becomes a bounded digest** (finding ids, severities, titles, or a summary) plus pointers to the handoff, quoted headings demoted; an accepted design proposal stays inline but fenced. ADR-024 is amended.
+    - **G6-3, no migration in R-G6;** de-duplicating the stored copies is measured again once briefs shrink.
+    - **G6-4, AGT-56's evidence index is included,** replacing the 0.5 to 0.9 MB scope-evidence dump briefs point agents to; sharing plan bundles and incremental handoffs are deferred (they touch the sandbox's directories and retention).
+    - **G6-5, done when:** median brief at most 12 KB and the goal plus acceptance at least 10% of it, with a per-role size test in `brief.test.ts` and a snapshot measurement.
+  - *Sequencing:* after R-G13 increment 4 (its check-only section inside `declaredChecksBrief`); R-F2 part 6 (AGT-55) is one of R-G6's commits, rendering the environment section from data; R-G14's `cargo fetch` wording lands in the same section.
+  - *Left to the building session:* the section skeleton (AGT-50's five parts), expired links (AGT-57), the scope prose (AGT-58), wording.
 
 ### R-G7
 
@@ -3552,6 +3562,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [DATA-13](findings/DATA-storage-domain-contracts.md#data-13-the-route-surface-has-grown-by-accretion-121-routes-naming-is-inconsistent-endpoints-are-panel-specific-and-the-forbidden-fragment-guard-only-checks-names)
 - **Change:** Consistent resource naming across the 121 routes; retire panel-specific endpoints as view models (R-D5) and the inbox (R-A5) replace them; make the forbidden-fragment guard check semantics, not names.
 - **Done when:** Route inventory documented and shrinking.
+- **Decisions, by the operator 2026-10-06 (P3 design pass; detail is left to the building session).**
+  - *Today:* 145 routes (64 GET, 81 POST; 121 at review). Done already: R-I3 replaced the lexical forbidden-fragment test with per-route access declarations the daemon enforces, and per-action step-up exists on control routes (`route-access.ts`). Left: 21 web components build `/api/` URLs outside `lib/*-api.ts` (9 at review); `runtime-evidence.ts` registers its POST actions with a loop and an `if` chain; `plans/:pv/finalizations` against `plan-versions/:pv/…`; four import prefixes. Browser paths belong to `apps/web/src/lib/route.ts` (R-E1), so operator bookmarks are not affected.
+  - *Decisions:*
+    - **H5-1, API nouns follow the domain and contract names** (`plan-versions`, `concurrency-definitions`, one `imports/…` prefix), not the browser's labels.
+    - **H5-2, fold only commands with the same access level** into `/control` unions; commands that carry authority (decide, authorize-native, merge, amendment decisions) keep their own routes, so R-I3/R-G9's per-route access check is not weakened.
+    - **H5-3, a clean cut** of old API URLs, with a deploy note to reload open pages; no aliases (the API has no outside client).
+    - **H5-4, done when:** an inventory generated from the route table, with access and authority columns and R-A6's decision, control or config tags read by the web boundary test; the route count lower than at R-H5's start; no route's access weakened. "Below 121" holds only if R-A6 and R-E5 delete their endpoints.
+  - *Sequencing:* last in P3, after R-A6's rest, R-E4, R-E5, R-C6 and R-E3b. No migration.
+  - *Left to the building session:* the route-by-route map, the shape of each union, moving every fetch into `lib/*-api.ts`, a structural rule that every POST has a Zod body schema; the retired panel endpoints (`checkpoint-recovery`, `decision-preparations`, the agent-profile and run-profile reads).
 
 ### R-H6
 
@@ -3568,6 +3587,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Done when:** The three tables and the correlation columns are gone. A preservation test proves sequence, trigger and index continuity on a snapshot copy. `db:verify` passes on a live snapshot.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
+- **Decisions, by the operator 2026-10-06 (P3 design pass; detail is left to the building session).**
+  - *Today (live, read-only):* schema 36 (0037 pending); `workspace_events` 6,573 rows, 0.9 MB of payload; the three registry tables empty; no row with a correlation column set, no `repository-*` event and no `repository.*` audit action; no table references `workspace_events`. R-H3's preservation tests, the rebuild-must-have-a-test rule and `db:verify` exist. This entry names two correlation columns; there are three, and `repository_id` has a foreign key into `registered_repositories`, so that table cannot be dropped while the column keeps its key; the CHECK over per-kind correlation shapes goes too. `sequence` is the event stream's resume cursor (`Last-Event-ID`), so its continuity is what must be preserved.
+  - *Decisions:*
+    - **H6-1, drop all three correlation columns,** the kind CHECK and the optional `repositoryId`, `repositoryInspectionId` and `repositoryBindingId` envelope fields.
+    - **H6-2, remove the `repository-*` kinds and `repository.*` actions** from contracts, web (`ActivityPanel`, `event-invalidations`) and `domain/repository.ts`; their catalog rows stay, since the catalogs are append-only; recorded as an ADR-013 amendment.
+    - **H6-3, R-H6 is done alone;** the condition to share a rebuild with another journal change is dropped, since none is planned.
+  - *Migration order across P3:* 0038 R-G13 increment 4 (`run_environments`), 0039 R-H4 (`evidence_submission_heads`), 0040 R-H6. They are independent and may ship in one deploy (one pre-migration snapshot, one rollback point). The two rebuilds each need a count guard and a place on `migrations.test.ts`'s rebuild list.
+  - *Left to the building session:* the SQL (following 0004's procedure), the preservation test on a snapshot copy, the `db:verify` run.
 
 ### R-I1
 

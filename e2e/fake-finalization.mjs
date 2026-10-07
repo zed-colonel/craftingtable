@@ -5,8 +5,9 @@ import { join } from 'node:path';
  * A staged finalization review as the stand-in agents answer it (R-B10). The review brief
  * names the stage ledger; the answer reports the current stage's checks and obligations.
  *
- * - FINALIZATION-REMEDIATION-LIMIT in the instructions raises F-001, a correctness finding,
- *   in the correctness stage until REMEDIATED.md exists.
+ * - FINALIZATION-REMEDIATION-LIMIT in the instructions raises F-001, a minor correctness
+ *   finding, in the correctness stage until REMEDIATED.md exists. It is minor: a lone nit at a
+ *   spent allowance would be parked as follow-up work rather than stop (R-C7 D5).
  * - Otherwise the simplification stage discovers optional ideas S-1 and S-2 once, then
  *   verifies S-1 (POLISH-1.md) and reports a new idea S-3.
  *
@@ -24,7 +25,7 @@ export function stagedFinalizationReview(text, cwd) {
       findings.push({
         id: 'F-001',
         category: 'correctness',
-        severity: 'nit',
+        severity: 'minor',
         status: fixed ? 'resolved' : 'open',
         title: 'Clarify the finalization example',
         explanation: 'The example needs a short explanation.',

@@ -34,11 +34,12 @@
  *    `packages/domain/src/map-capabilities.ts`, read from its syntax tree. No other production
  *    module writes one, or an identifier R-F2 retired (`RETIRED_MAP_IDENTIFIERS`), in a
  *    constant text: a string, a template, JSX text, a regular expression's pattern, a `+` of
- *    constant parts, or a template whose substitutions are constant, a `const` of the same
- *    module included. It asks that module what a map declares. Tests, fixtures and the legacy
- *    mapping (text earlier releases wrote) may. It guards against reintroduction by mistake,
- *    not against evasion: text built at run time (`join`, `toLowerCase`, a parameter), another
- *    spelling of a pattern (`/^INDEPENDENT\b/i`, `/^independent/`) and a prefix test
+ *    constant parts, or a template whose substitutions are constant, a name declared once in
+ *    the module, by a `const`, included. It asks that module what a map declares. Tests,
+ *    fixtures and the legacy mapping (text earlier releases wrote) may. It guards against
+ *    reintroduction by mistake, not against evasion: text built at run time (`join`,
+ *    `toLowerCase`, a parameter, a name declared more than once), another spelling of a
+ *    pattern (`/^INDEPENDENT\b/i`, `/^independent/`) and a prefix test
  *    (`startsWith('independent')`) pass it; the self-test pins each of these as a known miss.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
@@ -709,28 +710,50 @@ function mapVocabulary(sourceFile) {
   return [...new Set(texts.filter((text) => text !== ''))];
 }
 
-/** The `const` bindings of a module whose initializer may be constant text (rule 7). */
+/** Declarations whose name binds an identifier in its scope (rule 7 counts them). */
+const DECLARATIONS = new Set([
+  SyntaxKind.VariableDeclaration,
+  SyntaxKind.Parameter,
+  SyntaxKind.BindingElement,
+  SyntaxKind.FunctionDeclaration,
+  SyntaxKind.ClassDeclaration,
+  SyntaxKind.EnumDeclaration,
+  SyntaxKind.ImportClause,
+  SyntaxKind.ImportSpecifier,
+  SyntaxKind.NamespaceImport,
+  SyntaxKind.ImportEqualsDeclaration,
+]);
+
+/**
+ * The names rule 7 resolves to constant text: each declared exactly once in the module, by a
+ * `const`. A name declared again anywhere (another `const` in another function, a parameter,
+ * a `let`, a function, class or import) is left unresolved, since this check reads no scopes.
+ */
 function constBindings(sourceFile) {
-  const bindings = new Map();
+  const declared = new Map();
+  const consts = new Map();
   const visit = (node) => {
-    if (
-      node.kind === SyntaxKind.VariableDeclaration &&
-      node.name.kind === SyntaxKind.Identifier &&
-      node.initializer !== undefined &&
-      node.parent?.kind === SyntaxKind.VariableDeclarationList &&
-      (node.parent.flags & NodeFlags.Const) !== 0
-    )
-      bindings.set(node.name.text, node.initializer);
+    if (DECLARATIONS.has(node.kind) && node.name?.kind === SyntaxKind.Identifier) {
+      const name = node.name.text;
+      declared.set(name, (declared.get(name) ?? 0) + 1);
+      if (
+        node.kind === SyntaxKind.VariableDeclaration &&
+        node.initializer !== undefined &&
+        node.parent?.kind === SyntaxKind.VariableDeclarationList &&
+        (node.parent.flags & NodeFlags.Const) !== 0
+      )
+        consts.set(name, node.initializer);
+    }
     node.forEachChild(visit);
   };
   sourceFile.forEachChild(visit);
-  return bindings;
+  return new Map([...consts].filter(([name]) => declared.get(name) === 1));
 }
 
 /**
  * The text of a constant expression, or undefined: a string or template literal, JSX text, a
- * `+` of constant parts, a template whose substitutions are constant, parentheses, or a name a
- * `const` of the module binds to one. A name bound more than once is not resolved.
+ * `+` of constant parts, a template whose substitutions are constant, parentheses, or a name
+ * `constBindings` resolves to one.
  */
 function constantText(node, bindings, seen = new Set()) {
   switch (node?.kind) {

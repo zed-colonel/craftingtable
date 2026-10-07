@@ -2256,6 +2256,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - S04: Start is refused for plan acceptance generated for another roadmap (`server-execution-plan-evidence.test.ts`);
     - W03: the panel's decision "recorded by … as <role>" text.
     - The review's S02 (generated plan evidence for another subject) and S15 (message text only) were not in the list and stay untested.
+- **Re-check (2026-10-07) and fixes.** The re-check of `32f344c` closed all seven findings and found two lows.
+  - *R1:* rule 7 resolved a name to the last `const` declaring it anywhere in the module, ignoring scope. It reported text the code never builds (a function-local `const`, a shadowing parameter) and could miss in the other order. It now resolves a name only when the module declares it exactly once, by a `const`. A name also declared as another `const`, a `let` or `var`, a parameter, a function, class or enum name, or an import is left unresolved. Self-test: an inner `const` in another function, a shadowing parameter and a `let` are not reported; it fails with the old resolution, with `let` resolved like `const` (N10), and with duplicates resolved.
+  - *R2:* both guidance messages are asserted (`server-execution-plan-evidence.test.ts`). The recognized plan checkpoint offers "Save the roadmap, generate STACK-PLAN-ACCEPTED evidence…"; a single plan checkpoint with a reworded contract says "Submit and accept independently reviewed evidence for STACK-PLAN-ACCEPTED…" and still holds Start. The tests fail with generation never offered (N04) and with it always offered.
 
 ### R-F3
 

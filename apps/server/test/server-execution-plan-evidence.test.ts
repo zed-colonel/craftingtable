@@ -176,11 +176,15 @@ it('generates saved plan facts without approval, guards HTTP authority and start
   const saved = f.service.save(f.auth, ws, f.input).roadmap;
   const ready = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;
   expect(ready.state).toBe('ready-to-generate');
+  // The recognized plan checkpoint is the generator's: the guidance offers generation.
   expect(
     f.service
       .view(f.auth, ws, f.input.configuration)
-      .setupRequirements.some((r) => r.kind === 'plan-acceptance'),
-  ).toBe(true);
+      .setupRequirements.filter((r) => r.kind === 'plan-acceptance')
+      .map((r) => r.message),
+  ).toEqual([
+    'Save the roadmap, generate STACK-PLAN-ACCEPTED evidence, then review and accept it before Start or Resume.',
+  ]);
   await expect(
     context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version),
   ).rejects.toThrow('Waiting for plan acceptance');
@@ -349,6 +353,31 @@ it('holds Start for every stack-owned plan approval when there are several', asy
   ).rejects.toThrow(
     'Waiting for plan acceptance: review and accept STACK-PLAN-ACCEPTED, PLAN-REVISED evidence',
   );
+});
+
+it('offers no generation for a plan checkpoint whose contract was reworded', async () => {
+  const f = await supervisedMapFixture(false, 'automatic', false, true, false, (s) => ({
+    ...s,
+    evidence_profiles: s.evidence_profiles.map((p) =>
+      p.id === 'plan-approval'
+        ? { ...p, required_evidence: p.required_evidence.map((r) => `${r} (reworded)`) }
+        : p,
+    ),
+  }));
+  const { context, workspaceId: ws } = f.state;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input).roadmap;
+  expect(
+    f.service
+      .view(f.auth, ws, f.input.configuration)
+      .setupRequirements.filter((r) => r.kind === 'plan-acceptance')
+      .map((r) => r.message),
+  ).toEqual([
+    'Submit and accept independently reviewed evidence for STACK-PLAN-ACCEPTED before Start or Resume.',
+  ]);
+  await expect(
+    context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version),
+  ).rejects.toThrow('Waiting for plan acceptance: review and accept STACK-PLAN-ACCEPTED evidence');
 });
 
 it('leaves an in-run plan approval to the run: it holds neither Start nor Resume', async () => {

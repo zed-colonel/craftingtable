@@ -712,6 +712,31 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
     );
   });
 
+  it('resolves a name only when one module-wide `const` declares it', () => {
+    const root = workspace({
+      'packages/domain/src/map-capabilities.ts': VOCABULARY,
+      // Each builds run-time or other text; none writes `plan-owner`.
+      'apps/server/src/inner.ts': [
+        `export function g() { const suffix = 'reader'; return \`plan-\${suffix}\`; }`,
+        `export function f() { const suffix = 'owner'; return suffix; }`,
+        '',
+      ].join('\n'),
+      'apps/server/src/shadow.ts': [
+        "const suffix = 'owner';",
+        `export const h = (suffix: string) => \`plan-\${suffix}\`;`,
+        'export const unused = suffix;',
+        '',
+      ].join('\n'),
+      'apps/server/src/mutable.ts': [
+        "let suffix = 'owner';",
+        'export const set = (next: string) => { suffix = next; };',
+        `export const read = () => \`plan-\${suffix}\`;`,
+        '',
+      ].join('\n'),
+    });
+    expect(runCheck(root)).toEqual([]);
+  });
+
   it('pins what it does not catch: text built at run time and other spellings of a pattern', () => {
     // Known misses, listed in rule 7's comment. A stronger rule turns these into findings.
     const root = workspace({

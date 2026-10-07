@@ -2920,11 +2920,15 @@ export class WorkCycleService {
     merges: boolean,
   ): Promise<boolean> {
     const checks = this.execution?.repositoryChecks;
+    const environment = this.storage.runtimeEvidence.run(tree.workspaceId, run.id);
     if (
       !this.runtimeEvidence ||
       !checks ||
       !run.reviewBranchContext ||
-      !this.storage.runtimeEvidence.run(tree.workspaceId, run.id)?.checkDeclarationId
+      !environment?.checkDeclarationId ||
+      // Adoption at merge is a scoped slice's (increment 5): a check-only run (increment 4)
+      // whose definitions changed stops, and the operator adopts on the Repositories page.
+      environment.runtimeId === undefined
     ) {
       this.runtimeEvidence?.assertDeclaredDefinitions(tree, run.id);
       return false;

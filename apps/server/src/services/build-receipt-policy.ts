@@ -7,7 +7,8 @@ export interface BuildReceipt {
   readonly headSha: string;
   readonly manifestDigest: string;
   readonly runId: string;
-  readonly runtimeId: string;
+  /** Absent on a check-only run's receipts (R-G13 increment 4). */
+  readonly runtimeId?: string;
   readonly verificationMode?: string;
   readonly policyDigest?: string;
   readonly kind?: string;

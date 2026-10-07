@@ -717,6 +717,16 @@ export class ExecutionService {
           continue;
         }
         if (adopts) mergeGates[worktree.id] = { ...gate, reason: 'check-adoption' };
+      } else if (!worktree.executionScope && gate?.mergeable && gate.reviewRunId) {
+        // A check-only review (R-G13 increment 4) is gated on its adopted checks: the listing
+        // says so rather than offering a merge the gate refuses.
+        const env = tx.runtimeEvidence.run(workspaceId, gate.reviewRunId);
+        if (env && env.runtimeId === undefined)
+          try {
+            this.runtimeEvidence?.assertRun(worktree, gate.reviewRunId, tx);
+          } catch {
+            mergeGates[worktree.id] = { mergeable: false, reason: 'scope-blocked' };
+          }
       }
     }
     return { worktrees, runs, mergeGates };

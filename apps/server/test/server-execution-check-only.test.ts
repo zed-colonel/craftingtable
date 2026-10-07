@@ -1,30 +1,48 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, CheckOnlyManifest } from '@craftingtable/agents';
 import type { AgentRunId } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
+import { DeclaredChecksMissingError } from '../src/services/errors.js';
 import {
+  admit,
   CycleBackend,
   cleanupExecutionFixtures,
+  currentCycle,
   commitFile,
   declareFixtureChecks,
   designDone,
   directories,
   fixtureRepository,
+  git,
   implementationDone,
+  merge,
+  mergeGate,
   ready,
   registerAndWorktree,
   reviewText,
   roadmapControl,
   roadmapFixture,
+  runLauncher,
   runToFinish,
   saveRoadmapRequest,
   slicedFixture,
   scopeTree,
+  startCycle,
   storedRoadmap,
   waitFor,
+  withoutDaemonChecks,
 } from './execution-test-support.js';
+
+const SCRIPT = '#!/bin/sh\ngit diff --check HEAD\n';
 
 /**
  * R-G13 increment 4 (operator decisions 2026-10-06): a run with no pinned dependency
@@ -236,4 +254,120 @@ it('works on a host without Cargo: the manifest names none, and the adopted chec
   } finally {
     vi.unstubAllEnvs();
   }
+});
+
+/** The reviewer runs a command it chooses and claims success; the daemon's own runs are off. */
+function reviewerRunsItsOwnCheck(state: State, backend: CycleBackend) {
+  withoutDaemonChecks(state);
+  backend.replyForRequest = async (request) => {
+    if (request.prompt.includes('Adopted repository checks')) {
+      await runLauncher(request, 'ct-check', ['--', 'true']);
+    }
+    return { resultText: reviewText([]) };
+  };
+}
+
+it("refuses the operator's merge of a check-only review without a daemon receipt of each adopted check on the reviewed head; ct-check -- true does not count (R-G13 increment 4)", async () => {
+  const { state, backend, worktree } = await manualFixture();
+  reviewerRunsItsOwnCheck(state, backend);
+  const review = await runToFinish(state, worktree.id, { role: 'review' });
+  const receipts = checkOnlyRun(state, review).receipts;
+  // The agent's own check ran and was recorded: successful, clean, on the head, and no run of
+  // an adopted check.
+  expect(receipts).toEqual([
+    expect.objectContaining({ origin: 'agent', success: true, clean: true, command: 'true' }),
+  ]);
+  expect(await mergeGate(state, worktree.id)).toMatchObject({
+    mergeable: false,
+    reason: 'scope-blocked',
+  });
+  const refused = await merge(state, worktree.id);
+  expect(refused.statusCode).toBe(409);
+  expect(refused.body).toContain('ct-check --declared fixture');
+  // A review whose adopted check the daemon ran meets the gate, and the merge goes ahead.
+  vi.restoreAllMocks();
+  backend.replyForRequest = () => ({ resultText: reviewText([]) });
+  await runToFinish(state, worktree.id, { role: 'review' });
+  expect(await mergeGate(state, worktree.id)).toMatchObject({ mergeable: true, reason: 'ready' });
+  const merged = await merge(state, worktree.id);
+  expect(merged.statusCode, merged.body).toBe(200);
+});
+
+it('refuses a delegated merge of a check-only review without a daemon receipt of each adopted check (R-G13 increment 4)', async () => {
+  const { state, backend, worktree } = await manualFixture();
+  reviewerRunsItsOwnCheck(state, backend);
+  await runToFinish(state, worktree.id, { role: 'review' });
+  const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]!);
+  await expect(
+    state.context.services.executionService.mergeWorktree(
+      auth,
+      state.workspaceId,
+      worktree.id,
+      {},
+      undefined,
+      { roadmapId: '00000000-0000-4000-8000-000000000001', definitionRevision: 1, check: () => {} },
+    ),
+  ).rejects.toBeInstanceOf(DeclaredChecksMissingError);
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, worktree.id),
+  ).toBeUndefined();
+});
+
+it('a review prepared before its repository adopted checks keeps the earlier rule at merge (R-G13 increment 4)', async () => {
+  const { state, backend, worktree } = await manualFixture(false);
+  backend.replyForRequest = () => ({ resultText: reviewText([]) });
+  await runToFinish(state, worktree.id, { role: 'review' });
+  // Adopted after the review was prepared: the review has no record, and is not held to them.
+  declareFixtureChecks(state);
+  const merged = await merge(state, worktree.id);
+  expect(merged.statusCode, merged.body).toBe(200);
+});
+
+it('a check-only review whose work changed an adopted definition stops as check-definition-changed; its merge does not adopt it (R-G13 increment 4)', async () => {
+  const backend = new CycleBackend([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  const state = await ready({ backend });
+  const root = fixtureRepository();
+  mkdirSync(join(root, '.craftingtable'));
+  writeFileSync(
+    join(root, '.craftingtable', 'checks.json'),
+    `${JSON.stringify({ version: 1, checks: [{ id: 'fixture', argv: ['scripts/check.sh'] }] })}\n`,
+  );
+  mkdirSync(join(root, 'scripts'));
+  writeFileSync(join(root, 'scripts', 'check.sh'), SCRIPT, { mode: 0o755 });
+  git(['add', '--all'], root);
+  git(['commit', '--no-gpg-sign', '-m', 'checks'], root);
+  const { repository, worktree } = await registerAndWorktree(state, root);
+  await admit(state);
+  // Adopted as the operator adopts, so a merge could propose a new version of it.
+  const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]!);
+  const checks = state.context.services.repositoryChecksService;
+  const preview = await checks.preview(auth, state.workspaceId, repository.id, 'main');
+  expect(preview.issues).toEqual([]);
+  await checks.adopt(auth, state.workspaceId, repository.id, {
+    ref: 'main',
+    expectedCommit: preview.commitSha,
+    rationale: 'The fixture checks.',
+  });
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model') {
+      writeFileSync(join(request.cwd, 'scripts', 'check.sh'), `${SCRIPT}echo changed\n`);
+      git(['add', '--all'], request.cwd);
+      git(['commit', '--no-gpg-sign', '-m', 'change the check'], request.cwd);
+    }
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => {
+    const current = currentCycle(state, cycle);
+    return current.status === 'needs-attention' || current.status === 'awaiting-merge';
+  }, 'the review is decided');
+  // Adoption at merge is a scoped slice's (increment 5); the exit here is adopting on the
+  // Repositories page.
+  expect(currentCycle(state, cycle)).toMatchObject({
+    status: 'needs-attention',
+    attention: { code: 'check-definition-changed', refs: { repositoryId: repository.id } },
+  });
 });

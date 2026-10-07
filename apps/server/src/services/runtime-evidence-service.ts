@@ -7,6 +7,7 @@ import { parseWorkflowReport } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
 import { worktreePlan, repositoryPolicyEvidence } from './repository-policy.js';
 import {
+  type BuildReceipt,
   declaredCheckGaps,
   parseBuildReceipts,
   receiptKindEstablishes,
@@ -87,6 +88,7 @@ import {
   type EvidenceSubject,
   type ManifestDeclaredChecks,
   type RepositoryCheckDeclaration,
+  type RunEnvironment,
   type RuntimeGeneration,
   consumerUpstreams,
   upstreamTransitionIssues,
@@ -2752,10 +2754,21 @@ export class RuntimeEvidenceService {
     pendingDefinitions?: Readonly<Record<string, string>>,
   ) {
     const scope = this.treeContext(tree, tx);
-    if (!scope) return;
-    const runtime = activeRuntime(tx, tree.workspaceId, scope.definitionId, scope.bindingRevision);
-    if (!runtime) return;
+    const runtime =
+      scope && activeRuntime(tx, tree.workspaceId, scope.definitionId, scope.bindingRevision);
     const env = tx.runtimeEvidence.run(tree.workspaceId, runId);
+    // A run recorded without a runtime is check-only (R-G13 increment 4): held to its
+    // repository's adopted checks alone. A run with no record at all was prepared before
+    // increment 4, or in a repository with no adoption, and keeps the earlier rule.
+    if (!scope || !runtime) {
+      if (env && env.runtimeId === undefined)
+        this.assertCheckOnlyRun(tree, runId, env, tx, pendingDefinitions);
+      return;
+    }
+    // A check-only run's tree has since gained a pinned environment: its checks prove nothing
+    // about that environment.
+    if (env && env.runtimeId === undefined)
+      conflict('Review uses an obsolete dependency environment. Run a fresh review.');
     if (
       !('finalization' in scope) &&
       env?.architectureDecisionDigest !== architectureDecisionDigest(tx, tree.workspaceId, scope)
@@ -2849,36 +2862,26 @@ export class RuntimeEvidenceService {
         : undefined;
       if (env.checkDeclarationId && !declaration)
         conflict('The declared checks this review was held to are unavailable.');
-      if (declaration) {
-        const gaps = declaredCheckGaps(
+      if (declaration)
+        throwDeclaredGaps(
           declaration,
-          receipts,
-          (r) =>
-            r.success &&
-            r.clean &&
-            r.kind === 'scoped-check' &&
-            r.headSha === run?.reviewBranchContext?.headSha &&
-            r.manifestDigest === env.manifestDigest &&
-            r.runId === runId &&
-            r.runtimeId === env.runtimeId &&
-            r.verificationMode === verification.mode &&
-            r.policyDigest === hash(JSON.stringify(verification)),
-          tx.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0],
-          pendingDefinitions,
+          declaredCheckGaps(
+            declaration,
+            receipts,
+            (r) =>
+              r.success &&
+              r.clean &&
+              r.kind === 'scoped-check' &&
+              r.headSha === run?.reviewBranchContext?.headSha &&
+              r.manifestDigest === env.manifestDigest &&
+              r.runId === runId &&
+              r.runtimeId === env.runtimeId &&
+              r.verificationMode === verification.mode &&
+              r.policyDigest === hash(JSON.stringify(verification)),
+            tx.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0],
+            pendingDefinitions,
+          ),
         );
-        const changed = gaps.changed[0];
-        if (changed)
-          throw new CheckDefinitionChangedError(
-            declaration.repositoryId,
-            changed.checkId,
-            `The declared check ${changed.checkId} ran with definitions that differ from the adopted ones (${changed.paths.join(', ')}). Adopt the new definition on the Repositories page, then resume for a fresh review; to keep the adopted definition, stop this cycle and revert the change in a new attempt.`,
-          );
-        if (gaps.missing.length)
-          throw new DeclaredChecksMissingError(
-            gaps.missing,
-            `The review needs a successful run of each declared check on its exact clean reviewed commit: ${gaps.missing.map((id) => `ct-check --declared ${id}`).join(', ')}. Checks the agent chooses are supplemental.`,
-          );
-      }
       if (
         buildGate &&
         (!declaration || verification.mode !== 'scoped-checks') &&
@@ -2906,6 +2909,65 @@ export class RuntimeEvidenceService {
         'A successful pinned Cargo build/test receipt is required before accepting this review.',
       );
     }
+  }
+  /**
+   * The gate of a check-only run (R-G13 increment 4): every check of the adoption it was held
+   * to needs a clean, successful receipt the daemon recorded for this run, of that check run
+   * from this run's manifest, on the reviewed head, with no runtime. Commands the agent chose
+   * (`ct-check -- …`) never count. Anything missing or malformed in the record refuses.
+   */
+  private assertCheckOnlyRun(
+    tree: Worktree,
+    runId: string,
+    env: RunEnvironment,
+    tx: StorageRepositories,
+    pendingDefinitions?: Readonly<Record<string, string>>,
+  ) {
+    if (!env.checkDeclarationId || env.receiptAuthority !== 'daemon')
+      conflict('The review has no daemon-recorded check environment. Run a fresh review.');
+    const declaration = tx.runtimeEvidence.checkDeclaration(
+      tree.workspaceId,
+      env.checkDeclarationId,
+    );
+    if (!declaration || declaration.repositoryId !== tree.repositoryId)
+      conflict('The declared checks this review was held to are unavailable.');
+    let receipts: BuildReceipt[];
+    try {
+      const record = tx.runtimeEvidence.build(tree.workspaceId, runId);
+      if (
+        !record ||
+        record.error ||
+        record.manifestDigest !== env.manifestDigest ||
+        record.runtimeId !== undefined
+      )
+        conflict('The review has no valid frozen check record.');
+      receipts = parseBuildReceipts(record.receipts);
+    } catch (error) {
+      if (error instanceof ExecutionRequestError) throw error;
+      conflict('The review has no valid frozen check record.');
+    }
+    const head = tx.execution.runs.find(tree.workspaceId, asAgentRunId(runId))?.reviewBranchContext
+      ?.headSha;
+    throwDeclaredGaps(
+      declaration,
+      declaredCheckGaps(
+        declaration,
+        receipts,
+        (r) =>
+          r.success === true &&
+          r.clean === true &&
+          r.kind === 'scoped-check' &&
+          head !== undefined &&
+          r.headSha === head &&
+          r.manifestDigest === env.manifestDigest &&
+          r.runId === runId &&
+          r.runtimeId === undefined &&
+          r.verificationMode === undefined &&
+          r.policyDigest === undefined,
+        tx.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0],
+        pendingDefinitions,
+      ),
+    );
   }
   async cleanupRun(ws: WorkspaceId, runId: string) {
     const env = this.storage.runtimeEvidence.run(ws, runId);
@@ -3155,6 +3217,28 @@ export class RuntimeEvidenceService {
       payload: { definitionId: id, message },
     });
   }
+}
+
+/**
+ * Refuses a review held to adopted checks whose gate has gaps (R-G13): a check that ran only with
+ * other definitions stops as `check-definition-changed`, a check that did not run as missing.
+ */
+function throwDeclaredGaps(
+  declaration: RepositoryCheckDeclaration,
+  gaps: ReturnType<typeof declaredCheckGaps>,
+): void {
+  const changed = gaps.changed[0];
+  if (changed)
+    throw new CheckDefinitionChangedError(
+      declaration.repositoryId,
+      changed.checkId,
+      `The declared check ${changed.checkId} ran with definitions that differ from the adopted ones (${changed.paths.join(', ')}). Adopt the new definition on the Repositories page, then resume for a fresh review; to keep the adopted definition, stop this cycle and revert the change in a new attempt.`,
+    );
+  if (gaps.missing.length)
+    throw new DeclaredChecksMissingError(
+      gaps.missing,
+      `The review needs a successful run of each declared check on its exact clean reviewed commit: ${gaps.missing.map((id) => `ct-check --declared ${id}`).join(', ')}. Checks the agent chooses are supplemental.`,
+    );
 }
 
 /** An adoption as a run's manifest holds it: each check with its definition files' digests. */

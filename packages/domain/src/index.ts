@@ -41,3 +41,4 @@ export * from './bounded-text.js';
 export * from './repository-checks.js';
 export * from './upstream-transitions.js';
 export * from './protected-refs.js';
+export * from './map-capabilities.js';

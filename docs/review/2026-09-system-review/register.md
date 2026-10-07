@@ -60,7 +60,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
-| [R-F2](#r-f2) | P3 | M | open | Typed feature recognition instead of prose and magic identifiers |
+| [R-F2](#r-f2) | P3 | M | in progress | Typed feature recognition instead of prose and magic identifiers |
 | [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95; FMT-15 done in 432bb00, 0ef20b1) | Format ingestion bugs and test honesty |
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
@@ -2197,7 +2197,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F2
 
-**Typed feature recognition instead of prose and magic identifiers** · Phase P3 · Effort M · Status: open
+**Typed feature recognition instead of prose and magic identifiers** · Phase P3 · Effort M · Status: in progress (parts 1 to 4 building on `p3/rf2`)
 
 - **Resolves:** [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map), [CTRL-21](findings/CTRL-controller.md#ctrl-21-map-specific-vocabulary-is-hard-coded-in-the-controller), [AGT-55](findings/AGT-GIT-SEC-agents-git-security.md#agt-55-rust--and-project-specific-text-is-hard-coded-into-generic-brief-paths)
 - **Change:** Replace exact-English-string, role-name, resource-id and regex triggers with a typed recognition layer and explicit defaults; move role/resource/brief vocabulary into data keyed by map-declared ids; keep today's ids as defaults so the v0.3 map behaves identically.
@@ -2219,6 +2219,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Sequencing:* parts 1 to 4 build in parallel with other items and land before R-C6. Parts 5 and 6 wait to go with R-A6/R-E5 (the panel) and R-G6/R-G13 (the brief).
   - *Out of scope:* typed map blockers stay with R-F1's evaluator (P4); resource adapters stay keyed by today's ids until R-F5; no map or plan-bundle format change, so no ADR.
   - **Done when (amended):** (a) a reworded copy of the v0.3 fixture (every title, description and note, the wording of the non-attested evidence profiles, every `source_maturity` value except its leading word) gives an identical `mapCapabilities` result and identical answers from `buildVerificationPolicy`, `phaseResources`, `needsNativeVerification` and `supportsTechnicalCheckpoint` for every scope; (b) rewording an attested contract, or renaming a recognized id or role, gives a typed gap shown in the view, never a silent change; (c) the scope check passes; (d) the R-F4 goldens are unchanged and `pnpm replays` shows no unexpected change.
+- **Progress (2026-10-07), part 1:** `packages/domain/src/map-capabilities.ts` holds the v0.3 vocabulary (`V03_VOCABULARY`: the plan-acceptance and decision-review wording and roles, the security reviewer role, the two resource adapters by id, the operator-recoverable profile id, the maturity token) and `mapCapabilities(source)`, memoized per source. It returns typed results (the plan checkpoint, found as the single `plan_approval` the stack owns; plan acceptance when its contract is the attested one; the decisions with the decision-owner contract; the security role; the recoverable profile; each resource's adapter and whether its profile lets it run; the independent parents) and typed gaps (`plan-checkpoint-ambiguous`, `plan-contract-changed`, `decision-contract-changed`, `security-role-undeclared`, `recovery-profile-unrecognized`, `resource-adapter-missing`, `resource-adapter-unusable`, each with the fields or ids at fault). On the v0.3 fixture the one gap is `kata-instance-test-host`, which no adapter runs. Tests (`map-capabilities.test.ts`, with `test/map-rewording.ts`): the fixture's capabilities; a reworded copy gives an identical result; a renamed plan checkpoint id keeps plan acceptance; a reworded plan or decision contract, a renamed role, profile or resource id each give their typed gap. No caller uses it yet.
 
 ### R-F3
 

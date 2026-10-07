@@ -372,6 +372,32 @@
           "goldenSha256": "dcab155f82562c8b33ec070081faf5fd71acab01fbc4bb11b0137031eb8d03ed"
         }
       ]
+    },
+    {
+      "id": "2026-10-07",
+      "sha256": "b2e2ef601a378e5913735b68e06b38c437da01f3d1694da1203372d33fb96619",
+      "cases": [
+        {
+          "mode": "golden",
+          "golden": "golden.json",
+          "goldenSha256": "af13844dab7ab13f3dc269837a8e55ade6a721c879a1e336ad9b791c3535cae3"
+        },
+        {
+          "mode": "every-run",
+          "golden": "every-run-golden-2d265a5.json",
+          "goldenSha256": "0f209f5fb3eafb032858812f3876d509ed3995f8d5a2f9cd70c17899f2c7560d"
+        },
+        {
+          "mode": "scheduler",
+          "golden": "scheduler-golden-2d265a5.json",
+          "goldenSha256": "c2b645e7db27279ee64389648f857316e2986ecdd60935f6e0db9d01e24d556c"
+        },
+        {
+          "mode": "evidence-view",
+          "golden": "evidence-view-golden-2d265a5.json",
+          "goldenSha256": "94c04e7a9c2970cefb4391c7d68300fe1a8901461246683e19e10752767d029c"
+        }
+      ]
     }
   ]
 }

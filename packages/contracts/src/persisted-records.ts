@@ -123,18 +123,31 @@ export const mergeOperationSchema = equivalentSchema<MergeOperation>()(
 );
 
 export const runEnvironmentSchema = equivalentSchema<RunEnvironment>()(
-  z.strictObject({
-    architectureDecisionDigest: digest.optional(),
-    nativeApprovalId: z.uuid().optional(),
-    runId: name,
-    workspaceId: workspaceIdSchema,
-    runtimeId: z.uuid(),
-    manifestPath: name,
-    manifestDigest: digest,
-    verificationMode: z.literal('current-upstream-build').optional(),
-    receiptAuthority: z.literal('daemon').optional(),
-    checkDeclarationId: z.uuid().optional(),
-  }),
+  z
+    .strictObject({
+      architectureDecisionDigest: digest.optional(),
+      nativeApprovalId: z.uuid().optional(),
+      runId: name,
+      workspaceId: workspaceIdSchema,
+      runtimeId: z.uuid().optional(),
+      manifestPath: name,
+      manifestDigest: digest,
+      verificationMode: z.literal('current-upstream-build').optional(),
+      receiptAuthority: z.literal('daemon').optional(),
+      checkDeclarationId: z.uuid().optional(),
+    })
+    // A run without a pinned environment is check-only (R-G13 increment 4): it is held to
+    // adopted checks, recorded by the daemon, and to nothing pinned.
+    .refine(
+      (r) =>
+        r.runtimeId !== undefined ||
+        (r.checkDeclarationId !== undefined &&
+          r.receiptAuthority === 'daemon' &&
+          r.verificationMode === undefined &&
+          r.nativeApprovalId === undefined &&
+          r.architectureDecisionDigest === undefined),
+      'A run environment without a runtime is check-only: held to adopted checks and recorded by the daemon.',
+    ),
 );
 
 export const runCheckReceiptSchema = equivalentSchema<RunCheckReceipt>()(
@@ -151,7 +164,7 @@ export const runBuildRecordSchema = equivalentSchema<RunBuildRecord>()(
   z.strictObject({
     runId: name,
     workspaceId: workspaceIdSchema,
-    runtimeId: z.uuid(),
+    runtimeId: z.uuid().optional(),
     manifestDigest: digest,
     receipts: text,
     digest,

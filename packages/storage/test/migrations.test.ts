@@ -108,6 +108,7 @@ const DEPLOYED_MIGRATIONS: readonly PinnedMigration[] = [
 // biome-ignore format: one row per migration, appended in order.
 const PENDING_MIGRATIONS: readonly PinnedMigration[] = [
   { version: 37, name: 'authentication-hardening', checksum: 'd6de10ea4b993dd1aa50b899adb64fda3d253bcace4a2330abb630c5e074c0f9' },
+  { version: 38, name: 'check-only-run-environments', checksum: '35a6a857b4667b24a12c1cd8b431ca1bde87a0113a71d6e675bc0e92d4e0a35a' },
 ];
 
 const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];
@@ -207,7 +208,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(37);
+    ).toBe(38);
     second.close();
   });
 
@@ -229,7 +230,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(37);
+    ).toBe(38);
     database.close();
   });
 
@@ -289,10 +290,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 37,
+      supportedVersion: 38,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
       ],
     });
 
@@ -308,10 +309,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 37,
+      supportedVersion: 38,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
       ],
     });
     expect(existsSync(path)).toBe(false);
@@ -364,6 +365,7 @@ it('pairs every table-rebuild migration with a preservation test and later ones 
     7: 'migration-0007.test.ts',
     14: 'migration-0014.test.ts',
     26: 'migrations.test.ts',
+    38: 'migration-0038.test.ts',
   };
   const rebuilds = discoverMigrations().filter((migration) =>
     /ALTER\s+TABLE\s+\w+\s+RENAME\s+TO/i.test(migration.sql),
@@ -380,7 +382,7 @@ it('pairs every table-rebuild migration with a preservation test and later ones 
         /CREATE\s+TABLE\s+migration_\d{4}_guard[\s\S]*CHECK\s*\(\s*ok\s*=\s*1\s*\)/i,
       );
   }
-  expect(rebuilds.map((migration) => migration.version)).toEqual([2, 4, 7, 14, 26]);
+  expect(rebuilds.map((migration) => migration.version)).toEqual([2, 4, 7, 14, 26, 38]);
 });
 
 describe('pre-migration snapshots (R-B9)', () => {

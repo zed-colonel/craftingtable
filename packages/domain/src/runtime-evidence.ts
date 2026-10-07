@@ -150,7 +150,12 @@ export interface RunEnvironment {
   readonly nativeApprovalId?: string;
   readonly runId: string;
   readonly workspaceId: WorkspaceId;
-  readonly runtimeId: string;
+  /**
+   * The pinned dependency environment the run was prepared with. Absent on a check-only run
+   * (R-G13 increment 4): one with no pinned environment, held to its repository's adopted checks,
+   * so it always names `checkDeclarationId`. A release before schema 38 cannot read such a record.
+   */
+  readonly runtimeId?: string;
   readonly manifestPath: string;
   readonly manifestDigest: string;
   /**
@@ -167,8 +172,9 @@ export interface RunEnvironment {
   /**
    * The adopted check declaration the run's gates are held to (R-G13): only daemon receipts of
    * those checks meet a scoped gate, and a current-upstream gate needs them beside a pinned build
-   * (increment 2). Absent on runs prepared before declared checks, and on current-upstream runs
-   * prepared before increment 2, which keep the earlier rule.
+   * (increment 2). A check-only run (increment 4) is held to them alone. Absent on runs prepared
+   * before declared checks, on current-upstream runs prepared before increment 2, and on runs
+   * without a pinned environment prepared before increment 4, which keep the earlier rule.
    */
   readonly checkDeclarationId?: string;
 }
@@ -202,7 +208,8 @@ export interface ArchitectureDecision {
 export interface RunBuildRecord {
   readonly runId: string;
   readonly workspaceId: WorkspaceId;
-  readonly runtimeId: string;
+  /** The run environment's; absent for a check-only run (R-G13 increment 4). */
+  readonly runtimeId?: string;
   readonly manifestDigest: string;
   readonly receipts: string;
   readonly digest: string;

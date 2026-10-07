@@ -271,6 +271,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     this.guard('run-environment', v);
     this.db
       .prepare('INSERT INTO run_environments VALUES (?,?,?,?)')
-      .run(v.runId, v.workspaceId, v.runtimeId, JSON.stringify(v));
+      // A check-only run has no runtime (R-G13 increment 4, migration 0038).
+      .run(v.runId, v.workspaceId, v.runtimeId ?? null, JSON.stringify(v));
   }
 }

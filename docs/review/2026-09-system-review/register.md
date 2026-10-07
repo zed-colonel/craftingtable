@@ -49,7 +49,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
 | [R-D3](#r-d3) | P0 | S | partial (67e2e9b) | Instrument read cost and event-loop delay |
 | [R-D4](#r-d4) | P2 | M-L | open | Keyed query store and App.tsx split |
-| [R-D5](#r-d5) | P2 | M-L | open | Server view models, compression and git-fact caching |
+| [R-D5](#r-d5) | P2 | M-L | done | Server view models, compression and git-fact caching |
 | [R-D6](#r-d6) | P4 | L | open | Shared projections keyed by write generation (only if still needed) |
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
 | [R-E1](#r-e1) | P2 | M | done (a07dbfe, 4102517) | Real routes and one Link component |
@@ -75,7 +75,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G6](#r-g6) | P2 | M | open | Redesign briefs around the task |
 | [R-G7](#r-g7) | P1 | M | partial (0fc17d2; live measurement after deploy) | Stop cold-building Rust on every step |
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
-| [R-G9](#r-g9) | P2 | M | open | Authentication and authorization hardening |
+| [R-G9](#r-g9) | P2 | M | done | Authentication and authorization hardening |
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |

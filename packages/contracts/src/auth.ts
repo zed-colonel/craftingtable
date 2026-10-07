@@ -34,6 +34,10 @@ export const apiErrorReasonSchema = z.enum([
   'repository-outside-roots',
   /** A merge's destination branch moved after the merge read it; nothing was merged (R-G10). */
   'target-moved',
+  /** A promotion into the primary checkout meets uncommitted tracked changes, in `paths` (R-G10). */
+  'checkout-dirty',
+  /** A promotion would overwrite files the primary checkout does not track, in `paths` (R-G10). */
+  'checkout-would-overwrite',
 ]);
 
 export const apiErrorResponseSchema = z.strictObject({

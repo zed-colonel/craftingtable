@@ -259,16 +259,17 @@ describe('git operations', () => {
     });
     expect(!missingFrom.ok && missingFrom.failure.message).toMatch(/no-such-branch/);
 
-    // Dirty primary checkout on the target: refused.
-    writeFileSync(join(repo.repository, 'dirty.txt'), 'dirty\n');
+    // Tracked changes in the primary checkout on the target: refused.
+    writeFileSync(join(repo.repository, 'README.md'), 'dirty\n');
     const dirty = await operations.mergeBranch({
       repositoryPath: repo.repository,
       branchName: 'ct/merge-1',
       targetBranch: 'main',
       message: 'merge',
     });
+    expect(!dirty.ok && dirty.failure.kind).toBe('checkout-dirty');
     expect(!dirty.ok && dirty.failure.message).toMatch(/uncommitted/);
-    rmSync(join(repo.repository, 'dirty.txt'));
+    runFixtureGit(['checkout', '--', 'README.md'], { cwd: repo.repository });
 
     // Bad branch names never reach git.
     const hostile = await operations.mergeBranch({

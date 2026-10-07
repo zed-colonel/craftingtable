@@ -260,6 +260,39 @@ describe('review-gated merge', () => {
     ).toBe('active');
   });
 
+  it('promotes past untracked files in the primary checkout, and refuses one it would overwrite by code with its path (R-G10)', async () => {
+    const state = await ready();
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    await admit(state);
+    writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+    git(['add', '--all'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+    const main = git(['rev-parse', 'main'], repositoryPath).trim();
+
+    writeFileSync(join(repositoryPath, 'feature.txt'), "the operator's own\n");
+    writeFileSync(join(repositoryPath, 'notes.txt'), 'not in the way\n');
+    const refused = await merge(state, worktree.id);
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json()).toMatchObject({
+      error: {
+        code: 'conflict',
+        reason: 'checkout-would-overwrite',
+        paths: ['feature.txt'],
+        pathCount: 1,
+      },
+    });
+    expect(git(['rev-parse', 'main'], repositoryPath).trim()).toBe(main);
+    expect(readFileSync(join(repositoryPath, 'feature.txt'), 'utf8')).toBe("the operator's own\n");
+
+    rmSync(join(repositoryPath, 'feature.txt'));
+    const merged = await merge(state, worktree.id);
+    expect(merged.statusCode, merged.body).toBe(200);
+    expect(readFileSync(join(repositoryPath, 'feature.txt'), 'utf8')).toBe('feature\n');
+    expect(readFileSync(join(repositoryPath, 'notes.txt'), 'utf8')).toBe('not in the way\n');
+  });
+
   it('reports a conflicting merge and leaves the checkout clean', async () => {
     const state = await ready();
     const repositoryPath = fixtureRepository();

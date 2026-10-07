@@ -50,6 +50,10 @@ export type GitFailureKind =
   | 'merge-in-progress'
   /** The branch a merge moves changed after the merge read it; nothing was merged. */
   | 'target-moved'
+  /** The primary checkout has uncommitted changes to tracked files (`changedPaths`). */
+  | 'checkout-dirty'
+  /** A merge would overwrite files the primary checkout does not track (`changedPaths`). */
+  | 'checkout-would-overwrite'
   /** A non-forced worktree removal found uncommitted or untracked paths. */
   | 'worktree-dirty'
   | 'timed-out'
@@ -62,7 +66,10 @@ export interface GitFailure {
   readonly exitCode?: number;
   readonly stderr?: string;
   readonly conflictPaths?: readonly string[];
-  /** For `worktree-dirty`: up to CHANGED_PATH_LIMIT changed paths, and how many there are. */
+  /**
+   * For `worktree-dirty`, `checkout-dirty` and `checkout-would-overwrite`: up to
+   * CHANGED_PATH_LIMIT of the paths concerned, and how many there are.
+   */
   readonly changedPaths?: readonly string[];
   readonly changedPathCount?: number;
   readonly diagnostics?: string;
@@ -303,9 +310,10 @@ export interface GitOperations {
    * The commit is built with plumbing, without a worktree: `merge-tree`, then `commit-tree`.
    * A target not checked out moves by compare-and-swap (`update-ref <new> <expected>`), which
    * also creates a missing target from `createTargetFrom`. A target the primary checkout has
-   * checked out (which must be clean) fast-forwards to the commit. A target that moved since
-   * the merge read it is `target-moved`, and a conflict `merge-conflict`; either way nothing
-   * moves.
+   * checked out fast-forwards to the commit there: tracked changes refuse it (`checkout-dirty`),
+   * and untracked files only where it would overwrite them (`checkout-would-overwrite`). A
+   * target that moved since the merge read it is `target-moved`, and a conflict
+   * `merge-conflict`; either way nothing moves.
    */
   mergeBranch(input: {
     /** Pin an operator-approved review to this source commit even if its branch moves. */
@@ -532,6 +540,12 @@ function statusFromLetter(letter: string): DiffFileStatus {
     default:
       return 'unknown';
   }
+}
+
+/** Up to five paths for a message, and how many more there are. */
+function namedPaths(paths: readonly string[]): string {
+  const shown = paths.slice(0, 5).join(', ');
+  return paths.length > 5 ? `${shown} and ${paths.length - 5} more` : shown;
 }
 
 /** The first `maxBytes` of a patch, taken chunk by chunk; past them it asks to stop. */
@@ -1490,6 +1504,59 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       `${branch} moved while it was merged into; nothing was merged. Update the worktree and review again.`,
     );
 
+  /**
+   * The files in `cwd` that a fast-forward from `fromSha` to `toSha` would overwrite although
+   * Git does not track them (R-G10 D2): an entry at a path the commit adds, or a non-directory
+   * where it adds a directory, unless `fromSha` tracks that entry. The checkout is clean.
+   */
+  async function untrackedInTheWay(
+    cwd: string,
+    fromSha: string,
+    toSha: string,
+  ): Promise<GitResult<string[]>> {
+    const changed = await runOk(
+      [
+        'diff',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--no-renames',
+        '--name-status',
+        '-z',
+        fromSha,
+        toSha,
+        '--',
+      ],
+      cwd,
+    );
+    if (!changed.ok) return changed;
+    const records = splitNul(changed.value.stdout);
+    const added: string[] = [];
+    const removed = new Set<string>();
+    for (let index = 0; index + 1 < records.length; index += 2) {
+      const [status, path] = [records[index] ?? '', records[index + 1] ?? ''];
+      if (status === 'A') added.push(path);
+      else if (status === 'D' || status === 'T') removed.add(path);
+    }
+    const blocking = new Set<string>();
+    for (const path of added) {
+      const parts = path.split('/');
+      for (let depth = 1; depth <= parts.length; depth++) {
+        const prefix = parts.slice(0, depth).join('/');
+        let info: Awaited<ReturnType<typeof lstat>>;
+        try {
+          info = await lstat(join(cwd, prefix));
+        } catch {
+          break;
+        }
+        // A directory on the way down is where the new file goes; the path itself must be free.
+        if (depth < parts.length && info.isDirectory()) continue;
+        if (!removed.has(prefix)) blocking.add(prefix);
+        break;
+      }
+    }
+    return { ok: true, value: [...blocking].sort() };
+  }
+
   async function mergeBranch(input: {
     readonly sourceCommitSha?: string;
     readonly expectedTargetSha?: string;
@@ -1550,14 +1617,19 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
           'merge-in-progress',
           `The primary checkout on ${input.targetBranch} has a merge in progress; finish it or run git merge --abort before merging`,
         );
-      const status = await runOk(['status', '--porcelain', '-z'], cwd);
+      // Untracked files do not block it (R-G10 D2): only those the merge would overwrite.
+      const status = await runOk(
+        ['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=no'],
+        cwd,
+      );
       if (!status.ok) return status;
-      if (status.value.stdout.byteLength > 0) {
+      const dirty = splitNul(status.value.stdout).map((entry) => entry.slice(3));
+      if (dirty.length > 0)
         return fail(
-          'git-failed',
-          `The primary checkout is on ${input.targetBranch} with uncommitted changes; commit or stash them before merging`,
+          'checkout-dirty',
+          `The primary checkout is on ${input.targetBranch} with uncommitted changes to ${namedPaths(dirty)}; commit or stash them before merging`,
+          { changedPaths: dirty.slice(0, CHANGED_PATH_LIMIT), changedPathCount: dirty.length },
         );
-      }
     }
     const ref = `refs/heads/${input.targetBranch}`;
     const target = await commitOf(
@@ -1598,6 +1670,17 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     }
     // The checked-out target (R-G10 D4): a fast-forward to the merge commit, which refuses
     // a target that moved since the commit was built on it.
+    const inTheWay = await untrackedInTheWay(cwd, target.value, built.value);
+    if (!inTheWay.ok) return inTheWay;
+    if (inTheWay.value.length > 0)
+      return fail(
+        'checkout-would-overwrite',
+        `Merging into ${input.targetBranch} would overwrite ${namedPaths(inTheWay.value)} in the primary checkout, which Git does not track; move or remove them before merging`,
+        {
+          changedPaths: inTheWay.value.slice(0, CHANGED_PATH_LIMIT),
+          changedPathCount: inTheWay.value.length,
+        },
+      );
     if (await refMoved(cwd, 'HEAD', target.value)) return targetMoved(input.targetBranch);
     const applied = await run(['merge', '--ff-only', '--', built.value], cwd);
     if (!applied.ok) {

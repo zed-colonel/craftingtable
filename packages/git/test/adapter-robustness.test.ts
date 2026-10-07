@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createGitOperations } from '../src/operations.js';
@@ -393,6 +393,52 @@ process.exit(result.status ?? 1);
     expect(git('cat-file', 'commit', merged.value.mergeSha)).toContain(
       'gpgsig -----BEGIN PGP SIGNATURE-----',
     );
+  });
+});
+
+describe('promotion into the primary checkout (R-G10 D, GIT-07)', () => {
+  it('promotes past an untracked file that is not in the way, and keeps it', async () => {
+    const { repo, git } = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    writeFileSync(join(repo.repository, 'notes.txt'), 'operator notes\n');
+    const merged = await operations.mergeBranch(mergeInput(repo.repository));
+    if (!merged.ok) throw new Error(JSON.stringify(merged.failure));
+    expect(git('rev-parse', 'HEAD')).toBe(merged.value.mergeSha);
+    expect(readFileSync(join(repo.repository, 'notes.txt'), 'utf8')).toBe('operator notes\n');
+    expect(git('status', '--porcelain')).toBe('?? notes.txt');
+  });
+
+  it('refuses untracked files the promotion would overwrite, naming them, and moves nothing', async () => {
+    const { repo, git, main } = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    // The source also adds a file under `nested/`, where the checkout has a file named `nested`.
+    git('checkout', '-q', 'ct/feature');
+    mkdirSync(join(repo.repository, 'nested'));
+    writeFileSync(join(repo.repository, 'nested', 'file.txt'), 'nested\n');
+    git('add', '--', 'nested/file.txt');
+    git('commit', '-q', '--no-gpg-sign', '-m', 'nested');
+    git('checkout', '-q', 'main');
+    writeFileSync(join(repo.repository, 'feature.txt'), "the operator's own\n");
+    writeFileSync(join(repo.repository, 'nested'), 'in the way\n');
+    writeFileSync(join(repo.repository, 'notes.txt'), 'not in the way\n');
+    const refused = await operations.mergeBranch(mergeInput(repo.repository));
+    expect(!refused.ok && refused.failure).toMatchObject({
+      kind: 'checkout-would-overwrite',
+      changedPaths: ['feature.txt', 'nested'],
+      changedPathCount: 2,
+    });
+    expect(git('rev-parse', 'HEAD')).toBe(main);
+    expect(readFileSync(join(repo.repository, 'feature.txt'), 'utf8')).toBe("the operator's own\n");
+  });
+
+  it('refuses dirty tracked files with their own kind', async () => {
+    const { repo, git, main } = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    writeFileSync(join(repo.repository, 'README.md'), 'edited by the operator\n');
+    const refused = await operations.mergeBranch(mergeInput(repo.repository));
+    expect(!refused.ok && refused.failure).toMatchObject({
+      kind: 'checkout-dirty',
+      changedPaths: ['README.md'],
+      changedPathCount: 1,
+    });
+    expect(git('rev-parse', 'HEAD')).toBe(main);
   });
 });
 

@@ -1051,26 +1051,30 @@ describe('staged finalization', () => {
 
     // Operator decision 2026-10-07 (L2): a withheld gate or verdict is waived only while every
     // open finding is a parked nit; a reviewer withholding it for anything else says so.
-    it.each(['only an optional idea', 'a parked nit and an optional idea'] as const)(
+    it.each(['no finding', 'only an optional idea', 'a parked nit and an optional idea'] as const)(
       'does not waive a withheld gate with %s open',
       async (open) => {
         const f = await begin((request) =>
-          open === 'only an optional idea'
-            ? { findings: [idea], met: false }
-            : stagedKind(request) === 'correctness'
-              ? { findings: [nit], met: false }
-              : { findings: [nit, idea], met: false },
+          open === 'no finding'
+            ? { findings: [], met: false }
+            : open === 'only an optional idea'
+              ? { findings: [idea], met: false }
+              : stagedKind(request) === 'correctness'
+                ? { findings: [nit], met: false }
+                : { findings: [nit, idea], met: false },
         );
         expect(f.cycle().attention?.code).toBe('remediation-exhausted');
         expect(f.cycle().finalizationProgress?.stageIndex).toBe(
-          open === 'only an optional idea' ? 0 : 1,
+          open === 'a parked nit and an optional idea' ? 1 : 0,
         );
         expect(
           f
             .cycle()
             .finalizationProgress?.followUps.map((x) => x.id)
             .sort(),
-        ).toEqual(open === 'only an optional idea' ? ['S-1'] : ['C-1', 'S-1']);
+        ).toEqual(
+          { 'no finding': [], 'only an optional idea': ['S-1'] }[open as string] ?? ['C-1', 'S-1'],
+        );
       },
     );
 

@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   type BrowserContext,
   test as base,
@@ -297,6 +299,37 @@ const GIT_ENV = {
 /** Runs Git in a fixture repository with no user or system configuration; returns trimmed stdout. */
 export function git(args: readonly string[], cwd: string): string {
   return execFileSync('git', [...args], { cwd, encoding: 'utf8', env: GIT_ENV }).trim();
+}
+
+/**
+ * Commits a `.craftingtable/checks.json` to a fixture repository's current branch, as an operator
+ * proposes a repository's checks (R-G13). Its one check reads only the reviewed commit, and needs
+ * no definition file. Commit it before the integration branch is cut, so slices carry it too.
+ */
+export function proposeRepositoryChecks(repository: string): void {
+  mkdirSync(join(repository, '.craftingtable'), { recursive: true });
+  writeFileSync(
+    join(repository, '.craftingtable', 'checks.json'),
+    `${JSON.stringify({
+      version: 1,
+      checks: [{ id: 'whitespace', argv: ['git', 'diff', '--check', 'HEAD'] }],
+    })}\n`,
+  );
+  git(['add', '.craftingtable/checks.json'], repository);
+  git(['commit', '-m', 'Propose repository checks'], repository);
+}
+
+/**
+ * Adopts a registered repository's checks file on the Repositories page, as the operator does
+ * (R-G13): a roadmap's cycles in a repository without adopted checks stop as
+ * `repository-checks-undeclared` (increment 4, D2). The page must be on Repositories.
+ */
+export async function adoptRepositoryChecks(page: Page, displayName: string): Promise<void> {
+  const checks = page.getByRole('region', { name: `Checks for ${displayName}`, exact: true });
+  await checks.getByRole('button', { name: 'Review checks file', exact: true }).click();
+  await checks.getByLabel('Why these checks').fill('The fixture repository checks.');
+  await checks.getByRole('button', { name: /^Adopt checks at / }).click();
+  await expect(checks.getByText(/^Version 1, adopted from /)).toBeVisible();
 }
 
 /**

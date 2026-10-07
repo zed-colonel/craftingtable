@@ -2,10 +2,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  adoptRepositoryChecks,
   E2E_PASSWORD,
   expect,
   expectSignedIn,
   git,
+  proposeRepositoryChecks,
   sendCommand,
   submitSignIn,
   test,
@@ -27,6 +29,7 @@ for (const decision of ['remediate', 'staged'] as const) {
       writeFileSync(join(repository, 'README.md'), '# Finalization fixture\n');
       git(['add', '.'], repository);
       git(['commit', '-m', 'initial'], repository);
+      proposeRepositoryChecks(repository);
       git(['branch', 'revision'], repository);
       const main = git(['rev-parse', 'main'], repository);
       await page.goto('/');
@@ -64,6 +67,8 @@ for (const decision of ['remediate', 'staged'] as const) {
       await page.getByLabel('Display name (optional)').fill('Finalization repository');
       await page.getByRole('button', { name: 'Register', exact: true }).click();
       await expect(page.getByText(repository, { exact: true })).toBeVisible();
+      // A roadmap runs only in a repository with adopted checks (R-G13 increment 4, D2).
+      await adoptRepositoryChecks(page, 'Finalization repository');
       await navigate('Projects');
       await page.getByRole('button', { name: 'Finalization AQ', exact: true }).click();
       const branches = page.getByRole('region', { name: 'Repository & branches', exact: true });

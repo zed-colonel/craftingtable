@@ -2,11 +2,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  adoptRepositoryChecks,
   expect,
   expectSignedIn,
   git,
   openMergeDecision,
   openRoadmap,
+  proposeRepositoryChecks,
   sendCommand,
   submitSignIn,
   test,
@@ -23,6 +25,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
       writeFileSync(join(repository, 'README.md'), '# Roadmap fixture\n');
       git(['add', '.'], repository);
       git(['commit', '-m', 'initial'], repository);
+      proposeRepositoryChecks(repository);
       git(['branch', 'revision-roadmap'], repository);
       const initial = git(['rev-parse', 'revision-roadmap'], repository);
       await page.goto('/');
@@ -65,6 +68,8 @@ for (const mode of ['sequential', 'parallel'] as const) {
       await page.getByLabel('Display name (optional)').fill('Roadmap repository');
       await page.getByRole('button', { name: 'Register', exact: true }).click();
       await expect(page.getByText(repository, { exact: true })).toBeVisible();
+      // A roadmap runs only in a repository with adopted checks (R-G13 increment 4, D2).
+      await adoptRepositoryChecks(page, 'Roadmap repository');
       await navigate('Projects');
       await page.getByRole('button', { name: 'Roadmap AQ', exact: true }).click();
       const branches = page.getByRole('region', { name: 'Repository & branches', exact: true });

@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Browser, devices, type Locator, type Page } from '@playwright/test';
 import {
+  adoptRepositoryChecks,
   E2E_USERNAME,
   expect,
   git,
   openMergeDecision,
+  proposeRepositoryChecks,
   sendCommand,
   setupStep,
   signIn,
@@ -273,6 +275,8 @@ test('captures every page of the app on desktop and phone viewports', async ({
   const repository = initRepository('craftingtable-walkthrough-repo-', {
     'README.md': '# Walkthrough fixture\n',
   });
+  // Its roadmap runs only with adopted checks (R-G13 increment 4, D2), adopted below.
+  proposeRepositoryChecks(repository);
   const upstream = initRepository('craftingtable-walkthrough-upstream-', {
     'Cargo.toml':
       '[package]\nname="aq_walkthrough_pin"\nversion="0.2.0"\nedition="2021"\n[lib]\npath="lib.rs"\n',
@@ -325,6 +329,8 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await page.getByRole('button', { name: 'Register', exact: true }).click();
     await expect(page.getByText(upstream, { exact: true })).toBeVisible();
     await walk.capture('repositories', 'Repositories', heading('Repositories'));
+    // After the capture, so the page is captured as before (R-G13 increment 4, D2).
+    await adoptRepositoryChecks(page, 'Walkthrough repository');
 
     await navigate(page, 'Projects');
     await walk.capture('projects', 'Projects', heading('Projects'));

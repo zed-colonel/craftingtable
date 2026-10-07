@@ -1033,3 +1033,75 @@ it('retries a delegated merge the busy repository refused, without a stop (R-G10
     state.context.storage.execution.merges.latest(state.workspaceId, attempt.worktreeId),
   ).toMatchObject({ status: 'cleaned' });
 });
+
+/**
+ * A Git whose first `moves` merges meet a target someone else moved: the merge is refused as
+ * `target-moved`, and the target goes back where it was, so integration has not advanced.
+ */
+function movedTargetGit(moves: number) {
+  const realGit = createGitOperations({ gitExecutable: 'git' });
+  const calls = { count: 0 };
+  const gitOperations: GitOperations = {
+    ...realGit,
+    mergeBranch: async (input) => {
+      calls.count += 1;
+      if (calls.count > moves) return realGit.mergeBranch(input);
+      const ref = `refs/heads/${input.targetBranch}`;
+      const target = git(['rev-parse', ref], input.repositoryPath).trim();
+      const moved = git(
+        ['commit-tree', '-p', target, '-m', 'moved elsewhere', `${target}^{tree}`],
+        input.repositoryPath,
+      ).trim();
+      git(['update-ref', ref, moved], input.repositoryPath);
+      try {
+        return await realGit.mergeBranch(input);
+      } finally {
+        git(['update-ref', ref, target, moved], input.repositoryPath);
+      }
+    },
+  };
+  return { gitOperations, calls };
+}
+
+it('retries a delegated merge refused as target-moved on a later pass, without a stop (R-G10, operator decision 2026-10-07)', async () => {
+  const { gitOperations, calls } = movedTargetGit(1);
+  const fixture = await roadmapFixture(undefined, { gitOperations });
+  const { state } = fixture;
+  await useIntegration(fixture);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  const statuses = new Set<string>();
+  await roadmapControl(state, 'start');
+  await waitFor(() => {
+    const roadmap = storedRoadmap(state);
+    statuses.add(roadmap.status);
+    return roadmap.status === 'completed';
+  }, 'merged on a later pass');
+  expect(calls.count).toBe(2);
+  expect(statuses.has('needs-attention')).toBe(false);
+  expect(Object.keys(storedRoadmap(state).entryHolds ?? {})).toEqual([]);
+});
+
+it('holds the roadmap as before once target-moved refusals pass the retry bound (R-G10, operator decision 2026-10-07)', async () => {
+  const { gitOperations, calls } = movedTargetGit(Number.POSITIVE_INFINITY);
+  const fixture = await roadmapFixture(undefined, { gitOperations });
+  const { state } = fixture;
+  await useIntegration(fixture);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  await roadmapControl(state, 'start');
+  await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'held after the bound');
+  // Held as before the retry: the scheduler's stop, with the refusal as its reason.
+  expect(storedRoadmap(state)).toMatchObject({
+    attention: { code: 'scheduler-error' },
+    reason: expect.stringMatching(/moved while it was merged into/),
+  });
+  // Three retries, then the hold: no further merge is attempted.
+  expect(calls.count).toBe(4);
+  await stepDaemons(5);
+  expect(calls.count).toBe(4);
+});

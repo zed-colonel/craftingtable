@@ -121,6 +121,13 @@ import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 
 class SupersededRoadmapOperation extends Error {}
+/**
+ * A delegated merge refused because its destination moved (`target-moved`), left for a later
+ * pass (R-G10, operator decision 2026-10-07): that pass refreshes the worktree if integration
+ * advanced, then merges again. After TARGET_MOVED_RETRIES the refusal holds as any other.
+ */
+class MergeTargetMovedRetry extends Error {}
+const TARGET_MOVED_RETRIES = 3;
 /** A definition's shared-decision inbox as the R-C3b hold reads it, and when it was built. */
 interface HoldInbox {
   readonly generation: number;
@@ -135,7 +142,8 @@ function retried(error: unknown): boolean {
     (error instanceof PhaseGateError && error.waiting) ||
     error instanceof RepositoryMutationBusyError ||
     error instanceof WorktreeMutationBusyError ||
-    error instanceof IntegrationHeldError
+    error instanceof IntegrationHeldError ||
+    error instanceof MergeTargetMovedRetry
   );
 }
 
@@ -794,6 +802,8 @@ export class RoadmapService {
   }
   /** When a standing preparation that could not be reserved is tried again, per decision. */
   private readonly preparationRetryAt = new Map<string, number>();
+  /** Consecutive `target-moved` refusals of each worktree's delegated merge, in memory. */
+  private readonly targetMovedRefusals = new Map<string, number>();
   /** Whoever granted standing preparation, while they may still prepare decisions. */
   private grantor(roadmap: Roadmap) {
     const id = roadmap.decisionPreparationGrant?.grantedByUserId;
@@ -2485,7 +2495,16 @@ export class RoadmapService {
               undefined,
               { roadmapId: roadmap.id, definitionRevision: attempt.definitionRevision, check },
             );
+            this.targetMovedRefusals.delete(attempt.worktreeId);
           } catch (error) {
+            if (error instanceof ExecutionRequestError && error.detail?.reason === 'target-moved') {
+              const refusals = (this.targetMovedRefusals.get(attempt.worktreeId) ?? 0) + 1;
+              if (refusals <= TARGET_MOVED_RETRIES) {
+                this.targetMovedRefusals.set(attempt.worktreeId, refusals);
+                throw new MergeTargetMovedRetry(error.message);
+              }
+              this.targetMovedRefusals.delete(attempt.worktreeId);
+            }
             // The review skipped adopted checks: one fresh review runs them (LIVE-24). A second
             // refusal of the same commit holds, with the refusal as its reason.
             if (

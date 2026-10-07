@@ -2768,11 +2768,17 @@ export class RuntimeEvidenceService {
   ) {
     if (!tx.runtimeEvidence.run(tree.workspaceId, runId)) {
       const adoption = tx.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0];
-      if (adoption)
+      if (adoption) {
+        // A cycle that owns the worktree reviews afresh when it is paused and resumed, and keeps
+        // its roadmap; without one, the operator starts the review (re-check R1).
+        const exit = tx.execution.cycles.activeForWorktree(tree.workspaceId, tree.id)
+          ? 'Pause its cycle, then resume it: the fresh review'
+          : 'Run a fresh review: CraftingTable';
         throw new DeclaredChecksMissingError(
           adoption.checks.map((check) => check.id),
-          `This review was prepared without the repository's adopted checks (version ${adoption.version}), so none of them ran for it. The merge needs a successful run of each on its exact clean reviewed commit: ${adoption.checks.map((check) => `ct-check --declared ${check.id}`).join(', ')}. Run a fresh review; CraftingTable runs them before it starts.`,
+          `This review was prepared without the repository's adopted checks (version ${adoption.version}), so none of them ran for it. The merge needs a successful run of each on its exact clean reviewed commit: ${adoption.checks.map((check) => `ct-check --declared ${check.id}`).join(', ')}. ${exit} runs them before it starts.`,
         );
+      }
     }
     this.assertRun(tree, runId, tx, pendingDefinitions);
   }

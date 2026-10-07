@@ -18,6 +18,7 @@ import {
   admit,
   CycleBackend,
   cleanupExecutionFixtures,
+  controlCycle,
   currentCycle,
   commitFile,
   declareFixtureChecks,
@@ -352,6 +353,8 @@ it('refuses both merges of a review prepared before its repository adopted check
   // Adopted after the review was prepared: the review ran none of the checks, so it is refused.
   declareFixtureChecks(state);
   await expectBothMergesRefused(state, worktree.id);
+  // No cycle owns the worktree: its exit is a fresh review.
+  expect((await merge(state, worktree.id)).body).toContain('Run a fresh review');
   // A fresh review, held to the adoption, merges.
   await runToFinish(state, worktree.id, { role: 'review' });
   const merged = await merge(state, worktree.id);
@@ -612,4 +615,76 @@ it('a check-only slice whose work changed an adopted definition cannot adopt it 
   expect(
     state.context.storage.runtimeEvidence.checkDeclarations(state.workspaceId, f.repository.id),
   ).toHaveLength(1);
+});
+
+it('lists a slice whose review has no record as scope-blocked once its repository adopts checks (R-G13 increment 4, re-check R2)', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    slices: source.slices.map((s) => ({ ...s, mode: 'implementation' })),
+  }));
+  const tree = await scopeTree(f, f.scopes[0]!);
+  commitFile(tree.path, 'slice.txt', 'slice\n');
+  (f.backend as CycleBackend).replyForRequest = () => ({
+    resultText: scopeReport(f.state, tree.executionScope!),
+  });
+  // Reviewed while the repository had no adoption: no record, the earlier rule.
+  const review = await runToFinish(f.state, tree.id, { role: 'review' });
+  expect(f.state.context.storage.runtimeEvidence.run(f.state.workspaceId, review)).toBeUndefined();
+  expect(await mergeGate(f.state, tree.id)).toMatchObject({ mergeable: true, reason: 'ready' });
+  declareFixtureChecks(f.state);
+  expect(await mergeGate(f.state, tree.id)).toMatchObject({
+    mergeable: false,
+    reason: 'scope-blocked',
+  });
+});
+
+it("a roadmap cycle awaiting the operator's merge with a review prepared before its checks were adopted recovers by Pause, then Resume (R-G13 increment 4, re-check R1)", async () => {
+  const { state, backend } = await roadmapFixture([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await waitFor(() => {
+    const attempt = storedRoadmap(state).attempts[0];
+    const cycle =
+      attempt && state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId);
+    return cycle?.status === 'awaiting-merge';
+  }, 'the roadmap cycle awaits its merge');
+  const attempt = storedRoadmap(state).attempts[0]!;
+  const storage = state.context.storage;
+  const first = storage.execution.cycles.find(state.workspaceId, attempt.cycleId)!;
+  // A review prepared before the deploy, or before the adoption: it has no record.
+  const recorded = storage.runtimeEvidence.run.bind(storage.runtimeEvidence);
+  const hidden = vi
+    .spyOn(storage.runtimeEvidence, 'run')
+    .mockImplementation((ws, id) => (id === first.currentRunId ? undefined : recorded(ws, id)));
+  try {
+    const refused = await merge(state, attempt.worktreeId);
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.body).toContain('prepared without the repository');
+    // The refusal names the cycle's own exit.
+    expect(refused.body).toContain('Pause its cycle, then resume it');
+    backend.replyForRequest = () => ({ resultText: reviewText([]) });
+    const paused = await controlCycle(state, first, 'pause');
+    await controlCycle(state, paused, 'resume');
+    await waitFor(() => {
+      const cycle = storage.execution.cycles.find(state.workspaceId, first.id)!;
+      if (cycle.status === 'needs-attention')
+        throw new Error(`${cycle.attention?.code}: ${cycle.reason}`);
+      return cycle.status === 'awaiting-merge' && cycle.currentRunId !== first.currentRunId;
+    }, 'a fresh review awaits the merge');
+    const fresh = storage.execution.cycles.find(state.workspaceId, first.id)!;
+    expect(
+      storage.runtimeEvidence.run(state.workspaceId, fresh.currentRunId)?.checkDeclarationId,
+    ).toBeDefined();
+    const merged = await merge(state, attempt.worktreeId);
+    expect(merged.statusCode, merged.body).toBe(200);
+  } finally {
+    hidden.mockRestore();
+  }
+  // The roadmap kept its cycle throughout.
+  expect(storedRoadmap(state).attempts[0]!.cycleId).toBe(first.id);
+  expect(storedRoadmap(state).status).not.toBe('needs-attention');
 });

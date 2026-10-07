@@ -348,6 +348,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Carried in:* R-F2 part 5 (the capability-gap list in `RuntimeEvidencePanel`) and R-G10's D3 (one sentence in `MergeApproval` and `FinalPromotion` that a promotion updates the operator's checkout, read from a typed "target is checked out" fact on the view, after R-G10's part D).
   - *Sequencing:* before or alongside R-E3b, whose links open these items; R-C6's carry-forward is settled, so checkpoint and plan-acceptance items can get their own hosts.
   - *Left to the building session:* whether "author manually" folds into the card editor; how each item loads its own data (as `decisions/roadmap-runtime.tsx` does); whether the standing preparation grant stays in setup; whether `GET decision-preparations` is retired; copy and walkthrough scenes (no architecture-item scene exists yet).
+
 ### R-A7
 
 **Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: done (9339d01, c6e4042, 27266c0, 9084e50)
@@ -2110,6 +2111,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *Also here:* the plan-level graph on PlanVersionPage, deferred from R-E3b.
   - *Sequencing:* after R-E3b.
   - *Left to the building session:* the slice strip's chips, the run page's tail-first load, where manual merge goes, the phone layout.
+
 ### R-E5
 
 **Consolidate settings and agent selection** · Phase P3 · Effort M · Status: open
@@ -2126,6 +2128,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *Settled elsewhere:* capacity stays in Settings (UI-14); outside sources are shown on Repositories → Tools, read-only (R-G14). The ui-principles line "Link directly from a roadmap into its settings selection" is amended.
   - *Split:* R-E5a, the resolver and types on the daemon, can run any time; R-E5b, the UI, after R-A6's rest (DecisionPreparation's picker moves then).
   - *Left to the building session:* sub-route slugs, how an effective value's source is shown, the "change for this action" disclosure, whether cycle start offers a full editor or an override, the precedence copy, and what happens to `roadmaps/agent-profiles` and `run-profiles`.
+
 ### R-E6
 
 **Operator vocabulary and copy** · Phase P1 · Effort M · Status: done (4c77665, a7d1b19)

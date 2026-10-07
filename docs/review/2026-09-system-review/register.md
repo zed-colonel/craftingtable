@@ -339,7 +339,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW L9, disposition:* Enter no longer saves a proposal from a text field; saving is the button.
   - *LOW L10, fixed:* the heading now says partial; the finalization view's cycle carries no actions yet (nothing reads them before increment 2).
   - *Also noted:* after a newer manual run the daemon offers Resume, and the resume command can still refuse it for the run's handoff lineage (the existing test's 409). That is the domain rule as before; the offer and the command share it from R-B4 on.
-
+- **Decisions for the rest, by the operator 2026-10-06 (P3 design pass; detail is left to the building session).**
+  - *Left:* the architecture trio (`SharedDecisionInbox.tsx`, also embedded in `decisions/design/DesignQuestions.tsx`; `ArchitectureDecisionPanel.tsx`; `DecisionPreparationPanel.tsx`); the registry still sends `architecture-decision`, `shared-decision-required`, `decision-preparation-questions`, `checkpoint-evidence` and `plan-acceptance` items to a whole setup step (`RuntimeEvidencePanel`, under its unsaved-draft gate); and four operator commands live outside `decisions/` and the boundary test: map adoption (`supervision/adopt`), scope evidence and early-development authorization (`ExecutionScopesPanel`), and the delegation grant (`RoadmapDelegationPanel`).
+  - *Decisions:*
+    - **A1, "decision commands" for P3's exit criterion** are R-A6's table plus every command that resolves an operator-owned stop: the four above each move to `decisions/<kind>/` and onto the boundary test's list. Configuration and manual controls stay where they are. Tagging every route decision, control or config, read by the web test, goes to R-H5. R-C7's D4 (no fold) keeps scope evidence a decision command.
+    - **A2, an architecture or checkpoint item renders only its own decision card;** batch approval stays in setup's decisions step.
+    - **A3, design questions link to each blocking shared decision's own item** instead of embedding `SharedDecisionInbox`, so the trio can be deleted.
+  - *Carried in:* R-F2 part 5 (the capability-gap list in `RuntimeEvidencePanel`) and R-G10's D3 (one sentence in `MergeApproval` and `FinalPromotion` that a promotion updates the operator's checkout, read from a typed "target is checked out" fact on the view, after R-G10's part D).
+  - *Sequencing:* before or alongside R-E3b, whose links open these items; R-C6's carry-forward is settled, so checkpoint and plan-acceptance items can get their own hosts.
+  - *Left to the building session:* whether "author manually" folds into the card editor; how each item loads its own data (as `decisions/roadmap-runtime.tsx` does); whether the standing preparation grant stays in setup; whether `GET decision-preparations` is retired; copy and walkthrough scenes (no architecture-item scene exists yet).
 ### R-A7
 
 **Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: done (9339d01, c6e4042, 27266c0, 9084e50)
@@ -2094,7 +2102,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [UI-18](findings/UI-information-architecture.md#ui-18-the-work-item-page-stacks-up-to-about-a-dozen-conditional-panels-in-one-automated-cycle-section-slice-gates-sit-at-the-bottom), [UI-08](findings/UI-information-architecture.md#ui-08-dead-ends-blockers-that-tell-the-operator-to-go-elsewhere-without-a-link-generic-landing-pages-and-deep-links-that-silently-do-nothing)
 - **Change:** Header, attention banner (link to inbox), slice strip, tabs (Cycle, Runs, Branches and worktrees, Gates, Diff); predecessors, dependents and blockers are links; SectionNav includes slices; recovery forms live in the inbox (R-A6).
 - **Done when:** Work-item page height on desktop under ~2 screens for the common states.
-
+- **Decisions, by the operator 2026-10-06 (P3 design pass; detail is left to the building session).**
+  - *Today:* in the 2026-10-06 capture (desktop, 900 px screens) work-item scenes run 1.4 to 3.1 screens; over 2 are cycle setup (2.7), awaiting merge (2.5), slices (3.1), remediation (2.2) and guided recovery (2.3). Predecessors and dependents are plain text (`WorkItemPage.tsx`); slices sit at the bottom; the run page's "Resolve design questions on work item" leads to a banner, not the item (`RunRoute.tsx`).
+  - *Decisions:*
+    - **E4-1, one page with SectionNav:** a slice strip at the top (reusing R-E3b's state and slice chips), linked predecessors and dependents, reference sections closed. Tab sub-routes only if the measured height still exceeds 2 screens.
+    - **E4-2, the in-place fallback stays:** a decision renders in place only when no inbox item carries the stop; it is the same component, so the exit criterion holds.
+    - *Also here:* the plan-level graph on PlanVersionPage, deferred from R-E3b.
+  - *Sequencing:* after R-E3b.
+  - *Left to the building session:* the slice strip's chips, the run page's tail-first load, where manual merge goes, the phone layout.
 ### R-E5
 
 **Consolidate settings and agent selection** · Phase P3 · Effort M · Status: open
@@ -2102,7 +2117,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [UI-14](findings/UI-information-architecture.md#ui-14-settings-that-gate-progress-are-edited-in-many-places), [DATA-11](findings/DATA-storage-domain-contracts.md#data-11-agent-profile-and-selection-shapes-have-multiplied-and-are-stored-in-at-least-12-places)
 - **Change:** Settings sub-routes (general, agents, capacity, notifications, storage); per-roadmap overrides, reviewer responsibilities, integration policy and delegation in roadmap setup with effective values shown; per-action pickers show the effective selection with a "change for this action" disclosure; converge the seven near-identical profile types.
 - **Done when:** Agent selection is edited in two places (workspace defaults, roadmap setup) plus explicit per-action overrides.
-
+- **Decisions, by the operator 2026-10-06 (P3 design pass; detail is left to the building session).**
+  - *Today:* agent selection is edited in about 13 places: workspace defaults (`WorkspaceProfilesSection`) and per-roadmap assignments (`RoadmapAgentProfilesPanel`) in Settings; the roadmap editor and CrossProjectPanel's defaults and overrides in the saved definition; and per-action forms (`CyclePanel`, `DelegationPanel`, `HandoffForm`, `DecisionPreparationPanel`, `DesignQuestions`, `CycleInvestigation`, `FinalizationStageSetup`, `FinalizationRecoveryAgent`). Settings is one page of 3.8 screens; DATA-11's types are still separate.
+  - *Decisions:*
+    - **E5-1, roadmap setup writes only the ADR-064 assignments;** profiles in saved definitions are still read and shown as the lowest layer, so saved files stay valid (rule 2). R-C6's D1 already leaves model profiles out of plan acceptance.
+    - **E5-2, one type set and a pure daemon resolver** (`resolveAgent(context) → {selection, source}`), with the daemon returning effective selections and their sources so the browser derives nothing. No storage change; DATA-11's single `agent_assignments` table goes to P4 or is dropped.
+    - **E5-3, finalization's per-stage profiles count as per-action overrides,** each showing the inherited value and "change for this stage".
+    - *Settled elsewhere:* capacity stays in Settings (UI-14); outside sources are shown on Repositories → Tools, read-only (R-G14). The ui-principles line "Link directly from a roadmap into its settings selection" is amended.
+  - *Split:* R-E5a, the resolver and types on the daemon, can run any time; R-E5b, the UI, after R-A6's rest (DecisionPreparation's picker moves then).
+  - *Left to the building session:* sub-route slugs, how an effective value's source is shown, the "change for this action" disclosure, whether cycle start offers a full editor or an override, the precedence copy, and what happens to `roadmaps/agent-profiles` and `run-profiles`.
 ### R-E6
 
 **Operator vocabulary and copy** · Phase P1 · Effort M · Status: done (4c77665, a7d1b19)

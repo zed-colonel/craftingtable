@@ -138,9 +138,12 @@ observations; they configure no hosting protection and move no refs.
 is live and the most recent run is a finished review with a `mergeable` verdict whose branch
 context matches the worktree's current version and target. The shared merge command
 re-evaluates the gate, verifies the reviewed source and target commits, reserves a durable merge
-operation, and merges with a merge commit into the recorded integration branch. The primary
-checkout is used only when it already has the target checked out; otherwise the merge runs in a
-scratch worktree under the worktree root. The Git commit is reconciled into database completion
+operation, and merges with a merge commit into the recorded integration branch. The commit is
+built without a worktree (`merge-tree`, then `commit-tree`, R-G10); a target not checked out moves
+by compare-and-swap (`update-ref <new> <expected>`), and a target the primary checkout has checked
+out fast-forwards to it there. A target that moved since the merge read it is refused as
+`target-moved`, and nothing moves. Reservations written by releases that merged in a scratch
+worktree under the worktree root still have that scratch recovered and removed. The Git commit is reconciled into database completion
 before worktree and branch cleanup, and cleanup can be retried independently (ADR-021, ADR-033).
 
 **Handoffs.** A run started with `parentRunId` receives a 256 KiB preview of the parent's

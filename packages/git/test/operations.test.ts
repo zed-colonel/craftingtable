@@ -198,9 +198,7 @@ describe('git operations', () => {
       { cwd: worktreePath },
     );
 
-    const scratch = (name: string): string => join(repo.root, 'scratch', name);
-
-    // The primary checkout is elsewhere, so main is merged in a scratch worktree
+    // The primary checkout is elsewhere, so main is merged without a worktree
     // and the operator's checkout is untouched, dirty or not.
     runFixtureGit(['checkout', '-q', '-b', 'elsewhere'], { cwd: repo.repository });
     writeFileSync(join(repo.repository, 'dirty.txt'), 'dirty\n');
@@ -208,7 +206,6 @@ describe('git operations', () => {
       repositoryPath: repo.repository,
       branchName: 'ct/merge-1',
       targetBranch: 'main',
-      scratchPath: scratch('one'),
       message: 'Merge ct/merge-1: feature',
     });
     expect(viaScratch.ok, JSON.stringify(viaScratch)).toBe(true);
@@ -223,7 +220,6 @@ describe('git operations', () => {
         .trim(),
     ).toBe('elsewhere');
     expect(existsSync(join(repo.repository, 'dirty.txt'))).toBe(true);
-    expect(existsSync(scratch('one'))).toBe(false);
     rmSync(join(repo.repository, 'dirty.txt'));
     runFixtureGit(['checkout', '-q', 'main'], { cwd: repo.repository });
 
@@ -239,7 +235,6 @@ describe('git operations', () => {
       branchName: 'ct/merge-1',
       targetBranch: 'aq-cont-1',
       createTargetFrom: 'main',
-      scratchPath: scratch('two'),
       message: 'Merge ct/merge-1 into aq-cont-1',
     });
     expect(newTarget.ok, JSON.stringify(newTarget)).toBe(true);
@@ -260,7 +255,6 @@ describe('git operations', () => {
       branchName: 'ct/merge-1',
       targetBranch: 'brand-new',
       createTargetFrom: 'no-such-branch',
-      scratchPath: scratch('three'),
       message: 'merge',
     });
     expect(!missingFrom.ok && missingFrom.failure.message).toMatch(/no-such-branch/);
@@ -271,7 +265,6 @@ describe('git operations', () => {
       repositoryPath: repo.repository,
       branchName: 'ct/merge-1',
       targetBranch: 'main',
-      scratchPath: scratch('four'),
       message: 'merge',
     });
     expect(!dirty.ok && dirty.failure.message).toMatch(/uncommitted/);
@@ -282,7 +275,6 @@ describe('git operations', () => {
       repositoryPath: repo.repository,
       branchName: '--upload-pack=evil',
       targetBranch: 'main',
-      scratchPath: scratch('five'),
       message: 'merge',
     });
     expect(!hostile.ok && hostile.failure.kind).toBe('invalid-path');
@@ -304,7 +296,6 @@ describe('git operations', () => {
       repositoryPath: repo.repository,
       branchName: 'ct/merge-1',
       targetBranch: 'main',
-      scratchPath: scratch('six'),
       message: 'Merge ct/merge-1: feature',
     });
     expect(merged.ok).toBe(true);
@@ -381,7 +372,6 @@ describe('git operations', () => {
       repositoryPath: repo.repository,
       branchName: 'ct/conflict-1',
       targetBranch: 'main',
-      scratchPath: join(repo.root, 'scratch', 'conflict'),
       message: 'merge',
     });
     expect(!conflict.ok && conflict.failure.kind).toBe('merge-conflict');
@@ -390,19 +380,17 @@ describe('git operations', () => {
     );
     expect(runFixtureGit(['status', '--porcelain'], { cwd: repo.repository }).toString()).toBe('');
 
-    // The same conflict through a scratch worktree leaves no trace either, and
-    // a target created for the attempt is removed again.
+    // The same conflict into a target not checked out leaves no trace either, and
+    // a target that did not exist is never created.
     runFixtureGit(['checkout', '-q', '-b', 'elsewhere'], { cwd: repo.repository });
-    const scratchConflict = await operations.mergeBranch({
+    const elsewhereConflict = await operations.mergeBranch({
       repositoryPath: repo.repository,
       branchName: 'ct/conflict-1',
       targetBranch: 'new-target',
       createTargetFrom: 'main',
-      scratchPath: join(repo.root, 'scratch', 'conflict-2'),
       message: 'merge',
     });
-    expect(!scratchConflict.ok && scratchConflict.failure.kind).toBe('merge-conflict');
-    expect(existsSync(join(repo.root, 'scratch', 'conflict-2'))).toBe(false);
+    expect(!elsewhereConflict.ok && elsewhereConflict.failure.kind).toBe('merge-conflict');
     expect(
       runFixtureGit(['branch', '--list', 'new-target'], { cwd: repo.repository }).toString().trim(),
     ).toBe('');
@@ -503,7 +491,6 @@ describe('interrupted merges (GIT-01)', () => {
         repositoryPath: repo.repository,
         branchName: 'ct/slow',
         targetBranch: 'main',
-        scratchPath: join(repo.root, 'scratch'),
         message: 'merge',
       });
       expect(!merged.ok && merged.failure.kind).toBe('timed-out');
@@ -527,7 +514,6 @@ describe('interrupted merges (GIT-01)', () => {
       repositoryPath: repo.repository,
       branchName: 'ct/slow',
       targetBranch: 'main',
-      scratchPath: join(repo.root, 'scratch'),
       message: 'merge',
     });
     expect(!refused.ok && refused.failure.kind).toBe('merge-in-progress');
@@ -561,7 +547,6 @@ it('merges the approved source commit when its branch has advanced', async () =>
     branchName: 'ct/pinned',
     targetBranch: 'main',
     sourceCommitSha: approved,
-    scratchPath: join(repo.root, 'scratch'),
     message: 'Approved change',
   });
   expect(result.ok, JSON.stringify(result)).toBe(true);
@@ -619,7 +604,6 @@ it('rejects a stale integration snapshot before merging and preserves the target
     targetBranch: 'main',
     sourceCommitSha: original.value,
     expectedTargetSha: original.value,
-    scratchPath: join(repo.root, 'scratch'),
     message: 'must not merge',
   });
   expect(merged.ok).toBe(false);
@@ -1059,7 +1043,6 @@ describe('daemon Git runs no repository hooks, fsmonitor or operator configurati
         repositoryPath: repo.repository,
         branchName: 'ct/hooked',
         targetBranch: 'main',
-        scratchPath: join(repo.root, 'scratch'),
         message: 'merge',
       });
       expect(merged.ok, JSON.stringify(merged)).toBe(true);
@@ -1131,7 +1114,6 @@ describe('merge result prediction (R-G13 increment 5)', () => {
       sourceCommitSha: slice,
       expectedTargetSha: target,
       targetBranch: 'main',
-      scratchPath: join(repo.root, 'scratch', 'predict'),
       message: 'Merge slice',
     });
     if (!merged.ok) throw new Error(merged.failure.message);

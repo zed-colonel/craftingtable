@@ -67,6 +67,7 @@ import {
   CheckAdoptionRequiredError,
   CheckDefinitionChangedError,
   ExecutionRequestError,
+  gitRefusalDetail,
   NotFoundError,
 } from './errors.js';
 import { stagedPromotionIssue } from './finalization-stage-policy.js';
@@ -1895,10 +1896,6 @@ export class ExecutionService {
               repositoryPath: repository.rootPath,
               branchName: worktree.branchName,
               targetBranch: operation.targetBranch,
-              scratchPath: join(
-                this.config.mergeRoot ?? join(this.config.worktreeRoot, '.merge'),
-                operation.id,
-              ),
               message: `CraftingTable integration merge ${operation.id}\n\nMerge ${worktree.branchName}: ${item.sourceId} ${item.title}\nReviewed by ${operation.reviewRunId}.`,
             });
             if (!merged.ok) {
@@ -1913,7 +1910,11 @@ export class ExecutionService {
                   tx.execution.merges.save({ ...reserved, status: 'failed' }),
                 );
               if (!recovered.ok || !recovered.value)
-                throw new ExecutionRequestError('conflict', merged.failure.message);
+                throw new ExecutionRequestError(
+                  'conflict',
+                  merged.failure.message,
+                  gitRefusalDetail(merged.failure),
+                );
               mergeSha = recovered.value;
             } else mergeSha = merged.value.mergeSha;
           }

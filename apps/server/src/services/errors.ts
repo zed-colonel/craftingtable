@@ -1,3 +1,5 @@
+import type { GitFailure, GitFailureKind } from '@craftingtable/git';
+
 export class AuthenticationError extends Error {
   constructor() {
     super('Invalid username or password');
@@ -74,9 +76,28 @@ export interface ExecutionErrorDetail {
   readonly reason:
     | 'worktree-has-changes'
     | 'investigation-worktree-changed'
-    | 'repository-outside-roots';
+    | 'repository-outside-roots'
+    | GitRefusal;
   readonly paths?: readonly string[];
   readonly pathCount?: number;
+}
+
+/**
+ * Git refusals the browser is told by code (R-G10): `target-moved`, the branch a merge moves
+ * changed after the merge read it, so nothing was merged.
+ */
+const GIT_REFUSALS = ['target-moved'] as const satisfies readonly GitFailureKind[];
+type GitRefusal = (typeof GIT_REFUSALS)[number];
+
+/** The typed detail of a Git failure that is one of those refusals; none otherwise. */
+export function gitRefusalDetail(failure: GitFailure): ExecutionErrorDetail | undefined {
+  const reason = GIT_REFUSALS.find((kind) => kind === failure.kind);
+  if (reason === undefined) return undefined;
+  return {
+    reason,
+    ...(failure.changedPaths === undefined ? {} : { paths: failure.changedPaths }),
+    ...(failure.changedPathCount === undefined ? {} : { pathCount: failure.changedPathCount }),
+  };
 }
 
 export class ExecutionRequestError extends Error {

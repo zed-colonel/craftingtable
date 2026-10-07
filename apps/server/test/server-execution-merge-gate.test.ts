@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   mergeWorktreeResponseSchema,
@@ -164,15 +164,15 @@ describe('review-gated merge', () => {
     rmSync(join(worktree.path, 'uncommitted.txt'));
 
     // A primary checkout on another branch does not block the merge: main is
-    // updated through a scratch worktree and the checkout stays where it was.
+    // updated without any worktree (R-G10) and the checkout stays where it was.
     git(['checkout', '-b', 'elsewhere'], repositoryPath);
     const elsewhere = await merge(state, worktree.id);
     expect(elsewhere.statusCode, elsewhere.body).toBe(200);
     const landed = mergeWorktreeResponseSchema.parse(elsewhere.json());
     expect(git(['rev-parse', 'main'], repositoryPath).trim()).toBe(landed.mergeSha);
     expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], repositoryPath).trim()).toBe('elsewhere');
-    expect(existsSync(join(state.context.config.execution.worktreeRoot, '.merge'))).toBe(true);
-    expect(readdirSync(join(state.context.config.execution.worktreeRoot, '.merge'))).toEqual([]);
+    expect(existsSync(join(state.context.config.execution.worktreeRoot, '.merge'))).toBe(false);
+    expect(git(['worktree', 'list', '--porcelain'], repositoryPath)).not.toContain('.merge');
     git(['checkout', 'main'], repositoryPath);
   });
 
@@ -219,6 +219,45 @@ describe('review-gated merge', () => {
       .listAfter({ workspaceId: state.workspaceId, after: 0, limit: 100 })
       .find((entry) => entry.kind === 'worktree-merged');
     expect(event?.kind === 'worktree-merged' && event.payload.targetBranch).toBe('aq-cont-1');
+  });
+
+  it('refuses a merge whose destination moved after the checks with the code target-moved, and moves nothing (R-G10)', async () => {
+    const realGit = createGitOperations({ gitExecutable: 'git' });
+    let mover = '';
+    const state = await ready({
+      gitOperations: {
+        ...realGit,
+        mergeBranch: (input) => {
+          // Someone else moves main between the daemon's checks and its merge.
+          const main = git(['rev-parse', 'main'], input.repositoryPath).trim();
+          mover = git(
+            ['commit-tree', '-p', main, '-m', 'moved elsewhere', `${main}^{tree}`],
+            input.repositoryPath,
+          ).trim();
+          git(['update-ref', 'refs/heads/main', mover], input.repositoryPath);
+          return realGit.mergeBranch(input);
+        },
+      },
+    });
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    await admit(state);
+    writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+    git(['add', '--all'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+    git(['checkout', '-q', '-b', 'elsewhere'], repositoryPath);
+
+    const refused = await merge(state, worktree.id);
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json()).toMatchObject({ error: { code: 'conflict', reason: 'target-moved' } });
+    expect(git(['rev-parse', 'main'], repositoryPath).trim()).toBe(mover);
+    expect(
+      state.context.storage.execution.merges.latest(state.workspaceId, worktree.id)?.status,
+    ).toBe('failed');
+    expect(
+      state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id)?.status,
+    ).toBe('active');
   });
 
   it('reports a conflicting merge and leaves the checkout clean', async () => {

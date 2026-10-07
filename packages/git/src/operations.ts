@@ -48,6 +48,8 @@ export type GitFailureKind =
   | 'merge-conflict'
   /** A merge is pending (MERGE_HEAD) in the checkout the operation needs. */
   | 'merge-in-progress'
+  /** The branch a merge moves changed after the merge read it; nothing was merged. */
+  | 'target-moved'
   /** A non-forced worktree removal found uncommitted or untracked paths. */
   | 'worktree-dirty'
   | 'timed-out'
@@ -288,15 +290,6 @@ export interface GitOperations {
   branchHeads(
     repositoryPath: string,
   ): Promise<GitResult<{ repository: string; heads: Record<string, string> }>>;
-  /**
-   * Merges `branchName` into `targetBranch` with a merge commit.
-   *
-   * When the primary checkout has the target checked out the merge happens
-   * there and the checkout must be clean. Otherwise the merge happens in a
-   * temporary worktree at `scratchPath`, so the primary checkout is never
-   * touched; a missing target is created from `createTargetFrom` first. A
-   * conflicting merge is aborted and reported, leaving everything as it was.
-   */
   inspectMergeOperation(input: {
     repositoryPath: string;
     targetBranch: string;
@@ -304,6 +297,16 @@ export interface GitOperations {
     targetSha: string;
     id: string;
   }): Promise<GitResult<string | undefined>>;
+  /**
+   * Merges `branchName` into `targetBranch` with a merge commit (R-G10, GIT-05).
+   *
+   * The commit is built with plumbing, without a worktree: `merge-tree`, then `commit-tree`.
+   * A target not checked out moves by compare-and-swap (`update-ref <new> <expected>`), which
+   * also creates a missing target from `createTargetFrom`. A target the primary checkout has
+   * checked out (which must be clean) fast-forwards to the commit. A target that moved since
+   * the merge read it is `target-moved`, and a conflict `merge-conflict`; either way nothing
+   * moves.
+   */
   mergeBranch(input: {
     /** Pin an operator-approved review to this source commit even if its branch moves. */
     readonly sourceCommitSha?: string;
@@ -313,7 +316,6 @@ export interface GitOperations {
     readonly targetBranch: string;
     /** A branch name or object name to start a missing target from. */
     readonly createTargetFrom?: string;
-    readonly scratchPath: string;
     readonly message: string;
   }): Promise<GitResult<{ readonly mergeSha: string; readonly createdTarget: boolean }>>;
   /** Deletes a branch already merged into `mergedInto`; a missing branch is not an error. */
@@ -554,6 +556,30 @@ function patchCollector(maxBytes: number) {
     truncated: () => truncated,
     text: () => Buffer.concat(chunks).toString('utf8'),
   };
+}
+
+/**
+ * `merge-tree --write-tree --name-only -z` output: the tree, the conflicted paths, and the
+ * readable messages (each preceded by its path count, paths and message type).
+ */
+function parseMergeTree(stdout: Buffer): {
+  tree: string;
+  paths: string[];
+  messages: string[];
+} {
+  const records = splitNul(stdout);
+  const separator = records.indexOf('', 1);
+  const paths = records.slice(1, separator < 0 ? records.length : separator);
+  const messages: string[] = [];
+  let cursor = separator + 1;
+  while (separator >= 0 && cursor < records.length) {
+    const count = Number(records[cursor++]);
+    if (!Number.isSafeInteger(count) || count < 0) break;
+    cursor += count + 1; // Paths and message type precede the readable message.
+    const message = records[cursor++];
+    if (message) messages.push(message);
+  }
+  return { tree: records[0] ?? '', paths, messages };
 }
 
 export function createGitOperations(options: GitOperationsOptions): GitOperations {
@@ -1276,10 +1302,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       const head = await runOk(['rev-parse', '--verify', 'HEAD'], cwd);
       if (!head.ok) return head;
       if (head.value.stdout.toString('utf8').trim() !== input.expectedTargetSha)
-        return fail(
-          'git-failed',
-          'Integration branch advanced; update the worktree and review again',
-        );
+        return fail('target-moved', 'The worktree moved; refresh it and update again');
     }
     const merged = await run(
       [
@@ -1375,6 +1398,98 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     );
   }
 
+  /** The commit a name resolves to: a full object name, or a branch by its exact ref. */
+  async function commitOf(cwd: string, name: string): Promise<GitResult<string>> {
+    const ref = SHA_PATTERN.test(name) ? name : `refs/heads/${name}`;
+    const resolved = await runOk(
+      ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`],
+      cwd,
+    );
+    if (!resolved.ok) return fail('git-failed', `${name} does not name a commit`);
+    return { ok: true, value: resolved.value.stdout.toString('utf8').trim() };
+  }
+
+  /**
+   * The merge commit of `sourceSha` into `targetSha`, built with plumbing (R-G10, GIT-05): the
+   * tree from `merge-tree`, reading attributes (merge drivers) as the target commit has them,
+   * and the commit from `commit-tree` with both parents, signed where `commit.gpgSign` asks.
+   * Nothing moves: Git writes only unreachable objects. A source the target already contains
+   * gives the target itself, as `git merge` did.
+   */
+  async function buildMergeCommit(
+    cwd: string,
+    input: {
+      readonly branchName: string;
+      readonly targetSha: string;
+      readonly sourceSha: string;
+      readonly message: string;
+    },
+  ): Promise<GitResult<string>> {
+    const contained = await run(
+      ['merge-base', '--is-ancestor', input.sourceSha, input.targetSha],
+      cwd,
+    );
+    if (!contained.ok) return contained;
+    if (contained.value.exitCode === 0) return { ok: true, value: input.targetSha };
+    const merged = await runOk(
+      [
+        `--attr-source=${input.targetSha}`,
+        'merge-tree',
+        '--write-tree',
+        '--name-only',
+        '-z',
+        input.targetSha,
+        input.sourceSha,
+      ],
+      cwd,
+      [0, 1],
+    );
+    if (!merged.ok) return merged;
+    const result = parseMergeTree(merged.value.stdout);
+    if (merged.value.exitCode === 1)
+      return fail('merge-conflict', `Merging ${input.branchName} conflicts; resolve it by hand`, {
+        exitCode: 1,
+        conflictPaths: result.paths,
+        diagnostics: result.messages.join('\n').slice(0, 12000),
+      });
+    if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(result.tree))
+      return fail('git-failed', 'git merge-tree printed no tree.');
+    const signing = await run(['config', '--type=bool', '--get', 'commit.gpgSign'], cwd);
+    if (!signing.ok) return signing;
+    const committed = await runOk(
+      [
+        'commit-tree',
+        ...(signing.value.stdout.toString('utf8').trim() === 'true' ? ['-S'] : []),
+        '-p',
+        input.targetSha,
+        '-p',
+        input.sourceSha,
+        '-F',
+        '-',
+        result.tree,
+      ],
+      cwd,
+      [0],
+      { input: input.message },
+    );
+    if (!committed.ok) return committed;
+    return { ok: true, value: committed.value.stdout.toString('utf8').trim() };
+  }
+
+  /** Whether `ref` no longer holds `expected` (absent when `expected` is all zeros). */
+  async function refMoved(cwd: string, ref: string, expected: string): Promise<boolean> {
+    const current = await run(['rev-parse', '-q', '--verify', ref], cwd);
+    if (!current.ok) return false;
+    const value = current.value.exitCode === 0 ? current.value.stdout.toString('utf8').trim() : '';
+    return value !== (/^0+$/.test(expected) ? '' : expected);
+  }
+
+  const targetMoved = (branch: string) =>
+    fail<never>(
+      'target-moved',
+      `${branch} moved while it was merged into; nothing was merged. Update the worktree and review again.`,
+    );
+
   async function mergeBranch(input: {
     readonly sourceCommitSha?: string;
     readonly expectedTargetSha?: string;
@@ -1382,7 +1497,6 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     readonly branchName: string;
     readonly targetBranch: string;
     readonly createTargetFrom?: string;
-    readonly scratchPath: string;
     readonly message: string;
   }): Promise<GitResult<{ readonly mergeSha: string; readonly createdTarget: boolean }>> {
     const repository = await canonicalDirectory(input.repositoryPath);
@@ -1392,11 +1506,10 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     }
     if (input.sourceCommitSha !== undefined && !SHA_PATTERN.test(input.sourceCommitSha))
       return fail('invalid-path', 'Source commit must be a Git object name');
+    if (input.expectedTargetSha !== undefined && !SHA_PATTERN.test(input.expectedTargetSha))
+      return fail('invalid-path', 'Expected target must be a Git object name');
     if (input.branchName === input.targetBranch) {
       return fail('invalid-path', 'A branch cannot be merged into itself');
-    }
-    if (!isAbsolute(input.scratchPath) || input.scratchPath.includes('\0')) {
-      return fail('invalid-path', 'Scratch path must be absolute');
     }
     const cwd = repository.value;
     const exists = await branchExists(cwd, input.targetBranch);
@@ -1422,10 +1535,16 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (!worktrees.ok) return worktrees;
     const primary = worktrees.value[0];
     const holder = worktrees.value.find((entry) => entry.branch === input.targetBranch);
-
-    if (!createdTarget && holder !== undefined && primary !== undefined && holder === primary) {
-      // The target is what the primary checkout has checked out: merge there,
-      // which needs it clean so the operator's working tree is never mixed in.
+    const checkedOut = !createdTarget && holder !== undefined && holder === primary;
+    if (holder !== undefined && !checkedOut) {
+      return fail(
+        'git-failed',
+        `Branch ${input.targetBranch} is checked out in another worktree (${holder.path})`,
+      );
+    }
+    if (checkedOut) {
+      // The primary checkout has the target: the merge moves it, which needs it clean so the
+      // operator's working tree is never mixed in.
       if (await mergeInProgress(cwd))
         return fail(
           'merge-in-progress',
@@ -1439,50 +1558,70 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
           `The primary checkout is on ${input.targetBranch} with uncommitted changes; commit or stash them before merging`,
         );
       }
-      const merged = await mergeInto(cwd, input);
-      if (!merged.ok) return merged;
-      return { ok: true, value: { mergeSha: merged.value.mergeSha, createdTarget } };
     }
-    if (holder !== undefined) {
+    const ref = `refs/heads/${input.targetBranch}`;
+    const target = await commitOf(
+      cwd,
+      createdTarget ? (input.createTargetFrom as string) : input.targetBranch,
+    );
+    if (!target.ok) return target;
+    if (input.expectedTargetSha !== undefined && target.value !== input.expectedTargetSha)
+      return targetMoved(input.targetBranch);
+    const source = await commitOf(cwd, input.sourceCommitSha ?? input.branchName);
+    if (!source.ok) return source;
+    const built = await buildMergeCommit(cwd, {
+      branchName: input.branchName,
+      targetSha: target.value,
+      sourceSha: source.value,
+      message: input.message,
+    });
+    if (!built.ok) return built;
+    if (built.value === target.value && !createdTarget)
+      return { ok: true, value: { mergeSha: built.value, createdTarget } };
+    const subject = input.message.split('\n')[0] ?? '';
+    if (!checkedOut) {
+      // A compare-and-swap: the ref moves only from the commit the merge was built on, and a
+      // missing target is created only if it is still missing.
+      const expected = createdTarget ? '0'.repeat(target.value.length) : target.value;
+      const moved = await run(
+        ['update-ref', '-m', `merge ${input.branchName}: ${subject}`, ref, built.value, expected],
+        cwd,
+      );
+      if (!moved.ok) return moved;
+      if (moved.value.exitCode !== 0)
+        return (await refMoved(cwd, ref, expected))
+          ? targetMoved(input.targetBranch)
+          : fail('git-failed', `Could not move ${input.targetBranch} to the merge`, {
+              stderr: moved.value.stderr.toString('utf8').slice(0, 4000),
+            });
+      return { ok: true, value: { mergeSha: built.value, createdTarget } };
+    }
+    // The checked-out target (R-G10 D4): a fast-forward to the merge commit, which refuses
+    // a target that moved since the commit was built on it.
+    if (await refMoved(cwd, 'HEAD', target.value)) return targetMoved(input.targetBranch);
+    const applied = await run(['merge', '--ff-only', '--', built.value], cwd);
+    if (!applied.ok) {
+      // The process was killed or never ran: it may have stopped mid-checkout.
+      if (!(await recoverInterruptedMerge(cwd)))
+        return fail(
+          'merge-in-progress',
+          `${applied.failure.message}; the interrupted merge could not be undone. Inspect the checkout (git merge --abort) before retrying.`,
+        );
+      return applied;
+    }
+    if (applied.value.exitCode !== 0) {
+      if (await refMoved(cwd, 'HEAD', target.value)) return targetMoved(input.targetBranch);
+      const stderr = applied.value.stderr.toString('utf8');
       return fail(
         'git-failed',
-        `Branch ${input.targetBranch} is checked out in another worktree (${holder.path})`,
+        `git merge failed: ${stderr.trim().split('\n').at(-1) ?? 'unknown error'}`,
+        {
+          ...(applied.value.exitCode === null ? {} : { exitCode: applied.value.exitCode }),
+          stderr: stderr.slice(0, 4000),
+        },
       );
     }
-
-    // Otherwise merge in a scratch worktree so the primary checkout is untouched
-    // whatever branch it is on and whatever state it is in.
-    try {
-      await mkdir(dirname(input.scratchPath), { recursive: true, mode: 0o700 });
-    } catch (error) {
-      return fail('invalid-path', error instanceof Error ? error.message : 'mkdir failed');
-    }
-    const added = await runOk(
-      createdTarget
-        ? [
-            'worktree',
-            'add',
-            '-b',
-            input.targetBranch,
-            '--',
-            input.scratchPath,
-            input.createTargetFrom as string,
-          ]
-        : ['worktree', 'add', '--', input.scratchPath, input.targetBranch],
-      cwd,
-    );
-    if (!added.ok) return added;
-    const merged = await mergeInto(input.scratchPath, input);
-    // The scratch worktree is temporary either way; the branch keeps the commit.
-    const removed = await runOk(['worktree', 'remove', '--force', '--', input.scratchPath], cwd);
-    if (!merged.ok) {
-      if (createdTarget) {
-        await run(['branch', '-D', '--', input.targetBranch], cwd);
-      }
-      return merged;
-    }
-    if (!removed.ok) return removed;
-    return { ok: true, value: { mergeSha: merged.value.mergeSha, createdTarget } };
+    return { ok: true, value: { mergeSha: built.value, createdTarget } };
   }
 
   /**
@@ -1961,23 +2100,11 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       [0, 1],
     );
     if (!preview.ok) return preview;
-    const records = splitNul(preview.value.stdout);
-    const separator = records.indexOf('', 1);
-    const paths =
-      preview.value.exitCode === 1
-        ? records.slice(1, separator < 0 ? records.length : separator)
-        : [];
+    const parsed = parseMergeTree(preview.value.stdout);
+    const paths = preview.value.exitCode === 1 ? parsed.paths : [];
     if (paths.length > 1000)
       return fail('git-failed', 'Integration conflict exceeds the 1000-file limit');
-    const messages: string[] = [];
-    let cursor = separator + 1;
-    while (separator >= 0 && cursor < records.length) {
-      const count = Number(records[cursor++]);
-      if (!Number.isSafeInteger(count) || count < 0) break;
-      cursor += count + 1; // Paths and message type precede the readable message.
-      const message = records[cursor++];
-      if (message) messages.push(message);
-    }
+    const messages = parsed.messages;
     const log = await runOk(
       ['log', '--oneline', '--max-count=50', `${input.headSha}..${input.targetSha}`],
       input.worktreePath,

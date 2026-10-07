@@ -9,7 +9,8 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import { RepositoryMutationBusyError } from '../src/services/branch-service.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -944,14 +945,18 @@ it.each([
 it('cleans an interrupted reserved scratch worktree before retrying an uncommitted merge', async () => {
   const realGit = createGitOperations({ gitExecutable: 'git' });
   let interrupted = false;
+  let scratchRoot = '';
   const fixture = await roadmapFixture(undefined, {
     gitOperations: {
       ...realGit,
       mergeBranch: async (input) => {
         if (!interrupted) {
           interrupted = true;
+          // A release before R-G10 merged in a scratch worktree named by the reservation, and
+          // could be interrupted with it in place.
+          const id = input.message.split('\n')[0]?.split(' ').at(-1) ?? '';
           git(
-            ['worktree', 'add', '--', input.scratchPath, input.targetBranch],
+            ['worktree', 'add', '--', join(scratchRoot, id), input.targetBranch],
             input.repositoryPath,
           );
           throw new Error('Interruption before merge');
@@ -961,6 +966,8 @@ it('cleans an interrupted reserved scratch worktree before retrying an uncommitt
     },
   });
   const { state, root } = fixture;
+  const config = state.context.services.storageService.executionConfig;
+  scratchRoot = config.mergeRoot ?? join(config.worktreeRoot, '.merge');
   await useIntegration(fixture);
   await saveRoadmapRequest(state, {
     ...roadmapInput(state, [state.workItemId]),
@@ -980,4 +987,49 @@ it('cleans an interrupted reserved scratch worktree before retrying an uncommitt
   await roadmapControl(state, 'resume');
   await waitFor(() => storedRoadmap(state).status === 'completed', 'recovered scratch merge');
   expect(git(['worktree', 'list', '--porcelain'], root)).not.toContain(operation.id);
+});
+
+it('retries a delegated merge the busy repository refused, without a stop (R-G10, GIT-11)', async () => {
+  const fixture = await roadmapFixture();
+  const { state, root } = fixture;
+  await useIntegration(fixture);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  // The roadmap's first merge meets another daemon mutation holding the repository.
+  const execution = state.context.services.executionService;
+  const mergeWorktree = execution.mergeWorktree.bind(execution);
+  let refused = 0;
+  vi.spyOn(execution, 'mergeWorktree').mockImplementation(async (...args) => {
+    if (refused > 0) return mergeWorktree(...args);
+    let release = () => {};
+    const held = execution.branches.duringMerge(
+      root,
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    try {
+      return await mergeWorktree(...args);
+    } catch (error) {
+      if (error instanceof RepositoryMutationBusyError) refused += 1;
+      throw error;
+    } finally {
+      release();
+      await held;
+    }
+  });
+  const statuses = new Set<string>();
+  await roadmapControl(state, 'start');
+  await waitFor(() => {
+    const roadmap = storedRoadmap(state);
+    statuses.add(roadmap.status);
+    return roadmap.status === 'completed';
+  }, 'merged on a later pass');
+  expect(refused).toBe(1);
+  expect(statuses.has('needs-attention')).toBe(false);
+  expect(Object.keys(storedRoadmap(state).entryHolds ?? {})).toEqual([]);
+  const attempt = present(storedRoadmap(state).attempts[0]);
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, attempt.worktreeId),
+  ).toMatchObject({ status: 'cleaned' });
 });

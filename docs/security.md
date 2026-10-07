@@ -108,8 +108,9 @@ It submits:
   through bounded argument-array operations; no rebase or force-push is exposed;
 - a worktree to merge into its recorded target. The daemon refuses unless its most recent
   run is a review whose final message carried a `mergeable` verdict, both source and target
-  commits still match its recorded context, and no run is live in it. It performs the merge in a
-  scratch worktree unless the primary checkout already has the target checked out. The implementation
+  commits still match its recorded context, and no run is live in it. It builds the merge commit
+  without a worktree and moves the target by compare-and-swap, or fast-forwards the primary
+  checkout when that has the target checked out (R-G10). The implementation
   agent never holds merge authority; a review agent supplies evidence for the daemon
   command under operator approval or explicit integration delegation.
 

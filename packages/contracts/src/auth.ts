@@ -32,6 +32,8 @@ export const apiErrorReasonSchema = z.enum([
   'step-up-failed',
   /** A repository outside `CRAFTINGTABLE_REPOSITORY_ROOTS` cannot be registered (R-G9). */
   'repository-outside-roots',
+  /** A merge's destination branch moved after the merge read it; nothing was merged (R-G10). */
+  'target-moved',
 ]);
 
 export const apiErrorResponseSchema = z.strictObject({

@@ -16,7 +16,57 @@ import {
 } from 'node:fs';
 import { delimiter, dirname, join, resolve, relative, isAbsolute } from 'node:path';
 
-export interface PinnedCargoManifest {
+/**
+ * What every run's verification manifest holds (R-G13 increment 4): the run, the daemon's Git and
+ * the directories it resolved, the worktree, the check time limit, and the repository's adopted
+ * checks the run is held to. A run with a pinned dependency environment has a
+ * `PinnedCargoManifest`; a run without one, in a repository with adopted checks, a check-only
+ * manifest (`kind: 'checks'`).
+ */
+export interface CheckManifest {
+  /** `checks` on a check-only manifest; absent on a pinned Cargo manifest. */
+  readonly kind?: 'checks';
+  readonly runId: string;
+  readonly gitExecutable: string;
+  /**
+   * The worktree's git directory and the repository's common directory, resolved by the daemon
+   * before the agent starts (R-G4). Daemon Git on the worktree uses them rather than following
+   * the worktree's `.git` pointer, which the agent can rewrite.
+   */
+  readonly gitDirectory?: string;
+  readonly gitCommonDirectory?: string;
+  readonly workspacePath: string;
+  readonly checkTimeoutMs?: number;
+  /**
+   * The repository's adopted checks the run's gates are held to (R-G13). `ct-check
+   * --declared <id>` runs one of them; the command comes from here, never from the request.
+   */
+  readonly declaredChecks?: import('@craftingtable/domain').ManifestDeclaredChecks;
+  readonly verification?: {
+    version: 1;
+    mode: 'scoped-checks' | 'current-upstream-build';
+    scope?: ExecutionScope;
+    reason: string;
+  };
+  /**
+   * The daemon's Cargo. A check-only manifest names it only where the host has Cargo, and its
+   * adopted checks then run the commit's managed toolchain; without it they run with none.
+   */
+  readonly cargoExecutable?: string;
+}
+
+/**
+ * A run held to its repository's adopted checks with no pinned dependency environment (R-G13
+ * increment 4): it runs `ct-check` alone, has no supplied sources, and records no runtime.
+ */
+export interface CheckOnlyManifest extends CheckManifest {
+  readonly kind: 'checks';
+  readonly declaredChecks: import('@craftingtable/domain').ManifestDeclaredChecks;
+  readonly verification?: undefined;
+}
+
+export interface PinnedCargoManifest extends CheckManifest {
+  readonly kind?: undefined;
   readonly nativeVerification?: {
     approvalId: string;
     hostDigest: string;
@@ -25,14 +75,7 @@ export interface PinnedCargoManifest {
     toolchainDigest: string;
     toolchain: string;
   };
-  readonly checkTimeoutMs?: number;
   readonly forbiddenPackages?: readonly string[];
-  readonly verification?: {
-    version: 1;
-    mode: 'scoped-checks' | 'current-upstream-build';
-    scope?: ExecutionScope;
-    reason: string;
-  };
   readonly dependencyIdentities?: readonly {
     alias: string;
     commitSha: string;
@@ -57,29 +100,18 @@ export interface PinnedCargoManifest {
   readonly historicalPreparationId?: string;
   readonly localCi?: import('./local-check.js').LocalCiConfig;
   readonly runtimeId: string;
-  readonly runId: string;
   readonly cargoExecutable: string;
-  readonly gitExecutable: string;
-  /**
-   * The worktree's git directory and the repository's common directory, resolved by the daemon
-   * before the agent starts (R-G4). Daemon Git on the worktree uses them rather than following
-   * the worktree's `.git` pointer, which the agent can rewrite.
-   */
-  readonly gitDirectory?: string;
-  readonly gitCommonDirectory?: string;
-  readonly workspacePath: string;
   readonly targetDirectory: string;
   readonly packages: readonly { name: string; path: string }[];
   readonly files: readonly { path: string; digest: string }[];
   readonly configPath: string;
   readonly configDigest: string;
   readonly receiptPath: string;
-  /**
-   * The repository's adopted checks the run's gates are held to (R-G13). `ct-check
-   * --declared <id>` runs one of them; the command comes from here, never from the request.
-   */
-  readonly declaredChecks?: import('@craftingtable/domain').ManifestDeclaredChecks;
 }
+
+/** A manifest the daemon holds: pinned Cargo, or check-only (R-G13 increment 4). */
+export type VerificationManifest = PinnedCargoManifest | CheckOnlyManifest;
+
 export const cargoManifestDigest = (content: string | Uint8Array) =>
   createHash('sha256').update(content).digest('hex');
 

@@ -27,7 +27,12 @@ import {
 import { constants as fsConstants } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import { argvRunsCargo, CARGO_FILE_PATTERN } from '@craftingtable/domain';
-import type { PinnedCargoManifest } from './pinned-cargo.js';
+import type {
+  CheckManifest,
+  CheckOnlyManifest,
+  PinnedCargoManifest,
+  VerificationManifest,
+} from './pinned-cargo.js';
 
 // Generated launchers also run directly from TypeScript in adapter tests.
 const { nativeHostDigest, nativeArguments, nativeExecutables, nativeUnit, stopNativeUnit } =
@@ -103,13 +108,14 @@ export function prepareLocalCheckLaunchers(
   manifest: string,
   digest: string,
   spool?: { readonly directory: string; readonly replies: string; readonly limitMs: number },
+  names: readonly ('ct-check' | 'ct-act' | 'ct-native')[] = ['ct-check', 'ct-act', 'ct-native'],
 ) {
   const spoolModule = new URL(
     import.meta.url.endsWith('.ts') ? './check-spool.ts' : './check-spool.js',
     import.meta.url,
   ).href;
   if (spool) mkdirSync(spool.directory, { recursive: true, mode: 0o700 });
-  for (const name of ['ct-check', 'ct-act', 'ct-native']) {
+  for (const name of names) {
     const path = join(bin, name);
     const call = spool
       ? `${launcherImport(spoolModule)}.then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(spool.replies)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
@@ -121,6 +127,25 @@ export function prepareLocalCheckLaunchers(
     );
     chmodSync(path, 0o500);
   }
+}
+/**
+ * Writes a check-only run's manifest and its one launcher, `ct-check` (R-G13 increment 4). There
+ * is no Cargo launcher: the agent's own `cargo` stays its own, and only the daemon's runs of the
+ * adopted checks count. The launcher only asks the daemon, which runs the check and records it.
+ */
+export function prepareCheckManifest(
+  directory: string,
+  manifest: CheckOnlyManifest,
+  spool: { readonly directory: string; readonly replies: string; readonly limitMs: number },
+) {
+  const path = join(directory, 'manifest.json'),
+    binDirectory = join(directory, 'bin');
+  mkdirSync(binDirectory, { recursive: true, mode: 0o700 });
+  const content = JSON.stringify(manifest, null, 2),
+    manifestDigest = hash(content);
+  writeFileSync(path, content, { mode: 0o400 });
+  prepareLocalCheckLaunchers(binDirectory, path, manifestDigest, spool, ['ct-check']);
+  return { binDirectory, manifestPath: path, manifestDigest, manifest: content };
 }
 function gitState(m: PinnedCargoManifest) {
   const head = spawnSync(m.gitExecutable, ['rev-parse', 'HEAD'], {
@@ -192,7 +217,7 @@ export function resolveGitDirectories(
 }
 
 /** The same observation without blocking the daemon's event loop, on the pinned git directory. */
-async function observeGitState(m: PinnedCargoManifest) {
+async function observeGitState(m: CheckManifest) {
   if (!m.gitDirectory) throw new Error('The run has no daemon-resolved git directory.');
   const git = (args: string[]) =>
     new Promise<{ ok: boolean; stdout: string }>((resolveResult) =>
@@ -1019,7 +1044,13 @@ function userBusEnvironment(): NodeJS.ProcessEnv {
 function captureCheck(
   command: string,
   args: readonly string[],
-  options: { readonly cwd: string; readonly env: NodeJS.ProcessEnv; readonly timeoutMs: number },
+  options: {
+    readonly cwd: string;
+    readonly env: NodeJS.ProcessEnv;
+    readonly timeoutMs: number;
+    /** Cancelling the check stops the helper too (R-G13 increment 4). */
+    readonly signal?: AbortSignal;
+  },
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
     const child = spawn(command, [...args], {
@@ -1039,6 +1070,8 @@ function captureCheck(
       }
     };
     const timer = setTimeout(kill, options.timeoutMs);
+    if (options.signal?.aborted) kill();
+    else options.signal?.addEventListener('abort', kill, { once: true });
     child.stdout.on('data', (d: Buffer) => {
       if (stdout.length < 32 * 1024 * 1024) stdout += d.toString();
     });
@@ -1047,10 +1080,12 @@ function captureCheck(
     });
     child.once('error', (error) => {
       clearTimeout(timer);
+      options.signal?.removeEventListener('abort', kill);
       resolveResult({ code: null, stdout, stderr: `${stderr}${error.message}` });
     });
     child.once('close', (code) => {
       clearTimeout(timer);
+      options.signal?.removeEventListener('abort', kill);
       kill();
       resolveResult({ code, stdout, stderr });
     });
@@ -1125,11 +1160,13 @@ function actWorkflowName(workspacePath: string, args: readonly string[]): string
  */
 /** Runs the daemon's Git, without hooks or the operator's configuration, and returns stdout. */
 function daemonGit(
-  m: PinnedCargoManifest,
+  m: CheckManifest,
   args: readonly string[],
   cwd: string,
   limit = 1024 * 1024,
   timeoutMs = 120_000,
+  /** Cancelling the check stops the command (R-G13 increment 4). */
+  signal?: AbortSignal,
 ): Promise<Buffer> {
   return new Promise((resolveResult, reject) =>
     execFile(
@@ -1141,6 +1178,7 @@ function daemonGit(
         timeout: Math.max(1, Math.min(120_000, timeoutMs)),
         maxBuffer: limit,
         env: daemonGitEnvironment(),
+        ...(signal ? { signal } : {}),
       },
       (error, stdout) => (error ? reject(error) : resolveResult(stdout)),
     ),
@@ -1153,7 +1191,13 @@ function daemonGit(
  * mid-check. The commit must be on a branch; a detached commit fails closed. Tags come along
  * through the same verified pack: a repository's own checks may compare one with a fixed commit.
  */
-async function cloneReviewedCommit(m: PinnedCargoManifest, sha: string, into: string) {
+async function cloneReviewedCommit(
+  m: CheckManifest,
+  sha: string,
+  into: string,
+  within: () => number,
+  signal: AbortSignal,
+) {
   if (!m.gitCommonDirectory) throw new Error('The run has no daemon-resolved git directory.');
   if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(sha))
     throw new Error('The reviewed commit could not be read.');
@@ -1167,13 +1211,23 @@ async function cloneReviewedCommit(m: PinnedCargoManifest, sha: string, into: st
       // clone that borrows the store would read the rewritten bytes (R-G13 review).
       ['clone', '--quiet', '--no-checkout', '--no-local', m.gitCommonDirectory, into],
       dirname(into),
+      undefined,
+      within(),
+      signal,
     );
     await daemonGit(
       m,
       ['-c', 'advice.detachedHead=false', 'checkout', '--quiet', '--detach', sha],
       into,
+      undefined,
+      within(),
+      signal,
     );
-  } catch {
+  } catch (error) {
+    // A cancelled check stops its clone at once (R-G13 increment 4).
+    if (signal.aborted) throw new Error('Interrupted.');
+    // The check's time limit, as `within` reports it.
+    if (error instanceof Error && error.message.startsWith('The check time limit')) throw error;
     throw new Error('The reviewed commit could not be checked out for the declared check.');
   }
 }
@@ -1189,6 +1243,7 @@ async function clonePinnedSources(
   m: PinnedCargoManifest,
   into: string,
   within: () => number,
+  signal: AbortSignal,
 ): Promise<{ packages: { name: string; path: string }[]; configPath: string }> {
   rmSync(into, { recursive: true, force: true });
   mkdirSync(into, { recursive: true, mode: 0o700 });
@@ -1198,7 +1253,7 @@ async function clonePinnedSources(
     if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(source.commitSha))
       throw new Error(`The pinned ${source.alias} commit could not be read.`);
     try {
-      await daemonGit(m, ['init', '--quiet', root], into, undefined, within());
+      await daemonGit(m, ['init', '--quiet', root], into, undefined, within(), signal);
       // By exact commit, reachable or not: protocol v2 serves any object id (a local
       // upload-pack is given none of the daemon's configuration, so v0 could not).
       await daemonGit(
@@ -1216,6 +1271,7 @@ async function clonePinnedSources(
         root,
         undefined,
         within(),
+        signal,
       );
       await daemonGit(
         m,
@@ -1223,8 +1279,10 @@ async function clonePinnedSources(
         root,
         undefined,
         within(),
+        signal,
       );
     } catch {
+      if (signal.aborted) throw new Error('Interrupted.');
       throw new Error(
         `The pinned ${source.alias} commit could not be read through a verified pack.`,
       );
@@ -1306,7 +1364,7 @@ function rustupBinary(cargo: string): string | undefined {
  * Whatever the check's command, Cargo may run beneath it, and these choose what Cargo runs.
  */
 async function assertCargoFilesAdopted(
-  m: PinnedCargoManifest,
+  m: CheckManifest,
   tree: string,
   definitionPaths: readonly string[],
 ): Promise<void> {
@@ -1328,14 +1386,16 @@ async function assertCargoFilesAdopted(
  * (a directly installed Cargo) the daemon's Cargo is the toolchain.
  */
 async function privateToolchain(
-  m: PinnedCargoManifest,
+  cargoExecutable: string,
   tree: string,
   environment: Readonly<Record<string, string>>,
   within: () => number,
+  /** Cancelling the check stops the lookup (R-G13 increment 4). */
+  signal: AbortSignal,
 ): Promise<{ bin: string; cargo: string; environment: Record<string, string> }> {
-  const proxy = rustupBinary(m.cargoExecutable);
-  let bin = dirname(m.cargoExecutable);
-  let cargo = m.cargoExecutable;
+  const proxy = rustupBinary(cargoExecutable);
+  let bin = dirname(cargoExecutable);
+  let cargo = cargoExecutable;
   if (proxy) {
     const rustupHome = environment.RUSTUP_HOME ?? join(homedir(), '.rustup');
     const which = (tool: string) =>
@@ -1353,6 +1413,7 @@ async function privateToolchain(
               RUSTUP_HOME: rustupHome,
               RUSTUP_AUTO_INSTALL: '0',
             },
+            signal,
           },
           (error, stdout) => (error ? reject(error) : resolveResult(String(stdout).trim())),
         ),
@@ -1360,6 +1421,7 @@ async function privateToolchain(
     try {
       cargo = realpathSync(await which('cargo'));
     } catch {
+      if (signal.aborted) throw new Error('Interrupted.');
       throw new Error("The commit's Rust toolchain is not installed for CraftingTable.");
     }
     const managed = join(realpathSync(rustupHome), 'toolchains');
@@ -1393,7 +1455,10 @@ async function privateToolchain(
  * (operator decision 2026-09-30): its compiler flags, and the host's linker and runner. Settings
  * from the environment outrank every configuration file.
  */
-async function pinnedBuildOverrides(bin: string): Promise<Record<string, string>> {
+async function pinnedBuildOverrides(
+  bin: string,
+  signal: AbortSignal,
+): Promise<Record<string, string>> {
   const version = await captureCheck(
     existsSync(join(bin, 'rustc')) ? join(bin, 'rustc') : 'rustc',
     ['-vV'],
@@ -1401,8 +1466,10 @@ async function pinnedBuildOverrides(bin: string): Promise<Record<string, string>
       cwd: bin,
       env: { PATH: process.env.PATH ?? '/usr/bin' },
       timeoutMs: 30000,
+      signal,
     },
   );
+  if (signal.aborted) throw new Error('Interrupted.');
   const host = /^host: (\S+)$/m.exec(version.stdout)?.[1];
   if (!host) throw new Error('Could not identify the Rust host.');
   const target = `CARGO_TARGET_${host.toUpperCase().replace(/[-.]/g, '_')}`;
@@ -1512,7 +1579,7 @@ async function assertChecksResolvePins(
  * check runs. A link, a directory or a missing path is absent, which no adoption matches.
  */
 async function committedDigests(
-  m: PinnedCargoManifest,
+  m: CheckManifest,
   repository: string,
   sha: string,
   paths: readonly string[],
@@ -1630,7 +1697,7 @@ export interface PrivateCargoHome {
  * named, and the build fails.
  */
 async function preparePrivateCargoHome(
-  m: PinnedCargoManifest,
+  m: CheckManifest,
   shared: string,
   into: string,
   locks: readonly string[],
@@ -1775,7 +1842,7 @@ function lockIndexPath(name: string): string {
  * lock beyond that is left out, so its crates are too, and the build fails closed.
  */
 async function cargoLocks(
-  m: PinnedCargoManifest,
+  m: CheckManifest,
   root: string,
 ): Promise<{ locks: string[]; skipped: number }> {
   let listed: string[] = [];
@@ -1932,7 +1999,9 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     log = '',
     command = '',
     actual: string[] = [];
-  let m: PinnedCargoManifest | undefined;
+  let m: VerificationManifest | undefined;
+  /** The manifest when it is a pinned Cargo one; a check-only run has none of its fields. */
+  let pinned: PinnedCargoManifest | undefined;
   let before = { headSha: '', clean: false };
   let waitExpired = false;
   const releases: (() => void)[] = [];
@@ -1940,7 +2009,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   const native = e.tool === 'ct-native';
   const cargo = e.tool === 'cargo';
   let cargoReceipt: Record<string, unknown> | undefined;
-  let declared: NonNullable<PinnedCargoManifest['declaredChecks']>['checks'][number] | undefined;
+  let declared: NonNullable<CheckManifest['declaredChecks']>['checks'][number] | undefined;
   let snapshot: string | undefined;
   let inaccessible: readonly string[] = [];
   let hidden: {
@@ -1957,8 +2026,23 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   const started = Date.now();
   try {
     if (hash(e.manifest) !== e.manifestDigest) throw new Error('Verification manifest changed.');
-    m = JSON.parse(e.manifest) as PinnedCargoManifest;
-    verifySources(m);
+    m = JSON.parse(e.manifest) as VerificationManifest;
+    // A check-only run (R-G13 increment 4) has no pinned Cargo graph, no approved native
+    // environment and no local CI: it runs `ct-check` alone, and has no supplied sources.
+    if (m.kind === 'checks') {
+      if (e.tool !== 'ct-check')
+        throw new Error(
+          `This run's verification is check-only: it runs only ct-check, never ${e.tool}.`,
+        );
+    } else {
+      pinned = m;
+      verifySources(m);
+    }
+    /** The pinned manifest a tool other than `ct-check` needs; a check-only run never has one. */
+    const pinnedOnly = (): PinnedCargoManifest => {
+      if (!pinned) throw new Error(`This run's verification is check-only: it runs only ct-check.`);
+      return pinned;
+    };
     const timeoutMs = m.checkTimeoutMs ?? 30 * 60000;
     const deadline = started + timeoutMs;
     let cwd = m.workspacePath;
@@ -1972,7 +2056,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       const r = relative(root, p);
       return r === '' || (!r.startsWith('..') && !isAbsolute(r));
     };
-    const usePrivateCargoHome = async (manifest: PinnedCargoManifest, root: string) => {
+    const usePrivateCargoHome = async (manifest: CheckManifest, root: string) => {
       if (!sharedCargoHome || native || act) return;
       // A stable path per concurrent check of a run keeps Cargo's fingerprints, which name the
       // sources' path, valid from one check to the next; the home itself is always fresh.
@@ -2033,7 +2117,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         hiddenRoots: [
           ...(e.hiddenRoots ?? []),
           ...(sharedCargoHome ? [sharedCargoHome] : []),
-          ...(manifest.localCi ? [manifest.localCi.cacheRoot] : []),
+          ...(pinned?.localCi ? [pinned.localCi.cacheRoot] : []),
           // The repository's shared Git directory, which agents write when they commit.
           ...(manifest.gitCommonDirectory ? [manifest.gitCommonDirectory] : []),
           ...hiddenRoots,
@@ -2052,11 +2136,12 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       hidden = { roots: unit.hidden, binds: unit.binds, readOnlyBinds: unit.readOnlyBinds };
     };
     if (act) {
-      const ci = m.localCi;
+      const pm = pinnedOnly();
+      const ci = pm.localCi;
       if (!ci) throw new Error('Local act is not configured by the operator.');
       const evidence = join(dirname(e.manifestPath), 'checks');
       mkdirSync(evidence, { recursive: true, mode: 0o700 });
-      actual = localActArguments(m, e.manifestPath, [...e.args], evidence);
+      actual = localActArguments(pm, e.manifestPath, [...e.args], evidence);
       command = ci.actExecutable;
       if (!e.holdWorkflow) throw new Error('Local CI needs the daemon workflow queue.');
       const key = hash(`${ci.dockerHost}\0${actWorkflowName(m.workspacePath, e.args)}`);
@@ -2090,6 +2175,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       };
       writable = [...writable, ci.cacheRoot, e.privateDirectory];
     } else if (cargo) {
+      const pm = pinnedOnly();
       // Pinned Cargo (ADR-047): only builds come here; the daemon resolves the graph itself.
       const subcommand = assertPinnedCargoArguments(e.args);
       if (!PINNED_BUILD_COMMANDS.has(subcommand))
@@ -2099,14 +2185,14 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       // the worktree or the run's copies, which the agent can change while the build runs. A
       // build of uncommitted work, which no gate accepts, still runs in the worktree: that is the
       // agent's own development loop.
-      let built: PinnedCargoManifest = m;
-      let cargoProgram = m.cargoExecutable;
+      let built: PinnedCargoManifest = pm;
+      let cargoProgram = pm.cargoExecutable;
       let buildProgram: string | undefined;
-      before = await observeGitState(m);
+      before = await observeGitState(pm);
       observed = true;
-      if (m.dependencySources && before.clean) {
+      if (pm.dependencySources && before.clean) {
         snapshot = join(e.privateDirectory, 'tree');
-        await cloneReviewedCommit(m, before.headSha, snapshot);
+        await cloneReviewedCommit(pm, before.headSha, snapshot, remainingTime, e.signal);
         assertManifestWithin(snapshot, e.args);
         // The host only: another target brings the tree's runner and linker for it.
         if (e.args.some((arg) => arg === '--target' || arg.startsWith('--target=')))
@@ -2114,23 +2200,32 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
             'A pinned build of the reviewed commit builds for the host; --target is refused.',
           );
         pinnedSources = join(e.privateDirectory, 'pinned');
-        const sources = await clonePinnedSources(m, pinnedSources, remainingTime);
+        const sources = await clonePinnedSources(pm, pinnedSources, remainingTime, e.signal);
         built = {
-          ...m,
+          ...pm,
           workspacePath: snapshot,
           packages: sources.packages,
           configPath: sources.configPath,
         };
         cwd = snapshot;
-        await usePrivateCargoHome(m, snapshot);
+        await usePrivateCargoHome(pm, snapshot);
         confineToClone(
           snapshot,
-          [pinnedSources, dirname(m.cargoExecutable)],
+          [pinnedSources, dirname(pm.cargoExecutable)],
           // The upstreams' Git directories, which agents write too.
-          m.dependencySources.map((source) => source.gitDirectory),
+          pm.dependencySources.map((source) => source.gitDirectory),
         );
-        const toolchain = await privateToolchain(m, snapshot, environment, remainingTime);
-        environment = { ...toolchain.environment, ...(await pinnedBuildOverrides(toolchain.bin)) };
+        const toolchain = await privateToolchain(
+          pm.cargoExecutable,
+          snapshot,
+          environment,
+          remainingTime,
+          e.signal,
+        );
+        environment = {
+          ...toolchain.environment,
+          ...(await pinnedBuildOverrides(toolchain.bin, e.signal)),
+        };
         cargoProgram = toolchain.cargo;
         // An alias in the tree can shadow `cargo clippy`; Clippy's own program cannot be.
         if (subcommand === 'clippy') {
@@ -2139,8 +2234,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           buildProgram = join(toolchain.bin, 'cargo-clippy');
         }
       } else {
-        await usePrivateCargoHome(m, m.workspacePath);
-        environment = { ...environment, CARGO_TARGET_DIR: m.targetDirectory };
+        await usePrivateCargoHome(pm, pm.workspacePath);
+        environment = { ...environment, CARGO_TARGET_DIR: pm.targetDirectory };
       }
       const toolchain = (
         await captureCheck(cargoProgram, ['--version', '--verbose'], {
@@ -2161,7 +2256,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
               environment,
               [cargoProgram, ...pinnedMetadataArguments(built, e.args)],
               false,
-              snapshot ? [] : [join(m.workspacePath, '.git')],
+              snapshot ? [] : [join(pm.workspacePath, '.git')],
               inaccessible,
               hidden,
             )
@@ -2178,10 +2273,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         );
       // Named as the run's manifest names them, wherever the build read them.
       const packages = pinnedResolvedPackages(built, metadata.stdout).map(
-        (p) => m!.packages.find((q) => q.name === p.name) ?? p,
+        (p) => pm.packages.find((q) => q.name === p.name) ?? p,
       );
       cargoReceipt = {
-        ...pinnedReceiptKind(m, packages),
+        ...pinnedReceiptKind(pm, packages),
         toolchain,
         toolchainDigest: cargoManifestDigest(toolchain),
         packages,
@@ -2207,17 +2302,17 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       actual = args.slice(1);
       if (!command || command.startsWith('-') || command.includes('\0'))
         throw new Error(`Usage: ${e.tool} -- <executable> <arguments>`);
-      if (
-        native &&
-        (!m.nativeVerification || m.nativeVerification.hostDigest !== nativeHostDigest())
-      )
-        throw new Error('A current approved native environment is required.');
+      if (native) {
+        const pm = pinnedOnly();
+        if (!pm.nativeVerification || pm.nativeVerification.hostDigest !== nativeHostDigest())
+          throw new Error('A current approved native environment is required.');
+      }
     }
     if (!observed) before = await observeGitState(m);
     if (e.tool === 'ct-check' && !declared) await usePrivateCargoHome(m, m.workspacePath);
     if (declared) {
       snapshot = join(e.privateDirectory, 'tree');
-      await cloneReviewedCommit(m, before.headSha, snapshot);
+      await cloneReviewedCommit(m, before.headSha, snapshot, remainingTime, e.signal);
       declaredDigests = await committedDigests(
         m,
         snapshot,
@@ -2229,13 +2324,16 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       if (command.includes('/')) command = join(snapshot, command);
       cwd = snapshot;
       await usePrivateCargoHome(m, snapshot);
-      if (m.verification?.mode === 'current-upstream-build' && m.dependencySources?.length) {
+      if (
+        pinned?.verification?.mode === 'current-upstream-build' &&
+        pinned.dependencySources?.length
+      ) {
         // A current-upstream gate's adopted checks build against the pins (R-G13 increment 2):
         // private, verified checkouts of each pinned commit, patched in by a configuration in
         // the directory above the clone, where Cargo looks after the tree's own. The command is
         // the adopted one, so the patch cannot be passed on it.
         pinnedSources = join(e.privateDirectory, 'pinned');
-        const sources = await clonePinnedSources(m, pinnedSources, remainingTime);
+        const sources = await clonePinnedSources(pinned, pinnedSources, remainingTime, e.signal);
         pinsOverlay = join(e.privateDirectory, '.cargo');
         mkdirSync(pinsOverlay, { recursive: true, mode: 0o700 });
         writeFileSync(join(pinsOverlay, 'config.toml'), readFileSync(sources.configPath), {
@@ -2244,10 +2342,16 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         confineToClone(
           snapshot,
           [pinnedSources, pinsOverlay],
-          m.dependencySources.map((source) => source.gitDirectory),
+          pinned.dependencySources.map((source) => source.gitDirectory),
         );
         // Every adopted check runs the commit's toolchain: Cargo may run beneath any command.
-        const tool = await privateToolchain(m, snapshot, environment, remainingTime);
+        const tool = await privateToolchain(
+          pinned.cargoExecutable,
+          snapshot,
+          environment,
+          remainingTime,
+          e.signal,
+        );
         environment = tool.environment;
         const metadataCargo = tool.cargo;
         // Resolved as the check will: locked when it is, so a stale lock is not rewritten first.
@@ -2261,7 +2365,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           manifestPath,
         ];
         await assertChecksResolvePins(
-          { ...m, workspacePath: snapshot, packages: sources.packages },
+          { ...pinned, workspacePath: snapshot, packages: sources.packages },
           declared.argv,
           (manifestPath) =>
             captureCheck(
@@ -2284,24 +2388,36 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
                 cwd: snapshot!,
                 env: e.confinement === 'systemd' ? userBusEnvironment() : environment,
                 timeoutMs: Math.min(300000, remainingTime()),
+                signal: e.signal,
               },
             ),
         );
       } else {
         confineToClone(snapshot);
         // Every adopted check runs the commit's own rustup-managed toolchain (R-G13 posture):
-        // Cargo may run beneath any command.
-        environment = (await privateToolchain(m, snapshot, environment, remainingTime)).environment;
+        // Cargo may run beneath any command. A check-only run on a host without Cargo has none
+        // to resolve, and nothing of Cargo's to run (R-G13 increment 4).
+        if (m.cargoExecutable)
+          environment = (
+            await privateToolchain(
+              m.cargoExecutable,
+              snapshot,
+              environment,
+              remainingTime,
+              e.signal,
+            )
+          ).environment;
       }
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('The check time limit passed before it could start.');
     const confined = e.confinement === 'systemd';
-    const ci = m.localCi;
+    const ci = pinned?.localCi;
     const runId = m.runId;
     const busEnvironment = userBusEnvironment();
     let spawned: { command: string; args: string[]; env: NodeJS.ProcessEnv };
     if (native) {
+      const pm = pinnedOnly();
       // The approved native unit (ADR-054): its own limits, a fresh HOME and TMPDIR the daemon
       // owns, and `env -i` with only the toolchain it names.
       const home = join(e.privateDirectory, 'home');
@@ -2318,8 +2434,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           `CARGO_HOME=${join(homedir(), '.cargo')}`,
           `RUSTUP_HOME=${join(homedir(), '.rustup')}`,
           'RUSTUP_AUTO_INSTALL=0',
-          `CARGO_TARGET_DIR=${m.targetDirectory}`,
-          `CRAFTINGTABLE_CARGO_CONFIG=${m.configPath}`,
+          `CARGO_TARGET_DIR=${pm.targetDirectory}`,
+          `CRAFTINGTABLE_CARGO_CONFIG=${pm.configPath}`,
           `CRAFTINGTABLE_DEPENDENCY_MANIFEST=${e.manifestPath}`,
           command,
           ...actual,
@@ -2362,7 +2478,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     });
     code = supervised.code;
     log = supervised.log;
-    verifySources(m);
+    if (pinned) verifySources(pinned);
     success = code === 0;
     if (!success)
       diagnostic = code === null ? 'Check interrupted or timed out.' : `Check exited ${code}.`;
@@ -2377,9 +2493,9 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         diagnostic += ` ${error instanceof Error ? error.message : 'Native cleanup failed.'}`;
       }
     }
-    if (act && m?.localCi) {
+    if (act && pinned?.localCi) {
       try {
-        await removeRunContainers(m.localCi, m.runId);
+        await removeRunContainers(pinned.localCi, pinned.runId);
       } catch (error) {
         success = false;
         diagnostic += ` ${error instanceof Error ? error.message : 'CI cleanup failed.'}`;
@@ -2403,6 +2519,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     { mode: 0o600 },
   );
   const logBytes = statSync(e.logPath).size;
+  // A check-only run's receipts carry no runtime: it has none (R-G13 increment 4).
+  const runtime = pinned ? { runtimeId: pinned.runtimeId } : {};
   if (cargo)
     return {
       exitCode: success ? 0 : 1,
@@ -2410,9 +2528,11 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       logBytes,
       // The pinned build receipt (ADR-047), as the launcher wrote it, now from the daemon.
       receipt: {
-        ...(cargoReceipt ? pinnedReceiptKind(m!, cargoReceipt.packages as unknown[]) : {}),
+        ...(cargoReceipt && pinned
+          ? pinnedReceiptKind(pinned, cargoReceipt.packages as unknown[])
+          : {}),
         recordedBy: 'daemon',
-        runtimeId: m?.runtimeId,
+        ...runtime,
         runId: m?.runId,
         ...(m?.verification
           ? {
@@ -2442,9 +2562,11 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     logBytes,
     receipt: {
       kind: act ? 'local-ci' : native ? 'native-check' : 'scoped-check',
-      ...(native && m?.nativeVerification ? { nativeVerification: m.nativeVerification } : {}),
+      ...(native && pinned?.nativeVerification
+        ? { nativeVerification: pinned.nativeVerification }
+        : {}),
       recordedBy: 'daemon',
-      runtimeId: m?.runtimeId,
+      ...runtime,
       runId: m?.runId,
       manifestDigest: e.manifestDigest,
       verificationMode: m?.verification?.mode,
@@ -2470,7 +2592,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       ...(waitExpired ? { workflowWait: 'expired' } : {}),
       logPath: e.logReference,
       logDigest: hash(readFileSync(e.logPath)),
-      ...(act ? { image: m?.localCi?.image } : {}),
+      ...(act ? { image: pinned?.localCi?.image } : {}),
       at: new Date().toISOString(),
     },
   };

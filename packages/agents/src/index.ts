@@ -1,5 +1,6 @@
 export { auditNativeEnvironment, nativeHostDigest } from './native-environment.js';
 export {
+  prepareCheckManifest,
   prepareLocalCheckLaunchers,
   loadLocalCiConfig,
   cleanupLocalCi,
@@ -25,7 +26,10 @@ export {
 } from './check-spool.js';
 export {
   prepareCargoLauncher,
+  type CheckManifest,
+  type CheckOnlyManifest,
   type PinnedCargoManifest,
+  type VerificationManifest,
   cargoManifestDigest,
 } from './pinned-cargo.js';
 export {

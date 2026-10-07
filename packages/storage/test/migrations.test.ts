@@ -109,6 +109,7 @@ const DEPLOYED_MIGRATIONS: readonly PinnedMigration[] = [
 const PENDING_MIGRATIONS: readonly PinnedMigration[] = [
   { version: 37, name: 'authentication-hardening', checksum: 'd6de10ea4b993dd1aa50b899adb64fda3d253bcace4a2330abb630c5e074c0f9' },
   { version: 38, name: 'check-only-run-environments', checksum: '35a6a857b4667b24a12c1cd8b431ca1bde87a0113a71d6e675bc0e92d4e0a35a' },
+  { version: 39, name: 'evidence-submission-heads', checksum: 'be68520f5f6dc32d037cfb7406c8ca8050f9847cc9c3d7979f8cb0b7f1b979dd' },
 ];
 
 const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];
@@ -208,7 +209,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(38);
+    ).toBe(39);
     second.close();
   });
 
@@ -230,7 +231,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(38);
+    ).toBe(39);
     database.close();
   });
 
@@ -290,10 +291,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 38,
+      supportedVersion: 39,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
       ],
     });
 
@@ -309,10 +310,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 38,
+      supportedVersion: 39,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
       ],
     });
     expect(existsSync(path)).toBe(false);

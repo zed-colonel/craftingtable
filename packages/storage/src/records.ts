@@ -8,6 +8,7 @@ import {
   type ConcurrencyDefinition,
   type EvidenceDecision,
   type EvidenceSubmission,
+  type EvidenceSubmissionHead,
   type Finalization,
   type MapAdoption,
   type MapAmendment,
@@ -71,6 +72,8 @@ export interface PersistedRecords {
   readonly 'audit-event': AuditEvent;
   readonly 'runtime-generation': RuntimeGeneration;
   readonly 'evidence-submission': EvidenceSubmission;
+  /** A submission without its artifacts' contents, stored beside it (R-H4). */
+  readonly 'evidence-submission-head': EvidenceSubmissionHead;
   readonly 'evidence-decision': EvidenceDecision;
   readonly 'run-environment': RunEnvironment;
   readonly 'run-build-record': RunBuildRecord;
@@ -210,6 +213,7 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
     'audit-event': [],
     'runtime-generation': [],
     'evidence-submission': [],
+    'evidence-submission-head': [],
     'evidence-decision': [],
     'run-environment': [],
     'run-build-record': [],

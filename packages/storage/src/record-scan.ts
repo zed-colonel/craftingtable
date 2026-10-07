@@ -146,6 +146,7 @@ const SOURCES: readonly Source[] = [
   },
   documents('runtime-generation', 'runtime_generations', 'id'),
   documents('evidence-submission', 'evidence_submissions', 'id'),
+  documents('evidence-submission-head', 'evidence_submission_heads', 'id', 'head_json'),
   documents('evidence-decision', 'evidence_decisions', 'id'),
   documents('run-environment', 'run_environments', 'run_id'),
   documents('run-build-record', 'run_build_records', 'run_id'),

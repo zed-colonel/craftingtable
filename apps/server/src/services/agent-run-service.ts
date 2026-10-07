@@ -1923,9 +1923,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           deniedReads: this.config.protectedReads ?? [],
           // The outside sources the operator configured, which sandboxed commands may reach
           // and whose caches they may write (R-G14).
-          ...(this.config.outsideSources === undefined
-            ? {}
-            : { outsideSources: this.config.outsideSources }),
+          outsideSources: this.config.outsideSources,
           ...(verifying
             ? { buildEnvironment: { binDirectory: verifying.binDirectory, namespace: runId } }
             : {}),

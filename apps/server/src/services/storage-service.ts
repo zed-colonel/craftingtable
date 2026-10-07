@@ -24,11 +24,13 @@ import type {
 } from '@craftingtable/storage';
 import {
   DATABASE_BACKUP_DIRECTORY,
+  daemonFixedRoots,
   type ExecutionConfig,
   type LabelledRoot,
   type OutsideSourcesPlacementProblem,
   outsideSourcesPlacementProblem,
   type ServerConfig,
+  writtenCacheSources,
 } from '../config.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError, ForbiddenError } from './errors.js';
@@ -112,8 +114,9 @@ export class StorageService {
       storage.transaction((tx) => tx.maintenance.saveSettings(this.settings));
     }
     // The stored roots, not only the environment's, stay off the outside sources' caches and
-    // never hold the settings file (R-G14 review): a start with such roots is refused.
-    const placed = this.outsideSourcesProblem(this.settings.roots);
+    // never hold the settings file (R-G14 review), and so do the worktrees, run files and
+    // backups earlier roots still hold (stray review): a start with any of them is refused.
+    const placed = this.outsideSourcesProblem(this.settings.roots, this.earlierPlacements());
     if (placed) throw new Error(placed.message);
     // Seed pre-feature runs once, without reinterpreting their paths on later settings changes.
     const legacyRoot = this.settings.roots.runsRoot;
@@ -161,28 +164,49 @@ export class StorageService {
   }
   /**
    * Whether `roots` would put the settings file where agents write, or overlap an outside
-   * source's cache (R-G14 review), beside the daemon's fixed directories.
+   * source's cache (R-G14 review), beside the daemon's fixed directories and `earlier`.
    */
   private outsideSourcesProblem(
     roots: StoredStorageSettings['roots'],
+    earlier: { agentWritable: readonly LabelledRoot[]; daemon: readonly LabelledRoot[] } = {
+      agentWritable: [],
+      daemon: [],
+    },
   ): OutsideSourcesPlacementProblem | undefined {
     const { execution } = this.config;
-    const agentWritable: LabelledRoot[] = [
-      ['worktree root', roots.worktreeRoot.path],
-      ['runs root', roots.runsRoot.path],
-      ["agents' temporary root", execution.agentTemporaryRoot],
-    ];
     return outsideSourcesPlacementProblem(
-      execution.outsideSources ?? [],
+      writtenCacheSources(execution),
       this.config.configDir,
-      agentWritable,
       [
-        ["database's directory", dirname(this.config.databasePath)],
+        ['worktree root', roots.worktreeRoot.path],
+        ['runs root', roots.runsRoot.path],
+        ["agents' temporary root", execution.agentTemporaryRoot],
+        ...earlier.agentWritable,
+      ],
+      [
+        ...daemonFixedRoots(this.config),
         ['backup root', roots.backupRoot.path],
         ['integration scratch root', this.settings.mergeRoot.path],
-        ['check logs', execution.checkLogRoot],
+        ...earlier.daemon,
       ],
     );
+  }
+  /**
+   * What earlier roots still hold, which the save path protects too (R-G14 stray review): the
+   * active worktrees and registered run directories, which agents write, and the backups.
+   */
+  private earlierPlacements(): {
+    agentWritable: LabelledRoot[];
+    daemon: LabelledRoot[];
+  } {
+    const { maintenance } = this.storage;
+    return {
+      agentWritable: [
+        ...maintenance.activeWorktreePaths().map((path) => ['active worktree', path] as const),
+        ...maintenance.directories().map((run) => ['run directory', run.path] as const),
+      ],
+      daemon: maintenance.backups().map((backup) => ['backup', backup.path] as const),
+    };
   }
   registerRun(runId: AgentRunId, directory: string): void {
     this.storage.maintenance.registerRunDirectory(

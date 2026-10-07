@@ -324,6 +324,110 @@ it("keeps the stored roots off the outside sources' caches and the settings file
     reopen({ ...s.context.config, configDir: join(stored.roots.worktreeRoot.path, 'settings') }),
   ).toThrow(/outside-sources\.json .*worktree root/);
 });
+it('refuses a start with earlier worktrees, run files or backups in a cache, or holding the settings file (R-G14 stray review)', async () => {
+  const s = await runFixture();
+  const { context } = s;
+  const { config, storage } = context;
+  const cache = join(config.dataDir, 'cargo-home', 'registry');
+  mkdirSync(cache, { recursive: true });
+  const reopen =
+    (settingsIn = config.configDir) =>
+    () =>
+      new StorageService(
+        storage,
+        { ...config, configDir: settingsIn },
+        context.services.workspaceService,
+      );
+  expect(reopen()).not.toThrow();
+  // Each was placed at an earlier storage setting, before the check existed; the stored roots
+  // have moved on since, yet agents still write there.
+  const earlier = join(config.dataDir, 'earlier');
+  const now = new Date().toISOString();
+  const owner = {
+    workspaceId: s.workspaceId,
+    repositoryId: asSourceRepositoryId('repo'),
+    projectId: asProjectId('project'),
+    workItemId: asWorkItemId('item'),
+    createdAt: now,
+    createdByUserId: s.auth.user.id,
+  };
+  const worktree = (name: string, path: string) =>
+    storage.transaction((tx) =>
+      tx.execution.worktrees.insert({
+        ...owner,
+        id: asWorktreeId(name),
+        branchName: `ct/${name}`,
+        baseSha: 'a'.repeat(40),
+        baseBranch: 'main',
+        path,
+      }),
+    );
+  worktree('earlier', join(earlier, 'tree'));
+  expect(reopen()).not.toThrow();
+  expect(reopen(join(earlier, 'tree', '.craftingtable'))).toThrow(
+    /outside-sources\.json .*active worktree/,
+  );
+  worktree('cached', join(cache, 'tree'));
+  expect(reopen()).toThrow(/cache .* must not overlap the active worktree .*registry\/tree/);
+  storage.execution.worktrees.markRemoved({
+    workspaceId: s.workspaceId,
+    worktreeId: asWorktreeId('cached'),
+    occurredAt: now,
+  });
+  expect(reopen()).not.toThrow();
+  storage.maintenance.saveBackup({ path: join(cache, 'old.sqlite'), createdAt: now, bytes: 1 });
+  expect(reopen()).toThrow(/cache .* must not overlap the backup .*old\.sqlite/);
+  storage.maintenance.forgetBackup(join(cache, 'old.sqlite'));
+  expect(reopen()).not.toThrow();
+  const runDirectory = (path: string) => {
+    const runId = asAgentRunId(randomUUID());
+    storage.transaction((tx) =>
+      tx.execution.runs.insert({
+        ...owner,
+        id: runId,
+        worktreeId: s.worktreeId,
+        backend: 'codex',
+        role: 'review',
+        permissionMode: 'auto',
+        brief: 'Earlier run',
+      }),
+    );
+    storage.maintenance.registerRunDirectory(runId, path, 1);
+  };
+  runDirectory(join(earlier, 'run'));
+  expect(reopen()).not.toThrow();
+  expect(reopen(join(earlier, 'run', 'settings'))).toThrow(/outside-sources\.json .*run directory/);
+  runDirectory(join(cache, 'run'));
+  expect(reopen()).toThrow(/cache .* must not overlap the run directory .*registry\/run/);
+});
+it("keeps the stored roots off the daemon's Cargo caches with no source configured (R-G14 stray review)", async () => {
+  const s = await runFixture();
+  const { context } = s;
+  const stored = context.storage.maintenance.settings();
+  if (!stored) throw new Error('Missing settings');
+  const cache = join(context.config.dataDir, 'cargo-home', 'git');
+  mkdirSync(join(cache, 'backups'), { recursive: true });
+  context.storage.transaction((tx) =>
+    tx.maintenance.saveSettings({
+      ...stored,
+      roots: {
+        ...stored.roots,
+        backupRoot: { path: join(cache, 'backups'), device: stored.roots.backupRoot.device },
+      },
+    }),
+  );
+  // The daemon seeds its Cargo home at every start and check units write its caches, whatever
+  // the sources, so backups there are refused even when agents reach none.
+  const execution = { ...context.config.execution, outsideSources: [] };
+  expect(
+    () =>
+      new StorageService(
+        context.storage,
+        { ...context.config, execution },
+        context.services.workspaceService,
+      ),
+  ).toThrow(/cache .* must not overlap the backup root/);
+});
 it('changes future placement durably while old run paths and merge scratch stay fixed', async () => {
   const s = await runFixture();
   const old = s.service.get(s.auth, s.workspaceId);

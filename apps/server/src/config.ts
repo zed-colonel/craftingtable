@@ -86,9 +86,10 @@ export interface ExecutionConfig {
   readonly agentTemporaryRoot: string;
   /**
    * The outside sources sandboxed agent commands may reach, and whose caches they may write
-   * (R-G14): from `outside-sources.json` in the settings directory, read at start.
+   * (R-G14): from `outside-sources.json` in the settings directory, read at start. Required, so
+   * the launch and the storage checks never fall back to different defaults (stray review).
    */
-  readonly outsideSources?: readonly OutsideSource[];
+  readonly outsideSources: readonly OutsideSource[];
 }
 
 export interface TlsConfig {
@@ -337,7 +338,10 @@ function defaultWebDistDir(): string | undefined {
   return existsSync(join(candidate, 'index.html')) ? candidate : undefined;
 }
 
-function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConfig {
+function executionConfig(
+  env: NodeJS.ProcessEnv,
+  dataDir: string,
+): Omit<ExecutionConfig, 'outsideSources'> {
   const gitExecutable = env.CRAFTINGTABLE_GIT_EXECUTABLE;
   const claudeExecutable = env.CRAFTINGTABLE_CLAUDE_EXECUTABLE;
   const codexExecutable = env.CRAFTINGTABLE_CODEX_EXECUTABLE;
@@ -496,17 +500,36 @@ export interface OutsideSourcesPlacementProblem {
 }
 
 /**
- * Whether the outside sources can be used beside these roots (R-G14 review): the settings file
- * may not lie where agents write (`agentWritable`), and no source's cache may overlap any of the
- * roots, nor the settings directory, either way round, as written or through links. The start
- * asks with the roots of the environment and again with the stored storage roots; a storage
- * change asks with the roots it would store.
+ * The daemon's fixed directories, which the storage settings never move: the database's
+ * directory and the check logs. No cache may overlap them (R-G14 stray review).
  */
-export function outsideSourcesPlacementProblem(
-  sources: readonly OutsideSource[],
+export function daemonFixedRoots(config: {
+  readonly dataDir: string;
+  readonly execution: Pick<ExecutionConfig, 'checkLogRoot'>;
+}): LabelledRoot[] {
+  return [
+    ["database's directory", join(config.dataDir, DATABASE_DIRECTORY)],
+    ['check logs', config.execution.checkLogRoot],
+  ];
+}
+
+/**
+ * The sources whose caches are kept apart from the daemon's roots and files: those configured,
+ * and always the daemon's own Cargo caches, which every start seeds through its Cargo home and
+ * check units write, whatever agents may reach (R-G14 stray review).
+ */
+export function writtenCacheSources(
+  execution: Pick<ExecutionConfig, 'outsideSources' | 'cargoHome'>,
+): readonly OutsideSource[] {
+  return execution.outsideSources.some((source) => source.kind === 'cargo')
+    ? execution.outsideSources
+    : [...execution.outsideSources, cargoOutsideSource(execution.cargoHome)];
+}
+
+/** Whether the settings file would lie where agents write (`agentWritable`; R-G14). */
+function settingsFilePlacementProblem(
   configDir: string,
   agentWritable: readonly LabelledRoot[],
-  daemon: readonly LabelledRoot[],
 ): OutsideSourcesPlacementProblem | undefined {
   const file = join(configDir, OUTSIDE_SOURCES_FILE);
   const location = comparedPath(file);
@@ -516,12 +539,23 @@ export function outsideSourcesPlacementProblem(
         code: 'settings-file-writable',
         message: `The outside sources file ${file} must lie outside the ${label} ${root}, which agents write`,
       };
-  const roots = [...agentWritable, ...daemon, ['settings directory', configDir] as const];
+  return undefined;
+}
+
+/** Whether a source's cache overlaps a root or the settings directory, either way round. */
+function cacheOverlapProblem(
+  sources: readonly OutsideSource[],
+  configDir: string,
+  roots: readonly LabelledRoot[],
+): OutsideSourcesPlacementProblem | undefined {
+  const compared = [...roots, ['settings directory', configDir] as const].map(
+    ([label, root]) => [label, root, comparedPath(root)] as const,
+  );
   for (const source of sources)
     for (const cache of source.caches) {
-      const compared = comparedPath(cache);
-      for (const [label, root] of roots)
-        if (overlapCompared(compared, comparedPath(root)))
+      const cached = comparedPath(cache);
+      for (const [label, root, other] of compared)
+        if (overlapCompared(cached, other))
           return {
             code: 'cache-overlap',
             message: `The ${source.kind} source's cache ${cache} must not overlap the ${label} ${root}`,
@@ -531,37 +565,73 @@ export function outsideSourcesPlacementProblem(
 }
 
 /**
- * A source's caches lie in the kind's own directory of the data directory, and neither that
- * directory nor a cache is a link (R-G14 review), so no cache can lead onto the daemon's other
- * files, listed or not.
+ * Whether the outside sources can be used beside these roots (R-G14 review): the settings file
+ * may not lie where agents write (`agentWritable`), and no source's cache may overlap any of the
+ * roots, nor the settings directory, either way round, as written or through links. The start
+ * asks with the roots of the environment and again with the stored storage roots and what
+ * earlier ones still hold; a storage change asks with the roots it would store.
  */
-function cacheLinkProblem(source: OutsideSource, cacheRoot: string): string | undefined {
-  for (const cache of source.caches)
-    for (const path of [cacheRoot, cache]) {
-      let link: boolean;
-      try {
-        link = lstatSync(path).isSymbolicLink();
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT') continue;
-        return `The ${source.kind} source's cache ${cache} could not be checked: ${code ?? String(error)}`;
-      }
-      if (link)
-        return `The ${source.kind} source's cache ${cache} must not be reached through a link; ${path} is one`;
+export function outsideSourcesPlacementProblem(
+  sources: readonly OutsideSource[],
+  configDir: string,
+  agentWritable: readonly LabelledRoot[],
+  daemon: readonly LabelledRoot[],
+): OutsideSourcesPlacementProblem | undefined {
+  return (
+    settingsFilePlacementProblem(configDir, agentWritable) ??
+    cacheOverlapProblem(sources, configDir, [...agentWritable, ...daemon])
+  );
+}
+
+/**
+ * A source's caches lie directly in the kind's own directory of the data directory, and neither
+ * that directory nor a cache is a link (R-G14 review), so no cache can lead onto the daemon's
+ * other files, listed or not. Each kind's directory is checked once, under its own name.
+ */
+export function outsideSourceCacheProblem(
+  sources: readonly OutsideSource[],
+  cacheRoots: Readonly<Record<OutsideSourceKind, string>>,
+): string | undefined {
+  /** Whether `path` is a link; undefined when it does not exist; or the error's code. */
+  const linked = (path: string): boolean | undefined | { readonly code: string } => {
+    try {
+      return lstatSync(path).isSymbolicLink();
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      return code === 'ENOENT' ? undefined : { code: code ?? String(error) };
     }
+  };
+  for (const kind of new Set(sources.map((source) => source.kind))) {
+    const root = cacheRoots[kind];
+    const status = linked(root);
+    if (typeof status === 'object')
+      return `The ${kind} source's directory ${root} could not be checked: ${status.code}`;
+    for (const source of sources.filter((each) => each.kind === kind))
+      for (const cache of source.caches) {
+        if (dirname(cache) !== root)
+          return `The ${kind} source's cache ${cache} must lie directly in ${root}`;
+        if (status === true)
+          return `The ${kind} source's cache ${cache} must not be reached through a link; ${root} is one`;
+        const own = linked(cache);
+        if (typeof own === 'object')
+          return `The ${kind} source's cache ${cache} could not be checked: ${own.code}`;
+        if (own === true)
+          return `The ${kind} source's cache ${cache} must not be reached through a link; ${cache} is one`;
+      }
+  }
   return undefined;
 }
 
 /**
  * The sources the operator configured (R-G14). The file is never read from where agents write,
- * a file the daemon cannot take whole refuses the start, and each source's caches lie in the
- * kind's own directory of the data directory, apart from the database, the backups and the
- * daemon's other roots.
+ * a file the daemon cannot take whole refuses the start, and each source's caches, and the
+ * daemon's own Cargo caches whatever the sources, lie in the kind's own directory of the data
+ * directory, apart from the database, the backups and the daemon's other roots.
  */
 function outsideSourcesSetting(
   configDir: string,
   dataDir: string,
-  execution: ExecutionConfig,
+  execution: Omit<ExecutionConfig, 'outsideSources'>,
 ): readonly OutsideSource[] {
   const file = join(configDir, OUTSIDE_SOURCES_FILE);
   const refuse: (problem: string) => never = (problem) => {
@@ -572,22 +642,21 @@ function outsideSourcesSetting(
     ['runs root', execution.runsRoot],
     ["agents' temporary root", execution.agentTemporaryRoot],
   ];
-  const located = outsideSourcesPlacementProblem([], configDir, agentWritable, []);
+  // Where the file lies is checked before it is read, and once.
+  const located = settingsFilePlacementProblem(configDir, agentWritable);
   if (located) throw new Error(located.message);
   const contents = readOutsideSourcesFile(file, refuse);
   const sources =
     contents === undefined
       ? [cargoOutsideSource(execution.cargoHome)]
       : parseOutsideSources(contents, execution.cargoHome, refuse);
-  const cacheRoots: Readonly<Record<OutsideSourceKind, string>> = { cargo: execution.cargoHome };
-  for (const source of sources) {
-    const linked = cacheLinkProblem(source, cacheRoots[source.kind]);
-    if (linked) throw new Error(linked);
-  }
-  const placed = outsideSourcesPlacementProblem(sources, configDir, agentWritable, [
-    ["database's directory", join(dataDir, DATABASE_DIRECTORY)],
+  const written = writtenCacheSources({ outsideSources: sources, cargoHome: execution.cargoHome });
+  const linked = outsideSourceCacheProblem(written, { cargo: execution.cargoHome });
+  if (linked) throw new Error(linked);
+  const placed = cacheOverlapProblem(written, configDir, [
+    ...agentWritable,
+    ...daemonFixedRoots({ dataDir, execution }),
     ['backups', join(dataDir, DATABASE_BACKUP_DIRECTORY)],
-    ['check logs', execution.checkLogRoot],
   ]);
   if (placed) throw new Error(placed.message);
   return sources;

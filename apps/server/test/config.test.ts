@@ -11,7 +11,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { configFromEnv, retiredSettings } from '../src/config.js';
+import { configFromEnv, outsideSourceCacheProblem, retiredSettings } from '../src/config.js';
 
 // The account's entry in the user database, which a test may replace (TS-H3).
 const account = vi.hoisted(() => ({
@@ -545,11 +545,35 @@ describe('outside sources (R-G14)', () => {
     mkdirSync(join(real.data, 'cargo-home', 'registry'), { recursive: true });
     mkdirSync(join(real.data, 'cargo-home', 'git'));
     expect(real.read().outsideSources).toHaveLength(1);
-    // Without a source, nothing is written there, so nothing is refused.
+    // Without a source the daemon still seeds its Cargo home at every start, and check units
+    // write its caches, so the same link is refused (R-G14 stray review).
     const none = settings(json({ version: 1, sources: [] }));
     mkdirSync(join(none.data, 'state'));
     symlinkSync(join(none.data, 'state'), join(none.data, 'cargo-home'));
-    expect(none.read().outsideSources).toEqual([]);
+    expect(none.read).toThrow(/cache .* must not be reached through a link/);
+  });
+
+  it("refuses a cache outside its kind's own directory, naming a directory it cannot check (R-G14 stray review)", () => {
+    const at = settings();
+    const cargoHome = join(at.data, 'cargo-home');
+    const caches = (...paths: string[]) => [
+      { kind: 'cargo' as const, hosts: ['index.crates.io'], caches: paths },
+    ];
+    expect(
+      outsideSourceCacheProblem(caches(join(cargoHome, 'registry')), { cargo: cargoHome }),
+    ).toBeUndefined();
+    // A cache must lie directly in the kind's directory, however a source came to name it.
+    for (const stray of [join(at.data, 'state'), join(cargoHome, 'registry', 'index'), cargoHome])
+      expect(
+        outsideSourceCacheProblem(caches(join(cargoHome, 'git'), stray), { cargo: cargoHome }),
+        stray,
+      ).toBe(`The cargo source's cache ${stray} must lie directly in ${cargoHome}`);
+    // A kind's directory that cannot be checked is named itself, not after its first cache.
+    writeFileSync(join(at.base, 'file'), '');
+    const unreadable = join(at.base, 'file', 'cargo-home');
+    expect(
+      outsideSourceCacheProblem(caches(join(unreadable, 'registry')), { cargo: unreadable }),
+    ).toBe(`The cargo source's directory ${unreadable} could not be checked: ENOTDIR`);
   });
 
   it("keeps the daemon's other roots out of a source's caches, either way round", () => {
@@ -595,15 +619,21 @@ describe('outside sources (R-G14)', () => {
       // The settings directory inside a cache, which agents write.
       ['settings directory', (at) => ({ CRAFTINGTABLE_CONFIG_DIR: cache(at.data, 'ct') })],
     ];
-    for (const [label, place] of cases) {
-      const at = settings();
-      for (const name of ['runs', 'trees', 'logs', 'state', 'backups', 'ct'])
-        mkdirSync(cache(at.data, name), { recursive: true });
-      mkdirSync(join(at.data, 'cargo-home', 'git'));
-      const env = { ...at.env, ...place(at) };
-      expect(() => configFromEnv(env), label).toThrow(
-        new RegExp(`cache .* must not overlap the ${label}`),
-      );
-    }
+    // With no source too: the daemon seeds its Cargo caches at every start and check units
+    // write them, whatever the sources (R-G14 stray review).
+    for (const contents of [undefined, json({ version: 1, sources: [] })])
+      for (const [label, place] of cases) {
+        const at = settings(contents);
+        for (const name of ['runs', 'trees', 'logs', 'state', 'backups', 'ct'])
+          mkdirSync(cache(at.data, name), { recursive: true });
+        mkdirSync(join(at.data, 'cargo-home', 'git'));
+        const env = { ...at.env, ...place(at) };
+        // The file goes with a settings directory placed elsewhere.
+        if (contents !== undefined)
+          writeFileSync(join(env.CRAFTINGTABLE_CONFIG_DIR, 'outside-sources.json'), contents);
+        expect(() => configFromEnv(env), `${label} ${contents}`).toThrow(
+          new RegExp(`cache .* must not overlap the ${label}`),
+        );
+      }
   });
 });

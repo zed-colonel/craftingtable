@@ -1,6 +1,6 @@
 import type { AgentRunProfile } from './execution.js';
 import type { AgentRunId, UserId } from './ids.js';
-import type { ReviewFinding } from './review.js';
+import type { ReviewFinding, ReviewReportAssessment } from './review.js';
 import type { CompletionPolicy, WorkCycle } from './work-cycle.js';
 
 export const FINALIZATION_STAGE_KINDS = [
@@ -141,6 +141,28 @@ export function parkedFollowUp(
 ): boolean {
   const parked = followUps.get(finding.id);
   return parked !== undefined && staysFollowUp(parked, finding);
+}
+/**
+ * R-C7 D5: a gate or verdict a reviewer withheld for parked nits alone does not hold a stage
+ * before the final review (the final review's verdict keeps its full force, and promotion
+ * requires it). True when at least one parked nit is open, every other open finding is parked or
+ * optional, every reported check passed and every reported obligation is met.
+ */
+export function heldOnlyByParkedNits(
+  cycle: WorkCycle,
+  assessment: ReviewReportAssessment,
+): boolean {
+  if (assessment.status !== 'complete' || !cycle.finalizationProgress) return false;
+  const { findings, finalization } = assessment.report;
+  const parked = stagedFollowUps(cycle);
+  const open = findings.filter((f) => f.status === 'open');
+  return (
+    open.some((f) => !optionalFinding(f) && parkedFollowUp(parked, f)) &&
+    open.every((f) => optionalFinding(f) || parkedFollowUp(parked, f)) &&
+    !!finalization &&
+    finalization.checks.every((c) => c.status === 'passed') &&
+    finalization.obligations.every((o) => o.status === 'met')
+  );
 }
 export function stagedFollowUpIds(cycle: WorkCycle): ReadonlySet<string> {
   return new Set(stagedFollowUps(cycle).keys());

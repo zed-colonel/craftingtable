@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { asPlanVersionId, asWorkItemId, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
+import { resolveScope, scopeEvidenceLedger } from '../src/services/execution-scope.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -20,6 +21,7 @@ import {
   mapCommand,
   merge,
   mutationHeaders,
+  present,
   recordScope,
   roadmapControl,
   roadmapId,
@@ -363,6 +365,20 @@ itNeedsCargo.each(['minor', 'major'] as const)(
       expect(verifications().some((c) => c.currentRunId === receipt.reviewRunId)).toBe(true);
       expect(receipt.evidence.followUps).toEqual([finding]);
     }
+    // The parent's acceptance review is given them, in its scope evidence ledger.
+    const parent = present(
+      state.context.storage.scopeReceipts
+        .list(ws, state.workItemId)
+        .find((r) => r.scope.kind === 'parent-acceptance'),
+    );
+    expect(
+      scopeEvidenceLedger(
+        state.context.storage,
+        resolveScope(state.context.storage, ws, state.workItemId, parent.scope),
+      )
+        .receipts.filter((r) => r.scope.kind === 'slice')
+        .map((r) => r.evidence.followUps),
+    ).toEqual([[finding], [finding]]);
     // Stored and read back: the optional field persists.
     const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {

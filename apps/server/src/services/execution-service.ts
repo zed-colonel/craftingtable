@@ -929,19 +929,16 @@ export class ExecutionService {
             turn.payload.outcome !== 'success' ||
             turn.payload.truncated ||
             report?.status !== 'complete' ||
-            report.report.verdict !== 'mergeable' ||
-            !report.report.exitGate.met ||
-            report.report.findings.some(
-              (f) =>
-                f.status === 'open' &&
-                f.severity !== 'nit' &&
-                !(verification && f.severity === 'minor'),
-            )
+            (verification
+              ? verificationFollowUps(report) === undefined
+              : report.report.verdict !== 'mergeable' ||
+                !report.report.exitGate.met ||
+                report.report.findings.some((f) => f.status === 'open' && f.severity !== 'nit'))
           )
             throw new ExecutionRequestError(
               'conflict',
               verification
-                ? 'A finished, successful independent verification with no open blocking or major findings is required.'
+                ? 'A finished, successful independent verification with a met gate, a mergeable verdict and no open blocking or major findings is required.'
                 : 'A finished, successful independent review with no open blocking, major or minor findings is required.',
             );
           // R-C7 D7: what a passing slice verification left open is kept on its evidence.

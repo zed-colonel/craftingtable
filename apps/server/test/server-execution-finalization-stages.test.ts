@@ -902,17 +902,19 @@ describe('staged finalization', () => {
     expect(alternate.launches.at(-1)?.prompt).toContain('final-review');
   });
 
-  it.each(['nit', 'minor'] as const)(
+  it.each(['nit', 'minor', 'nit, final review withholding'] as const)(
     'parks only nit findings at a spent stage allowance; the final review still runs (R-C7 D5): %s',
-    async (severity) => {
+    async (variant) => {
+      const severity = variant === 'minor' ? 'minor' : 'nit';
       const fixture = await finalizationFixture();
       const { state, backend } = fixture;
       const finding = { ...structuredFinding, id: 'C-1', category: 'correctness', severity };
-      // The correctness reviewer withholds its gate and verdict for the finding alone, as AQ's
-      // did (stop 3); every later review still reports it open.
+      // Every stage reviewer withholds its gate and verdict for the finding alone, as AQ's did
+      // (stop 3), and every later review still reports it open. The final reviewer, told that
+      // parked nits do not negate its gate, keeps it met, except in the last variant.
       backend.replyForRequest = (request) => ({
         resultText: stagedText(request, [finding], {
-          met: stagedKind(request) === 'correctness' ? false : undefined,
+          met: stagedKind(request) === 'final-review' && variant === 'nit' ? undefined : false,
         }),
       });
       const value = await beginFinalization(
@@ -926,6 +928,13 @@ describe('staged finalization', () => {
       );
       const cycle = finalizationCycle(state, value);
       expect(backend.launches.some((r) => r.model?.endsWith('-implement'))).toBe(false);
+      if (variant === 'nit, final review withholding') {
+        // The final review's verdict keeps its full force: promotion would need it.
+        expect(cycle.attention?.code).toBe('remediation-exhausted');
+        expect(cycle.finalizationProgress?.stageIndex).toBe(4);
+        expect(cycle.finalizationProgress?.followUps.map((f) => f.id)).toEqual(['C-1']);
+        return;
+      }
       if (severity === 'minor') {
         // A minor is required work: the spent allowance stops for the operator (ADR-042).
         expect(cycle.attention?.code).toBe('remediation-exhausted');
@@ -945,6 +954,12 @@ describe('staged finalization', () => {
         'only nit-severity findings remain open, the controller keeps those nits as follow-up work',
       );
       expect(backend.launches.at(-1)?.prompt).not.toContain('keeps those nits as follow-up');
+      // Every brief says parked nits do not hold a gate or verdict.
+      expect(
+        backend.launches.every((r) =>
+          r.prompt.includes('including nits parked at a spent allowance'),
+        ),
+      ).toBe(true);
       const baseline = present(
         state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId)
           ?.reviewBranchContext,

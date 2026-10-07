@@ -185,7 +185,8 @@ export const scopeReceiptSchema = equivalentSchema<ScopeReceipt>()(
     headSha: gitShaSchema,
     integrationSha: gitShaSchema,
     evidence: scopeReviewEvidenceSchema.extend({
-      followUps: z.array(reviewFindingSchema).max(100).optional(),
+      // As many as a review report may hold.
+      followUps: z.array(reviewFindingSchema).max(500).optional(),
     }),
     recordedAt: z.iso.datetime(),
     recordedByUserId: userIdSchema,

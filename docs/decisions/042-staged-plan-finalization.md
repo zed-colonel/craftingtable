@@ -19,11 +19,14 @@ checks. Required findings at any severity and blocking/major findings always req
 **Amendment (2026-10-07, R-C7 D5).** One narrow exception to the paragraph above: in a stage's
 own pass, when its remediation allowance is spent and the only required findings open are nits
 (its checks pass, its obligations are met, and no selected finding is open), those nits are
-parked as follow-up work and the stage continues. A gate or verdict the reviewer withheld for
-them alone does not hold the stage. A parked nit stays a follow-up while later reviews report it
+parked as follow-up work and the stage continues. A gate or verdict a stage reviewer withheld
+for parked nits alone, in that pass or a later stage's, does not hold the stage; every brief says
+parked nits do not negate a gate. A parked nit stays a follow-up while later reviews report it
 as a nit; raised to minor or above it is required again. The final review still runs its full
-checks, and its findings keep their full force: a new finding there, nits included, reopens the
-stage that owns it, and a reopened stage keeps its spent allowance, so it stops. Minor and higher
+checks and keeps its full force: its verdict still decides promotion, and a new finding there,
+nits included, reopens the stage that owns it, and a reopened stage keeps its spent allowance,
+so it stops. Only correctness and conformance stages park: in a later stage a required finding
+reopens the stage that owns it. Minor and higher
 findings are never parked. The AQ finalization stopped twice on such nits (R-C7, stops 3 and 8).
 
 Optional minor/nit simplification and polish findings pause discovery for an explicit batch

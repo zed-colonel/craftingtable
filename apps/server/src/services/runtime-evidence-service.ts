@@ -2659,12 +2659,22 @@ export class RuntimeEvidenceService {
    * owns, which stops as `repository-checks-undeclared`; any other run there keeps today's rule
    * and gets no manifest.
    */
-  prepareChecks(tree: Worktree, runId: string, runDirectory: string, replyDirectory?: string) {
+  prepareChecks(
+    tree: Worktree,
+    runId: string,
+    runDirectory: string,
+    replyDirectory?: string,
+    /**
+     * The cycle that launches the run, if any: its owner and time limit decide, never those of
+     * another cycle in the worktree (a manual run beside a stopped roadmap cycle is not the
+     * roadmap's; independent review L4).
+     */
+    cycle?: WorkCycle,
+  ) {
     const declaration = this.storage.runtimeEvidence.checkDeclarations(
       tree.workspaceId,
       tree.repositoryId,
     )[0];
-    const cycle = this.storage.execution.cycles.activeForWorktree(tree.workspaceId, tree.id);
     if (!declaration) {
       if (cycle && cycleOwnership(this.storage, cycle))
         throw new RepositoryChecksUndeclaredError(
@@ -2743,6 +2753,29 @@ export class RuntimeEvidenceService {
     }
   }
 
+  /**
+   * The gate at a merge, the operator's or a delegated one. A review with no run record ran none
+   * of the adopted checks; in a repository that has an adoption now it is refused, whenever it
+   * was prepared (R-G13 increment 4, operator decision 2026-10-07), and a fresh review, which is
+   * held to the adoption, can meet the gate. In a repository without an adoption the earlier
+   * rule stands. Otherwise `assertRun` decides.
+   */
+  assertMergeRun(
+    tree: Worktree,
+    runId: string,
+    tx: StorageRepositories = this.storage,
+    pendingDefinitions?: Readonly<Record<string, string>>,
+  ) {
+    if (!tx.runtimeEvidence.run(tree.workspaceId, runId)) {
+      const adoption = tx.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0];
+      if (adoption)
+        throw new DeclaredChecksMissingError(
+          adoption.checks.map((check) => check.id),
+          `This review was prepared without the repository's adopted checks (version ${adoption.version}), so none of them ran for it. The merge needs a successful run of each on its exact clean reviewed commit: ${adoption.checks.map((check) => `ct-check --declared ${check.id}`).join(', ')}. Run a fresh review; CraftingTable runs them before it starts.`,
+        );
+    }
+    this.assertRun(tree, runId, tx, pendingDefinitions);
+  }
   /**
    * `pendingDefinitions`: the definitions a merge the operator approves would adopt (R-G13
    * increment 5); a declared check that ran with them meets the gate.

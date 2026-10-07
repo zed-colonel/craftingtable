@@ -848,6 +848,14 @@ export async function cleanupLocalCiManifest(path: string, digest: string): Prom
   rmSync(lease, { recursive: true });
 }
 
+/** A check's time limit passed before its command could run (typed, never read as text). */
+export class CheckTimeLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CheckTimeLimitError';
+  }
+}
+
 /** How the daemon isolates a check it runs for an agent (R-G4). */
 export type CheckConfinement = 'systemd' | 'none';
 /**
@@ -1227,7 +1235,7 @@ async function cloneReviewedCommit(
     // A cancelled check stops its clone at once (R-G13 increment 4).
     if (signal.aborted) throw new Error('Interrupted.');
     // The check's time limit, as `within` reports it.
-    if (error instanceof Error && error.message.startsWith('The check time limit')) throw error;
+    if (error instanceof CheckTimeLimitError) throw error;
     throw new Error('The reviewed commit could not be checked out for the declared check.');
   }
 }
@@ -2086,7 +2094,9 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           if (e.signal.aborted) throw new Error('Interrupted.');
           const left = deadline - Date.now();
           if (left <= 0)
-            throw new Error('The check time limit passed while its Cargo home was prepared.');
+            throw new CheckTimeLimitError(
+              'The check time limit passed while its Cargo home was prepared.',
+            );
           return left;
         },
       );
@@ -2110,7 +2120,9 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       if (e.signal.aborted) throw new Error('Interrupted.');
       const left = deadline - Date.now();
       if (left <= 0)
-        throw new Error('The check time limit passed while its sources were prepared.');
+        throw new CheckTimeLimitError(
+          'The check time limit passed while its sources were prepared.',
+        );
       return left;
     };
     // A check on a daemon-private clone (R-G13): its unit sees none of the roots agents write,
@@ -2429,7 +2441,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       }
     }
     const remaining = deadline - Date.now();
-    if (remaining <= 0) throw new Error('The check time limit passed before it could start.');
+    if (remaining <= 0)
+      throw new CheckTimeLimitError('The check time limit passed before it could start.');
     const confined = e.confinement === 'systemd';
     const ci = pinned?.localCi;
     const runId = m.runId;

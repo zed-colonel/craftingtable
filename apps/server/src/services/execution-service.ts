@@ -710,7 +710,7 @@ export class ExecutionService {
           requireTreeScope(tx, worktree, 'merge');
           const run = runs.find((r) => r.id === gate.reviewRunId);
           try {
-            if (run) this.runtimeEvidence?.assertRun(worktree, run.id, tx);
+            if (run) this.runtimeEvidence?.assertMergeRun(worktree, run.id, tx);
           } catch (error) {
             if (!adopts || !(error instanceof CheckDefinitionChangedError)) throw error;
           }
@@ -722,12 +722,13 @@ export class ExecutionService {
         }
         if (adopts) mergeGates[worktree.id] = { ...gate, reason: 'check-adoption' };
       } else if (!worktree.executionScope && gate?.mergeable && gate.reviewRunId) {
-        // A check-only review (R-G13 increment 4) is gated on its adopted checks: the listing
-        // says so rather than offering a merge the gate refuses.
+        // A check-only review (R-G13 increment 4), or one with no record in a repository with
+        // adopted checks (operator decision 2026-10-07), is gated on them: the listing says so
+        // rather than offering a merge the gate refuses.
         const env = tx.runtimeEvidence.run(workspaceId, gate.reviewRunId);
-        if (env && env.runtimeId === undefined)
+        if (!env || env.runtimeId === undefined)
           try {
-            this.runtimeEvidence?.assertRun(worktree, gate.reviewRunId, tx);
+            this.runtimeEvidence?.assertMergeRun(worktree, gate.reviewRunId, tx);
           } catch {
             mergeGates[worktree.id] = { mergeable: false, reason: 'scope-blocked' };
           }
@@ -1655,7 +1656,7 @@ export class ExecutionService {
             delegation?.check();
             const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
             if (review)
-              this.runtimeEvidence?.assertRun(
+              this.runtimeEvidence?.assertMergeRun(
                 worktree,
                 review.id,
                 this.storage,
@@ -1686,7 +1687,7 @@ export class ExecutionService {
               ? await this.checkAdoption(worktree, review, input.adoptChecks, !!delegation)
               : undefined;
             if (review)
-              this.runtimeEvidence?.assertRun(
+              this.runtimeEvidence?.assertMergeRun(
                 worktree,
                 review.id,
                 this.storage,

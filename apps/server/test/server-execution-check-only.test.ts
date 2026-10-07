@@ -1,15 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, CheckOnlyManifest } from '@craftingtable/agents';
-import type { AgentRunId } from '@craftingtable/domain';
+import type { AgentRunId, WorktreeId } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { DeclaredChecksMissingError } from '../src/services/errors.js';
 import {
@@ -315,14 +317,180 @@ it('refuses a delegated merge of a check-only review without a daemon receipt of
   ).toBeUndefined();
 });
 
-it('a review prepared before its repository adopted checks keeps the earlier rule at merge (R-G13 increment 4)', async () => {
+/** Both merges of a worktree's review: the delegated one, then the operator's. */
+async function expectBothMergesRefused(state: State, worktreeId: WorktreeId) {
+  const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]!);
+  await expect(
+    state.context.services.executionService.mergeWorktree(
+      auth,
+      state.workspaceId,
+      worktreeId,
+      {},
+      undefined,
+      { roadmapId: '00000000-0000-4000-8000-000000000001', definitionRevision: 1, check: () => {} },
+    ),
+  ).rejects.toBeInstanceOf(DeclaredChecksMissingError);
+  expect(await mergeGate(state, worktreeId)).toMatchObject({
+    mergeable: false,
+    reason: 'scope-blocked',
+  });
+  const refused = await merge(state, worktreeId);
+  expect(refused.statusCode).toBe(409);
+  expect(refused.body).toContain('ct-check --declared fixture');
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, worktreeId),
+  ).toBeUndefined();
+}
+
+it('refuses both merges of a review prepared before its repository adopted checks; with no adoption it keeps the earlier rule (R-G13 increment 4, operator decision 2026-10-07)', async () => {
+  const { state, backend, worktree } = await manualFixture(false);
+  backend.replyForRequest = () => ({ resultText: reviewText([]) });
+  const review = await runToFinish(state, worktree.id, { role: 'review' });
+  expect(state.context.storage.runtimeEvidence.run(state.workspaceId, review)).toBeUndefined();
+  // No adoption: the earlier rule, under which the review alone gates the merge.
+  expect(await mergeGate(state, worktree.id)).toMatchObject({ mergeable: true, reason: 'ready' });
+  // Adopted after the review was prepared: the review ran none of the checks, so it is refused.
+  declareFixtureChecks(state);
+  await expectBothMergesRefused(state, worktree.id);
+  // A fresh review, held to the adoption, merges.
+  await runToFinish(state, worktree.id, { role: 'review' });
+  const merged = await merge(state, worktree.id);
+  expect(merged.statusCode, merged.body).toBe(200);
+});
+
+it('merges a review in a repository without adopted checks under the earlier rule (R-G13 increment 4, operator decision 2026-10-07)', async () => {
   const { state, backend, worktree } = await manualFixture(false);
   backend.replyForRequest = () => ({ resultText: reviewText([]) });
   await runToFinish(state, worktree.id, { role: 'review' });
-  // Adopted after the review was prepared: the review has no record, and is not held to them.
-  declareFixtureChecks(state);
   const merged = await merge(state, worktree.id);
   expect(merged.statusCode, merged.body).toBe(200);
+});
+
+it.each([
+  ['the adopted check failed on the reviewed head', 'failed'],
+  ['the only passing run of it was on another commit', 'other-commit'],
+  ['the run of it was not clean', 'unclean'],
+] as const)(
+  'refuses both merges of a check-only review when %s (R-G13 increment 4, review M1)',
+  async (_label, condition) => {
+    const { state, backend, worktree } = await manualFixture(condition !== 'failed');
+    if (condition === 'failed') {
+      // The daemon's own run of the adopted check, before the reviewer: it fails.
+      declareFixtureChecks(state, [
+        {
+          id: 'fixture',
+          argv: ['git', 'rev-parse', '--verify', 'refs/heads/no-such-branch'],
+          definitionPaths: [],
+        },
+      ]);
+      backend.replyForRequest = () => ({ resultText: reviewText([]) });
+    } else {
+      withoutDaemonChecks(state);
+      backend.replyForRequest = async (request) => {
+        if (!request.prompt.includes('Adopted repository checks'))
+          return { resultText: reviewText([]) };
+        if (condition === 'other-commit') {
+          // Commit Y, run the adopted check on it, and go back to the reviewed head H.
+          const reviewed = git(['rev-parse', 'HEAD'], request.cwd).trim();
+          commitFile(request.cwd, 'other.txt', 'other\n');
+          await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
+          git(['reset', '--hard', reviewed], request.cwd);
+        } else {
+          // An untracked file while the check runs.
+          writeFileSync(join(request.cwd, 'untracked.txt'), 'x\n');
+          await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
+          rmSync(join(request.cwd, 'untracked.txt'));
+        }
+        return { resultText: reviewText([]) };
+      };
+    }
+    const review = await runToFinish(state, worktree.id, { role: 'review' });
+    const [receipt] = checkOnlyRun(state, review).receipts;
+    // The one receipt of the adopted check fails exactly the condition under test.
+    expect(receipt).toMatchObject({ declaredCheck: expect.objectContaining({ id: 'fixture' }) });
+    const head = state.context.storage.execution.runs.find(state.workspaceId, review)!
+      .reviewBranchContext!.headSha;
+    expect([receipt.success, receipt.headSha === head, receipt.clean]).toEqual([
+      condition !== 'failed',
+      condition !== 'other-commit',
+      condition !== 'unclean',
+    ]);
+    await expectBothMergesRefused(state, worktree.id);
+  },
+);
+
+it('a manual cycle in a repository without adopted checks keeps the earlier rule (R-G13 increment 4, D2, review L2)', async () => {
+  const backend = new CycleBackend([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  const state = await ready({ backend });
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  await admit(state);
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model') commitFile(request.cwd, 'feature.txt', 'feature\n');
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => {
+    const current = currentCycle(state, cycle);
+    if (current.status === 'needs-attention')
+      throw new Error(`${current.attention?.code}: ${current.reason}`);
+    return current.status === 'awaiting-merge';
+  }, 'the manual cycle awaits its merge');
+  expect(
+    state.context.storage.runtimeEvidence.run(
+      state.workspaceId,
+      currentCycle(state, cycle).currentRunId,
+    ),
+  ).toBeUndefined();
+  expect(backend.launches.every((request) => request.buildEnvironment === undefined)).toBe(true);
+});
+
+it("a run is held to its repository's current adoption, not an earlier one (R-G13 increment 4, review L2)", async () => {
+  const { state, backend, worktree } = await manualFixture();
+  const storage = state.context.storage;
+  const first = storage.runtimeEvidence.checkDeclarations(
+    state.workspaceId,
+    worktree.repositoryId,
+  )[0]!;
+  storage.runtimeEvidence.addCheckDeclaration({ ...first, id: randomUUID(), version: 2 });
+  const current = storage.runtimeEvidence.checkDeclarations(
+    state.workspaceId,
+    worktree.repositoryId,
+  )[0]!;
+  expect(current.version).toBe(2);
+  backend.replyForRequest = () => ({ resultText: reviewText([]) });
+  const review = await runToFinish(state, worktree.id, { role: 'review' });
+  const held = checkOnlyRun(state, review, lastLaunch(backend, worktree.path));
+  expect(held.environment?.checkDeclarationId).toBe(current.id);
+  expect(held.manifest?.declaredChecks).toMatchObject({ declarationId: current.id, version: 2 });
+});
+
+it("a manual run beside a paused roadmap cycle is not that cycle's: in a repository without adopted checks it keeps the earlier rule (R-G13 increment 4, review L4)", async () => {
+  const { state, backend } = await roadmapFixture(
+    [designDone, implementationDone, { resultText: reviewText([]) }],
+    { undeclared: true },
+  );
+  expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await waitFor(() => {
+    const attempt = storedRoadmap(state).attempts[0];
+    const cycle =
+      attempt && state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId);
+    return cycle?.status === 'needs-attention';
+  }, 'the roadmap cycle stops');
+  const attempt = storedRoadmap(state).attempts[0]!;
+  const tree = state.context.storage.execution.worktrees.find(
+    state.workspaceId,
+    attempt.worktreeId,
+  )!;
+  commitFile(tree.path, 'manual.txt', 'manual\n');
+  backend.replyForRequest = () => ({ resultText: reviewText([]) });
+  // The operator's own run in the stopped cycle's worktree: not the roadmap's.
+  const review = await runToFinish(state, tree.id, { role: 'review' });
+  expect(state.context.storage.runtimeEvidence.run(state.workspaceId, review)).toBeUndefined();
+  expect(lastLaunch(backend, tree.path).buildEnvironment).toBeUndefined();
 });
 
 it('a check-only review whose work changed an adopted definition stops as check-definition-changed; its merge does not adopt it (R-G13 increment 4)', async () => {

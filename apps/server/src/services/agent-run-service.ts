@@ -1360,6 +1360,7 @@ export class AgentRunService {
               runId,
               runDirectory,
               join(this.config.checkLogRoot, runId, 'replies'),
+              cycle,
             );
       // Its record says the daemon records its receipts; without the daemon's check service
       // nothing would, and its gate could never be met.

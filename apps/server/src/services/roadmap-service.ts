@@ -2810,6 +2810,19 @@ export class RoadmapService {
         owner && roadmap.attempts.find((a) => a.entryId === owner.id && !a.recovery);
       if (!sourceEntry || !owner || !ownerAttempt || this.recoveryFor(roadmap, sourceEntry))
         continue;
+      // A roadmap's cycles are held to their repository's adopted checks, and fail closed without
+      // them (R-G13 increment 4, D2). A repair delegated by hand was not: with no adoption, or a
+      // run prepared with no record, its merge would rest on the review alone. It stays the
+      // operator's (independent review L1).
+      const tree = this.storage.execution.worktrees.find(ws, cycle.worktreeId);
+      if (
+        !tree ||
+        !this.storage.runtimeEvidence.checkDeclarations(ws, tree.repositoryId).length ||
+        this.storage.execution.runs
+          .listForWorktree(ws, cycle.worktreeId)
+          .some((run) => !this.storage.runtimeEvidence.run(ws, run.id))
+      )
+        continue;
       // The pinned source the repair was delegated from: the review in the source worktree.
       const pinned =
         cycle.scopeRepair.sources.find(

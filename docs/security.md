@@ -578,9 +578,11 @@ carry no runtime. Its record must name the adoption and the daemon's receipt aut
 check and the contract both refuse otherwise). The delegated merge and the operator's merge of such a
 run both need a clean, successful receipt the daemon recorded of each adopted check, run from the
 run's manifest on the reviewed head; `ct-check -- …` counts for nothing. In a repository without an
-adoption only a roadmap's cycle fails closed (`repository-checks-undeclared`); other runs there, and
-runs prepared before the increment, keep the earlier rule, under which their merge rests on the
-review alone. Adoption at merge stays a scoped slice's: a check-only run whose definitions changed
+adoption only a roadmap's cycle fails closed (`repository-checks-undeclared`); other runs there keep
+the earlier rule, under which their merge rests on the review alone. Where the repository has an
+adoption, a merge refuses a review that ran with no record of it, such as one prepared before the
+adoption (operator decision 2026-10-07): a fresh review is held to the adoption. A repair delegated
+by hand is adopted into a roadmap only if it is held to adopted checks. Adoption at merge stays a scoped slice's: a check-only run whose definitions changed
 stops as `check-definition-changed`, and a person adopts on the Repositories page.
 Every adopted check runs the commit's rustup-managed toolchain (a `path` toolchain is refused), with
 the tree's rustc wrappers cleared, and is refused if the tree has a Cargo configuration or toolchain

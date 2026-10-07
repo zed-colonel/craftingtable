@@ -287,3 +287,11 @@ it("cancelling a pinned build stops its toolchain's helper commands at once (R-G
   expect(outcome.exitCode).toBe(1);
   expect(outcome.diagnostic).toContain('Interrupted');
 });
+
+it('a declared check whose time limit passes while its clone is made says so (R-G13 increment 4, review L3)', async () => {
+  const f = fixture({ checkTimeoutMs: 1 });
+  const outcome = await f.execute('ct-check', ['--declared', 'c']);
+  expect(outcome.exitCode).toBe(1);
+  expect(outcome.diagnostic).toBe('The check time limit passed while its sources were prepared.');
+  expect(outcome.output).not.toContain('DECLARED-RAN');
+});

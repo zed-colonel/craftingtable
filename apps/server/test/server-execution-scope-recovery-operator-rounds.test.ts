@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { type ExecutionScope, roadmapAttention } from '@craftingtable/domain';
-import { afterEach, expect } from 'vitest';
+import { afterEach, expect, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
 
 /* -------------------------------------------------------------------------- */
@@ -154,6 +154,31 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
       );
       expect(unowned.owner).toBeNull();
       repairId = unowned.id;
+      if (paused) {
+        // A roadmap's cycles fail closed without adopted checks (R-G13 increment 4, D2): a
+        // repair in a repository with none, or with a run its gate holds to nothing, stays the
+        // operator's (independent review L1). A paused pass only adopts repairs.
+        const repairTree = tx.execution.cycles.find(ws, repairId)!.worktreeId;
+        // The repair's controller alone, so it has a run before the roadmap's next pass.
+        const services = state.context.services;
+        for (
+          let step = 0;
+          step < 20 && !tx.execution.runs.listForWorktree(ws, repairTree).length;
+          step++
+        ) {
+          await services.workCycleService.tick();
+          await services.agentRunService.quiesce();
+        }
+        expect(tx.execution.runs.listForWorktree(ws, repairTree).length).toBeGreaterThan(0);
+        const undeclared = vi.spyOn(tx.runtimeEvidence, 'checkDeclarations').mockReturnValue([]);
+        await state.context.services.roadmapService.tick();
+        undeclared.mockRestore();
+        expect(tx.execution.cycles.find(ws, repairId)?.owner).toBeNull();
+        const unrecorded = vi.spyOn(tx.runtimeEvidence, 'run').mockReturnValue(undefined);
+        await state.context.services.roadmapService.tick();
+        unrecorded.mockRestore();
+        expect(tx.execution.cycles.find(ws, repairId)?.owner).toBeNull();
+      }
       // Adopted on the next pass, while paused (the pause still holds it) or running.
       await state.context.services.roadmapService.tick();
       expect(tx.execution.cycles.find(ws, repairId)?.owner).toBeTruthy();

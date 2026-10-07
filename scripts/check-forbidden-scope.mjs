@@ -28,6 +28,13 @@
  *    it. The one thing it cannot tell: a harness a manifest script starts from `src` is a
  *    declared entry like the operator's CLI; harnesses live in `test/`.
  *
+ * 7. Map vocabulary is written in one module (R-F2): the reviewer roles, resource ids, profile
+ *    id, maturity token and attested contract wording the controller gives a meaning to are the
+ *    string and regular-expression literals of `V03_VOCABULARY` in
+ *    `packages/domain/src/map-capabilities.ts`, read from its syntax tree. No other production
+ *    module writes one in a literal or JSX text: it asks that module what a map declares. Tests, fixtures
+ *    and the legacy mapping (text earlier releases wrote) may.
+ *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
  * - **The files** are every module the workspace's TypeScript projects compile (each
@@ -147,6 +154,9 @@ const PROSE_PACKAGES = new Set([
 ]);
 /** The one module allowed to read reason text written by earlier releases (ADR-067). */
 const PROSE_LEGACY_MAPPING = 'packages/domain/src/attention-legacy.ts';
+/** The one module that writes map vocabulary, and the table it writes it in (rule 7, R-F2). */
+const MAP_VOCABULARY_MODULE = 'packages/domain/src/map-capabilities.ts';
+const MAP_VOCABULARY_TABLE = 'V03_VOCABULARY';
 
 const DEPENDENCY_FIELDS = [
   'dependencies',
@@ -647,6 +657,63 @@ function proseBranches(sourceFile) {
   return found;
 }
 
+/** A regular-expression literal's pattern, without its slashes and flags. */
+const regexSource = (text) => text.slice(1, text.lastIndexOf('/'));
+const isTemplatePart = (node) =>
+  node.kind === SyntaxKind.TemplateHead ||
+  node.kind === SyntaxKind.TemplateMiddle ||
+  node.kind === SyntaxKind.TemplateTail;
+
+/**
+ * The texts the vocabulary table's literals match (rule 7): each string, and each regular
+ * expression's pattern. Property names are keys, not vocabulary. Undefined when the module
+ * declares no such table.
+ */
+function mapVocabulary(sourceFile) {
+  let table;
+  const find = (node) => {
+    if (
+      node.kind === SyntaxKind.VariableDeclaration &&
+      node.name.kind === SyntaxKind.Identifier &&
+      node.name.text === MAP_VOCABULARY_TABLE
+    )
+      table = node.initializer;
+    else node.forEachChild(find);
+  };
+  sourceFile.forEachChild(find);
+  if (table === undefined) return undefined;
+  const texts = [];
+  const collect = (node) => {
+    if (node.kind === SyntaxKind.PropertyAssignment) return collect(node.initializer);
+    if (isLiteral(node)) texts.push(node.text);
+    else if (node.kind === SyntaxKind.RegularExpressionLiteral) texts.push(regexSource(node.text));
+    node.forEachChild(collect);
+  };
+  collect(table);
+  return [...new Set(texts.filter((text) => text !== ''))];
+}
+
+/**
+ * The literals in a module that write map vocabulary (rule 7), with the vocabulary each holds:
+ * strings, template parts, JSX text and regular-expression patterns.
+ */
+function vocabularyLiterals(sourceFile, vocabulary) {
+  const found = [];
+  const visit = (node) => {
+    const text =
+      isLiteral(node) || isTemplatePart(node) || node.kind === SyntaxKind.JsxText
+        ? node.text
+        : node.kind === SyntaxKind.RegularExpressionLiteral
+          ? regexSource(node.text)
+          : undefined;
+    const word = text === undefined ? undefined : vocabulary.find((v) => text.includes(v));
+    if (word !== undefined) found.push({ node, word });
+    node.forEachChild(visit);
+  };
+  sourceFile.forEachChild(visit);
+  return found;
+}
+
 const lineStarts = new WeakMap();
 /** The 1-based line a node starts on. */
 function lineOf(sourceFile, node) {
@@ -1103,8 +1170,8 @@ function placeOf(root, path) {
   return APPLICATION_GROUPS.includes(group) ? `${group}/${name}` : group;
 }
 
-/** One module's findings under rules 1-5. */
-function moduleFindings(root, module, production) {
+/** One module's findings under rules 1-5 and 7. */
+function moduleFindings(root, module, production, vocabulary) {
   const findings = [];
   const path = posix(relative(root, module.file));
   const { sourceFile } = module;
@@ -1151,6 +1218,11 @@ function moduleFindings(root, module, production) {
     for (const line of [...lines].sort((a, b) => a - b))
       findings.push(`${path}:${line}: branches on human-readable text; use a typed code`);
   }
+  if (path !== MAP_VOCABULARY_MODULE && path !== PROSE_LEGACY_MAPPING)
+    for (const { node, word } of vocabularyLiterals(sourceFile, vocabulary))
+      findings.push(
+        `${path}:${lineOf(sourceFile, node)}: writes map vocabulary "${word}"; ask ${MAP_VOCABULARY_MODULE} what the map declares`,
+      );
   return findings;
 }
 
@@ -1165,6 +1237,15 @@ export function inspectWorkspace(root) {
   const built = builtModules(absoluteRoot, projects, modules);
   const classified = productionModules(absoluteRoot, projects, modules, tests, built);
   findings.push(...buildFindings(absoluteRoot, modules, classified, built));
+  // Rule 7 reads the vocabulary where it is declared; a workspace without the module has none.
+  const vocabularyModule = [...modules.values()].find(
+    (module) => posix(relative(absoluteRoot, module.file)) === MAP_VOCABULARY_MODULE,
+  );
+  const vocabulary = vocabularyModule && mapVocabulary(vocabularyModule.sourceFile);
+  if (vocabularyModule && !vocabulary?.length)
+    findings.push(
+      `${MAP_VOCABULARY_MODULE}: declares no ${MAP_VOCABULARY_TABLE} literals, so map vocabulary cannot be confined`,
+    );
   const classes = new Map();
   for (const module of modules.values()) {
     const production = classified.production.has(module.file);
@@ -1172,7 +1253,7 @@ export function inspectWorkspace(root) {
       posix(relative(absoluteRoot, module.file)),
       production ? 'production' : classified.tests.has(module.file) ? 'test' : 'test-support',
     );
-    findings.push(...moduleFindings(absoluteRoot, module, production));
+    findings.push(...moduleFindings(absoluteRoot, module, production, vocabulary ?? []));
   }
   return { findings, classes };
 }
@@ -1206,6 +1287,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

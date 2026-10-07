@@ -632,6 +632,65 @@ describe('the fail-open gaps the independent review found', () => {
   });
 });
 
+describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
+  const VOCABULARY = [
+    'export const V03_VOCABULARY = {',
+    "  planAcceptance: { reviewerRole: 'plan-owner', passCriteria: ['Plan is valid.'] },",
+    "  resourceAdapters: { nativeTestHost: 'native-host' },",
+    '  independentMaturity: /^independent\\b/i,',
+    '} as const;',
+    "export const kind = 'plan_approval';",
+    '',
+  ].join('\n');
+  const vocabulary = (file, line, word) =>
+    `${file}:${line}: writes map vocabulary "${word}"; ask packages/domain/src/map-capabilities.ts what the map declares`;
+
+  it('finds vocabulary written elsewhere in production: string, template, JSX text or pattern', () => {
+    const root = workspace({
+      'packages/domain/src/map-capabilities.ts': VOCABULARY,
+      'apps/server/src/policy.ts': [
+        "export const role = (r: string) => r === 'plan-owner';",
+        'export const host = (id: string) => `Resource native-host for ${id}`;',
+        "export const ok = (c: string[]) => c.includes('Plan is valid.');",
+        'export const maturity = /^independent\\b/i;',
+        "export const built = new RegExp('^independent\\\\b');",
+        // Format terms and keys are not vocabulary; neither is a comment naming plan-owner.
+        "export const kinds = ['plan_approval', 'nativeTestHost', 'independent'];",
+        '// plan-owner reviews the plan.',
+        '',
+      ].join('\n'),
+      'apps/web/src/Panel.tsx':
+        "export const title = 'Saved plan · plan-owner';\nexport const h = <h4>Accepted as plan-owner</h4>;\n",
+      // Tests and the legacy mapping may write it.
+      'apps/server/test/policy.test.ts': "export const role = 'plan-owner';\n",
+      'packages/domain/src/attention-legacy.ts':
+        "export const legacy = (m: string) => m.startsWith('Resource native-host');\n",
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        vocabulary('apps/server/src/policy.ts', 1, 'plan-owner'),
+        vocabulary('apps/server/src/policy.ts', 2, 'native-host'),
+        vocabulary('apps/server/src/policy.ts', 3, 'Plan is valid.'),
+        vocabulary('apps/server/src/policy.ts', 4, '^independent\\b'),
+        vocabulary('apps/server/src/policy.ts', 5, '^independent\\b'),
+        vocabulary('apps/web/src/Panel.tsx', 1, 'plan-owner'),
+        vocabulary('apps/web/src/Panel.tsx', 2, 'plan-owner'),
+      ].sort(),
+    );
+  });
+
+  it('fails closed when the module no longer declares the table', () => {
+    const root = workspace({
+      'packages/domain/src/map-capabilities.ts':
+        "export const VOCABULARY = { role: 'plan-owner' };\n",
+      'apps/server/src/policy.ts': "export const role = 'plan-owner';\n",
+    });
+    expect(runCheck(root)).toEqual([
+      'packages/domain/src/map-capabilities.ts: declares no V03_VOCABULARY literals, so map vocabulary cannot be confined',
+    ]);
+  });
+});
+
 it('passes on the real repository, having read and classified its modules', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const { findings, classes } = inspectWorkspace(root);

@@ -272,6 +272,58 @@ it("keeps the backups out of a sandboxed command's reach wherever they are moved
     backupRoot,
   ]);
 });
+it("keeps the stored roots off the outside sources' caches and the settings file, at start and on a change (R-G14 review)", async () => {
+  const s = await runFixture();
+  const old = s.service.get(s.auth, s.workspaceId);
+  const { dataDir, configDir } = s.context.config;
+  const cache = join(dataDir, 'cargo-home', 'registry');
+  mkdirSync(cache, { recursive: true });
+  // A root moved into a cache, which every sandboxed command may write, is refused.
+  for (const key of ['worktreeRoot', 'runsRoot', 'backupRoot'] as const)
+    expect(
+      () =>
+        s.service.save(s.auth, s.workspaceId, {
+          expectedVersion: old.version,
+          policy: { ...old.policy, [key]: join(cache, key) },
+        }),
+      key,
+    ).toThrow(/outside source's cache/);
+  // So is a root that would hold the settings file, read from where agents write.
+  for (const key of ['worktreeRoot', 'runsRoot'] as const)
+    expect(
+      () =>
+        s.service.save(s.auth, s.workspaceId, {
+          expectedVersion: old.version,
+          policy: { ...old.policy, [key]: configDir },
+        }),
+      key,
+    ).toThrow(/outside sources file/);
+  expect(existsSync(join(cache, 'runsRoot'))).toBe(false);
+  // Roots stored so before the check existed refuse the start.
+  const stored = s.context.storage.maintenance.settings();
+  if (!stored) throw new Error('Missing settings');
+  const reopen =
+    (config = s.context.config) =>
+    () =>
+      new StorageService(s.context.storage, config, s.context.services.workspaceService);
+  mkdirSync(join(cache, 'runs'));
+  s.context.storage.transaction((tx) =>
+    tx.maintenance.saveSettings({
+      ...stored,
+      roots: {
+        ...stored.roots,
+        runsRoot: { path: join(cache, 'runs'), device: stored.roots.runsRoot.device },
+      },
+    }),
+  );
+  expect(reopen()).toThrow(/cache .* must not overlap the runs root/);
+  s.context.storage.transaction((tx) => tx.maintenance.saveSettings(stored));
+  expect(reopen()).not.toThrow();
+  // A settings directory inside the stored worktree root, wherever the environment's was.
+  expect(
+    reopen({ ...s.context.config, configDir: join(stored.roots.worktreeRoot.path, 'settings') }),
+  ).toThrow(/outside-sources\.json .*worktree root/);
+});
 it('changes future placement durably while old run paths and merge scratch stay fixed', async () => {
   const s = await runFixture();
   const old = s.service.get(s.auth, s.workspaceId);

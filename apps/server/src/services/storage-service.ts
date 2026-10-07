@@ -22,7 +22,14 @@ import type {
   StorageRootIdentity,
   StoredStorageSettings,
 } from '@craftingtable/storage';
-import { DATABASE_BACKUP_DIRECTORY, type ExecutionConfig, type ServerConfig } from '../config.js';
+import {
+  DATABASE_BACKUP_DIRECTORY,
+  type ExecutionConfig,
+  type LabelledRoot,
+  type OutsideSourcesPlacementProblem,
+  outsideSourcesPlacementProblem,
+  type ServerConfig,
+} from '../config.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError, ForbiddenError } from './errors.js';
 import { type StorageAlert, StorageAlertGate } from './storage-alerts.js';
@@ -104,6 +111,10 @@ export class StorageService {
       this.settings = initialStorageSettings(config);
       storage.transaction((tx) => tx.maintenance.saveSettings(this.settings));
     }
+    // The stored roots, not only the environment's, stay off the outside sources' caches and
+    // never hold the settings file (R-G14 review): a start with such roots is refused.
+    const placed = this.outsideSourcesProblem(this.settings.roots);
+    if (placed) throw new Error(placed.message);
     // Seed pre-feature runs once, without reinterpreting their paths on later settings changes.
     const legacyRoot = this.settings.roots.runsRoot;
     for (const run of storage.maintenance.unregisteredRuns()) {
@@ -147,6 +158,31 @@ export class StorageService {
         return join(self.settings.mergeRoot.path, '.merge');
       },
     };
+  }
+  /**
+   * Whether `roots` would put the settings file where agents write, or overlap an outside
+   * source's cache (R-G14 review), beside the daemon's fixed directories.
+   */
+  private outsideSourcesProblem(
+    roots: StoredStorageSettings['roots'],
+  ): OutsideSourcesPlacementProblem | undefined {
+    const { execution } = this.config;
+    const agentWritable: LabelledRoot[] = [
+      ['worktree root', roots.worktreeRoot.path],
+      ['runs root', roots.runsRoot.path],
+      ["agents' temporary root", execution.agentTemporaryRoot],
+    ];
+    return outsideSourcesPlacementProblem(
+      execution.outsideSources ?? [],
+      this.config.configDir,
+      agentWritable,
+      [
+        ["database's directory", dirname(this.config.databasePath)],
+        ['backup root', roots.backupRoot.path],
+        ['integration scratch root', this.settings.mergeRoot.path],
+        ['check logs', execution.checkLogRoot],
+      ],
+    );
   }
   registerRun(runId: AgentRunId, directory: string): void {
     this.storage.maintenance.registerRunDirectory(
@@ -408,6 +444,15 @@ export class StorageService {
         if (policy[key] !== this.settings.policy[key])
           requireFree(existing, policy.minimumFreeGiB * GiB);
       }
+      // The outside sources' caches and settings file stay apart from every root (R-G14 review).
+      const placed = this.outsideSourcesProblem(roots);
+      if (placed)
+        throw new ExecutionRequestError(
+          'invalid-request',
+          placed.code === 'cache-overlap'
+            ? "This location overlaps an outside source's cache, which agents write."
+            : 'This location would hold the outside sources file, which agents must not write.',
+        );
     } catch (error) {
       if (error instanceof ExecutionRequestError) throw error;
       throw new ExecutionRequestError(

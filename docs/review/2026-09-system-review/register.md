@@ -3338,11 +3338,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Per case, the same in `auto` and `edit-only`:*
     - `cargo fetch` succeeded into the scratch Cargo home.
     - `example.com` and the `crates.io` apex were refused (proxy 403, "domain is not on the allowlist"); so was `docs.rs` in the model-free run.
-    - Writes outside the worktree, run directory and the two caches were refused (another directory, the Cargo home's root, `$HOME`); the run directory and worktree were writable.
+    - Writes outside the worktree, run directory and the two caches were refused, and the run directory and worktree were writable. In the model runs this covered another directory and the Cargo home's root. Those refusals rest on the probe files being absent and the model's report, since no command item was emitted (see *Noted*). The model-free run also showed "Read-only file system" for both, and for `$HOME`.
     - With the source removed (network off), `cargo fetch` failed (cannot resolve `index.crates.io`). Model-free, network on with no hosts gave 403, and dropping only `static.crates.io` refused the download.
-  - *Escalation:* in `auto`, after the sandbox refused `curl https://example.com`, the model asked to run it outside the sandbox. Codex's reviewer approved it (`item/autoApprovalReview`, "risk: low") and the command reached example.com (HTTP 200). The prompt claimed the owner's authorization, which a brief or repository text can also claim. `edit-only` (`approvalPolicy: never`) could not escalate. So in `auto` the source limit holds only until the reviewer approves an escalation. This goes back to the operator, as decided above.
+  - *Escalation:* in `auto`, after the sandbox refused `curl https://example.com`, the model asked to run it outside the sandbox, as its prompt instructed it to if the command was blocked (a brief can say the same). Codex's reviewer approved it (`item/autoApprovalReview`, "risk: low") and the command reached example.com (HTTP 200). The prompt claimed the owner's authorization, which a brief or repository text can also claim. `edit-only` (`approvalPolicy: never`) could not escalate. So in `auto` the source limit holds only until the reviewer approves an escalation. This goes back to the operator, as decided above.
   - *Noted:* both modes emitted no `commandExecution` item for a refused write, though the model reported it failed, so the journal does not show such a command. Permission profiles are Beta, `features.network_proxy` is experimental, and `permissions` is an experimental API field (the adapter already opts in). `extends = ":workspace"` also makes `$TMPDIR` and `/tmp` writable, as today. Codex accepts wildcard host patterns; CraftingTable passes only exact hosts (step 3).
   - *Conclusion:* step 4 gives Codex this per-run profile with the configured sources. No `ct-fetch` is needed.
+  - *Record (corrected after the review):* the model runs' event logs were kept, but the model-free outputs and the `activePermissionProfile` answers were only printed. The model-free cases were run again on the same CLI after the review, and their output is now kept beside the logs, with the same results. The `activePermissionProfile` answer is in the notes, not in a log.
 - **Codex `auto` escalations, decided by the operator 2026-10-07** (after the experiment): Codex `auto` will never escalate. It gets approval policy `never`, as `edit-only` already does, so leaving the sandbox is only ever the operator's explicit `unrestricted` choice. Reasons:
   - an approved escalation runs fully unsandboxed, for both network and files;
   - in the experiment, the reviewer approved one on an "owner authorized" claim that cannot be checked;
@@ -3374,14 +3375,31 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - a Cargo home linked into the database's directory, the backups or out of the data directory is refused;
     - with no source, nothing is refused.
 
-    Each check was confirmed by mutation: removing it fails its test.
+    Removing a check failed its test only for the database, the backups and the data directory. The review found that the other checks had no failing test; they are covered by the review fixes below.
   - Tests (`server-execution-runs.test.ts`):
     - a run launches with the default `cargo` source;
     - after a start with extra hosts, it launches with them;
-    - after a restart with `"sources": []`, it launches with none.
+    - a second test daemon, with its own data directory and `"sources": []`, launches with none. It is not a restart of the same daemon.
 
     Both fail without the wiring.
-  - Not covered here: the backup root is a storage setting the operator can move while the daemon runs, and the caches are checked only against the default backups directory at start.
+  - Not covered at this commit (fixed by the review's M1 below): the worktree, runs and backup roots are storage settings the operator can move while the daemon runs, but the start checked only the environment's roots and the default backups directory.
+- **Independent review (2026-10-07, at d21ce9e) and fixes.** The review found 0 HIGH, 2 MEDIUM and 3 LOW.
+  - **M1, fixed.** The start checked the settings file's location, and the caches against the daemon's roots, only for the environment's default roots. The roots actually used are the stored storage settings, which a storage change could also move into a cache.
+    - Now `outsideSourcesPlacementProblem` (`config.ts`) runs a second time when `StorageService` starts, against the stored worktree, runs and backup roots and the integration scratch root. Such a start is refused.
+    - `StorageService.update` refuses a root that overlaps a source's cache, or that would hold the settings file where agents write, with `invalid-request`. The message is chosen by the problem's code, not its text.
+    - Test (`storage-management.test.ts`): moving the worktree, runs or backup root into the Cargo registry cache is refused. A worktree or runs root at the settings directory is refused. Stored roots with the runs root in the cache refuse the start, and so does a settings directory in the stored worktree root. The test fails without the start check, without the update check, with the two messages swapped, and without the runs or backup root in the list.
+  - **M2, fixed.** Eight checks had no test that failed without them. New tests in `config.test.ts`:
+    - a settings directory in the agents' temporary root, or reached through a link into the worktree root;
+    - a pipe in place of the file, refused within a second. A writer opens the pipe after two seconds, so a read that blocks fails the test instead of hanging the run;
+    - the runs and worktree roots reaching a cache through a link;
+    - the check logs, the database's directory and the backups as links into a cache;
+    - the settings directory inside a cache, the other way round.
+
+    Removing each check fails its test: the agents' temporary root, the location through links, `O_NONBLOCK`, the agent-written roots in the overlap list, check logs, the database's directory, the backups, the settings directory, and the overlap tested in both directions. The `StorageService` list's database's directory, integration scratch root and check logs are not tested separately; the operator cannot move them.
+  - **L1, fixed.** `"extraHosts": null` is now refused like any other non-list. A case was added to the refusal table, and it fails with the old `?? []`.
+  - **L2, fixed structurally.** A cache must lie in its kind's own directory (`<data>/cargo-home`), and neither that directory nor `registry` nor `git` may be a link. Such a start is refused. This covers the daemon's other data in the data directory without a list: its checksum store `crates-io`, `ci`, `kata`, `model-catalog`, the database.
+    - Test: `cargo-home` linked to `state`, `crates-io`, `runs`, `worktrees` or `check-logs`, `registry` linked to `crates-io`, `git` linked to `backups`, and `cargo-home` linked out of the data directory are each refused, while real directories are accepted. It fails without the check, and without checking the caches themselves.
+  - **L3, corrected:** the record's wording above (`$HOME` was tried only without a model; refused writes in model runs; the escalation was instructed; the second test daemon is not a restart), and the model-free output is now kept.
 
 ### R-G15
 

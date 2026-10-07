@@ -7,6 +7,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -417,6 +418,7 @@ describe('outside sources (R-G14)', () => {
       [json({ version: 1, sources: [{ kind: 'cargo' }, { kind: 'cargo' }] }), /"cargo" twice/],
       [json({ version: 1, sources: [{ kind: 'cargo', hosts: [] }] }), /unknown key "hosts"/],
       [json({ version: 1, sources: [{ kind: 'cargo', extraHosts: 'a.b.c' }] }), /"extraHosts"/],
+      [json({ version: 1, sources: [{ kind: 'cargo', extraHosts: null }] }), /"extraHosts"/],
     ];
     for (const host of [
       '*.example.org',
@@ -473,37 +475,135 @@ describe('outside sources (R-G14)', () => {
     expect(settings(padded.slice(0, 64 * 1024)).read().outsideSources).toEqual([]);
   });
 
-  it("never reads the file from where agents write, and keeps a source's caches off the daemon's other files", () => {
-    // The settings directory inside the worktree root, which agents write.
-    const inWorktree = settings();
-    expect(() =>
-      configFromEnv({
-        ...inWorktree.env,
-        CRAFTINGTABLE_CONFIG_DIR: join(inWorktree.data, 'worktrees', 'repo', '.craftingtable'),
+  it('never reads the file from where agents write, as written or through links', () => {
+    const at = settings();
+    const configured = (env: Record<string, string>) => () => configFromEnv({ ...at.env, ...env });
+    // The settings directory inside the worktree root, the runs root or the agents' temporary
+    // root, all of which agents write.
+    expect(
+      configured({
+        CRAFTINGTABLE_CONFIG_DIR: join(at.data, 'worktrees', 'repo', '.craftingtable'),
       }),
-    ).toThrow(/outside-sources\.json.*worktree/);
-    expect(() =>
-      configFromEnv({
-        ...inWorktree.env,
-        CRAFTINGTABLE_RUNS_ROOT: inWorktree.configDir,
-      }),
-    ).toThrow(/outside-sources\.json.*run/);
-    // A Cargo home that is a link into the database's directory, or the backups, is refused.
-    for (const target of ['state', 'backups']) {
-      const linked = settings(json({ version: 1, sources: [{ kind: 'cargo' }] }));
-      mkdirSync(join(linked.data, target));
-      symlinkSync(join(linked.data, target), join(linked.data, 'cargo-home'));
-      expect(linked.read, target).toThrow(/cache .* daemon's other files/);
+    ).toThrow(/outside-sources\.json.*worktree root/);
+    expect(configured({ CRAFTINGTABLE_RUNS_ROOT: at.configDir })).toThrow(
+      /outside-sources\.json.*runs root/,
+    );
+    expect(configured({ CRAFTINGTABLE_CONFIG_DIR: join(at.data, 't', 'settings') })).toThrow(
+      /outside-sources\.json.*agents' temporary root/,
+    );
+    // A settings directory that is a link into the worktree root.
+    mkdirSync(join(at.data, 'worktrees', 'repo'), { recursive: true });
+    symlinkSync(join(at.data, 'worktrees', 'repo'), join(at.base, 'settings-link'));
+    expect(configured({ CRAFTINGTABLE_CONFIG_DIR: join(at.base, 'settings-link') })).toThrow(
+      /outside-sources\.json.*worktree root/,
+    );
+  });
+
+  it('refuses a pipe in place of the file at once, never waiting for a writer', async () => {
+    const at = settings();
+    execFileSync('mkfifo', [at.file]);
+    // Should the read wait on the pipe, a writer opens it after two seconds, so a regression
+    // fails on the time taken instead of hanging the run.
+    const writer = spawn('sh', ['-c', 'sleep 2; exec 3<>"$0"; sleep 1', at.file], {
+      stdio: 'ignore',
+    });
+    try {
+      const started = Date.now();
+      expect(at.read).toThrow(/regular file/);
+      expect(Date.now() - started).toBeLessThan(1000);
+    } finally {
+      writer.kill();
+    }
+  });
+
+  it("keeps a source's caches in its own directory, with no link on the way (R-G14 review)", () => {
+    // `cargo-home`, `registry` or `git` as a link could lead a cache onto any of the daemon's
+    // files, listed or not (its checksum store, the database): each is refused.
+    const links: [string, string][] = [
+      ['cargo-home', 'state'],
+      ['cargo-home', 'crates-io'],
+      ['cargo-home', 'runs'],
+      ['cargo-home', 'worktrees'],
+      ['cargo-home', 'check-logs'],
+      [join('cargo-home', 'registry'), 'crates-io'],
+      [join('cargo-home', 'git'), 'backups'],
+    ];
+    for (const [linked, target] of links) {
+      const at = settings(json({ version: 1, sources: [{ kind: 'cargo' }] }));
+      if (linked !== 'cargo-home') mkdirSync(join(at.data, 'cargo-home'));
+      mkdirSync(join(at.data, target), { recursive: true });
+      symlinkSync(join(at.data, target), join(at.data, linked));
+      expect(at.read, linked).toThrow(/cache .* must not be reached through a link/);
     }
     // Nor one that leads out of the data directory, as the operator's own Cargo home would.
     const outside = settings();
     mkdirSync(join(outside.base, 'operator-cargo'));
     symlinkSync(join(outside.base, 'operator-cargo'), join(outside.data, 'cargo-home'));
-    expect(outside.read).toThrow(/cache .* data directory/);
+    expect(outside.read).toThrow(/cache .* must not be reached through a link/);
+    // Real directories are taken.
+    const real = settings();
+    mkdirSync(join(real.data, 'cargo-home', 'registry'), { recursive: true });
+    mkdirSync(join(real.data, 'cargo-home', 'git'));
+    expect(real.read().outsideSources).toHaveLength(1);
     // Without a source, nothing is written there, so nothing is refused.
     const none = settings(json({ version: 1, sources: [] }));
     mkdirSync(join(none.data, 'state'));
     symlinkSync(join(none.data, 'state'), join(none.data, 'cargo-home'));
     expect(none.read().outsideSources).toEqual([]);
+  });
+
+  it("keeps the daemon's other roots out of a source's caches, either way round", () => {
+    // Each root reaches into the cache from its own side: by a setting or by a link of its own.
+    const cache = (data: string, ...rest: string[]) =>
+      join(data, 'cargo-home', 'registry', ...rest);
+    const cases: [string, (at: ReturnType<typeof settings>) => Record<string, string>][] = [
+      [
+        'runs root',
+        (at) => {
+          symlinkSync(cache(at.data, 'runs'), join(at.base, 'runs-link'));
+          return { CRAFTINGTABLE_RUNS_ROOT: join(at.base, 'runs-link') };
+        },
+      ],
+      [
+        'worktree root',
+        (at) => {
+          symlinkSync(cache(at.data, 'trees'), join(at.base, 'trees-link'));
+          return { CRAFTINGTABLE_WORKTREE_ROOT: join(at.base, 'trees-link') };
+        },
+      ],
+      [
+        'check logs',
+        (at) => {
+          symlinkSync(cache(at.data, 'logs'), join(at.data, 'check-logs'));
+          return {};
+        },
+      ],
+      [
+        "database's directory",
+        (at) => {
+          symlinkSync(cache(at.data, 'state'), join(at.data, 'state'));
+          return {};
+        },
+      ],
+      [
+        'backups',
+        (at) => {
+          symlinkSync(cache(at.data, 'backups'), join(at.data, 'backups'));
+          return {};
+        },
+      ],
+      // The settings directory inside a cache, which agents write.
+      ['settings directory', (at) => ({ CRAFTINGTABLE_CONFIG_DIR: cache(at.data, 'ct') })],
+    ];
+    for (const [label, place] of cases) {
+      const at = settings();
+      for (const name of ['runs', 'trees', 'logs', 'state', 'backups', 'ct'])
+        mkdirSync(cache(at.data, name), { recursive: true });
+      mkdirSync(join(at.data, 'cargo-home', 'git'));
+      const env = { ...at.env, ...place(at) };
+      expect(() => configFromEnv(env), label).toThrow(
+        new RegExp(`cache .* must not overlap the ${label}`),
+      );
+    }
   });
 });

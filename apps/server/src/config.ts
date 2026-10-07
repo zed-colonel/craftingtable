@@ -16,6 +16,7 @@ import {
   cargoOutsideSource,
   OUTSIDE_SOURCE_HOSTS,
   type OutsideSource,
+  type OutsideSourceKind,
 } from '@craftingtable/agents';
 
 /** Worktree, run, Git, and agent-backend settings for the execution loop. */
@@ -485,10 +486,77 @@ const EXACT_HOST =
 const isJsonObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** One of the daemon's directories, with the name a refusal gives it. */
+export type LabelledRoot = readonly [label: string, path: string];
+
+/** Why outside sources cannot be used beside some roots (R-G14); `code` says which rule. */
+export interface OutsideSourcesPlacementProblem {
+  readonly code: 'settings-file-writable' | 'cache-overlap';
+  readonly message: string;
+}
+
+/**
+ * Whether the outside sources can be used beside these roots (R-G14 review): the settings file
+ * may not lie where agents write (`agentWritable`), and no source's cache may overlap any of the
+ * roots, nor the settings directory, either way round, as written or through links. The start
+ * asks with the roots of the environment and again with the stored storage roots; a storage
+ * change asks with the roots it would store.
+ */
+export function outsideSourcesPlacementProblem(
+  sources: readonly OutsideSource[],
+  configDir: string,
+  agentWritable: readonly LabelledRoot[],
+  daemon: readonly LabelledRoot[],
+): OutsideSourcesPlacementProblem | undefined {
+  const file = join(configDir, OUTSIDE_SOURCES_FILE);
+  const location = comparedPath(file);
+  for (const [label, root] of agentWritable)
+    if (equalOrWithinCompared(location, comparedPath(root)))
+      return {
+        code: 'settings-file-writable',
+        message: `The outside sources file ${file} must lie outside the ${label} ${root}, which agents write`,
+      };
+  const roots = [...agentWritable, ...daemon, ['settings directory', configDir] as const];
+  for (const source of sources)
+    for (const cache of source.caches) {
+      const compared = comparedPath(cache);
+      for (const [label, root] of roots)
+        if (overlapCompared(compared, comparedPath(root)))
+          return {
+            code: 'cache-overlap',
+            message: `The ${source.kind} source's cache ${cache} must not overlap the ${label} ${root}`,
+          };
+    }
+  return undefined;
+}
+
+/**
+ * A source's caches lie in the kind's own directory of the data directory, and neither that
+ * directory nor a cache is a link (R-G14 review), so no cache can lead onto the daemon's other
+ * files, listed or not.
+ */
+function cacheLinkProblem(source: OutsideSource, cacheRoot: string): string | undefined {
+  for (const cache of source.caches)
+    for (const path of [cacheRoot, cache]) {
+      let link: boolean;
+      try {
+        link = lstatSync(path).isSymbolicLink();
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') continue;
+        return `The ${source.kind} source's cache ${cache} could not be checked: ${code ?? String(error)}`;
+      }
+      if (link)
+        return `The ${source.kind} source's cache ${cache} must not be reached through a link; ${path} is one`;
+    }
+  return undefined;
+}
+
 /**
  * The sources the operator configured (R-G14). The file is never read from where agents write,
  * a file the daemon cannot take whole refuses the start, and each source's caches lie in the
- * data directory apart from the database, the backups and the daemon's other roots.
+ * kind's own directory of the data directory, apart from the database, the backups and the
+ * daemon's other roots.
  */
 function outsideSourcesSetting(
   configDir: string,
@@ -499,41 +567,29 @@ function outsideSourcesSetting(
   const refuse: (problem: string) => never = (problem) => {
     throw new Error(`The outside sources file ${file} ${problem}`);
   };
-  const location = comparedPath(file);
-  for (const [label, root] of [
+  const agentWritable: LabelledRoot[] = [
     ['worktree root', execution.worktreeRoot],
     ['runs root', execution.runsRoot],
     ["agents' temporary root", execution.agentTemporaryRoot],
-  ] as const)
-    if (equalOrWithinCompared(location, comparedPath(root)))
-      refuse(`must lie outside the ${label} ${root}, which agents write`);
+  ];
+  const located = outsideSourcesPlacementProblem([], configDir, agentWritable, []);
+  if (located) throw new Error(located.message);
   const contents = readOutsideSourcesFile(file, refuse);
   const sources =
     contents === undefined
       ? [cargoOutsideSource(execution.cargoHome)]
       : parseOutsideSources(contents, execution.cargoHome, refuse);
-  const owned = comparedPath(dataDir);
-  const daemonFiles = [
-    join(dataDir, DATABASE_DIRECTORY),
-    join(dataDir, DATABASE_BACKUP_DIRECTORY),
-    execution.runsRoot,
-    execution.worktreeRoot,
-    execution.checkLogRoot,
-    execution.agentTemporaryRoot,
-    configDir,
-  ].map((path) => comparedPath(path));
-  for (const source of sources)
-    for (const cache of source.caches) {
-      const compared = comparedPath(cache);
-      if (
-        !equalOrWithin(compared.written, owned.written) ||
-        !equalOrWithin(compared.resolved, owned.resolved) ||
-        daemonFiles.some((path) => overlapCompared(compared, path))
-      )
-        throw new Error(
-          `The ${source.kind} source's cache ${cache} must lie in the data directory ${dataDir}, apart from the daemon's other files`,
-        );
-    }
+  const cacheRoots: Readonly<Record<OutsideSourceKind, string>> = { cargo: execution.cargoHome };
+  for (const source of sources) {
+    const linked = cacheLinkProblem(source, cacheRoots[source.kind]);
+    if (linked) throw new Error(linked);
+  }
+  const placed = outsideSourcesPlacementProblem(sources, configDir, agentWritable, [
+    ["database's directory", join(dataDir, DATABASE_DIRECTORY)],
+    ['backups', join(dataDir, DATABASE_BACKUP_DIRECTORY)],
+    ['check logs', execution.checkLogRoot],
+  ]);
+  if (placed) throw new Error(placed.message);
   return sources;
 }
 
@@ -594,7 +650,7 @@ function parseOutsideSources(
       );
     if (kinds.has(kind)) refuse(`names ${JSON.stringify(kind)} twice`);
     kinds.add(kind);
-    const extraHosts = entry.extraHosts ?? [];
+    const extraHosts = 'extraHosts' in entry ? entry.extraHosts : [];
     if (!Array.isArray(extraHosts)) refuse(`${at}'s "extraHosts" must be a list of host names`);
     for (const host of extraHosts as unknown[])
       if (typeof host !== 'string' || !EXACT_HOST.test(host))

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createGitOperations } from '../src/operations.js';
@@ -156,6 +156,82 @@ if (args.includes('--find-renames') && !args.includes('--numstat') && !args.incl
     expect(changes.value.fingerprint).toBe(
       sha256(runFixtureGit(BINARY_DIFF, { cwd: repo.repository })),
     );
+  });
+});
+
+describe('untracked files in one pass (R-G10 B, GIT-03)', () => {
+  /** A Git that counts its own invocations in `log`, one line each. */
+  function countingGit(repo: RepositoryFixture, log: string): string {
+    return makeExecutableProxy(
+      repo.root,
+      'counting-git',
+      `
+import { appendFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');
+const result = spawnSync(${JSON.stringify(GIT_EXECUTABLE)}, process.argv.slice(2), { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`,
+    );
+  }
+
+  async function processesFor(count: number): Promise<number> {
+    const repo = fixture();
+    const base = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+    for (let n = 0; n < count; n++)
+      writeFileSync(join(repo.repository, `untracked-${n}.txt`), `file ${n}\n`);
+    const log = join(repo.root, 'invocations');
+    writeFileSync(log, '');
+    const git = createGitOperations({ gitExecutable: countingGit(repo, log) });
+    const diff = await git.worktreeDiff({
+      worktreePath: repo.repository,
+      baseSha: base,
+      maxPatchBytes: 4 * 1024 * 1024,
+    });
+    if (!diff.ok) throw new Error(JSON.stringify(diff.failure));
+    // Every untracked file is counted and in the patch, with no "N more".
+    const untracked = diff.value.files.filter((file) => file.status === 'untracked');
+    expect(untracked).toHaveLength(count);
+    expect(untracked.every((file) => file.additions === 1 && !file.binary)).toBe(true);
+    expect(diff.value.patchTruncated).toBe(false);
+    expect(diff.value.patch).toContain(`+file ${count - 1}`);
+    // The temporary index never touches the worktree's own.
+    expect(runFixtureGit(['status', '--porcelain'], { cwd: repo.repository }).toString()).toMatch(
+      /^\?\? /,
+    );
+    expect(runFixtureGit(['ls-files'], { cwd: repo.repository }).toString()).toBe('README.md\n');
+    return readFileSync(log, 'utf8').trim().split('\n').length;
+  }
+
+  it('uses the same number of Git processes for 3 and for 2,000 untracked files', async () => {
+    expect(await processesFor(2000)).toBe(await processesFor(3));
+  });
+
+  it('keeps untracked contents, binary files, odd names and nested repositories apart from tracked changes', async () => {
+    const repo = fixture();
+    const base = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+    writeFileSync(join(repo.repository, 'README.md'), '# fixture\n\nchanged\n');
+    writeFileSync(join(repo.repository, '[odd]*name.txt'), 'one\ntwo\n');
+    writeFileSync(join(repo.repository, ':(top)magic'), 'three\n');
+    writeFileSync(join(repo.repository, 'data.bin'), Buffer.from([0, 1, 2, 255]));
+    // A nested repository without a commit lists as a directory and has no patch.
+    runFixtureGit(['init', '-q', join(repo.repository, 'nested')]);
+    const diff = await operations.worktreeDiff({
+      worktreePath: repo.repository,
+      baseSha: base,
+      maxPatchBytes: 1024 * 1024,
+    });
+    if (!diff.ok) throw new Error(JSON.stringify(diff.failure));
+    expect(diff.value.files).toEqual([
+      { path: 'README.md', status: 'modified', additions: 2, deletions: 0, binary: false },
+      { path: ':(top)magic', status: 'untracked', additions: 1, deletions: 0, binary: false },
+      { path: '[odd]*name.txt', status: 'untracked', additions: 2, deletions: 0, binary: false },
+      { path: 'data.bin', status: 'untracked', additions: 0, deletions: 0, binary: true },
+      { path: 'nested/', status: 'untracked', additions: 0, deletions: 0, binary: false },
+    ]);
+    expect(diff.value.patch).toContain('+changed');
+    expect(diff.value.patch).toContain('+two');
+    expect(diff.value.patch).toContain('+three');
   });
 });
 

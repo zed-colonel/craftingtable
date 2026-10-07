@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
+  copyFile,
   lstat,
   mkdir,
   mkdtemp,
@@ -331,7 +332,6 @@ export interface BranchListing {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
 const DEFAULT_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
-const MAX_UNTRACKED_PATCH_FILES = 100;
 const SHA_PATTERN = /^[0-9a-f]{7,64}$/;
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
 
@@ -918,6 +918,74 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: undefined };
   }
 
+  /**
+   * Untracked files' line counts, and their patch appended to `patch`, from one diff (R-G10):
+   * the paths are added as intent-to-add to a copy of the worktree's index in a daemon temp
+   * file, which `GIT_INDEX_FILE` names for those commands alone, so a diff of that index
+   * against the working tree shows them as new files. The worktree's own index never changes.
+   */
+  async function untrackedPass(
+    cwd: string,
+    paths: readonly string[],
+    patch: ReturnType<typeof patchCollector>,
+  ): Promise<GitResult<Map<string, { additions: number; binary: boolean }>>> {
+    const counts = new Map<string, { additions: number; binary: boolean }>();
+    if (paths.length === 0) return { ok: true, value: counts };
+    const index = await runOk(['rev-parse', '--path-format=absolute', '--git-path', 'index'], cwd);
+    if (!index.ok) return index;
+    const scratch = await mkdtemp(join(tmpdir(), 'ct-untracked-index-'));
+    const indexFile = join(scratch, 'index');
+    try {
+      try {
+        await copyFile(index.value.stdout.toString('utf8').trim(), indexFile);
+      } catch (error) {
+        return fail('git-failed', error instanceof Error ? error.message : 'index copy failed');
+      }
+      const added = await runOk(
+        [
+          // A split index would write its shared part into the repository's Git directory.
+          '-c',
+          'core.splitIndex=false',
+          '--literal-pathspecs',
+          'add',
+          '--intent-to-add',
+          '--pathspec-from-file=-',
+          '--pathspec-file-nul',
+        ],
+        cwd,
+        [0],
+        { input: paths.join('\0'), indexFile },
+      );
+      if (!added.ok) return added;
+      // Index against working tree: only the intent-to-add entries are additions.
+      const newFiles = [
+        'diff',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--no-renames',
+        '--diff-filter=A',
+      ];
+      const numstat = await runOk([...newFiles, '--numstat', '-z', '--'], cwd, [0], {
+        indexFile,
+      });
+      if (!numstat.ok) return numstat;
+      const wanted = new Set(paths);
+      for (const entry of splitNul(numstat.value.stdout)) {
+        const [added = '-', , path = ''] = entry.split('\t');
+        if (!wanted.has(path)) continue;
+        const binary = added === '-';
+        counts.set(path, { additions: binary ? 0 : Number(added), binary });
+      }
+      if (!patch.truncated()) {
+        const streamed = await stream([...newFiles, '--'], cwd, patch.take, [0], { indexFile });
+        if (!streamed.ok) return streamed;
+      }
+      return { ok: true, value: counts };
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  }
+
   async function worktreeDiff(input: {
     readonly worktreePath: string;
     readonly baseSha: string;
@@ -1040,39 +1108,24 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     );
     if (!tracked.ok) return tracked;
 
-    for (const [position, path] of untrackedPaths.entries()) {
-      const fileNumstat = await runOk(
-        [
-          'diff',
-          '--no-ext-diff',
-          '--no-textconv',
-          '--no-index',
-          '--numstat',
-          '--',
-          '/dev/null',
-          path,
-        ],
-        cwd,
-        [0, 1],
-      );
-      let additions = 0;
-      let binary = false;
-      if (fileNumstat.ok) {
-        const [added = '-'] = fileNumstat.value.stdout.toString('utf8').split('\t');
-        binary = added === '-';
-        additions = binary ? 0 : Number(added);
-      }
-      files.push({ path, status: 'untracked', additions, deletions: 0, binary });
-      if (position < MAX_UNTRACKED_PATCH_FILES && !patch.truncated()) {
-        const filePatch = await runOk(
-          ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', path],
-          cwd,
-          [0, 1],
-        );
-        if (filePatch.ok) patch.take(filePatch.value.stdout);
-      }
-    }
-    const patchTruncated = patch.truncated() || untrackedPaths.length > MAX_UNTRACKED_PATCH_FILES;
+    // Every untracked file, in one pass whatever their number (R-G10, GIT-03). A nested
+    // repository lists as a directory (`name/`) and is counted without a patch.
+    const untrackedCounts = await untrackedPass(
+      cwd,
+      untrackedPaths.filter((path) => !path.endsWith('/')),
+      patch,
+    );
+    if (!untrackedCounts.ok) return untrackedCounts;
+    for (const path of untrackedPaths)
+      files.push({
+        path,
+        status: 'untracked',
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        ...untrackedCounts.value.get(path),
+      });
+    const patchTruncated = patch.truncated();
 
     return {
       ok: true,

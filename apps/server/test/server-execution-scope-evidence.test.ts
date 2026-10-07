@@ -51,6 +51,8 @@ async function checkpointCandidateFixture(
   review = true,
   /** Whether the daemon runs the adopted checks before the review (R-G13 increment 3). */
   daemonChecks = true,
+  /** The contract checkpoint's evidence profile id (R-F2: only `contract-checkpoint` is recognized). */
+  profile = 'contract-checkpoint',
 ) {
   const f = await slicedFixture((source) => ({
     ...source,
@@ -68,14 +70,14 @@ async function checkpointCandidateFixture(
         owner: 'local',
         requires: [],
         decision_refs: [],
-        evidence_profile: 'contract-checkpoint',
+        evidence_profile: profile,
         pass_criteria: ['Core replay passes'],
       },
     ],
     evidence_profiles: [
       ...source.evidence_profiles,
       {
-        id: 'contract-checkpoint',
+        id: profile,
         required_evidence: ['Exact core tests'],
         reviewer_roles: ['provider-maintainer', 'consumer-maintainer'],
         independence_required: true,
@@ -150,6 +152,30 @@ async function checkpointCandidateFixture(
   ).toBeUndefined();
   return { ...f, svc, tree, run, base, config };
 }
+// R-F2: the operator recovers a contract checkpoint without a delegated review only when its
+// profile is the recognized one; a renamed profile leaves it to delegated or external evidence.
+itNeedsCargo(
+  'offers operator checkpoint recovery only for the recognized contract profile',
+  async () => {
+    for (const [profile, expected] of [
+      ['contract-checkpoint', ['CORE-G1']],
+      ['contract-review', []],
+    ] as const) {
+      const f = await checkpointCandidateFixture(undefined, true, false, true, profile);
+      const recovery = await f.svc.checkpointRecovery(
+        f.auth,
+        f.state.workspaceId,
+        f.parentScope.definitionId,
+        f.tree.id,
+      );
+      expect(
+        recovery.candidates.map((c) => c.checkpointId),
+        profile,
+      ).toEqual(expected);
+      await cleanupExecutionFixtures();
+    }
+  },
+);
 itNeedsCargo(
   'prepares candidate checkpoint evidence, retains later slice cases and permits only its reviewed merge',
   async () => {

@@ -40,6 +40,7 @@ import {
   ready,
   registerAndWorktree,
   reviewScope,
+  roadmapControl,
   roadmapInput,
   runToFinish,
   saveRoadmapRequest,
@@ -280,35 +281,114 @@ it('generates saved plan facts without approval, guards HTTP authority and start
 
 // R-F2: the plan checkpoint is recognized by kind and owner, but a plan approval that is not
 // recognized (two of them, or one the stack does not own) still holds Start until accepted.
-it('holds Start for every unaccepted plan approval, recognized or not', async () => {
-  const plan = (s: import('@craftingtable/domain').ConcurrencySource) =>
-    s.checkpoints.find((c) => c.kind === 'plan_approval')!;
-  for (const amend of [
-    (s: import('@craftingtable/domain').ConcurrencySource) => ({
-      ...s,
-      checkpoints: [...s.checkpoints, { ...plan(s), id: 'PLAN-REVISED' }],
-    }),
-    (s: import('@craftingtable/domain').ConcurrencySource) => ({
-      ...s,
-      checkpoints: s.checkpoints.map((c) =>
-        c.kind === 'plan_approval' ? { ...c, owner: 'local' } : c,
+it('refuses Start for a roadmap whose plan acceptance was generated for another roadmap', async () => {
+  const f = await supervisedMapFixture(false, 'automatic', false, true);
+  const { context, workspaceId: ws } = f.state;
+  const svc = context.services.runtimeEvidenceService,
+    id = f.parentScope.definitionId;
+  await adoptSupervisedMap(f);
+  const first = f.service.save(f.auth, ws, f.input).roadmap;
+  const ready = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;
+  const generated = await svc.generatePlanEvidence(f.auth, ws, id, {
+    roadmapId: first.id,
+    definitionRevision: ready.definitionRevision,
+    snapshotDigest: ready.snapshotDigest,
+  });
+  await svc.decide(f.auth, ws, id, {
+    submissionId: generated.submissions[0]!.submission.id,
+    outcome: 'accepted',
+    rationale: 'Reviewed the first saved roadmap.',
+  });
+  const other = f.service.save(f.auth, ws, {
+    ...f.input,
+    roadmapId: randomUUID(),
+    expectedVersion: 0,
+    name: 'Another saved roadmap',
+  }).roadmap;
+  await expect(
+    context.services.roadmapService.control(f.auth, ws, other.id, 'start', other.version),
+  ).rejects.toThrow('Generate and review plan-acceptance evidence for this saved roadmap');
+  expect(context.storage.roadmaps.find(ws, other.id)?.status).toBe('draft');
+});
+
+// Decided by the operator 2026-10-07 (R-F2 review M1): Start and Resume wait for the plan
+// checkpoint, and for every stack-owned plan approval when there are several; any other plan
+// approval stays an in-run gate.
+it('holds Start for every stack-owned plan approval when there are several', async () => {
+  const f = await supervisedMapFixture(false, 'automatic', false, true, false, (s) => ({
+    ...s,
+    checkpoints: [
+      ...s.checkpoints.map((c) =>
+        c.id === 'LOCAL-TARGET'
+          ? {
+              ...c,
+              requires: [
+                ...c.requires,
+                { kind: 'checkpoint' as const, id: 'PLAN-REVISED', state: 'passed' as const },
+              ],
+            }
+          : c,
       ),
-    }),
-  ]) {
-    const f = await supervisedMapFixture(false, 'automatic', false, true, false, amend);
-    const { context, workspaceId: ws } = f.state;
-    await adoptSupervisedMap(f);
-    const saved = f.service.save(f.auth, ws, f.input).roadmap;
-    expect(
-      f.service
-        .view(f.auth, ws, f.input.configuration)
-        .setupRequirements.some((r) => r.kind === 'plan-acceptance'),
-    ).toBe(true);
-    await expect(
-      context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version),
-    ).rejects.toThrow('Waiting for plan acceptance');
-    await cleanupExecutionFixtures();
-  }
+      { ...s.checkpoints.find((c) => c.kind === 'plan_approval')!, id: 'PLAN-REVISED' },
+    ],
+  }));
+  const { context, workspaceId: ws } = f.state;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input).roadmap;
+  // Neither is the generator's: the guidance names independently reviewed evidence for both.
+  expect(
+    f.service
+      .view(f.auth, ws, f.input.configuration)
+      .setupRequirements.filter((r) => r.kind === 'plan-acceptance')
+      .map((r) => r.message),
+  ).toEqual([
+    'Submit and accept independently reviewed evidence for STACK-PLAN-ACCEPTED, PLAN-REVISED before Start or Resume.',
+  ]);
+  await expect(
+    context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version),
+  ).rejects.toThrow(
+    'Waiting for plan acceptance: review and accept STACK-PLAN-ACCEPTED, PLAN-REVISED evidence',
+  );
+});
+
+it('leaves an in-run plan approval to the run: it holds neither Start nor Resume', async () => {
+  const f = await supervisedMapFixture(false, 'automatic', false, false, false, (s) => ({
+    ...s,
+    checkpoints: [
+      ...s.checkpoints.map((c) =>
+        c.id === 'LOCAL-TARGET'
+          ? {
+              ...c,
+              requires: [
+                ...c.requires,
+                { kind: 'checkpoint' as const, id: 'PHASE2-PLAN', state: 'passed' as const },
+              ],
+            }
+          : c,
+      ),
+      {
+        ...s.checkpoints.find((c) => c.id === 'LOCAL-TARGET')!,
+        id: 'PHASE2-PLAN',
+        title: 'Phase 2 plan accepted',
+        kind: 'plan_approval' as const,
+        owner: 'local',
+        requires: [{ kind: 'slice' as const, id: 'local/AQ-01/a', state: 'merged' as const }],
+        pass_criteria: ['Phase 2 plan reviewed'],
+      },
+    ],
+  }));
+  const { context, workspaceId: ws } = f.state;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input).roadmap;
+  const view = f.service.view(f.auth, ws, f.input.configuration);
+  expect(
+    view.nodes.find((n) => n.kind === 'checkpoint' && n.sourceId === 'PHASE2-PLAN'),
+  ).toMatchObject({ included: true, satisfied: false });
+  expect(view.setupRequirements.some((r) => r.kind === 'plan-acceptance')).toBe(false);
+  await context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version);
+  await roadmapControl(f.state, 'pause');
+  await roadmapControl(f.state, 'resume');
+  expect(storedRoadmap(f.state).status).toBe('running');
 });
 
 it('invalidates generated plan evidence when saved settings change and rejects stale acceptance after an await', async () => {

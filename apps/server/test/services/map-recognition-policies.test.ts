@@ -137,3 +137,75 @@ it('blocks a renamed native resource as unsupported, leaving externally reviewed
     expect.objectContaining({ code: 'resource-unsupported', refs: { resourceKey: 'native-host' } }),
   ]);
 });
+
+it("runs a recognized resource only when the map's profile lets its adapter run it", () => {
+  const unusable = (s: ConcurrencySource, id: string, flags: object) => ({
+    ...s,
+    resource_profiles: s.resource_profiles.map((p) => (p.id === id ? { ...p, ...flags } : p)),
+  });
+  const verify = (s: ConcurrencySource, id: string) => {
+    const slice = s.slices.find((x) => x.resources_by_phase.verify.includes(id))!;
+    return phaseResources(
+      storage(true),
+      {
+        definition: definition(s),
+        slice,
+        scope: {
+          kind: 'slice',
+          sourceId: slice.id,
+          definitionId: 'definition',
+          bindingRevision: 1,
+        },
+        item: { workspaceId: 'ws' },
+      } as unknown as ResolvedScope,
+      'verify',
+    );
+  };
+  // A native host that needs hardware virtualization stays blocked, even with an approval.
+  const native = verify(
+    unusable(source, 'controlled-native-test-host', { requires_hardware_virtualization: true }),
+    'controlled-native-test-host',
+  );
+  expect(native.blockers).toContainEqual(
+    expect.objectContaining({
+      code: 'environment-approval',
+      refs: { resourceKey: 'controlled-native-test-host' },
+    }),
+  );
+  // A development workspace that needs fixture authorization has no managed adapter.
+  const development = verify(
+    unusable(source, 'isolated-development-workspace', { fixture_authorization_required: true }),
+    'isolated-development-workspace',
+  );
+  expect(development.blockers).toContainEqual(
+    expect.objectContaining({
+      code: 'resource-unsupported',
+      refs: { resourceKey: 'isolated-development-workspace' },
+    }),
+  );
+  // Both, as the map declares them, run.
+  expect(verify(source, 'controlled-native-test-host').blockers).toEqual([]);
+});
+
+it('builds against the current pins once a parent stops leading its maturity with the token', () => {
+  const scope: ExecutionScope = {
+    kind: 'slice',
+    sourceId: 'wi/WI-01/implementation',
+    definitionId: 'definition',
+    bindingRevision: 1,
+  };
+  expect(buildVerificationPolicy(definition(source), scope).mode).toBe('scoped-checks');
+  const reworded = {
+    ...source,
+    work_items: source.work_items.map((w) =>
+      w.id === 'wi/WI-01' ? { ...w, source_maturity: 'Mostly independent' } : w,
+    ),
+  };
+  expect(buildVerificationPolicy(definition(reworded), scope).mode).toBe('current-upstream-build');
+});
+
+it('treats only a recognized architecture decision as a shared decision', () => {
+  const d = definition(source);
+  for (const c of source.checkpoints)
+    expect(supportsArchitectureDecision(d, c.id), c.id).toBe(c.kind === 'architecture_decision');
+});

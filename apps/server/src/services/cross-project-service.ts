@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import {
   asAuditEventId,
   asEventId,
+  mapCapabilities,
   targetClosure,
   milestoneKey,
   sameExecutionScope,
@@ -248,15 +249,30 @@ export function crossProjectState(
               : 'none',
     };
   });
-  // Every plan approval holds Start until accepted. One the generator does not recognize (two
-  // of them, or one the stack does not own) is a capability gap, never a lifted gate (R-F2).
-  const planApprovals = new Set(
-    d.source.checkpoints.filter((c) => c.kind === 'plan_approval').map((c) => c.id),
+  // Start and Resume wait for the plan checkpoint, and for every stack-owned plan approval when
+  // there are several (decided by the operator 2026-10-07). Any other plan approval stays an
+  // in-run gate, raised when an entry waits on it, as before R-F2.
+  const capabilities = mapCapabilities(d.source);
+  const startPlans = new Set(
+    capabilities.planCheckpoint
+      ? [capabilities.planCheckpoint]
+      : d.source.checkpoints
+          .filter((c) => c.kind === 'plan_approval' && c.owner === 'stack')
+          .map((c) => c.id),
   );
-  const plan = [...planApprovals].join(', ');
-  const planApprovalPending = nodes.some(
-    (n) => n.included && n.kind === 'checkpoint' && planApprovals.has(n.sourceId) && !n.satisfied,
-  );
+  const pendingPlans = nodes
+    .filter(
+      (n) => n.included && n.kind === 'checkpoint' && startPlans.has(n.sourceId) && !n.satisfied,
+    )
+    .map((n) => n.sourceId);
+  const planApprovalPending = pendingPlans.length > 0;
+  const plan = pendingPlans.join(', ');
+  // Only the checkpoint the generator serves is offered for generation.
+  const generated = capabilities.planAcceptance?.checkpointId;
+  const planSetup =
+    generated && pendingPlans.length === 1 && pendingPlans[0] === generated
+      ? `Save the roadmap, generate ${generated} evidence, then review and accept it before Start or Resume.`
+      : `Submit and accept independently reviewed evidence for ${plan} before Start or Resume.`;
   const fullPlanAccepted = d.source.work_items.every((w) =>
     milestoneSatisfied(tx, ws, d, revision, { kind: 'work_item', id: w.id, state: 'accepted' }),
   );
@@ -290,7 +306,7 @@ export function crossProjectState(
         ? [
             {
               kind: 'plan-acceptance' as const,
-              message: `Save the roadmap, generate ${plan} evidence, then review and accept it before Start or Resume.`,
+              message: planSetup,
             },
           ]
         : []),

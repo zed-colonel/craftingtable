@@ -32,8 +32,14 @@
  *    id, maturity token and attested contract wording the controller gives a meaning to are the
  *    string and regular-expression literals of `V03_VOCABULARY` in
  *    `packages/domain/src/map-capabilities.ts`, read from its syntax tree. No other production
- *    module writes one in a literal or JSX text: it asks that module what a map declares. Tests, fixtures
- *    and the legacy mapping (text earlier releases wrote) may.
+ *    module writes one, or an identifier R-F2 retired (`RETIRED_MAP_IDENTIFIERS`), in a
+ *    constant text: a string, a template, JSX text, a regular expression's pattern, a `+` of
+ *    constant parts, or a template whose substitutions are constant, a `const` of the same
+ *    module included. It asks that module what a map declares. Tests, fixtures and the legacy
+ *    mapping (text earlier releases wrote) may. It guards against reintroduction by mistake,
+ *    not against evasion: text built at run time (`join`, `toLowerCase`, a parameter), another
+ *    spelling of a pattern (`/^INDEPENDENT\b/i`, `/^independent/`) and a prefix test
+ *    (`startsWith('independent')`) pass it; the self-test pins each of these as a known miss.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -63,7 +69,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join, matchesGlob, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SyntaxKind } from 'typescript/unstable/ast';
+import { NodeFlags, SyntaxKind } from 'typescript/unstable/ast';
 import { API } from 'typescript/unstable/sync';
 
 export const FORBIDDEN_PATTERNS = [/action-?queue/i, /world-?interface/i, /exoskeleton/i];
@@ -157,6 +163,16 @@ const PROSE_LEGACY_MAPPING = 'packages/domain/src/attention-legacy.ts';
 /** The one module that writes map vocabulary, and the table it writes it in (rule 7, R-F2). */
 const MAP_VOCABULARY_MODULE = 'packages/domain/src/map-capabilities.ts';
 const MAP_VOCABULARY_TABLE = 'V03_VOCABULARY';
+/**
+ * Identifiers R-F2 retired, which no production module may key on again (rule 7): the plan
+ * checkpoint's id, now found by kind and owner, matched anywhere in a text; and the role the
+ * undeclared reviewer bypass let through, matched as a whole text, since `review` alone is an
+ * agent-run role everywhere.
+ */
+export const RETIRED_MAP_IDENTIFIERS = [
+  { text: 'STACK-PLAN-ACCEPTED', whole: false },
+  { text: 'independent-reviewer', whole: true },
+];
 
 const DEPENDENCY_FIELDS = [
   'dependencies',
@@ -693,22 +709,94 @@ function mapVocabulary(sourceFile) {
   return [...new Set(texts.filter((text) => text !== ''))];
 }
 
+/** The `const` bindings of a module whose initializer may be constant text (rule 7). */
+function constBindings(sourceFile) {
+  const bindings = new Map();
+  const visit = (node) => {
+    if (
+      node.kind === SyntaxKind.VariableDeclaration &&
+      node.name.kind === SyntaxKind.Identifier &&
+      node.initializer !== undefined &&
+      node.parent?.kind === SyntaxKind.VariableDeclarationList &&
+      (node.parent.flags & NodeFlags.Const) !== 0
+    )
+      bindings.set(node.name.text, node.initializer);
+    node.forEachChild(visit);
+  };
+  sourceFile.forEachChild(visit);
+  return bindings;
+}
+
 /**
- * The literals in a module that write map vocabulary (rule 7), with the vocabulary each holds:
- * strings, template parts, JSX text and regular-expression patterns.
+ * The text of a constant expression, or undefined: a string or template literal, JSX text, a
+ * `+` of constant parts, a template whose substitutions are constant, parentheses, or a name a
+ * `const` of the module binds to one. A name bound more than once is not resolved.
+ */
+function constantText(node, bindings, seen = new Set()) {
+  switch (node?.kind) {
+    case SyntaxKind.StringLiteral:
+    case SyntaxKind.NoSubstitutionTemplateLiteral:
+    case SyntaxKind.JsxText:
+      return node.text;
+    case SyntaxKind.ParenthesizedExpression:
+      return constantText(node.expression, bindings, seen);
+    case SyntaxKind.BinaryExpression: {
+      if (node.operatorToken.kind !== SyntaxKind.PlusToken) return undefined;
+      const left = constantText(node.left, bindings, seen);
+      const right = left === undefined ? undefined : constantText(node.right, bindings, seen);
+      return right === undefined ? undefined : left + right;
+    }
+    case SyntaxKind.TemplateExpression: {
+      let text = node.head.text;
+      for (const span of node.templateSpans) {
+        const part = constantText(span.expression, bindings, seen);
+        if (part === undefined) return undefined;
+        text += part + span.literal.text;
+      }
+      return text;
+    }
+    case SyntaxKind.Identifier: {
+      if (seen.has(node.text) || !bindings.has(node.text)) return undefined;
+      return constantText(bindings.get(node.text), bindings, new Set([...seen, node.text]));
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** The vocabulary or retired identifier a constant text holds, if any. */
+function vocabularyIn(text, vocabulary) {
+  return (
+    vocabulary.find((v) => text.includes(v)) ??
+    RETIRED_MAP_IDENTIFIERS.find((r) => (r.whole ? text === r.text : text.includes(r.text)))?.text
+  );
+}
+
+/**
+ * The constant texts in a module that write map vocabulary or a retired identifier (rule 7),
+ * with what each holds: the outermost constant expression is read, so a concatenation is
+ * reported once; template parts and regular-expression patterns are read where nothing folds.
  */
 function vocabularyLiterals(sourceFile, vocabulary) {
+  const bindings = constBindings(sourceFile);
   const found = [];
   const visit = (node) => {
+    // A name is read where its `const` is declared, not again at every use.
+    const folded = node.kind === SyntaxKind.Identifier ? undefined : constantText(node, bindings);
     const text =
-      isLiteral(node) || isTemplatePart(node) || node.kind === SyntaxKind.JsxText
+      folded ??
+      (isTemplatePart(node)
         ? node.text
         : node.kind === SyntaxKind.RegularExpressionLiteral
           ? regexSource(node.text)
-          : undefined;
-    const word = text === undefined ? undefined : vocabulary.find((v) => text.includes(v));
-    if (word !== undefined) found.push({ node, word });
-    node.forEachChild(visit);
+          : undefined);
+    const word = text === undefined ? undefined : vocabularyIn(text, vocabulary);
+    if (word !== undefined) {
+      found.push({ node, word });
+      return;
+    }
+    // A folded constant's parts hold nothing its whole does not.
+    if (folded === undefined) node.forEachChild(visit);
   };
   sourceFile.forEachChild(visit);
   return found;

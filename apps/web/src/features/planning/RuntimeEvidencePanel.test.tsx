@@ -766,3 +766,56 @@ it('keeps an unsaved setup draft when the environment is read again in the backg
     'other-branch',
   );
 });
+
+it('names the role the map declares for a recorded architecture decision (R-F2)', async () => {
+  const decided = {
+    ...submission,
+    id: 'decision-evidence',
+    subject: { kind: 'checkpoint', sourceId: 'ADR-1' },
+    reviewers: [],
+    architectureDecision: {
+      kind: 'architecture-decision-v1',
+      coverage: 'full',
+      consumers: [],
+      bindingDigest: 'f'.repeat(64),
+    },
+  };
+  respond([
+    {
+      ...view(),
+      subjects: [
+        {
+          subject: decided.subject,
+          title: 'Decision',
+          profile: 'decision-review',
+          requirements: ['Decision owner approval'],
+          reviewerRoles: ['decision-owner'],
+          testedRepositories: [],
+          cases: [],
+          issues: [],
+        },
+      ],
+      submissions: [
+        {
+          submission: decided,
+          issues: [],
+          decision: {
+            outcome: 'accepted',
+            decidedByUserId: 'operator',
+            rationale: 'Approved.',
+          },
+        },
+      ],
+    },
+  ]);
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  await screen.findByText('Architecture decision recorded by operator as decision-owner.');
+});

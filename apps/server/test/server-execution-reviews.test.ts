@@ -20,6 +20,7 @@ import {
   currentCycle,
   cycleFixture,
   declareFixtureChecks,
+  delegateLocalReviewers,
   designDone,
   git,
   implementationDone,
@@ -2066,5 +2067,48 @@ itNeedsCargo(
       .submissions(ws, f.parentScope.definitionId)
       .find((s) => s.subject.sourceId === 'LOCAL-PROFILE');
     expect(checkpoint?.candidateCheckpoint?.delegatedReview?.roles).toEqual(['profile-owner']);
+  },
+);
+
+// R-F2: a roadmap delegates the source-required security review only to the security role its
+// map declares. A map that declares none leaves the review unassigned, whatever is delegated.
+itNeedsCargo(
+  'delegates no security review when the map declares no security reviewer role',
+  async () => {
+    const f = await slicedFixture();
+    const developA = (e: { executionScope?: import('@craftingtable/domain').ExecutionScope }) =>
+      e.executionScope?.kind === 'slice' && e.executionScope.sourceId === f.scopes[0]!.sourceId;
+    const security: AgentLaunchRequest[] = [];
+    f.backend.replyForRequest = async (request) => {
+      if (request.model === 'design-model') return designDone;
+      if (request.model !== 'review-model') {
+        commitFile(request.cwd, 'session.txt', 'Security-sensitive session handling');
+        return implementationDone;
+      }
+      await runScopedFixtureCheck(request);
+      if (request.prompt.includes('This is a separate security review.')) security.push(request);
+      const tree = f.state.context.storage.execution.worktrees
+        .listActive(f.state.workspaceId)
+        .find((t) => t.path === request.cwd)!;
+      return {
+        resultText: withWorkflowReport(
+          `## Open questions\nnone\n\n## Review report\n${scopeReport(f.state, tree.executionScope!)}`,
+          { securityReview: { required: true, sources: ['Approved security review policy'] } },
+        ),
+      };
+    };
+    await delegateLocalReviewers(f, { hold: (e) => !developA(e) });
+    await waitFor(
+      () =>
+        f.state.context.storage.execution.cycles
+          .listForWorkspace(f.state.workspaceId)
+          .some((c) => c.executionScope?.kind === 'slice' && c.status === 'needs-attention'),
+      'security review stop',
+    );
+    const cycle = f.state.context.storage.execution.cycles
+      .listForWorkspace(f.state.workspaceId)
+      .find((c) => c.executionScope?.kind === 'slice')!;
+    expect(cycle.attention?.code, cycle.reason).toBe('security-reviewer-unassigned');
+    expect(security).toHaveLength(0);
   },
 );

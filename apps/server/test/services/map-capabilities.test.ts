@@ -204,3 +204,57 @@ it('classifies maturity by its leading word only', () => {
   expect(changed.independentWorkItems).not.toContain('wi/WI-01');
   expect(changed.independentWorkItems).toHaveLength(15);
 });
+
+it('checks every field of the attested contracts, a duplicated obligation included', () => {
+  const planId = 'STACK-PLAN-ACCEPTED';
+  const decision = source.checkpoints.find((c) => c.kind === 'architecture_decision')!;
+  const planGap = (s: ConcurrencySource) =>
+    mapCapabilities(s).gaps.find((g) => g.code === 'plan-contract-changed');
+  const decisionGap = (s: ConcurrencySource) =>
+    mapCapabilities(s).gaps.find(
+      (g) => g.code === 'decision-contract-changed' && g.checkpointId === decision.id,
+    );
+  const caseFor = (checkpoint: string) => ({ ...source.acceptance_coverage[0]!, checkpoint });
+  // A duplicate in place of a missing obligation keeps the length but changes the contract.
+  expect(
+    planGap(
+      withProfile(source, 'plan-approval', (p) => ({
+        required_evidence: [...p.required_evidence.slice(0, 3), p.required_evidence[0]!],
+      })),
+    ),
+  ).toMatchObject({ fields: ['required_evidence'] });
+  expect(
+    decisionGap(
+      withProfile(source, 'decision-review', (p) => ({
+        required_evidence: [...p.required_evidence.slice(0, 2), p.required_evidence[0]!],
+      })),
+    ),
+  ).toMatchObject({ fields: ['required_evidence'] });
+  expect(
+    planGap({
+      ...source,
+      checkpoints: source.checkpoints.map((c) =>
+        c.id === planId
+          ? {
+              ...c,
+              requires: [
+                { kind: 'work_item' as const, id: 'wi/WI-01', state: 'accepted' as const },
+              ],
+            }
+          : c,
+      ),
+    }),
+  ).toMatchObject({ fields: ['requires'] });
+  expect(
+    planGap({ ...source, acceptance_coverage: [...source.acceptance_coverage, caseFor(planId)] }),
+  ).toMatchObject({ fields: ['acceptance_coverage'] });
+  expect(
+    decisionGap(withProfile(source, 'decision-review', () => ({ independence_required: false }))),
+  ).toMatchObject({ fields: ['independence_required'] });
+  expect(
+    decisionGap({
+      ...source,
+      acceptance_coverage: [...source.acceptance_coverage, caseFor(decision.id)],
+    }),
+  ).toMatchObject({ fields: ['acceptance_coverage'] });
+});

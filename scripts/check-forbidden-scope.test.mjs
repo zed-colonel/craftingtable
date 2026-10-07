@@ -680,6 +680,54 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
     );
   });
 
+  it('reads constant concatenations, templates and const names, and the retired identifiers', () => {
+    const root = workspace({
+      'packages/domain/src/map-capabilities.ts': VOCABULARY,
+      'apps/server/src/folded.ts': [
+        "export const joined = 'plan-' + 'owner';",
+        `export const template = \`plan-\${'owner'}\`;`,
+        "const suffix = 'owner';",
+        `export const named = \`plan-\${suffix}\`;`,
+        "export const plan = (id: string) => id === 'STACK-PLAN-ACCEPTED';",
+        "export const message = 'Accept STACK-PLAN-ACCEPTED evidence';",
+        "export const bypass = ['review', 'independent-reviewer'];",
+        // Legitimate: `review` alone, a role merely containing the retired one, a parameter.
+        "export const roles = ['review', 'independent-reviewer-of-record'];",
+        `export const dynamic = (part: string) => \`plan-\${part}\`;`,
+        '',
+      ].join('\n'),
+      // Tests and fixtures keep the retired names.
+      'apps/server/test/folded.test.ts':
+        "export const ids = ['STACK-PLAN-ACCEPTED', 'independent-reviewer'];\n",
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        vocabulary('apps/server/src/folded.ts', 1, 'plan-owner'),
+        vocabulary('apps/server/src/folded.ts', 2, 'plan-owner'),
+        vocabulary('apps/server/src/folded.ts', 4, 'plan-owner'),
+        vocabulary('apps/server/src/folded.ts', 5, 'STACK-PLAN-ACCEPTED'),
+        vocabulary('apps/server/src/folded.ts', 6, 'STACK-PLAN-ACCEPTED'),
+        vocabulary('apps/server/src/folded.ts', 7, 'independent-reviewer'),
+      ].sort(),
+    );
+  });
+
+  it('pins what it does not catch: text built at run time and other spellings of a pattern', () => {
+    // Known misses, listed in rule 7's comment. A stronger rule turns these into findings.
+    const root = workspace({
+      'packages/domain/src/map-capabilities.ts': VOCABULARY,
+      'apps/server/src/evasive.ts': [
+        "export const joined = ['plan', 'owner'].join('-');",
+        "export const cased = 'PLAN-OWNER'.toLowerCase();",
+        'export const shouted = /^INDEPENDENT\\b/i;',
+        'export const unanchored = /^independent/;',
+        "export const prefix = (m: string) => m.startsWith('independent');",
+        '',
+      ].join('\n'),
+    });
+    expect(runCheck(root)).toEqual([]);
+  });
+
   it('fails closed when the module no longer declares the table', () => {
     const root = workspace({
       'packages/domain/src/map-capabilities.ts':

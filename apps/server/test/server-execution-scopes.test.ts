@@ -25,6 +25,7 @@ import {
   delegateLocalReviewers,
   entryCycle,
   commitFile,
+  configureLocalRuntime,
   currentCycle,
   declareFixtureChecks,
   designDone,
@@ -903,4 +904,53 @@ it('holds verification and acceptance for every unassigned reviewer role, whatev
       ]);
     await cleanupExecutionFixtures();
   }
+});
+
+// Accepted independent evidence for a slice satisfies its reviewer requirement, so recording its
+// development tree reaches the merge guard: a merge integration has moved past is refused.
+it('refuses to record a merged slice once integration has moved past it, even with accepted evidence', async () => {
+  const f = await slicedFixture(),
+    { state, root } = f,
+    ws = state.workspaceId,
+    definitionId = f.parentScope.definitionId;
+  const runtime = await configureLocalRuntime(f.auth, state, definitionId);
+  const a = await scopeTree(f, f.scopes[0]!);
+  commitFile(a.path, 'a.txt', 'A');
+  await reviewScope(f, a);
+  expect((await merge(state, a.id)).statusCode).toBe(200);
+  commitFile(root, 'later.txt', 'Integration advanced outside the daemon');
+  const integration = state.context.storage.execution.branchSettings.find(
+    ws,
+    asPlanVersionId('version-1'),
+  )!.integrationBranch!;
+  const svc = state.context.services.runtimeEvidenceService;
+  const spec = (await svc.view(f.auth, ws, definitionId)).subjects.find(
+    (s) => s.subject.kind === 'slice' && s.subject.sourceId === f.scopes[0]!.sourceId,
+  )!;
+  const submitted = await svc.submit(f.auth, ws, definitionId, {
+    runtimeId: runtime.current!.id,
+    subject: spec.subject,
+    subjectCommit: git(['rev-parse', integration], root).trim(),
+    environmentId: 'local-tests',
+    executedBy: 'implementation-author',
+    executedAt: new Date().toISOString(),
+    reviewers: [{ identity: 'reviewer', roles: spec.reviewerRoles, artifact: 'review' }],
+    requirements: spec.requirements.map((requirement) => ({ requirement, artifact: 'review' })),
+    cases: spec.cases.map((c) => ({
+      id: c.id,
+      sourceRecordDigest: c.sourceRecordDigest,
+      result: 'passed' as const,
+      artifact: 'review',
+    })),
+    artifacts: [{ name: 'review', content: 'Independently reviewed the integrated slice.' }],
+  });
+  await svc.decide(f.auth, ws, definitionId, {
+    submissionId: submitted.submissions.at(-1)!.submission.id,
+    outcome: 'accepted',
+    rationale: 'Independent slice review accepted.',
+  });
+  const stale = await recordScope(f, a);
+  expect(stale.statusCode, stale.body).toBe(409);
+  expect(stale.body).toContain('Merge this reviewed slice first');
+  expect(state.context.storage.scopeReceipts.list(ws, state.workItemId)).toEqual([]);
 });

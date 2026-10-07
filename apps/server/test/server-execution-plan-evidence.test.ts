@@ -278,6 +278,39 @@ it('generates saved plan facts without approval, guards HTTP authority and start
   expect(acceptedEvidence(context.storage, ws, id, 1, evidence.subject)).toBeUndefined();
 });
 
+// R-F2: the plan checkpoint is recognized by kind and owner, but a plan approval that is not
+// recognized (two of them, or one the stack does not own) still holds Start until accepted.
+it('holds Start for every unaccepted plan approval, recognized or not', async () => {
+  const plan = (s: import('@craftingtable/domain').ConcurrencySource) =>
+    s.checkpoints.find((c) => c.kind === 'plan_approval')!;
+  for (const amend of [
+    (s: import('@craftingtable/domain').ConcurrencySource) => ({
+      ...s,
+      checkpoints: [...s.checkpoints, { ...plan(s), id: 'PLAN-REVISED' }],
+    }),
+    (s: import('@craftingtable/domain').ConcurrencySource) => ({
+      ...s,
+      checkpoints: s.checkpoints.map((c) =>
+        c.kind === 'plan_approval' ? { ...c, owner: 'local' } : c,
+      ),
+    }),
+  ]) {
+    const f = await supervisedMapFixture(false, 'automatic', false, true, false, amend);
+    const { context, workspaceId: ws } = f.state;
+    await adoptSupervisedMap(f);
+    const saved = f.service.save(f.auth, ws, f.input).roadmap;
+    expect(
+      f.service
+        .view(f.auth, ws, f.input.configuration)
+        .setupRequirements.some((r) => r.kind === 'plan-acceptance'),
+    ).toBe(true);
+    await expect(
+      context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version),
+    ).rejects.toThrow('Waiting for plan acceptance');
+    await cleanupExecutionFixtures();
+  }
+});
+
 it('invalidates generated plan evidence when saved settings change and rejects stale acceptance after an await', async () => {
   const f = await supervisedMapFixture(false, 'automatic', false, true);
   const { context, workspaceId: ws } = f.state;

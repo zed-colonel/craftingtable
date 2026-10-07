@@ -694,8 +694,12 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
 
 it('passes on the real repository, having read and classified its modules', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-  const { findings, classes } = inspectWorkspace(root);
+  const { findings, classes, vocabulary } = inspectWorkspace(root);
   expect(findings).toEqual([]);
+  // Rule 7 found the vocabulary table: a moved module would otherwise pass vacuously.
+  expect(vocabulary).toEqual(
+    expect.arrayContaining(['repository-maintainer', 'controlled-native-test-host']),
+  );
   const count = (kind) => [...classes.values()].filter((c) => c === kind).length;
   // The projects were read: an empty file set would pass vacuously.
   expect(count('production')).toBeGreaterThan(400);

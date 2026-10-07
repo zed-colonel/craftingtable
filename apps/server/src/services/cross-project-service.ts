@@ -1,6 +1,5 @@
 import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
 import { scopeArchitectureDecisions } from './architecture-decision-policy.js';
-import { planCheckpoint } from './plan-acceptance-policy.js';
 import { bindingIssues } from './map-binding-policy.js';
 export { bindingIssues } from './map-binding-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
@@ -249,9 +248,14 @@ export function crossProjectState(
               : 'none',
     };
   });
-  const plan = planCheckpoint(d);
+  // Every plan approval holds Start until accepted. One the generator does not recognize (two
+  // of them, or one the stack does not own) is a capability gap, never a lifted gate (R-F2).
+  const planApprovals = new Set(
+    d.source.checkpoints.filter((c) => c.kind === 'plan_approval').map((c) => c.id),
+  );
+  const plan = [...planApprovals].join(', ');
   const planApprovalPending = nodes.some(
-    (n) => n.included && n.kind === 'checkpoint' && n.sourceId === plan && !n.satisfied,
+    (n) => n.included && n.kind === 'checkpoint' && planApprovals.has(n.sourceId) && !n.satisfied,
   );
   const fullPlanAccepted = d.source.work_items.every((w) =>
     milestoneSatisfied(tx, ws, d, revision, { kind: 'work_item', id: w.id, state: 'accepted' }),

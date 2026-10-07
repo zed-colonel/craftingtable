@@ -110,6 +110,18 @@ it('turns a reworded or re-roled plan contract into a typed gap, keeping the che
       fields,
     });
   }
+  const foreign = mapCapabilities({
+    ...source,
+    checkpoints: source.checkpoints.map((c) =>
+      c.kind === 'plan_approval' ? { ...c, owner: 'wi' } : c,
+    ),
+  });
+  expect(foreign.planCheckpoint).toBeUndefined();
+  expect(foreign.gaps).toContainEqual({
+    code: 'plan-owner-unrecognized',
+    checkpointId: 'STACK-PLAN-ACCEPTED',
+    owner: 'wi',
+  });
   const twice = { ...source, checkpoints: [...source.checkpoints, { ...plan(source), id: 'P2' }] };
   expect(mapCapabilities(twice).planCheckpoint).toBeUndefined();
   expect(mapCapabilities(twice).gaps).toContainEqual({

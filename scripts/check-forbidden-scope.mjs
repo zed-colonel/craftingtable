@@ -1227,8 +1227,9 @@ function moduleFindings(root, module, production, vocabulary) {
 }
 
 /**
- * Checks a workspace. Returns the findings, and how each module was classified (its path from
- * the root mapped to `production`, `test` or `test-support`) so tests can see what was read.
+ * Checks a workspace. Returns the findings, how each module was classified (its path from
+ * the root mapped to `production`, `test` or `test-support`) and the map vocabulary rule 7
+ * read, so tests can see what was read.
  */
 export function inspectWorkspace(root) {
   const absoluteRoot = realpathSync(resolve(root));
@@ -1255,7 +1256,7 @@ export function inspectWorkspace(root) {
     );
     findings.push(...moduleFindings(absoluteRoot, module, production, vocabulary ?? []));
   }
-  return { findings, classes };
+  return { findings, classes, vocabulary: vocabulary ?? [] };
 }
 
 export function runCheck(root) {

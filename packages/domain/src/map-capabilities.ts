@@ -84,6 +84,12 @@ export type ResourceProfileField =
 export type MapCapabilityGap =
   /** More than one stack-owned plan approval: none is taken as the plan checkpoint. */
   | { readonly code: 'plan-checkpoint-ambiguous'; readonly checkpointIds: readonly string[] }
+  /** A plan approval the stack does not own: it is not taken as the plan checkpoint. */
+  | {
+      readonly code: 'plan-owner-unrecognized';
+      readonly checkpointId: string;
+      readonly owner: string;
+    }
   /** The plan checkpoint's contract is not the one the generator attests. */
   | {
       readonly code: 'plan-contract-changed';
@@ -193,6 +199,8 @@ function evaluate(s: ConcurrencySource): MapCapabilities {
 
   // The plan checkpoint is found by what it is, so its id carries no meaning.
   const plans = s.checkpoints.filter((c) => c.kind === 'plan_approval' && c.owner === 'stack');
+  for (const c of s.checkpoints.filter((c) => c.kind === 'plan_approval' && c.owner !== 'stack'))
+    gaps.push({ code: 'plan-owner-unrecognized', checkpointId: c.id, owner: c.owner });
   if (plans.length > 1)
     gaps.push({ code: 'plan-checkpoint-ambiguous', checkpointIds: plans.map((c) => c.id) });
   const plan = plans.length === 1 ? plans[0] : undefined;
@@ -291,7 +299,11 @@ function evaluate(s: ConcurrencySource): MapCapabilities {
   };
 }
 
-/** Per map source, which is never mutated: evaluated once however often it is asked (R-H4). */
+/**
+ * Per map source object, which is never mutated: evaluated once however often one read asks
+ * (R-H4). Each storage read parses a new object, which is evaluated afresh (about half a
+ * millisecond for the v0.3 map, half its parse).
+ */
 const capabilitiesBySource = new WeakMap<ConcurrencySource, MapCapabilities>();
 
 /**

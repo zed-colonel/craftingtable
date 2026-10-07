@@ -48,6 +48,7 @@ import {
   workspaceIdSchema,
   worktreeIdSchema,
 } from './ids.js';
+import { reviewFindingSchema } from './review.js';
 import { notificationPreferencesSchema } from './notification.js';
 import { importIssueSchema } from './package-imports.js';
 import { storagePolicySchema } from './storage-policy.js';
@@ -183,7 +184,9 @@ export const scopeReceiptSchema = equivalentSchema<ScopeReceipt>()(
     reviewRunId: agentRunIdSchema,
     headSha: gitShaSchema,
     integrationSha: gitShaSchema,
-    evidence: scopeReviewEvidenceSchema,
+    evidence: scopeReviewEvidenceSchema.extend({
+      followUps: z.array(reviewFindingSchema).max(100).optional(),
+    }),
     recordedAt: z.iso.datetime(),
     recordedByUserId: userIdSchema,
   }),

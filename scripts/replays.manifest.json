@@ -15,7 +15,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-a4aa12d.json",
-          "goldenSha256": "c13f64f6c22ddb47a8080163eeffafc21f1d4ef5fd9386324bb08bf150ef096a"
+          "goldenSha256": "c13f64f6c22ddb47a8080163eeffafc21f1d4ef5fd9386324bb08bf150ef096a",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -36,7 +43,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-d81db74.json",
-          "goldenSha256": "b5db0405be9da726e2581e89664ae3ce45004ca2587467b362395c233d4b9ecd"
+          "goldenSha256": "b5db0405be9da726e2581e89664ae3ce45004ca2587467b362395c233d4b9ecd",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -57,7 +71,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-ac08291.json",
-          "goldenSha256": "b6d05857aec80ff3d2e021f94509f7873566121b63701089a465983c2d39250a"
+          "goldenSha256": "b6d05857aec80ff3d2e021f94509f7873566121b63701089a465983c2d39250a",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -78,7 +99,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-8146974.json",
-          "goldenSha256": "701cbdd0aeb2cf9a93668c7a66bd1029995b642f237026159032d357ffc07a3b"
+          "goldenSha256": "701cbdd0aeb2cf9a93668c7a66bd1029995b642f237026159032d357ffc07a3b",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -99,7 +127,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-c547ede.json",
-          "goldenSha256": "a4deb0d405dc74d70b5207fbc1031c376d6cc92413418268b3e3c8783afdc7a0"
+          "goldenSha256": "a4deb0d405dc74d70b5207fbc1031c376d6cc92413418268b3e3c8783afdc7a0",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -120,7 +155,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-fccce06.json",
-          "goldenSha256": "2681726829b172be4acdc9081d3281d9381bbccfd76b9867568df5dba4c0775f"
+          "goldenSha256": "2681726829b172be4acdc9081d3281d9381bbccfd76b9867568df5dba4c0775f",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -141,7 +183,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-79937d4.json",
-          "goldenSha256": "77357a4c28a9ab683f71f50746289ad8020e79b55a8e546119a84a8e08dd8a7a"
+          "goldenSha256": "77357a4c28a9ab683f71f50746289ad8020e79b55a8e546119a84a8e08dd8a7a",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -162,7 +211,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-3a290e2.json",
-          "goldenSha256": "2c1ce7f67d720c29ba693e62967718c3de268ad4943b3b087118b3ccd7f0affa"
+          "goldenSha256": "2c1ce7f67d720c29ba693e62967718c3de268ad4943b3b087118b3ccd7f0affa",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -183,7 +239,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-9f4da08.json",
-          "goldenSha256": "57349fff140ad0267cac7860cdb67e283faf3a969cc574bdf6cb0db00fbecb6d"
+          "goldenSha256": "57349fff140ad0267cac7860cdb67e283faf3a969cc574bdf6cb0db00fbecb6d",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -209,7 +272,14 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-baca24e.json",
-          "goldenSha256": "152c07a7915c9a276c154c5f6f757cd5af141ed719c306092206f4600806365c"
+          "goldenSha256": "152c07a7915c9a276c154c5f6f757cd5af141ed719c306092206f4600806365c",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -230,12 +300,31 @@
         {
           "mode": "golden",
           "golden": "golden.json",
-          "goldenSha256": "8ef2dfde6e91007981dea0046054af7de1a51fac9279ad1b4c0e7a47faa1d050"
+          "goldenSha256": "8ef2dfde6e91007981dea0046054af7de1a51fac9279ad1b4c0e7a47faa1d050",
+          "expected": [
+            {
+              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
+              "nowSha256": "0b981d1c6f97244e2fb472db03ef9a19f4509dea32317f9126adbe46ba110499",
+              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "every-run",
           "golden": "every-run-golden-baca24e.json",
-          "goldenSha256": "0db6104336775072e069742c8b207c8f369feddd6adf06f088a9778e3fe03007"
+          "goldenSha256": "0db6104336775072e069742c8b207c8f369feddd6adf06f088a9778e3fe03007",
+          "expected": [
+            {
+              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
+              "nowSha256": "0b981d1c6f97244e2fb472db03ef9a19f4509dea32317f9126adbe46ba110499",
+              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -279,6 +368,16 @@
               "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/86d9061f-8441-4698-a8e9-5a8aa353ad9a",
               "nowSha256": "16ba53155ee51f3a53a419e51fc4e1e4fd84f9551adf540ee1c61df97fe486a5",
               "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope’s exit gate.\""
+            },
+            {
+              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
+              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
+              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
             }
           ]
         },
@@ -301,7 +400,19 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-3c9d430.json",
-          "goldenSha256": "97ce01338630185297c830aa3c6291cbf2b49daf7f3d9a33f72c1c9e43c47308"
+          "goldenSha256": "97ce01338630185297c830aa3c6291cbf2b49daf7f3d9a33f72c1c9e43c47308",
+          "expected": [
+            {
+              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
+              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
+              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -322,7 +433,19 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-3c9d430.json",
-          "goldenSha256": "207f393fe0644439ecbd49a9c2c8204cce448beb33e5ce4b8d1de9420b7677c0"
+          "goldenSha256": "207f393fe0644439ecbd49a9c2c8204cce448beb33e5ce4b8d1de9420b7677c0",
+          "expected": [
+            {
+              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
+              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
+              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -343,7 +466,19 @@
         {
           "mode": "every-run",
           "golden": "every-run-golden-0b09307.json",
-          "goldenSha256": "aee3502d20f8c8a023edc61f6bf1710b1bc4d286347df5e4a9d8f007ff1e4a45"
+          "goldenSha256": "aee3502d20f8c8a023edc61f6bf1710b1bc4d286347df5e4a9d8f007ff1e4a45",
+          "expected": [
+            {
+              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
+              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
+              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -359,12 +494,36 @@
         {
           "mode": "golden",
           "golden": "golden.json",
-          "goldenSha256": "05261ac2c9b5cfa96d347ac1d13f56627e269da0ef7a7fe51247b2ef1cfef756"
+          "goldenSha256": "05261ac2c9b5cfa96d347ac1d13f56627e269da0ef7a7fe51247b2ef1cfef756",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/c9c79f61-7ad4-415b-a2dd-63dffe66f8af",
+              "nowSha256": "03a52792cee2202beb0a813f2e7e0f9dc9a802fff0c62d0decae791f67843fd4",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "every-run",
           "golden": "every-run-golden-55d47fc.json",
-          "goldenSha256": "0de7bd6a563de97fc5cba83a3aeba9e649e0540dbfa6fbc0e20c2e406804dd48"
+          "goldenSha256": "0de7bd6a563de97fc5cba83a3aeba9e649e0540dbfa6fbc0e20c2e406804dd48",
+          "expected": [
+            {
+              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
+              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
+              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "1fc6e2894996475bc676559ebe11c8b6f04f8e61dae9d278a4703dad5586e7cd",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/c9c79f61-7ad4-415b-a2dd-63dffe66f8af",
+              "nowSha256": "03a52792cee2202beb0a813f2e7e0f9dc9a802fff0c62d0decae791f67843fd4",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",
@@ -380,12 +539,36 @@
         {
           "mode": "golden",
           "golden": "golden.json",
-          "goldenSha256": "af13844dab7ab13f3dc269837a8e55ade6a721c879a1e336ad9b791c3535cae3"
+          "goldenSha256": "af13844dab7ab13f3dc269837a8e55ade6a721c879a1e336ad9b791c3535cae3",
+          "expected": [
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/c9c79f61-7ad4-415b-a2dd-63dffe66f8af",
+              "nowSha256": "03a52792cee2202beb0a813f2e7e0f9dc9a802fff0c62d0decae791f67843fd4",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "every-run",
           "golden": "every-run-golden-2d265a5.json",
-          "goldenSha256": "0f209f5fb3eafb032858812f3876d509ed3995f8d5a2f9cd70c17899f2c7560d"
+          "goldenSha256": "0f209f5fb3eafb032858812f3876d509ed3995f8d5a2f9cd70c17899f2c7560d",
+          "expected": [
+            {
+              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
+              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
+              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
+              "nowSha256": "1fc6e2894996475bc676559ebe11c8b6f04f8e61dae9d278a4703dad5586e7cd",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            },
+            {
+              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/c9c79f61-7ad4-415b-a2dd-63dffe66f8af",
+              "nowSha256": "03a52792cee2202beb0a813f2e7e0f9dc9a802fff0c62d0decae791f67843fd4",
+              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
+            }
+          ]
         },
         {
           "mode": "scheduler",

@@ -45,6 +45,7 @@ import {
   asSourceRepositoryId,
   asWorktreeId,
   evaluateCycleCompletion,
+  verificationFollowUps,
   isInvestigationRun,
   isTerminalAgentRunStatus,
   mergeAdoptsChecks,
@@ -881,6 +882,7 @@ export class ExecutionService {
       const repo = this.storage.execution.sourceRepositories.find(workspaceId, tree.repositoryId);
       if (!repo) throw new NotFoundError();
       const parent = scope.kind === 'parent-acceptance';
+      const verification = scope.kind === 'slice-verification';
       const phase = parent ? 'accept' : 'verify';
       if (tree.version !== expectedWorktreeVersion)
         throw new ExecutionRequestError(
@@ -929,12 +931,21 @@ export class ExecutionService {
             report?.status !== 'complete' ||
             report.report.verdict !== 'mergeable' ||
             !report.report.exitGate.met ||
-            report.report.findings.some((f) => f.status === 'open' && f.severity !== 'nit')
+            report.report.findings.some(
+              (f) =>
+                f.status === 'open' &&
+                f.severity !== 'nit' &&
+                !(verification && f.severity === 'minor'),
+            )
           )
             throw new ExecutionRequestError(
               'conflict',
-              'A finished, successful independent review with no open blocking, major or minor findings is required.',
+              verification
+                ? 'A finished, successful independent verification with no open blocking or major findings is required.'
+                : 'A finished, successful independent review with no open blocking, major or minor findings is required.',
             );
+          // R-C7 D7: what a passing slice verification left open is kept on its evidence.
+          const followUps = verification ? (verificationFollowUps(report) ?? []) : [];
           const reviewerRoles = scopeReviewerRoles(this.storage, workspaceId, scope, run.id);
           if (
             !resolved.profile.reviewer_roles.every((role) => reviewerRoles.includes(role)) &&
@@ -954,8 +965,9 @@ export class ExecutionService {
               'conflict',
               'This exact review run lacks the explicitly assigned independent reviewer roles.',
             );
-          const evidence = report.report.scopeEvidence;
-          const issues = scopeEvidenceIssues(resolved, evidence);
+          const reported = report.report.scopeEvidence;
+          const issues = scopeEvidenceIssues(resolved, reported);
+          const evidence = reported && (followUps.length ? { ...reported, followUps } : reported);
           if (issues.length || !evidence)
             throw new ExecutionRequestError(
               'conflict',

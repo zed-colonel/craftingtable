@@ -438,6 +438,27 @@ export function evaluateCompletion(
   };
 }
 
+/**
+ * R-C7 D7: a slice verification passes when its report is complete, its exit gate is met, its
+ * verdict is mergeable and no blocking or major finding is open. Returns the minor and nit
+ * findings it leaves open, which become follow-ups on its scope evidence, or `undefined` when
+ * it does not pass.
+ */
+export function verificationFollowUps(
+  assessment?: ReviewReportAssessment,
+): readonly ReviewFinding[] | undefined {
+  if (assessment?.status !== 'complete') return;
+  const { exitGate, verdict, findings } = assessment.report;
+  const open = findings.filter((f) => f.status === 'open');
+  if (
+    !exitGate.met ||
+    verdict !== 'mergeable' ||
+    open.some((f) => f.severity === 'blocking' || f.severity === 'major')
+  )
+    return;
+  return open;
+}
+
 /** Automatic output-format repairs per step before the controller stops for the operator. */
 export const OUTPUT_REPAIR_LIMIT = 2;
 

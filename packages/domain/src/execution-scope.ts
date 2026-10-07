@@ -18,6 +18,14 @@ export interface ScopeReviewEvidence {
   readonly requirements: readonly { readonly requirement: string; readonly evidence: string }[];
   readonly caseIds: readonly string[];
 }
+/** Scope evidence as its receipt records it. */
+export interface RecordedScopeEvidence extends ScopeReviewEvidence {
+  /**
+   * R-C7 D7: the minor and nit findings a passing slice verification left open, kept as
+   * follow-up work. Absent when none were open, and on receipts recorded before it existed.
+   */
+  readonly followUps?: readonly import('./review.js').ReviewFinding[];
+}
 /** Immutable operator acceptance of an independently reviewed execution scope. */
 export interface ScopeReceipt {
   readonly reviewerRoles?: readonly string[];
@@ -29,7 +37,7 @@ export interface ScopeReceipt {
   readonly reviewRunId: import('./ids.js').AgentRunId;
   readonly headSha: string;
   readonly integrationSha: string;
-  readonly evidence: ScopeReviewEvidence;
+  readonly evidence: RecordedScopeEvidence;
   readonly recordedAt: string;
   readonly recordedByUserId: import('./ids.js').UserId;
 }

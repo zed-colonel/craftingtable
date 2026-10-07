@@ -731,6 +731,65 @@ const rows: readonly Row[] = [
     },
     expected: { kind: 'attention', code: 'scope-review-recovery' },
   },
+  // R-C7 D7: a slice verification whose gate is met and whose verdict is mergeable is
+  // recorded with only minor or nit findings open; they become follow-ups on its evidence.
+  {
+    name: 'a slice verification with only minor and nit findings on a met gate is recorded',
+    cycle: { step: 'review', executionScope: { kind: 'slice-verification' } },
+    facts: {
+      run: reviewRun,
+      reviewOnly: true,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () =>
+        review([
+          minor,
+          { ...minor, id: 'F-2', severity: 'nit' },
+          { ...minor, id: 'F-3', status: 'resolved' },
+        ]),
+    },
+    expected: { kind: 'approve-review', reviewOnly: true },
+  },
+  {
+    name: 'a slice verification with a major finding still stops',
+    cycle: { step: 'review', executionScope: { kind: 'slice-verification' } },
+    facts: {
+      run: reviewRun,
+      reviewOnly: true,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () => review([minor, { ...minor, id: 'F-2', severity: 'major' }]),
+    },
+    expected: { kind: 'attention', code: 'scope-review-recovery' },
+  },
+  {
+    name: 'a slice verification whose verdict requests changes still stops',
+    cycle: { step: 'review', executionScope: { kind: 'slice-verification' } },
+    facts: {
+      run: reviewRun,
+      reviewOnly: true,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () => review([minor], 'changes-requested'),
+    },
+    expected: { kind: 'attention', code: 'scope-review-recovery' },
+  },
+  {
+    name: 'a slice verification whose gate is not met still stops',
+    cycle: { step: 'review', executionScope: { kind: 'slice-verification' } },
+    facts: {
+      run: reviewRun,
+      reviewOnly: true,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () => {
+        const assessed = review([minor]);
+        return assessed.status === 'complete'
+          ? {
+              ...assessed,
+              report: { ...assessed.report, exitGate: { met: false, evidence: 'A check failed.' } },
+            }
+          : assessed;
+      },
+    },
+    expected: { kind: 'attention', code: 'scope-review-recovery' },
+  },
   {
     name: 'review findings start remediation',
     cycle: { step: 'review' },

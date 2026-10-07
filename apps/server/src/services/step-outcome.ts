@@ -13,6 +13,7 @@ import {
   remediationAllowance,
   remediationUsed,
   type ReviewReportAssessment,
+  verificationFollowUps,
   type WorkCycle,
   type WorkflowQuestion,
 } from '@craftingtable/domain';
@@ -770,7 +771,19 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
             reportFault,
           ),
     );
-  if (reviewOnly && (!finalizationHasNoQuestions(text) || decision.action !== 'awaiting-merge')) {
+  // R-C7 D7: a passing slice verification is recorded with its minor and nit findings open;
+  // they become follow-ups on its scope evidence. Parent acceptance keeps its stop.
+  const verificationPasses =
+    reviewOnly &&
+    cycle.executionScope?.kind === 'slice-verification' &&
+    !scopeIssue &&
+    decision.action === 'remediate' &&
+    verificationFollowUps(assessment) !== undefined;
+  if (
+    reviewOnly &&
+    (!finalizationHasNoQuestions(text) ||
+      (decision.action !== 'awaiting-merge' && !verificationPasses))
+  ) {
     if (!finalizationHasNoQuestions(text)) {
       const message =
         'Scope review has open questions or lacks its Open questions checkpoint. Pause and provide guidance before resuming.';
@@ -787,6 +800,12 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
         : attention('scope-review-recovery', message),
     );
   }
+  if (verificationPasses)
+    return withWorkflow({
+      kind: 'approve-review',
+      reviewOnly,
+      reason: `Slice verification met its gate with a mergeable verdict. Its ${verificationFollowUps(assessment)?.length} open minor or nit finding(s) are kept as follow-ups on its scope evidence.`,
+    });
   // Findings can request more work without granting approval to the reviewed state.
   if (decision.action === 'remediate')
     return withWorkflow({

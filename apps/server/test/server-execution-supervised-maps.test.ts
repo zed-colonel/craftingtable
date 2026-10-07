@@ -29,6 +29,7 @@ import {
   scopeTree,
   stagedInput,
   storedRoadmap,
+  structuredFinding,
   supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
@@ -297,6 +298,86 @@ itNeedsCargo(
     );
   },
 );
+// R-C7 D7: 12 of the live roadmap's 19 verification stops were one minor finding on a met
+// gate with a mergeable verdict. Such a verification is recorded, its minor and nit findings
+// kept as follow-ups on the scope evidence; a major still stops.
+itNeedsCargo.each(['minor', 'major'] as const)(
+  'records a passing slice verification with a %s finding open only when it is minor or nit',
+  async (severity) => {
+    const f = await supervisedMapFixture(),
+      { state } = f,
+      ws = state.workspaceId,
+      normal = f.backend.replyForRequest!;
+    const finding = { ...structuredFinding, id: 'V-1', severity };
+    const verifications = () =>
+      state.context.storage.execution.cycles
+        .listForWorkspace(ws)
+        .filter((c) => c.executionScope?.kind === 'slice-verification');
+    f.backend.replyForRequest = async (request) => {
+      const reply = await normal(request);
+      const tree = state.context.storage.execution.worktrees
+        .listForWorkItem(ws, state.workItemId)
+        .find((t) => t.path === request.cwd);
+      if (tree?.executionScope?.kind !== 'slice-verification') return reply;
+      expect(reply.resultText).toContain('"findings":[]');
+      expect(reply.resultText).toContain('VERDICT: mergeable');
+      return {
+        ...reply,
+        resultText: reply.resultText.replace(
+          '"findings":[]',
+          `"findings":[${JSON.stringify(finding)}]`,
+        ),
+      };
+    };
+    f.service.save(f.auth, ws, f.input);
+    await adoptSupervisedMap(f);
+    expect((await roadmapControl(state, 'start')).statusCode).toBe(200);
+    if (severity === 'major') {
+      // The stop's code is the decision table's (step-outcome.test.ts); roadmap recovery may
+      // take it over. Here: no verification with an open major is recorded.
+      await waitFor(
+        () => verifications().some((c) => c.status === 'needs-attention'),
+        'verification stop',
+      );
+      expect(
+        state.context.storage.scopeReceipts
+          .list(ws, state.workItemId)
+          .filter((r) => r.scope.kind === 'slice'),
+      ).toEqual([]);
+      return;
+    }
+    await waitFor(() => {
+      const cycle = state.context.storage.execution.cycles
+        .listForWorkspace(ws)
+        .find((c) => c.status === 'needs-attention');
+      if (cycle) throw new Error(cycle.reason);
+      return (
+        state.context.storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed'
+      );
+    }, 'parent accepted');
+    const slices = state.context.storage.scopeReceipts
+      .list(ws, state.workItemId)
+      .filter((r) => r.scope.kind === 'slice');
+    expect(slices).toHaveLength(2);
+    for (const receipt of slices) {
+      expect(verifications().some((c) => c.currentRunId === receipt.reviewRunId)).toBe(true);
+      expect(receipt.evidence.followUps).toEqual([finding]);
+    }
+    // Stored and read back: the optional field persists.
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
+    try {
+      expect(
+        reopened.scopeReceipts
+          .list(ws, state.workItemId)
+          .filter((r) => r.scope.kind === 'slice')
+          .map((r) => r.evidence.followUps),
+      ).toEqual([[finding], [finding]]);
+    } finally {
+      reopened.close();
+    }
+  },
+);
+
 itNeedsCargo(
   'pauses a verification question without authorizing implementation in the review snapshot',
   async () => {

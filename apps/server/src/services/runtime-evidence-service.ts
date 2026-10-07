@@ -2769,14 +2769,18 @@ export class RuntimeEvidenceService {
     if (!tx.runtimeEvidence.run(tree.workspaceId, runId)) {
       const adoption = tx.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0];
       if (adoption) {
-        // A cycle that owns the worktree reviews afresh when it is paused and resumed, and keeps
-        // its roadmap; without one, the operator starts the review (re-check R1).
-        const exit = tx.execution.cycles.activeForWorktree(tree.workspaceId, tree.id)
-          ? 'Pause its cycle, then resume it: the fresh review'
-          : 'Run a fresh review: CraftingTable';
+        // A cycle that owns the worktree reviews afresh when it is paused and resumed; a roadmap
+        // holds on its paused cycle until it is resumed too. Without a cycle, the operator starts
+        // the review (re-checks R1, R3).
+        const cycle = tx.execution.cycles.activeForWorktree(tree.workspaceId, tree.id);
+        const exit = !cycle
+          ? 'Run a fresh review; CraftingTable runs them before it starts.'
+          : cycleOwnership(tx, cycle)
+            ? 'Pause its cycle, resume it, merge, then resume its roadmap; the fresh review the resume starts runs them first.'
+            : 'Pause its cycle, then resume it; the fresh review the resume starts runs them first.';
         throw new DeclaredChecksMissingError(
           adoption.checks.map((check) => check.id),
-          `This review was prepared without the repository's adopted checks (version ${adoption.version}), so none of them ran for it. The merge needs a successful run of each on its exact clean reviewed commit: ${adoption.checks.map((check) => `ct-check --declared ${check.id}`).join(', ')}. ${exit} runs them before it starts.`,
+          `This review was prepared without the repository's adopted checks (version ${adoption.version}), so none of them ran for it. The merge needs a successful run of each on its exact clean reviewed commit: ${adoption.checks.map((check) => `ct-check --declared ${check.id}`).join(', ')}. ${exit}`,
         );
       }
     }

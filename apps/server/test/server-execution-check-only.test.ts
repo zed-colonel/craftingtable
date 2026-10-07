@@ -657,6 +657,11 @@ it("a roadmap cycle awaiting the operator's merge with a review prepared before 
   const first = storage.execution.cycles.find(state.workspaceId, attempt.cycleId)!;
   // A review prepared before the deploy, or before the adoption: it has no record.
   const recorded = storage.runtimeEvidence.run.bind(storage.runtimeEvidence);
+  /** The roadmap's status and attention code. */
+  const held = () => ({
+    status: storedRoadmap(state).status,
+    code: storedRoadmap(state).attention?.code,
+  });
   const hidden = vi
     .spyOn(storage.runtimeEvidence, 'run')
     .mockImplementation((ws, id) => (id === first.currentRunId ? undefined : recorded(ws, id)));
@@ -664,10 +669,13 @@ it("a roadmap cycle awaiting the operator's merge with a review prepared before 
     const refused = await merge(state, attempt.worktreeId);
     expect(refused.statusCode, refused.body).toBe(409);
     expect(refused.body).toContain('prepared without the repository');
-    // The refusal names the cycle's own exit.
-    expect(refused.body).toContain('Pause its cycle, then resume it');
+    // The refusal names the cycle's own exit, the roadmap's resume included.
+    expect(refused.body).toContain('Pause its cycle, resume it, merge, then resume its roadmap');
     backend.replyForRequest = () => ({ resultText: reviewText([]) });
     const paused = await controlCycle(state, first, 'pause');
+    // A roadmap pass while the cycle is paused holds the roadmap on it.
+    await state.context.services.roadmapService.tick();
+    expect(held()).toEqual({ status: 'needs-attention', code: 'cycle-needs-attention' });
     await controlCycle(state, paused, 'resume');
     await waitFor(() => {
       const cycle = storage.execution.cycles.find(state.workspaceId, first.id)!;
@@ -679,12 +687,49 @@ it("a roadmap cycle awaiting the operator's merge with a review prepared before 
     expect(
       storage.runtimeEvidence.run(state.workspaceId, fresh.currentRunId)?.checkDeclarationId,
     ).toBeDefined();
+    expect(storedRoadmap(state).attempts[0]!.cycleId).toBe(first.id);
     const merged = await merge(state, attempt.worktreeId);
     expect(merged.statusCode, merged.body).toBe(200);
   } finally {
     hidden.mockRestore();
   }
-  // The roadmap kept its cycle throughout.
+  // The roadmap stays held until the operator resumes it, and kept its cycle throughout.
+  await state.context.services.roadmapService.tick();
+  expect(held()).toEqual({ status: 'needs-attention', code: 'cycle-needs-attention' });
   expect(storedRoadmap(state).attempts[0]!.cycleId).toBe(first.id);
-  expect(storedRoadmap(state).status).not.toBe('needs-attention');
+  await roadmapControl(state, 'resume');
+  await state.context.services.roadmapService.tick();
+  expect(storedRoadmap(state).status).toBe('running');
+  expect(storedRoadmap(state).attempts[0]!.cycleId).toBe(first.id);
+});
+
+it("refuses a manual cycle's review prepared without its repository's checks with the cycle's own exit (R-G13 increment 4, re-check R3)", async () => {
+  const backend = new CycleBackend([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  const state = await ready({ backend });
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  await admit(state);
+  declareFixtureChecks(state);
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model') commitFile(request.cwd, 'feature.txt', 'feature\n');
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'awaiting merge');
+  const storage = state.context.storage;
+  const review = currentCycle(state, cycle).currentRunId;
+  const recorded = storage.runtimeEvidence.run.bind(storage.runtimeEvidence);
+  const hidden = vi
+    .spyOn(storage.runtimeEvidence, 'run')
+    .mockImplementation((ws, id) => (id === review ? undefined : recorded(ws, id)));
+  try {
+    const refused = await merge(state, worktree.id);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('Pause its cycle, then resume it;');
+    expect(refused.body).not.toContain('roadmap');
+  } finally {
+    hidden.mockRestore();
+  }
 });

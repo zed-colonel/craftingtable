@@ -23,3 +23,4 @@ export type {
   WorktreeSnapshot,
 } from './operations.js';
 export { createGitOperations, writeDaemonGitIdentity } from './operations.js';
+export { gitVersionIssue, MINIMUM_GIT_VERSION } from './version.js';

@@ -41,8 +41,8 @@ under **Settings**) open them.
 
 ## Running it
 
-Prerequisites: pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)), Git 2.42 or newer (merges
-read attributes with `git --attr-source`), and
+Prerequisites: pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)), Git 2.43.0 or newer (the daemon
+refuses to start below it: merges run `merge-tree` with `--attr-source`, which crashes before 2.43.0), and
 [Claude Code](https://code.claude.com) installed and signed in (`claude` on PATH or in
 `~/.local/bin`), or Codex installed and signed in as the daemon's OS user (`codex login`).
 pnpm downloads the pinned Node 24 automatically. Development quickstart:

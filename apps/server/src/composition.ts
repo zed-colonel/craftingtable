@@ -17,6 +17,7 @@ import {
 } from '@craftingtable/domain';
 import {
   createGitOperations,
+  gitVersionIssue,
   type GitOperations,
   writeDaemonGitIdentity,
 } from '@craftingtable/git';
@@ -180,6 +181,12 @@ export async function createServices(
     overrides.gitOperations === undefined
       ? resolveExecutable('git', config.execution.gitExecutable)
       : undefined;
+  // Below the Git floor the daemon's merges fail; it refuses to start, naming both versions
+  // (R-G10, operator decision 2026-10-07).
+  if (gitExecutable !== undefined) {
+    const issue = await gitVersionIssue(gitExecutable);
+    if (issue !== undefined) throw new Error(issue);
+  }
   // Every daemon Git operation that can move a branch records where it left it, so a run's
   // protected-ref snapshot can tell the daemon's moves from anyone else's (R-G5).
   const refWatch = new RefWatch();

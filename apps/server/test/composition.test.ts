@@ -45,7 +45,7 @@ describe('service composition', () => {
     const slowGit = join(directory, 'slow-git');
     writeFileSync(
       slowGit,
-      `#!${process.execPath}\nif (process.argv.includes('rev-parse')) setTimeout(() => {}, 30_000);\nelse process.exit(1);\n`,
+      `#!${process.execPath}\nif (process.argv.includes('version')) process.stdout.write('git version 2.55.0\\n');\nelse if (process.argv.includes('rev-parse')) setTimeout(() => {}, 30_000);\nelse process.exit(1);\n`,
       { mode: 0o755 },
     );
     const storage = openDaemonStorage(join(directory, 'state.sqlite'));
@@ -66,6 +66,34 @@ describe('service composition', () => {
       expect(!inspected.ok && inspected.failure.kind).toBe('timed-out');
       expect(Date.now() - started).toBeLessThan(25_000);
       await services.daemonDrain.drain(0);
+    } finally {
+      storage.close();
+    }
+  });
+
+  it('refuses to start with a Git older than 2.43.0, naming both versions (R-G10, operator decision 2026-10-07)', async () => {
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
+    directories.push(directory);
+    // A fake that reports an old version: no old Git is built or run.
+    const oldGit = join(directory, 'old-git');
+    writeFileSync(
+      oldGit,
+      `#!${process.execPath}\nif (process.argv.includes('version')) process.stdout.write('git version 2.42.0\\n');\nelse process.exit(1);\n`,
+      { mode: 0o755 },
+    );
+    const storage = openDaemonStorage(join(directory, 'state.sqlite'));
+    try {
+      await expect(
+        createServices(
+          storage,
+          configFromEnv({
+            CRAFTINGTABLE_DATA_DIR: directory,
+            CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+            CRAFTINGTABLE_GIT_EXECUTABLE: oldGit,
+          }),
+          { passwordHasher: new FastTestPasswordHasher() },
+        ),
+      ).rejects.toThrow(/Git 2\.42\.0; CraftingTable needs Git 2\.43\.0 or newer/);
     } finally {
       storage.close();
     }

@@ -28,6 +28,7 @@ import {
 } from './native-verification-policy.js';
 import { buildVerificationPolicy, movedVerificationPolicy } from './build-verification-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { cycleOwnership } from './cycle-ownership.js';
 import { relevantPinAliases } from './runtime-input-policy.js';
 import { runtimeRefreshImpact, queueRuntimeReviews } from './runtime-refresh.js';
 import {
@@ -54,9 +55,11 @@ import {
   loadLocalCiConfig,
   cleanupLocalCiManifest,
   cleanupDaemonRunChecks,
+  prepareCheckManifest,
   prepareLocalCheckLaunchers,
   resolveGitDirectories,
   observeRustToolchain,
+  type CheckOnlyManifest,
   type PinnedCargoManifest,
 } from '@craftingtable/agents';
 import {
@@ -82,6 +85,8 @@ import {
   type ConcurrencyDefinition,
   type EvidenceSubmission,
   type EvidenceSubject,
+  type ManifestDeclaredChecks,
+  type RepositoryCheckDeclaration,
   type RuntimeGeneration,
   consumerUpstreams,
   upstreamTransitionIssues,
@@ -2605,18 +2610,7 @@ export class RuntimeEvidenceService {
     if (!declaration)
       throw new RepositoryChecksUndeclaredError(tree.repositoryId, consumerRepository.displayName);
     if (declaration)
-      Object.assign(manifest, {
-        declaredChecks: {
-          declarationId: declaration.id,
-          version: declaration.version,
-          checks: declaration.checks.map((c) => ({
-            ...c,
-            definitionDigests: Object.fromEntries(
-              c.definitionPaths.map((path) => [path, declaration.definitionDigests[path]!]),
-            ),
-          })),
-        },
-      });
+      Object.assign(manifest, { declaredChecks: manifestDeclaredChecks(declaration) });
     await this.assertFreshTree(tree);
     // The launchers only ask the daemon, which runs the check and records the receipt (R-G4).
     const spool = {
@@ -2652,6 +2646,66 @@ export class RuntimeEvidenceService {
       definitionId: scope.definitionId,
       bindingRevision: scope.bindingRevision,
       checkDeclarationId: declaration?.id,
+    };
+  }
+  /**
+   * A run's check-only manifest, where `prepare` returns nothing because the run has no pinned
+   * dependency environment (R-G13 increment 4, operator decisions 2026-10-06). A run is held to
+   * its repository's adopted checks whenever the repository has an adoption (D2), a manual run
+   * included (D3): the manifest names the current adoption, and its one launcher, `ct-check`,
+   * asks the daemon. A repository without an adoption fails closed only for a cycle a roadmap
+   * owns, which stops as `repository-checks-undeclared`; any other run there keeps today's rule
+   * and gets no manifest.
+   */
+  prepareChecks(tree: Worktree, runId: string, runDirectory: string, replyDirectory?: string) {
+    const declaration = this.storage.runtimeEvidence.checkDeclarations(
+      tree.workspaceId,
+      tree.repositoryId,
+    )[0];
+    const cycle = this.storage.execution.cycles.activeForWorktree(tree.workspaceId, tree.id);
+    if (!declaration) {
+      if (cycle && cycleOwnership(this.storage, cycle))
+        throw new RepositoryChecksUndeclaredError(
+          tree.repositoryId,
+          this.storage.execution.sourceRepositories.find(tree.workspaceId, tree.repositoryId)
+            ?.displayName ?? tree.repositoryId,
+        );
+      return undefined;
+    }
+    const gitExecutable = resolveExecutable('git', undefined);
+    if (!gitExecutable)
+      throw new ExecutionRequestError('unavailable', 'Git is required for the adopted checks.');
+    // Where the host has Cargo, every adopted check runs the commit's managed toolchain (R-G13
+    // posture); a host without it runs them with none.
+    const cargoExecutable = resolveExecutable('cargo', undefined, process.env, [
+      join(homedir(), '.cargo', 'bin'),
+    ]);
+    const manifest: CheckOnlyManifest = {
+      kind: 'checks',
+      runId,
+      gitExecutable,
+      // Resolved before the agent starts; the daemon never follows the worktree's `.git` pointer.
+      ...resolveGitDirectories(gitExecutable, tree.path),
+      workspacePath: tree.path,
+      checkTimeoutMs: Math.min(30 * 60000, (cycle?.policy.maxRunMinutes ?? 30) * 60000),
+      declaredChecks: manifestDeclaredChecks(declaration),
+      ...(cargoExecutable ? { cargoExecutable } : {}),
+    };
+    const directory = join(runDirectory, 'checks');
+    // The launcher only asks the daemon, which runs the check and records the receipt (R-G4).
+    const spool = {
+      directory: join(directory, 'requests'),
+      replies: replyDirectory ?? join(directory, 'replies'),
+      limitMs: (manifest.checkTimeoutMs ?? 30 * 60000) + 5 * 60000,
+    };
+    mkdirSync(spool.replies, { recursive: true, mode: 0o700 });
+    const launch = prepareCheckManifest(directory, manifest, spool);
+    return {
+      kind: 'checks' as const,
+      ...launch,
+      spoolDirectory: spool.directory,
+      replyDirectory: spool.replies,
+      checkDeclarationId: declaration.id,
     };
   }
   assertPrepared(tree: Worktree, runtimeId: string, decisionDigest?: string) {
@@ -2902,7 +2956,8 @@ export class RuntimeEvidenceService {
     tx.runtimeEvidence.addBuild({
       runId,
       workspaceId: ws,
-      runtimeId: env.runtimeId,
+      // A check-only run has none (R-G13 increment 4).
+      ...(env.runtimeId ? { runtimeId: env.runtimeId } : {}),
       manifestDigest: env.manifestDigest,
       receipts,
       digest: hash(receipts),
@@ -3100,6 +3155,20 @@ export class RuntimeEvidenceService {
       payload: { definitionId: id, message },
     });
   }
+}
+
+/** An adoption as a run's manifest holds it: each check with its definition files' digests. */
+function manifestDeclaredChecks(declaration: RepositoryCheckDeclaration): ManifestDeclaredChecks {
+  return {
+    declarationId: declaration.id,
+    version: declaration.version,
+    checks: declaration.checks.map((c) => ({
+      ...c,
+      definitionDigests: Object.fromEntries(
+        c.definitionPaths.map((path) => [path, declaration.definitionDigests[path]!]),
+      ),
+    })),
+  };
 }
 
 /** The build record of a daemon-recorded run: the checks it recorded, in order (R-G4). */

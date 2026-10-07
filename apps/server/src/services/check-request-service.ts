@@ -8,9 +8,9 @@ import {
   type CheckRequest,
   claimCheckRequest,
   executeCheck,
-  type PinnedCargoManifest,
   pendingCheckRequests,
   stopCheckUnits,
+  type VerificationManifest,
 } from '@craftingtable/agents';
 import { isTerminalAgentRunStatus, type WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
@@ -451,7 +451,7 @@ export class CheckRequestService {
     origin: CheckOrigin,
   ): Promise<void> {
     const { context } = served;
-    const manifest = JSON.parse(context.manifest) as PinnedCargoManifest;
+    const manifest = JSON.parse(context.manifest) as VerificationManifest;
     // The daemon's Cargo home, never the operator's (R-G5 review): the unit may write its
     // download caches, and whatever a check plants there stays out of the operator's builds.
     const cargoHome = this.config.cargoHome;
@@ -472,7 +472,11 @@ export class CheckRequestService {
       CARGO_HOME: cargoHome,
       PATH: `${join(dirname(context.manifestPath), 'bin')}:${process.env.PATH ?? '/usr/bin'}`,
       TMPDIR: join(context.runDirectory, 'scratch'),
-      CARGO_TARGET_DIR: manifest.targetDirectory,
+      // A check-only run has no pinned target (R-G13 increment 4): its scratch has one.
+      CARGO_TARGET_DIR:
+        manifest.kind === 'checks'
+          ? join(context.runDirectory, 'scratch', 'target')
+          : manifest.targetDirectory,
       CRAFTINGTABLE_RUN_NAMESPACE: context.runId,
     };
     let slot = 0;

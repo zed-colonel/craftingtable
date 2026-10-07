@@ -275,7 +275,8 @@ function declaredChecksBrief(
   pinned: {
     readonly checkDeclarationId?: string;
     readonly binDirectory: string;
-    readonly verification: { readonly mode: string };
+    /** Absent for a check-only run, which has no pinned environment (R-G13 increment 4). */
+    readonly verification?: { readonly mode: string };
   },
 ): string {
   const declaration =
@@ -289,16 +290,22 @@ function declaredChecksBrief(
       return `- ${pinned.binDirectory}/ct-check --declared ${check.id}   (CraftingTable runs the adopted ${argv.length > 200 ? `${argv.slice(0, 200)}…` : argv}; running that yourself does not count)`;
     })
     .join('\n');
-  const beside =
-    pinned.verification.mode === 'scoped-checks'
+  const beside = !pinned.verification
+    ? 'Other ct-check commands are supplemental and never replace them.'
+    : pinned.verification.mode === 'scoped-checks'
       ? 'Other ct-check commands and Cargo builds are supplemental and never replace them.'
       : 'They are needed beside the pinned Cargo build/test; other ct-check commands are supplemental.';
+  // A check-only run has no pinned environment: its gate is these checks alone (increment 4).
+  const checkOnly = pinned.verification
+    ? ''
+    : `Repository checks: this run has no pinned dependency environment, so its merge is gated on the repository's adopted checks alone, run by CraftingTable. ${pinned.binDirectory}/ct-check is on PATH; ct-check -- <executable> <arguments> runs a command you choose, which is recorded and counts for nothing.
+`;
   return role === 'review'
-    ? `Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head. CraftingTable runs each from the adopted definition on a private clone of that commit before this review starts, and appends their results below these instructions; those runs count for the gate. Report a failing check as a finding. To run one again, read-only (do not commit):
+    ? `${checkOnly}Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head. CraftingTable runs each from the adopted definition on a private clone of that commit before this review starts, and appends their results below these instructions; those runs count for the gate. Report a failing check as a finding. To run one again, read-only (do not commit):
 ${commands}
 ${beside}
 `
-    : `Adopted repository checks (version ${declaration.version}): the review of this work will need a successful run of EACH on the committed head, which CraftingTable runs from the adopted definition on a private clone of your committed head. After committing, run them to check your work early:
+    : `${checkOnly}Adopted repository checks (version ${declaration.version}): the review of this work will need a successful run of EACH on the committed head, which CraftingTable runs from the adopted definition on a private clone of your committed head. After committing, run them to check your work early:
 ${commands}
 ${beside} If one fails, fix the code, not the check's definition files, which the operator adopts.
 `;
@@ -1334,6 +1341,19 @@ export class AgentRunService {
             runDirectory,
             join(this.config.checkLogRoot, runId, 'replies'),
           );
+      // Without a pinned environment, a run in a repository with adopted checks is held to them
+      // through a check-only manifest (R-G13 increment 4).
+      const checksOnly =
+        investigation || pinned
+          ? undefined
+          : this.runtimeEvidence?.prepareChecks(
+              prepared.worktree,
+              runId,
+              runDirectory,
+              join(this.config.checkLogRoot, runId, 'replies'),
+            );
+      /** The run's verification manifest and launchers, pinned or check-only. */
+      const verifying = pinned ?? checksOnly;
       const historical =
         cycle?.baselinePreparation?.status === 'prepared'
           ? await this.baselines?.materialize(cycle, runDirectory)
@@ -1666,6 +1686,10 @@ export class AgentRunService {
               },
             }),
       });
+      // A check-only run's brief names its adopted checks, and nothing of Cargo (R-G13 increment 4).
+      const checksOnlySection = checksOnly
+        ? declaredChecksBrief(this.storage, workspaceId, input.role, checksOnly)
+        : '';
       let brief =
         composedBrief +
         (pinned
@@ -1684,7 +1708,9 @@ ${
 }
 ${declaredChecksBrief(this.storage, workspaceId, input.role, pinned)}Local CI: ${pinned.localCi ? `configured with image ${pinned.localCi.image}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. The image includes Rust 1.89, rustfmt/clippy and native build tools. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native/Kata qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.
 `
-          : '');
+          : checksOnlySection
+            ? `\n\n${checksOnlySection}`
+            : '');
       const historicalBrief = historical
         ? `
 
@@ -1796,6 +1822,16 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             pinned.runtimeId,
             pinned.architectureDecisionDigest,
           );
+        // Held to the adopted checks alone, recorded by the daemon: no runtime (R-G13 increment 4).
+        if (checksOnly)
+          tx.runtimeEvidence.addRun({
+            runId,
+            workspaceId,
+            manifestPath: checksOnly.manifestPath,
+            manifestDigest: checksOnly.manifestDigest,
+            receiptAuthority: 'daemon',
+            checkDeclarationId: checksOnly.checkDeclarationId,
+          });
         if (pinned)
           tx.runtimeEvidence.addRun({
             runId,
@@ -1833,16 +1869,16 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           await this.refWatch.watch.snapshot(runId, this.refWatch.git, repository.rootPath);
       }
       // The daemon runs and records this run's checks from here on (R-G4).
-      if (pinned?.spoolDirectory && this.checks)
+      if (verifying?.spoolDirectory && this.checks)
         this.checks.open({
           workspaceId,
           runId,
-          spoolDirectory: pinned.spoolDirectory,
-          replyDirectory: pinned.replyDirectory,
+          spoolDirectory: verifying.spoolDirectory,
+          replyDirectory: verifying.replyDirectory,
           runDirectory,
-          manifestPath: pinned.manifestPath,
-          manifestDigest: pinned.manifestDigest,
-          manifest: pinned.manifest,
+          manifestPath: verifying.manifestPath,
+          manifestDigest: verifying.manifestDigest,
+          manifest: verifying.manifest,
         });
       /** Launches the agent, with the report of the adopted checks run for it, if any. */
       const proceed = async (declared: string): Promise<AgentRun> => {
@@ -1873,8 +1909,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           ...(this.config.outsideSources === undefined
             ? {}
             : { outsideSources: this.config.outsideSources }),
-          ...(pinned
-            ? { buildEnvironment: { binDirectory: pinned.binDirectory, namespace: runId } }
+          ...(verifying
+            ? { buildEnvironment: { binDirectory: verifying.binDirectory, namespace: runId } }
             : {}),
           cwd: prepared.worktree.path,
           temporaryDirectory,
@@ -1892,9 +1928,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             // a sandboxed `cargo fetch` may write its registry and Git caches, and what an agent
             // plants there stays out of the operator's own builds (R-G5 review).
             CARGO_HOME: this.config.cargoHome,
-            ...(pinned ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
+            ...(verifying ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
           },
-          ...(pinned ? { pathPrefix: [pinned.binDirectory] } : {}),
+          ...(verifying ? { pathPrefix: [verifying.binDirectory] } : {}),
           ...(cycle
             ? { deadlineAt: cycle.runDeadlineAt }
             : controlled
@@ -2021,9 +2057,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         return this.storage.execution.runs.find(workspaceId, runId) ?? run;
       };
       const declaredIds =
-        input.role === 'review' && pinned?.spoolDirectory && pinned.checkDeclarationId
+        input.role === 'review' && verifying?.spoolDirectory && verifying.checkDeclarationId
           ? ((
-              JSON.parse(pinned.manifest) as {
+              JSON.parse(verifying.manifest) as {
                 declaredChecks?: { checks: readonly { id: string }[] };
               }
             ).declaredChecks?.checks.map((check) => check.id) ?? [])

@@ -22,6 +22,7 @@ import {
   cleanupExecutionFixtures,
   commitFile,
   currentCycle,
+  declareFixtureChecks,
   designDone,
   expectedScopeEvidence,
   git,
@@ -165,6 +166,8 @@ describe('execution slices and parent acceptance', () => {
   it('allows sibling cycles and persists their scope through roadmap reservations', async () => {
     const f = await slicedFixture(),
       { state } = f;
+    // A roadmap's cycles in a repository without adopted checks stop (R-G13 increment 4).
+    declareFixtureChecks(state);
     f.backend.replyForRequest = (request) =>
       request.model === 'design-model'
         ? designDone
@@ -523,6 +526,8 @@ it('phase merge dependencies let an independent sibling integrate first and then
       true,
     ),
     { state } = f;
+  // A roadmap's cycles in a repository without adopted checks stop (R-G13 increment 4).
+  declareFixtureChecks(state);
   f.backend.replyForRequest = (request) =>
     request.model === 'design-model'
       ? designDone
@@ -617,6 +622,8 @@ it('phase verification capacity is separate and restart releases operation reser
 it('phase verification worktrees do not consume roadmap development capacity', async () => {
   const f = await slicedFixture(),
     { state } = f;
+  // A roadmap's cycles in a repository without adopted checks stop (R-G13 increment 4).
+  declareFixtureChecks(state);
   const a = await scopeTree(f, f.scopes[0]!);
   commitFile(a.path, 'a.txt', 'A');
   await reviewScope(f, a);

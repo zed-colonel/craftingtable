@@ -1081,6 +1081,12 @@ export async function roadmapFixture(
     workers?: boolean;
     /** The fixture repository's default branch, which is also the plan's integration branch. */
     initialBranch?: string;
+    /**
+     * Leaves the repository without adopted checks. A roadmap's cycles there stop as
+     * `repository-checks-undeclared` (R-G13 increment 4), so a fixture that runs one adopts the
+     * fixture checks unless it declares its own, or the test is about that stop.
+     */
+    undeclared?: boolean;
   } = {},
 ) {
   const backend = new CycleBackend(outputs);
@@ -1099,6 +1105,7 @@ export async function roadmapFixture(
   });
   const root = fixtureRepository(options.initialBranch);
   const { repository, worktree } = await registerAndWorktree(state, root, options.initialBranch);
+  if (!options.undeclared) declareFixtureChecks(state);
   if (!options.keepWorktree) {
     const removed = await state.context.app.inject({
       method: 'POST',
@@ -1525,7 +1532,8 @@ export async function slicedFixture(
   ) => import('@craftingtable/domain').ConcurrencySource,
   useRevision = false,
 ) {
-  const fixture = await roadmapFixture();
+  // Scoped fixtures declare their own checks with their runtime (`configureLocalRuntime`).
+  const fixture = await roadmapFixture(undefined, { undeclared: true });
   if (useRevision) await useIntegration(fixture);
   const { state, repository } = fixture;
   const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]);
@@ -1623,7 +1631,7 @@ export function withoutDaemonChecks(state: Ready): void {
  * operator's adoption would record it; the adoption itself is tested on its own.
  */
 export function declareFixtureChecks(
-  state: Ready,
+  state: SignedIn,
   checks: import('@craftingtable/domain').DeclaredCheck[] = [
     { id: 'fixture', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: [] },
   ],

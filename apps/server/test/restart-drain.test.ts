@@ -14,6 +14,7 @@ import {
 import {
   cleanupExecutionFixtures,
   cycleProfiles,
+  declareFixtureChecks,
   designDone,
   git,
   implementationDone,
@@ -256,6 +257,8 @@ describe('restart drain and automatic resume (R-B9)', () => {
   it('keeps a running roadmap running across a clean restart', async () => {
     const f = await fixture();
     const roadmapId = '00000000-0000-4000-8000-000000000010';
+    // A roadmap's cycles in a repository without adopted checks stop (R-G13 increment 4).
+    declareFixtureChecks(f);
     const inject = async (url: string, payload: Record<string, unknown>) => {
       const response = await f.context.app.inject({
         method: 'POST',

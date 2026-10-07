@@ -292,13 +292,18 @@ export async function ensureBaselineTag(
   return { ok: true, value: undefined };
 }
 
-/** The commit a name resolves to: a full object name, or a branch by its exact ref. */
+/**
+ * The commit a name resolves to: a branch by its exact ref `refs/heads/<name>` (never a tag of
+ * the same name), an object name, or, for `either`, an object name when it looks like one.
+ */
 export async function commitOf(
   ctx: GitRunner,
   cwd: string,
   name: string,
+  kind: 'branch' | 'object' | 'either',
 ): Promise<GitResult<string>> {
-  const ref = SHA_PATTERN.test(name) ? name : `refs/heads/${name}`;
+  const object = kind === 'object' || (kind === 'either' && SHA_PATTERN.test(name));
+  const ref = object ? name : `refs/heads/${name}`;
   const resolved = await ctx.runOk(
     ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`],
     cwd,

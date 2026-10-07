@@ -8,6 +8,8 @@ import type { GitFailure, GitFailureKind, GitResult } from './operations.js';
 export const CHANGED_PATH_LIMIT = 50;
 
 export const SHA_PATTERN = /^[0-9a-f]{7,64}$/;
+/** A full tree object name, SHA-1 or SHA-256, as `merge-tree --write-tree` prints it. */
+export const TREE_OID = /^[a-f0-9]{40}([a-f0-9]{24})?$/;
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
 
 export function isSafeBranchName(value: string): boolean {

@@ -442,4 +442,124 @@ describe('promotion into the primary checkout (R-G10 D, GIT-07)', () => {
   });
 });
 
+describe('self-review findings (R-G10)', () => {
+  it('refuses a fast-forward when the primary checkout left the target during the merge', async () => {
+    const { repo, git, main } = mergeFixture('', { checkedOut: true });
+    writeFileSync(
+      join(repo.root, 'driver'),
+      `#!/bin/sh\nenv -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE ${GIT_EXECUTABLE} -C ${repo.repository} checkout -q -b experiment && ${TAKE_THEIRS}\n`,
+    );
+    const merged = await operations.mergeBranch(mergeInput(repo.repository));
+    expect(merged.ok).toBe(false);
+    expect(git('rev-parse', 'main')).toBe(main);
+    expect(git('rev-parse', 'experiment')).toBe(main);
+  });
+
+  it('diffs untracked files when one vanishes before it is added', async () => {
+    const repo = fixture();
+    const base = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+    writeFileSync(join(repo.repository, 'kept.txt'), 'kept\n');
+    const vanishing = join(repo.repository, 'vanishing.txt');
+    writeFileSync(vanishing, 'gone soon\n');
+    // An agent removes its temporary file between the listing and the add.
+    const racing = makeExecutableProxy(
+      repo.root,
+      'racing-git',
+      `
+import { rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+if (args.includes('--intent-to-add')) rmSync(${JSON.stringify(vanishing)}, { force: true });
+const result = spawnSync(${JSON.stringify(GIT_EXECUTABLE)}, args, { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`,
+    );
+    const diff = await createGitOperations({ gitExecutable: racing }).worktreeDiff({
+      worktreePath: repo.repository,
+      baseSha: base,
+      maxPatchBytes: 1024 * 1024,
+    });
+    if (!diff.ok) throw new Error(JSON.stringify(diff.failure));
+    expect(diff.value.files.find((file) => file.path === 'kept.txt')).toMatchObject({
+      additions: 1,
+    });
+    expect(diff.value.patch).toContain('+kept');
+  });
+
+  it('counts tracked and untracked files whose names hold a tab', async () => {
+    const repo = fixture();
+    const base = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+    writeFileSync(join(repo.repository, 'a\tb.txt'), 'one\ntwo\n');
+    writeFileSync(join(repo.repository, 'c\td.txt'), 'three\n');
+    runFixtureGit(['add', '--', 'c\td.txt'], { cwd: repo.repository });
+    const diff = await operations.worktreeDiff({
+      worktreePath: repo.repository,
+      baseSha: base,
+      maxPatchBytes: 1024 * 1024,
+    });
+    if (!diff.ok) throw new Error(JSON.stringify(diff.failure));
+    expect(diff.value.files).toContainEqual({
+      path: 'c\td.txt',
+      status: 'added',
+      additions: 1,
+      deletions: 0,
+      binary: false,
+    });
+    expect(diff.value.files).toContainEqual({
+      path: 'a\tb.txt',
+      status: 'untracked',
+      additions: 2,
+      deletions: 0,
+      binary: false,
+    });
+  });
+
+  it('promotes a merge that replaces a tracked directory with a file', async () => {
+    const { repo, git } = mergeFixture(TAKE_THEIRS, { checkedOut: true });
+    mkdirSync(join(repo.repository, 'd'));
+    writeFileSync(join(repo.repository, 'd', 'f'), 'tracked\n');
+    git('add', '--', 'd/f');
+    git('commit', '-q', '--no-gpg-sign', '-m', 'd/f');
+    git('checkout', '-q', 'ct/feature');
+    git('merge', '-q', '--no-edit', '--no-gpg-sign', '-X', 'theirs', 'main');
+    git('rm', '-q', '-r', '--', 'd');
+    writeFileSync(join(repo.repository, 'd'), 'now a file\n');
+    git('add', '--', 'd');
+    git('commit', '-q', '--no-gpg-sign', '-m', 'd is a file');
+    git('checkout', '-q', 'main');
+    const merged = await operations.mergeBranch(mergeInput(repo.repository));
+    if (!merged.ok) throw new Error(JSON.stringify(merged.failure));
+    expect(readFileSync(join(repo.repository, 'd'), 'utf8')).toBe('now a file\n');
+  });
+
+  it("predicts the merge's tree with the target's attributes, as the merge reads them", async () => {
+    const { repo, git, main } = mergeFixture(TAKE_THEIRS, { checkedOut: false });
+    git('rm', '-q', '--', '.gitattributes');
+    git('commit', '-q', '--no-gpg-sign', '-m', 'no attributes');
+    const feature = git('rev-parse', 'ct/feature');
+    const predicted = await operations.mergeTree(repo.repository, main, feature);
+    if (!predicted.ok) throw new Error(JSON.stringify(predicted.failure));
+    const merged = await operations.mergeBranch(mergeInput(repo.repository));
+    if (!merged.ok) throw new Error(JSON.stringify(merged.failure));
+    expect(git('rev-parse', `${merged.value.mergeSha}^{tree}`)).toBe(predicted.value);
+  });
+
+  it('merges into a branch whose name looks like an object name, by its exact ref', async () => {
+    const { repo, git, main } = mergeFixture(TAKE_THEIRS, { checkedOut: false });
+    git('branch', 'deadbeef', main);
+    // A tag of the same name, elsewhere, which Git's name lookup would prefer.
+    git('tag', 'deadbeef', `${main}~1`);
+    const merged = await operations.mergeBranch({
+      ...mergeInput(repo.repository),
+      targetBranch: 'deadbeef',
+      expectedTargetSha: main,
+    });
+    if (!merged.ok) throw new Error(JSON.stringify(merged.failure));
+    expect(git('rev-parse', 'refs/heads/deadbeef')).toBe(merged.value.mergeSha);
+    expect(git('log', '-1', '--format=%P', 'refs/heads/deadbeef')).toBe(
+      `${main} ${git('rev-parse', 'ct/feature')}`,
+    );
+  });
+});
+
 const GOLDEN_FINGERPRINT = '1415402c6aec5826d171fd6615b9bc4d9f91c1c2781af5b2d5b29dd19b8d78b8';

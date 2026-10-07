@@ -150,21 +150,38 @@ export async function untrackedPass(
     } catch (error) {
       return fail('git-failed', error instanceof Error ? error.message : 'index copy failed');
     }
-    const added = await ctx.runOk(
-      [
-        // A split index would write its shared part into the repository's Git directory.
-        '-c',
-        'core.splitIndex=false',
-        '--literal-pathspecs',
-        'add',
-        '--intent-to-add',
-        '--pathspec-from-file=-',
-        '--pathspec-file-nul',
-      ],
-      cwd,
-      [0],
-      { input: paths.join('\0'), indexFile },
-    );
+    const addIntents = (list: readonly string[]) =>
+      ctx.runOk(
+        [
+          // A split index would write its shared part into the repository's Git directory.
+          '-c',
+          'core.splitIndex=false',
+          '--literal-pathspecs',
+          'add',
+          '--intent-to-add',
+          '--pathspec-from-file=-',
+          '--pathspec-file-nul',
+        ],
+        cwd,
+        [0],
+        { input: list.join('\0'), indexFile },
+      );
+    let added = await addIntents(paths);
+    if (!added.ok && added.failure.kind === 'git-failed') {
+      // A file removed since it was listed (an agent's temporary file) fails the whole add:
+      // once more, without the files that are gone.
+      const present = (
+        await Promise.all(
+          paths.map((path) =>
+            lstat(join(cwd, path)).then(
+              () => path,
+              () => undefined,
+            ),
+          ),
+        )
+      ).filter((path): path is string => path !== undefined);
+      added = present.length > 0 ? await addIntents(present) : added;
+    }
     if (!added.ok) return added;
     // Index against working tree: only the intent-to-add entries are additions.
     const newFiles = ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--diff-filter=A'];
@@ -174,10 +191,12 @@ export async function untrackedPass(
     if (!numstat.ok) return numstat;
     const wanted = new Set(paths);
     for (const entry of splitNul(numstat.value.stdout)) {
-      const [added = '-', , path = ''] = entry.split('\t');
+      // `added<TAB>deleted<TAB>path`: a path may hold tabs itself.
+      const [additions = '-', , ...name] = entry.split('\t');
+      const path = name.join('\t');
       if (!wanted.has(path)) continue;
-      const binary = added === '-';
-      counts.set(path, { additions: binary ? 0 : Number(added), binary });
+      const binary = additions === '-';
+      counts.set(path, { additions: binary ? 0 : Number(additions), binary });
     }
     if (!patch.truncated()) {
       const streamed = await ctx.stream([...newFiles, '--'], cwd, patch.take, [0], { indexFile });
@@ -267,7 +286,9 @@ export async function worktreeDiff(
       index += 1;
       continue;
     }
-    const [added = '-', deleted = '-', inlinePath = ''] = tab;
+    // A path may hold tabs itself.
+    const [added = '-', deleted = '-', ...name] = tab;
+    const inlinePath = name.join('\t');
     const binary = added === '-' || deleted === '-';
     const record = {
       additions: binary ? 0 : Number(added),

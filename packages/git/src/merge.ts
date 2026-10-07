@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { inspectRepository, listWorktrees } from './worktrees.js';
 import { branchExists, isAncestor, commitOf } from './refs.js';
 import type { GitResult, GitOperations } from './operations.js';
-import type { GitRunner } from './runner.js';
+import type { CommandResult, GitRunner } from './runner.js';
 import {
   fail,
   SHA_PATTERN,
@@ -12,6 +12,7 @@ import {
   namedPaths,
   canonicalDirectory,
   CHANGED_PATH_LIMIT,
+  TREE_OID,
 } from './support.js';
 
 /** Merges: into a branch, into a worktree from integration, and their prediction and recovery. */
@@ -231,8 +232,7 @@ export async function buildMergeCommit(
       conflictPaths: result.paths,
       diagnostics: result.messages.join('\n').slice(0, 12000),
     });
-  if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(result.tree))
-    return fail('git-failed', 'git merge-tree printed no tree.');
+  if (!TREE_OID.test(result.tree)) return fail('git-failed', 'git merge-tree printed no tree.');
   const signing = await ctx.run(['config', '--type=bool', '--get', 'commit.gpgSign'], cwd);
   if (!signing.ok) return signing;
   const committed = await ctx.runOk(
@@ -277,7 +277,8 @@ export const targetMoved = (branch: string) =>
 /**
  * The files in `cwd` that a fast-forward from `fromSha` to `toSha` would overwrite although
  * Git does not track them (R-G10 D2): an entry at a path the commit adds, or a non-directory
- * where it adds a directory, unless `fromSha` tracks that entry. The checkout is clean.
+ * where it adds a directory, unless `fromSha` tracks that entry (or, for a directory, files
+ * in it that the merge removes). The checkout is clean.
  */
 export async function untrackedInTheWay(
   ctx: GitRunner,
@@ -302,11 +303,17 @@ export async function untrackedInTheWay(
   if (!changed.ok) return changed;
   const records = splitNul(changed.value.stdout);
   const added: string[] = [];
+  // What the target tracks and the merge removes or retypes: those entries, and the
+  // directories that held them, are Git's to replace.
   const removed = new Set<string>();
   for (let index = 0; index + 1 < records.length; index += 2) {
     const [status, path] = [records[index] ?? '', records[index + 1] ?? ''];
     if (status === 'A') added.push(path);
-    else if (status === 'D' || status === 'T') removed.add(path);
+    else if (status === 'D' || status === 'T') {
+      const parts = path.split('/');
+      for (let depth = 1; depth <= parts.length; depth++)
+        removed.add(parts.slice(0, depth).join('/'));
+    }
   }
   const blocking = new Set<string>();
   for (const path of added) {
@@ -406,15 +413,16 @@ export async function mergeBranch(
       );
   }
   const ref = `refs/heads/${input.targetBranch}`;
-  const target = await commitOf(
-    ctx,
-    cwd,
-    createdTarget ? (input.createTargetFrom as string) : input.targetBranch,
-  );
+  const target = createdTarget
+    ? await commitOf(ctx, cwd, input.createTargetFrom as string, 'either')
+    : await commitOf(ctx, cwd, input.targetBranch, 'branch');
   if (!target.ok) return target;
   if (input.expectedTargetSha !== undefined && target.value !== input.expectedTargetSha)
     return targetMoved(input.targetBranch);
-  const source = await commitOf(ctx, cwd, input.sourceCommitSha ?? input.branchName);
+  const source =
+    input.sourceCommitSha === undefined
+      ? await commitOf(ctx, cwd, input.branchName, 'branch')
+      : await commitOf(ctx, cwd, input.sourceCommitSha, 'object');
   if (!source.ok) return source;
   const built = await buildMergeCommit(ctx, cwd, {
     branchName: input.branchName,
@@ -457,16 +465,10 @@ export async function mergeBranch(
       },
     );
   if (await refMoved(ctx, cwd, 'HEAD', target.value)) return targetMoved(input.targetBranch);
-  const applied = await ctx.run(['merge', '--ff-only', '--', built.value], cwd);
-  if (!applied.ok) {
-    // The process was killed or never ran: it may have stopped mid-checkout.
-    if (!(await recoverInterruptedMerge(ctx, cwd)))
-      return fail(
-        'merge-in-progress',
-        `${applied.failure.message}; the interrupted merge could not be undone. Inspect the checkout (git merge --abort) before retrying.`,
-      );
-    return applied;
-  }
+  // The checkout must still be on the target, or the fast-forward would move another branch.
+  if (!(await onBranch(ctx, cwd, ref))) return leftTarget(input.targetBranch);
+  const applied = await fastForward(ctx, cwd, built.value, 'merge');
+  if (!applied.ok) return applied;
   if (applied.value.exitCode !== 0) {
     if (await refMoved(ctx, cwd, 'HEAD', target.value)) return targetMoved(input.targetBranch);
     const stderr = applied.value.stderr.toString('utf8');
@@ -479,7 +481,39 @@ export async function mergeBranch(
       },
     );
   }
+  if (await refMoved(ctx, cwd, ref, built.value)) return leftTarget(input.targetBranch);
   return { ok: true, value: { mergeSha: built.value, createdTarget } };
+}
+
+/** Whether `cwd`'s HEAD is the branch `ref`. */
+async function onBranch(ctx: GitRunner, cwd: string, ref: string): Promise<boolean> {
+  const head = await ctx.run(['symbolic-ref', '-q', 'HEAD'], cwd);
+  return head.ok && head.value.exitCode === 0 && head.value.stdout.toString('utf8').trim() === ref;
+}
+
+const leftTarget = (branch: string) =>
+  fail<never>(
+    'git-failed',
+    `The primary checkout left ${branch} during the merge, so ${branch} was not merged into; check it out again and retry.`,
+  );
+
+/**
+ * `merge --ff-only` to `sha` in `cwd`. A process killed or never run may have stopped
+ * mid-checkout: it is undone (GIT-01), or reported as `merge-in-progress` (`what` names it).
+ */
+async function fastForward(
+  ctx: GitRunner,
+  cwd: string,
+  sha: string,
+  what: string,
+): Promise<CommandResult> {
+  const applied = await ctx.run(['merge', '--ff-only', '--', sha], cwd);
+  if (!applied.ok && !(await recoverInterruptedMerge(ctx, cwd)))
+    return fail(
+      'merge-in-progress',
+      `${applied.failure.message}; the interrupted ${what} could not be undone. Inspect the checkout (git merge --abort) before retrying.`,
+    );
+  return applied;
 }
 
 export async function updateWorktree(
@@ -520,18 +554,8 @@ export async function updateWorktree(
         'git-failed',
         'Review snapshot has changes outside integration; inspect changed history.',
       );
-    const merged = await ctx.run(
-      ['merge', '--ff-only', '--', input.targetSha],
-      identity.value.topLevel,
-    );
-    if (!merged.ok) {
-      if (!(await recoverInterruptedMerge(ctx, identity.value.topLevel)))
-        return fail(
-          'merge-in-progress',
-          `${merged.failure.message}; the interrupted update could not be undone. Inspect the worktree before retrying.`,
-        );
-      return merged;
-    }
+    const merged = await fastForward(ctx, identity.value.topLevel, input.targetSha, 'update');
+    if (!merged.ok) return merged;
     if (merged.value.exitCode !== 0)
       return fail(
         'git-failed',
@@ -559,14 +583,23 @@ export async function mergeTree(
   if (!repo.ok) return repo;
   // Exit 1 is a conflict; the first line is then a tree with conflict markers, never used.
   const result = await ctx.runOk(
-    ['merge-tree', '--write-tree', '--no-messages', '--', oursSha, theirsSha],
+    // Attributes (merge drivers) as `oursSha` has them, as the merge itself reads them.
+    [
+      `--attr-source=${oursSha}`,
+      'merge-tree',
+      '--write-tree',
+      '--no-messages',
+      '--',
+      oursSha,
+      theirsSha,
+    ],
     repo.value,
     [0, 1],
   );
   if (!result.ok) return result;
   if (result.value.exitCode === 1) return fail('merge-conflict', 'The merge would conflict.');
   const tree = result.value.stdout.toString('utf8').split('\n')[0]!.trim();
-  return /^[a-f0-9]{40}([a-f0-9]{24})?$/.test(tree)
+  return TREE_OID.test(tree)
     ? { ok: true, value: tree }
     : fail('git-failed', 'git merge-tree printed no tree.');
 }

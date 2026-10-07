@@ -34,7 +34,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | done (2026-09-28, see entry) | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
-| [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
+| [R-C7](#r-c7) | P3 | M | in progress (see Progress) | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
 | [R-C9](#r-c9) | P2 | S-M | done (see Progress) | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | [R-C10](#r-c10) | P2 | S-M | done (see entry) | Re-verify a roadmap item whose evidence is no longer current, without stopping the roadmap (added 2026-09-25) |
@@ -1096,7 +1096,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C7
 
-**Revisit verification layering and finalization stops** · Phase P3 · Effort M · Status: open
+**Revisit verification layering and finalization stops** · Phase P3 · Effort M · Status: in progress (see Progress)
 
 - **Resolves:** [HIST-20](findings/HIST-history-and-live-usage.md#hist-20-the-first-automated-real-use-aq-went-smoothly-complexity-arrived-with-slicesverificationevidence-layers), [HIST-16](findings/HIST-history-and-live-usage.md#hist-16-plan-finalization-was-the-most-expensive-phase-of-the-only-completed-plan)
 - **Change:** Evaluate folding slice verification into the slice's final review when the reviewer profile already satisfies the independent-reviewer role (must preserve the map's acceptance-coverage semantics). Do not stop finalization for nit-only remediation limits; defer nits automatically. Replay the AQ finalization stop sequence against the staged controller before the cross-project roadmap reaches finalization.
@@ -1111,6 +1111,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Change, as separate commits:* (1) the ADR (D4); (2) the fixture `fixtures/records/aq-finalization-stops-2026-09-13.json` (stop kinds, severities and categories only; legacy findings default to `correctness`) and `server-execution-finalization-aq-sequence.test.ts`, which drives the staged controller through that sequence and first only characterizes today's behaviour; (3) D5; (4) D6; (5) D7. Each behaviour commit updates the scenario's expected stops; replays on a fresh snapshot record the changed EXO-01/EXO-02 decisions as expected.
   - *Sequencing:* can start alongside the batch wave. R-G11's AGT-62 change alters AQ stops 4 and 5; whichever lands second updates the scenario (both touch `step-outcome.ts` and `work-cycle-service.ts`). D6's start-time choice coordinates its walkthroughs with R-A6/R-E5.
   - **Done when (sharpened):** the ADR is written; the AQ scenario leaves only the genuine question and the promotion as operator stops, plus any stop D5 to D7 keep, and names the mechanism that removes each of the others; `server-execution-finalization-stages.test.ts` ("reopens correctness for a later nit regression") still passes.
+- **Progress (2026-10-07):**
+  - (1) D4: [ADR-071](../../decisions/ADR-071-slice-verification-stays-a-separate-gate.md) records that slice verification stays a separate gate, with the evidence above and the two folds not chosen.
 
 ### R-C8
 

@@ -60,3 +60,4 @@ concerns stay deferred rather than being designed prematurely.
 - [ADR-068: Journal retention: raw lines on failure only, tool-result bodies beside the run](ADR-068-journal-retention.md)
 - [ADR-069: Map-declared upstream pin transitions](ADR-069-upstream-pin-transitions.md)
 - [ADR-070: Attention items, a delivery log and push gates](ADR-070-attention-items.md)
+- [ADR-071: Slice verification stays a separate gate](ADR-071-slice-verification-stays-a-separate-gate.md)

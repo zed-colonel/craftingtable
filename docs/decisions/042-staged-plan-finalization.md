@@ -1,6 +1,6 @@
 # ADR-042: Staged plan finalization
 
-Status: accepted  
+Status: accepted, amended 2026-10-07 (R-C7 D5)  
 Date: 2026-09-15
 
 ## Context
@@ -15,6 +15,16 @@ New finalizations use ordered correctness, conformance, simplification, polish a
 stages. Each stage records review/implementation profiles, instructions, scope, check names and
 policy. Correctness/conformance may have work-item slices followed by whole-plan cross-boundary
 checks. Required findings at any severity and blocking/major findings always require remediation.
+
+**Amendment (2026-10-07, R-C7 D5).** One narrow exception to the paragraph above: in a stage's
+own pass, when its remediation allowance is spent and the only required findings open are nits
+(its checks pass, its obligations are met, and no selected finding is open), those nits are
+parked as follow-up work and the stage continues. A gate or verdict the reviewer withheld for
+them alone does not hold the stage. A parked nit stays a follow-up while later reviews report it
+as a nit; raised to minor or above it is required again. The final review still runs its full
+checks, and its findings keep their full force: a new finding there, nits included, reopens the
+stage that owns it, and a reopened stage keeps its spent allowance, so it stops. Minor and higher
+findings are never parked. The AQ finalization stopped twice on such nits (R-C7, stops 3 and 8).
 
 Optional minor/nit simplification and polish findings pause discovery for an explicit batch
 selection, including an empty selection. Selected findings remain required through focused
@@ -44,5 +54,6 @@ obligations and reporting verification; the ledger records those claims, not a f
 ## Alternatives considered
 
 A larger global budget preserves the discovery loop. Automatically accepting all minor/nit
-findings confuses severity with obligation. A general workflow language adds unnecessary scope;
+findings confuses severity with obligation; the 2026-10-07 amendment parks only nits, only at a
+spent allowance, and only in a stage's own pass. A general workflow language adds unnecessary scope;
 a fixed ordered stage vocabulary with optional slices expresses the needed behavior.

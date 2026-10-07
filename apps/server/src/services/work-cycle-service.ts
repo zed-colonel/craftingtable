@@ -37,6 +37,8 @@ import {
   finalizationProfile,
   isTerminalAgentRunStatus,
   optionalFinding,
+  parkedFollowUp,
+  stagedFollowUps,
   OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
   type PhaseBlocker,
@@ -1432,7 +1434,7 @@ export class WorkCycleService {
         f.status === 'open' &&
         (!cycle.finalizationProgress ||
           currentFinalizationStage(cycle)?.status === 'selecting' ||
-          !optionalFinding(f) ||
+          (!optionalFinding(f) && !parkedFollowUp(stagedFollowUps(cycle), f)) ||
           cycle.findingFocus?.includes(f.id) ||
           currentFinalizationStage(cycle)?.selectedFindingIds.includes(f.id)),
     );
@@ -3284,7 +3286,11 @@ export class WorkCycleService {
       );
       return;
     }
-    const required = report.findings.filter((f) => f.status === 'open' && !optionalFinding(f));
+    // A nit parked at a spent allowance (D5 below) stays follow-up work in later passes.
+    const parked = new Set(updated.followUps.map((f) => f.id));
+    let required = report.findings.filter(
+      (f) => f.status === 'open' && !optionalFinding(f) && !parked.has(f.id),
+    );
     const checksFail = evidence.checks.some((c) => c.status !== 'passed');
     const gaps = evidence.obligations.some((o) => o.status !== 'met');
     // Later passes can reopen the whole-plan correctness/conformance stage. Already selected
@@ -3313,7 +3319,47 @@ export class WorkCycleService {
       );
       return;
     }
-    if (!checksFail && !gaps && !required.length && report.exitGate.met && discovery) {
+    const selectedOpen = report.findings.some(
+      (f) =>
+        f.status === 'open' &&
+        ((cycle.findingFocus ?? []).includes(f.id) || state?.selectedFindingIds.includes(f.id)),
+    );
+    // R-C7 D5, amending ADR-042: in a stage's own pass, nits alone at its spent allowance are
+    // parked as follow-up work and the stage goes on. The gate and verdict a reviewer withheld
+    // for them do not hold it, since its checks pass and its obligations are met. A stage a
+    // later review reopened keeps its spent allowance for them, and the final review's
+    // findings keep their full force: it reopens the stage that owns them.
+    const nitsParked =
+      required.length > 0 &&
+      required.every((f) => f.severity === 'nit') &&
+      !checksFail &&
+      !gaps &&
+      !selectedOpen &&
+      stage.kind !== 'final-review' &&
+      state?.completedRunId === undefined &&
+      remediationUsed(cycle) >= remediationAllowance(cycle);
+    if (nitsParked) {
+      updated = { ...updated, followUps: [...updated.followUps, ...required] };
+      if (updated.followUps.length > 500) {
+        this.attention(
+          cycle,
+          'finalization-ledger-full',
+          'The finalization ledger reached its bounded size. Consolidate individually actionable obligations or follow-ups before continuing.',
+        );
+        return;
+      }
+      cycle = this.change(
+        cycle,
+        {
+          finalizationProgress: updated,
+          reason: `${stage.name}: its remediation attempts are spent and only nits remain; ${required.length} kept as follow-up work.`,
+        },
+        'stage-nits-parked',
+      );
+      required = [];
+    }
+    const gateMet = report.exitGate.met || nitsParked;
+    if (!checksFail && !gaps && !required.length && gateMet && discovery) {
       if (!(await this.stageReviewIsCurrent(cycle, run))) return;
       const choices = report.findings.filter(
         (f) => f.status === 'open' && optionalFinding(f) && f.category === stage.kind,
@@ -3337,16 +3383,11 @@ export class WorkCycleService {
       } else await this.completeFinalizationStage(cycle, run);
       return;
     }
-    const selectedOpen = report.findings.some(
-      (f) =>
-        f.status === 'open' &&
-        ((cycle.findingFocus ?? []).includes(f.id) || state?.selectedFindingIds.includes(f.id)),
-    );
-    if (required.length || checksFail || gaps || selectedOpen || !report.exitGate.met) {
+    if (required.length || checksFail || gaps || selectedOpen || !gateMet) {
       await this.reviewRemediation(cycle, run);
       return;
     }
-    if (report.verdict !== 'mergeable') {
+    if (report.verdict !== 'mergeable' && !nitsParked) {
       this.attention(
         cycle,
         'stage-review-changes-requested',
@@ -3592,7 +3633,10 @@ export class WorkCycleService {
       !report.report.exitGate.met ||
       report.report.finalization?.checks.some((c) => c.status !== 'passed') ||
       report.report.finalization?.obligations.some((o) => o.status !== 'met') ||
-      report.report.findings.some((f) => f.status === 'open' && !optionalFinding(f))
+      report.report.findings.some(
+        (f) =>
+          f.status === 'open' && !optionalFinding(f) && !parkedFollowUp(stagedFollowUps(cycle), f),
+      )
     )
       throw new ExecutionRequestError(
         'conflict',

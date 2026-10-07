@@ -2,9 +2,9 @@ import {
   currentFinalizationStage,
   type Finalization,
   type FinalizationProgress,
-  optionalFinding,
   type ReviewBranchContext,
   type ReviewReportAssessment,
+  staysFollowUp,
   type WorkCycle,
 } from '@craftingtable/domain';
 
@@ -134,8 +134,9 @@ export function recordStageEvidence(
   }
   const followUps = new Map(progress.followUps.map((f) => [f.id, f]));
   for (const f of assessment.report.findings) {
-    if (f.status !== 'open' || !optionalFinding(f)) followUps.delete(f.id);
-    else if (followUps.has(f.id)) followUps.set(f.id, f);
+    const prior = followUps.get(f.id);
+    if (prior && staysFollowUp(prior, f)) followUps.set(f.id, f);
+    else followUps.delete(f.id);
   }
   return {
     ...progress,

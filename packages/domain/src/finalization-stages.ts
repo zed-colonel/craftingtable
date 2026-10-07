@@ -105,14 +105,37 @@ export function stageStoppingRule(kind: FinalizationStageKind): string {
       ? 'Whole-candidate checks and every adopted obligation verified; explicit operator merge approval.'
       : 'Required checks pass and all correctness/conformance findings are addressed, regardless of severity.';
 }
-export function stagedFollowUpIds(cycle: WorkCycle): ReadonlySet<string> {
+/**
+ * Whether a parked follow-up stays parked as a review reports it now. An optional suggestion
+ * stays while it is optional; a nit parked at a spent stage allowance (R-C7 D5, ADR-042) stays
+ * while it is a nit. Either ends when the finding is no longer open.
+ */
+export function staysFollowUp(parked: ReviewFinding, current: ReviewFinding): boolean {
+  return (
+    current.status === 'open' &&
+    (optionalFinding(parked) ? optionalFinding(current) : current.severity === 'nit')
+  );
+}
+/** The parked follow-ups by ID: optional suggestions and parked nits not selected for work. */
+export function stagedFollowUps(cycle: WorkCycle): ReadonlyMap<string, ReviewFinding> {
   const selected = new Set([
     ...(cycle.findingFocus ?? []),
     ...(cycle.finalizationProgress?.stages.flatMap((s) => s.selectedFindingIds) ?? []),
   ]);
-  return new Set(
+  return new Map(
     cycle.finalizationProgress?.followUps
-      .filter((f) => optionalFinding(f) && !selected.has(f.id))
-      .map((f) => f.id),
+      .filter((f) => (optionalFinding(f) || f.severity === 'nit') && !selected.has(f.id))
+      .map((f) => [f.id, f]),
   );
+}
+/** Whether a finding as reported now is one of these parked follow-ups. */
+export function parkedFollowUp(
+  followUps: ReadonlyMap<string, ReviewFinding>,
+  finding: ReviewFinding,
+): boolean {
+  const parked = followUps.get(finding.id);
+  return parked !== undefined && staysFollowUp(parked, finding);
+}
+export function stagedFollowUpIds(cycle: WorkCycle): ReadonlySet<string> {
+  return new Set(stagedFollowUps(cycle).keys());
 }

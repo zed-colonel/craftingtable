@@ -61,6 +61,10 @@ export function finalizationInstructions(value: Finalization, cycle: WorkCycle):
           : discovery
             ? 'Discover worthwhile optional improvements only in this stage category. Report them for operator selection; do not edit code. Discovery happens once. The operator may choose none.'
             : `Implement or verify ONLY the selected batch: ${(cycle.findingFocus ?? []).join(', ') || 'none'}. Do not restart optional discovery or fix unselected suggestions. New discretionary ideas belong in follow-up findings and do not prolong this batch.`,
+    // R-C7 D5: AQ's reviewer stopped to ask this policy (stop 8); the controller decides it.
+    stage.kind !== 'final-review' && state?.completedRunId === undefined
+      ? "When this stage's remediation attempts are spent and only nit-severity findings remain open, the controller keeps those nits as follow-up work and the stage continues; the final review still runs every required check. Report such nits as they are; do not ask the operator about the nit policy."
+      : '',
     'Every finding must have category correctness, conformance, simplification or polish, separate from severity. A simplification that reveals a correctness defect is a correctness finding. Split bundled concerns into separate IDs. Correctness/conformance findings, all blocking/major findings, failed checks and selected batch findings are required work. Optional minor/nit simplification and polish suggestions may remain OPEN as follow-up; never mark them resolved merely because they were not selected.',
     'Keep the normal craftingtable-review JSON report and final VERDICT line. Add a finalization object: {"stageId":"' +
       stage.id +

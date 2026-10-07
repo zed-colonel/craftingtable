@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { finalizationProfile } from '../src/finalization.js';
-import { FINALIZATION_STAGE_KINDS } from '../src/finalization-stages.js';
+import { FINALIZATION_STAGE_KINDS, staysFollowUp } from '../src/finalization-stages.js';
 
 const review = {
   backend: 'claude-code' as const,
@@ -51,4 +51,26 @@ it('falls back to the final reviewer for a record without stages', () => {
   expect(
     finalizationProfile({ finalReview }, { step: 'review', finalizationAgentOverride: null }),
   ).toEqual(finalReview);
+});
+
+// R-C7 D5: a nit parked at a spent stage allowance stays follow-up work only while it stays a
+// nit; an optional suggestion only while it stays optional.
+it.each([
+  ['parked nit, still a nit', 'correctness', 'nit', 'correctness', 'nit', true],
+  ['parked nit, now minor', 'correctness', 'nit', 'correctness', 'minor', false],
+  ['optional idea, still optional', 'polish', 'minor', 'polish', 'minor', true],
+  ['optional idea, now a correctness nit', 'polish', 'minor', 'correctness', 'nit', false],
+] as const)('%s', (_, parkedCategory, parkedSeverity, category, severity, stays) => {
+  const finding = (c: string, s: typeof severity) => ({
+    id: 'F-1',
+    severity: s,
+    status: 'open' as const,
+    title: 'Finding',
+    explanation: 'Why.',
+    recommendation: 'Fix.',
+    category: c as 'correctness',
+  });
+  const parked = finding(parkedCategory, parkedSeverity);
+  expect(staysFollowUp(parked, finding(category, severity))).toBe(stays);
+  expect(staysFollowUp(parked, { ...finding(category, severity), status: 'resolved' })).toBe(false);
 });

@@ -900,6 +900,61 @@ describe('staged finalization', () => {
     expect(alternate.launches.at(-1)?.prompt).toContain('final-review');
   });
 
+  it.each(['nit', 'minor'] as const)(
+    'parks only nit findings at a spent stage allowance; the final review still runs (R-C7 D5): %s',
+    async (severity) => {
+      const fixture = await finalizationFixture();
+      const { state, backend } = fixture;
+      const finding = { ...structuredFinding, id: 'C-1', category: 'correctness', severity };
+      // The correctness reviewer withholds its gate and verdict for the finding alone, as AQ's
+      // did (stop 3); every later review still reports it open.
+      backend.replyForRequest = (request) => ({
+        resultText: stagedText(request, [finding], {
+          met: stagedKind(request) === 'correctness' ? false : undefined,
+        }),
+      });
+      const value = await beginFinalization(
+        fixture,
+        stagedInput(fixture.legacyInput, { maxRemediationRounds: 0 }),
+      );
+      await waitFor(
+        () =>
+          ['needs-attention', 'awaiting-merge'].includes(finalizationCycle(state, value).status),
+        'stop',
+      );
+      const cycle = finalizationCycle(state, value);
+      expect(backend.launches.some((r) => r.model?.endsWith('-implement'))).toBe(false);
+      if (severity === 'minor') {
+        // A minor is required work: the spent allowance stops for the operator (ADR-042).
+        expect(cycle.attention?.code).toBe('remediation-exhausted');
+        expect(cycle.finalizationProgress?.stageIndex).toBe(0);
+        expect(cycle.finalizationProgress?.followUps).toEqual([]);
+        return;
+      }
+      expect(cycle.attention?.code).toBe('final-promotion');
+      expect(cycle.finalizationProgress?.followUps.map((f) => f.id)).toEqual(['C-1']);
+      // Every stage ran its review, the final one with its full checks.
+      expect(backend.launches.map((r) => r.model)).toEqual(
+        FINALIZATION_STAGE_KINDS.map((kind) => `${kind}-review`),
+      );
+      expect(backend.launches.at(-1)?.prompt).toContain('Run ALL repository-required checks');
+      // The brief says what happens to such nits, so a reviewer has no policy to ask about.
+      expect(backend.launches[0]?.prompt).toContain(
+        'only nit-severity findings remain open, the controller keeps those nits as follow-up work',
+      );
+      expect(backend.launches.at(-1)?.prompt).not.toContain('keeps those nits as follow-up');
+      const baseline = present(
+        state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId)
+          ?.reviewBranchContext,
+      );
+      const promoted = await finalizationCommand(state, value, 'merge', {
+        expectedHeadSha: baseline.headSha,
+        expectedTargetSha: baseline.targetSha,
+      });
+      expect(promoted.statusCode, promoted.body).toBe(200);
+    },
+  );
+
   it('requires an explicit plan adjustment and revalidation without waiving questions or failed checks', async () => {
     const fixture = await finalizationFixture();
     const { state, backend } = fixture;

@@ -2,8 +2,8 @@ import type { AgentRunProfile } from './execution.js';
 import type { FinalizationAgentSelection } from './finalization.js';
 import {
   currentFinalizationStage,
-  optionalFinding,
-  stagedFollowUpIds,
+  parkedFollowUp,
+  stagedFollowUps,
 } from './finalization-stages.js';
 import type { AgentRunId, ProjectId, UserId, WorkItemId, WorkspaceId, WorktreeId } from './ids.js';
 import type { FindingSeverity, ReviewFinding, ReviewReportAssessment } from './review.js';
@@ -498,7 +498,7 @@ export function designHasNoOpenQuestions(text: string, truncated = false): boole
 
 /**
  * The completion decision for a cycle's review. A staged finalization parks optional
- * follow-ups outside the nit count; deferring nits by operator decision was part of the
+ * follow-ups, and nits parked at a spent stage allowance (R-C7 D5), outside the nit count; deferring nits by operator decision was part of the
  * retired improvement-round finalization (R-B10). `_context` keeps the callers' signature.
  */
 export function evaluateCycleCompletion(
@@ -507,11 +507,9 @@ export function evaluateCycleCompletion(
   _context?: { headSha: string; targetSha: string },
 ): CompletionDecision {
   if (assessment?.status !== 'complete') return evaluateCompletion(cycle.policy, assessment);
-  const parked = stagedFollowUpIds(cycle);
+  const parked = stagedFollowUps(cycle);
   const followUps = new Set(
-    assessment.report.findings
-      .filter((f) => parked.has(f.id) && optionalFinding(f))
-      .map((f) => f.id),
+    assessment.report.findings.filter((f) => parkedFollowUp(parked, f)).map((f) => f.id),
   );
   // Required categories and selected batches cannot be waived by severity thresholds.
   if (

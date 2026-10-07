@@ -98,7 +98,9 @@ type Mechanism =
   /** A stage review that changed the worktree becomes housekeeping remediation. */
   | 'housekeeping'
   /** R-C8 (ADR-062): a session limit with a known reset is retried after it. */
-  | 'service-retry';
+  | 'service-retry'
+  /** R-C7 D5: nits alone at a stage's spent allowance become follow-ups; the stage goes on. */
+  | 'nits-parked';
 /** How the scenario's operator answers a stop, as the AQ operator did. */
 type Answer = 'resume' | 'authorize-remediation' | 'remediate-findings' | 'select-none' | 'promote';
 interface Expectation {
@@ -112,8 +114,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   S1: { mechanisms: ['output-repair'], why: 'R-C2 repairs the invalid finding IDs.' },
   S2: { mechanisms: ['output-repair'], why: 'R-C2 repairs the oversized exit-gate evidence.' },
   S3: {
-    stops: [{ code: 'remediation-exhausted', answer: 'authorize-remediation' }],
-    why: 'A required (correctness) nit at a spent allowance stops (ADR-042: maxNits 0).',
+    mechanisms: ['nits-parked'],
+    why: 'D5: the lone nit at the spent allowance becomes a follow-up and the stage goes on.',
   },
   S4: {
     stops: [{ code: 'finalization-needs-input', answer: 'resume' }],
@@ -127,16 +129,13 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
     why: 'Stage completion turns the changed worktree into housekeeping remediation.',
   },
   S8: {
-    stops: [
-      { code: 'finalization-needs-input', answer: 'resume' },
-      { code: 'remediation-exhausted', answer: 'authorize-remediation' },
-    ],
-    why: 'The reviewer asks the nit policy; answered, the nits are required work at a spent allowance.',
+    mechanisms: ['nits-parked'],
+    why: 'D5: the brief states the nit policy, so there is no question, and the nits are parked.',
   },
   S9: { mechanisms: ['service-retry'], why: 'R-C8 waits for the session limit’s reset.' },
   S10: {
     stops: [{ code: 'remediation-exhausted', answer: 'remediate-findings' }],
-    why: 'The final review’s minor reopens correctness at its spent allowance (ADR-042).',
+    why: 'Kept by D5: the final review’s minor (and new nits) reopen correctness at its spent allowance (ADR-042); the parked nits stay follow-ups.',
   },
   simplification: {
     stops: [{ code: 'stage-batch-selection', answer: 'select-none' }],
@@ -215,7 +214,14 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
     });
   };
 
+  /** Follow-ups already seen: a new required-category one was parked by D5. */
+  const seen = new Set<string>();
   backend.onLaunch = (request) => {
+    for (const f of value ? (cycle().finalizationProgress?.followUps ?? []) : []) {
+      if (seen.has(f.id)) continue;
+      seen.add(f.id);
+      if (!optionalFinding(f) && !mechanisms[current]?.includes('nits-parked')) note('nits-parked');
+    }
     if (implementsFinalization(request)) {
       if (request.prompt.includes('Review changed the worktree')) note('housekeeping');
       // Every implementation commits its work, the housekeeping one the files left behind.

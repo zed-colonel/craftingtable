@@ -290,6 +290,31 @@ setInterval(() => out(limited), 50);
     for await (const _ of session.items);
   });
 
+  it("creates the caches of the launch's outside sources, not the run's Cargo home (R-G14)", async () => {
+    const fake = fakeClaude();
+    const runHome = join(fake.cwd, 'run-cargo');
+    const sourceHome = join(fake.cwd, 'source-cargo');
+    mkdirSync(runHome);
+    mkdirSync(sourceHome);
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'ENV-NAMES',
+      permissionMode: 'auto',
+      environment: { CARGO_HOME: runHome },
+      outsideSources: [
+        {
+          kind: 'cargo',
+          hosts: ['index.crates.io'],
+          caches: [join(sourceHome, 'registry'), join(sourceHome, 'git')],
+        },
+      ],
+    });
+    expect(readdirSync(sourceHome).sort()).toEqual(['git', 'registry']);
+    expect(readdirSync(runHome)).toEqual([]);
+    session.end();
+    for await (const _ of session.items);
+  });
+
   it('never fails a launch over the Cargo caches, nor creates a Cargo home (R-G5 follow-up review)', async () => {
     const fake = fakeClaude();
     // No Rust here: nothing is created.

@@ -28,7 +28,14 @@ export {
   type PinnedCargoManifest,
   cargoManifestDigest,
 } from './pinned-cargo.js';
+export {
+  cargoOutsideSource,
+  OUTSIDE_SOURCE_HOSTS,
+  type OutsideSource,
+  type OutsideSourceKind,
+} from './outside-sources.js';
 import type { ModelCatalogSnapshot } from './model-catalog.js';
+import type { OutsideSource } from './outside-sources.js';
 import type {
   AgentBackendKind,
   AgentExitReason,
@@ -57,6 +64,12 @@ export interface AgentLaunchRequest {
    * it, and the credentials file. An agent outside a sandbox runs as the operator and can.
    */
   readonly deniedReads?: readonly string[];
+  /**
+   * The outside sources sandboxed commands may reach, and whose caches they may write (R-G14).
+   * Absent: the `cargo` source in the run's Cargo home, as every run had before R-G14. Empty:
+   * none.
+   */
+  readonly outsideSources?: readonly OutsideSource[];
   /** Where the run's launchers are; the daemon puts them on `pathPrefix`. */
   readonly buildEnvironment?: { readonly binDirectory: string; readonly namespace?: string };
   /**

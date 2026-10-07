@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { claudeCodeArguments } from '../../src/claude-code/arguments.js';
+import { cargoOutsideSource } from '../../src/outside-sources.js';
 it('limits decision preparation to file-reading tools without ambient MCP or write permissions', () => {
   const args = claudeCodeArguments({
     cwd: '/work/x',
@@ -165,4 +166,66 @@ it('confines Bash in the OS sandbox on every posture but unrestricted, with no w
     expect(sandbox.network.allowUnixSockets ?? []).toEqual([]);
   }
   expect(settings({ permissionMode: 'unrestricted' }).sandbox).toBeUndefined();
+});
+
+it('reaches only the outside sources the launch names, and writes only their caches (R-G14)', () => {
+  const sandbox = (outsideSources: Parameters<typeof claudeCodeArguments>[0]['outsideSources']) => {
+    const args = claudeCodeArguments({
+      cwd: '/work/x',
+      prompt: 'Go',
+      permissionMode: 'auto',
+      environment: { CARGO_HOME: '/opt/cargo' },
+      outsideSources,
+    });
+    return JSON.parse(args[args.indexOf('--settings') + 1]!).sandbox;
+  };
+  const named = sandbox([
+    {
+      kind: 'cargo',
+      hosts: ['index.crates.io', 'static.crates.io', 'mirror.example.org'],
+      caches: ['/data/cargo-home/registry', '/data/cargo-home/git'],
+    },
+  ]);
+  expect(named.network).toEqual({
+    allowLocalBinding: true,
+    strictAllowlist: true,
+    allowedDomains: ['index.crates.io', 'static.crates.io', 'mirror.example.org'],
+  });
+  expect(named.filesystem.allowWrite).toEqual([
+    '/data/cargo-home/registry',
+    '/data/cargo-home/git',
+  ]);
+  // No source: no host and no cache, still under a strict allowlist.
+  const none = sandbox([]);
+  expect(none.network).toEqual({
+    allowLocalBinding: true,
+    strictAllowlist: true,
+    allowedDomains: [],
+  });
+  expect(none.filesystem.allowWrite).toEqual([]);
+});
+
+it("passes today's arguments for the cargo source in the run's Cargo home, on every posture (R-G14)", () => {
+  for (const request of [
+    { permissionMode: 'auto' as const },
+    { permissionMode: 'edit-only' as const },
+    { permissionMode: 'unrestricted' as const },
+    { permissionMode: 'auto' as const, readOnly: true },
+  ]) {
+    const base = {
+      cwd: '/work/x',
+      prompt: 'Go',
+      environment: { CARGO_HOME: '/opt/cargo' },
+      ...request,
+    };
+    // Absent sources keep the arguments every run had before R-G14.
+    expect(
+      claudeCodeArguments({ ...base, outsideSources: [cargoOutsideSource('/opt/cargo')] }),
+    ).toEqual(claudeCodeArguments(base));
+  }
+  expect(cargoOutsideSource('/opt/cargo')).toEqual({
+    kind: 'cargo',
+    hosts: ['index.crates.io', 'static.crates.io'],
+    caches: ['/opt/cargo/registry', '/opt/cargo/git'],
+  });
 });

@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentPermissionMode } from '@craftingtable/domain';
 import type { AgentLaunchRequest } from '../index.js';
+import { cargoOutsideSource, type OutsideSource } from '../outside-sources.js';
 
 /**
  * Argument vector for a headless Claude Code session.
@@ -90,22 +91,26 @@ function sandboxDeniedReads(request: AgentLaunchRequest): string[] {
 }
 
 /**
- * The one outside source sandboxed commands may reach: the crates.io registry, so that
- * `cargo fetch` can download dependencies before the daemon's offline builds (operator
- * decision 2026-09-28). Only its sparse index and download hosts: the `crates.io` apex is the
- * write API (publish, yank), which would carry data out (R-G5 follow-up review). A place to
- * configure such sources is a follow-up (R-G14).
+ * The outside sources sandboxed commands may reach (R-G14): those the launch names, else the
+ * `cargo` source in the run's Cargo home, the one source every run had before R-G14, so that
+ * `cargo fetch` can download dependencies before the daemon's offline builds.
  */
-const SANDBOX_ALLOWED_DOMAINS = ['index.crates.io', 'static.crates.io'];
+function outsideSources(request: AgentLaunchRequest): readonly OutsideSource[] {
+  return request.outsideSources ?? [cargoOutsideSource(cargoHome(request))];
+}
+
+/** Every source's exact hosts, once each. */
+function sandboxAllowedDomains(request: AgentLaunchRequest): string[] {
+  return [...new Set(outsideSources(request).flatMap((source) => source.hosts))];
+}
 
 /**
- * Where a fetch writes outside the worktree: Cargo's registry and Git caches, the same two
- * directories the daemon's check units may write, and nothing else of the home directory. The
- * sandbox can make only an existing directory writable, so the adapter creates them first.
+ * Where a fetch writes outside the worktree: the sources' caches (for `cargo`, Cargo's registry
+ * and Git caches), and nothing else of the home directory. The sandbox can make only an
+ * existing directory writable, so the adapter creates them first.
  */
 export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
-  const home = cargoHome(request);
-  return [join(home, 'registry'), join(home, 'git')];
+  return outsideSources(request).flatMap((source) => source.caches);
 }
 
 /** The Cargo home the daemon named for the run, else Cargo's default; an empty value is unset. */
@@ -116,9 +121,9 @@ function cargoHome(request: AgentLaunchRequest): string {
 /**
  * Settings every supervised Claude run gets. Except with the unrestricted posture, Bash runs in
  * Claude Code's OS sandbox (R-G5, SEC-02c): it may write only the worktree, the run's
- * directories, its scratch space and Cargo's download caches; it reaches no network but loopback
- * and crates.io, and no command may name more hosts (a strict allowlist); it cannot read the
- * Docker socket or the operator's credentials. The run does not start without the sandbox, and
+ * directories, its scratch space and the outside sources' caches; it reaches no network but
+ * loopback and those sources' hosts, and no command may name more (a strict allowlist); it
+ * cannot read the Docker socket or the operator's credentials. The run does not start without the sandbox, and
  * a command may not ask to leave it. Sandboxed commands run without asking only in the auto
  * posture; edit-only keeps its approval rule for commands.
  */
@@ -155,7 +160,7 @@ function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown>
             network: {
               allowLocalBinding: true,
               strictAllowlist: true,
-              allowedDomains: SANDBOX_ALLOWED_DOMAINS,
+              allowedDomains: sandboxAllowedDomains(request),
             },
           },
         }),

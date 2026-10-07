@@ -3307,7 +3307,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G14
 
-**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: partial (step 1, the Codex experiment, 2026-10-07; left: steps 2 to 6)
+**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: partial (steps 1 and 2, 2026-10-07; left: steps 3 to 6)
 
 - **Added 2026-09-28** (operator decision, after the R-G5 batch). Claude's sandbox reaches crates.io and nothing else, and that list is fixed in the adapter (`SANDBOX_ALLOWED_DOMAINS`).
 - **Change:**
@@ -3343,6 +3343,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Escalation:* in `auto`, after the sandbox refused `curl https://example.com`, the model asked to run it outside the sandbox. Codex's reviewer approved it (`item/autoApprovalReview`, "risk: low") and the command reached example.com (HTTP 200). The prompt claimed the owner's authorization, which a brief or repository text can also claim. `edit-only` (`approvalPolicy: never`) could not escalate. So in `auto` the source limit holds only until the reviewer approves an escalation. This goes back to the operator, as decided above.
   - *Noted:* both modes emitted no `commandExecution` item for a refused write, though the model reported it failed, so the journal does not show such a command. Permission profiles are Beta, `features.network_proxy` is experimental, and `permissions` is an experimental API field (the adapter already opts in). `extends = ":workspace"` also makes `$TMPDIR` and `/tmp` writable, as today. Codex accepts wildcard host patterns; CraftingTable passes only exact hosts (step 3).
   - *Conclusion:* step 4 gives Codex this per-run profile with the configured sources. No `ct-fetch` is needed.
+- **Progress (2026-10-07), step 2: `outsideSources` on the launch request.** `AgentLaunchRequest.outsideSources` lists the sources a sandboxed command may reach, each with its kind, exact hosts and caches (`packages/agents/src/outside-sources.ts`, which also holds each kind's fixed hosts and `cargoOutsideSource(cargoHome, extraHosts)`). The Claude adapter builds `allowedDomains` from the sources' hosts and `allowWrite` from their caches, which it creates before launch, in place of `SANDBOX_ALLOWED_DOMAINS`. Absent sources mean the `cargo` source in the run's Cargo home, as before; an empty list means none. Nothing passes them yet, so behaviour is unchanged.
+  - Tests (`claude-code/arguments.test.ts`): named sources set exactly the hosts and caches, and an empty list gives none under the strict allowlist. On every posture, the arguments for the default `cargo` source equal those of a launch without sources. `claude-code/backend.test.ts`: the sources' caches are created, and the run's Cargo home is left alone. The first and third fail when the adapter ignores the request's sources.
 
 ### R-G15
 

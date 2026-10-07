@@ -164,7 +164,7 @@ export class ClaudeCodeBackend implements AgentBackend {
     }
     let child: ReturnType<typeof spawnSupervisedProcess>;
     try {
-      if (claudeSandboxed(request)) prepareCargoCaches(sandboxAllowedWrites(request));
+      if (claudeSandboxed(request)) prepareSourceCaches(sandboxAllowedWrites(request));
       child = spawnSupervisedProcess({
         executable: this.options.executable,
         args: claudeCodeArguments(request),
@@ -340,11 +340,12 @@ function onPath(name: string, path: string | undefined): boolean {
 }
 
 /**
- * Creates the Cargo caches the sandbox lets a fetch write, which it can make writable only if
- * they exist. Only inside an existing Cargo home, so a host without Rust gets none, and never at
- * the cost of the launch: a cache that cannot be created leaves fetches failing, nothing else.
+ * Creates the outside sources' caches the sandbox lets a fetch write (R-G14), which it can make
+ * writable only if they exist. Only inside an existing directory (for `cargo`, an existing
+ * Cargo home), so a host without Rust gets none, and never at the cost of the launch: a cache
+ * that cannot be created leaves fetches failing, nothing else.
  */
-function prepareCargoCaches(directories: readonly string[]): void {
+function prepareSourceCaches(directories: readonly string[]): void {
   for (const directory of directories) {
     if (!existsSync(dirname(directory))) continue;
     try {

@@ -394,6 +394,15 @@ from an exact commit; and list and create baseline tags. Every call is an argume
 bounded lifetime and output, and process-group termination; paths reach Git only as `cwd` or
 after `--`.
 
+The package is split by concern (R-G10). `operations.ts` holds the types and the factory, which
+spreads one plain object from the modules: `refs` (branches, tags, ancestry), `worktrees`
+(inspection, creation and removal), `diff` (diffs, change inspection and snapshots), `merge`
+(merges, worktree updates, merge prediction and recovery), `resolution` (conflict resolution),
+`checkpoint` and `export`. Each module is a `(runner) => partial` builder over `runner.ts`, the
+package's only process authority, which runs a command buffered under the output limit or
+streams it (a diff kept to `maxPatchBytes`, a fingerprint hashed as it streams) and writes the
+daemon's identity file. `support.ts` holds the shared validation and result helpers.
+
 Merge reservations (`merge_operations`) pin source, destination, review, authorizer and
 definition revision. Recovery after an interruption checks the unique commit marker and its exact
 parents in bounded first-parent history before recording completion, so a finished merge is never

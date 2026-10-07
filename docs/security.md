@@ -115,7 +115,8 @@ It submits:
   command under operator approval or explicit integration delegation.
 
 Process authority is confined to the adapter modules listed in
-`scripts/check-forbidden-scope.mjs`. Every spawn uses argument arrays with `shell: false`,
+`scripts/check-forbidden-scope.mjs`; for Git that is `packages/git/src/runner.ts` alone, which
+every Git module runs its commands through (R-G10). Every spawn uses argument arrays with `shell: false`,
 a detached process group that is terminated as a group, and bounded output.
 
 The agent's permission posture is chosen per run:

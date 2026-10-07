@@ -111,7 +111,10 @@ export const PROCESS_AUTHORITY = new Map([
     'Fixed native host audit and bounded user-service lifecycle (ADR-054)',
   ],
   ['packages/agents/src/local-check.ts', 'Scoped checks and bounded local act execution (ADR-053)'],
-  ['packages/git/src/operations.ts', 'worktree creation, removal, and diffing'],
+  [
+    'packages/git/src/runner.ts',
+    'The Git adapter: every daemon Git command, bounded and hardened (R-G10)',
+  ],
   ['packages/agents/src/process.ts', 'Agent backend process supervision'],
   [
     'packages/agents/src/pinned-cargo.ts',

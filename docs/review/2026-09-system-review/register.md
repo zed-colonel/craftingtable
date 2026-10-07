@@ -76,7 +76,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G7](#r-g7) | P1 | M | partial (0fc17d2; live measurement after deploy) | Stop cold-building Rust on every step |
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
 | [R-G9](#r-g9) | P2 | M | done | Authentication and authorization hardening |
-| [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
+| [R-G10](#r-g10) | P3 | M | in progress | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | [R-G13](#r-g13) | P2 | M | partial (increments 1, 2, 3 and 5; 4 open until a plan-bundle or non-Rust repository joins a roadmap) | Declared per-repository checks |
@@ -3024,7 +3024,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G10
 
-**Git adapter robustness and structure** · Phase P3 · Effort M · Status: open
+**Git adapter robustness and structure** · Phase P3 · Effort M · Status: in progress
 
 - **Resolves:** [GIT-03](findings/AGT-GIT-SEC-agents-git-security.md#git-03-large-diffs-fail-outright-instead-of-truncating-and-the-diff-limit-setting-is-partly-ignored), [GIT-05](findings/AGT-GIT-SEC-agents-git-security.md#git-05-scratch-worktree-merges-check-out-the-whole-target-every-time-and-the-target-check-is-not-atomic), [GIT-06](findings/AGT-GIT-SEC-agents-git-security.md#git-06-git-timeouts-and-output-limits-are-hard-coded), [GIT-07](findings/AGT-GIT-SEC-agents-git-security.md#git-07-promotions-into-the-primary-checkout-are-brittle), [GIT-10](findings/AGT-GIT-SEC-agents-git-security.md#git-10-operationsts-is-one-1754-line-factory-behind-a-24-method-interface), [GIT-11](findings/AGT-GIT-SEC-agents-git-security.md#git-11-the-risky-git-paths-lack-tests)
 - **Change:** Large diffs truncate instead of failing; configurable timeouts and output limits; cheaper and atomic scratch merges; resilient promotions; split operations.ts by concern; tests for the risky paths.
@@ -3047,6 +3047,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Routine calls:* the untracked diff counts every file (no "N more"); `mergeRoot` and the legacy scratch recovery stay; `maxPatchBytes` keeps its 4 MiB default and 64 MiB maximum; merge commits record a reflog message; the split changes no public API.
   - *Sequencing:* F is the last commit, because it conflicts with any concurrent edit to `packages/git`.
   - **Done when:** (1) with the output limit lowered to 64 KiB, a 200 KiB diff comes back whole, truncates at `maxPatchBytes`, and its fingerprint equals `sha256(git diff --binary …)`; (2) a checkpoint succeeds for changes larger than the output limit; (3) with 3 and with 2,000 untracked files, `worktreeDiff` uses the same number of Git processes; (4) a merge into a target not checked out creates no worktree; (5) a target moved by a merge driver during the merge gives `target-moved`, and the ref stays where the mover put it; (6) a driver timeout gives `timed-out` with the target unchanged; (7) output overflow gives `output-overflow` with nothing moved; (8) an untracked file not in the way does not block promotion, and one in the way gives a typed refusal; (9) `operations.ts` is at most about 400 lines, `runner.ts` is the only process authority, and server code is unchanged by the split; (10) the delegated-merge retry after `RepositoryMutationBusyError` is tested.
+- **Progress (P3 wave 1, 2026-10-07):**
+  - *A, streaming runner (GIT-03):* the runner's `stream` mode passes stdout to a consumer with no output limit; a consumer that stops ends the process group and the command counts as a success. `worktreeDiff` streams the tracked patch and keeps its first `maxPatchBytes`; `hashDiff` hashes `inspectWorktreeChanges`' fingerprint and both checkpoint hashes as they stream. The digest is the SHA-256 of the same bytes: a fixed change's fingerprint is pinned to the value the buffered implementation gave at 4052bbb. Tests (`packages/git/test/adapter-robustness.test.ts`): done-when (1) and (2) with the output limit at 64 KiB, and an endless patch command that ends at `maxPatchBytes` instead of overflowing.
 
 ### R-G11
 

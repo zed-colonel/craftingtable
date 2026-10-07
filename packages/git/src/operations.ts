@@ -354,6 +354,18 @@ interface CommandOutcome {
 
 type CommandResult = GitResult<CommandOutcome>;
 
+interface RunOptions {
+  /** Written to the command's stdin. */
+  readonly input?: string;
+  /** This command's stdout ceiling; the runner's output limit by default. */
+  readonly limit?: number;
+  /** A daemon-owned index file for this command alone (`GIT_INDEX_FILE`, R-G10). */
+  readonly indexFile?: string;
+}
+
+/** A streamed command's stdout, chunk by chunk: `'stop'` once the consumer has what it needs. */
+type StreamConsumer = (chunk: Buffer) => 'stop' | undefined;
+
 function failure(
   kind: GitFailureKind,
   message: string,
@@ -375,7 +387,7 @@ function fail<T>(
  * and as global configuration only the daemon's identity file. A repository cannot reach it
  * through the operator's aliases, rerere or diff settings.
  */
-function childEnvironment(identityConfigPath?: string): NodeJS.ProcessEnv {
+function childEnvironment(identityConfigPath?: string, indexFile?: string): NodeJS.ProcessEnv {
   return {
     ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
     ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
@@ -391,6 +403,8 @@ function childEnvironment(identityConfigPath?: string): NodeJS.ProcessEnv {
     GIT_ATTR_NOSYSTEM: '1',
     // Replace refs would let anyone who writes refs change what an object reads as (R-G13).
     GIT_NO_REPLACE_OBJECTS: '1',
+    // Only an index file the daemon made for one command (R-G10), never one inherited.
+    ...(indexFile === undefined ? {} : { GIT_INDEX_FILE: indexFile }),
   };
 }
 
@@ -518,18 +532,49 @@ function statusFromLetter(letter: string): DiffFileStatus {
   }
 }
 
+/** The first `maxBytes` of a patch, taken chunk by chunk; past them it asks to stop. */
+function patchCollector(maxBytes: number) {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  let truncated = false;
+  return {
+    take: (chunk: Buffer): 'stop' | undefined => {
+      if (truncated) return 'stop';
+      const room = maxBytes - bytes;
+      if (chunk.byteLength <= room) {
+        chunks.push(chunk);
+        bytes += chunk.byteLength;
+        return undefined;
+      }
+      chunks.push(chunk.subarray(0, Math.max(0, room)));
+      bytes = maxBytes;
+      truncated = true;
+      return 'stop';
+    },
+    truncated: () => truncated,
+    text: () => Buffer.concat(chunks).toString('utf8'),
+  };
+}
+
 export function createGitOperations(options: GitOperationsOptions): GitOperations {
   const commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
   const outputLimitBytes = options.outputLimitBytes ?? DEFAULT_OUTPUT_LIMIT_BYTES;
 
-  function run(
+  /**
+   * Runs one Git command. Buffered (no `consume`), stdout is collected up to `limit`; streamed,
+   * each stdout chunk goes to `consume` instead, unbounded, and a consumer that returns `'stop'`
+   * ends the process group: a stop is a success, reported as `stopped`.
+   */
+  function execute(
     args: readonly string[],
     cwd: string,
-    input?: string,
-    limit = outputLimitBytes,
-  ): Promise<CommandResult> {
+    command: RunOptions,
+    consume?: StreamConsumer,
+  ): Promise<GitResult<CommandOutcome & { readonly stopped: boolean }>> {
+    const limit = command.limit ?? outputLimitBytes;
     return new Promise((resolve) => {
       let settled = false;
+      let stopped = false;
       let primary: GitFailure | undefined;
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
@@ -540,10 +585,10 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       try {
         child = spawn(options.gitExecutable, [...DAEMON_GIT_OPTIONS, ...args], {
           cwd,
-          env: childEnvironment(options.identityConfigPath),
+          env: childEnvironment(options.identityConfigPath, command.indexFile),
           shell: false,
           detached: true,
-          stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+          stdio: [command.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
       } catch (error) {
@@ -551,27 +596,30 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         return;
       }
 
-      if (input !== undefined) {
+      if (command.input !== undefined) {
         child.stdin?.on('error', () => {});
-        child.stdin?.end(input);
+        child.stdin?.end(command.input);
       }
-      const terminate = (reason: GitFailure): void => {
-        primary ??= reason;
-        if (child.pid !== undefined) {
+      const endGroup = (): void => {
+        if (child.pid === undefined) return;
+        try {
+          process.kill(-child.pid, 'SIGTERM');
+        } catch {
+          // Already exited.
+        }
+        const killTimer = setTimeout(() => {
           try {
-            process.kill(-child.pid, 'SIGTERM');
+            if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
           } catch {
             // Already exited.
           }
-          const killTimer = setTimeout(() => {
-            try {
-              if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
-            } catch {
-              // Already exited.
-            }
-          }, 1000);
-          killTimer.unref();
-        }
+        }, 1000);
+        killTimer.unref();
+      };
+      const terminate = (reason: GitFailure): void => {
+        if (stopped) return;
+        primary ??= reason;
+        endGroup();
       };
 
       const timer = setTimeout(() => {
@@ -580,6 +628,14 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       timer.unref();
 
       child.stdout?.on('data', (chunk: Buffer) => {
+        if (stopped || primary !== undefined) return;
+        if (consume !== undefined) {
+          if (consume(chunk) === 'stop') {
+            stopped = true;
+            endGroup();
+          }
+          return;
+        }
         stdoutBytes += chunk.byteLength;
         if (stdoutBytes > limit) {
           terminate(failure('output-overflow', 'git stdout exceeded the output limit'));
@@ -613,22 +669,28 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
             signal,
             stdout: Buffer.concat(stdoutChunks),
             stderr: Buffer.concat(stderrChunks),
+            stopped,
           },
         });
       });
     });
   }
 
-  /** Runs a command and requires exit code 0 (or one of `acceptedExitCodes`). */
-  async function runOk(
+  function run(
     args: readonly string[],
     cwd: string,
+    command: RunOptions = {},
+  ): Promise<CommandResult> {
+    return execute(args, cwd, command);
+  }
+
+  /** Requires exit code 0 (or one of `acceptedExitCodes`) of a finished command. */
+  function exited<T extends CommandOutcome>(
+    result: GitResult<T>,
+    args: readonly string[],
     acceptedExitCodes: readonly number[] = [0],
-  ): Promise<GitResult<CommandOutcome>> {
-    const result = await run(args, cwd);
-    if (!result.ok) {
-      return result;
-    }
+  ): GitResult<T> {
+    if (!result.ok) return result;
     if (result.value.exitCode === null || !acceptedExitCodes.includes(result.value.exitCode)) {
       const stderr = result.value.stderr.toString('utf8').slice(0, 4000);
       return fail('git-failed', `git ${args.join(' ')} failed`, {
@@ -637,6 +699,47 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       });
     }
     return result;
+  }
+
+  /** Runs a command and requires exit code 0 (or one of `acceptedExitCodes`). */
+  async function runOk(
+    args: readonly string[],
+    cwd: string,
+    acceptedExitCodes: readonly number[] = [0],
+    command: RunOptions = {},
+  ): Promise<GitResult<CommandOutcome>> {
+    return exited(await run(args, cwd, command), args, acceptedExitCodes);
+  }
+
+  /**
+   * Streams a command's stdout to `consume` (R-G10, GIT-03): no output limit applies, and a
+   * consumer that stops early ends the command successfully. A command that runs to its end
+   * must exit 0 (or one of `acceptedExitCodes`).
+   */
+  async function stream(
+    args: readonly string[],
+    cwd: string,
+    consume: StreamConsumer,
+    acceptedExitCodes: readonly number[] = [0],
+    command: RunOptions = {},
+  ): Promise<GitResult<{ readonly stopped: boolean }>> {
+    const result = await execute(args, cwd, command, consume);
+    if (result.ok && result.value.stopped) return { ok: true, value: { stopped: true } };
+    const finished = exited(result, args, acceptedExitCodes);
+    return finished.ok ? { ok: true, value: { stopped: false } } : finished;
+  }
+
+  /**
+   * The SHA-256 of a command's whole stdout, hashed as it streams: the digest the buffered
+   * reading gave, for output of any size (investigations and checkpoint reservations store it).
+   */
+  async function hashDiff(args: readonly string[], cwd: string): Promise<GitResult<string>> {
+    const hash = createHash('sha256');
+    const streamed = await stream(args, cwd, (chunk) => {
+      hash.update(chunk);
+    });
+    if (!streamed.ok) return streamed;
+    return { ok: true, value: hash.digest('hex') };
   }
 
   async function canonicalDirectory(path: string): Promise<GitResult<string>> {
@@ -928,28 +1031,14 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     }
 
     const untrackedPaths = splitNul(untracked.value.stdout);
-    const patchParts: string[] = [];
-    let patchBytes = 0;
-    let patchTruncated = false;
-    const appendPatch = (text: string): void => {
-      if (patchTruncated) return;
-      const bytes = Buffer.byteLength(text, 'utf8');
-      if (patchBytes + bytes > input.maxPatchBytes) {
-        const remaining = Math.max(0, input.maxPatchBytes - patchBytes);
-        patchParts.push(Buffer.from(text, 'utf8').subarray(0, remaining).toString('utf8'));
-        patchTruncated = true;
-        return;
-      }
-      patchParts.push(text);
-      patchBytes += bytes;
-    };
-
-    const tracked = await runOk(
+    // The patch streams, keeping its first `maxPatchBytes` (R-G10, GIT-03).
+    const patch = patchCollector(input.maxPatchBytes);
+    const tracked = await stream(
       ['diff', '--no-ext-diff', '--no-textconv', '--find-renames', input.baseSha, '--'],
       cwd,
+      patch.take,
     );
     if (!tracked.ok) return tracked;
-    appendPatch(tracked.value.stdout.toString('utf8'));
 
     for (const [position, path] of untrackedPaths.entries()) {
       const fileNumstat = await runOk(
@@ -974,20 +1063,16 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         additions = binary ? 0 : Number(added);
       }
       files.push({ path, status: 'untracked', additions, deletions: 0, binary });
-      if (position < MAX_UNTRACKED_PATCH_FILES && !patchTruncated) {
+      if (position < MAX_UNTRACKED_PATCH_FILES && !patch.truncated()) {
         const filePatch = await runOk(
           ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', path],
           cwd,
           [0, 1],
         );
-        if (filePatch.ok) {
-          appendPatch(filePatch.value.stdout.toString('utf8'));
-        }
+        if (filePatch.ok) patch.take(filePatch.value.stdout);
       }
     }
-    if (untrackedPaths.length > MAX_UNTRACKED_PATCH_FILES) {
-      patchTruncated = true;
-    }
+    const patchTruncated = patch.truncated() || untrackedPaths.length > MAX_UNTRACKED_PATCH_FILES;
 
     return {
       ok: true,
@@ -996,7 +1081,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         headSha,
         commits,
         files,
-        patch: patchParts.join(''),
+        patch: patch.text(),
         patchTruncated,
       },
     };
@@ -1536,7 +1621,8 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   async function inspectWorktreeChanges(path: string): Promise<GitResult<WorktreeChanges>> {
     const identity = await inspectRepository(path);
     if (!identity.ok) return identity;
-    const diff = await runOk(
+    // Hashed as it streams (R-G10): a change of any size has a fingerprint.
+    const fingerprint = await hashDiff(
       [
         'diff',
         '--no-ext-diff',
@@ -1552,7 +1638,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       ],
       path,
     );
-    if (!diff.ok) return diff;
+    if (!fingerprint.ok) return fingerprint;
     const names = await runOk(
       ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', 'HEAD', '--'],
       path,
@@ -1582,7 +1668,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         trackedClean: trackedStatus.value.stdout.length === 0,
         paths: splitNul(names.value.stdout),
         untracked: splitNul(untracked.value.stdout),
-        fingerprint: createHash('sha256').update(diff.value.stdout).digest('hex'),
+        fingerprint: fingerprint.value,
         conflicted: conflicts.value.stdout.length > 0 || pendingOperation,
       },
     };
@@ -1673,7 +1759,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       const log = await runOk(['log', '-1', '--format=%P%n%s'], input.worktreePath);
       if (!log.ok) return log;
       const [parent, subject] = log.value.stdout.toString('utf8').trim().split('\n');
-      const patch = await runOk(
+      const patch = await hashDiff(
         [
           'diff',
           '--no-ext-diff',
@@ -1694,7 +1780,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       if (
         parent === input.expectedHeadSha &&
         subject === message &&
-        createHash('sha256').update(patch.value.stdout).digest('hex') === input.fingerprint
+        patch.value === input.fingerprint
       )
         return { ok: true, value: { commitSha: before.value.headSha } };
       return fail('git-failed', 'Checkpoint HEAD changed; inspect the branch before resuming');
@@ -1710,7 +1796,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       input.worktreePath,
     );
     if (!added.ok) return added;
-    const staged = await runOk(
+    const staged = await hashDiff(
       [
         'diff',
         '--cached',
@@ -1728,7 +1814,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       input.worktreePath,
     );
     if (!staged.ok) return staged;
-    if (createHash('sha256').update(staged.value.stdout).digest('hex') !== input.fingerprint)
+    if (staged.value !== input.fingerprint)
       return fail('git-failed', 'Staged content changed during checkpoint');
     const identity = await inspectRepository(input.worktreePath);
     if (!identity.ok) return identity;
@@ -2109,12 +2195,10 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         'Pinned sources require at most 10,000 regular files; links, submodules and unsafe paths are not supported.',
       );
     if (!entries.length) return { ok: true, value: [] };
-    const batch = await run(
-      ['cat-file', '--batch'],
-      repo.value,
-      `${entries.map((e) => e!.sha).join('\n')}\n`,
-      64 * 1024 * 1024,
-    );
+    const batch = await run(['cat-file', '--batch'], repo.value, {
+      input: `${entries.map((e) => e!.sha).join('\n')}\n`,
+      limit: 64 * 1024 * 1024,
+    });
     if (!batch.ok) return batch;
     if (batch.value.exitCode !== 0) return fail('git-failed', 'Could not export pinned sources.');
     let offset = 0;
@@ -2179,8 +2263,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     const listing = await run(
       ['ls-tree', '-rz', '--name-only', '--full-tree', commitSha],
       repo.value,
-      undefined,
-      64 * 1024 * 1024,
+      { limit: 64 * 1024 * 1024 },
     );
     if (!listing.ok) return listing;
     if (listing.value.exitCode !== 0) return fail('git-failed', 'Could not list the commit.');
@@ -2226,12 +2309,9 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         blobs.push({ path: match[4]!, sha: match[3]!, executable: match[1] === '100755' });
     }
     for (const blob of blobs) {
-      const content = await run(
-        ['cat-file', 'blob', blob.sha],
-        repo.value,
-        undefined,
-        16 * 1024 * 1024,
-      );
+      const content = await run(['cat-file', 'blob', blob.sha], repo.value, {
+        limit: 16 * 1024 * 1024,
+      });
       if (!content.ok) return content;
       if (content.value.exitCode !== 0) return fail('git-failed', `Could not read ${blob.path}.`);
       files.set(blob.path, {

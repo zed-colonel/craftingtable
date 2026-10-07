@@ -933,6 +933,11 @@ export class CycleBackend extends ScriptedBackend {
   replyForRequest:
     | ((request: AgentLaunchRequest) => ScriptedReply | Promise<ScriptedReply>)
     | undefined;
+  /**
+   * What the agent answers an automatic output-format repair with (R-C2). Without it, or when
+   * it returns nothing, the scripted agent repeats its report.
+   */
+  repairForRequest: ((request: AgentLaunchRequest) => ScriptedReply | undefined) | undefined;
   constructor(
     private readonly outputs: readonly ScriptedReply[],
     kind: AgentBackendKind = 'claude-code',
@@ -960,7 +965,9 @@ export class CycleBackend extends ScriptedBackend {
     const repair =
       request.resumeSessionId !== undefined && request.prompt.startsWith(OUTPUT_REPAIR_PROMPT);
     if (repair) this.repairs += 1;
-    const previous = repair ? this.lastReply.get(request.cwd) : undefined;
+    const previous = repair
+      ? (this.repairForRequest?.(request) ?? this.lastReply.get(request.cwd))
+      : undefined;
     let reply: ScriptedReply | undefined = previous;
     if (reply === undefined)
       try {
@@ -1087,11 +1094,14 @@ export async function roadmapFixture(
      * fixture checks unless it declares its own, or the test is about that stop.
      */
     undeclared?: boolean;
+    /** The daemon's clock, for a test that moves time on (a scheduled retry). */
+    now?: () => Date;
   } = {},
 ) {
   const backend = new CycleBackend(outputs);
   const state = await ready({
     backend,
+    ...(options.now ? { now: options.now } : {}),
     ...(options.alternateBackend
       ? {
           backends: new Map([
@@ -1306,7 +1316,11 @@ export async function useIntegration(
 }
 
 export async function finalizationFixture(
-  options: { gitOperations?: GitOperations; alternateBackend?: AgentBackend } = {},
+  options: {
+    gitOperations?: GitOperations;
+    alternateBackend?: AgentBackend;
+    now?: () => Date;
+  } = {},
 ) {
   const fixture = await roadmapFixture(undefined, options);
   const { state, backend, root, second } = fixture;

@@ -1,0 +1,128 @@
+{
+  "description": "The ten operator stops of the AQ finalization (legacy improvement rounds, cycle caf76f40, 2026-09-13 to 2026-09-15), read from a copy of the 2026-10-07 snapshot (R-C7). Kinds, severities and categories only: no prose, paths or plan content. Findings are those open in the stopping report; the record has no categories, so each is `correctness` (R-C7). `round` is the legacy improvement round (1, 2) or `final` for the final review. `atSpentAllowance` marks a review that stopped with the remediation rounds used up. A `deferred` finding is one the operator had deferred before the stop (retired with R-B10).",
+  "finalizationId": "5ab4d7a5-ccdf-4d38-9b15-0081cf8332b2",
+  "cycleId": "caf76f40-2bc7-45ef-abbe-65000cd25d7e",
+  "categoryDefault": "correctness",
+  "stops": [
+    {
+      "stop": 1,
+      "round": 1,
+      "step": "review",
+      "kind": "report-invalid",
+      "fault": "format",
+      "issue": "finding-id-pattern",
+      "findings": [
+        { "id": "F-017", "severity": "major", "category": "correctness" },
+        { "id": "F-018", "severity": "major", "category": "correctness" },
+        { "id": "F-019", "severity": "major", "category": "correctness" },
+        { "id": "F-020", "severity": "minor", "category": "correctness" },
+        { "id": "F-021", "severity": "minor", "category": "correctness" }
+      ]
+    },
+    {
+      "stop": 2,
+      "round": 1,
+      "step": "review",
+      "kind": "report-invalid",
+      "fault": "format",
+      "issue": "exit-gate-evidence-too-long",
+      "findings": [{ "id": "F-023", "severity": "minor", "category": "correctness" }]
+    },
+    {
+      "stop": 3,
+      "round": 1,
+      "step": "review",
+      "kind": "remediation-limit",
+      "atSpentAllowance": true,
+      "exitGateMet": false,
+      "verdict": "changes-requested",
+      "findings": [{ "id": "F-026", "severity": "nit", "category": "correctness" }]
+    },
+    {
+      "stop": 4,
+      "round": 2,
+      "step": "review",
+      "kind": "question",
+      "question": "genuine",
+      "exitGateMet": false,
+      "verdict": "changes-requested",
+      "findings": [
+        { "id": "F-027", "severity": "major", "category": "correctness" },
+        { "id": "F-028", "severity": "major", "category": "correctness" },
+        { "id": "F-029", "severity": "minor", "category": "correctness" },
+        { "id": "F-030", "severity": "minor", "category": "correctness" },
+        { "id": "F-031", "severity": "minor", "category": "correctness" },
+        { "id": "F-032", "severity": "minor", "category": "correctness" },
+        { "id": "F-033", "severity": "minor", "category": "correctness" },
+        { "id": "F-034", "severity": "minor", "category": "correctness" },
+        { "id": "F-035", "severity": "minor", "category": "correctness" }
+      ]
+    },
+    {
+      "stop": 5,
+      "round": 2,
+      "step": "remediate",
+      "kind": "open-questions-section-missing",
+      "endedOn": "background-task",
+      "findings": []
+    },
+    {
+      "stop": 6,
+      "round": 2,
+      "step": "remediate",
+      "kind": "open-questions-section-missing",
+      "endedOn": "background-task",
+      "findings": []
+    },
+    {
+      "stop": 7,
+      "round": 2,
+      "step": "review",
+      "kind": "worktree-dirty",
+      "findings": []
+    },
+    {
+      "stop": 8,
+      "round": 2,
+      "step": "review",
+      "kind": "question",
+      "question": "nit-policy",
+      "atSpentAllowance": true,
+      "exitGateMet": false,
+      "verdict": "changes-requested",
+      "findings": [
+        { "id": "F-048", "severity": "nit", "category": "correctness" },
+        { "id": "F-049", "severity": "nit", "category": "correctness" },
+        { "id": "F-050", "severity": "nit", "category": "correctness" }
+      ]
+    },
+    {
+      "stop": 9,
+      "round": "final",
+      "step": "review",
+      "kind": "step-incomplete",
+      "failure": "session-limit",
+      "findings": []
+    },
+    {
+      "stop": 10,
+      "round": "final",
+      "step": "review",
+      "kind": "remediation-limit",
+      "atSpentAllowance": true,
+      "exitGateMet": false,
+      "verdict": "changes-requested",
+      "findings": [
+        { "id": "F-048", "severity": "nit", "category": "correctness", "deferred": true },
+        { "id": "F-049", "severity": "nit", "category": "correctness", "deferred": true },
+        { "id": "F-050", "severity": "nit", "category": "correctness", "deferred": true },
+        { "id": "F-051", "severity": "minor", "category": "correctness" },
+        { "id": "F-052", "severity": "nit", "category": "correctness" },
+        { "id": "F-053", "severity": "nit", "category": "correctness" },
+        { "id": "F-054", "severity": "nit", "category": "correctness" },
+        { "id": "F-055", "severity": "nit", "category": "correctness" },
+        { "id": "F-056", "severity": "nit", "category": "correctness" }
+      ]
+    }
+  ]
+}

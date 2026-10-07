@@ -80,7 +80,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | [R-G13](#r-g13) | P2 | M | partial (increments 1, 2, 3 and 5; 4 open until a plan-bundle or non-Rust repository joins a roadmap) | Declared per-repository checks |
-| [R-G14](#r-g14) | P3 | S-M | open | Operator-configured outside sources for agent sandboxes |
+| [R-G14](#r-g14) | P3 | S-M | partial | Operator-configured outside sources for agent sandboxes |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
@@ -3307,7 +3307,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G14
 
-**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: open
+**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: partial (step 1, the Codex experiment, 2026-10-07; left: steps 2 to 6)
 
 - **Added 2026-09-28** (operator decision, after the R-G5 batch). Claude's sandbox reaches crates.io and nothing else, and that list is fixed in the adapter (`SANDBOX_ALLOWED_DOMAINS`).
 - **Change:**
@@ -3332,6 +3332,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     6. `docs/security.md`, `docs/operations.md`.
   - *Unchanged:* `unrestricted` runs have no sandbox, and read-only runs get no sources.
   - **Sharper done-when:** with `cargo` the only configured source, sandboxed Claude and Codex runs (`auto` and `edit-only`) each complete `cargo fetch` into the daemon's Cargo home and are both refused `example.com` and a crates.io host not in the kind. Removing the source refuses both. Both adapters' argument tests cover the sources, and a live check per CLI is recorded here. WebFetch, WebSearch and `unrestricted` are out of scope.
+- **Progress (2026-10-07), step 1: the Codex experiment.** Result: **works**, with the escalation caveat below.
+  - *Tested:* `codex-cli 0.160.0` on Linux (bubblewrap), driven like the adapter: `codex app-server --stdio` with the isolation flags, named variables only, the worktree as cwd, `auto` and `edit-only` mapped as `codex/arguments.ts` maps them. Scratch Cargo project and a fresh Cargo home per run, never the daemon's. Threads were `ephemeral`. Each case was also run without a model through `codex sandbox -P`.
+  - *Profile:* defined per run in `thread/start`'s `config` overrides, no file: `features.network_proxy = true` and `permissions.<id> = { extends = ":workspace", filesystem = { "<CARGO_HOME>/registry" = "write", "<CARGO_HOME>/git" = "write", "<run directory>" = "write" }, network = { enabled = true, domains = { "index.crates.io" = "allow", "static.crates.io" = "allow" } } }`, selected with `permissions: "<id>"` on `thread/start` and `turn/start` in place of `sandbox` and `sandboxPolicy` (`thread/resume` takes it too). The operator's `~/.codex/config.toml` sets `sandbox_mode`; the explicit profile still applied (`activePermissionProfile` named it). Commands get proxy variables to a Codex-run proxy that applies the host list; a direct connection is cut (`--noproxy` cannot resolve, a raw IP cannot connect).
+  - *Per case, the same in `auto` and `edit-only`:*
+    - `cargo fetch` succeeded into the scratch Cargo home.
+    - `example.com` and the `crates.io` apex were refused (proxy 403, "domain is not on the allowlist"); so was `docs.rs` in the model-free run.
+    - Writes outside the worktree, run directory and the two caches were refused (another directory, the Cargo home's root, `$HOME`); the run directory and worktree were writable.
+    - With the source removed (network off), `cargo fetch` failed (cannot resolve `index.crates.io`). Model-free, network on with no hosts gave 403, and dropping only `static.crates.io` refused the download.
+  - *Escalation:* in `auto`, after the sandbox refused `curl https://example.com`, the model asked to run it outside the sandbox. Codex's reviewer approved it (`item/autoApprovalReview`, "risk: low") and the command reached example.com (HTTP 200). The prompt claimed the owner's authorization, which a brief or repository text can also claim. `edit-only` (`approvalPolicy: never`) could not escalate. So in `auto` the source limit holds only until the reviewer approves an escalation. This goes back to the operator, as decided above.
+  - *Noted:* both modes emitted no `commandExecution` item for a refused write, though the model reported it failed, so the journal does not show such a command. Permission profiles are Beta, `features.network_proxy` is experimental, and `permissions` is an experimental API field (the adapter already opts in). `extends = ":workspace"` also makes `$TMPDIR` and `/tmp` writable, as today. Codex accepts wildcard host patterns; CraftingTable passes only exact hosts (step 3).
+  - *Conclusion:* step 4 gives Codex this per-run profile with the configured sources. No `ct-fetch` is needed.
 
 ### R-G15
 

@@ -274,11 +274,15 @@ export class ExecutionService {
         );
       return undefined;
     };
+    const environment = this.storage.runtimeEvidence.run(worktree.workspaceId, review.id);
     if (
       worktree.executionScope?.kind !== 'slice' ||
       !review.reviewBranchContext ||
       !this.repositoryChecks ||
-      !this.storage.runtimeEvidence.run(worktree.workspaceId, review.id)?.checkDeclarationId
+      !environment?.checkDeclarationId ||
+      // A check-only run's merge adopts nothing, as its approval offers nothing (R-G13
+      // increment 4): its changed definitions are adopted on the Repositories page.
+      environment.runtimeId === undefined
     )
       return refuseUnneeded();
     const diagnosis = await this.repositoryChecks.diagnose(worktree, review.reviewBranchContext);

@@ -1367,8 +1367,11 @@ async function assertCargoFilesAdopted(
   m: CheckManifest,
   tree: string,
   definitionPaths: readonly string[],
+  signal?: AbortSignal,
 ): Promise<void> {
-  const unadopted = (await daemonGit(m, ['ls-files', '-z', '--cached'], tree, 64 * 1024 * 1024))
+  const unadopted = (
+    await daemonGit(m, ['ls-files', '-z', '--cached'], tree, 64 * 1024 * 1024, undefined, signal)
+  )
     .toString('utf8')
     .split('\0')
     .filter((path) => CARGO_FILE_PATTERN.test(path) && !definitionPaths.includes(path));
@@ -1583,6 +1586,7 @@ async function committedDigests(
   repository: string,
   sha: string,
   paths: readonly string[],
+  signal?: AbortSignal,
 ): Promise<Record<string, string>> {
   const digests: Record<string, string> = {};
   for (const path of paths) {
@@ -1591,12 +1595,22 @@ async function committedDigests(
         m,
         ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', sha, '--', path],
         repository,
+        undefined,
+        undefined,
+        signal,
       )
     ).toString('utf8');
     const entry = /^(100644|100755) blob ([a-f0-9]{40,64})\t(.+)\0$/s.exec(listed);
     if (!entry || entry[3] !== path) continue;
     digests[path] = hash(
-      await daemonGit(m, ['cat-file', 'blob', entry[2]!], repository, 16 * 1024 * 1024),
+      await daemonGit(
+        m,
+        ['cat-file', 'blob', entry[2]!],
+        repository,
+        16 * 1024 * 1024,
+        undefined,
+        signal,
+      ),
     );
   }
   return digests;
@@ -2242,8 +2256,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           cwd,
           env: environment,
           timeoutMs: 30000,
+          signal: e.signal,
         })
       ).stdout.trim();
+      if (e.signal.aborted) throw new Error('Interrupted.');
       if (!toolchain) throw new Error('Could not identify Cargo toolchain.');
       const metadata = await captureCheck(
         e.confinement === 'systemd' ? 'systemd-run' : cargoProgram,
@@ -2265,8 +2281,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           cwd,
           env: e.confinement === 'systemd' ? userBusEnvironment() : environment,
           timeoutMs: Math.min(300000, Math.max(1, deadline - Date.now())),
+          signal: e.signal,
         },
       );
+      if (e.signal.aborted) throw new Error('Interrupted.');
       if (metadata.code !== 0)
         throw new Error(
           `Pinned dependency resolution failed. Align Cargo version constraints with the pinned crates; registry fallback is not accepted.\n${metadata.stderr}`,
@@ -2318,8 +2336,9 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         snapshot,
         before.headSha,
         declared.definitionPaths,
+        e.signal,
       );
-      await assertCargoFilesAdopted(m, snapshot, declared.definitionPaths);
+      await assertCargoFilesAdopted(m, snapshot, declared.definitionPaths, e.signal);
       // A program with a path is the repository's own, from the reviewed commit.
       if (command.includes('/')) command = join(snapshot, command);
       cwd = snapshot;

@@ -2931,19 +2931,18 @@ export class RuntimeEvidenceService {
     );
     if (!declaration || declaration.repositoryId !== tree.repositoryId)
       conflict('The declared checks this review was held to are unavailable.');
+    const record = tx.runtimeEvidence.build(tree.workspaceId, runId);
+    if (
+      !record ||
+      record.error ||
+      record.manifestDigest !== env.manifestDigest ||
+      record.runtimeId !== undefined
+    )
+      conflict('The review has no valid frozen check record.');
     let receipts: BuildReceipt[];
     try {
-      const record = tx.runtimeEvidence.build(tree.workspaceId, runId);
-      if (
-        !record ||
-        record.error ||
-        record.manifestDigest !== env.manifestDigest ||
-        record.runtimeId !== undefined
-      )
-        conflict('The review has no valid frozen check record.');
       receipts = parseBuildReceipts(record.receipts);
-    } catch (error) {
-      if (error instanceof ExecutionRequestError) throw error;
+    } catch {
       conflict('The review has no valid frozen check record.');
     }
     const head = tx.execution.runs.find(tree.workspaceId, asAgentRunId(runId))?.reviewBranchContext

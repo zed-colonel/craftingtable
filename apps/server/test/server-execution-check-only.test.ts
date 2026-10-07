@@ -26,6 +26,7 @@ import {
   implementationDone,
   merge,
   mergeGate,
+  mutationHeaders,
   ready,
   registerAndWorktree,
   reviewText,
@@ -35,6 +36,7 @@ import {
   runToFinish,
   saveRoadmapRequest,
   slicedFixture,
+  scopeReport,
   scopeTree,
   startCycle,
   storedRoadmap,
@@ -370,4 +372,76 @@ it('a check-only review whose work changed an adopted definition stops as check-
     status: 'needs-attention',
     attention: { code: 'check-definition-changed', refs: { repositoryId: repository.id } },
   });
+});
+
+it("refuses to start a check-only run when the daemon's check service cannot run its checks (R-G13 increment 4)", async () => {
+  const { state, worktree } = await manualFixture();
+  // A daemon whose check service is not attached: nothing would run or record the checks.
+  (state.context.services.agentRunService as unknown as { checks: undefined }).checks = undefined;
+  const started = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, role: 'review' },
+  });
+  expect(started.statusCode).not.toBe(200);
+  expect(started.body).toContain('check service is not running');
+  expect(
+    state.context.storage.execution.runs.listForWorktree(state.workspaceId, worktree.id),
+  ).toEqual([]);
+});
+
+it('a check-only slice whose work changed an adopted definition cannot adopt it at merge (R-G13 increment 4)', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    slices: source.slices.map((s) => ({ ...s, mode: 'implementation' })),
+  }));
+  const { state } = f;
+  const root = f.repository.rootPath;
+  mkdirSync(join(root, '.craftingtable'));
+  writeFileSync(
+    join(root, '.craftingtable', 'checks.json'),
+    `${JSON.stringify({ version: 1, checks: [{ id: 'fixture', argv: ['scripts/check.sh'] }] })}\n`,
+  );
+  mkdirSync(join(root, 'scripts'));
+  writeFileSync(join(root, 'scripts', 'check.sh'), SCRIPT, { mode: 0o755 });
+  git(['add', '--all'], root);
+  git(['commit', '--no-gpg-sign', '-m', 'checks'], root);
+  const checks = state.context.services.repositoryChecksService;
+  const preview = await checks.preview(f.auth, state.workspaceId, f.repository.id, 'main');
+  await checks.adopt(f.auth, state.workspaceId, f.repository.id, {
+    ref: 'main',
+    expectedCommit: preview.commitSha,
+    rationale: 'The fixture checks.',
+  });
+  const tree = await scopeTree(f, f.scopes[0]!);
+  writeFileSync(join(tree.path, 'scripts', 'check.sh'), `${SCRIPT}echo changed\n`);
+  git(['add', '--all'], tree.path);
+  git(['commit', '--no-gpg-sign', '-m', 'change the check'], tree.path);
+  (f.backend as CycleBackend).replyForRequest = () => ({
+    resultText: scopeReport(state, tree.executionScope!),
+  });
+  await runToFinish(state, tree.id, { role: 'review' });
+  const diagnosis = await checks.definitionsOf(f.auth, state.workspaceId, tree.id);
+  expect(diagnosis?.merge?.proposalDigest).toBeDefined();
+  const declarationId = state.context.storage.runtimeEvidence.checkDeclarations(
+    state.workspaceId,
+    f.repository.id,
+  )[0]!.id;
+  const adopting = await merge(state, tree.id, {
+    adoptChecks: {
+      proposalDigest: diagnosis!.merge!.proposalDigest,
+      rationale: 'Adopt at merge.',
+      declarationId,
+    },
+  });
+  expect(adopting.statusCode).toBe(409);
+  expect(adopting.body).toContain('nothing to adopt');
+  // Without an adoption, the gate refuses the changed definition.
+  const plain = await merge(state, tree.id);
+  expect(plain.statusCode).toBe(409);
+  expect(plain.body).toContain('differ from the adopted ones');
+  expect(
+    state.context.storage.runtimeEvidence.checkDeclarations(state.workspaceId, f.repository.id),
+  ).toHaveLength(1);
 });

@@ -272,12 +272,19 @@ function declaredChecksBrief(
   storage: CraftingTableStorage,
   workspaceId: WorkspaceId,
   role: string,
-  pinned: {
-    readonly checkDeclarationId?: string;
-    readonly binDirectory: string;
-    /** Absent for a check-only run, which has no pinned environment (R-G13 increment 4). */
-    readonly verification?: { readonly mode: string };
-  },
+  pinned:
+    | {
+        readonly kind?: undefined;
+        readonly checkDeclarationId?: string;
+        readonly binDirectory: string;
+        readonly verification: { readonly mode: string };
+      }
+    | {
+        /** A check-only run: no pinned environment (R-G13 increment 4). */
+        readonly kind: 'checks';
+        readonly checkDeclarationId: string;
+        readonly binDirectory: string;
+      },
 ): string {
   const declaration =
     role !== 'design' &&
@@ -290,15 +297,17 @@ function declaredChecksBrief(
       return `- ${pinned.binDirectory}/ct-check --declared ${check.id}   (CraftingTable runs the adopted ${argv.length > 200 ? `${argv.slice(0, 200)}…` : argv}; running that yourself does not count)`;
     })
     .join('\n');
-  const beside = !pinned.verification
-    ? 'Other ct-check commands are supplemental and never replace them.'
-    : pinned.verification.mode === 'scoped-checks'
-      ? 'Other ct-check commands and Cargo builds are supplemental and never replace them.'
-      : 'They are needed beside the pinned Cargo build/test; other ct-check commands are supplemental.';
+  const beside =
+    pinned.kind === 'checks'
+      ? 'Other ct-check commands are supplemental and never replace them.'
+      : pinned.verification.mode === 'scoped-checks'
+        ? 'Other ct-check commands and Cargo builds are supplemental and never replace them.'
+        : 'They are needed beside the pinned Cargo build/test; other ct-check commands are supplemental.';
   // A check-only run has no pinned environment: its gate is these checks alone (increment 4).
-  const checkOnly = pinned.verification
-    ? ''
-    : `Repository checks: this run has no pinned dependency environment, so its merge is gated on the repository's adopted checks alone, run by CraftingTable. ${pinned.binDirectory}/ct-check is on PATH; ct-check -- <executable> <arguments> runs a command you choose, which is recorded and counts for nothing.
+  const checkOnly =
+    pinned.kind !== 'checks'
+      ? ''
+      : `Repository checks: this run has no pinned dependency environment, so its merge is gated on the repository's adopted checks alone, run by CraftingTable. ${pinned.binDirectory}/ct-check is on PATH; ct-check -- <executable> <arguments> runs a command you choose, which is recorded and counts for nothing.
 `;
   return role === 'review'
     ? `${checkOnly}Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head. CraftingTable runs each from the adopted definition on a private clone of that commit before this review starts, and appends their results below these instructions; those runs count for the gate. Report a failing check as a finding. To run one again, read-only (do not commit):
@@ -1352,6 +1361,13 @@ export class AgentRunService {
               runDirectory,
               join(this.config.checkLogRoot, runId, 'replies'),
             );
+      // Its record says the daemon records its receipts; without the daemon's check service
+      // nothing would, and its gate could never be met.
+      if (checksOnly && !this.checks)
+        throw new ExecutionRequestError(
+          'unavailable',
+          "CraftingTable's check service is not running, so this repository's adopted checks cannot run.",
+        );
       /** The run's verification manifest and launchers, pinned or check-only. */
       const verifying = pinned ?? checksOnly;
       const historical =

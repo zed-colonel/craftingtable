@@ -19,7 +19,7 @@ import {
   prepareCheckManifest,
   resolveGitDirectories,
 } from '../src/local-check.js';
-import type { CheckOnlyManifest } from '../src/pinned-cargo.js';
+import { type CheckOnlyManifest, prepareCargoLauncher } from '../src/pinned-cargo.js';
 import { testTimeScale } from './test-time.js';
 
 /**
@@ -230,3 +230,60 @@ it.each([
     expect(outcome.output).not.toContain('DECLARED-RAN');
   },
 );
+
+it("cancelling a pinned build stops its toolchain's helper commands at once (R-G13 increment 4)", async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ct-pinned-abort-'));
+  roots.push(root);
+  const workspacePath = join(root, 'repository');
+  mkdirSync(workspacePath);
+  writeFileSync(join(workspacePath, 'README.md'), 'x\n');
+  git(['init', '-q', '-b', 'main'], workspacePath);
+  git(['add', '.'], workspacePath);
+  git(
+    ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'c'],
+    workspacePath,
+  );
+  // A Cargo that takes half a minute to say which it is.
+  const cargo = join(root, 'slow-cargo');
+  writeFileSync(cargo, '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
+  const directory = join(root, 'run', 'dependencies');
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'pins.toml'), '');
+  const launcher = prepareCargoLauncher(directory, {
+    runtimeId: 'runtime',
+    runId: 'run',
+    cargoExecutable: cargo,
+    gitExecutable: hostGit(),
+    ...resolveGitDirectories(hostGit(), workspacePath),
+    workspacePath,
+    targetDirectory: join(root, 'target'),
+    packages: [],
+    files: [],
+    configPath: join(directory, 'pins.toml'),
+    configDigest: sha256(''),
+    receiptPath: join(directory, 'receipts.jsonl'),
+  });
+  const controller = new AbortController();
+  const started = Date.now();
+  const pending = executeCheck({
+    tool: 'cargo',
+    manifestPath: launcher.manifestPath,
+    manifestDigest: launcher.manifestDigest,
+    manifest: launcher.manifest,
+    args: ['build'],
+    logPath: join(root, 'daemon', 'logs', 'build.log'),
+    logReference: 'check-logs/run/build.log',
+    privateDirectory: join(root, 'daemon', 'build.private'),
+    confinement: 'none',
+    unitName: 'unused',
+    writablePaths: [workspacePath],
+    environment: { PATH: '/usr/bin:/bin' },
+    onOutput: () => undefined,
+    signal: controller.signal,
+  });
+  setTimeout(() => controller.abort(), 500);
+  const outcome = await pending;
+  expect(Date.now() - started).toBeLessThan(10_000 * testTimeScale());
+  expect(outcome.exitCode).toBe(1);
+  expect(outcome.diagnostic).toContain('Interrupted');
+});

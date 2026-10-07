@@ -20,6 +20,7 @@ import {
   architectureDecisionIssues,
   architectureDecisionDigest,
   decisionBindingDigest,
+  decisionReviewerRole,
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
 import {
@@ -33,7 +34,7 @@ import { cycleOwnership } from './cycle-ownership.js';
 import { relevantPinAliases } from './runtime-input-policy.js';
 import { runtimeRefreshImpact, queueRuntimeReviews } from './runtime-refresh.js';
 import {
-  PLAN_CHECKPOINT,
+  planCheckpoint,
   savedPlanSnapshot,
   generatedPlanIssues,
 } from './plan-acceptance-policy.js';
@@ -91,6 +92,8 @@ import {
   type RunEnvironment,
   type RuntimeGeneration,
   consumerUpstreams,
+  mapCapabilities,
+  mapResource,
   upstreamTransitionIssues,
   type WorkspaceId,
   type Worktree,
@@ -1123,7 +1126,8 @@ export class RuntimeEvidenceService {
         ids.has(c.id) &&
         (delegated
           ? ['contract', 'profile', 'semantic_review'].includes(c.kind)
-          : c.kind === 'contract' && c.evidence_profile === 'contract-checkpoint'),
+          : c.kind === 'contract' &&
+            c.evidence_profile === mapCapabilities(d.source).operatorRecoverableProfile),
     );
     const run = this.storage.execution.runs.listForWorktree(ws, tree.id)[0];
     const turn = run && this.storage.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
@@ -1841,8 +1845,7 @@ export class RuntimeEvidenceService {
           checkpoint: spec.checkpoint,
           sourceFiles: d.source.source_files,
           boundDecision: architectureDecision,
-          authority:
-            'Proposal only. Separate authenticated repository-maintainer approval is required. Clause approval never passes the full checkpoint or supplies test evidence.',
+          authority: `Proposal only. Separate authenticated ${decisionReviewerRole(d, input.checkpointId)} approval is required. Clause approval never passes the full checkpoint or supplies test evidence.`,
         },
         null,
         2,
@@ -1952,7 +1955,10 @@ export class RuntimeEvidenceService {
         );
       if (existing) return;
       const at = this.now().toISOString();
-      const subject = { kind: 'checkpoint' as const, sourceId: PLAN_CHECKPOINT };
+      // The snapshot's issues include an unsupported plan contract, so the generator is known here.
+      const plan = mapCapabilities(d.source).planAcceptance;
+      if (!plan) conflict('This plan checkpoint has unsupported obligations.');
+      const subject = { kind: 'checkpoint' as const, sourceId: plan.checkpointId };
       const spec = subjectRequirements(d, subject);
       const artifacts = Object.entries(snapshot.facts).map(([name, facts]) => {
         const content = JSON.stringify(facts, null, 2);
@@ -1974,7 +1980,7 @@ export class RuntimeEvidenceService {
         `Saved activities: ${roadmap.definition.entries.length}. Review their model profiles and reviewer responsibilities in the roadmap artifact.`,
         `Local admission capacity: ${snapshot.facts.resources.developmentCapacity} development, ${snapshot.facts.resources.verificationCapacity} verification.`,
         '',
-        'The daemon collected these saved setup facts. This package does not claim a human review, test execution, AQ qualification or release approval. Review the artifacts and record your decision as stack-integration-owner. The authenticated acceptance decision and rationale are the independent plan review.',
+        `The daemon collected these saved setup facts. This package does not claim a human review, test execution, AQ qualification or release approval. Review the artifacts and record your decision as ${plan.reviewerRole}. The authenticated acceptance decision and rationale are the independent plan review.`,
       ].join('\n');
       artifacts.unshift({ name: 'plan-review-guide', content, digest: hash(content) });
       if (
@@ -2098,9 +2104,10 @@ export class RuntimeEvidenceService {
     const pinStatus = runtime ? await this.pinStatus(ws, runtime, undefined, git) : [];
     const freshness = pinStatus.flatMap((p) => (p.issue ? [p.issue] : []));
     const snapshot = mapReadSnapshot(this.storage);
-    const planAcceptance = d.source.checkpoints.some((c) => c.id === PLAN_CHECKPOINT)
+    const planId = planCheckpoint(d);
+    const planAcceptance = planId
       ? {
-          checkpoint: PLAN_CHECKPOINT,
+          checkpoint: planId,
           roadmaps: snapshot.roadmaps
             .list(ws)
             .filter((r) => r.definition.crossProject?.definitionId === id && r.status !== 'stopped')
@@ -2117,7 +2124,7 @@ export class RuntimeEvidenceService {
                 );
               const accepted = acceptedEvidence(snapshot, ws, id, binding?.revision ?? 0, {
                 kind: 'checkpoint',
-                sourceId: PLAN_CHECKPOINT,
+                sourceId: planId,
               });
               return {
                 roadmapId: roadmap.id,
@@ -2250,14 +2257,16 @@ export class RuntimeEvidenceService {
         current: nativeCurrent,
         requirements: d.source.resource_profiles
           .filter((p) => p.fixture_authorization_required || p.requires_hardware_virtualization)
-          .map((p) => ({
-            resource: p.id,
-            supported:
-              p.id === 'controlled-native-test-host' && !p.requires_hardware_virtualization,
-            slices: d.source.slices
-              .filter((s) => s.resources_by_phase.verify.includes(p.id))
-              .map((s) => s.id),
-          })),
+          .map((p) => {
+            const resource = mapResource(d.source, p.id);
+            return {
+              resource: p.id,
+              supported: resource?.adapter === 'native-test-host' && resource.usable,
+              slices: d.source.slices
+                .filter((s) => s.resources_by_phase.verify.includes(p.id))
+                .map((s) => s.id),
+            };
+          }),
       },
       ...(planAcceptance ? { planAcceptance } : {}),
       pinStatus,

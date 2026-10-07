@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   type ExecutionPhase,
+  mapResource,
   PHASE_BLOCKERS,
   type PhaseBlocker,
   phaseBlockerCode,
@@ -25,34 +26,24 @@ export function phaseResources(tx: StorageRepositories, r: ResolvedScope, phase:
   const blockers: PhaseBlocker[] = [];
   // Requirements inherit earlier phases; resource occupancy deliberately does not.
   for (const id of r.slice?.resources_by_phase[phase === 'accept' ? 'verify' : phase] ?? []) {
-    const profile = r.definition.source.resource_profiles.find((p) => p.id === id);
-    if (
-      id === 'controlled-native-test-host' &&
-      profile &&
-      !profile.requires_hardware_virtualization &&
-      nativeApproval(tx, r.item.workspaceId, r.scope)
-    ) {
+    // The adapter is recognized by id (R-F2); the map's profile says whether it may run.
+    const resource = mapResource(r.definition.source, id);
+    const native = resource?.adapter === 'native-test-host';
+    if (native && resource.usable && nativeApproval(tx, r.item.workspaceId, r.scope)) {
       resources.push({
         key: 'local-verification',
         capacity: tx.phaseScheduling.capacity('local-verification'),
       });
       continue;
     }
-    if (
-      id !== 'isolated-development-workspace' ||
-      !profile ||
-      profile.requires_hardware_virtualization ||
-      profile.fixture_authorization_required
-    ) {
+    if (resource?.adapter !== 'development-workspace' || !resource.usable) {
       blockers.push({
         kind: 'authorization',
-        code:
-          id === 'controlled-native-test-host' ? 'environment-approval' : 'resource-unsupported',
+        code: native ? 'environment-approval' : 'resource-unsupported',
         refs: { resourceKey: id },
-        message:
-          id === 'controlled-native-test-host'
-            ? 'Resource controlled-native-test-host needs a qualified environment approval for this workstation.'
-            : `Resource ${id} has no managed execution adapter; externally reviewed evidence remains available.`,
+        message: native
+          ? `Resource ${id} needs a qualified environment approval for this workstation.`
+          : `Resource ${id} has no managed execution adapter; externally reviewed evidence remains available.`,
       });
       continue;
     }

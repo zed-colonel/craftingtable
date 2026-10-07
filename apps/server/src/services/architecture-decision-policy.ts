@@ -1,35 +1,26 @@
 import { createHash } from 'node:crypto';
-import type {
-  ConcurrencyDefinition,
-  EvidenceSubmission,
-  ExecutionScope,
-  WorkspaceId,
+import {
+  type ConcurrencyDefinition,
+  type EvidenceSubmission,
+  type ExecutionScope,
+  mapCapabilities,
+  type WorkspaceId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { snapshotCalculation } from './map-read-snapshot.js';
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const requirements = [
-  'accepted decision artifact digest and revision',
-  'source contract and affected schema or protocol references',
-  'decision owner approval and applicability to the active plan generation',
-];
-/** Only the known decision-owner review contract is supported, never test/qualification gates. */
+/**
+ * Only the known decision-owner review contract is supported, never test/qualification gates.
+ * Any other contract is a `decision-contract-changed` gap and needs independent evidence.
+ */
 export function supportsArchitectureDecision(d: ConcurrencyDefinition, id: string) {
-  const c = d.source.checkpoints.find((c) => c.id === id);
-  const p = d.source.evidence_profiles.find((p) => p.id === c?.evidence_profile);
-  return (
-    !!c &&
-    c.kind === 'architecture_decision' &&
-    !!p &&
-    p.independence_required &&
-    p.reviewer_roles.length === 1 &&
-    p.reviewer_roles[0] === 'repository-maintainer' &&
-    p.required_evidence.length === requirements.length &&
-    requirements.every((r) => p.required_evidence.includes(r)) &&
-    !d.source.acceptance_coverage.some((a) => a.checkpoint === id) &&
-    !d.source.baseline_acceptance_coverage.some((a) => a.capability_gate === id)
-  );
+  return mapCapabilities(d.source).architectureDecisions.some((c) => c.checkpointId === id);
+}
+/** The role that records a supported decision, as the map declares it. */
+export function decisionReviewerRole(d: ConcurrencyDefinition, id: string) {
+  return mapCapabilities(d.source).architectureDecisions.find((c) => c.checkpointId === id)
+    ?.reviewerRole;
 }
 export function decisionBindingDigest(
   tx: StorageRepositories,

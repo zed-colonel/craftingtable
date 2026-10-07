@@ -2,6 +2,7 @@ import { concurrencyMilestones, milestoneKey } from './concurrency-graph.js';
 import type { ConcurrencySource } from './concurrency-source.js';
 import type { ExecutionScope } from './execution-scope.js';
 import type { UserId, WorkspaceId } from './ids.js';
+import { independentWorkItem } from './map-capabilities.js';
 
 /** The consumer slice whose merge moves one consumer→upstream link to the current pin (ADR-069). */
 export interface UpstreamTransition {
@@ -46,7 +47,7 @@ export function scopedBuildScope(
     if (slice.mode === 'domain') return true;
     if (slice.mode !== 'implementation') return false;
     const parent = s.work_items.find((w) => w.id === slice.work_item);
-    if (!parent || !/^independent\b/i.test(parent.source_maturity)) return false;
+    if (!parent || !independentWorkItem(s, parent.id)) return false;
     // A generic implementation slice is independent only when its explicit gates
     // contain no upstream runtime obligations. Unknown requirements fail closed.
     const local = (r: (typeof slice.start_requires)[number]): boolean => {
@@ -72,7 +73,7 @@ export function scopedBuildScope(
   const slices = p && [...new Set([...p.required_slices, ...p.profile_evidence_slices])];
   return (
     !!p &&
-    /^independent\b/i.test(p.source_maturity) &&
+    independentWorkItem(s, p.id) &&
     !p.aq_baseline_case_ids.length &&
     !!slices?.length &&
     slices.every(scopedSlice) &&

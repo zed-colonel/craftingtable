@@ -242,6 +242,12 @@ it('applies raised and lowered development limits to existing claims without end
     slice: { resources_by_phase: { start: ['isolated-development-workspace'] } },
     definition: {
       source: {
+        checkpoints: [],
+        evidence_profiles: [],
+        work_items: [],
+        slices: [],
+        acceptance_coverage: [],
+        baseline_acceptance_coverage: [],
         resource_profiles: [
           {
             id: 'isolated-development-workspace',

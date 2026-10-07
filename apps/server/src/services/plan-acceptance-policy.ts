@@ -1,48 +1,31 @@
 import { approvedArchitectureDecisions } from './architecture-decision-policy.js';
 import { snapshotCalculation } from './map-read-snapshot.js';
 import { createHash } from 'node:crypto';
-import type {
-  ConcurrencyDefinition,
-  EvidenceSubmission,
-  Roadmap,
-  RuntimeGeneration,
+import {
+  type ConcurrencyDefinition,
+  type EvidenceSubmission,
+  mapCapabilities,
+  type Roadmap,
+  type RuntimeGeneration,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { bindingIssues } from './map-binding-policy.js';
 import { mapAdopted } from './map-adoption-policy.js';
 
-export const PLAN_CHECKPOINT = 'STACK-PLAN-ACCEPTED';
-// This generator attests only these known setup observations. Changed/imported obligations
-// require external evidence until a generator explicitly supports their meaning.
-export const PLAN_REQUIREMENTS = [
-  'approved map digest and all three exact source archive/source-file digests',
-  'exact WI/EXO application project/plan-version bindings and the immutable implemented AQ source/build dependency binding',
-  'approval of CS-D01 through CS-D18, or a separately versioned replacement definition',
-  'configured independent reviewers, version/evidence bindings, target selection, and resources',
-] as const;
-export const PLAN_CRITERIA = [
-  'Map structure is valid, source hashes match, and the expanded state graph is acyclic.',
-  'All draft decisions are explicitly approved for this map digest.',
-  'Application resolves exact project/plan-version bindings atomically; missing bindings fail closed.',
-] as const;
-function same(a: readonly string[], b: readonly string[]) {
-  return a.length === b.length && new Set(a).size === a.length && a.every((v) => b.includes(v));
+/**
+ * The plan checkpoint: the single plan approval the stack owns, whatever its id (R-F2). It is
+ * there whether or not its contract is the one the generator attests (`supportsPlanEvidence`).
+ */
+export function planCheckpoint(d: ConcurrencyDefinition): string | undefined {
+  return mapCapabilities(d.source).planCheckpoint;
 }
+/**
+ * Whether the saved-plan generator may attest the plan checkpoint. It attests only the known
+ * setup observations; changed or imported obligations need external evidence until a
+ * generator explicitly supports their meaning (a `plan-contract-changed` gap).
+ */
 export function supportsPlanEvidence(d: ConcurrencyDefinition): boolean {
-  const c = d.source.checkpoints.find((c) => c.id === PLAN_CHECKPOINT);
-  const p = d.source.evidence_profiles.find((p) => p.id === c?.evidence_profile);
-  return (
-    !!c &&
-    c.kind === 'plan_approval' &&
-    c.owner === 'stack' &&
-    !c.requires.length &&
-    !!p &&
-    same(p.required_evidence, PLAN_REQUIREMENTS) &&
-    same(c.pass_criteria, PLAN_CRITERIA) &&
-    same(p.reviewer_roles, ['stack-integration-owner']) &&
-    !d.source.acceptance_coverage.some((x) => x.checkpoint === c.id) &&
-    !d.source.baseline_acceptance_coverage.some((x) => x.capability_gate === c.id)
-  );
+  return !!mapCapabilities(d.source).planAcceptance;
 }
 function collectSavedPlanSnapshot(
   tx: StorageRepositories,
@@ -149,7 +132,7 @@ export function generatedPlanIssues(
   if (
     g.kind !== 'saved-plan-v1' ||
     s.subject.kind !== 'checkpoint' ||
-    s.subject.sourceId !== PLAN_CHECKPOINT ||
+    s.subject.sourceId !== planCheckpoint(d) ||
     !supportsPlanEvidence(d)
   )
     return ['Generated plan evidence cannot satisfy this subject.'];

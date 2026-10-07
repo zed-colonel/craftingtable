@@ -3,7 +3,7 @@ import {
   definitionChangeReason,
 } from './repository-checks-service.js';
 import { effectiveCycleProfiles } from './agent-profile-policy.js';
-import { agentSelections } from '@craftingtable/domain';
+import { agentSelections, mapCapabilities, V03_VOCABULARY } from '@craftingtable/domain';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   AuthorizeWorkCycleRemediationRequest,
@@ -3025,10 +3025,13 @@ export class WorkCycleService {
       (!checkpoint?.supported || !checkpoint.assigned || checkpoint.pending.length)
     )
       throw new ExecutionRequestError('conflict', 'Checkpoint review requirements are not ready.');
+    // A roadmap delegates the security review only to the role its map declares for it (R-F2).
+    const definition = this.storage.imports.definition(cycle.workspaceId, context.definitionId);
+    const securityRole = definition && mapCapabilities(definition.source).securityReviewerRole;
     if (
       kind === 'security' &&
       delegation &&
-      !delegation.roles.includes('independent-security-reviewer-if-required-by-source')
+      !(securityRole && delegation.roles.includes(securityRole))
     ) {
       this.attention(
         cycle,
@@ -3062,8 +3065,8 @@ export class WorkCycleService {
             roles:
               checkpoint?.roles ??
               (kind === 'security'
-                ? ['independent-security-reviewer-if-required-by-source']
-                : ['repository-maintainer']),
+                ? [V03_VOCABULARY.securityReviewerRole]
+                : [V03_VOCABULARY.decisionReview.reviewerRole]),
             contextDigest: context.contextDigest,
           },
         },

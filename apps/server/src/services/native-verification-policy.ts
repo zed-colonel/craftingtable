@@ -1,7 +1,11 @@
 import { snapshotCalculation } from './map-read-snapshot.js';
 import { sameRuntimeEnvironments } from './runtime-input-policy.js';
 import { nativeHostDigest } from '@craftingtable/agents';
-import type { ExecutionScope, ConcurrencyDefinition } from '@craftingtable/domain';
+import {
+  type ConcurrencyDefinition,
+  type ExecutionScope,
+  mapResource,
+} from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 export function nativeApproval(tx: StorageRepositories, ws: string, scope: ExecutionScope) {
   return snapshotCalculation(
@@ -29,13 +33,18 @@ export function nativeApproval(tx: StorageRepositories, ws: string, scope: Execu
     },
   );
 }
-export function needsNativeVerification(d: ConcurrencyDefinition, scope: ExecutionScope) {
-  return (
-    scope.kind !== 'parent-acceptance' &&
-    !!d.source.slices
-      .find((s) => s.id === scope.sourceId)
-      ?.resources_by_phase.verify.includes('controlled-native-test-host')
+/** Whether a slice verifies on a resource the native-host adapter runs (by id, R-F2). */
+function verifiesNatively(
+  d: ConcurrencyDefinition,
+  slice: ConcurrencyDefinition['source']['slices'][number],
+) {
+  return slice.resources_by_phase.verify.some(
+    (id) => mapResource(d.source, id)?.adapter === 'native-test-host',
   );
+}
+export function needsNativeVerification(d: ConcurrencyDefinition, scope: ExecutionScope) {
+  const slice = d.source.slices.find((s) => s.id === scope.sourceId);
+  return scope.kind !== 'parent-acceptance' && !!slice && verifiesNatively(d, slice);
 }
 /** Parent acceptance also freezes the native authority used by its prerequisite evidence. */
 export function needsNativeEvidence(d: ConcurrencyDefinition, scope: ExecutionScope): boolean {
@@ -52,8 +61,5 @@ export function needsNativeEvidence(d: ConcurrencyDefinition, scope: ExecutionSc
       .filter((c) => c.owner_work_item === p.id)
       .map((c) => c.producing_slice),
   ]);
-  return d.source.slices.some(
-    (s) =>
-      producers.has(s.id) && s.resources_by_phase.verify.includes('controlled-native-test-host'),
-  );
+  return d.source.slices.some((s) => producers.has(s.id) && verifiesNatively(d, s));
 }

@@ -483,7 +483,7 @@ export const runtimeEvidenceViewSchema = z.strictObject({
     .optional(),
   planAcceptance: z
     .strictObject({
-      checkpoint: z.literal('STACK-PLAN-ACCEPTED'),
+      checkpoint: name,
       roadmaps: z.array(
         z.strictObject({
           roadmapId: z.uuid(),

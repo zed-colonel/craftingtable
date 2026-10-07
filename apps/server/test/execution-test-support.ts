@@ -26,7 +26,7 @@ import {
   workCycleResponseSchema,
   workItemExecutionResponseSchema,
 } from '@craftingtable/contracts';
-import type { ExecutionScope } from '@craftingtable/domain';
+import { type ExecutionScope, V03_VOCABULARY } from '@craftingtable/domain';
 import {
   type AgentBackendKind,
   type AgentExitReason,
@@ -56,7 +56,6 @@ import { expect, inject, it, onTestFailed, vi } from 'vitest';
 import type { ServiceSet } from '../src/composition.js';
 import { CSRF_HEADER_NAME } from '../src/config.js';
 import { resolveExecutable } from '../src/services/executables.js';
-import { PLAN_CRITERIA, PLAN_REQUIREMENTS } from '../src/services/plan-acceptance-policy.js';
 import {
   LOCAL_SLICES,
   localMapArchive,
@@ -1878,7 +1877,7 @@ export async function supervisedMapFixture(
             ? [
                 {
                   id: 'plan-approval',
-                  required_evidence: [...PLAN_REQUIREMENTS],
+                  required_evidence: [...V03_VOCABULARY.planAcceptance.requiredEvidence],
                   reviewer_roles: ['stack-integration-owner'],
                   independence_required: true as const,
                 },
@@ -1959,7 +1958,7 @@ export async function supervisedMapFixture(
                   requires: [],
                   decision_refs: ['CS-D01'],
                   evidence_profile: 'plan-approval',
-                  pass_criteria: [...PLAN_CRITERIA],
+                  pass_criteria: [...V03_VOCABULARY.planAcceptance.passCriteria],
                 },
               ]
             : []),

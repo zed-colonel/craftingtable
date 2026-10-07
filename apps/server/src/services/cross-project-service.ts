@@ -1,6 +1,6 @@
 import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
 import { scopeArchitectureDecisions } from './architecture-decision-policy.js';
-import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
+import { planCheckpoint } from './plan-acceptance-policy.js';
 import { bindingIssues } from './map-binding-policy.js';
 export { bindingIssues } from './map-binding-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
@@ -249,8 +249,9 @@ export function crossProjectState(
               : 'none',
     };
   });
+  const plan = planCheckpoint(d);
   const planApprovalPending = nodes.some(
-    (n) => n.included && n.kind === 'checkpoint' && n.sourceId === PLAN_CHECKPOINT && !n.satisfied,
+    (n) => n.included && n.kind === 'checkpoint' && n.sourceId === plan && !n.satisfied,
   );
   const fullPlanAccepted = d.source.work_items.every((w) =>
     milestoneSatisfied(tx, ws, d, revision, { kind: 'work_item', id: w.id, state: 'accepted' }),
@@ -285,8 +286,7 @@ export function crossProjectState(
         ? [
             {
               kind: 'plan-acceptance' as const,
-              message:
-                'Save the roadmap, generate STACK-PLAN-ACCEPTED evidence, then review and accept it before Start or Resume.',
+              message: `Save the roadmap, generate ${plan} evidence, then review and accept it before Start or Resume.`,
             },
           ]
         : []),
@@ -315,7 +315,7 @@ export function crossProjectState(
     blockers: [
       ...(planApprovalPending
         ? [
-            'Waiting for plan acceptance: review and accept STACK-PLAN-ACCEPTED evidence before Start or Resume.',
+            `Waiting for plan acceptance: review and accept ${plan} evidence before Start or Resume.`,
           ]
         : []),
       ...bindingIssues(tx, ws, d.id, revision),

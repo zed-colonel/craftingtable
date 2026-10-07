@@ -8,6 +8,7 @@ import {
   asAgentRunId,
   effectiveCycleAttention,
   type AgentRun,
+  V03_VOCABULARY,
   type WorkCycle,
   type WorkflowQuestion,
 } from '@craftingtable/domain';
@@ -261,7 +262,7 @@ export function workflowPrompt(tx: StorageRepositories, cycle: WorkCycle): strin
   const active = cycle.workflow?.activeReview;
   return `Controller workflow contract: technical candidate review and permission to merge are separate. Assess source defects and required tests now. Pending merge checkpoints, predecessor work and a separate scheduled review are controller obligations, not code defects or unanswered operator questions. Do not claim they passed; record their pending state in prose. The controller still enforces every transition gate. Withdraw obsolete administrative findings with their stable IDs and an explanation, without hiding actual source defects. Never waive architectural approvals, safety requirements, unproven tests or exceptions.
 Resolve questions already answered by the exact approved plan, recorded decisions or supplied evidence; cite the answer. Genuine new architectural decisions require the operator. Direct mapped ADR questions to shared-decision with the exact checkpointId; local implementation choices, contradictions and unsupported controller actions go to work-item.
-For security-sensitive changes, declare the source requirement for a second security review below, with citations. The controller schedules a DISTINCT read-only security review after technical remediation, if the saved roadmap assigns independent-security-reviewer-if-required-by-source, or on the operator's authority when no roadmap delegates this cycle. The ordinary reviewer does not claim two reviews. Security requirements remain until a separate successful review of the same candidate and integration target is recorded.
+For security-sensitive changes, declare the source requirement for a second security review below, with citations. The controller schedules a DISTINCT read-only security review after technical remediation, if the saved roadmap assigns ${V03_VOCABULARY.securityReviewerRole}, or on the operator's authority when no roadmap delegates this cycle. The ordinary reviewer does not claim two reviews. Security requirements remain until a separate successful review of the same candidate and integration target is recorded.
 Before ## Open questions, include exactly one fenced craftingtable-workflow JSON block:
 ${JSON.stringify({ version: 1, questions: [], resolved: [], securityReview: { required: false, sources: [] } })}
 questions entries: {question, destination:"shared-decision"|"work-item", checkpointId?:"exact ADR ID"}. resolved entries: {question, answer, sources:["exact plan section or accepted evidence ID"]}. If a security review is required, set required:true and cite the source policy. Open questions contains only none when questions is empty; otherwise repeat every genuine operator question. Never put controller-managed pending obligations there. Return your normal complete review report and final verdict when reviewing; that verdict assesses technical candidate correctness, while the daemon separately enforces permission to merge.

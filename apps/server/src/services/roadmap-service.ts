@@ -97,7 +97,7 @@ import {
 import type { ExecutionService } from './execution-service.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
-import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
+import { planCheckpoint } from './plan-acceptance-policy.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
 import {
   findingFingerprint,
@@ -1485,13 +1485,20 @@ export class RoadmapService {
           roadmap.definition.crossProject,
         );
         if (preview.blockers.length) conflict(preview.blockers.join(' '));
-        const plan = acceptedEvidence(
-          this.storage,
+        const definition = this.storage.imports.definition(
           workspaceId,
           roadmap.definition.crossProject.definitionId,
-          roadmap.definition.crossProject.bindingRevision,
-          { kind: 'checkpoint', sourceId: PLAN_CHECKPOINT },
         );
+        const checkpoint = definition && planCheckpoint(definition);
+        const plan = checkpoint
+          ? acceptedEvidence(
+              this.storage,
+              workspaceId,
+              roadmap.definition.crossProject.definitionId,
+              roadmap.definition.crossProject.bindingRevision,
+              { kind: 'checkpoint', sourceId: checkpoint },
+            )
+          : undefined;
         if (plan?.generatedPlan && plan.generatedPlan.roadmapId !== roadmap.id)
           conflict(
             'Generate and review plan-acceptance evidence for this saved roadmap before Start or Resume.',

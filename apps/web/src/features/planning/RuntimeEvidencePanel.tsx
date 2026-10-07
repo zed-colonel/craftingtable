@@ -270,7 +270,7 @@ export function RuntimeEvidencePanel({
       <SetupStepPart step="plan-acceptance">
         {view.planAcceptance && (
           <section id={`${panelId}-plan-acceptance`} aria-label="Saved plan acceptance">
-            <h4>Saved plan acceptance · STACK-PLAN-ACCEPTED</h4>
+            <h4>Saved plan acceptance · {view.planAcceptance.checkpoint}</h4>
             {unsavedSetup && (
               <p role="alert">
                 Unsaved roadmap or dependency settings: save them before generating or accepting
@@ -944,6 +944,8 @@ export function RuntimeEvidencePanel({
           const reviewerRoles = view.subjects.find(
             (v) => v.subject.kind === s.subject.kind && v.subject.sourceId === s.subject.sourceId,
           )?.reviewerRoles;
+          // The role the map declares for this subject, not one the browser assumes (R-F2).
+          const asRoles = reviewerRoles?.length ? ` as ${reviewerRoles.join(', ')}` : '';
           return (
             <details
               key={s.id}
@@ -965,7 +967,7 @@ export function RuntimeEvidencePanel({
               <p>
                 {s.architectureDecision ? (
                   decision ? (
-                    `Architecture decision recorded by ${decision.decidedByUserId} as repository-maintainer.`
+                    `Architecture decision recorded by ${decision.decidedByUserId}${asRoles}.`
                   ) : (
                     'Your authenticated acceptance records decision-owner review. The source design remains a proposal until you approve.'
                   )
@@ -992,9 +994,9 @@ export function RuntimeEvidencePanel({
                   )
                 ) : s.generatedPlan ? (
                   decision ? (
-                    `Plan review recorded by ${decision.decidedByUserId} as stack-integration-owner.`
+                    `Plan review recorded by ${decision.decidedByUserId}${asRoles}.`
                   ) : (
-                    'Independent plan review pending: accepting below records your authenticated review as stack-integration-owner. The daemon only collected setup facts.'
+                    `Independent plan review pending: accepting below records your authenticated review${asRoles}. The daemon only collected setup facts.`
                   )
                 ) : (
                   <>
@@ -1105,8 +1107,8 @@ export function RuntimeEvidencePanel({
                         attestation: s.candidateCheckpoint
                           ? `I reviewed the candidate evidence against every checkpoint requirement as ${reviewerRoles?.join(', ')}.`
                           : s.architectureDecision
-                            ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
-                            : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.',
+                            ? `I reviewed the exact proposal, source references, scope and retained obligations${asRoles}. I authorize these decisions and any stated clause staging.`
+                            : `I reviewed the saved plan, bindings, decisions, reviewer assignments and resources${asRoles}.`,
                       }
                     : {})}
                   {...(s.candidateCheckpoint && reviewerRoles

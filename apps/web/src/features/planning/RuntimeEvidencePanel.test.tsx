@@ -300,6 +300,17 @@ it('discovers an editable draft, opens setup, and only persists after explicit s
 });
 
 it('separates saved readiness, evidence generation and explicit independent plan acceptance', async () => {
+  // The panel names the plan checkpoint and its reviewer role as the map declares them (R-F2).
+  const planSubject = {
+    subject: { kind: 'checkpoint', sourceId: 'PLAN-OK' },
+    title: 'Plan accepted',
+    profile: 'plan-approval',
+    requirements: ['Saved plan reviewed'],
+    reviewerRoles: ['plan-owner'],
+    testedRepositories: [],
+    cases: [],
+    issues: [],
+  };
   const saved = {
     roadmapId: runtimeId,
     name: 'Cross-project test',
@@ -311,7 +322,7 @@ it('separates saved readiness, evidence generation and explicit independent plan
   const facts = {
     ...submission,
     id: 'generated-plan',
-    subject: { kind: 'checkpoint', sourceId: 'STACK-PLAN-ACCEPTED' },
+    subject: { kind: 'checkpoint', sourceId: 'PLAN-OK' },
     reviewers: [],
     generatedPlan: {
       kind: 'saved-plan-v1',
@@ -329,8 +340,9 @@ it('separates saved readiness, evidence generation and explicit independent plan
   };
   const ready = {
     ...view(),
+    subjects: [...view().subjects, planSubject],
     submissions: [],
-    planAcceptance: { checkpoint: 'STACK-PLAN-ACCEPTED', roadmaps: [saved] },
+    planAcceptance: { checkpoint: 'PLAN-OK', roadmaps: [saved] },
   };
   const pending = {
     ...ready,
@@ -375,8 +387,10 @@ it('separates saved readiness, evidence generation and explicit independent plan
     />,
   );
   await screen.findByText('Saved configuration is ready to generate plan evidence.');
+  screen.getByRole('heading', { name: 'Saved plan acceptance · PLAN-OK' });
   fireEvent.click(screen.getByRole('button', { name: 'Generate plan-acceptance evidence' }));
   await screen.findByText('Evidence generated — awaiting your plan review.');
+  screen.getByText(/records your authenticated review as plan-owner\./, { selector: 'p' });
   expect(JSON.parse(String(vi.mocked(request).mock.calls[1]?.[2]?.body))).toEqual({
     roadmapId: runtimeId,
     definitionRevision: 3,
@@ -389,7 +403,7 @@ it('separates saved readiness, evidence generation and explicit independent plan
   });
   expect(accept.hasAttribute('disabled')).toBe(true);
   const reviewed = screen.getByRole('checkbox', {
-    name: /I reviewed the saved plan/,
+    name: /I reviewed the saved plan, .* as plan-owner\./,
     hidden: true,
   });
   // Generating reveals the new submission, which reads its record for review.
@@ -400,6 +414,7 @@ it('separates saved readiness, evidence generation and explicit independent plan
   fireEvent.click(accept);
   await screen.findByText(/Plan evidence accepted. No further save or review/);
   expect(calls(/decide$/)).toHaveLength(1);
+  await screen.findByText('Plan review recorded by operator as plan-owner.');
 });
 
 it('explains missing saved setup and disables plan evidence generation', async () => {

@@ -85,7 +85,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
 | [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
-| [R-H4](#r-h4) | P2 | M | partial (increment 1 done: the evidence view, LIVE-29, 1.37 MB accepted) | Lighter evidence and definition storage |
+| [R-H4](#r-h4) | P2 | M | partial (increment 1 done: the evidence view, LIVE-29, 1.37 MB accepted; the rest building on `p3/rh4`) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
@@ -3747,6 +3747,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **"Canonical digests at write time" is profiled once** (`controller:replay --evidence-view`) **and dropped if `canonicalDefinition` is under 5% of CPU.** The generation digest is already stored at write time, and the one remaining recomputation (`runtimeInputChanges`) is memoized and runs over about 95 KB.
   - *Change, as separate commits:* (1) the head type and a pure `submissionHead` in the domain, its persisted schema and record kind; (2) the migration and its preservation tests; (3) storage: `addSubmission` writes record and head in one transaction, `submissions()` reads heads, `submission(id)` stays the full read, `SubmissionCache` is deleted, and `db:verify` recomputes every head from its record; the callers move to heads; (4) the measurement and this entry.
   - **Done when:** (a) a structural test: nothing outside `submission(id)` and `db:verify` reads `evidence_submissions.record_json`; (b) on a fresh snapshot, measured cold (the first read after an insert, and inside an evidence command's transaction), the roadmap view and the cross-project preview decode at most 0.5 MB of evidence, against 9.3 MB; (c) retained evidence memory is at most 1 MB per map; (d) `db:verify` on a live copy finds no head mismatch; (e) the evidence-view golden and every replay are unchanged.
+  - **Build (P3 wave 1, branch `p3/rh4`), in progress.**
+    - *Commit 1, the head:* `EvidenceSubmissionHead` and the pure `submissionHead` in the domain (each artifact becomes `{name, digest, bytes, blank}`: its contents' UTF-8 size, `utf8ByteLength`, and whether `trim()` leaves nothing), and its contract `evidenceSubmissionHeadSchema`, pinned to the domain type. The record kind is registered with the table in commit 2, since `db:verify`'s registry test needs every kind to have a table.
 
 ### R-H5
 

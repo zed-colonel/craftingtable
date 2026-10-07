@@ -1,4 +1,5 @@
 import type { WorkspaceId, UserId, SourceRepositoryId } from './ids.js';
+import { utf8ByteLength } from './bounded-text.js';
 /** Approval grants bounded local fixture execution, never a test pass or Kata authority. */
 export interface NativeVerificationApproval {
   readonly id: string;
@@ -133,6 +134,36 @@ export interface EvidenceSubmission {
   };
   readonly createdAt: string;
   readonly createdByUserId: UserId;
+}
+/** An artifact as a submission's head lists it: everything but its contents (R-H4). */
+export interface EvidenceArtifactHead {
+  readonly name: string;
+  readonly digest: string;
+  /** The contents' size in UTF-8 bytes. */
+  readonly bytes: number;
+  /** The contents are empty or only whitespace, so they evidence nothing. */
+  readonly blank: boolean;
+}
+/**
+ * A submission without its artifacts' contents (R-H4). Storage keeps one beside each record,
+ * written with it and immutable like it; the views, the decision inbox and the policies read
+ * heads, and only a submission's own review reads the full record. An architecture
+ * decision's text stays in the head.
+ */
+export interface EvidenceSubmissionHead extends Omit<EvidenceSubmission, 'artifacts'> {
+  readonly artifacts: readonly EvidenceArtifactHead[];
+}
+/** The head of a submission record: each artifact's contents become their size and blankness. */
+export function submissionHead(s: EvidenceSubmission): EvidenceSubmissionHead {
+  return {
+    ...s,
+    artifacts: s.artifacts.map((a) => ({
+      name: a.name,
+      digest: a.digest,
+      bytes: utf8ByteLength(a.content),
+      blank: a.content.trim() === '',
+    })),
+  };
 }
 export interface EvidenceDecision {
   /** Recorded checkpoint reviewer roles; candidate provenance distinguishes operator and delegated agent review. */

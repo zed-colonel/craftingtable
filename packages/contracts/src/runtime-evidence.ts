@@ -235,6 +235,21 @@ export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExte
   sliceMergeSha: name.optional(),
 });
 /**
+ * A submission's stored head (R-H4): the record with each artifact's contents replaced by
+ * their size in UTF-8 bytes and whether they are blank. Storage keeps one beside each record.
+ */
+export const evidenceSubmissionHeadSchema = z.strictObject({
+  ...evidenceSubmissionSchema.shape,
+  artifacts: z.array(
+    z.strictObject({
+      name,
+      digest,
+      bytes: z.number().int().nonnegative(),
+      blank: z.boolean(),
+    }),
+  ),
+});
+/**
  * A submission as the evidence view lists it (R-H4, LIVE-29): the record without its bodies,
  * which are the artifact contents and an architecture decision's text. The full record is
  * `GET …/runtime/submissions/:submissionId`.

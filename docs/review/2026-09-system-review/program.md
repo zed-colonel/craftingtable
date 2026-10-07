@@ -1029,6 +1029,27 @@ Exit criteria:
   unblock" without leaving the page.
 - Each decision command is posted from exactly one component.
 
+**Design pass and build order (2026-10-06).** Every P3 item's design, or for the later UI and
+cleanup items the decisions only, is recorded in its register entry as "decided by the operator
+2026-10-06 (P3 design pass)". Build from those entries. The order:
+
+1. **Wave 1, in parallel** (one worktree per item, at most three building at once, each independently
+   reviewed before it is integrated): R-G13 increment 4, R-H4 (rest), R-F2 parts 1 to 4, R-G11,
+   R-G10, R-G14, R-E5a, R-C7.
+   - Migrations: 0038 R-G13 increment 4, 0039 R-H4. If a later merge finds its number taken, it
+     renumbers while still pending.
+   - R-G10's split of `operations.ts` is its last commit. R-G14 starts with its Codex experiment and
+     brings the result to the operator before building Codex's route.
+   - R-C7 and R-G11 both touch `step-outcome.ts` and `work-cycle-service.ts`; whichever lands second
+     updates the AQ scenario's expected stops.
+   - Mutation runs use the memory-capped runner (a systemd scope with `MemoryMax`, a heap cap and a
+     process-group kill on timeout), never alongside the gate.
+2. **After R-F2's core:** R-C6. **After R-G13 increment 4 and R-G14:** R-G6, carrying R-F2 part 6.
+   **After R-H4 and R-G13 increment 4:** R-H6 (migration 0040).
+3. **The UI chain, one at a time:** R-A6's rest (carrying R-F2 part 5, and R-G10's D3 after R-G10's
+   part D), then R-E3b, then R-E4, then R-E5b.
+4. **Last:** R-H5.
+
 ### P4: Controller kernel and decomposition (3+ weeks, behind the harness)
 
 R-B4 (pure decision core, stop record and step history), R-B5 (event-driven kernel), R-B6

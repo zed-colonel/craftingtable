@@ -510,6 +510,50 @@ describe('worktrees and diffs', () => {
 });
 
 describe('agent runs', () => {
+  it("launches with the outside sources of the operator's settings file (R-G14)", async () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'craftingtable-sources-'));
+    directories.push(configDir);
+    writeFileSync(
+      join(configDir, 'outside-sources.json'),
+      JSON.stringify({
+        version: 1,
+        sources: [{ kind: 'cargo', extraHosts: ['mirror.example.org'] }],
+      }),
+    );
+    const configured = await ready({ env: { CRAFTINGTABLE_CONFIG_DIR: configDir } });
+    const first = await registerAndWorktree(configured, fixtureRepository());
+    const started = await configured.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${configured.workspaceId}/work-items/${configured.workItemId}/runs`,
+      headers: mutationHeaders(configured),
+      payload: { worktreeId: first.worktree.id, role: 'implement' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const { dataDir } = configured.context.config;
+    expect(configured.backend.launches[0]?.outsideSources).toEqual([
+      {
+        kind: 'cargo',
+        hosts: ['index.crates.io', 'static.crates.io', 'mirror.example.org'],
+        caches: [join(dataDir, 'cargo-home', 'registry'), join(dataDir, 'cargo-home', 'git')],
+      },
+    ]);
+    // Removing the source: the launch names none, so the sandbox reaches no host.
+    writeFileSync(
+      join(configDir, 'outside-sources.json'),
+      JSON.stringify({ version: 1, sources: [] }),
+    );
+    const removed = await ready({ env: { CRAFTINGTABLE_CONFIG_DIR: configDir } });
+    const second = await registerAndWorktree(removed, fixtureRepository());
+    const again = await removed.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${removed.workspaceId}/work-items/${removed.workItemId}/runs`,
+      headers: mutationHeaders(removed),
+      payload: { worktreeId: second.worktree.id, role: 'implement' },
+    });
+    expect(again.statusCode, again.body).toBe(200);
+    expect(removed.backend.launches[0]?.outsideSources).toEqual([]);
+  });
+
   it('starts a run with a composed brief, streams events, accepts follow-ups, and finishes', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());
@@ -558,6 +602,15 @@ describe('agent runs', () => {
       join(dataDir, 'state'),
       join(dataDir, 'backups'),
       configDir,
+    ]);
+    // With no outside sources file, the one source is cargo, fetching into the daemon's own
+    // Cargo home (R-G14).
+    expect(launch?.outsideSources).toEqual([
+      {
+        kind: 'cargo',
+        hosts: ['index.crates.io', 'static.crates.io'],
+        caches: [join(dataDir, 'cargo-home', 'registry'), join(dataDir, 'cargo-home', 'git')],
+      },
     ]);
 
     await waitFor(

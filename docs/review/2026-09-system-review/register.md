@@ -3307,7 +3307,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G14
 
-**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: partial (steps 1 and 2, 2026-10-07; left: steps 3 to 6)
+**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: partial (steps 1 to 3, 2026-10-07; left: steps 4 to 6)
 
 - **Added 2026-09-28** (operator decision, after the R-G5 batch). Claude's sandbox reaches crates.io and nothing else, and that list is fixed in the adapter (`SANDBOX_ALLOWED_DOMAINS`).
 - **Change:**
@@ -3343,8 +3343,45 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Escalation:* in `auto`, after the sandbox refused `curl https://example.com`, the model asked to run it outside the sandbox. Codex's reviewer approved it (`item/autoApprovalReview`, "risk: low") and the command reached example.com (HTTP 200). The prompt claimed the owner's authorization, which a brief or repository text can also claim. `edit-only` (`approvalPolicy: never`) could not escalate. So in `auto` the source limit holds only until the reviewer approves an escalation. This goes back to the operator, as decided above.
   - *Noted:* both modes emitted no `commandExecution` item for a refused write, though the model reported it failed, so the journal does not show such a command. Permission profiles are Beta, `features.network_proxy` is experimental, and `permissions` is an experimental API field (the adapter already opts in). `extends = ":workspace"` also makes `$TMPDIR` and `/tmp` writable, as today. Codex accepts wildcard host patterns; CraftingTable passes only exact hosts (step 3).
   - *Conclusion:* step 4 gives Codex this per-run profile with the configured sources. No `ct-fetch` is needed.
+- **Codex `auto` escalations, decided by the operator 2026-10-07** (after the experiment): Codex `auto` will never escalate. It gets approval policy `never`, as `edit-only` already does, so leaving the sandbox is only ever the operator's explicit `unrestricted` choice. Reasons:
+  - an approved escalation runs fully unsandboxed, for both network and files;
+  - in the experiment, the reviewer approved one on an "owner authorized" claim that cannot be checked;
+  - Claude already has `allowUnsandboxedCommands: false`;
+  - step 4's profile makes `cargo fetch` work inside the sandbox.
+
+  This is built in step 4. Step 4's live check includes a Codex `auto` session that commits from its worktree.
 - **Progress (2026-10-07), step 2: `outsideSources` on the launch request.** `AgentLaunchRequest.outsideSources` lists the sources a sandboxed command may reach, each with its kind, exact hosts and caches (`packages/agents/src/outside-sources.ts`, which also holds each kind's fixed hosts and `cargoOutsideSource(cargoHome, extraHosts)`). The Claude adapter builds `allowedDomains` from the sources' hosts and `allowWrite` from their caches, which it creates before launch, in place of `SANDBOX_ALLOWED_DOMAINS`. Absent sources mean the `cargo` source in the run's Cargo home, as before; an empty list means none. Nothing passes them yet, so behaviour is unchanged.
   - Tests (`claude-code/arguments.test.ts`): named sources set exactly the hosts and caches, and an empty list gives none under the strict allowlist. On every posture, the arguments for the default `cargo` source equal those of a launch without sources. `claude-code/backend.test.ts`: the sources' caches are created, and the run's Cargo home is left alone. The first and third fail when the adapter ignores the request's sources.
+- **The settings file, decided by the operator 2026-10-07** (asked before step 3, which the design left open):
+  - **Name:** `outside-sources.json` in the settings directory (`CRAFTINGTABLE_CONFIG_DIR`, or `craftingtable` under the XDG config home).
+  - **Shape:** `{ "version": 1, "sources": [ { "kind": "cargo", "extraHosts": ["mirror.example.org"] } ] }`. `extraHosts` is optional. An unknown key or kind, or a kind named twice, is refused.
+  - **Caches** are fixed per kind and owned by the daemon (`cargo`: `<data>/cargo-home/registry` and `/git`). They are checked not to overlap the daemon's other roots.
+  - **No file** means `cargo` with its own hosts, as today. `"sources": []` means none.
+  - **Hosts:** lowercase letters, digits and inner hyphens; no wildcard, IP address, port or trailing dot; at least three labels (so no apex such as `crates.io` or `example.com`; without a public-suffix list, `foo.co.uk` would pass). A host the kind already has is listed once.
+  - **Refused start:** an invalid file (bad JSON, unknown kind or key, a bad host, a link or non-regular file, over 64 KiB) makes the daemon refuse to start, with a message naming the file and the problem.
+- **Progress (2026-10-07), step 3: parsing, validation and wiring.**
+  - `config.ts` reads the file at start into `execution.outsideSources`, as decided above. The file is opened once, without following a link and without blocking on a pipe, and read bounded.
+  - It is never read from where agents write: a settings file inside the worktree, runs or agents' temporary root refuses the start.
+  - Each source's caches must lie in the data directory, as written and through links, and must not overlap the database's directory, the default backups, runs, worktrees, check logs, the agents' temporary root or the settings directory. Otherwise the start is refused.
+  - The agent run service passes the sources on every launch, so the Claude adapter receives them. Codex does not yet (step 4).
+  - Tests (`config.test.ts`):
+    - no file gives today's source;
+    - `[]` gives none;
+    - extra hosts are added once each;
+    - every malformed file, kind, key and host is refused with the file named;
+    - a link, a dangling link, a directory and a file over 64 KiB are refused, and exactly 64 KiB is read;
+    - a settings directory in the worktree or runs root is refused;
+    - a Cargo home linked into the database's directory, the backups or out of the data directory is refused;
+    - with no source, nothing is refused.
+
+    Each check was confirmed by mutation: removing it fails its test.
+  - Tests (`server-execution-runs.test.ts`):
+    - a run launches with the default `cargo` source;
+    - after a start with extra hosts, it launches with them;
+    - after a restart with `"sources": []`, it launches with none.
+
+    Both fail without the wiring.
+  - Not covered here: the backup root is a storage setting the operator can move while the daemon runs, and the caches are checked only against the default backups directory at start.
 
 ### R-G15
 

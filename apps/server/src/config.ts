@@ -1,7 +1,22 @@
-import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readlinkSync,
+  readSync,
+  realpathSync,
+} from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  cargoOutsideSource,
+  OUTSIDE_SOURCE_HOSTS,
+  type OutsideSource,
+} from '@craftingtable/agents';
 
 /** Worktree, run, Git, and agent-backend settings for the execution loop. */
 export interface ExecutionConfig {
@@ -68,6 +83,11 @@ export interface ExecutionConfig {
    * of the daemon's roots (TS-H3).
    */
   readonly agentTemporaryRoot: string;
+  /**
+   * The outside sources sandboxed agent commands may reach, and whose caches they may write
+   * (R-G14): from `outside-sources.json` in the settings directory, read at start.
+   */
+  readonly outsideSources?: readonly OutsideSource[];
 }
 
 export interface TlsConfig {
@@ -448,6 +468,144 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
 }
 
 /**
+ * The operator's outside sources file in the settings directory (R-G14; operator decision
+ * 2026-10-07): `{ "version": 1, "sources": [{ "kind": "cargo", "extraHosts": [...] }] }`.
+ * Read at start; without it, the one source is `cargo` with its own hosts.
+ */
+export const OUTSIDE_SOURCES_FILE = 'outside-sources.json';
+const OUTSIDE_SOURCES_MAX_BYTES = 64 * 1024;
+/**
+ * An exact host name: lowercase letters, digits and inner hyphens in each label, at least three
+ * labels, so no wildcard, IP address, port or apex domain (`crates.io`'s apex is its write API).
+ * The last label is never all digits, which refuses an IPv4 address.
+ */
+const EXACT_HOST =
+  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){2,}(?=[a-z0-9-]*[a-z-])[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * The sources the operator configured (R-G14). The file is never read from where agents write,
+ * a file the daemon cannot take whole refuses the start, and each source's caches lie in the
+ * data directory apart from the database, the backups and the daemon's other roots.
+ */
+function outsideSourcesSetting(
+  configDir: string,
+  dataDir: string,
+  execution: ExecutionConfig,
+): readonly OutsideSource[] {
+  const file = join(configDir, OUTSIDE_SOURCES_FILE);
+  const refuse: (problem: string) => never = (problem) => {
+    throw new Error(`The outside sources file ${file} ${problem}`);
+  };
+  const location = comparedPath(file);
+  for (const [label, root] of [
+    ['worktree root', execution.worktreeRoot],
+    ['runs root', execution.runsRoot],
+    ["agents' temporary root", execution.agentTemporaryRoot],
+  ] as const)
+    if (equalOrWithinCompared(location, comparedPath(root)))
+      refuse(`must lie outside the ${label} ${root}, which agents write`);
+  const contents = readOutsideSourcesFile(file, refuse);
+  const sources =
+    contents === undefined
+      ? [cargoOutsideSource(execution.cargoHome)]
+      : parseOutsideSources(contents, execution.cargoHome, refuse);
+  const owned = comparedPath(dataDir);
+  const daemonFiles = [
+    join(dataDir, DATABASE_DIRECTORY),
+    join(dataDir, DATABASE_BACKUP_DIRECTORY),
+    execution.runsRoot,
+    execution.worktreeRoot,
+    execution.checkLogRoot,
+    execution.agentTemporaryRoot,
+    configDir,
+  ].map((path) => comparedPath(path));
+  for (const source of sources)
+    for (const cache of source.caches) {
+      const compared = comparedPath(cache);
+      if (
+        !equalOrWithin(compared.written, owned.written) ||
+        !equalOrWithin(compared.resolved, owned.resolved) ||
+        daemonFiles.some((path) => overlapCompared(compared, path))
+      )
+        throw new Error(
+          `The ${source.kind} source's cache ${cache} must lie in the data directory ${dataDir}, apart from the daemon's other files`,
+        );
+    }
+  return sources;
+}
+
+/** The file's JSON, or undefined when there is none; never through a link, at most 64 KiB. */
+function readOutsideSourcesFile(file: string, refuse: (problem: string) => never): unknown {
+  let descriptor: number;
+  try {
+    // Non-blocking, so a pipe in its place cannot hold the start.
+    descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return undefined;
+    if (code === 'ELOOP') refuse('must be a regular file, not a link');
+    refuse(`could not be read: ${code ?? String(error)}`);
+  }
+  let text: string;
+  try {
+    const status = fstatSync(descriptor);
+    if (!status.isFile()) refuse('must be a regular file');
+    const buffer = Buffer.alloc(OUTSIDE_SOURCES_MAX_BYTES + 1);
+    let length = 0;
+    for (let read = -1; read !== 0 && length < buffer.length; length += read)
+      read = readSync(descriptor, buffer, length, buffer.length - length, length);
+    if (length > OUTSIDE_SOURCES_MAX_BYTES) refuse('must be at most 64 KiB');
+    text = buffer.subarray(0, length).toString('utf8');
+  } finally {
+    closeSync(descriptor);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return refuse('is not valid JSON');
+  }
+}
+
+/** Known kinds only, each once, with exact extra hosts; nothing else is accepted. */
+function parseOutsideSources(
+  value: unknown,
+  cargoHome: string,
+  refuse: (problem: string) => never,
+): OutsideSource[] {
+  if (!isJsonObject(value)) refuse('must hold a JSON object');
+  for (const key of Object.keys(value))
+    if (key !== 'version' && key !== 'sources') refuse(`has an unknown key ${JSON.stringify(key)}`);
+  if (value.version !== 1) refuse('must say "version": 1');
+  if (!Array.isArray(value.sources)) refuse('must list its "sources"');
+  const kinds = new Set<string>();
+  return value.sources.map((entry: unknown, index) => {
+    const at = `source ${index + 1}`;
+    if (!isJsonObject(entry)) refuse(`${at} must be a JSON object`);
+    for (const key of Object.keys(entry))
+      if (key !== 'kind' && key !== 'extraHosts')
+        refuse(`${at} has an unknown key ${JSON.stringify(key)}`);
+    const kind = entry.kind;
+    if (typeof kind !== 'string' || !Object.hasOwn(OUTSIDE_SOURCE_HOSTS, kind))
+      refuse(
+        `${at} has an unknown kind ${JSON.stringify(kind) ?? '(none)'}; known: ${Object.keys(OUTSIDE_SOURCE_HOSTS).join(', ')}`,
+      );
+    if (kinds.has(kind)) refuse(`names ${JSON.stringify(kind)} twice`);
+    kinds.add(kind);
+    const extraHosts = entry.extraHosts ?? [];
+    if (!Array.isArray(extraHosts)) refuse(`${at}'s "extraHosts" must be a list of host names`);
+    for (const host of extraHosts as unknown[])
+      if (typeof host !== 'string' || !EXACT_HOST.test(host))
+        refuse(
+          `${at} lists ${JSON.stringify(host)?.slice(0, 300)}, which is not an exact lowercase host name of at least three labels (no wildcard, IP address, port or apex domain)`,
+        );
+    return cargoOutsideSource(cargoHome, extraHosts as string[]);
+  });
+}
+
+/**
  * Settings of the removed CT-04A1 repository inspector (R-B8). They no longer do anything;
  * startup names any that are still set, because `CRAFTINGTABLE_GIT_BIN` differs from the live
  * `CRAFTINGTABLE_GIT_EXECUTABLE` by one word and would otherwise be ignored silently.
@@ -565,8 +723,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
 
   const dataDir = dataDirectory(env);
   const configDir = configDirectory(env);
+  const roots = executionConfig(env, dataDir);
   const execution: ExecutionConfig = Object.freeze({
-    ...executionConfig(env, dataDir),
+    ...roots,
+    outsideSources: outsideSourcesSetting(configDir, dataDir, roots),
     protectedReads: [
       join(dataDir, DATABASE_DIRECTORY),
       join(dataDir, DATABASE_BACKUP_DIRECTORY),

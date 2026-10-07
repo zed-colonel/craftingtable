@@ -1,4 +1,12 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -336,4 +344,166 @@ it('validates Codex configuration like Claude configuration', () => {
       CRAFTINGTABLE_CODEX_MODELS: 'custom=Custom',
     }).execution,
   ).toMatchObject({ codexExecutable: '/tools/codex', codexModels: 'custom=Custom' });
+});
+
+describe('outside sources (R-G14)', () => {
+  const directories: string[] = [];
+  afterEach(() => {
+    for (const directory of directories.splice(0))
+      rmSync(directory, { recursive: true, force: true });
+  });
+  /** A data and a settings directory of their own, the file written as given. */
+  function settings(contents?: string) {
+    const base = mkdtempSync(join(tmpdir(), 'craftingtable-sources-'));
+    directories.push(base);
+    const data = join(base, 'data');
+    const configDir = join(base, 'config');
+    mkdirSync(data);
+    mkdirSync(configDir);
+    const file = join(configDir, 'outside-sources.json');
+    if (contents !== undefined) writeFileSync(file, contents);
+    const env = { CRAFTINGTABLE_DATA_DIR: data, CRAFTINGTABLE_CONFIG_DIR: configDir };
+    return { base, data, configDir, file, env, read: () => configFromEnv(env).execution };
+  }
+  const json = (value: unknown) => JSON.stringify(value);
+
+  it('is the cargo source with its own hosts in the daemon Cargo home when there is no file', () => {
+    const { data, read } = settings();
+    expect(read().outsideSources).toEqual([
+      {
+        kind: 'cargo',
+        hosts: ['index.crates.io', 'static.crates.io'],
+        caches: [join(data, 'cargo-home', 'registry'), join(data, 'cargo-home', 'git')],
+      },
+    ]);
+  });
+
+  it('reads the sources the file names: none, or a kind with extra exact hosts', () => {
+    expect(settings(json({ version: 1, sources: [] })).read().outsideSources).toEqual([]);
+    const { data, read } = settings(
+      json({
+        version: 1,
+        sources: [
+          { kind: 'cargo', extraHosts: ['mirror.example.org', 'static.crates.io', 'a.b.c.d'] },
+        ],
+      }),
+    );
+    expect(read().outsideSources).toEqual([
+      {
+        kind: 'cargo',
+        // A host the kind already has is listed once.
+        hosts: ['index.crates.io', 'static.crates.io', 'mirror.example.org', 'a.b.c.d'],
+        caches: [join(data, 'cargo-home', 'registry'), join(data, 'cargo-home', 'git')],
+      },
+    ]);
+    expect(
+      settings(json({ version: 1, sources: [{ kind: 'cargo' }] })).read().outsideSources,
+    ).toHaveLength(1);
+  });
+
+  it('refuses to start on a file it cannot take whole, naming the file and the problem', () => {
+    const refusals: [string, RegExp][] = [
+      ['{', /not valid JSON/],
+      [json([]), /JSON object/],
+      [json({ version: 2, sources: [] }), /"version": 1/],
+      [json({ sources: [] }), /"version": 1/],
+      [json({ version: 1 }), /"sources"/],
+      [json({ version: 1, sources: {} }), /"sources"/],
+      [json({ version: 1, sources: [], extra: true }), /unknown key "extra"/],
+      [json({ version: 1, sources: ['cargo'] }), /source 1/],
+      [json({ version: 1, sources: [{ kind: 'npm' }] }), /unknown kind "npm"/],
+      [json({ version: 1, sources: [{ kind: 'toString' }] }), /unknown kind "toString"/],
+      [json({ version: 1, sources: [{}] }), /unknown kind/],
+      [json({ version: 1, sources: [{ kind: 'cargo' }, { kind: 'cargo' }] }), /"cargo" twice/],
+      [json({ version: 1, sources: [{ kind: 'cargo', hosts: [] }] }), /unknown key "hosts"/],
+      [json({ version: 1, sources: [{ kind: 'cargo', extraHosts: 'a.b.c' }] }), /"extraHosts"/],
+    ];
+    for (const host of [
+      '*.example.org',
+      '**.example.org',
+      '*',
+      '10.0.0.1',
+      '1.2.3.4',
+      'mirror.example.org:8080',
+      '[::1]',
+      '::1',
+      'example.org',
+      'crates.io',
+      'localhost',
+      'Mirror.example.org',
+      'mirror.example.org.',
+      '-bad.example.org',
+      'bad-.example.org',
+      'mirror..example.org',
+      'mirror_1.example.org',
+      `${'a'.repeat(64)}.example.org`,
+      `${'abcdefghi.'.repeat(26)}org`,
+      '',
+      ' mirror.example.org',
+      'https://mirror.example.org',
+      7,
+      null,
+    ])
+      refusals.push([
+        json({ version: 1, sources: [{ kind: 'cargo', extraHosts: [host] }] }),
+        /exact lowercase host name/,
+      ]);
+    for (const [contents, problem] of refusals) {
+      const { file, read } = settings(contents);
+      expect(read, contents).toThrow(problem);
+      expect(read, contents).toThrow(file);
+    }
+  });
+
+  it('refuses a link, a directory or an oversized file in its place', () => {
+    const linked = settings();
+    const elsewhere = join(linked.base, 'elsewhere.json');
+    writeFileSync(elsewhere, json({ version: 1, sources: [] }));
+    symlinkSync(elsewhere, linked.file);
+    expect(linked.read).toThrow(/regular file/);
+    // A link that names nothing is not an absent file.
+    const dangling = settings();
+    symlinkSync(join(dangling.base, 'missing.json'), dangling.file);
+    expect(dangling.read).toThrow(/regular file/);
+    const directory = settings();
+    mkdirSync(directory.file);
+    expect(directory.read).toThrow(/regular file/);
+    const padded = `{"version": 1, "sources": []}${' '.repeat(64 * 1024)}`;
+    expect(settings(padded).read).toThrow(/64 KiB/);
+    expect(settings(padded.slice(0, 64 * 1024)).read().outsideSources).toEqual([]);
+  });
+
+  it("never reads the file from where agents write, and keeps a source's caches off the daemon's other files", () => {
+    // The settings directory inside the worktree root, which agents write.
+    const inWorktree = settings();
+    expect(() =>
+      configFromEnv({
+        ...inWorktree.env,
+        CRAFTINGTABLE_CONFIG_DIR: join(inWorktree.data, 'worktrees', 'repo', '.craftingtable'),
+      }),
+    ).toThrow(/outside-sources\.json.*worktree/);
+    expect(() =>
+      configFromEnv({
+        ...inWorktree.env,
+        CRAFTINGTABLE_RUNS_ROOT: inWorktree.configDir,
+      }),
+    ).toThrow(/outside-sources\.json.*run/);
+    // A Cargo home that is a link into the database's directory, or the backups, is refused.
+    for (const target of ['state', 'backups']) {
+      const linked = settings(json({ version: 1, sources: [{ kind: 'cargo' }] }));
+      mkdirSync(join(linked.data, target));
+      symlinkSync(join(linked.data, target), join(linked.data, 'cargo-home'));
+      expect(linked.read, target).toThrow(/cache .* daemon's other files/);
+    }
+    // Nor one that leads out of the data directory, as the operator's own Cargo home would.
+    const outside = settings();
+    mkdirSync(join(outside.base, 'operator-cargo'));
+    symlinkSync(join(outside.base, 'operator-cargo'), join(outside.data, 'cargo-home'));
+    expect(outside.read).toThrow(/cache .* data directory/);
+    // Without a source, nothing is written there, so nothing is refused.
+    const none = settings(json({ version: 1, sources: [] }));
+    mkdirSync(join(none.data, 'state'));
+    symlinkSync(join(none.data, 'state'), join(none.data, 'cargo-home'));
+    expect(none.read().outsideSources).toEqual([]);
+  });
 });

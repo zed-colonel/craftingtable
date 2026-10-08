@@ -13,6 +13,7 @@ import {
   acceptAnyRecord,
   HistoricalRecordWriteError,
   observeDecodes,
+  startObservingDecodes,
   observeUpcasts,
   parseRecord,
   type PersistedRecordKind,
@@ -380,5 +381,17 @@ describe('persisted record registry (R-H3)', () => {
     expect(decoded[0]?.[2]).toBe(record);
     parseRecord('evidence-decision', json);
     expect(decoded).toHaveLength(1);
+    // Across awaits until stopped, with an inner read scope seen by both.
+    const outer: string[] = [];
+    const stop = startObservingDecodes((kind) => outer.push(kind));
+    parseRecord('evidence-decision', json);
+    observeDecodes(
+      (kind) => outer.push(`inner ${kind}`),
+      () => parseRecord('evidence-decision', json),
+    );
+    parseRecord('evidence-decision', json);
+    stop();
+    parseRecord('evidence-decision', json);
+    expect(outer).toEqual(['evidence-decision', 'inner evidence-decision', 'evidence-decision']);
   });
 });

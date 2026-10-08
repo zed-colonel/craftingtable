@@ -6,6 +6,7 @@ import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
 import { resolveScope, scopeCases, scopeRequirements } from '../src/services/execution-scope.js';
+import { acceptedEvidence } from '../src/services/runtime-evidence-policy.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -539,6 +540,91 @@ it('requires independently reviewed exact case coverage and distinguishes native
       rationale: 'Retry stale record.',
     }),
   ).rejects.toThrow('Environment, fixture');
+});
+it('counts no whitespace-only artifact as evidence or independent review, stored or migrated (R-H4)', async () => {
+  const f = await evidenceFixture(),
+    ws = f.state.workspaceId,
+    storage = f.state.context.storage;
+  const submit = (input: import('@craftingtable/contracts').EvidenceSubmissionRequest) =>
+    f.svc.submit(f.auth, ws, f.definitionId, input);
+  // Whitespace as trim() sees it, beyond ASCII.
+  const blank = ' \n\u00a0\u3000\u2028 ';
+  const blanked = (name: string) => ({
+    ...f.submission,
+    artifacts: f.submission.artifacts.map((a) => (a.name === name ? { ...a, content: blank } : a)),
+  });
+  await expect(submit(blanked('review'))).rejects.toThrow('independent review');
+  await expect(submit(blanked('log'))).rejects.toThrow('Missing artifact for requirement');
+  const submitted = await submit(f.submission);
+  const accepted = submitted.submissions[0]!.submission;
+  await f.svc.decide(f.auth, ws, f.definitionId, {
+    submissionId: accepted.id,
+    outcome: 'accepted',
+    rationale: 'Examined attached verification and independent review.',
+  });
+  const subject = accepted.subject;
+  expect(acceptedEvidence(storage, ws, f.definitionId, 1, subject)?.id).toBe(accepted.id);
+
+  // A newer accepted record whose review is blank, as an older release stored it, given its head
+  // by migration 0039's own fill: it does not count, so the earlier evidence still answers.
+  const record = storage.runtimeEvidence.submission(ws, f.definitionId, accepted.id)!;
+  const twin = {
+    ...record,
+    id: randomUUID(),
+    artifacts: record.artifacts.map((a) =>
+      a.name === 'review'
+        ? { ...a, content: blank, digest: createHash('sha256').update(blank).digest('hex') }
+        : a,
+    ),
+  };
+  const migration = readFileSync(
+    new URL(
+      '../../../packages/storage/migrations/0039-evidence-submission-heads.sql',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  const fill = migration.slice(
+    migration.indexOf('INSERT INTO evidence_submission_heads'),
+    migration.indexOf('ORDER BY s.rowid;') + 'ORDER BY s.rowid;'.length,
+  );
+  expect(fill).toContain('FROM evidence_submissions AS s ORDER BY s.rowid;');
+  const db = openDatabase(storage.databasePath);
+  try {
+    db.prepare('INSERT INTO evidence_submissions VALUES (?,?,?,?)').run(
+      twin.id,
+      ws,
+      twin.runtimeId,
+      JSON.stringify(twin),
+    );
+    db.prepare(
+      fill.replace(
+        'FROM evidence_submissions AS s ORDER BY',
+        'FROM evidence_submissions AS s WHERE s.id = ? ORDER BY',
+      ),
+    ).run(twin.id);
+    const decision = {
+      id: randomUUID(),
+      workspaceId: ws,
+      submissionId: twin.id,
+      outcome: 'accepted',
+      rationale: 'Accepted by an older release.',
+      decidedAt: new Date().toISOString(),
+      decidedByUserId: f.auth.user.id,
+    };
+    db.prepare('INSERT INTO evidence_decisions VALUES (?,?,?,?)').run(
+      decision.id,
+      ws,
+      twin.id,
+      JSON.stringify(decision),
+    );
+  } finally {
+    db.close();
+  }
+  const head = storage.runtimeEvidence.submissions(ws, f.definitionId)[0]!;
+  expect(head.id).toBe(twin.id);
+  expect(head.artifacts.find((a) => a.name === 'review')?.blank).toBe(true);
+  expect(acceptedEvidence(storage, ws, f.definitionId, 1, subject)?.id).toBe(accepted.id);
 });
 it('lists submissions without their bodies and reads a full record on demand (R-H4, LIVE-29)', async () => {
   const f = await evidenceFixture(),

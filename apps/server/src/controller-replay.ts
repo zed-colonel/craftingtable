@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -46,8 +47,9 @@ import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
  *       view with Git stubbed, and print its size and CPU (R-H4)
  *   pnpm controller:replay <snapshot.sqlite> --evidence-decode [--json <file>]  measure the
  *       evidence the roadmap view and the cross-project preview decode, cold and warm, and the
- *       decoded evidence kept afterwards; exit 1 over R-H4's bounds (R-H4). It needs
- *       NODE_OPTIONS='--expose-gc --max-old-space-size=2048'
+ *       decoded evidence kept afterwards; exit 1 when R-H4's done-when breaks or the self-check
+ *       against an emulated cache passes (R-H4); `--report <file>` writes each fault as a changed
+ *       record for the replay gate. It needs NODE_OPTIONS='--expose-gc --max-old-space-size=2048'
  *   pnpm controller:replay <snapshot.sqlite> --page-load [--json <file>]  load every work item
  *       page through the daemon's routes with Git stubbed, and print its requests and server
  *       time (R-D5)
@@ -231,7 +233,11 @@ async function pageLoad(snapshot: string, jsonPath?: string): Promise<number> {
   }
 }
 
-async function evidenceDecode(snapshot: string, jsonPath?: string): Promise<number> {
+async function evidenceDecode(
+  snapshot: string,
+  jsonPath?: string,
+  reportPath?: string,
+): Promise<number> {
   const gc = exposedCollector();
   if (!gc) {
     process.stderr.write(
@@ -239,33 +245,76 @@ async function evidenceDecode(snapshot: string, jsonPath?: string): Promise<numb
     );
     return 2;
   }
-  const copy = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
-  try {
-    const path = join(copy, 'snapshot.sqlite');
-    copyFileSync(snapshot, path);
-    const replay = await replayEvidenceDecodes(path, copy, snapshotTime(path), gc);
-    const { text, withinBounds } = formatEvidenceDecodes(replay);
-    process.stdout.write(text);
-    if (jsonPath) writeFileSync(jsonPath, `${JSON.stringify(replay, null, 2)}\n`, { mode: 0o600 });
-    return withinBounds ? 0 : 1;
-  } finally {
-    rmSync(copy, { recursive: true, force: true });
+  // The measurement, then the self-check: with each replaced cache put back it must fail, or
+  // its PASS proves nothing (R-H4 review M1). Each run has its own copy.
+  const replays = [];
+  for (const emulate of [undefined, 'count-keyed', 'id-keyed'] as const) {
+    const copy = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
+    try {
+      const path = join(copy, 'snapshot.sqlite');
+      copyFileSync(snapshot, path);
+      replays.push(await replayEvidenceDecodes(path, copy, snapshotTime(path), gc, emulate));
+    } finally {
+      rmSync(copy, { recursive: true, force: true });
+    }
   }
+  const [measured, ...checks] = replays.map((replay) => ({
+    replay,
+    ...formatEvidenceDecodes(replay),
+  }));
+  process.stdout.write(measured!.text);
+  for (const check of checks)
+    process.stdout.write(
+      `self-check against the ${check.replay.emulated} cache: ${check.passed ? 'PASSED, so the measurement cannot see it [FAIL]' : 'fails, as it must'}\n`,
+    );
+  if (jsonPath) writeFileSync(jsonPath, `${JSON.stringify(replays, null, 2)}\n`, { mode: 0o600 });
+  // For the replay gate: each fault is a changed record, and nothing is ever expected to change.
+  const faults = [
+    ...measured!.faults,
+    ...checks
+      .filter((check) => check.passed)
+      .map((check) => ({
+        key: `self-check ${check.replay.emulated}`,
+        fault: 'the measurement passes with the cache put back',
+      })),
+  ];
+  report(
+    {
+      records: measured!.replay.reads.length,
+      changed: faults.map(({ key, fault }) => ({
+        key,
+        now: fault,
+        nowSha256: createHash('sha256').update(canonicalJson(fault)).digest('hex'),
+      })),
+      missing: [],
+      duplicates: [],
+      notCompared: [],
+    },
+    reportPath,
+  );
+  return faults.length ? 1 : 0;
 }
 
 async function main(args: readonly string[]): Promise<number> {
   // pnpm runs the script in the server package; paths are relative to where it was invoked.
   const base = process.env.INIT_CWD ?? process.cwd();
   if (args.includes('--evidence-decode')) {
-    const [snapshotArg, flag, jsonArg, extra] = args.filter((arg) => arg !== '--evidence-decode');
+    const [snapshotArg, ...flags] = args.filter((arg) => arg !== '--evidence-decode');
     const snapshot = snapshotArg && resolve(base, snapshotArg);
-    if (!snapshot || !existsSync(snapshot) || extra || (flag && (flag !== '--json' || !jsonArg))) {
+    const options = new Map<string, string>();
+    for (let index = 0; index < flags.length; index += 2) {
+      const [flag, value] = [flags[index], flags[index + 1]];
+      if (!flag || !value || !['--json', '--report'].includes(flag) || options.has(flag))
+        options.set('invalid', '');
+      else options.set(flag, resolve(base, value));
+    }
+    if (!snapshot || !existsSync(snapshot) || options.has('invalid')) {
       process.stderr.write(
-        'Usage: pnpm controller:replay <snapshot.sqlite> --evidence-decode [--json <file>]\n',
+        'Usage: pnpm controller:replay <snapshot.sqlite> --evidence-decode [--json <file>] [--report <report.json>]\n',
       );
       return 2;
     }
-    return evidenceDecode(snapshot, jsonArg && resolve(base, jsonArg));
+    return evidenceDecode(snapshot, options.get('--json'), options.get('--report'));
   }
   const everyRun = args.includes('--every-run');
   const schedulerMode = args.includes('--scheduler');

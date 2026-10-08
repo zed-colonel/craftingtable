@@ -107,11 +107,100 @@ describe('validateManifest', () => {
       'snapshot 2026-01-04: "cases" must be a non-empty list, or "withoutGolden" must say why not.',
       'snapshot 2026-01-05 cases[1]: mode golden is listed twice.',
       'snapshot 2026-01-05 cases[2]: "goldenSha256" must be the golden\'s SHA-256 (64 hex digits).',
-      'snapshot 2026-01-05 cases[2]: "mode" must be one of golden, every-run, scheduler, evidence-view.',
+      'snapshot 2026-01-05 cases[2]: "mode" must be one of golden, every-run, scheduler, evidence-view, evidence-decode.',
       'snapshot 2026-01-05 cases[3] expected[1]: key k listed twice.',
       'snapshot 2026-01-05 cases[3] expected[1]: "nowSha256" must be the SHA-256 of the record\'s new value.',
       'snapshot 2026-01-05 cases[3] expected[1]: "reason" must say why it changed.',
     ]);
+  });
+});
+
+describe('a measurement case (R-H4)', () => {
+  it('has no golden and no expected change, and is listed once', () => {
+    expect(
+      validateManifest(
+        manifest([
+          snapshot({
+            cases: [
+              { mode: 'golden', golden: 'g.json', goldenSha256: HASH },
+              { mode: 'evidence-decode' },
+            ],
+          }),
+        ]),
+      ),
+    ).toEqual([]);
+    expect(
+      validateManifest(
+        manifest([
+          snapshot({
+            cases: [
+              { mode: 'evidence-decode', golden: 'g.json', goldenSha256: HASH, expected: [] },
+              { mode: 'evidence-decode' },
+            ],
+          }),
+        ]),
+      ),
+    ).toEqual([
+      'snapshot 2026-01-01 cases[0]: a evidence-decode case measures; it has no "golden".',
+      'snapshot 2026-01-01 cases[0]: a evidence-decode case measures; it has no "goldenSha256".',
+      'snapshot 2026-01-01 cases[0]: a evidence-decode case measures; it has no "expected".',
+      'snapshot 2026-01-01 cases[1]: mode evidence-decode is listed twice.',
+    ]);
+  });
+
+  it('runs the measurement on a copy with its environment, and fails on any fault it reports', async () => {
+    const root = scratch();
+    const data = join(root, 'data');
+    const directory = join(data, 'review', 'replay', '2026-01-01');
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, 'snapshot.sqlite'), 'not really sqlite');
+    const manifestFile = join(root, 'manifest.json');
+    writeFileSync(
+      manifestFile,
+      JSON.stringify(
+        manifest([
+          snapshot({ sha256: sha256('not really sqlite'), cases: [{ mode: 'evidence-decode' }] }),
+        ]),
+      ),
+    );
+    const gateWith = async (changed) => {
+      const calls = [];
+      const lines = [];
+      const exit = await main(['--manifest', manifestFile, '--out', join(root, 'out')], {
+        env: { XDG_DATA_HOME: data },
+        run: (command, args, options) => {
+          calls.push({ command, args, env: options.env });
+          if (args.includes('tsc')) return { status: 0 };
+          writeFileSync(
+            args[args.indexOf('--report') + 1],
+            JSON.stringify({ records: 6, changed, missing: [], duplicates: [], notCompared: [] }),
+          );
+          return { status: changed.length ? 1 : 0 };
+        },
+        log: (line) => lines.push(line),
+      });
+      return { exit, calls, lines };
+    };
+    const clean = await gateWith([]);
+    expect(clean.exit).toBe(0);
+    const replay = clean.calls[1];
+    expect(replay.args).toEqual([
+      '-s',
+      'controller:replay',
+      expect.stringContaining('snapshot.sqlite'),
+      '--evidence-decode',
+      '--report',
+      expect.stringContaining('2026-01-01-evidence-decode.report.json'),
+    ]);
+    expect(replay.args[2].startsWith(directory)).toBe(false);
+    expect(replay.env).toEqual({ NODE_OPTIONS: '--expose-gc --max-old-space-size=2048' });
+    const faulty = await gateWith([
+      { key: 'warm roadmap-view R', now: 'decodes 2 heads more than once', nowSha256: HASH },
+    ]);
+    expect(faulty.exit).toBe(1);
+    expect(faulty.lines.join('\n')).toContain(
+      `UNEXPECTED changed warm roadmap-view R (now ${HASH})`,
+    );
   });
 });
 

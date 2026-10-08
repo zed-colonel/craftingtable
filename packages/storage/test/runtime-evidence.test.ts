@@ -124,6 +124,26 @@ describe('evidence submissions and their heads (R-H4)', () => {
     }
     expect([rows('evidence_submissions'), rows('evidence_submission_heads')]).toEqual([1, 1]);
 
+    // A head the database refuses takes its record with it, outside a storage transaction too.
+    const refused = submission('map-1');
+    const database = openDatabase(f.databasePath);
+    try {
+      database.exec(
+        `CREATE TRIGGER refuse_head BEFORE INSERT ON evidence_submission_heads WHEN NEW.id = '${refused.id}' BEGIN SELECT RAISE(ABORT, 'head refused by the database'); END`,
+      );
+    } finally {
+      database.close();
+    }
+    const plain = openCraftingTableStorage(f.databasePath, () => {});
+    try {
+      expect(() => plain.runtimeEvidence.addSubmission(refused)).toThrow(
+        'head refused by the database',
+      );
+    } finally {
+      plain.close();
+    }
+    expect([rows('evidence_submissions'), rows('evidence_submission_heads')]).toEqual([1, 1]);
+
     // A malformed record is refused by the guard, with its contract error, before a head is made.
     const guarded = openCraftingTableStorage(f.databasePath, (kind) => {
       if (kind === 'evidence-submission') throw new Error('record refused');

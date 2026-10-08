@@ -8,7 +8,7 @@ import { generatedPlanIssues } from './plan-acceptance-policy.js';
 import { integratedSlice } from './scope-lineage.js';
 import { candidateApplies, candidateCheckpointIssues } from './checkpoint-candidate-policy.js';
 import { runtimeInputChanges } from './runtime-input-policy.js';
-import { snapshotCalculation } from './map-read-snapshot.js';
+import { mapReadSnapshot, snapshotCalculation } from './map-read-snapshot.js';
 import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
 import type {
   ConcurrencyDefinition,
@@ -381,6 +381,10 @@ export function acceptedEvidence(
   visiting = new Set<string>(),
   candidateScope?: ExecutionScope,
 ): EvidenceSubmissionHead | undefined {
+  // One read snapshot per call at least: the check recurses through prerequisites and staged
+  // decisions, each of which would otherwise decode the map's evidence heads again (R-H4,
+  // operator decision 2026-10-07). It is synchronous, so the snapshot never outlives a write.
+  tx = mapReadSnapshot(tx);
   // Preserve the recursion path in the key: a cached success must never bypass
   // circular-prerequisite detection. This cache lives only for this read pass.
   return snapshotCalculation(
@@ -567,6 +571,8 @@ export function prerequisiteEvaluation(
   subject: EvidenceSubject,
   visiting = new Set<string>(),
 ): PrerequisiteEvaluation {
+  // As in acceptedEvidence: one read snapshot per call at least (R-H4).
+  tx = mapReadSnapshot(tx);
   const key = `${subject.kind}:${subject.sourceId}`;
   if (visiting.has(key))
     return { gaps: [{ message: 'Circular evidence prerequisite.' }], inputs: [] };

@@ -306,13 +306,24 @@ let decodes: DecodeObserver | undefined;
  * --evidence-decode`); the daemon never observes.
  */
 export function observeDecodes<T>(observe: DecodeObserver, read: () => T): T {
-  const previous = decodes;
-  decodes = observe;
+  const stop = startObservingDecodes(observe);
   try {
     return read();
   } finally {
-    decodes = previous;
+    stop();
   }
+}
+
+/**
+ * Tells `observe` of every document decoded until the returned function is called, across
+ * awaits: for a measurement that must also see what starting the daemon's services decodes.
+ */
+export function startObservingDecodes(observe: DecodeObserver): () => void {
+  const previous = decodes;
+  decodes = observe;
+  return () => {
+    decodes = previous;
+  };
 }
 
 /** Decodes a JSON document column and brings it up to the current shape. */

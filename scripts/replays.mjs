@@ -13,7 +13,9 @@
  *      SHA-256 against the manifest, so the corpus itself is never opened and a re-recorded
  *      golden is a manifest change;
  *   2. runs `pnpm controller:replay <copy> [--every-run | --scheduler | --evidence-view]
- *      --check <golden> --report <file>` for each of its cases;
+ *      --check <golden> --report <file>` for each of its cases, and for a measurement case
+ *      (`evidence-decode`, R-H4), which has no golden, `--evidence-decode --report <file>`: its
+ *      report lists each way the measurement fails as a changed record, never expected;
  *   3. matches each changed record against the case's expected changes, by record key and
  *      the SHA-256 of the record's new canonical value, each with its reason.
  *
@@ -56,6 +58,16 @@ export const MODES = {
   'every-run': ['--every-run'],
   scheduler: ['--scheduler'],
   'evidence-view': ['--evidence-view'],
+  'evidence-decode': ['--evidence-decode'],
+};
+
+/**
+ * Modes that measure instead of comparing with a golden (R-H4): no golden, no expected change,
+ * and the environment their replay needs (collecting the heap, with a cap so a runaway read
+ * fails fast).
+ */
+export const MEASUREMENTS = {
+  'evidence-decode': { NODE_OPTIONS: '--expose-gc --max-old-space-size=2048' },
 };
 
 /**
@@ -147,6 +159,14 @@ export function validateManifest(manifest) {
       const caseAt = `${at} cases[${caseIndex}]`;
       if (!isObject(replayCase)) {
         errors.push(`${caseAt} must be an object.`);
+        return;
+      }
+      if (Object.hasOwn(MEASUREMENTS, replayCase.mode)) {
+        for (const key of keysOutside(replayCase, ['mode']))
+          errors.push(`${caseAt}: a ${replayCase.mode} case measures; it has no "${key}".`);
+        if (modes.has(replayCase.mode))
+          errors.push(`${caseAt}: mode ${replayCase.mode} is listed twice.`);
+        modes.add(replayCase.mode);
         return;
       }
       for (const key of keysOutside(replayCase, ['mode', 'golden', 'goldenSha256', 'expected']))
@@ -314,11 +334,12 @@ function sha256File(path) {
 }
 
 /** Runs one command with an argument array, its output to `outFile`. */
-function runCommand(command, args, { cwd, outFile }) {
+function runCommand(command, args, { cwd, outFile, env }) {
   const fd = outFile ? openSync(outFile, 'w', 0o600) : undefined;
   try {
     const result = spawnSync(command, args, {
       cwd,
+      ...(env ? { env: { ...process.env, ...env } } : {}),
       stdio: ['ignore', fd ?? 'inherit', fd ?? 'inherit'],
     });
     return { status: result.status, signal: result.signal, error: result.error };
@@ -472,6 +493,36 @@ export async function main(
       for (const replayCase of snapshot.cases) {
         const name = `${snapshot.id}-${replayCase.mode}`;
         const row = { snapshot: snapshot.id, mode: replayCase.mode };
+        const measurement = MEASUREMENTS[replayCase.mode];
+        if (measurement) {
+          const reportFile = join(out, `${name}.report.json`);
+          rmSync(reportFile, { force: true });
+          const caseStarted = Date.now();
+          log(`== ${snapshot.id} ${replayCase.mode}`);
+          const result = run(
+            'pnpm',
+            ['-s', 'controller:replay', copy, ...MODES[replayCase.mode], '--report', reportFile],
+            { cwd: REPOSITORY_ROOT, outFile: join(out, `${name}.txt`), env: measurement },
+          );
+          let report;
+          try {
+            report = JSON.parse(readFileSync(reportFile, 'utf8'));
+          } catch {
+            report = undefined;
+          }
+          rows.push({
+            ...row,
+            seconds: (Date.now() - caseStarted) / 1000,
+            ...classifyCase({
+              status: result.error ? undefined : result.status,
+              signal: result.signal,
+              report,
+              expected: [],
+              mode: replayCase.mode,
+            }),
+          });
+          continue;
+        }
         if (!existsSync(join(directory, replayCase.golden))) {
           rows.push({ ...row, ok: false, problems: [`golden missing: ${replayCase.golden}`] });
           continue;

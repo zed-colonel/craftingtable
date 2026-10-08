@@ -178,23 +178,42 @@ describe('migration 0039: evidence submission heads (R-H4)', () => {
     }
   });
 
-  it('rolls back when a submission would be left without its head', () => {
+  // A fill that is wrong in one way each; the guard is the only check between it and permanent
+  // heads, since heads are immutable.
+  it.each([
+    [
+      'leaves a submission without its head',
+      'FROM evidence_submissions AS s ORDER BY s.rowid;',
+      "FROM evidence_submissions AS s WHERE s.id <> 's-2' ORDER BY s.rowid;",
+    ],
+    [
+      'writes the heads out of submission order',
+      'FROM evidence_submissions AS s ORDER BY s.rowid;',
+      'FROM evidence_submissions AS s ORDER BY s.rowid DESC;',
+    ],
+    [
+      "keeps an artifact's contents",
+      "'digest', json_extract(a.value, '$.digest'),",
+      "'digest', json_extract(a.value, '$.digest'), 'content', json_extract(a.value, '$.content'),",
+    ],
+    [
+      'drops an artifact',
+      "FROM json_each(s.record_json, '$.artifacts') AS a)))",
+      "FROM json_each(s.record_json, '$.artifacts') AS a WHERE a.key > 0)))",
+    ],
+  ])('rolls back a fill that %s', (_case, correct, wrong) => {
     const database = schema38(temporaryPath());
     try {
       const migration = discoverMigrations()[38];
       if (!migration) throw new Error('Expected migration 0039');
-      const fill = 'FROM evidence_submissions AS s ORDER BY s.rowid;';
-      expect(migration.sql).toContain(fill);
-      const sql = migration.sql.replace(
-        fill,
-        "FROM evidence_submissions AS s WHERE s.id <> 's-2' ORDER BY s.rowid;",
-      );
+      expect(migration.sql.split(correct)).toHaveLength(2);
+      const sql = migration.sql.replace(correct, wrong);
       expect(() =>
         runMigrations(database, [
           ...discoverMigrations().slice(0, 38),
           { ...migration, sql, checksum: migration.checksum },
         ]),
-      ).toThrow(/CHECK constraint/);
+      ).toThrow(/CHECK constraint failed: ok = 1/);
       expect(
         database
           .prepare("SELECT name FROM sqlite_master WHERE name = 'evidence_submission_heads'")

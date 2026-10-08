@@ -44,7 +44,7 @@ import {
   carryPlanAcceptance,
   changesSince,
   generatedPlanSubmission,
-  newestAcceptedPlan,
+  lastPlanReview,
   withinArtifactLimits,
 } from './generated-plan-evidence.js';
 import { assertFinalizationMap, providerBranch } from './map-finalization-policy.js';
@@ -1995,11 +1995,13 @@ export class RuntimeEvidenceService {
       // nothing here.
       if (current.inputsDigest !== input.snapshotDigest)
         conflict('Saved configuration changed. Refresh before generating evidence.');
-      const existing = tx.runtimeEvidence
+      // One read snapshot for the scan, so the saved plan is collected once (R-H4).
+      const read = mapReadSnapshot(tx);
+      const existing = read.runtimeEvidence
         .submissions(ws, id)
         .find(
           (s) =>
-            currentGeneratedPlan(tx, d, roadmap, runtime, s) &&
+            currentGeneratedPlan(read, d, roadmap, runtime, s) &&
             !tx.runtimeEvidence
               .decisions(ws)
               .some((a) => a.submissionId === s.id && a.outcome === 'rejected'),
@@ -2009,7 +2011,7 @@ export class RuntimeEvidenceService {
       // The inputs' issues include an unsupported plan contract, so the generator is known here.
       if (!mapCapabilities(d.source).planAcceptance)
         conflict('This plan checkpoint has unsupported obligations.');
-      const prior = newestAcceptedPlan(tx, d, roadmap.id);
+      const prior = lastPlanReview(tx, d, roadmap.id);
       const submission = generatedPlanSubmission(tx, d, roadmap, runtime, {
         at,
         userId: context.user.id,

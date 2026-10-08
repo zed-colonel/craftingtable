@@ -109,7 +109,10 @@ export interface GeneratedPlanEvidenceV2 {
   readonly definitionRevision: number;
   /** SHA-256 of the inputs' canonical JSON (sorted keys). */
   readonly inputsDigest: string;
-  /** The inputs that differ from the roadmap's newest accepted plan; empty when none does. */
+  /**
+   * The inputs that differ from the acceptance this package follows: the operator's last own
+   * review for a package generated for review, the acceptance it carries for a carried one.
+   */
   readonly changedInputs: readonly PlanAcceptanceInput[];
 }
 export type GeneratedPlanEvidence = GeneratedPlanEvidenceV1 | GeneratedPlanEvidenceV2;

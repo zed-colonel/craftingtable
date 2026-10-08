@@ -40,7 +40,8 @@ roadmap scheduling limits, timestamps or the saved revision, a save that changes
 consumer integration pins (ADR-069 governs those), the runtime generation or its environments,
 or host capacities. New packages are `saved-plan-v2`: one artifact per input and an
 `inputsDigest`, the SHA-256 of the inputs' canonical JSON (keys sorted at every depth), with
-`changedInputs` against the roadmap's last accepted plan. `saved-plan-v1` records keep their
+`changedInputs`: for a package generated for review, every input changed since the operator's
+last own review; for a carried one, those changed since the acceptance it carries. `saved-plan-v1` records keep their
 original rule, so nothing re-opens when this ships; an older release cannot read a v2 record.
 
 **Carry-forward.** A re-generation caused by the operator's own authenticated command, a

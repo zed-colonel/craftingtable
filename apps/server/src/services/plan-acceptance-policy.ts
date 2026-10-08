@@ -155,6 +155,7 @@ interface SavedPlanFacts {
     readonly crossProject?: { readonly targetId: string; readonly selection: string };
     readonly entries: readonly {
       readonly id: string;
+      readonly workItemId: string;
       readonly reviewerRoles?: readonly string[];
       readonly executionScope?: { readonly kind: string; readonly sourceId: string };
     }[];
@@ -189,7 +190,9 @@ export function planAcceptanceInputs(facts: SavedPlanFacts): PlanAcceptanceInput
       .sort(byKey((s) => s.id)),
     reviewerRoles: facts.roadmap.entries
       .map((e) => ({
-        entry: e.executionScope ? `${e.executionScope.kind}:${e.executionScope.sourceId}` : e.id,
+        entry: e.executionScope
+          ? `${e.executionScope.kind}:${e.executionScope.sourceId}`
+          : `${e.id}:${e.workItemId}`,
         roles: [...(e.reviewerRoles ?? [])].sort(),
       }))
       .sort(byKey((e) => e.entry)),
@@ -225,7 +228,8 @@ export function canonicalJson(value: unknown): string {
   }
   return JSON.stringify(value) ?? 'null';
 }
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+/** SHA-256 in hex: the saved-plan-v2 digests. */
+export const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 /** The digest a saved-plan-v2 record is bound to. */
 export function planInputsDigest(inputs: PlanAcceptanceInputs): string {
   return sha256(canonicalJson(inputs));

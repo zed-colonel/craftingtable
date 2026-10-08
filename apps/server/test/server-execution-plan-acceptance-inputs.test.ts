@@ -291,42 +291,43 @@ it('opens no inbox item for a carried acceptance, and an amendment never carries
 
 it('carries the acceptance when the operator approves decision clauses', async () => {
   const DECISION = 'LOCAL-ADR-01';
-  const { f, svc, ws, id, storage, first, carried, decisionOf, save } = await acceptedPlan({
-    amend: (source) => ({
-      ...source,
-      evidence_profiles: [
-        ...source.evidence_profiles,
-        {
-          id: 'architecture-approval',
-          independence_required: true,
-          reviewer_roles: ['repository-maintainer'],
-          required_evidence: [
-            'accepted decision artifact digest and revision',
-            'source contract and affected schema or protocol references',
-            'decision owner approval and applicability to the active plan generation',
-          ],
-        },
-      ],
-      checkpoints: [
-        ...source.checkpoints,
-        {
-          ...source.checkpoints[0]!,
-          id: DECISION,
-          owner: 'local',
-          kind: 'architecture_decision' as const,
-          evidence_profile: 'architecture-approval',
-          requires: [],
-        },
-      ],
-      slices: source.slices.map((s) => ({
-        ...s,
-        start_requires: [
-          ...s.start_requires,
-          { kind: 'checkpoint' as const, id: DECISION, state: 'passed' as const },
+  const { f, svc, ws, id, storage, first, carried, decisionOf, save, generate } =
+    await acceptedPlan({
+      amend: (source) => ({
+        ...source,
+        evidence_profiles: [
+          ...source.evidence_profiles,
+          {
+            id: 'architecture-approval',
+            independence_required: true,
+            reviewer_roles: ['repository-maintainer'],
+            required_evidence: [
+              'accepted decision artifact digest and revision',
+              'source contract and affected schema or protocol references',
+              'decision owner approval and applicability to the active plan generation',
+            ],
+          },
         ],
-      })),
-    }),
-  });
+        checkpoints: [
+          ...source.checkpoints,
+          {
+            ...source.checkpoints[0]!,
+            id: DECISION,
+            owner: 'local',
+            kind: 'architecture_decision' as const,
+            evidence_profile: 'architecture-approval',
+            requires: [],
+          },
+        ],
+        slices: source.slices.map((s) => ({
+          ...s,
+          start_requires: [
+            ...s.start_requires,
+            { kind: 'checkpoint' as const, id: DECISION, state: 'passed' as const },
+          ],
+        })),
+      }),
+    });
   await svc.proposeArchitectureDecision(f.auth, ws, id, {
     bindingRevision: 1,
     checkpointId: DECISION,
@@ -351,6 +352,27 @@ it('carries the acceptance when the operator approves decision clauses', async (
   expect(carried().decision.carriedFrom).toBe(decision.id);
   expect((await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!.carried).toEqual({
     reviewedAt: decisionOf(first.id)!.decidedAt,
+    changedInputs: ['stagedDecisions', 'reviewerRoles'],
+  });
+  // An amendment re-opens it; the package the operator then reviews names every input changed
+  // since their own review, not only since the last carried acceptance.
+  f.service.save(
+    f.auth,
+    ws,
+    {
+      ...f.input,
+      expectedVersion: storage.roadmaps.find(ws, f.input.roadmapId)!.version,
+      configuration: {
+        ...f.input.configuration,
+        defaults: {
+          ...f.input.configuration.defaults,
+          reviewerRoles: ['independent-security-reviewer-if-required-by-source'],
+        },
+      },
+    },
+    { retainAttemptIds: [] },
+  );
+  expect((await generate()).generatedPlan).toMatchObject({
     changedInputs: ['stagedDecisions', 'reviewerRoles'],
   });
 });
@@ -494,8 +516,8 @@ it('never carries for a new binding or without the operator', async () => {
   expect(storage.runtimeEvidence.submissions(ws, id).map((s) => s.id)).toEqual([first.id]);
 });
 
-// R-C6 D3: a v1 record keeps its frozen rule, so nothing re-opens at deploy.
-it('validates a saved-plan-v1 acceptance with the frozen v1 rule', async () => {
+/** A saved roadmap whose plan the operator accepted before R-C6: a saved-plan-v1 record. */
+async function acceptedV1() {
   const f = await supervisedMapFixture(false, 'automatic', false, true);
   const { context, workspaceId: ws } = f.state;
   const storage = context.storage,
@@ -549,17 +571,28 @@ it('validates a saved-plan-v1 acceptance with the frozen v1 rule', async () => {
   });
   expect(acceptedEvidence(storage, ws, id, 1, PLAN)?.id).toBe(v1.id);
   const v1Decision = storage.runtimeEvidence.decisions(ws).find((a) => a.submissionId === v1.id)!;
+  /** The acceptance now held: carried into v2 from the v1 decision, with no input changed. */
+  const carriedFromV1 = () => {
+    const carried = acceptedEvidence(storage, ws, id, 1, PLAN)!;
+    expect(carried.generatedPlan).toMatchObject({ kind: 'saved-plan-v2', changedInputs: [] });
+    expect(
+      storage.runtimeEvidence.decisions(ws).find((a) => a.submissionId === carried.id),
+    ).toMatchObject({ outcome: 'accepted', carriedFrom: v1Decision.id });
+    return carried;
+  };
+  return { f, ws, id, storage, context, roadmap, v1, carriedFromV1 };
+}
+
+// R-C6 D3: a v1 record keeps its frozen rule, so nothing re-opens at deploy.
+it('validates a saved-plan-v1 acceptance with the frozen v1 rule', async () => {
+  const { f, ws, id, storage, roadmap, v1, carriedFromV1 } = await acceptedV1();
   // Adopting the same proposals again changes neither the v1 facts nor the inputs.
   await adoptSupervisedMap(f);
   expect(acceptedEvidence(storage, ws, id, 1, PLAN)?.id).toBe(v1.id);
   // The frozen rule binds a v1 record to the saved revision, so a save that changes nothing
   // re-opens it; the operator's save carries it into v2, with no plan-acceptance input changed.
   f.service.save(f.auth, ws, { ...f.input, expectedVersion: roadmap.version });
-  const carried = acceptedEvidence(storage, ws, id, 1, PLAN)!;
-  expect(carried.generatedPlan).toMatchObject({ kind: 'saved-plan-v2', changedInputs: [] });
-  expect(
-    storage.runtimeEvidence.decisions(ws).find((a) => a.submissionId === carried.id),
-  ).toMatchObject({ outcome: 'accepted', carriedFrom: v1Decision.id });
+  const carried = carriedFromV1();
   // v2 is not bound to the revision: the next save that changes nothing keeps it.
   f.service.save(f.auth, ws, {
     ...f.input,
@@ -567,4 +600,28 @@ it('validates a saved-plan-v1 acceptance with the frozen v1 rule', async () => {
   });
   expect(acceptedEvidence(storage, ws, id, 1, PLAN)?.id).toBe(carried.id);
   expect(storage.runtimeEvidence.submissions(ws, id)).toHaveLength(2);
+});
+
+// The capacity saves change no plan-acceptance input, but the v1 rule covers the saved
+// revision and host capacities: the operator's save carries a v1 acceptance into v2.
+it('carries a v1 acceptance through a roadmap limits save', async () => {
+  const { f, ws, roadmap, context, carriedFromV1 } = await acceptedV1();
+  const current = context.storage.roadmaps.find(ws, roadmap.id)!;
+  context.services.roadmapService.saveCapacity(f.auth, ws, roadmap.id, {
+    expectedVersion: current.version,
+    maxInFlight: (current.definition.scheduling?.maxInFlight ?? 2) + 1,
+    maxPerRepository: current.definition.scheduling?.maxPerRepository ?? 2,
+  });
+  carriedFromV1();
+});
+
+it('carries a v1 acceptance through a host capacity save', async () => {
+  const { f, ws, storage, context, carriedFromV1 } = await acceptedV1();
+  context.services.hostSchedulingService.save(f.auth, ws, {
+    expectedDevelopmentVersion: storage.phaseScheduling.setting('local-development').version,
+    developmentCapacity: storage.phaseScheduling.capacity('local-development') + 1,
+    expectedVersion: storage.phaseScheduling.setting('local-verification').version,
+    verificationCapacity: storage.phaseScheduling.capacity('local-verification'),
+  });
+  carriedFromV1();
 });

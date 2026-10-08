@@ -210,7 +210,7 @@ export function queueRuntimeReviews(
       updatedAt: at,
       status: r.status === 'draft' ? ('draft' as const) : ('paused' as const),
       reason:
-        'Dependency refresh saved. Accept the updated plan and Resume to run affected independent reviews.',
+        'Dependency refresh saved. Check plan acceptance, then Resume to run affected independent reviews.',
       attempts: r.attempts.map((a) =>
         ids.has(a.id)
           ? {

@@ -494,7 +494,7 @@ it('says a carried plan acceptance comes from your review and names what changed
     /^Accepted, carried from your review of .*2026.*; changed: staged decision clauses, reviewer roles\. Start or Resume remains your action\.$/,
   );
   screen.getByText(
-    'Plan acceptance carried forward by operator as plan-owner from an earlier review; changed: reviewer roles.',
+    'Plan acceptance carried forward by operator as plan-owner; this step changed: reviewer roles.',
   );
 });
 

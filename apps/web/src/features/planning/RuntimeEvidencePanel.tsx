@@ -1012,10 +1012,10 @@ export function RuntimeEvidencePanel({
                   )
                 ) : s.generatedPlan ? (
                   decision?.carriedFrom && s.generatedPlan.kind === 'saved-plan-v2' ? (
-                    `Plan acceptance carried forward by ${decision.decidedByUserId}${asRoles} from an earlier review; ${
+                    `Plan acceptance carried forward by ${decision.decidedByUserId}${asRoles}; ${
                       s.generatedPlan.changedInputs.length
-                        ? `changed: ${inputLabels(s.generatedPlan.changedInputs)}`
-                        : 'no plan-acceptance input changed'
+                        ? `this step changed: ${inputLabels(s.generatedPlan.changedInputs)}`
+                        : 'this step changed no plan-acceptance input'
                     }.`
                   ) : decision ? (
                     `Plan review recorded by ${decision.decidedByUserId}${asRoles}.`

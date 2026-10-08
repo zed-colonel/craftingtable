@@ -70,6 +70,7 @@ const facts = () => ({
     entries: [
       {
         id: 'entry-2',
+        workItemId: 'item-wi',
         executionScope: { kind: 'slice', sourceId: 'wi/b' },
         reviewerRoles: ['security', 'maintainer'],
         instructions: 'Keep scope.',
@@ -79,6 +80,7 @@ const facts = () => ({
       },
       {
         id: 'entry-1',
+        workItemId: 'item-wi',
         executionScope: { kind: 'slice', sourceId: 'wi/a' },
         instructions: 'Keep scope.',
       },
@@ -253,6 +255,14 @@ describe('plan-acceptance inputs (R-C6 D1)', () => {
   ])('re-opens for %s', (_label, change, key) => {
     expect(changedInputs(inputs(), inputs(change))).toEqual([key]);
     expect(planInputsDigest(inputs(change))).not.toBe(planInputsDigest(inputs()));
+  });
+
+  it('keys an entry without an execution scope by its id and work item', () => {
+    const unscoped = (workItemId: string) =>
+      inputs((f) => {
+        f.roadmap.entries[1] = { id: 'entry-1', workItemId, instructions: 'Keep scope.' } as never;
+      });
+    expect(changedInputs(unscoped('item-a'), unscoped('item-b'))).toEqual(['reviewerRoles']);
   });
 
   it('reads facts recorded as JSON the same as the live facts', () => {

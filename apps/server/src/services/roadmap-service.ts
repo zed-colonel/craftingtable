@@ -963,8 +963,26 @@ export class RoadmapService {
     };
     const updated = { ...old, definition, version: old.version + 1, updatedAt: at };
     this.storage.transaction((tx) => {
-      this.persist(tx, updated, input.expectedVersion, 'configure-capacity', context);
-      tx.roadmaps.addDefinition(definition);
+      const persist = () => {
+        this.persist(tx, updated, input.expectedVersion, 'configure-capacity', context);
+        tx.roadmaps.addDefinition(definition);
+      };
+      // Limits are no plan-acceptance input, but a saved-plan-v1 acceptance is bound to the
+      // revision: the operator's save carries it (R-C6 D2).
+      const crossProject = old.definition.crossProject;
+      if (crossProject)
+        carryPlanAcceptance(
+          tx,
+          context,
+          {
+            workspaceId,
+            definitionId: crossProject.definitionId,
+            command: 'roadmap limits save',
+            at,
+          },
+          persist,
+        );
+      else persist();
     });
     this.notifier.notify();
     return this.capacities(context, workspaceId);

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   asAuditEventId,
   asEventId,
@@ -24,7 +24,9 @@ import {
   planInputArtifacts,
   recordedPlanInputs,
   savedPlanInputs,
+  sha256,
 } from './plan-acceptance-policy.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
 import {
   acceptedEvidence,
   activeRuntime,
@@ -33,26 +35,35 @@ import {
   subjectRequirements,
 } from './runtime-evidence-policy.js';
 
-const hash = (text: string) => createHash('sha256').update(text).digest('hex');
-
-/** The roadmap's newest generated plan the operator accepted, current or not, with its decision. */
-export function newestAcceptedPlan(
+/**
+ * The plan acceptance the operator last recorded for the roadmap: its newest accepted generated
+ * plan, or, when that was carried forward, the operator's own review the carry chain starts
+ * from (R-C6). A package generated for review names every input changed since then.
+ */
+export function lastPlanReview(
   tx: StorageRepositories,
   d: ConcurrencyDefinition,
   roadmapId: string,
 ):
   | { readonly submission: EvidenceSubmissionHead; readonly decision: EvidenceDecision }
   | undefined {
+  const decisions = tx.runtimeEvidence.decisions(d.workspaceId);
   const accepted = new Map(
-    tx.runtimeEvidence
-      .decisions(d.workspaceId)
-      .filter((a) => a.outcome === 'accepted')
-      .map((a) => [a.submissionId, a]),
+    decisions.filter((a) => a.outcome === 'accepted').map((a) => [a.submissionId, a]),
   );
-  const submission = tx.runtimeEvidence
-    .submissions(d.workspaceId, d.id)
-    .find((s) => s.generatedPlan?.roadmapId === roadmapId && accepted.has(s.id));
-  return submission && { submission, decision: accepted.get(submission.id)! };
+  const byId = new Map(decisions.map((a) => [a.id, a]));
+  const submissions = tx.runtimeEvidence.submissions(d.workspaceId, d.id);
+  const newest = submissions.find(
+    (s) => s.generatedPlan?.roadmapId === roadmapId && accepted.has(s.id),
+  );
+  let decision = newest && accepted.get(newest.id);
+  const seen = new Set<string>();
+  while (decision?.carriedFrom && !seen.has(decision.id)) {
+    seen.add(decision.id);
+    decision = byId.get(decision.carriedFrom);
+  }
+  const submission = decision && submissions.find((s) => s.id === decision.submissionId);
+  return decision && submission ? { submission, decision } : undefined;
 }
 /**
  * The inputs that changed since `prior` was accepted: every input when its record cannot be
@@ -146,7 +157,7 @@ export function generatedPlanSubmission(
     })),
     cases: [],
     artifacts: [
-      { name: 'plan-review-guide', content, digest: hash(content) },
+      { name: 'plan-review-guide', content, digest: sha256(content) },
       ...planInputArtifacts(current.inputs),
     ],
     createdAt: options.at,
@@ -209,13 +220,18 @@ export function carryPlanAcceptance<T>(
   change: () => T,
 ): T {
   const ws = scope.workspaceId;
-  const prior = context.session ? acceptedGeneratedPlan(tx, ws, scope.definitionId) : undefined;
+  // Each side reads through its own snapshot, so the saved plan is collected once per side.
+  const prior = context.session
+    ? acceptedGeneratedPlan(mapReadSnapshot(tx), ws, scope.definitionId)
+    : undefined;
   const result = change();
-  if (!prior?.generatedPlan || acceptedGeneratedPlan(tx, ws, scope.definitionId)) return result;
-  const d = tx.imports.definition(ws, scope.definitionId);
-  const binding = tx.imports.bindings(ws, scope.definitionId)[0];
-  const roadmap = tx.roadmaps.find(ws, prior.generatedPlan.roadmapId);
-  const runtime = binding && activeRuntime(tx, ws, scope.definitionId, binding.revision);
+  if (!prior?.generatedPlan) return result;
+  const read = mapReadSnapshot(tx);
+  if (acceptedGeneratedPlan(read, ws, scope.definitionId)) return result;
+  const d = read.imports.definition(ws, scope.definitionId);
+  const binding = read.imports.bindings(ws, scope.definitionId)[0];
+  const roadmap = read.roadmaps.find(ws, prior.generatedPlan.roadmapId);
+  const runtime = binding && activeRuntime(read, ws, scope.definitionId, binding.revision);
   if (
     !d ||
     !roadmap ||
@@ -224,16 +240,16 @@ export function carryPlanAcceptance<T>(
     binding.revision !== prior.bindingRevision
   )
     return result;
-  const current = savedPlanInputs(tx, d, roadmap, runtime);
-  const before = recordedPlanInputs(tx, d, prior);
+  const current = savedPlanInputs(read, d, roadmap, runtime);
+  const before = recordedPlanInputs(read, d, prior);
   if (current.issues.length || !before) return result;
   const changed = changedInputs(before, current.inputs);
   if (changed.some((key) => NEVER_CARRIED.has(key))) return result;
-  const priorDecision = tx.runtimeEvidence
+  const priorDecision = read.runtimeEvidence
     .decisions(ws)
     .find((a) => a.submissionId === prior.id && a.outcome === 'accepted');
   if (!priorDecision) return result;
-  const submission = generatedPlanSubmission(tx, d, roadmap, runtime, {
+  const submission = generatedPlanSubmission(read, d, roadmap, runtime, {
     at: scope.at,
     userId: context.user.id,
     prior: priorDecision,
@@ -243,8 +259,8 @@ export function carryPlanAcceptance<T>(
   const head = submissionHead(submission);
   if (
     !withinArtifactLimits(submission) ||
-    submissionIssues(tx, d, runtime, head).length ||
-    prerequisiteIssues(tx, d, binding.revision, head.subject).length
+    submissionIssues(read, d, runtime, head).length ||
+    prerequisiteIssues(read, d, binding.revision, head.subject).length
   )
     return result;
   const labels =

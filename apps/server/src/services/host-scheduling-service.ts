@@ -8,6 +8,7 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
+import { carryPlanAcceptance } from './generated-plan-evidence.js';
 import { ExecutionRequestError, ForbiddenError } from './errors.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -134,35 +135,57 @@ export class HostSchedulingService {
           'Pause roadmap scheduling in every workspace before changing host capacity.',
         );
       const at = this.now().toISOString();
-      for (const change of changes) {
-        if (tx.phaseScheduling.capacity(change.key) === change.capacity) continue;
-        if (
-          !tx.phaseScheduling.saveCapacity(
-            change.key,
-            change.capacity,
-            change.version,
-            context.user.id,
-            at,
+      const save = () => {
+        for (const change of changes) {
+          if (tx.phaseScheduling.capacity(change.key) === change.capacity) continue;
+          if (
+            !tx.phaseScheduling.saveCapacity(
+              change.key,
+              change.capacity,
+              change.version,
+              context.user.id,
+              at,
+            )
           )
-        )
-          throw new ExecutionRequestError(
-            'conflict',
-            'Host settings changed. Reload settings before saving.',
-          );
-        tx.audit.append({
-          id: randomUUID(),
-          occurredAt: at,
-          actorKind: 'user',
-          actorUserId: context.user.id,
-          sessionId: context.session.id,
-          workspaceId,
-          action: 'host-scheduling.updated',
-          outcome: 'succeeded',
-          priorVersion: change.version,
-          resultingVersion: change.version + 1,
-          metadata: { resourceKey: change.key, capacity: change.capacity },
-        });
-      }
+            throw new ExecutionRequestError(
+              'conflict',
+              'Host settings changed. Reload settings before saving.',
+            );
+          tx.audit.append({
+            id: randomUUID(),
+            occurredAt: at,
+            actorKind: 'user',
+            actorUserId: context.user.id,
+            sessionId: context.session.id,
+            workspaceId,
+            action: 'host-scheduling.updated',
+            outcome: 'succeeded',
+            priorVersion: change.version,
+            resultingVersion: change.version + 1,
+            metadata: { resourceKey: change.key, capacity: change.capacity },
+          });
+        }
+      };
+      // Host capacity is no plan-acceptance input, but a saved-plan-v1 acceptance is bound to
+      // it: the operator's save carries those of this workspace's roadmaps (R-C6 D2).
+      const definitions = new Set(
+        tx.roadmaps
+          .list(workspaceId)
+          .filter((r) => r.status !== 'stopped')
+          .flatMap((r) =>
+            r.definition.crossProject ? [r.definition.crossProject.definitionId] : [],
+          ),
+      );
+      [...definitions].reduce<() => void>(
+        (inner, definitionId) => () =>
+          carryPlanAcceptance(
+            tx,
+            context,
+            { workspaceId, definitionId, command: 'host capacity save', at },
+            inner,
+          ),
+        save,
+      )();
     });
     this.notifier.notify();
     return this.get(context, workspaceId);

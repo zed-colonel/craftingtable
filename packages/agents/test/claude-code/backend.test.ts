@@ -523,6 +523,44 @@ describe('Claude background lifecycle', () => {
     });
   });
 
+  it("journals stderr within the run's budget, then one notice, and still reads every chunk (R-G11)", async () => {
+    const fake = fakeClaude();
+    // Two mebibytes of stderr, then the background-wait diagnostic the adapter scans for.
+    writeFileSync(
+      fake.executable,
+      `#!${process.execPath}
+      process.stdin.once('data', () => {
+        let left = 32;
+        const next = () => {
+          if (left-- > 0) process.stderr.write('e'.repeat(65535) + '\\n', next);
+          else process.stderr.write('Background tasks still running after 600s; terminating.\\n', () => process.exit(0));
+        };
+        next();
+      });`,
+    );
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'go',
+      permissionMode: 'auto',
+    });
+    const items = await collect(session.items);
+    const stderr = items.flatMap((item) =>
+      item.type === 'event' && item.event.kind === 'stderr' ? [item.event.payload.text] : [],
+    );
+    for (const text of stderr) expect(Buffer.byteLength(text)).toBeLessThanOrEqual(8 * 1024);
+    expect(stderr.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBe(1024 * 1024);
+    const notices = items.flatMap((item) =>
+      item.type === 'event' &&
+      item.event.kind === 'notice' &&
+      /stderr/i.test(item.event.payload.message)
+        ? [item.event.payload.message]
+        : [],
+    );
+    expect(notices).toHaveLength(1);
+    // The adapter's own scan still saw the chunk past the budget.
+    expect(items.at(-1)).toMatchObject({ type: 'exited', reason: 'background-work-incomplete' });
+  });
+
   it.each([true, false])(
     'detects a stopped task after the result without stderr (collected afterward: %s)',
     async (collected) => {

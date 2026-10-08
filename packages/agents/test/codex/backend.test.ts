@@ -17,6 +17,9 @@ trace({args: process.argv.slice(2), pid: process.pid});
 if (mode === 'env-names') trace({envNames: Object.keys(process.env).sort(), path: process.env.PATH, args: process.argv.slice(2)});
 if (mode === 'scratch') trace({temporaryPaths: [process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]});
 if (mode === 'ignore-term') process.on('SIGTERM', () => {});
+// Two mebibytes of stderr from the run's own app-server (not the configuration probe).
+if (process.env.FAKE_FLOOD && process.argv.join(' ').includes('mcp_servers.operator_mcp'))
+  for (let i = 0; i < 32; i++) process.stderr.write('e'.repeat(65535) + String.fromCharCode(10));
 if (mode === 'shutdown-error') process.on('SIGTERM', () => process.exit(2));
 let initialized = false, threadId = 'fake-thread', turns = 0, active, timer, texts = [], accountReads = 0;
 const REJECTED = 'unexpected status 401 Unauthorized: Incorrect API key provided: sk-svcac****fvMA. You can find your API key at https://platform.openai.com/account/api-keys., url: https://chatgpt.com/backend-api/codex/responses, request id: 4d5b4d51-4051-4784-812d-b13fbc099319';
@@ -170,6 +173,22 @@ async function launch(
 }
 async function waitFor(predicate: () => boolean) {
   await expect.poll(predicate, { interval: 10 }).toBe(true);
+}
+/** At most 1 MiB of stderr per run, in events of at most 8 KiB, then one notice (R-G11). */
+function expectBoundedStderr(items: readonly AgentSessionItem[]) {
+  const stderr = items.flatMap((item) =>
+    item.type === 'event' && item.event.kind === 'stderr' ? [item.event.payload.text] : [],
+  );
+  for (const text of stderr) expect(Buffer.byteLength(text)).toBeLessThanOrEqual(8 * 1024);
+  expect(stderr.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBe(1024 * 1024);
+  const notices = items.flatMap((item) =>
+    item.type === 'event' &&
+    item.event.kind === 'notice' &&
+    /stderr/i.test(item.event.payload.message)
+      ? [item.event.payload.message]
+      : [],
+  );
+  expect(notices).toHaveLength(1);
 }
 const turns = (items: AgentSessionItem[]) =>
   items.flatMap((item) =>
@@ -530,6 +549,18 @@ it('reports a provider-side credential rejection, and fails the run it blocked (
   approval.session.end();
   await approval.done;
   expect(approval.items.at(-1)).toEqual({ type: 'exited', exitCode: 0, signal: null });
+});
+
+it("journals stderr within the run's budget, then one notice, and still reads every chunk (R-G11)", async () => {
+  // The flood comes first; the approval failure the normalizer reads arrives after the budget.
+  const flooded = await launch('approval-outage', {}, { FAKE_FLOOD: '1' });
+  await waitFor(() => turns(flooded.items).length === 1);
+  expect(turns(flooded.items)[0]).toMatchObject({
+    suspectedOutage: { kind: 'credential-rejected' },
+  });
+  flooded.session.end();
+  await flooded.done;
+  expectBoundedStderr(flooded.items);
 });
 
 it('asks for a new sign-in when the local login is gone or uses an API key (R-C11)', async () => {

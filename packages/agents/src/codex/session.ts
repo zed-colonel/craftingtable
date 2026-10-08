@@ -12,6 +12,7 @@ import {
   type SupervisedProcess,
   spawnSupervisedProcess,
 } from '../process.js';
+import { StderrJournal } from '../stderr-journal.js';
 import { codexThreadParams, codexTurnParams } from './arguments.js';
 import { agentEnvironment } from '../child-environment.js';
 import type { CodexBackendOptions } from './backend.js';
@@ -49,6 +50,7 @@ export class CodexSession implements AgentSession {
   private readonly output = new AsyncQueue<AgentSessionItem>();
   private readonly normalizer: CodexStreamNormalizer;
   private readonly queued: string[] = [];
+  private readonly stderr = new StderrJournal();
   private readonly completedTurns = new Set<string>();
   private threadId: string | undefined;
   private activeTurn: string | undefined;
@@ -388,6 +390,7 @@ export class CodexSession implements AgentSession {
       if (item.type === 'exited') {
         this.closed = true;
         if (this.shutdownTimer) clearTimeout(this.shutdownTimer);
+        for (const event of this.stderr.flush()) this.emit(event);
         this.rpc.close();
         const unexpected = !this.closing && !this.killed;
         if (unexpected && !this.failed)
@@ -420,7 +423,7 @@ export class CodexSession implements AgentSession {
       if (item.type === 'background-work-waiting') continue;
       if (item.type === 'stderr') {
         this.normalizer.observeStderr(item.text);
-        this.emit({ kind: 'stderr', payload: { text: truncateUtf8(item.text, 8192).text } });
+        for (const event of this.stderr.write(item.text)) this.emit(event);
         continue;
       }
       if (this.failed || this.killed) {

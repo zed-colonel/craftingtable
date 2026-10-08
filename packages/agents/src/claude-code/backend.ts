@@ -12,6 +12,7 @@ import {
 } from '../index.js';
 import { agentEnvironment } from '../child-environment.js';
 import { backgroundWorkAllowance, spawnSupervisedProcess } from '../process.js';
+import { StderrJournal } from '../stderr-journal.js';
 import {
   claudeCodeArguments,
   claudeSandboxed,
@@ -51,7 +52,6 @@ const CLAUDE_LOGIN_VARIABLES = [
 ];
 
 const MAX_LINE_BYTES = 4 * 1024 * 1024;
-const STDERR_EVENT_LIMIT_BYTES = 8 * 1024;
 
 /**
  * Finds the Claude Code executable: an explicit absolute path, else the first
@@ -193,7 +193,7 @@ export class ClaudeCodeBackend implements AgentBackend {
     /** The session was ended because the allowance is used up until a known reset (R-C9). */
     let endingForQuota = false;
     const items = (async function* (): AsyncGenerator<AgentSessionItem> {
-      let stderrBuffer = '';
+      const stderr = new StderrJournal();
       let diagnosticTail = '';
       let backgroundWaitExpired = false;
       for await (const item of child.items) {
@@ -251,18 +251,11 @@ export class ClaudeCodeBackend implements AgentBackend {
             diagnosticTail = (diagnosticTail + item.text).slice(-4096);
             if (/Background tasks still running after \d+s; terminating\./i.test(diagnosticTail))
               backgroundWaitExpired = true;
-            stderrBuffer += item.text;
-            if (Buffer.byteLength(stderrBuffer, 'utf8') >= STDERR_EVENT_LIMIT_BYTES) {
-              yield { type: 'event', event: { kind: 'stderr', payload: { text: stderrBuffer } } };
-              stderrBuffer = '';
-            }
+            for (const event of stderr.write(item.text)) yield { type: 'event', event };
             break;
           }
           case 'exited':
-            if (stderrBuffer.trim().length > 0) {
-              yield { type: 'event', event: { kind: 'stderr', payload: { text: stderrBuffer } } };
-              stderrBuffer = '';
-            }
+            for (const event of stderr.flush()) yield { type: 'event', event };
             if (endingForQuota) {
               // The work was ended on purpose; nothing of it outlives the process group.
               yield { type: 'event', event: normalizer.endedForQuota() };

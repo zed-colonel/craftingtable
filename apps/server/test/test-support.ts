@@ -69,7 +69,10 @@ export async function createTestContext(
     readonly publicOrigin?: string;
     readonly loggerStream?: { write(message: string): void };
     readonly streamHooks?: WorkspaceEventStreamHooks;
-    readonly gitOperations?: GitOperations | null;
+    readonly gitOperations?:
+      | GitOperations
+      | ((gitTrust: () => import('@craftingtable/git').GitTrust) => GitOperations)
+      | null;
     readonly agentBackends?: ReadonlyMap<
       import('@craftingtable/domain').AgentBackendKind,
       AgentBackend

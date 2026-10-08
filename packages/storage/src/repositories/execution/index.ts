@@ -281,6 +281,14 @@ class SqliteSourceRepositoryRepository implements SourceRepositoryRepository {
     ).map(mapSourceRepository);
   }
 
+  listAll(): readonly SourceRepository[] {
+    return (
+      this.database
+        .prepare(`SELECT * FROM source_repositories ORDER BY registered_at ASC, id ASC`)
+        .all() as SourceRepositoryRow[]
+    ).map(mapSourceRepository);
+  }
+
   retire(input: {
     readonly workspaceId: WorkspaceId;
     readonly repositoryId: SourceRepositoryId;

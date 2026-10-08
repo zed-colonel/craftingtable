@@ -30,6 +30,20 @@ export interface GitOperationsOptions {
    * identity, from `writeDaemonGitIdentity`. Without it no global configuration is read.
    */
   readonly identityConfigPath?: string;
+  /**
+   * What the daemon trusts about Git's directories (R-G14 review MEDIUM-1): the repositories'
+   * common directories, as read from their primary checkouts, and the roots its managed
+   * worktrees live under. Every command then runs against Git directories named explicitly
+   * (`GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE`), never found through a file an agent can
+   * write; a worktree whose `.git` names anything else is refused. Without it, commands are
+   * still pinned to the directories their checkout names, but nothing is refused.
+   */
+  readonly gitTrust?: () => GitTrust;
+}
+
+export interface GitTrust {
+  readonly commonDirectories: readonly string[];
+  readonly worktreeRoots: readonly string[];
 }
 
 export type GitFailureKind =
@@ -53,6 +67,12 @@ export type GitFailureKind =
   | 'checkout-would-overwrite'
   /** A non-forced worktree removal found uncommitted or untracked paths. */
   | 'worktree-dirty'
+  /**
+   * A worktree's `.git` names a Git directory that is not a linked worktree entry of a trusted
+   * repository naming this worktree back, or a managed worktree holds a Git directory of its own
+   * (R-G14 review MEDIUM-1); nothing was run.
+   */
+  | 'untrusted-git-directory'
   | 'timed-out'
   | 'spawn-failed'
   | 'output-overflow';

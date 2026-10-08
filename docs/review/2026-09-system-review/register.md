@@ -3659,6 +3659,26 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - Refused ("Read-only file system"): creating `<common>/commondir`, `<common>/config.worktree`, `packed-refs`, `objects/info/alternates` and `worktrees/other`; writing the run's `commondir` and `gitdir`; and `config`, `hooks/probe-hook` and `info/attributes`.
       - Creating the run's `config.worktree` was not refused, as decided (`codex-{auto,edit-only}-git-mf`).
       - The commit printed "Unable to create '…/packed-refs.lock'". That is Git 2.55's automatic maintenance after a commit, and the commit itself succeeded.
+  - **Layer 1 built (2026-10-08): the daemon pins its own Git directories.**
+    - `packages/git` (the runner, R-G10's one Git authority; `pinning.ts`): every command names `GIT_DIR`, `GIT_COMMON_DIR` and, for a checkout, `GIT_WORK_TREE`.
+      - A `.git` directory is its own common directory.
+      - A `.git` file must name a `<common>/worktrees/<entry>` of a repository the daemon trusts, and that entry's `gitdir` file must name the worktree back. The trusted repositories are every registered repository's common directory, as its primary checkout names it (`daemonGitTrust`, read per command).
+      - Under a managed worktree root, a Git directory of its own is refused.
+      - A bare store pins to itself.
+      - Commands with no repository yet (`git init` of a scratch store, `git version`) are not pinned.
+      - A refused command fails with the new `GitFailureKind` `untrusted-git-directory` and runs nothing.
+    - *Found while building:* Git 2.55's ref store reads a `commondir` file in `GIT_DIR` even when `GIT_COMMON_DIR` names another directory. A planted `<common>/commondir` made the pinned daemon read the agent's refs, though not its configuration. So a `commondir` that disagrees with where its Git directory lies (any `commondir` in a repository's own Git directory; anything but `../..` from a worktree's entry) is refused, not overridden.
+    - `local-check.ts` does the same:
+      - `resolveGitDirectories` reads the directories from where Git puts them, refusing a disagreeing `commondir`, instead of asking Git's discovery.
+      - The run's checks get them only through `worktreeGitDirectories`, which compares them with the repository's primary checkout.
+      - `observeGitState` passes `GIT_COMMON_DIR` and checks the run's `commondir` again.
+      - The private clone and the pinned upstream fetches refuse a store whose Git directory holds a `commondir`, because the upload-pack serving them follows it. `export.ts` does the same.
+      - The CI mount's fallback for manifests made before the daemon resolved Git directories still asks Git; no current manifest lacks them.
+    - *Tests:*
+      - `packages/git/test/git-directory-pinning.test.ts`: a planted `commondir` in the repository's Git directory, or a rewritten one in the worktree's entry, which Git alone follows, is refused (`untrusted-git-directory`), and the repository reads as itself once it is gone. With trust, a pointer to an agent-made copy, a pointer to another worktree's entry, and a managed worktree holding a Git directory of its own are refused.
+      - `worktree-git-directories.test.ts`: `resolveGitDirectories` refuses both `commondir` cases and resolves as Git lays the directories out.
+      - `server-execution-merge-gate.test.ts`: through the daemon (its test harness now builds Git with the daemon's own trust), a planted `commondir` refuses the branches read rather than list the copy's branch, and a rewritten worktree pointer refuses the diff. Both work again once restored.
+      - Each failed before the change. All existing Git, agents and server tests pass with the trust wired in.
   - **LOW-1, fixed.** The count guard's boundary depended on the host's Docker socket. `unmaskableDeniedFiles` (`codex/arguments.ts`) now takes the list, and `codex/denied-files.test.ts` checks it with paths the test owns: exactly two existing files refuse, and exactly one passes. Changing `> 1` to `> 2` fails it.
   - **LOW-2, fixed.** The same test checks that two links that name nothing refuse and one passes. Counting a dangling link as absent fails it.
 

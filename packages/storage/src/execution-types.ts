@@ -130,6 +130,8 @@ export interface SourceRepositoryRepository {
   find(workspaceId: WorkspaceId, repositoryId: SourceRepositoryId): SourceRepository | undefined;
   findActiveByPath(workspaceId: WorkspaceId, rootPath: string): SourceRepository | undefined;
   list(workspaceId: WorkspaceId): readonly SourceRepository[];
+  /** Every workspace's repositories, retired ones too: whose Git directories the daemon trusts. */
+  listAll(): readonly SourceRepository[];
   retire(input: {
     readonly workspaceId: WorkspaceId;
     readonly repositoryId: SourceRepositoryId;

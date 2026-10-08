@@ -17,6 +17,7 @@ export type {
   MergeResult,
   GitOperationsOptions,
   GitResult,
+  GitTrust,
   RepositoryIdentity,
   WorktreeDiff,
   WorktreeChanges,
@@ -24,3 +25,4 @@ export type {
 } from './operations.js';
 export { createGitOperations, writeDaemonGitIdentity } from './operations.js';
 export { gitVersionIssue, MINIMUM_GIT_VERSION } from './version.js';
+export { checkoutGitDirectories, type PinnedGitDirectories } from './pinning.js';

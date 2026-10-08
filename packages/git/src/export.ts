@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { GitResult, CommitFile, GitOperations } from './operations.js';
 import type { GitRunner } from './runner.js';
+import { pinGitDirectories } from './pinning.js';
 import { fail, splitNul, canonicalDirectory } from './support.js';
 
 /** An exact commit's files, read through a verified pack. */
@@ -30,6 +31,11 @@ export async function exportCommit(
     repo.value,
   );
   if (!common.ok) return common;
+  // The upload-pack serving the fetch reads the store by its path, and Git follows a `commondir`
+  // file there; the runner refused the repository already if its Git directory held one, and a
+  // store that grew one since is refused here (R-G14 review MEDIUM-1).
+  if (pinGitDirectories(repo.value, undefined) === 'untrusted')
+    return fail('untrusted-git-directory', 'The repository names another common directory.');
   const scratch = await mkdtemp(join(tmpdir(), 'ct-pinned-source-'));
   try {
     const init = await ctx.runOk(['init', '--quiet', '--bare', scratch], scratch);

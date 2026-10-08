@@ -168,7 +168,11 @@ function gitState(m: PinnedCargoManifest) {
  * resolved before the agent started, never the worktree's `.git` pointer; with no system or
  * global configuration, no fsmonitor and no hooks; and with named variables only.
  */
-function daemonGitEnvironment(gitDirectory?: string, workTree?: string): NodeJS.ProcessEnv {
+function daemonGitEnvironment(
+  gitDirectory?: string,
+  workTree?: string,
+  gitCommonDirectory?: string,
+): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH ?? '/usr/bin',
     ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
@@ -180,6 +184,8 @@ function daemonGitEnvironment(gitDirectory?: string, workTree?: string): NodeJS.
     GIT_TERMINAL_PROMPT: '0',
     GIT_NO_REPLACE_OBJECTS: '1',
     ...(gitDirectory ? { GIT_DIR: gitDirectory } : {}),
+    // Named, never found through a `commondir` file an agent can write (R-G14 review MEDIUM-1).
+    ...(gitCommonDirectory ? { GIT_COMMON_DIR: gitCommonDirectory } : {}),
     ...(workTree ? { GIT_WORK_TREE: workTree } : {}),
   };
 }
@@ -187,33 +193,56 @@ const DAEMON_GIT_OPTIONS = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=
 
 /**
  * The worktree's git directory and common directory, resolved by the daemon before the agent
- * starts, while the `.git` pointer is still the one the daemon created.
+ * starts. Read from where Git puts them, never through Git's own discovery (R-G14 review
+ * MEDIUM-1): a `.git` directory is its own common directory, and a `.git` file names an entry
+ * whose common directory is the one it lies in (`<common>/worktrees/<name>`). A `commondir` file
+ * that says otherwise (Git's ref store would follow it even under `GIT_COMMON_DIR`) is refused.
  */
 export function resolveGitDirectories(
-  gitExecutable: string,
+  _gitExecutable: string,
   workspacePath: string,
 ): { gitDirectory: string; gitCommonDirectory: string } {
-  const resolved = spawnSync(
-    gitExecutable,
-    [
-      ...DAEMON_GIT_OPTIONS,
-      'rev-parse',
-      '--path-format=absolute',
-      '--absolute-git-dir',
-      '--git-common-dir',
-    ],
-    {
-      cwd: workspacePath,
-      encoding: 'utf8',
-      timeout: 10000,
-      maxBuffer: 65536,
-      env: daemonGitEnvironment(),
-    },
-  );
-  const [gitDirectory, gitCommonDirectory] = (resolved.stdout ?? '').trim().split('\n');
-  if (resolved.status !== 0 || !gitDirectory || !gitCommonDirectory)
+  const refuse = (): never => {
     throw new Error('Could not resolve the worktree git directory.');
+  };
+  const dotGit = join(workspacePath, '.git');
+  let gitDirectory: string;
+  try {
+    if (lstatSync(dotGit).isDirectory()) gitDirectory = realpathSync(dotGit);
+    else {
+      const named = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1]?.trim();
+      gitDirectory = named === undefined ? refuse() : realpathSync(resolve(workspacePath, named));
+      if (!lstatSync(gitDirectory).isDirectory()) refuse();
+    }
+  } catch {
+    return refuse();
+  }
+  const gitCommonDirectory =
+    basename(dirname(gitDirectory)) === 'worktrees' ? dirname(dirname(gitDirectory)) : gitDirectory;
+  if (!gitCommonDirectoryAgrees(gitDirectory, gitCommonDirectory)) refuse();
   return { gitDirectory, gitCommonDirectory };
+}
+
+/**
+ * Whether a Git directory's `commondir` file says what its place says (R-G14 review MEDIUM-1):
+ * none in a repository's own Git directory, the directory it lies in for a linked worktree's
+ * entry. Git's ref store follows that file even when `GIT_COMMON_DIR` names another.
+ */
+function gitCommonDirectoryAgrees(gitDirectory: string, gitCommonDirectory: string): boolean {
+  let commondir: string;
+  try {
+    commondir = readFileSync(join(gitDirectory, 'commondir'), 'utf8').trim();
+  } catch (error) {
+    return (
+      (error as NodeJS.ErrnoException).code === 'ENOENT' && gitDirectory === gitCommonDirectory
+    );
+  }
+  if (gitDirectory === gitCommonDirectory) return false;
+  try {
+    return realpathSync(resolve(gitDirectory, commondir)) === gitCommonDirectory;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -275,6 +304,8 @@ export function repositoryEnablesWorktreeConfig(
 /** The same observation without blocking the daemon's event loop, on the pinned git directory. */
 async function observeGitState(m: CheckManifest) {
   if (!m.gitDirectory) throw new Error('The run has no daemon-resolved git directory.');
+  if (m.gitCommonDirectory && !gitCommonDirectoryAgrees(m.gitDirectory, m.gitCommonDirectory))
+    throw new Error("The run's Git directory names another common directory.");
   const git = (args: string[]) =>
     new Promise<{ ok: boolean; stdout: string }>((resolveResult) =>
       execFile(
@@ -285,7 +316,7 @@ async function observeGitState(m: CheckManifest) {
           encoding: 'utf8',
           timeout: 10000,
           maxBuffer: 1024 * 1024,
-          env: daemonGitEnvironment(m.gitDirectory, m.workspacePath),
+          env: daemonGitEnvironment(m.gitDirectory, m.workspacePath, m.gitCommonDirectory),
         },
         (error, stdout) => resolveResult({ ok: !error, stdout: String(stdout) }),
       ),
@@ -1265,6 +1296,9 @@ async function cloneReviewedCommit(
   if (!m.gitCommonDirectory) throw new Error('The run has no daemon-resolved git directory.');
   if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(sha))
     throw new Error('The reviewed commit could not be read.');
+  // Git reading it as a clone's source follows a `commondir` in it (R-G14 review MEDIUM-1).
+  if (!gitCommonDirectoryAgrees(m.gitCommonDirectory, m.gitCommonDirectory))
+    throw new Error("The repository's Git directory names another common directory.");
   rmSync(into, { recursive: true, force: true });
   mkdirSync(dirname(into), { recursive: true, mode: 0o700 });
   try {
@@ -1316,6 +1350,9 @@ async function clonePinnedSources(
     const root = join(into, `source-${index}`);
     if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(source.commitSha))
       throw new Error(`The pinned ${source.alias} commit could not be read.`);
+    // The upload-pack that serves the fetch follows a `commondir` in it (R-G14 review MEDIUM-1).
+    if (!gitCommonDirectoryAgrees(source.gitDirectory, source.gitDirectory))
+      throw new Error(`The pinned ${source.alias} repository names another common directory.`);
     try {
       await daemonGit(m, ['init', '--quiet', root], into, undefined, within(), signal);
       // By exact commit, reachable or not: protocol v2 serves any object id (a local

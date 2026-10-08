@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { GitFailure, GitOperationsOptions, GitResult } from './operations.js';
+import { pinGitDirectories, type PinnedGitDirectories } from './pinning.js';
 import { fail, failure } from './support.js';
 
 /**
@@ -41,7 +42,11 @@ export type StreamConsumer = (chunk: Buffer) => 'stop' | undefined;
  * and as global configuration only the daemon's identity file. A repository cannot reach it
  * through the operator's aliases, rerere or diff settings.
  */
-function childEnvironment(identityConfigPath?: string, indexFile?: string): NodeJS.ProcessEnv {
+function childEnvironment(
+  identityConfigPath?: string,
+  indexFile?: string,
+  pinned?: PinnedGitDirectories,
+): NodeJS.ProcessEnv {
   return {
     ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
     ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
@@ -59,6 +64,15 @@ function childEnvironment(identityConfigPath?: string, indexFile?: string): Node
     GIT_NO_REPLACE_OBJECTS: '1',
     // Only an index file the daemon made for one command (R-G10), never one inherited.
     ...(indexFile === undefined ? {} : { GIT_INDEX_FILE: indexFile }),
+    // The Git directories named explicitly, never found through a `.git` pointer or `commondir`
+    // file an agent can write (R-G14 review MEDIUM-1).
+    ...(pinned === undefined
+      ? {}
+      : {
+          GIT_DIR: pinned.gitDirectory,
+          GIT_COMMON_DIR: pinned.commonDirectory,
+          ...(pinned.workTree === undefined ? {} : { GIT_WORK_TREE: pinned.workTree }),
+        }),
   };
 }
 
@@ -152,11 +166,21 @@ export function createRunner(options: GitOperationsOptions): GitRunner {
       let stdoutBytes = 0;
       let stderrBytes = 0;
 
+      const pinned = pinGitDirectories(cwd, options.gitTrust?.());
+      if (pinned === 'untrusted') {
+        resolve(
+          fail(
+            'untrusted-git-directory',
+            `The Git directory of ${cwd} is not one the daemon trusts; nothing was run.`,
+          ),
+        );
+        return;
+      }
       let child: ReturnType<typeof spawn>;
       try {
         child = spawn(options.gitExecutable, [...DAEMON_GIT_OPTIONS, ...args], {
           cwd,
-          env: childEnvironment(options.identityConfigPath, command.indexFile),
+          env: childEnvironment(options.identityConfigPath, command.indexFile, pinned),
           shell: false,
           detached: true,
           stdio: [command.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],

@@ -51,7 +51,7 @@ import {
   type WorkspaceId,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { createGitOperations, type GitOperations } from '@craftingtable/git';
+import { createGitOperations, type GitOperations, type GitTrust } from '@craftingtable/git';
 import { sourceRecordDigest } from '@craftingtable/planning';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect, inject, it, onTestFailed, vi } from 'vitest';
@@ -538,7 +538,10 @@ export async function ready(
   const backend = options.backend === undefined ? new ScriptedBackend() : options.backend;
   const context = await createTestContext({
     ...(options.now === undefined ? {} : { now: options.now }),
-    gitOperations: options.gitOperations ?? createGitOperations({ gitExecutable: 'git' }),
+    // With the daemon's own Git trust, as production builds it (R-G14 review MEDIUM-1).
+    gitOperations:
+      options.gitOperations ??
+      ((gitTrust: () => GitTrust) => createGitOperations({ gitExecutable: 'git', gitTrust })),
     agentBackends: options.backends ?? new Map(backend === null ? [] : [[backend.kind, backend]]),
     workers: options.workers ?? false,
     ...(options.env === undefined ? {} : { env: options.env }),

@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   mergeWorktreeResponseSchema,
@@ -174,6 +182,48 @@ describe('review-gated merge', () => {
     expect(existsSync(join(state.context.config.execution.worktreeRoot, '.merge'))).toBe(false);
     expect(git(['worktree', 'list', '--porcelain'], repositoryPath)).not.toContain('.merge');
     git(['checkout', 'main'], repositoryPath);
+  });
+
+  it("never lets the daemon's Git follow a Git directory an agent could have redirected (R-G14 review MEDIUM-1)", async () => {
+    const state = await ready();
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    const common = join(repositoryPath, '.git');
+    // An agent-made copy of the repository's Git directory, with a branch of its own.
+    const copy = mkdtempSync(join(dirname(repositoryPath), 'planted-'));
+    cpSync(common, copy, { recursive: true });
+    git(['--git-dir', copy, 'branch', 'planted', 'main'], repositoryPath);
+    const branches = () =>
+      state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${state.workspaceId}/repositories/${worktree.repositoryId}/branches`,
+        headers: { cookie: state.cookie },
+      });
+    const diff = () =>
+      state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/diff`,
+        headers: { cookie: state.cookie },
+      });
+    expect((await branches()).body).not.toContain('planted');
+    expect((await diff()).statusCode).toBe(200);
+    // A `commondir` in the repository's own Git directory: Git alone would read the copy.
+    writeFileSync(join(common, 'commondir'), `${copy}\n`);
+    expect(git(['branch', '--list', 'planted'], repositoryPath)).toContain('planted');
+    const redirected = await branches();
+    expect(redirected.statusCode).not.toBe(200);
+    expect(redirected.body).not.toContain('planted');
+    rmSync(join(common, 'commondir'));
+    // The worktree's `.git` pointer naming the copy's entry for it: refused, not followed.
+    const pointer = readFileSync(join(worktree.path, '.git'), 'utf8');
+    writeFileSync(
+      join(worktree.path, '.git'),
+      pointer.replace(common, copy).replace(realpathSync(common), copy),
+    );
+    expect(readFileSync(join(worktree.path, '.git'), 'utf8')).toContain(copy);
+    expect((await diff()).statusCode).not.toBe(200);
+    writeFileSync(join(worktree.path, '.git'), pointer);
+    expect((await diff()).statusCode).toBe(200);
   });
 
   it('merges into the recorded integration branch without changing main', async () => {

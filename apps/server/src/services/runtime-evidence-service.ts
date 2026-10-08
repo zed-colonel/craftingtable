@@ -60,6 +60,7 @@ import {
   prepareCheckManifest,
   prepareLocalCheckLaunchers,
   resolveGitDirectories,
+  worktreeGitDirectories,
   observeRustToolchain,
   type CheckOnlyManifest,
   type PinnedCargoManifest,
@@ -244,6 +245,23 @@ export class RuntimeEvidenceService {
     private readonly git: GitOperations | undefined,
     private readonly now: () => Date = () => new Date(),
   ) {}
+  /**
+   * A worktree's Git directories for its run's checks, resolved before the agent starts and taken
+   * only when they are its repository's own (R-G14 review MEDIUM-1); otherwise the run is not
+   * prepared.
+   */
+  private worktreeGitDirectories(
+    gitExecutable: string,
+    tree: Pick<Worktree, 'workspaceId' | 'repositoryId' | 'path'>,
+  ): { gitDirectory: string; gitCommonDirectory: string } {
+    const root = this.storage.execution.sourceRepositories.find(
+      tree.workspaceId,
+      tree.repositoryId,
+    )?.rootPath;
+    const resolved = root && worktreeGitDirectories(gitExecutable, tree.path, root);
+    if (!resolved) throw new Error('Could not resolve the worktree git directory.');
+    return resolved;
+  }
   private definition(ws: WorkspaceId, id: string, tx: StorageRepositories = this.storage) {
     const d = tx.imports.definition(ws, id);
     if (!d) throw new NotFoundError();
@@ -2584,8 +2602,9 @@ export class RuntimeEvidenceService {
     const manifest: PinnedCargoManifest = {
       ...(nativeVerification ? { nativeVerification } : {}),
       gitExecutable,
-      // Resolved before the agent starts; the daemon never follows the worktree's `.git` pointer.
-      ...resolveGitDirectories(gitExecutable, tree.path),
+      // Resolved before the agent starts, and only when they are the repository's own; the
+      // daemon never follows the worktree's `.git` pointer (R-G14 review MEDIUM-1).
+      ...this.worktreeGitDirectories(gitExecutable, tree),
       checkTimeoutMs: Math.min(
         30 * 60000,
         (this.storage.execution.cycles.activeForWorktree(tree.workspaceId, tree.id)?.policy
@@ -2709,8 +2728,9 @@ export class RuntimeEvidenceService {
       kind: 'checks',
       runId,
       gitExecutable,
-      // Resolved before the agent starts; the daemon never follows the worktree's `.git` pointer.
-      ...resolveGitDirectories(gitExecutable, tree.path),
+      // Resolved before the agent starts, and only when they are the repository's own; the
+      // daemon never follows the worktree's `.git` pointer (R-G14 review MEDIUM-1).
+      ...this.worktreeGitDirectories(gitExecutable, tree),
       workspacePath: tree.path,
       checkTimeoutMs: Math.min(30 * 60000, (cycle?.policy.maxRunMinutes ?? 30) * 60000),
       declaredChecks: manifestDeclaredChecks(declaration),

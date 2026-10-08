@@ -19,6 +19,7 @@ import {
   createGitOperations,
   gitVersionIssue,
   type GitOperations,
+  type GitTrust,
   writeDaemonGitIdentity,
 } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
@@ -62,6 +63,7 @@ import { RefWatch } from './services/ref-watch.js';
 import { RepositoryChecksService } from './services/repository-checks-service.js';
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import { StorageService } from './services/storage-service.js';
+import { daemonGitTrust } from './services/git-trust.js';
 import { WorkCycleService } from './services/work-cycle-service.js';
 import { WorkItemService } from './services/work-item-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
@@ -115,8 +117,11 @@ export interface ServiceOverrides {
   readonly passwordHasher?: PasswordHasher;
   readonly now?: () => Date;
   readonly streamHooks?: WorkspaceEventStreamHooks;
-  /** Test seam: a Git operations implementation or `null` to simulate no Git. */
-  readonly gitOperations?: GitOperations | null;
+  /**
+   * Test seam: a Git operations implementation, one made with the daemon's own Git trust
+   * (R-G14 review MEDIUM-1), or `null` to simulate no Git.
+   */
+  readonly gitOperations?: GitOperations | ((gitTrust: () => GitTrust) => GitOperations) | null;
   /**
    * The agent backends: `host` finds the workstation's Claude Code and Codex, which the
    * production runtime does (`createRuntime`); otherwise the ones given, or none. A daemon asks
@@ -192,6 +197,12 @@ export async function createServices(
   // Every daemon Git operation that can move a branch records where it left it, so a run's
   // protected-ref snapshot can tell the daemon's moves from anyone else's (R-G5).
   const refWatch = new RefWatch();
+  // Assigned once it exists; the trust is read per command.
+  let trustStorage: StorageService | undefined;
+  // Every daemon Git command runs against Git directories named explicitly: the registered
+  // repositories' own, and the worktree entries in them that name their checkout back. A
+  // managed worktree whose `.git` says otherwise is refused (R-G14 review MEDIUM-1).
+  const gitTrust = (): GitTrust => daemonGitTrust(storage, config.execution, trustStorage);
   const unwatchedGit: GitOperations | undefined =
     overrides.gitOperations === undefined
       ? gitExecutable === undefined
@@ -205,8 +216,11 @@ export async function createServices(
               gitExecutable,
               join(config.dataDir, 'git-identity.gitconfig'),
             ),
+            gitTrust,
           })
-      : (overrides.gitOperations ?? undefined);
+      : typeof overrides.gitOperations === 'function'
+        ? overrides.gitOperations(gitTrust)
+        : (overrides.gitOperations ?? undefined);
   // Ancestry between resolved commits is asked of Git once (R-D5, PERF-09).
   const gitOperations = unwatchedGit && refWatch.wrap(new GitFacts().wrap(unwatchedGit));
   const backends = new Map<AgentBackendKind, AgentBackend>(
@@ -251,6 +265,7 @@ export async function createServices(
     worktreeMutations,
   );
   storageService.attachAttention(attention);
+  trustStorage = storageService;
   const runtimeEvidenceService = new RuntimeEvidenceService(
     storage,
     workspaceService,

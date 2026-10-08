@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { worktreeGitDirectories } from '../src/local-check.js';
+import { resolveGitDirectories, worktreeGitDirectories } from '../src/local-check.js';
 import { hostGit } from './host-tools-test-support.js';
 
 const roots: string[] = [];
@@ -83,4 +83,29 @@ it('grants nothing an agent could have pointed elsewhere (R-G14)', () => {
   expect(worktreeGitDirectories(hostGit(), linked.worktree, linked.main)).toBeUndefined();
   // A worktree that is not one: nothing, rather than a failed launch.
   expect(worktreeGitDirectories(hostGit(), linked.root, linked.main)).toBeUndefined();
+});
+
+it('never resolves through a `commondir` an agent may have planted or rewritten (R-G14 review MEDIUM-1)', () => {
+  // Git's own discovery would follow either; the daemon refuses both.
+  const planted = fixture();
+  const elsewhere = fixture();
+  writeFileSync(join(planted.common, 'commondir'), `${elsewhere.common}\n`);
+  expect(() => resolveGitDirectories(hostGit(), planted.main)).toThrow();
+  expect(worktreeGitDirectories(hostGit(), planted.worktree, planted.main)).toBeUndefined();
+  const rewritten = fixture();
+  writeFileSync(
+    join(rewritten.common, 'worktrees', 'worktree', 'commondir'),
+    `${elsewhere.common}\n`,
+  );
+  expect(() => resolveGitDirectories(hostGit(), rewritten.worktree)).toThrow();
+  // As Git lays them out, they resolve from where they are, not by asking Git.
+  const plain = fixture();
+  expect(resolveGitDirectories(hostGit(), plain.main)).toEqual({
+    gitDirectory: plain.common,
+    gitCommonDirectory: plain.common,
+  });
+  expect(resolveGitDirectories(hostGit(), plain.worktree)).toEqual({
+    gitDirectory: join(plain.common, 'worktrees', 'worktree'),
+    gitCommonDirectory: plain.common,
+  });
 });

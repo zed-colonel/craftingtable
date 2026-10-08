@@ -214,6 +214,17 @@ tools are denied them, and so are its commands), so they have nothing of the dae
 
 ## Daemon Git
 
+Every Git command the daemon runs against a repository or a worktree names its Git directories
+explicitly (`GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE`; R-G14 review MEDIUM-1), never found
+through a file an agent can write. A repository's own `.git` directory is its own common
+directory; a worktree's `.git` file must name an entry in a registered repository's
+`worktrees/` whose `gitdir` file names that worktree back, and a managed worktree holding a Git
+directory of its own is refused. A `commondir` file that disagrees with where its Git directory
+lies is refused too, since Git's ref store follows it even under `GIT_COMMON_DIR` (Git 2.55):
+the command fails with `untrusted-git-directory` and nothing runs. The run's checks, their
+private clones and pinned fetches check the same before reading a store. Commands with no
+repository yet (`git init` of a scratch store, `git version`) are not pinned.
+
 Every Git command the daemon runs (R-G5, SEC-03, GIT-08) passes `core.fsmonitor=false` and
 `core.hooksPath=/dev/null`, so repository hooks and fsmonitor commands never run in the daemon's
 context, and every diff passes `--no-ext-diff --no-textconv`. It starts from named variables only

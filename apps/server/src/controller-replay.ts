@@ -9,6 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
 import { join, resolve } from 'node:path';
+import { formatEvidenceDecodes, replayEvidenceDecodes } from './evidence-decode-replay.js';
 import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
 import { formatPageLoads, replayPageLoads } from './page-load-replay.js';
 import { openDaemonStorage } from './persisted-records.js';
@@ -39,6 +40,9 @@ import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
  *       scheduler pass takes for every roadmap entry, and checkpoint readiness (R-I10)
  *   pnpm controller:replay <snapshot.sqlite> --evidence-view [...]  render each map's evidence
  *       view with Git stubbed, and print its size and CPU (R-H4)
+ *   pnpm controller:replay <snapshot.sqlite> --evidence-decode [--json <file>]  measure the
+ *       evidence the roadmap view and the cross-project preview decode, cold and warm, and the
+ *       decoded evidence kept afterwards; exit 1 over R-H4's bounds (R-H4)
  *   pnpm controller:replay <snapshot.sqlite> --page-load [--json <file>]  load every work item
  *       page through the daemon's routes with Git stubbed, and print its requests and server
  *       time (R-D5)
@@ -222,9 +226,35 @@ async function pageLoad(snapshot: string, jsonPath?: string): Promise<number> {
   }
 }
 
+async function evidenceDecode(snapshot: string, jsonPath?: string): Promise<number> {
+  const copy = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
+  try {
+    const path = join(copy, 'snapshot.sqlite');
+    copyFileSync(snapshot, path);
+    const replay = await replayEvidenceDecodes(path, copy, snapshotTime(path));
+    const { text, withinBounds } = formatEvidenceDecodes(replay);
+    process.stdout.write(text);
+    if (jsonPath) writeFileSync(jsonPath, `${JSON.stringify(replay, null, 2)}\n`, { mode: 0o600 });
+    return withinBounds ? 0 : 1;
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
+}
+
 async function main(args: readonly string[]): Promise<number> {
   // pnpm runs the script in the server package; paths are relative to where it was invoked.
   const base = process.env.INIT_CWD ?? process.cwd();
+  if (args.includes('--evidence-decode')) {
+    const [snapshotArg, flag, jsonArg, extra] = args.filter((arg) => arg !== '--evidence-decode');
+    const snapshot = snapshotArg && resolve(base, snapshotArg);
+    if (!snapshot || !existsSync(snapshot) || extra || (flag && (flag !== '--json' || !jsonArg))) {
+      process.stderr.write(
+        'Usage: pnpm controller:replay <snapshot.sqlite> --evidence-decode [--json <file>]\n',
+      );
+      return 2;
+    }
+    return evidenceDecode(snapshot, jsonArg && resolve(base, jsonArg));
+  }
   const everyRun = args.includes('--every-run');
   const schedulerMode = args.includes('--scheduler');
   const viewMode = args.includes('--evidence-view');

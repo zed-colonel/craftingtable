@@ -295,10 +295,32 @@ export function readWritten<T>(read: () => T): T {
   return record;
 }
 
+/** Told of each stored document a read decodes: its kind, its size and what it became. */
+export type DecodeObserver = (kind: PersistedRecordKind, bytes: number, record: unknown) => void;
+
+let decodes: DecodeObserver | undefined;
+
+/**
+ * Runs a synchronous read with `observe` told of every document it decodes, whichever
+ * repository decoded it. It measures what a view costs (R-H4, `controller:replay
+ * --evidence-decode`); the daemon never observes.
+ */
+export function observeDecodes<T>(observe: DecodeObserver, read: () => T): T {
+  const previous = decodes;
+  decodes = observe;
+  try {
+    return read();
+  } finally {
+    decodes = previous;
+  }
+}
+
 /** Decodes a JSON document column and brings it up to the current shape. */
 export function parseRecord<K extends PersistedRecordKind>(
   kind: K,
   json: string,
 ): PersistedRecords[K] {
-  return readRecord(kind, JSON.parse(json));
+  const record = readRecord(kind, JSON.parse(json));
+  decodes?.(kind, Buffer.byteLength(json), record);
+  return record;
 }

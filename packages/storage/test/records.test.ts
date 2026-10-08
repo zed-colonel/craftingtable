@@ -12,7 +12,9 @@ import {
 import {
   acceptAnyRecord,
   HistoricalRecordWriteError,
+  observeDecodes,
   observeUpcasts,
+  parseRecord,
   type PersistedRecordKind,
   RECORD_UPCASTERS,
   type RecordGuard,
@@ -365,5 +367,18 @@ describe('persisted record registry (R-H3)', () => {
     expect(unreadable).toEqual(['workspace-event']);
     expect(scanned).toBeGreaterThan(0);
     expect(f.storage.integrityProblems()).toEqual([]);
+  });
+
+  it('tells an observer of each document a read decodes, only within the read (R-H4)', () => {
+    const json = JSON.stringify({ id: 'decision', rationale: 'ünïcode' });
+    const decoded: [string, number, unknown][] = [];
+    const record = observeDecodes(
+      (kind, bytes, value) => decoded.push([kind, bytes, value]),
+      () => parseRecord('evidence-decision', json),
+    );
+    expect(decoded).toEqual([['evidence-decision', Buffer.byteLength(json), record]]);
+    expect(decoded[0]?.[2]).toBe(record);
+    parseRecord('evidence-decision', json);
+    expect(decoded).toHaveLength(1);
   });
 });

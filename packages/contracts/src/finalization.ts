@@ -15,14 +15,10 @@ import {
   worktreeIdSchema,
 } from './ids.js';
 import { reviewFindingSchema } from './review.js';
-import {
-  completionPolicySchema,
-  cycleProfilesSchema,
-  finalizationAgentSelectionSchema,
-  workCycleSchema,
-} from './work-cycle.js';
+import { agentProfileSchema, agentSelectionSchema } from './agent-profiles.js';
+import { completionPolicySchema, workCycleSchema } from './work-cycle.js';
 
-const profile = cycleProfilesSchema.shape.review;
+const profile = agentProfileSchema;
 export const finalizationStageSchema = z.strictObject({
   id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
   kind: z.enum(FINALIZATION_STAGE_KINDS),
@@ -169,7 +165,7 @@ export const controlFinalizationRequestSchema = z
       .max(100)
       .refine((ids) => new Set(ids).size === ids.length)
       .optional(),
-    agentOverride: finalizationAgentSelectionSchema.nullable().optional(),
+    agentOverride: agentSelectionSchema.nullable().optional(),
     /** With `remove-worktree`: discard uncommitted changes instead of refusing. */
     discardChanges: z.boolean().optional(),
     selectedFindingIds: z.array(z.string().min(1).max(64)).max(100).optional(),

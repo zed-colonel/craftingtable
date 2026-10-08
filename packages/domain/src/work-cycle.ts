@@ -1,5 +1,4 @@
-import type { AgentRunProfile } from './execution.js';
-import type { FinalizationAgentSelection } from './finalization.js';
+import type { AgentProfile, AgentSelection, CycleProfiles } from './agent-profiles.js';
 import {
   currentFinalizationStage,
   parkedFollowUp,
@@ -29,15 +28,6 @@ export const DEFAULT_COMPLETION_POLICY: CompletionPolicy = {
   maxRemediationRounds: 3,
   maxRunMinutes: 120,
 };
-export type CycleProfiles = Readonly<
-  Record<CycleStep, Omit<AgentRunProfile, 'role'>> &
-    Partial<
-      Record<
-        import('./agent-profiles.js').SpecialistProfile,
-        import('./agent-profiles.js').AgentSelection
-      >
-    >
->;
 export interface IntegrationResolution {
   readonly runIds?: readonly AgentRunId[];
   readonly id: string;
@@ -55,7 +45,7 @@ export interface IntegrationResolution {
   readonly diagnostics: string;
   readonly createdAt: string;
   readonly attempts: number;
-  readonly profile?: Omit<AgentRunProfile, 'role'>;
+  readonly profile?: AgentProfile;
   readonly instructions?: string;
   readonly treeSha?: string;
   readonly commitSha?: string;
@@ -83,7 +73,7 @@ export interface DesignRecovery {
    * question with cited sources (R-C3a). At most one per operator-started investigation.
    */
   readonly automatic?: true;
-  readonly profile: FinalizationAgentSelection;
+  readonly profile: AgentSelection;
   readonly instructions: string;
   readonly snapshotDigest: string;
   readonly facts: string;
@@ -152,7 +142,7 @@ export interface CycleInvestigation {
   readonly code: import('./attention.js').CycleAttentionCode;
   /** SHA-256 of the questions as the run was briefed with them. */
   readonly questionsDigest: string;
-  readonly profile: FinalizationAgentSelection;
+  readonly profile: AgentSelection;
   readonly instructions: string;
   readonly minutes: number;
   readonly deadlineAt: string;
@@ -303,13 +293,13 @@ export interface WorkCycle {
     readonly attempts: number;
     readonly sourceRunId: AgentRunId;
     readonly failure: import('./execution.js').ProviderFailure;
-    readonly profile: Omit<AgentRunProfile, 'role'>;
+    readonly profile: AgentProfile;
     readonly nextRetryAt?: string;
   } | null;
   readonly remediationRounds: number;
   /** Extra attempts explicitly authorized after a cycle exhausts its initial allowance. */
   readonly additionalRemediationRounds?: number;
-  readonly finalizationAgentOverride?: FinalizationAgentSelection | null;
+  readonly finalizationAgentOverride?: AgentSelection | null;
   readonly deferredNits?: readonly {
     readonly finding: ReviewFinding;
     readonly sourceRunId: AgentRunId;

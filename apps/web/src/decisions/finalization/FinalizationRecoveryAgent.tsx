@@ -1,5 +1,5 @@
 import type { ExecutionStatusResponse } from '@craftingtable/contracts';
-import { AGENT_BACKEND_LABELS, type FinalizationAgentSelection } from '@craftingtable/domain';
+import { AGENT_BACKEND_LABELS, type AgentSelection } from '@craftingtable/domain';
 import { About } from '../../components/About.js';
 import { AgentSelectionFields } from '../../features/execution/AgentSelectionFields.js';
 
@@ -14,9 +14,9 @@ export function FinalizationRecoveryAgent({
 }: {
   mode: 'keep' | 'switch' | 'restore';
   onMode: (mode: 'keep' | 'switch' | 'restore') => void;
-  value: FinalizationAgentSelection;
-  onChange: (value: FinalizationAgentSelection) => void;
-  current: FinalizationAgentSelection | null | undefined;
+  value: AgentSelection;
+  onChange: (value: AgentSelection) => void;
+  current: AgentSelection | null | undefined;
   backends: ExecutionStatusResponse['backends'];
   disabled: boolean;
 }) {

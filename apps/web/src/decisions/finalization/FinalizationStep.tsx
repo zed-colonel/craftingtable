@@ -5,7 +5,7 @@ import type {
 } from '@craftingtable/contracts';
 import {
   currentPlanChanges,
-  type FinalizationAgentSelection,
+  type AgentSelection,
   finalizationProfile,
   optionalFinding,
   remediationAllowance,
@@ -124,7 +124,7 @@ function StageDecision({
     cycle && remediationUsed(cycle) >= remediationAllowance(cycle) ? 1 : 0,
   );
   const [agentMode, setAgentMode] = useState<'keep' | 'switch' | 'restore'>('keep');
-  const [agent, setAgent] = useState<FinalizationAgentSelection>(() => {
+  const [agent, setAgent] = useState<AgentSelection>(() => {
     const p = cycle ? finalizationProfile(view.finalization, cycle) : view.finalization.finalReview;
     return { backend: p.backend, ...(p.model ? { model: p.model } : {}) };
   });

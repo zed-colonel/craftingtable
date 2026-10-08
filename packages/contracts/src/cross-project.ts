@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import type { CrossProjectConfiguration } from '@craftingtable/domain';
+import { agentProfileSchema } from './agent-profiles.js';
 import { workItemIdSchema } from './ids.js';
 import { cycleProfilesSchema, completionPolicySchema } from './work-cycle.js';
 const automation = z.strictObject({
   integrationMerge: z.enum(['manual', 'automatic']),
   integrationConflicts: z.enum(['manual', 'automatic']),
-  resolutionProfile: cycleProfilesSchema.shape.remediate.optional(),
+  resolutionProfile: agentProfileSchema.optional(),
 });
 export const mapSettingsSchema = z.strictObject({
   reviewerRoles: z

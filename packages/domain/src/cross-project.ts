@@ -1,4 +1,5 @@
-import type { CompletionPolicy, CycleProfiles } from './work-cycle.js';
+import type { CycleProfiles } from './agent-profiles.js';
+import type { CompletionPolicy } from './work-cycle.js';
 import type { RoadmapAutomation } from './roadmap.js';
 import type { UserId, WorkspaceId } from './ids.js';
 export interface MapAdoption {

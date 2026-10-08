@@ -1,4 +1,5 @@
-import type { CycleProfiles, CompletionPolicy } from './work-cycle.js';
+import type { AgentProfile, CycleProfiles } from './agent-profiles.js';
+import type { CompletionPolicy } from './work-cycle.js';
 import type {
   WorkspaceId,
   WorkItemId,
@@ -21,7 +22,7 @@ export type RoadmapStatus = (typeof ROADMAP_STATUSES)[number];
 export interface RoadmapAutomation {
   readonly integrationMerge: 'manual' | 'automatic';
   readonly integrationConflicts: 'manual' | 'automatic';
-  readonly resolutionProfile?: Omit<import('./execution.js').AgentRunProfile, 'role'>;
+  readonly resolutionProfile?: AgentProfile;
 }
 export const DEFAULT_ROADMAP_AUTOMATION: RoadmapAutomation = {
   integrationMerge: 'manual',

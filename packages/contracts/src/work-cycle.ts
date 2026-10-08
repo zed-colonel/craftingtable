@@ -1,6 +1,4 @@
 import {
-  AGENT_BACKENDS,
-  AGENT_PERMISSION_MODES,
   CYCLE_ACTIONS,
   CYCLE_ATTENTION_CODES,
   CYCLE_STATUSES,
@@ -13,8 +11,9 @@ import {
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
+  agentProfileSchema,
+  agentSelectionSchema,
   agentSelectionsSchema,
-  reasoningEffortSchema,
   specialistSelectionsShape,
 } from './agent-profiles.js';
 import { cycleAttentionSchema } from './attention.js';
@@ -44,23 +43,12 @@ export const completionPolicySchema = z.strictObject({
   maxRemediationRounds: z.number().int().min(0).max(20),
   maxRunMinutes: z.number().int().min(1).max(1440),
 });
-const cycleProfileSchema = z.strictObject({
-  reasoningEffort: reasoningEffortSchema.optional(),
-  backend: z.enum(AGENT_BACKENDS),
-  permissionMode: z.enum(AGENT_PERMISSION_MODES),
-  model: z.string().trim().min(1).max(100).optional(),
-});
-export const finalizationAgentSelectionSchema = cycleProfileSchema.pick({
-  backend: true,
-  model: true,
-  reasoningEffort: true,
-});
 export const cycleProfilesSchema = z.strictObject({
   ...specialistSelectionsShape,
-  design: cycleProfileSchema,
-  implement: cycleProfileSchema,
-  review: cycleProfileSchema,
-  remediate: cycleProfileSchema,
+  design: agentProfileSchema,
+  implement: agentProfileSchema,
+  review: agentProfileSchema,
+  remediate: agentProfileSchema,
 });
 export const startWorkCycleRequestSchema = z.strictObject({
   worktreeId: worktreeIdSchema,
@@ -80,7 +68,7 @@ export const integrationResolutionSchema = z.strictObject({
   diagnostics: z.string().max(12000),
   createdAt: z.iso.datetime(),
   attempts: z.number().int().min(0).max(3),
-  profile: cycleProfileSchema.optional(),
+  profile: agentProfileSchema.optional(),
   instructions: z.string().max(16000).optional(),
   treeSha: commitShaSchema.optional(),
   commitSha: commitShaSchema.optional(),
@@ -88,7 +76,7 @@ export const integrationResolutionSchema = z.strictObject({
 export const integrationResolutionRequestSchema = z.strictObject({
   action: z.enum(['inspect', 'start', 'resume', 'abandon']),
   expectedVersion: z.number().int().positive(),
-  profile: cycleProfileSchema.optional(),
+  profile: agentProfileSchema.optional(),
   instructions: z.string().max(16000).optional(),
 });
 export type IntegrationResolutionRequest = z.infer<typeof integrationResolutionRequestSchema>;
@@ -111,7 +99,7 @@ export const recoverDesignRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
   mode: z.enum(['investigate', 'continue']),
-  profile: finalizationAgentSelectionSchema,
+  profile: agentSelectionSchema,
   instructions: z.string().max(16000).default(''),
   attachments: z.array(designAttachmentSchema).max(4).default([]),
 });
@@ -124,7 +112,7 @@ export const startInvestigationRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   instructions: z.string().max(8000).default(''),
   minutes: z.number().int().min(5).max(60).default(30),
-  profile: finalizationAgentSelectionSchema.optional(),
+  profile: agentSelectionSchema.optional(),
 });
 export type StartInvestigationRequest = z.infer<typeof startInvestigationRequestSchema>;
 export const endInvestigationRequestSchema = z.strictObject({
@@ -286,7 +274,7 @@ export const workCycleSchema = z
         sourceRunId: agentRunIdSchema,
         mode: z.enum(['investigate', 'continue']),
         automatic: z.literal(true).optional(),
-        profile: finalizationAgentSelectionSchema,
+        profile: agentSelectionSchema,
         instructions: z.string().max(16000),
         snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
         facts: z.string().max(128000),
@@ -301,7 +289,7 @@ export const workCycleSchema = z
         sourceRunId: agentRunIdSchema,
         code: z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
         questionsDigest: z.string().regex(/^[0-9a-f]{64}$/),
-        profile: finalizationAgentSelectionSchema,
+        profile: agentSelectionSchema,
         instructions: z.string().max(8000),
         minutes: z.number().int().min(5).max(60),
         deadlineAt: z.iso.datetime(),
@@ -389,7 +377,7 @@ export const workCycleSchema = z
         attempts: z.number().int().min(0).max(3),
         sourceRunId: agentRunIdSchema,
         failure: providerFailureSchema,
-        profile: cycleProfileSchema,
+        profile: agentProfileSchema,
         nextRetryAt: z.iso.datetime().optional(),
       })
       .nullable()
@@ -415,7 +403,7 @@ export const workCycleSchema = z
       )
       .max(100)
       .optional(),
-    finalizationAgentOverride: finalizationAgentSelectionSchema.nullable().optional(),
+    finalizationAgentOverride: agentSelectionSchema.nullable().optional(),
     findingFocus: z.array(z.string().min(1).max(64)).max(100).optional(),
     stalledReviews: z.number().int().nonnegative(),
     previousFindingFingerprint: z.string().max(128).optional(),

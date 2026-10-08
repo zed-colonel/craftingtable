@@ -1,5 +1,5 @@
-import type { AgentRun, AgentRunProfile } from './execution.js';
-import type { CycleProfiles, CycleStep, WorkCycle } from './work-cycle.js';
+import type { AgentBackendKind, AgentPermissionMode, AgentRun } from './execution.js';
+import type { CycleStep, WorkCycle } from './work-cycle.js';
 
 export const SPECIALIST_PROFILES = [
   'security',
@@ -19,13 +19,31 @@ export const AGENT_PROFILE_PURPOSES = [
 export type AgentProfilePurpose = (typeof AGENT_PROFILE_PURPOSES)[number];
 export const AGENT_REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
 export type AgentReasoningEffort = (typeof AGENT_REASONING_EFFORTS)[number];
-export type AgentSelection = Pick<AgentRunProfile, 'backend' | 'model' | 'reasoningEffort'>;
+/**
+ * The one agent selection (R-E5, DATA-11): the backend, model and reasoning effort a launch
+ * asks for. Every place that chooses an agent, from workspace defaults to a recovery's choice,
+ * holds this shape; the permissions belong to the step that runs it.
+ */
+export type AgentSelection = {
+  readonly backend: AgentBackendKind;
+  readonly model?: string;
+  readonly reasoningEffort?: AgentReasoningEffort;
+};
+/**
+ * A selection with the permissions of the step it runs (ADR-064: the step owns them). These are
+ * type aliases, not interfaces, so records holding them stay assignable to audit metadata.
+ */
+export type AgentProfile = AgentSelection & { readonly permissionMode: AgentPermissionMode };
+/** A selection for each step, and for each specialist that has its own (ADR-064 assignments). */
 export type AgentSelections = Readonly<
   Record<CycleStep, AgentSelection> & Partial<Record<SpecialistProfile, AgentSelection>>
 >;
-export type WorkspaceAgentProfile = Omit<AgentRunProfile, 'role'> & {
-  readonly role: AgentProfilePurpose;
-};
+/** A cycle's or a saved roadmap entry's profiles: each step's profile, each specialist's selection. */
+export type CycleProfiles = Readonly<
+  Record<CycleStep, AgentProfile> & Partial<Record<SpecialistProfile, AgentSelection>>
+>;
+/** A workspace default: a profile for one purpose (`workspace_run_profiles`). */
+export type WorkspaceAgentProfile = AgentProfile & { readonly role: AgentProfilePurpose };
 export const PROFILE_LABELS: Record<AgentProfilePurpose, string> = {
   design: 'Design',
   implement: 'Implementation',
@@ -59,7 +77,7 @@ export function agentSelections(profiles: CycleProfiles): AgentSelections {
 export function profileForPurpose(
   profiles: CycleProfiles,
   purpose: AgentProfilePurpose,
-): Omit<AgentRunProfile, 'role'> {
+): AgentProfile {
   const base =
     purpose in PROFILE_INHERITANCE
       ? PROFILE_INHERITANCE[purpose as SpecialistProfile]
@@ -93,7 +111,7 @@ export function cycleProfilePurpose(cycle: WorkCycle): AgentProfilePurpose {
 }
 export function cycleProfilesFromDefaults(
   profiles: readonly (WorkspaceAgentProfile & { readonly stored?: boolean })[],
-  fallback: Omit<AgentRunProfile, 'role'>,
+  fallback: AgentProfile,
 ): CycleProfiles {
   const choose = (p: AgentProfilePurpose) => profiles.find((x) => x.role === p);
   const result = Object.fromEntries(
@@ -115,7 +133,7 @@ export function cycleProfilesFromDefaults(
     ),
   };
 }
-export function matchingAgent(run: AgentRun, profile: Omit<AgentRunProfile, 'role'>): boolean {
+export function matchingAgent(run: AgentRun, profile: AgentProfile): boolean {
   return (
     run.backend === profile.backend &&
     run.model === profile.model &&

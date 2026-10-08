@@ -6,7 +6,11 @@ import {
   type RoadmapAttentionCode,
 } from '@craftingtable/domain';
 import { z } from 'zod';
-import { agentSelectionSchema, agentSelectionsSchema } from './agent-profiles.js';
+import {
+  agentProfileSchema,
+  agentSelectionSchema,
+  agentSelectionsSchema,
+} from './agent-profiles.js';
 import { phaseBlockerCodeSchema, roadmapAttentionSchema } from './attention.js';
 import { crossProjectConfigurationSchema } from './cross-project.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
@@ -24,7 +28,7 @@ import { completionPolicySchema, cycleProfilesSchema } from './work-cycle.js';
 export const roadmapAutomationSchema = z.strictObject({
   integrationMerge: z.enum(['manual', 'automatic']),
   integrationConflicts: z.enum(['manual', 'automatic']),
-  resolutionProfile: cycleProfilesSchema.shape.remediate.optional(),
+  resolutionProfile: agentProfileSchema.optional(),
 });
 export const roadmapIdSchema = z.string().uuid();
 export const roadmapSchedulingSchema = z.strictObject({

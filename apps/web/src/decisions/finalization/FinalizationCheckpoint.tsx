@@ -4,7 +4,7 @@ import type {
   FinalizationView,
 } from '@craftingtable/contracts';
 import {
-  type FinalizationAgentSelection,
+  type AgentSelection,
   finalizationProfile,
   remediationAllowance,
   remediationUsed,
@@ -46,7 +46,7 @@ export function FinalizationCheckpoint({
   const [rounds, setRounds] = useState(1);
   const hintId = useId();
   const [agentMode, setAgentMode] = useState<'keep' | 'switch' | 'restore'>('keep');
-  const [agent, setAgent] = useState<FinalizationAgentSelection>(() => {
+  const [agent, setAgent] = useState<AgentSelection>(() => {
     const profile =
       view.cycle && view.finalization.finalReview
         ? finalizationProfile(view.finalization, view.cycle)

@@ -1,3 +1,4 @@
+import type { AgentProfile } from './agent-profiles.js';
 import type { JsonValue } from './audit.js';
 import type {
   AgentRunEventId,
@@ -207,12 +208,8 @@ export type AgentRunVerdict = (typeof AGENT_RUN_VERDICTS)[number];
  * to pick a backend without a human. Absent roles fall back to the daemon's
  * default backend with the `auto` posture.
  */
-export interface AgentRunProfile {
-  readonly reasoningEffort?: import('./agent-profiles.js').AgentReasoningEffort;
+export interface AgentRunProfile extends AgentProfile {
   readonly role: AgentRunRole;
-  readonly backend: AgentBackendKind;
-  readonly model?: string;
-  readonly permissionMode: AgentPermissionMode;
 }
 
 export interface AgentRun {

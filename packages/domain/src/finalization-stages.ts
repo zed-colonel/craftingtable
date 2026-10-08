@@ -1,4 +1,4 @@
-import type { AgentRunProfile } from './execution.js';
+import type { AgentProfile } from './agent-profiles.js';
 import type { AgentRunId, UserId } from './ids.js';
 import type { ReviewFinding, ReviewReportAssessment } from './review.js';
 import type { CompletionPolicy, WorkCycle } from './work-cycle.js';
@@ -25,8 +25,8 @@ export interface FinalizationStage {
   /** Empty means the whole plan; slices use imported work-item source IDs. */
   readonly workItemSourceIds: readonly string[];
   readonly instructions: string;
-  readonly review: Omit<AgentRunProfile, 'role'>;
-  readonly implement: Omit<AgentRunProfile, 'role'>;
+  readonly review: AgentProfile;
+  readonly implement: AgentProfile;
   readonly policy: CompletionPolicy;
   readonly requiredChecks: readonly string[];
   /**

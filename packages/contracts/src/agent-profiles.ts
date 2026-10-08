@@ -1,6 +1,7 @@
 import { projectIdSchema } from './ids.js';
 import {
   AGENT_BACKENDS,
+  AGENT_PERMISSION_MODES,
   AGENT_PROFILE_PURPOSES,
   AGENT_REASONING_EFFORTS,
 } from '@craftingtable/domain';
@@ -11,6 +12,16 @@ export const agentSelectionSchema = z.strictObject({
   backend: z.enum(AGENT_BACKENDS),
   model: z.string().trim().min(1).max(100).optional(),
   reasoningEffort: reasoningEffortSchema.optional(),
+});
+/**
+ * A selection with its step's permissions (`AgentProfile`). The keys keep the order saved
+ * records were written in: a saved roadmap entry is compared with its resubmitted form as JSON.
+ */
+export const agentProfileSchema = z.strictObject({
+  reasoningEffort: reasoningEffortSchema.optional(),
+  backend: agentSelectionSchema.shape.backend,
+  permissionMode: z.enum(AGENT_PERMISSION_MODES),
+  model: agentSelectionSchema.shape.model,
 });
 export const specialistSelectionsShape = {
   security: agentSelectionSchema.optional(),

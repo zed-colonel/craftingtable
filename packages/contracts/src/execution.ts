@@ -405,9 +405,11 @@ export const startAgentRunRequestSchema = z.strictObject({
 });
 
 /**
- * The operator's standing agent, model, and permission choice for one role.
- * The daemon answers with every role, marking which ones it stores; a request
- * carries only the roles to store, each at most once.
+ * The operator's standing agent, model, and permission choice for one role
+ * (`WorkspaceAgentProfile`: an `agentProfileSchema` with its purpose). The
+ * daemon answers with every role, marking which ones it stores; a request
+ * carries only the roles to store, each at most once. Its model is not
+ * trimmed, as saved workspace defaults never were.
  */
 export const agentRunProfileSchema = z.strictObject({
   reasoningEffort: reasoningEffortSchema.optional(),

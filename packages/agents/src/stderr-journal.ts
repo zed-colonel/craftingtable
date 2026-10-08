@@ -14,8 +14,8 @@ const SUPPRESSED_MESSAGE = `stderr suppressed: the agent wrote more than ${STDER
  * this decides only what is recorded.
  */
 export class StderrJournal {
-  private pending = '';
-  private pendingBytes = 0;
+  /** Accepted bytes not yet journaled; never ends inside a character. */
+  private pending: Buffer = Buffer.alloc(0);
   /** Bytes accepted for the journal so far, written or pending. */
   private accepted = 0;
   private suppressed = false;
@@ -23,21 +23,24 @@ export class StderrJournal {
   /** Takes a raw chunk; returns the events to journal now. */
   write(text: string): NormalizedAgentEvent[] {
     if (this.suppressed || text.length === 0) return [];
+    const encoded = Buffer.from(text, 'utf8');
     const room = STDERR_RUN_BUDGET_BYTES - this.accepted;
-    const bytes = Buffer.byteLength(text, 'utf8');
-    const kept = bytes <= room ? text : utf8Prefix(text, room);
-    const keptBytes = bytes <= room ? bytes : Buffer.byteLength(kept, 'utf8');
-    this.pending += kept;
-    this.pendingBytes += keptBytes;
-    this.accepted += keptBytes;
+    const kept =
+      encoded.length <= room ? encoded : encoded.subarray(0, characterEnd(encoded, room));
+    this.accepted += kept.length;
+    this.pending = this.pending.length === 0 ? kept : Buffer.concat([this.pending, kept]);
     const events: NormalizedAgentEvent[] = [];
-    while (this.pendingBytes >= STDERR_EVENT_LIMIT_BYTES) {
-      const slice = utf8Prefix(this.pending, STDERR_EVENT_LIMIT_BYTES);
-      this.pending = this.pending.slice(slice.length);
-      this.pendingBytes -= Buffer.byteLength(slice, 'utf8');
-      events.push({ kind: 'stderr', payload: { text: slice } });
+    let offset = 0;
+    while (this.pending.length - offset >= STDERR_EVENT_LIMIT_BYTES) {
+      const end = offset + characterEnd(this.pending.subarray(offset), STDERR_EVENT_LIMIT_BYTES);
+      events.push({
+        kind: 'stderr',
+        payload: { text: this.pending.toString('utf8', offset, end) },
+      });
+      offset = end;
     }
-    if (bytes > room) {
+    this.pending = this.pending.subarray(offset);
+    if (encoded.length > room) {
       this.suppressed = true;
       events.push(...this.flush(), {
         kind: 'notice',
@@ -49,19 +52,17 @@ export class StderrJournal {
 
   /** What is still pending, at the session's end; blank output is not journaled. */
   flush(): NormalizedAgentEvent[] {
-    const text = this.pending;
-    this.pending = '';
-    this.pendingBytes = 0;
+    const text = this.pending.toString('utf8');
+    this.pending = Buffer.alloc(0);
     return text.trim().length > 0 ? [{ kind: 'stderr', payload: { text } }] : [];
   }
 }
 
-/** The longest prefix of `text` within `bytes` UTF-8 bytes that does not split a character. */
-function utf8Prefix(text: string, bytes: number): string {
-  const encoded = Buffer.from(text, 'utf8');
-  if (encoded.length <= bytes) return text;
-  let end = bytes;
+/** The longest prefix of `bytes`, at most `limit` long, that does not split a character. */
+function characterEnd(bytes: Buffer, limit: number): number {
+  if (bytes.length <= limit) return bytes.length;
+  let end = limit;
   // Back off continuation bytes (10xxxxxx) to the start of the character that would be split.
-  while (end > 0 && ((encoded[end] ?? 0) & 0xc0) === 0x80) end -= 1;
-  return encoded.subarray(0, end).toString('utf8');
+  while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end -= 1;
+  return end;
 }

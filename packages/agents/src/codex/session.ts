@@ -9,6 +9,7 @@ import type {
 import {
   AsyncQueue,
   backgroundWorkAllowance,
+  OUTPUT_HIGH_WATER_ITEMS,
   type SupervisedProcess,
   spawnSupervisedProcess,
 } from '../process.js';
@@ -47,7 +48,9 @@ const CODEX_API_KEY_VARIABLES = ['OPENAI_API_KEY', 'CODEX_API_KEY'] as const;
 export class CodexSession implements AgentSession {
   private readonly child: SupervisedProcess;
   private readonly rpc: CodexRpc;
-  private readonly output = new AsyncQueue<AgentSessionItem>();
+  /** The daemon's side; while it lags, the app-server's output is not read (AGT-16). */
+  private readonly output = new AsyncQueue<AgentSessionItem>(() => this.drained?.());
+  private drained: (() => void) | undefined;
   private readonly normalizer: CodexStreamNormalizer;
   private readonly queued: string[] = [];
   private readonly stderr = new StderrJournal();
@@ -387,6 +390,12 @@ export class CodexSession implements AgentSession {
   }
   private async consume(): Promise<void> {
     for await (const item of this.child.items) {
+      // Read no further while the daemon has not taken what is already here: the supervisor
+      // then pauses the app-server's output (R-G11, AGT-16).
+      if (this.output.size >= OUTPUT_HIGH_WATER_ITEMS)
+        await new Promise<void>((resolve) => {
+          this.drained = resolve;
+        });
       if (item.type === 'exited') {
         this.closed = true;
         if (this.shutdownTimer) clearTimeout(this.shutdownTimer);

@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -105,6 +105,20 @@ lines.on('line', line => {
     const id = active;
     if (mode === 'complete-before-reply') {finish(); setTimeout(() => reply({turn: {id, status: 'completed'}}), 20); return;}
     reply({turn: {id, status: 'inProgress'}});
+    if (mode === 'flood') {
+      // Blocking writes, after what is already queued: the writer waits while nobody reads.
+      process.stdout.write('', () => {
+        for (let i = 0; i < 20000; i++) {
+          let pending = Buffer.from(JSON.stringify({method: 'item/completed', params: {threadId, turnId: id, item: {id: 'flood-' + i, type: 'agentMessage', text: 'FLOOD ' + i}}}) + String.fromCharCode(10));
+          while (pending.length) {
+            try { pending = pending.subarray(fs.writeSync(1, pending)); } catch (error) { if (error.code !== 'EAGAIN') throw error; }
+          }
+        }
+        fs.writeFileSync('finished', 'yes');
+        finish();
+      });
+      return;
+    }
     // Held turns say they are under way, so a test knows the session has seen the turn begin.
     if (mode === 'hold' || mode === 'ignore-term') {notify('item/completed', {turnId: id, item: {id: 'working-' + id, type: 'agentMessage', text: 'WORKING'}}); return;}
     timer = setTimeout(() => finish(['failed', 'overloaded'].includes(mode) ? 'failed' : 'completed'), mode === 'approval-outage' ? 300 : 100);
@@ -549,6 +563,39 @@ it('reports a provider-side credential rejection, and fails the run it blocked (
   approval.session.end();
   await approval.done;
   expect(approval.items.at(-1)).toEqual({ type: 'exited', exitCode: 0, signal: null });
+});
+
+it('pauses the app-server while the daemon lags behind its session (R-G11, AGT-16)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'craftingtable-codex-'));
+  directories.push(cwd);
+  const executable = join(cwd, 'codex');
+  writeFileSync(executable, FAKE);
+  chmodSync(executable, 0o755);
+  const session = await new CodexBackend({
+    executable,
+    env: { FAKE_MODE: 'flood' },
+    allowEnvironment: ['FAKE_MODE'],
+    terminationGraceMs: 50,
+  }).launch({ cwd, prompt: 'go', permissionMode: 'auto' });
+  sessions.push(session);
+  const iterator = session.items[Symbol.asyncIterator]();
+  const flood = (item: AgentSessionItem | undefined) =>
+    item?.type === 'event' &&
+    item.event.kind === 'assistant-message' &&
+    item.event.payload.text.startsWith('FLOOD');
+  let next = await iterator.next();
+  while (!next.done && !flood(next.value)) next = await iterator.next();
+  // A daemon that reads nothing more for a while: the app-server must wait for it, not have
+  // its whole output buffered in the daemon's memory.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  expect(existsSync(join(cwd, 'finished'))).toBe(false);
+  let flooded = 1;
+  for (next = await iterator.next(); !next.done; next = await iterator.next()) {
+    if (flood(next.value)) flooded += 1;
+    if (next.value.type === 'event' && next.value.event.kind === 'turn-completed') session.end();
+  }
+  expect(flooded).toBe(20000);
+  expect(existsSync(join(cwd, 'finished'))).toBe(true);
 });
 
 it("journals stderr within the run's budget, then one notice, and still reads every chunk (R-G11)", async () => {

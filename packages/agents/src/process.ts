@@ -49,8 +49,11 @@ export interface SupervisedProcess {
   terminate(): void;
 }
 
-/** Buffered stdout items above which the child's stdout is paused until the consumer drains. */
-export const STDOUT_HIGH_WATER_ITEMS = 1000;
+/**
+ * Buffered items above which the child's output (stdout and stderr) is paused until the
+ * consumer has taken them all.
+ */
+export const OUTPUT_HIGH_WATER_ITEMS = 1000;
 
 /**
  * Minimal async queue: producers push, one consumer iterates. Closing the
@@ -358,12 +361,14 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
     !Number.isFinite(options.backgroundWorkDeadlineAt)
   )
     throw new Error('The background-work deadline is not a finite time');
-  // A consumer that lags holds stdout back instead of buffering without bound (AGT-16).
+  // A consumer that lags holds the child's output back instead of buffering without bound
+  // (AGT-16): the child blocks on a full pipe until the consumer catches up.
   let paused = false;
   const queue = new AsyncQueue<SupervisedProcessItem>(() => {
     if (!paused) return;
     paused = false;
     child.stdout?.resume();
+    child.stderr?.resume();
   });
   const child = spawn(options.executable, [...options.args], {
     cwd: options.cwd,
@@ -379,11 +384,12 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
   let lineBytes = 0;
   let dropping = false;
   let droppedBytes = 0;
-  const pushStdout = (item: SupervisedProcessItem) => {
+  const pushOutput = (item: SupervisedProcessItem) => {
     queue.push(item);
-    if (!paused && queue.size >= STDOUT_HIGH_WATER_ITEMS) {
+    if (!paused && queue.size >= OUTPUT_HIGH_WATER_ITEMS) {
       paused = true;
       child.stdout?.pause();
+      child.stderr?.pause();
     }
   };
   child.stdout?.setEncoding('utf8');
@@ -412,7 +418,7 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
       const segmentBytes = Buffer.byteLength(segment, 'utf8');
       if (dropping) {
         droppedBytes += segmentBytes;
-        pushStdout({ type: 'stdout-overflow', bytes: droppedBytes });
+        pushOutput({ type: 'stdout-overflow', bytes: droppedBytes });
         dropping = false;
         droppedBytes = 0;
         continue;
@@ -422,15 +428,15 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
       lineBuffer = '';
       lineBytes = 0;
       if (bytes > options.maxLineBytes) {
-        pushStdout({ type: 'stdout-overflow', bytes });
+        pushOutput({ type: 'stdout-overflow', bytes });
         continue;
       }
-      pushStdout({ type: 'stdout-line', line });
+      pushOutput({ type: 'stdout-line', line });
     }
   });
   child.stderr?.setEncoding('utf8');
   child.stderr?.on('data', (chunk: string) => {
-    queue.push({ type: 'stderr', text: chunk });
+    pushOutput({ type: 'stderr', text: chunk });
   });
   child.stdin?.on('error', () => {
     // EPIPE after the agent exits is expected; the close event reports the outcome.

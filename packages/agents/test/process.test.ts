@@ -119,6 +119,25 @@ describe('stdout supervision (R-G11, AGT-16c, AGT-16e)', () => {
     expect(existsSync(join(fake.cwd, 'finished'))).toBe(true);
   });
 
+  it('pauses stderr too while the consumer lags', async () => {
+    const fake = script(
+      `seq 0 999999 | sed 's/$/ ${'x'.repeat(100)}/' >&2\ntouch finished`,
+      'agent',
+      '/bin/sh',
+    );
+    const child = spawn(fake);
+    const iterator = child.items[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({ type: 'stderr' });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // A hundred megabytes of stderr, more than 1000 chunks of a full pipe, were not all read
+    // into memory while nobody took them.
+    expect(existsSync(join(fake.cwd, 'finished'))).toBe(false);
+    let last: SupervisedProcessItem | undefined;
+    for (let next = await iterator.next(); next.done !== true; next = await iterator.next())
+      last = next.value;
+    expect(last).toMatchObject({ type: 'exited', exitCode: 0 });
+  });
+
   it('measures a line delivered in many chunks by its bytes, keeping or dropping it exactly', async () => {
     // Two-byte characters, written a few at a time, so the line arrives in many chunks.
     const fake = script(`

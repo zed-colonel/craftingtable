@@ -1,6 +1,11 @@
 import type { Finalization, Roadmap, RoadmapEntry, WorkCycle } from '@craftingtable/domain';
-import { expect, it } from 'vitest';
-import { finalizationAgents, preparationAgent } from '../../src/services/agent-profile-policy.js';
+import { describe, expect, it } from 'vitest';
+import type { StorageRepositories } from '@craftingtable/storage';
+import {
+  finalizationAgents,
+  operatorResolutionProfile,
+  preparationAgent,
+} from '../../src/services/agent-profile-policy.js';
 
 /**
  * R-E5a: the sources the daemon reports. A finalization's stage profiles are per-action overrides
@@ -97,5 +102,62 @@ it('a decision preparation: the operator’s choice over the entry’s investiga
   expect(preparationAgent(roadmap, entry).source).toEqual({
     layer: 'saved-definition',
     slot: 'design',
+  });
+});
+
+describe('an integration resolution the operator starts (operator decision 2026-10-07)', () => {
+  const profiles = {
+    design: stage('design'),
+    implement: stage('implement'),
+    review: stage('review'),
+    remediate: { ...stage('remediate'), permissionMode: 'auto' as const },
+  };
+  const conflict = { backend: 'claude-code' as const, model: 'conflict' };
+  const assigned = {
+    id: 'assignment',
+    entryIds: ['entry'],
+    selections: {
+      ...profiles,
+      remediate: { backend: 'claude-code' as const, model: 'a-remediate' },
+    },
+    appliedAt: '2026-10-01T00:00:00Z',
+    appliedByUserId: 'operator',
+  };
+  const roadmap = {
+    id: 'roadmap',
+    attempts: [{ id: 'attempt', entryId: 'entry', cycleId: 'cycle', status: 'active' }],
+    agentAssignments: [assigned],
+  } as unknown as Roadmap;
+  const tx = (owned: boolean) =>
+    ({
+      roadmaps: {
+        list: () => (owned ? [roadmap] : []),
+        find: () => (owned ? roadmap : undefined),
+      },
+    }) as unknown as StorageRepositories;
+  const of = (fields: Partial<WorkCycle['profiles']> = {}) =>
+    ({
+      id: 'cycle',
+      workspaceId: 'ws',
+      step: 'review',
+      profiles: { ...profiles, ...fields },
+    }) as WorkCycle;
+  it.each([
+    ['the cycle’s remediation profile, with no specialist', false, {}, 'remediate'],
+    ['the cycle’s conflict specialist over remediation', false, { conflict }, 'conflict'],
+    ['the latest assignment over the specialist', true, { conflict }, 'a-remediate'],
+  ] as const)('without a choice: %s, with remediation’s permissions', (_, owned, fields, model) => {
+    expect(operatorResolutionProfile(tx(owned), of(fields), undefined)).toMatchObject({
+      model,
+      permissionMode: 'auto',
+    });
+  });
+  it('the operator’s choice, then on resume the recorded profile, beat every layer', () => {
+    const chosen = { ...stage('chosen'), permissionMode: 'unrestricted' as const };
+    const recorded = stage('recorded');
+    expect(operatorResolutionProfile(tx(true), of({ conflict }), chosen, recorded)).toEqual(chosen);
+    expect(operatorResolutionProfile(tx(true), of({ conflict }), undefined, recorded)).toEqual(
+      recorded,
+    );
   });
 });

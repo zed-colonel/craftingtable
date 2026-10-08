@@ -429,11 +429,10 @@ describe('an integration resolution the operator starts', () => {
       if (request.model === 'implement-model')
         commitFile(worktree.path, 'README.md', 'item behavior\n');
     };
-    const remediate = { ...cycleProfiles.remediate, permissionMode: 'edit-only' as const };
     const cycle = await startCycle(state, worktree.id, {
       profiles: {
         ...cycleProfiles,
-        remediate,
+        remediate: { ...cycleProfiles.remediate, permissionMode: 'edit-only' },
         conflict: { backend: 'claude-code', model: 'conflict-model' },
       },
     });
@@ -449,23 +448,29 @@ describe('an integration resolution the operator starts', () => {
         ...input,
       });
     expect((await command({ action: 'inspect' })).statusCode).toBe(200);
-    return { ...fixture, cycle, remediate, command };
+    return { ...fixture, cycle, command };
   }
 
-  it('without a chosen profile, starts with the cycle’s remediation profile, not its conflict specialist', async () => {
-    const { state, backend, cycle, remediate, command } = await resolutionFixture();
+  // Operator decision 2026-10-07 (R-E5a question 3): the operator's start follows the delegated
+  // rule. Characterized before as the remediation profile, the conflict specialist not consulted.
+  it('without a chosen profile, starts with the cycle’s conflict specialist, with remediation’s permissions', async () => {
+    const { state, backend, cycle, command } = await resolutionFixture();
     backend.replyForRequest = () => ({
       resultText: 'Need a semantic choice.\n\n## Resolution status\nblocked',
     });
     const started = await command({ action: 'start' });
     expect(started.statusCode, started.body).toBe(200);
-    expect(currentCycle(state, cycle).integrationResolution?.profile).toEqual(remediate);
+    expect(currentCycle(state, cycle).integrationResolution?.profile).toEqual({
+      backend: 'claude-code',
+      model: 'conflict-model',
+      permissionMode: 'edit-only',
+    });
     await waitFor(
       () => currentCycle(state, cycle).status === 'needs-attention',
       'resolution asks question',
     );
     expect([backend.launches.at(-1)?.model, backend.launches.at(-1)?.permissionMode]).toEqual([
-      'remediate-model',
+      'conflict-model',
       'edit-only',
     ]);
     // Resumed without a choice, it keeps the profile it recorded.

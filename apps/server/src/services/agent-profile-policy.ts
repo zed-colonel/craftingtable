@@ -290,9 +290,9 @@ export function effectiveCycleProfiles(tx: StorageRepositories, cycle: WorkCycle
 
 /**
  * The operator's integration resolution: the command's choice, else on resume the profile the
- * resolution recorded, else the cycle's remediation profile. Today's rule, kept as characterized:
- * the assignment and a conflict specialist are not consulted here (the browser sends the
- * cycle's conflict selection as the choice).
+ * resolution recorded, else the delegated rule without a delegation (operator decision
+ * 2026-10-07): the latest assignment, then the cycle's conflict specialist, then the remediation
+ * conflict inherits, with remediation's permissions.
  */
 export function operatorResolutionProfile(
   tx: StorageRepositories,
@@ -302,7 +302,7 @@ export function operatorResolutionProfile(
 ): AgentProfile {
   return launchProfile(
     resolveAgent({
-      purpose: 'remediate',
+      purpose: 'conflict',
       permissionMode: cycle.profiles.remediate.permissionMode,
       ...(chosen
         ? {
@@ -314,7 +314,7 @@ export function operatorResolutionProfile(
           }
         : {}),
       ...(recorded ? { integrationResolution: recorded } : {}),
-      profiles: cycleLayers(tx, cycle).profiles,
+      ...cycleLayers(tx, cycle),
     }),
   );
 }

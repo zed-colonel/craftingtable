@@ -114,6 +114,11 @@ afterEach(async () => {
  * its input, and starts a member of its own group that ignores SIGTERM too.
  */
 const STUBBORN_AGENT = `#!${process.execPath}
+// The daemon reads the CLI's version at start (R-G15): answer it and start nothing.
+if (process.argv[2] === '--version') {
+  console.log('2.1.300 (Claude Code)');
+  process.exit(0);
+}
 const fs = require('node:fs');
 // With BUSY_ROOT, the member keeps using the agents' temporary directories there, as a
 // background build keeps writing its TMPDIR, recreating them if they are removed.

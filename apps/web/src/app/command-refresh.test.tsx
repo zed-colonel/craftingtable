@@ -80,11 +80,20 @@ vi.mock('../lib/execution-api.js', async (original) => ({
   loadRepositories: vi.fn(async () => ({
     repositories: [{ id: 'repo', displayName: 'repo', status: 'active' }],
   })),
-  loadExecutionStatus: vi.fn(async () => ({ git: { available: true }, backends: [] })),
+  loadExecutionStatus: vi.fn(async () => ({
+    git: { available: true },
+    backends: [],
+    outsideSources: [],
+  })),
   loadRunProfiles: vi.fn(async () => ({ profiles: [] })),
   saveRunProfiles: vi.fn(async () => ({ profiles: [] })),
   registerRepository: vi.fn(async () => undefined),
-  refreshModels: vi.fn(async () => ({ git: { available: true }, backends: [], refreshed: true })),
+  refreshModels: vi.fn(async () => ({
+    git: { available: true },
+    backends: [],
+    outsideSources: [],
+    refreshed: true,
+  })),
   // A work item page's region in one read (R-D5).
   loadWorkItemView: vi.fn(async (_ws: string, workItemId: string) => ({
     detail: {
@@ -288,7 +297,10 @@ it('sets the execution status the refresh answered with after "Refresh models" (
   await run(() => (props.repositories!.onRefreshModels as () => void)());
   expect(vi.mocked(refreshModels)).toHaveBeenCalledWith('csrf');
   expect(vi.mocked(store.set).mock.calls).toEqual([
-    [queryKeys.executionStatus(), { git: { available: true }, backends: [], refreshed: true }],
+    [
+      queryKeys.executionStatus(),
+      { git: { available: true }, backends: [], outsideSources: [], refreshed: true },
+    ],
   ]);
 });
 

@@ -383,6 +383,7 @@ export async function createServices(
         catalog: backend === undefined ? { source: 'fallback' } : backend.describe().catalog,
       };
     }),
+    outsideSources: config.execution.outsideSources,
   });
   return {
     crossProjectService,

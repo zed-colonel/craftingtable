@@ -2,6 +2,7 @@ import type {
   AgentRunDetailResponse,
   AgentRunProfileEntry,
   AgentRunSummary,
+  ExecutionStatusResponse,
   RunEventEnvelope,
   SourceRepositorySummary,
   WorktreeDiffResponse,
@@ -110,6 +111,7 @@ describe('RepositoriesPage', () => {
         ]}
         status={{
           git: { available: true, executable: '/usr/bin/git' },
+          outsideSources: [],
           backends: [
             {
               kind: 'claude-code',
@@ -146,6 +148,7 @@ describe('RepositoriesPage', () => {
         repositories={[]}
         status={{
           git: { available: true, executable: '/usr/bin/git' },
+          outsideSources: [],
           backends: [
             {
               kind: 'claude-code',
@@ -186,6 +189,59 @@ describe('RepositoriesPage', () => {
     ).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
     expect(onRefreshModels).toHaveBeenCalledOnce();
+  });
+
+  it('shows the outside sources sandboxed agent commands may reach, read-only (R-G14)', () => {
+    const status = (outsideSources: ExecutionStatusResponse['outsideSources']) => ({
+      git: { available: true, executable: '/usr/bin/git' },
+      backends: [],
+      outsideSources,
+    });
+    const { rerender } = render(
+      <RepositoriesPage
+        repositories={[]}
+        status={status([
+          {
+            kind: 'cargo',
+            hosts: ['index.crates.io', 'static.crates.io'],
+            caches: ['/data/cargo-home/registry', '/data/cargo-home/git'],
+          },
+        ])}
+        canMutate={true}
+        busy={false}
+        onRegister={vi.fn()}
+        onRetire={vi.fn()}
+      />,
+    );
+    const sources = screen.getByLabelText('Outside sources');
+    expect(within(sources).getByText('cargo')).toBeDefined();
+    expect(within(sources).getByText('index.crates.io, static.crates.io')).toBeDefined();
+    expect(
+      within(sources).getByText('/data/cargo-home/registry, /data/cargo-home/git'),
+    ).toBeDefined();
+    // Where they are set, and what they do not cover.
+    const about = screen.getByText(/outside-sources\.json/).closest('p');
+    expect(about?.textContent).toContain('applied when the daemon restarts');
+    expect(about?.textContent).toMatch(
+      /Read-only runs get none.*Unrestricted runs have no sandbox/,
+    );
+    // Nothing here edits them.
+    expect(within(sources.parentElement as HTMLElement).queryByRole('textbox')).toBeNull();
+    rerender(
+      <RepositoriesPage
+        repositories={[]}
+        status={status([])}
+        canMutate={true}
+        busy={false}
+        onRegister={vi.fn()}
+        onRetire={vi.fn()}
+      />,
+    );
+    expect(
+      within(screen.getByLabelText('Outside sources')).getByText(
+        'None: sandboxed commands reach no network',
+      ),
+    ).toBeDefined();
   });
 });
 

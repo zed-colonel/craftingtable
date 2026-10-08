@@ -365,7 +365,8 @@ vi.mock('./lib/work-cycle-api.js', () => ({
 }));
 
 vi.mock('./lib/execution-api.js', () => ({
-  loadExecutionStatus: () => Promise.resolve({ git: { available: true }, backends: [] }),
+  loadExecutionStatus: () =>
+    Promise.resolve({ git: { available: true }, backends: [], outsideSources: [] }),
   loadRunProfiles: () => Promise.resolve({ profiles: [] }),
   loadRepositories: () => Promise.resolve({ repositories: [] }),
   // A work item page's region in one read (R-D5): its detail and execution come with it.

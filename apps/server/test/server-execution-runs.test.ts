@@ -530,13 +530,35 @@ describe('agent runs', () => {
     });
     expect(started.statusCode, started.body).toBe(200);
     const { dataDir } = configured.context.config;
-    expect(configured.backend.launches[0]?.outsideSources).toEqual([
+    const effective = [
       {
         kind: 'cargo',
         hosts: ['index.crates.io', 'static.crates.io', 'mirror.example.org'],
         caches: [join(dataDir, 'cargo-home', 'registry'), join(dataDir, 'cargo-home', 'git')],
       },
-    ]);
+    ];
+    expect(configured.backend.launches[0]?.outsideSources).toEqual(effective);
+    // The effective list is in the execution status, which Repositories → Tools shows.
+    const status = async (state: typeof configured) =>
+      executionStatusResponseSchema.parse(
+        (
+          await state.context.app.inject({
+            method: 'GET',
+            url: '/api/execution-status',
+            headers: { cookie: state.cookie },
+          })
+        ).json(),
+      ).outsideSources;
+    expect(await status(configured)).toEqual(effective);
+    // And noted in the run's journal at launch, after the brief.
+    const notes = (state: typeof configured) => {
+      const runId = startAgentRunResponseSchema.parse(
+        (state === configured ? started : again).json(),
+      ).run.id;
+      return state.context.storage.execution.runEvents
+        .listAfter({ workspaceId: state.workspaceId, runId, after: 0, limit: 50 })
+        .map((event) => (event.kind === 'notice' ? event.payload.message : event.kind));
+    };
     // Removing the source: the launch names none, so the sandbox reaches no host.
     writeFileSync(
       join(configDir, 'outside-sources.json'),
@@ -552,6 +574,15 @@ describe('agent runs', () => {
     });
     expect(again.statusCode, again.body).toBe(200);
     expect(removed.backend.launches[0]?.outsideSources).toEqual([]);
+    expect(await status(removed)).toEqual([]);
+    expect(notes(configured).slice(0, 2)).toEqual([
+      'user-message',
+      `Outside sources for sandboxed commands: cargo (hosts index.crates.io, static.crates.io, mirror.example.org; writes ${effective[0]?.caches.join(', ')}). Commands reach no other host.`,
+    ]);
+    expect(notes(removed).slice(0, 2)).toEqual([
+      'user-message',
+      'Outside sources for sandboxed commands: none. Commands reach no network.',
+    ]);
   });
 
   it('starts a run with a composed brief, streams events, accepts follow-ups, and finishes', async () => {
@@ -672,6 +703,8 @@ describe('agent runs', () => {
     const events = runEventPageResponseSchema.parse(page.json()).events;
     expect(events.map((event) => event.kind)).toEqual([
       'user-message',
+      // The outside sources the run's commands may reach (R-G14).
+      'notice',
       'session-started',
       'tool-call',
       'tool-result',

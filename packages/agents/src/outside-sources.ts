@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { OutsideSourceKind } from '@craftingtable/domain';
+import { truncateUtf8 } from './bounded.js';
 import type { AgentLaunchRequest } from './index.js';
 
-/** The kinds of outside source the daemon knows (R-G14): for now only Cargo's registry. */
-export type OutsideSourceKind = 'cargo';
+export type { OutsideSourceKind } from '@craftingtable/domain';
 
 /**
  * An outside source a sandboxed agent command may reach (R-G14): exact host names, and the
@@ -81,4 +82,32 @@ export function prepareSourceCaches(directories: readonly string[]): void {
       // Already there, or not ours to create.
     }
   }
+}
+
+/**
+ * What a launch's commands may reach, for the run's journal (R-G14): the sources with their
+ * hosts and caches when the run is sandboxed (every posture but unrestricted, and not read-only,
+ * as both adapters apply them), else why none apply. Bounded as a notice.
+ */
+export function outsideSourcesNote(
+  request: Pick<
+    AgentLaunchRequest,
+    'outsideSources' | 'environment' | 'permissionMode' | 'readOnly'
+  >,
+): string {
+  if (request.readOnly) return 'Outside sources: none, as for every read-only run.';
+  if (request.permissionMode === 'unrestricted')
+    return 'Outside sources: not applied. An unrestricted run has no sandbox; its commands reach any host, with your authority.';
+  const sources = launchOutsideSources(request);
+  if (sources.length === 0)
+    return 'Outside sources for sandboxed commands: none. Commands reach no network.';
+  const listed = sources
+    .map(
+      (source) =>
+        `${source.kind} (hosts ${source.hosts.join(', ')}; writes ${source.caches.join(', ')})`,
+    )
+    .join('; ');
+  const tail = ' Commands reach no other host.';
+  const head = 'Outside sources for sandboxed commands: ';
+  return `${head}${truncateUtf8(`${listed}.`, 4000 - head.length - tail.length).text}${tail}`;
 }

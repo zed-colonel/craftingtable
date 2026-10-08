@@ -232,6 +232,25 @@ export function RepositoriesPage({
               Refresh models
             </button>
           )}
+          <StatusStrip
+            label="Outside sources"
+            facts={
+              status.outsideSources.length === 0
+                ? [{ label: 'Outside sources', value: 'None: sandboxed commands reach no network' }]
+                : status.outsideSources.flatMap((source) => [
+                    { label: source.kind, value: source.hosts.join(', '), mono: true },
+                    { label: `${source.kind} caches`, value: source.caches.join(', '), mono: true },
+                  ])
+            }
+          />
+          <About label="About outside sources">
+            <p>
+              Sandboxed agent commands (Auto and Edit-only, on either agent) reach only these hosts,
+              and write only these caches beside their worktree and run. Set in{' '}
+              <code>outside-sources.json</code> in the daemon&rsquo;s settings directory, applied
+              when the daemon restarts. Read-only runs get none. Unrestricted runs have no sandbox.
+            </p>
+          </About>
           {missingTool && (
             <p className="warning-state" role="note">
               A missing tool disables delegation. Set CRAFTINGTABLE_GIT_EXECUTABLE or

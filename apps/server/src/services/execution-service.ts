@@ -199,6 +199,8 @@ export interface ExecutionStatus {
     /** Where the models came from; a missing backend has none (R-G15). */
     readonly catalog: import('@craftingtable/domain').ModelCatalogStatus;
   }[];
+  /** The outside sources sandboxed agent commands may reach, as read at start (R-G14). */
+  readonly outsideSources: readonly import('@craftingtable/agents').OutsideSource[];
 }
 
 /**

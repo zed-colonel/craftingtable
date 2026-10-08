@@ -54,7 +54,11 @@ vi.mock('../../lib/package-import-api.js', () => ({
   archiveDownloadPath: () => '/api/download',
 }));
 vi.mock('../../lib/execution-api.js', () => ({
-  loadExecutionStatus: vi.fn(async () => ({ backends: [], git: { available: true } })),
+  loadExecutionStatus: vi.fn(async () => ({
+    backends: [],
+    git: { available: true },
+    outsideSources: [],
+  })),
   loadRunProfiles: vi.fn(async () => ({ profiles: [] })),
 }));
 vi.mock('../../lib/planning-api.js', () => ({

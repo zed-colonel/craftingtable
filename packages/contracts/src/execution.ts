@@ -12,6 +12,7 @@ import {
   MODEL_CATALOG_ISSUES,
   MODEL_CATALOG_SOURCES,
   OUTCOME_SUMMARY_LIMIT_BYTES,
+  OUTSIDE_SOURCE_KINDS,
   SOURCE_REPOSITORY_STATUSES,
   WORKTREE_STATUSES,
 } from '@craftingtable/domain';
@@ -98,6 +99,20 @@ export const executionStatusResponseSchema = z.strictObject({
       }),
     )
     .max(10),
+  /**
+   * The outside sources sandboxed agent commands may reach and whose caches they may write
+   * (R-G14), as the daemon read them from its settings at start. Read-only here.
+   */
+  outsideSources: z
+    .array(
+      z.strictObject({
+        kind: z.enum(OUTSIDE_SOURCE_KINDS),
+        // The settings file holds at most 64 KiB, so at most a few thousand hosts.
+        hosts: z.array(z.string().min(1).max(253)).max(10_000),
+        caches: z.array(z.string().min(1).max(4096)).max(16),
+      }),
+    )
+    .max(16),
 });
 
 /** "Refresh models" (R-G15): no input; the answer is the execution status. */

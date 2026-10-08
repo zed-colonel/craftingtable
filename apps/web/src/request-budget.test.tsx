@@ -220,6 +220,7 @@ vi.mock('./lib/execution-api.js', async (original) => ({
   loadExecutionStatus: count('execution-status', async () => ({
     git: { available: true },
     backends: [],
+    outsideSources: [],
   })),
   loadRunProfiles: count('run-profiles', async () => ({ profiles: [] })),
   loadRepositories: count('repositories', async () => ({ repositories: [REPOSITORY] })),

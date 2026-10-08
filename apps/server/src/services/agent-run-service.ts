@@ -26,6 +26,7 @@ import {
   type AgentSession,
   type AgentSessionItem,
   type NormalizedAgentEvent,
+  outsideSourcesNote,
   parseProcessGroupIdentity,
   type ProcessGroupIdentity,
   type ProcessGroupReaping,
@@ -2034,6 +2035,11 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             text: prompt,
             ...(handoff === undefined ? {} : { handoffSources: handoff.sources }),
           },
+        });
+        // What the run's commands may reach, as the adapter applied it (R-G14).
+        this.appendEvent(workspaceId, runId, {
+          kind: 'notice',
+          payload: { category: 'other', message: outsideSourcesNote(launch) },
         });
         const started = this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
           startedAt: this.now().toISOString(),

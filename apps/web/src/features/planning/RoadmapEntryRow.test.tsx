@@ -33,7 +33,11 @@ vi.mock('../../lib/roadmap-api.js', async () => {
   };
 });
 vi.mock('../../lib/execution-api.js', () => ({
-  loadExecutionStatus: vi.fn(async () => ({ backends: [], git: { available: true } })),
+  loadExecutionStatus: vi.fn(async () => ({
+    backends: [],
+    git: { available: true },
+    outsideSources: [],
+  })),
   loadRunProfiles: vi.fn(async () => ({ profiles: [] })),
 }));
 

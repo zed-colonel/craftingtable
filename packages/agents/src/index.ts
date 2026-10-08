@@ -35,6 +35,7 @@ export {
 export {
   cargoOutsideSource,
   OUTSIDE_SOURCE_HOSTS,
+  outsideSourcesNote,
   type OutsideSource,
   type OutsideSourceKind,
 } from './outside-sources.js';

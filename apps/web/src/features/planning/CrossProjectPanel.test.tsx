@@ -47,6 +47,7 @@ function setup(
       },
     ],
     git: { available: true },
+    outsideSources: [],
   });
   vi.mocked(loadRunProfiles).mockResolvedValue({
     profiles: ['design', 'implement', 'review'].map((role) => ({

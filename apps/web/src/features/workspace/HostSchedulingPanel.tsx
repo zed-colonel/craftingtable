@@ -95,7 +95,7 @@ export function HostSchedulingPanel({
       if (save) setDraft(undefined);
       setNotice(
         save
-          ? 'Workstation capacity saved. Generate and accept fresh saved-plan evidence for the affected cross-project roadmaps below before resuming.'
+          ? 'Workstation capacity saved. Host capacity is not part of saved-plan acceptance; resume scheduling separately when ready.'
           : 'Reservations and settings refreshed.',
       );
     } catch (value) {
@@ -253,9 +253,8 @@ export function HostSchedulingPanel({
                 other prerequisites. Refresh is explicit and preserves unsaved edits.
               </p>
               <p>
-                After changing a workstation limit, regenerate and accept saved-plan evidence for
-                the affected cross-project roadmaps. Dependency pins need no change for a capacity
-                adjustment alone.
+                Host capacity is not part of saved-plan acceptance, so a limit change needs no new
+                plan review. Dependency pins need no change for a capacity adjustment alone.
               </p>
             </About>
             {draft && (
@@ -288,7 +287,7 @@ export function HostSchedulingPanel({
                 </div>
                 <p className="hint">
                   Pause scheduling in every workspace before saving. Saving does not resume
-                  scheduling. Affected cross-project roadmaps need fresh saved-plan acceptance.
+                  scheduling.
                 </p>
                 {running.length > 0 && (
                   <p className="error-state">
@@ -319,10 +318,7 @@ export function HostSchedulingPanel({
             )}
             <details>
               <summary>Roadmaps affected by workstation changes ({status.roadmaps.length})</summary>
-              <p>
-                After a limit change, regenerate and accept saved-plan evidence for cross-project
-                roadmaps here. Resume remains a separate action.
-              </p>
+              <p>A limit change needs no new plan review. Resume remains a separate action.</p>
               <ul>
                 {status.roadmaps.map((r) => (
                   <li key={r.id}>
@@ -336,10 +332,7 @@ export function HostSchedulingPanel({
                     >
                       {r.name}
                     </Link>{' '}
-                    · {r.status} ·{' '}
-                    {r.crossProject
-                      ? 'Saved-plan review required after a capacity change'
-                      : 'No cross-project plan review required'}
+                    · {r.status} · No plan review required after a capacity change
                   </li>
                 ))}
               </ul>

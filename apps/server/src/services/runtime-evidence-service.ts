@@ -40,6 +40,7 @@ import {
   generatedPlanIssues,
 } from './plan-acceptance-policy.js';
 import {
+  carriedAcceptance,
   carryPlanAcceptance,
   changesSince,
   generatedPlanSubmission,
@@ -2128,6 +2129,14 @@ export class RuntimeEvidenceService {
                 kind: 'checkpoint',
                 sourceId: planId,
               });
+              const carried =
+                !issues.length && accepted?.generatedPlan?.roadmapId === roadmap.id
+                  ? carriedAcceptance(
+                      decisions,
+                      snapshot.runtimeEvidence.submissions(ws, id),
+                      accepted.id,
+                    )
+                  : undefined;
               return {
                 roadmapId: roadmap.id,
                 name: roadmap.definition.name,
@@ -2144,6 +2153,7 @@ export class RuntimeEvidenceService {
                       ? ('awaiting-review' as const)
                       : ('ready-to-generate' as const),
                 ...(submission ? { submissionId: submission.id } : {}),
+                ...(carried ? { carried } : {}),
               };
             }),
         }

@@ -47,7 +47,7 @@ export function SharedDecisionInbox({
         <p>
           Full approval settles the architectural choice. Implementation, tests and parent
           acceptance keep their own gates. A limited approval settles only the named clauses for
-          selected slices and requires a fresh saved-plan review.
+          selected slices, and approving it carries an accepted saved plan forward.
         </p>
         <p>
           References and source identities are collected for you. Recommendations remain proposals

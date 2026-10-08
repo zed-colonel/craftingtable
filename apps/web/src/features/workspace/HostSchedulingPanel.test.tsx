@@ -119,9 +119,10 @@ it('keeps roadmap controls usable for editors without requesting installation au
     maxPerRepository: 2,
   });
   expect(vi.mocked(request).mock.calls.every((c) => !c[0].endsWith('/host-scheduling'))).toBe(true);
+  // Roadmap limits are not a plan-acceptance input (R-C6 D1): no new plan review is asked.
   expect(
     within(screen.getByRole('region', { name: 'Roadmap in-flight limits' })).getByText(
-      /fresh saved-plan evidence/,
+      'Roadmap limits saved. Resume scheduling separately when ready. Existing attempts are retained.',
     ),
   ).toBeTruthy();
 });

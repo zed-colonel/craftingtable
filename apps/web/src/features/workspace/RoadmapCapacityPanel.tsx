@@ -73,7 +73,7 @@ export function RoadmapCapacityPanel({
       if (save) setDraft(undefined);
       setNotice(
         save
-          ? `Roadmap limits saved. ${roadmap?.crossProject ? 'Generate and accept fresh saved-plan evidence on this roadmap before resuming.' : 'Resume scheduling separately when ready.'} Existing attempts are retained.`
+          ? 'Roadmap limits saved. Resume scheduling separately when ready. Existing attempts are retained.'
           : 'Roadmap limits and in-flight work refreshed.',
       );
     } catch (e) {
@@ -222,9 +222,8 @@ export function RoadmapCapacityPanel({
                 </label>
               ))}
               <p className="hint">
-                Lowering a limit delays new admissions; it does not stop current work.
-                {roadmap.crossProject &&
-                  ' Generate and accept fresh saved-plan evidence before resuming.'}
+                Lowering a limit delays new admissions; it does not stop current work. Limits are
+                not part of saved-plan acceptance.
               </p>
               {stale && (
                 <p role="alert">

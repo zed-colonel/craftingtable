@@ -20,7 +20,11 @@ import {
   type EvidenceSubmissionRecord,
   type RuntimeEvidenceView,
 } from '@craftingtable/contracts';
-import type { WorkspaceId } from '@craftingtable/domain';
+import {
+  PLAN_ACCEPTANCE_INPUT_LABELS,
+  type PlanAcceptanceInput,
+  type WorkspaceId,
+} from '@craftingtable/domain';
 import { revealElement } from '../../lib/reveal-element.js';
 import { request } from '../../lib/api-client.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
@@ -28,6 +32,9 @@ import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId } from '@craftingtable/domain';
+/** The plan-acceptance inputs as the operator reads them (R-C6). */
+const inputLabels = (inputs: readonly PlanAcceptanceInput[]) =>
+  inputs.map((input) => PLAN_ACCEPTANCE_INPUT_LABELS[input]).join(', ');
 export function RuntimeEvidencePanel({
   workspaceId,
   definitionId,
@@ -295,7 +302,18 @@ export function RuntimeEvidencePanel({
                   </p>
                   <p role="status">
                     {r.state === 'accepted'
-                      ? 'Plan evidence accepted. No further save or review is needed unless configuration changes. Start or Resume remains your action.'
+                      ? r.carried
+                        ? `Accepted, carried from your review of ${new Date(
+                            r.carried.reviewedAt,
+                          ).toLocaleString(undefined, {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          })}; ${
+                            r.carried.changedInputs.length
+                              ? `changed: ${inputLabels(r.carried.changedInputs)}`
+                              : 'no plan-acceptance input changed'
+                          }. Start or Resume remains your action.`
+                        : 'Plan evidence accepted. Your own saves, dependency refreshes and clause approvals carry it forward; a new map or binding needs your review. Start or Resume remains your action.'
                       : r.state === 'awaiting-review'
                         ? 'Evidence generated — awaiting your plan review.'
                         : r.state === 'ready-to-generate'
@@ -993,7 +1011,13 @@ export function RuntimeEvidencePanel({
                     'Candidate checkpoint review pending. Inspect the retained review and receipts; accepting records your explicit checkpoint attestation.'
                   )
                 ) : s.generatedPlan ? (
-                  decision ? (
+                  decision?.carriedFrom && s.generatedPlan.kind === 'saved-plan-v2' ? (
+                    `Plan acceptance carried forward by ${decision.decidedByUserId}${asRoles} from an earlier review; ${
+                      s.generatedPlan.changedInputs.length
+                        ? `changed: ${inputLabels(s.generatedPlan.changedInputs)}`
+                        : 'no plan-acceptance input changed'
+                    }.`
+                  ) : decision ? (
                     `Plan review recorded by ${decision.decidedByUserId}${asRoles}.`
                   ) : (
                     `Independent plan review pending: accepting below records your authenticated review${asRoles}. The daemon only collected setup facts.`
@@ -1122,7 +1146,7 @@ export function RuntimeEvidencePanel({
                     setNotice(
                       s.architectureDecision && outcome === 'accepted'
                         ? s.architectureDecision.coverage === 'clauses'
-                          ? 'Early clauses approved. Generate and review updated saved-plan evidence, then continue affected designs with the new decision packet.'
+                          ? 'Early clauses approved. Your approval carries an accepted saved plan forward. Continue affected designs with the new decision packet.'
                           : 'Decision approved. Continue affected designs with the updated decision packet.'
                         : s.generatedPlan && outcome === 'accepted'
                           ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'

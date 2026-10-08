@@ -412,9 +412,90 @@ it('separates saved readiness, evidence generation and explicit independent plan
   fireEvent.click(reviewed);
   expect(accept.hasAttribute('disabled')).toBe(false);
   fireEvent.click(accept);
-  await screen.findByText(/Plan evidence accepted. No further save or review/);
+  await screen.findByText(/Plan evidence accepted. Your own saves, dependency refreshes/);
   expect(calls(/decide$/)).toHaveLength(1);
   await screen.findByText('Plan review recorded by operator as plan-owner.');
+});
+
+// R-C6 D2: an acceptance the operator's own command carried says whose review it carries and
+// every plan-acceptance input changed since that review.
+it('says a carried plan acceptance comes from your review and names what changed', async () => {
+  const planSubject = {
+    subject: { kind: 'checkpoint', sourceId: 'PLAN-OK' },
+    title: 'Plan accepted',
+    profile: 'plan-approval',
+    requirements: ['Saved plan reviewed'],
+    reviewerRoles: ['plan-owner'],
+    testedRepositories: [],
+    cases: [],
+    issues: [],
+  };
+  const carried = {
+    ...submission,
+    id: 'carried-plan',
+    subject: { kind: 'checkpoint', sourceId: 'PLAN-OK' },
+    reviewers: [],
+    generatedPlan: {
+      kind: 'saved-plan-v2',
+      roadmapId: runtimeId,
+      definitionRevision: 5,
+      inputsDigest: 'a'.repeat(64),
+      changedInputs: ['reviewerRoles'],
+    },
+    artifacts: [{ name: 'plan-review-guide', digest: 'b'.repeat(64), content: 'Guide.' }],
+  };
+  respond([
+    {
+      ...view(),
+      subjects: [...view().subjects, planSubject],
+      submissions: [
+        {
+          submission: summary(carried),
+          issues: [],
+          decision: {
+            outcome: 'accepted',
+            decidedByUserId: 'operator',
+            rationale: 'Carried by your roadmap save.',
+            carriedFrom: '12345678-1234-4234-8234-123456789abd',
+          },
+        },
+      ],
+      planAcceptance: {
+        checkpoint: 'PLAN-OK',
+        roadmaps: [
+          {
+            roadmapId: runtimeId,
+            name: 'Cross-project test',
+            definitionRevision: 5,
+            snapshotDigest: 'a'.repeat(64),
+            issues: [],
+            state: 'accepted',
+            submissionId: carried.id,
+            carried: {
+              reviewedAt: '2026-10-01T21:26:54.681Z',
+              changedInputs: ['stagedDecisions', 'reviewerRoles'],
+            },
+          },
+        ],
+      },
+    },
+  ]);
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  const status = await screen.findByText(/^Accepted, carried from your review of /);
+  expect(status.textContent).toMatch(
+    /^Accepted, carried from your review of .*2026.*; changed: staged decision clauses, reviewer roles\. Start or Resume remains your action\.$/,
+  );
+  screen.getByText(
+    'Plan acceptance carried forward by operator as plan-owner from an earlier review; changed: reviewer roles.',
+  );
 });
 
 it('explains missing saved setup and disables plan evidence generation', async () => {

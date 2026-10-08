@@ -248,6 +248,12 @@ it('carries the acceptance when the operator saves new reviewer roles', async ()
   expect(storage.runtimeEvidence.submission(ws, id, plan.id)!.artifacts[0]!.content).toContain(
     'Your roadmap save changed only the inputs named above',
   );
+  // The view says whose review it carries and what changed since (R-C6 commit 3).
+  const view = await f.state.context.services.runtimeEvidenceService.view(f.auth, ws, id);
+  expect(view.planAcceptance!.roadmaps[0]!.carried).toEqual({
+    reviewedAt: decisionOf(first.id)!.decidedAt,
+    changedInputs: ['reviewerRoles'],
+  });
 });
 
 // Done-when (c): the carried acceptance never reaches the inbox. An amendment never carries
@@ -285,7 +291,7 @@ it('opens no inbox item for a carried acceptance, and an amendment never carries
 
 it('carries the acceptance when the operator approves decision clauses', async () => {
   const DECISION = 'LOCAL-ADR-01';
-  const { f, svc, ws, id, storage, first, carried, decisionOf } = await acceptedPlan({
+  const { f, svc, ws, id, storage, first, carried, decisionOf, save } = await acceptedPlan({
     amend: (source) => ({
       ...source,
       evidence_profiles: [
@@ -340,6 +346,13 @@ it('carries the acceptance when the operator approves decision clauses', async (
   expect(plan.generatedPlan).toMatchObject({ changedInputs: ['stagedDecisions'] });
   expect(decision.carriedFrom).toBe(decisionOf(first.id)!.id);
   expect(audit?.metadata).toMatchObject({ command: 'decision approval' });
+  // A second carry: the view still names the operator's review and every input changed since.
+  save((c) => ({ ...c, defaults: { ...c.defaults, reviewerRoles: ['repository-maintainer'] } }));
+  expect(carried().decision.carriedFrom).toBe(decision.id);
+  expect((await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!.carried).toEqual({
+    reviewedAt: decisionOf(first.id)!.decidedAt,
+    changedInputs: ['stagedDecisions', 'reviewerRoles'],
+  });
 });
 
 // The implemented-upstream pin moves only through the operator's reviewed refresh.

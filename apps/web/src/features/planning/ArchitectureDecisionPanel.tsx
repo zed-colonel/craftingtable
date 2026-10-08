@@ -154,7 +154,8 @@ export function ArchitectureDecisionPanel({
             {coverage === 'clauses' && (
               <>
                 <p>
-                  Staging changes only the selected slices and requires a fresh saved-plan review.
+                  Staging changes only the selected slices; approving it carries an accepted saved
+                  plan forward.
                 </p>
                 <label className="field">
                   Full obligations retained for later work

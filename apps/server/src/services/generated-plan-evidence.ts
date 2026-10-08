@@ -7,6 +7,7 @@ import {
   type EvidenceSubmission,
   type EvidenceSubmissionHead,
   mapCapabilities,
+  PLAN_ACCEPTANCE_INPUT_LABELS,
   PLAN_ACCEPTANCE_INPUTS,
   type PlanAcceptanceInput,
   type Roadmap,
@@ -70,17 +71,6 @@ export function changesSince(
     ? changedInputs(before, savedPlanInputs(tx, d, roadmap, runtime).inputs)
     : [...PLAN_ACCEPTANCE_INPUTS];
 }
-const LABELS: Readonly<Record<PlanAcceptanceInput, string>> = {
-  map: 'map',
-  binding: 'binding',
-  planArchives: 'plan archives',
-  adoptedDecisions: 'adopted scheduling decisions',
-  stagedDecisions: 'staged decision clauses',
-  reviewerRoles: 'reviewer roles',
-  target: 'target and selection',
-  resources: 'resource profiles and locks',
-  upstreamPins: 'implemented-upstream pins',
-};
 /**
  * A saved-plan-v2 package for the roadmap's current inputs (ADR-050 as amended by R-C6): a
  * review guide and one artifact per input. The caller has checked the saved setup has no
@@ -109,7 +99,7 @@ export function generatedPlanSubmission(
   const upstream = new Set(
     d.source.repositories.filter((r) => r.role === 'implemented_upstream').map((r) => r.id),
   );
-  const changed = options.changed.map((key) => LABELS[key]).join(', ');
+  const changed = options.changed.map((key) => PLAN_ACCEPTANCE_INPUT_LABELS[key]).join(', ');
   const content = [
     `Saved roadmap: ${roadmap.definition.name} (revision ${roadmap.definition.revision})`,
     `Map: ${d.mapId} ${d.revision}; binding ${runtime.bindingRevision}; environment generation ${runtime.generation}`,
@@ -257,7 +247,9 @@ export function carryPlanAcceptance<T>(
     prerequisiteIssues(tx, d, binding.revision, head.subject).length
   )
     return result;
-  const labels = changed.map((key) => LABELS[key]).join(', ') || 'no plan-acceptance input';
+  const labels =
+    changed.map((key) => PLAN_ACCEPTANCE_INPUT_LABELS[key]).join(', ') ||
+    'no plan-acceptance input';
   tx.runtimeEvidence.addSubmission(submission);
   tx.runtimeEvidence.addDecision({
     id: randomUUID(),
@@ -301,4 +293,33 @@ export function carryPlanAcceptance<T>(
     },
   });
   return result;
+}
+/**
+ * For an acceptance carried forward (R-C6 D2): when the operator last reviewed the plan, and
+ * every input the carried packages changed since, in input order. Undefined for an acceptance
+ * the operator recorded, or a chain that does not reach one.
+ */
+export function carriedAcceptance(
+  decisions: readonly EvidenceDecision[],
+  submissions: readonly EvidenceSubmissionHead[],
+  submissionId: string,
+): { readonly reviewedAt: string; readonly changedInputs: PlanAcceptanceInput[] } | undefined {
+  const byId = new Map(decisions.map((a) => [a.id, a]));
+  const heads = new Map(submissions.map((s) => [s.id, s]));
+  let decision = decisions.find((a) => a.submissionId === submissionId);
+  if (!decision?.carriedFrom) return undefined;
+  const changed = new Set<PlanAcceptanceInput>();
+  const seen = new Set<string>();
+  while (decision?.carriedFrom && !seen.has(decision.id)) {
+    seen.add(decision.id);
+    const plan = heads.get(decision.submissionId)?.generatedPlan;
+    if (plan?.kind === 'saved-plan-v2') for (const key of plan.changedInputs) changed.add(key);
+    decision = byId.get(decision.carriedFrom);
+  }
+  return decision && !decision.carriedFrom && decision.outcome === 'accepted'
+    ? {
+        reviewedAt: decision.decidedAt,
+        changedInputs: PLAN_ACCEPTANCE_INPUTS.filter((key) => changed.has(key)),
+      }
+    : undefined;
 }

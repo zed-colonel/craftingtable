@@ -82,6 +82,18 @@ export const PLAN_ACCEPTANCE_INPUTS = [
   'upstreamPins',
 ] as const;
 export type PlanAcceptanceInput = (typeof PLAN_ACCEPTANCE_INPUTS)[number];
+/** How the operator reads each input, in the package and the evidence panel. */
+export const PLAN_ACCEPTANCE_INPUT_LABELS: Readonly<Record<PlanAcceptanceInput, string>> = {
+  map: 'map',
+  binding: 'binding',
+  planArchives: 'plan archives',
+  adoptedDecisions: 'adopted scheduling decisions',
+  stagedDecisions: 'staged decision clauses',
+  reviewerRoles: 'reviewer roles',
+  target: 'target and selection',
+  resources: 'resource profiles and locks',
+  upstreamPins: 'implemented-upstream pins',
+};
 /** Frozen: bound to a digest of every saved fact and to the definition revision. */
 export interface GeneratedPlanEvidenceV1 {
   readonly kind: 'saved-plan-v1';

@@ -521,6 +521,16 @@ export const runtimeEvidenceViewSchema = z.strictObject({
           issues: z.array(z.string()),
           state: z.enum(['not-ready', 'ready-to-generate', 'awaiting-review', 'accepted']),
           submissionId: z.uuid().optional(),
+          /**
+           * An acceptance the operator's own commands carried (R-C6 D2): when the operator last
+           * reviewed the plan, and every input changed since.
+           */
+          carried: z
+            .strictObject({
+              reviewedAt: z.iso.datetime(),
+              changedInputs: z.array(planAcceptanceInputSchema),
+            })
+            .optional(),
         }),
       ),
     })

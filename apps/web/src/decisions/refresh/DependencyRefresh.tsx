@@ -216,7 +216,7 @@ export function DependencyRefresh({
                   setConfirmed(false);
                   setRationale('');
                   setNotice(
-                    'Dependency refresh saved. Review saved-plan acceptance, then Resume when ready. No agents were started.',
+                    'Dependency refresh saved. It carries an accepted saved plan forward; check plan acceptance, then Resume when ready. No agents were started.',
                   );
                 })
               }

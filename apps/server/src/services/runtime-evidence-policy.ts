@@ -235,15 +235,20 @@ function evaluateSubmission(
     tx.imports.bindings(d.workspaceId, d.id)[0]?.revision !== s.bindingRevision
   )
     issues.push('Evidence belongs to an inactive runtime generation or binding.');
+  // A saved-plan-v2 package attests no environment, and its inputs digest holds the only
+  // runtime facts plan acceptance covers, the implemented-upstream pins (R-C6 D1): a new
+  // generation that leaves them alone keeps it.
+  const planInputsOnly = s.generatedPlan?.kind === 'saved-plan-v2';
   const recorded = tx.runtimeEvidence
     .generations(d.workspaceId, d.id, s.bindingRevision)
     .find((r) => r.id === s.runtimeId);
-  issues.push(
-    ...runtimeInputChanges(recorded, runtime, {
-      ...evidenceInputs(d, s.subject),
-      environmentId: s.environmentId,
-    }),
-  );
+  if (!planInputsOnly)
+    issues.push(
+      ...runtimeInputChanges(recorded, runtime, {
+        ...evidenceInputs(d, s.subject),
+        environmentId: s.environmentId,
+      }),
+    );
   const spec = subjectRequirements(d, s.subject, s.candidateCheckpoint?.sliceId);
   issues.push(...candidateCheckpointIssues(tx, s));
   const b = tx.imports.bindings(d.workspaceId, d.id).find((b) => b.revision === s.bindingRevision);
@@ -279,7 +284,8 @@ function evaluateSubmission(
       );
   }
   const env = runtime?.environments.find((e) => e.id === s.environmentId);
-  if (!env) issues.push('The recorded environment is not in the active generation.');
+  if (!env && !planInputsOnly)
+    issues.push('The recorded environment is not in the active generation.');
   if (new Set(s.artifacts.map((a) => a.name)).size !== s.artifacts.length)
     issues.push('Artifact names must be unique.');
   const artifact = (name: string) => s.artifacts.some((a) => a.name === name && !a.blank);

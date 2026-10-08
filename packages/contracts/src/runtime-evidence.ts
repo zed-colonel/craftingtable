@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PLAN_ACCEPTANCE_INPUTS } from '@craftingtable/domain';
 import { architectureRecommendationSchema } from './design-report.js';
 import { sourceRepositoryIdSchema, userIdSchema, workspaceIdSchema } from './ids.js';
 
@@ -174,12 +175,23 @@ export const prepareCheckpointRequestSchema = z.strictObject({
   checkpointId: name,
   snapshotDigest: digest,
 });
-export const generatedPlanEvidenceSchema = z.strictObject({
-  kind: z.literal('saved-plan-v1'),
-  roadmapId: z.uuid(),
-  definitionRevision: z.number().int().positive(),
-  snapshotDigest: digest,
-});
+export const planAcceptanceInputSchema = z.enum(PLAN_ACCEPTANCE_INPUTS);
+export const generatedPlanEvidenceSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('saved-plan-v1'),
+    roadmapId: z.uuid(),
+    definitionRevision: z.number().int().positive(),
+    snapshotDigest: digest,
+  }),
+  // R-C6 D3: bound to the plan-acceptance inputs, not to the definition revision.
+  z.strictObject({
+    kind: z.literal('saved-plan-v2'),
+    roadmapId: z.uuid(),
+    definitionRevision: z.number().int().positive(),
+    inputsDigest: digest,
+    changedInputs: z.array(planAcceptanceInputSchema).max(PLAN_ACCEPTANCE_INPUTS.length),
+  }),
+]);
 export const generatePlanEvidenceRequestSchema = z.strictObject({
   roadmapId: z.uuid(),
   definitionRevision: z.number().int().positive(),

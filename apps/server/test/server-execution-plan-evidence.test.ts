@@ -12,6 +12,7 @@ import {
   asPlanVersionId,
   cycleAttention,
   DEFAULT_COMPLETION_POLICY,
+  PLAN_ACCEPTANCE_INPUTS,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
@@ -210,9 +211,11 @@ it('generates saved plan facts without approval, guards HTTP authority and start
   expect(generated.submissions[0].issues).toEqual([]);
   expect(context.storage.runtimeEvidence.decisions(ws)).toHaveLength(0);
   expect(context.storage.roadmaps.find(ws, saved.id)?.attempts).toHaveLength(0);
-  expect(evidence.artifacts.map((a: { name: string }) => a.name)).toEqual(
-    expect.arrayContaining(['map', 'binding', 'adoption', 'runtime', 'roadmap', 'resources']),
-  );
+  // One artifact per plan-acceptance input after the guide (R-C6 D3).
+  expect(evidence.artifacts.map((a: { name: string }) => a.name)).toEqual([
+    'plan-review-guide',
+    ...PLAN_ACCEPTANCE_INPUTS,
+  ]);
   expect((await post()).statusCode).toBe(200);
   expect(context.storage.runtimeEvidence.submissions(ws, id)).toHaveLength(1);
   // The view lists the submission without its bodies; the record is read on demand (R-H4).
@@ -280,7 +283,8 @@ it('generates saved plan facts without approval, guards HTTP authority and start
     consumers: prior.consumers.map((c) => ({ ...c, upstreams: [...c.upstreams] })),
     environments: [...prior.environments],
   });
-  expect(acceptedEvidence(context.storage, ws, id, 1, evidence.subject)).toBeUndefined();
+  // A new generation that changes no plan-acceptance input keeps the acceptance (R-C6 D1).
+  expect(acceptedEvidence(context.storage, ws, id, 1, evidence.subject)?.id).toBe(evidence.id);
 });
 
 // R-F2: the plan checkpoint is recognized by kind and owner, but a plan approval that is not
@@ -437,7 +441,11 @@ it('invalidates generated plan evidence when saved settings change and rejects s
   const changed = f.service.save(f.auth, ws, {
     ...f.input,
     expectedVersion: saved.version,
-    name: 'Revised saved settings',
+    // Reviewer roles are a plan-acceptance input (R-C6 D1); a name alone is not.
+    configuration: {
+      ...f.input.configuration,
+      defaults: { ...f.input.configuration.defaults, reviewerRoles: ['repository-maintainer'] },
+    },
   }).roadmap;
   await expect(
     svc.decide(f.auth, ws, id, {
@@ -470,7 +478,13 @@ it('invalidates generated plan evidence when saved settings change and rejects s
   f.service.save(f.auth, ws, {
     ...f.input,
     expectedVersion: changed.version,
-    name: 'Changed again',
+    configuration: {
+      ...f.input.configuration,
+      defaults: {
+        ...f.input.configuration.defaults,
+        reviewerRoles: ['independent-security-reviewer-if-required-by-source'],
+      },
+    },
   });
   expect(acceptedEvidence(context.storage, ws, id, 1, second.subject)).toBeUndefined();
   expect(
@@ -493,7 +507,10 @@ it('invalidates generated plan evidence when saved settings change and rejects s
   f.service.save(f.auth, ws, {
     ...f.input,
     expectedVersion: latest.version,
-    name: 'Changed during review',
+    configuration: {
+      ...f.input.configuration,
+      defaults: { ...f.input.configuration.defaults, reviewerRoles: ['repository-maintainer'] },
+    },
   });
   await expect(review).rejects.toThrow('Saved configuration changed');
   expect(

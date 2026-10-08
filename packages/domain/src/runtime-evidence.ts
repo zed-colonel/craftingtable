@@ -65,12 +65,42 @@ export interface EvidenceArtifact {
   readonly content: string;
   readonly digest: string;
 }
-export interface GeneratedPlanEvidence {
+/**
+ * What plan acceptance covers (R-C6 D1, ADR-050 as amended): a change to any of these
+ * re-opens it; names, instructions, model profiles, automation, policy, timestamps, consumer
+ * integration pins and host capacities do not.
+ */
+export const PLAN_ACCEPTANCE_INPUTS = [
+  'map',
+  'binding',
+  'planArchives',
+  'adoptedDecisions',
+  'stagedDecisions',
+  'reviewerRoles',
+  'target',
+  'resources',
+  'upstreamPins',
+] as const;
+export type PlanAcceptanceInput = (typeof PLAN_ACCEPTANCE_INPUTS)[number];
+/** Frozen: bound to a digest of every saved fact and to the definition revision. */
+export interface GeneratedPlanEvidenceV1 {
   readonly kind: 'saved-plan-v1';
   readonly roadmapId: string;
   readonly definitionRevision: number;
   readonly snapshotDigest: string;
 }
+/** Bound to the plan-acceptance inputs only (R-C6 D3); an older release cannot read it. */
+export interface GeneratedPlanEvidenceV2 {
+  readonly kind: 'saved-plan-v2';
+  readonly roadmapId: string;
+  /** The saved revision it was generated from; informational, never checked. */
+  readonly definitionRevision: number;
+  /** SHA-256 of the inputs' canonical JSON (sorted keys). */
+  readonly inputsDigest: string;
+  /** The inputs that differ from the roadmap's newest accepted plan; empty when none does. */
+  readonly changedInputs: readonly PlanAcceptanceInput[];
+}
+export type GeneratedPlanEvidence = GeneratedPlanEvidenceV1 | GeneratedPlanEvidenceV2;
 export interface EvidenceSubmission {
   /** Saved review of a pre-merge candidate; never authorizes another unmerged slice. */
   readonly candidateCheckpoint?: {

@@ -34,10 +34,17 @@ import { cycleOwnership } from './cycle-ownership.js';
 import { relevantPinAliases } from './runtime-input-policy.js';
 import { runtimeRefreshImpact, queueRuntimeReviews } from './runtime-refresh.js';
 import {
+  currentGeneratedPlan,
   planCheckpoint,
-  savedPlanSnapshot,
+  savedPlanInputs,
   generatedPlanIssues,
 } from './plan-acceptance-policy.js';
+import {
+  changesSince,
+  generatedPlanSubmission,
+  newestAcceptedPlan,
+  withinArtifactLimits,
+} from './generated-plan-evidence.js';
 import { assertFinalizationMap, providerBranch } from './map-finalization-policy.js';
 import { randomUUID } from 'node:crypto';
 import { homedir, hostname, platform, release, arch } from 'node:os';
@@ -1958,86 +1965,37 @@ export class RuntimeEvidenceService {
       if (!d || !roadmap) throw new NotFoundError();
       if (this.current(ws, id)?.id !== runtime.id)
         conflict('Runtime changed. Refresh before generating evidence.');
-      const snapshot = savedPlanSnapshot(tx, d, roadmap, runtime);
-      if (snapshot.issues.length) conflict(snapshot.issues.join(' '));
-      if (
-        roadmap.definition.revision !== input.definitionRevision ||
-        snapshot.snapshotDigest !== input.snapshotDigest
-      )
+      const current = savedPlanInputs(tx, d, roadmap, runtime);
+      if (current.issues.length) conflict(current.issues.join(' '));
+      // Bound to the inputs, not the saved revision (R-C6 D3): a save outside them changes
+      // nothing here.
+      if (current.inputsDigest !== input.snapshotDigest)
         conflict('Saved configuration changed. Refresh before generating evidence.');
       const existing = tx.runtimeEvidence
         .submissions(ws, id)
         .find(
           (s) =>
-            s.generatedPlan?.roadmapId === roadmap.id &&
-            s.generatedPlan.snapshotDigest === snapshot.snapshotDigest &&
+            currentGeneratedPlan(tx, d, roadmap, runtime, s) &&
             !tx.runtimeEvidence
               .decisions(ws)
               .some((a) => a.submissionId === s.id && a.outcome === 'rejected'),
         );
       if (existing) return;
       const at = this.now().toISOString();
-      // The snapshot's issues include an unsupported plan contract, so the generator is known here.
-      const plan = mapCapabilities(d.source).planAcceptance;
-      if (!plan) conflict('This plan checkpoint has unsupported obligations.');
-      const subject = { kind: 'checkpoint' as const, sourceId: plan.checkpointId };
-      const spec = subjectRequirements(d, subject);
-      const artifacts = Object.entries(snapshot.facts).map(([name, facts]) => {
-        const content = JSON.stringify(facts, null, 2);
-        return { name, content, digest: hash(content) };
+      // The inputs' issues include an unsupported plan contract, so the generator is known here.
+      if (!mapCapabilities(d.source).planAcceptance)
+        conflict('This plan checkpoint has unsupported obligations.');
+      const prior = newestAcceptedPlan(tx, d, roadmap.id);
+      const submission = generatedPlanSubmission(tx, d, roadmap, runtime, {
+        at,
+        userId: context.user.id,
+        ...(prior ? { prior: prior.decision } : {}),
+        changed: changesSince(tx, d, prior?.submission, roadmap, runtime),
       });
-      const content = [
-        `Saved roadmap: ${roadmap.definition.name} (revision ${roadmap.definition.revision})`,
-        `Map: ${d.mapId} ${d.revision}; binding ${runtime.bindingRevision}; environment generation ${runtime.generation}`,
-        `Target: ${roadmap.definition.crossProject!.targetId}; selection: ${roadmap.definition.crossProject!.selection}`,
-        `Import validation: structure, source snapshots and graph acyclicity checked (${d.graphNodeCount} milestones, ${d.graphEdgeCount} edges).`,
-        `Scheduling proposals: ${d.source.decisions.length} adopted for the exact binding.`,
-        ...snapshot.facts.binding!.bindings.map(
-          (b) =>
-            `Binding ${b.alias}: plan ${b.planVersionId ?? 'implemented upstream'}; repository ${b.repositoryId}; integration ${b.integrationBranch ?? 'upstream ref below'}`,
-        ),
-        ...runtime.pins.map(
-          (p) => `Pin ${p.alias}: ${p.ref} at ${p.commitSha}; conformance ${p.conformanceRevision}`,
-        ),
-        `Saved activities: ${roadmap.definition.entries.length}. Review their model profiles and reviewer responsibilities in the roadmap artifact.`,
-        `Local admission capacity: ${snapshot.facts.resources.developmentCapacity} development, ${snapshot.facts.resources.verificationCapacity} verification.`,
-        '',
-        `The daemon collected these saved setup facts. This package does not claim a human review, test execution, AQ qualification or release approval. Review the artifacts and record your decision as ${plan.reviewerRole}. The authenticated acceptance decision and rationale are the independent plan review.`,
-      ].join('\n');
-      artifacts.unshift({ name: 'plan-review-guide', content, digest: hash(content) });
-      if (
-        artifacts.some((a) => Buffer.byteLength(a.content) > 512 * 1024) ||
-        artifacts.reduce((n, a) => n + Buffer.byteLength(a.content), 0) > 4 * 1024 * 1024
-      )
+      if (!withinArtifactLimits(submission))
         conflict(
           'The saved configuration exceeds the evidence artifact limit. Submit bounded evidence manually.',
         );
-      const submission: EvidenceSubmission = {
-        id: randomUUID(),
-        workspaceId: ws,
-        definitionId: id,
-        bindingRevision: runtime.bindingRevision,
-        runtimeId: runtime.id,
-        subject,
-        environmentId: runtime.environments[0]!.id,
-        executedBy: 'CraftingTable setup collector',
-        executedAt: at,
-        reviewers: [],
-        requirements: spec.requirements.map((requirement) => ({
-          requirement,
-          artifact: 'plan-review-guide',
-        })),
-        cases: [],
-        artifacts,
-        createdAt: at,
-        createdByUserId: context.user.id,
-        generatedPlan: {
-          kind: 'saved-plan-v1',
-          roadmapId: roadmap.id,
-          definitionRevision: roadmap.definition.revision,
-          snapshotDigest: snapshot.snapshotDigest,
-        },
-      };
       const issues = submissionIssues(tx, d, runtime, submissionHead(submission));
       if (issues.length) conflict(issues.join(' '));
       tx.runtimeEvidence.addSubmission(submission);
@@ -2134,14 +2092,13 @@ export class RuntimeEvidenceService {
             .list(ws)
             .filter((r) => r.definition.crossProject?.definitionId === id && r.status !== 'stopped')
             .map((roadmap) => {
-              const saved = savedPlanSnapshot(snapshot, d, roadmap, runtime);
+              const saved = savedPlanInputs(snapshot, d, roadmap, runtime);
               const issues = [...saved.issues, ...freshness];
               const submission = snapshot.runtimeEvidence
                 .submissions(ws, id)
                 .find(
                   (s) =>
-                    s.generatedPlan?.roadmapId === roadmap.id &&
-                    s.generatedPlan.snapshotDigest === saved.snapshotDigest &&
+                    currentGeneratedPlan(snapshot, d, roadmap, runtime, s) &&
                     !decisions.some((a) => a.submissionId === s.id && a.outcome === 'rejected'),
                 );
               const accepted = acceptedEvidence(snapshot, ws, id, binding?.revision ?? 0, {
@@ -2152,7 +2109,8 @@ export class RuntimeEvidenceService {
                 roadmapId: roadmap.id,
                 name: roadmap.definition.name,
                 definitionRevision: roadmap.definition.revision,
-                snapshotDigest: saved.snapshotDigest,
+                // What generation is bound to: the plan-acceptance inputs (R-C6 D3).
+                snapshotDigest: saved.inputsDigest,
                 issues,
                 state: issues.length
                   ? ('not-ready' as const)

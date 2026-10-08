@@ -39,7 +39,9 @@ implemented upstreams each consumer takes (operator, 2026-10-08). Nothing else d
 not names, instructions, model profiles, automation, completion or parent-acceptance policy,
 roadmap scheduling limits, timestamps or the saved revision, a save that changes nothing,
 consumer integration pins (ADR-069 governs those), the runtime generation or its environments,
-or host capacities. New packages are `saved-plan-v2`: one artifact per input and an
+or host capacities. Environments stay out (operator, 2026-10-08): the package attests no
+environment and the decision's input list names none; each slice's own evidence still re-opens
+when its environment changes. New packages are `saved-plan-v2`: one artifact per input and an
 `inputsDigest`, the SHA-256 of the inputs' canonical JSON (keys sorted at every depth), with
 `changedInputs`: for a package generated for review, every input changed since the operator's
 last own review; for a carried one, those changed since the acceptance it carries. `saved-plan-v1` records keep their

@@ -219,6 +219,30 @@ it('keeps STACK-PLAN-ACCEPTED accepted across saves, generations and capacities 
 });
 
 // Done-when (b) and D2: a save that changes reviewer roles re-generates the plan, and the
+// Decided by the operator 2026-10-08 (R-C6 review OD3): runtime environments stay out of the
+// inputs. The package attests no environment, and D1 does not list them.
+it('keeps a v2 acceptance across a generation with other environments', async () => {
+  const { ws, id, storage, first, accepted } = await acceptedPlan();
+  const runtime = storage.runtimeEvidence.generations(ws, id, 1)[0]!;
+  storage.runtimeEvidence.addGeneration({
+    ...runtime,
+    id: randomUUID(),
+    generation: runtime.generation + 1,
+    digest: 'e'.repeat(64),
+    environments: [
+      {
+        ...runtime.environments[0]!,
+        id: 'another-environment',
+        toolchainDigest: 'f'.repeat(64),
+        authorization: 'Another authorization.',
+      },
+    ],
+    createdAt: new Date().toISOString(),
+  });
+  expect(first.environmentId).not.toBe('another-environment');
+  expect(accepted()?.id).toBe(first.id);
+});
+
 // operator's own command accepts it in the same transaction.
 it('carries the acceptance when the operator saves new reviewer roles', async () => {
   const { f, first, save, carried, decisionOf, state, storage, ws, id } = await acceptedPlan();

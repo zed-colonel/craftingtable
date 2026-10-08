@@ -386,6 +386,17 @@ export function reviewContinuable(
   );
 }
 
+/** The workspace defaults `run-profiles` and the page reads report (R-E5a). */
+export type RunProfiles = {
+  readonly profiles: readonly (WorkspaceAgentProfile & { readonly stored: boolean })[];
+  readonly agents: Readonly<
+    Record<
+      import('@craftingtable/domain').AgentProfilePurpose,
+      import('@craftingtable/domain').EffectiveAgent
+    >
+  >;
+};
+
 export class AgentRunService {
   private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
@@ -574,14 +585,13 @@ export class AgentRunService {
   /* Run profiles                                                            */
   /* ---------------------------------------------------------------------- */
 
-  /** Every role, in role order; unsaved roles carry the daemon's default. */
-  listRunProfiles(
-    context: AuthContext,
-    workspaceId: WorkspaceId,
-    requestId?: string,
-  ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
+  /**
+   * Every role, in role order; unsaved roles carry the daemon's default. Beside them, each
+   * purpose's default with its source (R-E5a), read in the same read.
+   */
+  listRunProfiles(context: AuthContext, workspaceId: WorkspaceId, requestId?: string): RunProfiles {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    return this.resolveProfiles(workspaceId);
+    return this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId));
   }
 
   saveRunProfiles(
@@ -589,7 +599,7 @@ export class AgentRunService {
     workspaceId: WorkspaceId,
     profiles: readonly WorkspaceAgentProfile[],
     requestId?: string,
-  ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
+  ): RunProfiles {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
@@ -630,7 +640,7 @@ export class AgentRunService {
         },
       });
     });
-    return this.resolveProfiles(workspaceId);
+    return this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId));
   }
 
   /** The workspace's defaults as a resolution layer (R-E5a). */
@@ -642,37 +652,20 @@ export class AgentRunService {
   }
 
   /**
-   * Each purpose's workspace default with its source (R-E5a), as `run-profiles` and the page
-   * reads report it beside the profiles. Callers authorize first.
+   * The workspace's profiles as `listRunProfiles` returns them, read in the caller's read (R-D5):
+   * each role's effective default, whether it is saved, and its source (R-E5a).
    */
-  workspaceAgentsIn(tx: StorageRepositories, workspaceId: WorkspaceId) {
-    return resolveAgents({ workspace: this.workspaceLayerIn(tx, workspaceId) });
-  }
-
-  /** `workspaceAgentsIn` read on its own, after `listRunProfiles` or `saveRunProfiles`. */
-  workspaceAgents(workspaceId: WorkspaceId) {
-    return this.workspaceAgentsIn(this.storage, workspaceId);
-  }
-
-  /** The workspace's profiles as `listRunProfiles` returns them, read in the caller's read (R-D5). */
-  profilesIn(
-    tx: StorageRepositories,
-    workspaceId: WorkspaceId,
-  ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
-    return this.resolveProfiles(workspaceId, tx);
-  }
-
-  private resolveProfiles(
-    workspaceId: WorkspaceId,
-    tx: StorageRepositories = this.storage,
-  ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
-    const saved = tx.execution.runProfiles.list(workspaceId);
-    const agents = this.workspaceAgentsIn(tx, workspaceId);
-    return AGENT_PROFILE_PURPOSES.map((role) => ({
-      ...launchProfile(agents[role]),
-      role,
-      stored: saved.some((profile) => profile.role === role),
-    }));
+  runProfilesIn(tx: StorageRepositories, workspaceId: WorkspaceId): RunProfiles {
+    const layer = this.workspaceLayerIn(tx, workspaceId);
+    const agents = resolveAgents({ workspace: layer });
+    return {
+      profiles: AGENT_PROFILE_PURPOSES.map((role) => ({
+        ...launchProfile(agents[role]),
+        role,
+        stored: layer.profiles.some((profile) => profile.role === role),
+      })),
+      agents,
+    };
   }
 
   /* ---------------------------------------------------------------------- */
@@ -850,7 +843,9 @@ export class AgentRunService {
     const profile = launchProfile(
       cycleLaunchAgent(this.storage, cycle, {
         ...(resumed ? { resumed } : {}),
+        ...(recovery ? { recovery } : {}),
         ...(finalization ? { finalization } : {}),
+        ...(resolution ? { resolution } : {}),
       }),
     );
     return this.launchAuthorized(

@@ -50,7 +50,8 @@ export const agentSelectionSourceSchema = z.strictObject({
   stageIndex: z.number().int().nonnegative().optional(),
 });
 const agentResolutionSchema = z.strictObject({
-  selection: agentSelectionSchema,
+  // Reported as held: a saved workspace default's model was never trimmed (`agentRunProfileSchema`).
+  selection: agentSelectionSchema.extend({ model: z.string().min(1).max(100).optional() }),
   source: agentSelectionSourceSchema,
 });
 /**

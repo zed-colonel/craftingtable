@@ -1,8 +1,11 @@
-import type { Finalization, WorkCycle } from '@craftingtable/domain';
+import type { Finalization, Roadmap, RoadmapEntry, WorkCycle } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
-import { finalizationAgents } from '../../src/services/agent-profile-policy.js';
+import { finalizationAgents, preparationAgent } from '../../src/services/agent-profile-policy.js';
 
-/** R-E5a (E5-3): a finalization's stage profiles are per-action overrides with what they replace. */
+/**
+ * R-E5a: the sources the daemon reports. A finalization's stage profiles are per-action overrides
+ * with what they replace (E5-3); a decision preparation's choice is its own layer.
+ */
 const stage = (model: string) => ({
   backend: 'codex' as const,
   model,
@@ -69,4 +72,30 @@ it('a recovery’s agent overrides the stage, with the stage’s permissions (AD
 });
 it('without a cycle, the final reviewer', () => {
   expect(finalizationAgents(value, undefined, workspace).current.selection.model).toBe('final');
+});
+
+it('a decision preparation: the operator’s choice over the entry’s investigation selection, read-only', () => {
+  const entry = {
+    id: 'entry',
+    profiles: {
+      design: stage('design'),
+      implement: stage('implement'),
+      review: stage('review'),
+      remediate: stage('remediate'),
+    },
+  } as unknown as RoadmapEntry;
+  const roadmap = { definition: { entries: [entry] } } as unknown as Roadmap;
+  expect(preparationAgent(roadmap, entry, { backend: 'claude-code', model: 'chosen' })).toEqual({
+    selection: { backend: 'claude-code', model: 'chosen' },
+    source: { layer: 'decision-preparation' },
+    permissionMode: 'edit-only',
+    inherited: {
+      selection: { backend: 'codex', model: 'design' },
+      source: { layer: 'saved-definition', slot: 'design' },
+    },
+  });
+  expect(preparationAgent(roadmap, entry).source).toEqual({
+    layer: 'saved-definition',
+    slot: 'design',
+  });
 });

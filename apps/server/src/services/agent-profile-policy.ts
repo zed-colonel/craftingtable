@@ -8,7 +8,6 @@ import {
   type EffectiveAgent,
   type Finalization,
   matchingAgent,
-  ownsIntegrationResolution,
   type Roadmap,
   type RoadmapEntry,
   type WorkCycle,
@@ -53,11 +52,19 @@ function entryLayers(
 export function entryAgents(roadmap: Roadmap, entry: RoadmapEntry) {
   return resolveAgents(entryLayers(roadmap, entry), entry.profiles);
 }
-/** What a decision preparation for the entry runs: its investigation selection, read-only. */
-export function preparationAgent(roadmap: Roadmap, entry: RoadmapEntry): EffectiveAgent {
+/**
+ * What a decision preparation for the entry runs, read-only: the operator's choice, else (under
+ * the standing grant, and as the settings offer it) the entry's investigation selection.
+ */
+export function preparationAgent(
+  roadmap: Roadmap,
+  entry: RoadmapEntry,
+  chosen?: AgentSelection,
+): EffectiveAgent {
   return resolveAgent({
     purpose: 'investigation',
     permissionMode: 'edit-only',
+    ...(chosen ? { action: { layer: 'decision-preparation', selection: chosen } } : {}),
     ...entryLayers(roadmap, entry),
   });
 }
@@ -70,7 +77,10 @@ export function entryAgentSelections(roadmap: Roadmap, entry: RoadmapEntry) {
 
 /**
  * The layers every choice for a cycle shares: its roadmap's latest assignment and its own
- * profiles, which for a roadmap's cycle are its saved entry's.
+ * profiles. A roadmap's cycle starts with its entry's saved profiles, as the definition revision
+ * it started under held them (a repair the roadmap delegates takes the same), so they are the
+ * `saved-definition` layer; a cycle started on its own, a repair the operator delegates among
+ * them, has the profiles it was started with (`cycle-start`).
  */
 export function cycleLayers(
   tx: StorageRepositories,
@@ -172,15 +182,18 @@ export function finalizationAgents(
 export function cycleLaunchAgent(
   tx: StorageRepositories,
   cycle: WorkCycle,
-  recorded: { readonly resumed?: AgentRun; readonly finalization?: Finalization },
+  recorded: {
+    /** The run a resumed session continues. */
+    readonly resumed?: AgentRun;
+    /** The design-question recovery this launch runs. */
+    readonly recovery?: NonNullable<WorkCycle['designRecovery']>;
+    readonly finalization?: Finalization;
+    /** The integration resolution this cycle owns. */
+    readonly resolution?: NonNullable<WorkCycle['integrationResolution']>;
+  },
 ): EffectiveAgent {
   const purpose = cycleProfilePurpose(cycle);
-  const { resumed, finalization } = recorded;
-  const recovery =
-    cycle.step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
-      ? cycle.designRecovery
-      : undefined;
-  const resolution = ownsIntegrationResolution(cycle) ? cycle.integrationResolution : undefined;
+  const { resumed, recovery, finalization, resolution } = recorded;
   return resolveAgent({
     purpose,
     permissionMode: stepPermission(cycle, purpose),
@@ -211,8 +224,11 @@ export function cycleLaunchAgent(
 }
 
 /**
- * A cycle's future agents for every purpose: its assignment, else its own profiles, each with
- * its base step's permissions.
+ * A cycle's future agents for every purpose, as `nextAgentSelections` has them: its standing
+ * choice (its assignment, else its own profiles), each with its base step's permissions. A step's
+ * one-off agent (a pending service retry, a design-question recovery, a delegated resolution's
+ * profile, finalization's) is not among them: the launch resolves those (`cycleLaunchAgent`,
+ * `delegatedResolutionProfile`) and the finalization view reports its own.
  */
 export function cycleAgents(tx: StorageRepositories, cycle: WorkCycle) {
   return resolveAgents(cycleLayers(tx, cycle), cycle.profiles);

@@ -64,8 +64,10 @@ import {
   delegatedResolutionProfile,
   entryAgentSelections,
   entryAgents,
+  latestAssignment,
   preparationAgent,
 } from './agent-profile-policy.js';
+import { selectionSet } from './agent-resolution.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { neededDecisions, slicesWaitingOn } from './decision-demand.js';
 import { decisionSettlement, settlementLines } from './decision-settlement.js';
@@ -417,15 +419,16 @@ export class RoadmapService {
                 ? 'Decide the pending planning amendment first.'
                 : null,
           entries: r.definition.entries.map((e) => {
-            const { selections, assignment } = entryAgentSelections(r, e);
+            const agents = entryAgents(r, e);
+            const assignment = latestAssignment(r, e.id);
             return {
               id: e.id,
               label: e.sourceId + (e.executionScope ? ` · ${e.executionScope.kind}` : ''),
               projectId: e.projectId,
               projectName:
                 this.storage.planning.projects.find(workspaceId, e.projectId)?.name ?? e.projectId,
-              selections,
-              agents: entryAgents(r, e),
+              selections: selectionSet(agents),
+              agents,
               ...(assignment ? { appliedAt: assignment.appliedAt } : {}),
               started: startedAttempts(r).some((a) => a.entryId === e.id),
             };
@@ -549,7 +552,8 @@ export class RoadmapService {
     this.cycles.requireModelIds([['investigation', input.profile]]);
     this.controlling.add(id);
     try {
-      await this.launchPreparation(old, target, input, context, () =>
+      const profile = preparationAgent(old, target.entry, input.profile).selection;
+      await this.launchPreparation(old, target, { ...input, profile }, context, () =>
         this.workspaces.requireRole(context, ws, ['owner', 'editor']),
       );
     } finally {

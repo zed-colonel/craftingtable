@@ -343,8 +343,10 @@ export interface CycleProjection {
   /** The model selections the next steps would launch with, from the cycle's profiles now. */
   readonly nextAgentSelections: import('./agent-profiles.js').AgentSelections;
   /**
-   * The same future agents for every purpose, each with its source and the step permissions it
-   * runs with (R-E5a): the browser shows these and derives none.
+   * The same future agents for every purpose, each with its source and its base step's
+   * permissions (R-E5a): the browser shows these and derives none. Like `nextAgentSelections`,
+   * they are the cycle's standing choice; a step's one-off agent (a service retry, a recovery's
+   * choice, finalization's) is not among them.
    */
   readonly agents?: Readonly<
     Record<

@@ -61,8 +61,7 @@ export class PageViews {
           choices: [],
         }),
         repositories: tx.execution.sourceRepositories.list(workspaceId),
-        profiles: this.runs.profilesIn(tx, workspaceId),
-        agents: this.runs.workspaceAgentsIn(tx, workspaceId),
+        ...this.runs.runProfilesIn(tx, workspaceId),
         ...(unavailable.length ? { unavailable } : {}),
       };
     });
@@ -87,8 +86,7 @@ export class PageViews {
           detail.run.workItemId === undefined
             ? []
             : tx.execution.runs.listForWorkItem(workspaceId, detail.run.workItemId),
-        profiles: this.runs.profilesIn(tx, workspaceId),
-        agents: this.runs.workspaceAgentsIn(tx, workspaceId),
+        ...this.runs.runProfilesIn(tx, workspaceId),
       };
     });
     return { ...read, backends: this.executionStatus().backends };

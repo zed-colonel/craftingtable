@@ -89,6 +89,19 @@ describe('workspace defaults (run-profiles and the page reads)', () => {
     const page = workItemViewSchema.parse(await get(state, `/work-items/${state.workItemId}/view`));
     expect(page.agents).toEqual(listed.agents);
   });
+  it('reports a saved model exactly as the profile holds it, untrimmed as saved defaults are', async () => {
+    const state = await ready();
+    const saved = await post(state, '/run-profiles', {
+      profiles: [
+        { role: 'design', backend: 'claude-code', model: ' spaced ', permissionMode: 'auto' },
+      ],
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const listed = runProfilesResponseSchema.parse(await get(state, '/run-profiles'));
+    expect(listed.profiles.find((p) => p.role === 'design')?.model).toBe(' spaced ');
+    expect(listed.agents?.design.selection.model).toBe(' spaced ');
+    workItemViewSchema.parse(await get(state, `/work-items/${state.workItemId}/view`));
+  });
 });
 
 describe('a cycle’s projection', () => {

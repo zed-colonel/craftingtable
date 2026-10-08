@@ -137,10 +137,9 @@ export function registerExecutionRoutes(
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
       return noStore(reply).send(
-        runProfilesResponseSchema.parse({
-          profiles: agentRunService.listRunProfiles(context, workspaceId.data, request.id),
-          agents: agentRunService.workspaceAgents(workspaceId.data),
-        }),
+        runProfilesResponseSchema.parse(
+          agentRunService.listRunProfiles(context, workspaceId.data, request.id),
+        ),
       );
     },
   );
@@ -159,15 +158,14 @@ export function registerExecutionRoutes(
         return sendApiError(reply, 400, 'invalid-request', 'Invalid run profiles');
       }
       return noStore(reply).send(
-        runProfilesResponseSchema.parse({
-          profiles: agentRunService.saveRunProfiles(
+        runProfilesResponseSchema.parse(
+          agentRunService.saveRunProfiles(
             context,
             workspaceId.data,
             body.data.profiles,
             request.id,
           ),
-          agents: agentRunService.workspaceAgents(workspaceId.data),
-        }),
+        ),
       );
     },
   );

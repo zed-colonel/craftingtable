@@ -221,7 +221,9 @@ function candidates(context: AgentContext): readonly Candidate[] {
 
 /**
  * The effective selection for one purpose and its source (R-E5, E5-2), with the value it
- * overrides. Every selection the daemon resolves comes from here.
+ * overrides: the next candidate in the table, so a slot's own value overrides the slot it would
+ * inherit in the same layer, and a layer's value the layer below. Every selection the daemon
+ * resolves comes from here.
  */
 export function resolveAgent(context: AgentContext): EffectiveAgent {
   const [first, next] = candidates(context);

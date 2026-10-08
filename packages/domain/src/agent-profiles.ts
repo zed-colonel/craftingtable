@@ -91,8 +91,10 @@ export type AgentResolution = {
 };
 /**
  * What the daemon reports as an effective selection (R-E5a): the selection, its source, the
- * permissions it runs with when the place has them, and what it overrides, which is the value the
- * next layer down would give. The browser shows these; it derives none of them.
+ * permissions it runs with when the place has them, and what it overrides: the value the place
+ * would have without it. That is the slot it inherits in the same layer (a specialist's base
+ * step, as "Inherits Review" shows today), else the next layer down (a stage's workspace default,
+ * a recovery's stage). The browser shows these; it derives none of them.
  */
 export type EffectiveAgent = AgentResolution & {
   readonly permissionMode?: AgentPermissionMode;

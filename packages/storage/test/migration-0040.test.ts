@@ -192,6 +192,27 @@ function columnsOf(database: Database.Database, table: string): string[] {
   ).map((column) => column.name);
 }
 
+/** The journal's foreign keys, one row per key, with their actions and referenced columns. */
+function keysOf(database: Database.Database) {
+  return database
+    .prepare(
+      `SELECT "table" AS parent, group_concat("from", ',' ORDER BY seq) AS columns,
+              group_concat("to", ',' ORDER BY seq) AS referenced, on_update, on_delete, "match"
+       FROM pragma_foreign_key_list('workspace_events') GROUP BY id ORDER BY parent, columns`,
+    )
+    .all() as { parent: string }[];
+}
+
+/** The journal's columns as SQLite declares them: name, type, nullability, default, key. */
+function definitionOf(database: Database.Database) {
+  return database
+    .prepare(
+      `SELECT name, type, "notnull", dflt_value, pk FROM pragma_table_xinfo('workspace_events')
+       ORDER BY cid`,
+    )
+    .all() as { name: string }[];
+}
+
 /** What a client resuming from each cursor is sent, per workspace. */
 function resumed(database: Database.Database, cursors: readonly number[]) {
   const events = new SqliteWorkspaceEventRepository(database, acceptAnyRecord);
@@ -202,6 +223,31 @@ function resumed(database: Database.Database, cursors: readonly number[]) {
   );
 }
 
+/** Migration 0040 with one edit, as a fault injected into it; `from` must occur once. */
+function edited(from: string, to: string): MigrationDefinition {
+  const migration = migrations.find((candidate) => candidate.version === 40);
+  if (migration === undefined) throw new Error('Expected migration 0040');
+  expect(migration.sql.split(from), from).toHaveLength(2);
+  const sql = migration.sql.replace(from, to);
+  return { ...migration, sql, checksum: checksumSql(sql) };
+}
+
+/** A guard refuses the edited migration, and a schema-39 database is left exactly as it was. */
+function expectRollback(migration: MigrationDefinition, prepare?: (db: Database.Database) => void) {
+  const database = schema39(temporaryPath());
+  try {
+    prepare?.(database);
+    const before = imageOf(database);
+    expect(() => runMigrations(database, [...toSchema39, migration])).toThrow(
+      /CHECK constraint failed: ok = 1/,
+    );
+    expect(migrationStatus(database, toSchema39).currentVersion).toBe(39);
+    expect(preservationProblems(before, imageOf(database))).toEqual([]);
+  } finally {
+    database.close();
+  }
+}
+
 describe('migration 0040: the journal without the registry (R-H6)', () => {
   it('keeps every event, its sequence and the high-water mark, and drops only the registry', () => {
     const database = schema39(temporaryPath());
@@ -210,6 +256,8 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
       // must still follow it, never reuse a sequence a client may have seen.
       database.exec("UPDATE sqlite_sequence SET seq = seq + 5 WHERE name = 'workspace_events'");
       const before = imageOf(database);
+      const keysBefore = keysOf(database);
+      const definitionBefore = definitionOf(database);
       const highWater = (sequenceRow(database) as { seq: number }).seq;
       expect(highWater).toBe(13);
       const cursors = [0, 1, 3, 4, 7, 8];
@@ -266,21 +314,26 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
           .filter(([, entry]) => (REGISTRY_TABLES as readonly string[]).includes(entry.table))
           .map(([name]) => name),
       ).toEqual([]);
-      expect(
-        database
-          .prepare(
-            `SELECT "table" AS parent, group_concat("from") AS columns
-             FROM pragma_foreign_key_list('workspace_events') GROUP BY id ORDER BY parent, columns`,
-          )
-          .all(),
-      ).toEqual([
-        { parent: 'projects', columns: 'workspace_id,project_id' },
-        { parent: 'users', columns: 'actor_user_id' },
-        { parent: 'work_items', columns: 'workspace_id,project_id,work_item_id' },
-        { parent: 'work_items', columns: 'workspace_id,work_item_id' },
-        { parent: 'workspace_event_kinds', columns: 'kind' },
-        { parent: 'workspaces', columns: 'workspace_id' },
+      // Every kept key exactly as it was, actions and referenced columns included; the
+      // registry's three are the only ones gone (R-H6 review MEDIUM-1).
+      expect(keysOf(database)).toEqual(
+        keysBefore.filter((key) => !(REGISTRY_TABLES as readonly string[]).includes(key.parent)),
+      );
+      expect(keysOf(database).map((key) => key.parent)).toEqual([
+        'projects',
+        'users',
+        'work_items',
+        'work_items',
+        'workspace_event_kinds',
+        'workspaces',
       ]);
+      // Every kept column declared as it was, and the table still STRICT.
+      expect(definitionOf(database)).toEqual(
+        definitionBefore.filter((column) => !CORRELATIONS.includes(column.name)),
+      );
+      expect(
+        database.prepare("SELECT strict FROM pragma_table_list('workspace_events')").get(),
+      ).toEqual({ strict: 1 });
       // Nothing anywhere still names a dropped table.
       expect(
         database
@@ -320,6 +373,51 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
           'audit action is retired',
         );
       insertAudit(database, 'live-action', 'source-repository.register');
+
+      // The kept rules still refuse what they refused (R-H6 review MEDIUM-1): a duplicate id, a
+      // payload that is not an object, a work item without its project, a value of the wrong
+      // type (STRICT), and a kind outside the catalog.
+      let refused = 0;
+      const insert = (fields: Record<string, unknown>) => {
+        const row = {
+          id: `refused-${++refused}`,
+          schema_version: 1,
+          occurred_at: NOW,
+          workspace_id: 'workspace-a',
+          kind: 'attention-changed',
+          payload_json: '{}',
+          ...fields,
+        };
+        const columns = Object.keys(row);
+        return () =>
+          database
+            .prepare(
+              `INSERT INTO workspace_events (${columns.join(', ')})
+               VALUES (${columns.map(() => '?').join(', ')})`,
+            )
+            .run(...Object.values(row));
+      };
+      expect(insert({ id: 'event-1' })).toThrow(/UNIQUE constraint failed: workspace_events\.id/);
+      expect(insert({ id: '' })).toThrow(/CHECK constraint failed/);
+      expect(insert({ schema_version: 2 })).toThrow(/CHECK constraint failed/);
+      for (const payload of ['[]', '"text"', 'not json'])
+        expect(insert({ payload_json: payload }), payload).toThrow(/CHECK constraint failed/);
+      expect(insert({ work_item_id: 'item-root-a' })).toThrow(/CHECK constraint failed/);
+      expect(insert({ run_id: Buffer.from([0]) })).toThrow(/cannot store BLOB value in TEXT/);
+      expect(insert({ kind: 'not-a-kind' })).toThrow(/FOREIGN KEY constraint failed/);
+      expect(insert({ workspace_id: 'workspace-missing' })).toThrow(
+        /FOREIGN KEY constraint failed/,
+      );
+      expect(insert({ project_id: 'project-a', work_item_id: 'item-root-b' })).toThrow(
+        /FOREIGN KEY constraint failed/,
+      );
+      expect(
+        (
+          database.prepare('SELECT COUNT(*) AS count FROM workspace_events').get() as {
+            count: number;
+          }
+        ).count,
+      ).toBe(8);
 
       // The next event follows the old high-water mark, through storage's own append.
       const next = new SqliteWorkspaceEventRepository(database, acceptAnyRecord).appendEvent({
@@ -391,30 +489,29 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
   });
 
   it('rolls back on a copy that loses a row: the count guard (R-H3)', () => {
-    const database = schema39(temporaryPath());
-    try {
-      const migration = migrations.find((candidate) => candidate.version === 40);
-      if (migration === undefined) throw new Error('Expected migration 0040');
-      const copy = 'FROM workspace_events_schema39\nORDER BY sequence;';
-      expect(migration.sql.split(copy)).toHaveLength(2);
-      const truncating = migration.sql.replace(
-        copy,
+    expectRollback(
+      edited(
+        'FROM workspace_events_schema39\nORDER BY sequence;',
         'FROM workspace_events_schema39 WHERE sequence > 1\nORDER BY sequence;',
-      );
-      const broken: MigrationDefinition = {
-        ...migration,
-        sql: truncating,
-        checksum: checksumSql(truncating),
-      };
-      const before = imageOf(database);
-      expect(() => runMigrations(database, [...toSchema39, broken])).toThrow(
-        /CHECK constraint failed: ok = 1/,
-      );
-      expect(migrationStatus(database, toSchema39).currentVersion).toBe(39);
-      expect(preservationProblems(before, imageOf(database))).toEqual([]);
-    } finally {
-      database.close();
-    }
+      ),
+    );
+  });
+
+  it('rolls back when the rebuilt table loses a kept rule: the schema guard (R-H6 review MEDIUM-1)', () => {
+    // A kept key that cascades instead of restricting.
+    expectRollback(
+      edited(
+        'workspace_id   TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,',
+        'workspace_id   TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,',
+      ),
+    );
+    // A table that is no longer STRICT.
+    expectRollback(
+      edited(
+        'REFERENCES work_items(workspace_id, project_id, id) ON DELETE RESTRICT\n) STRICT;',
+        'REFERENCES work_items(workspace_id, project_id, id) ON DELETE RESTRICT\n);',
+      ),
+    );
   });
 });
 

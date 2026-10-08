@@ -197,22 +197,25 @@ SELECT 'sequence', CASE WHEN
     AND (SELECT sequence_value >= max_sequence FROM migration_0040_state WHERE singleton = 1)
   THEN 1 ELSE 0 END;
 
--- The journal's index and triggers are back on it, with the two refusals; the old table and the registry are gone,
--- with every index and trigger of theirs; the journal's keys are exactly the six expected, and
--- no table names a dropped one.
-WITH keys(parent, columns) AS (
-  SELECT "table", group_concat("from", ',' ORDER BY seq)
+-- The journal's index and triggers are back on it, with the two refusals; the old table and the
+-- registry are gone, with every index and trigger of theirs; the journal is STRICT and its keys
+-- are exactly the six expected, each restricting deletes of the rows it names (as 0004 checked,
+-- with the columns on both sides); and no table names a dropped one.
+WITH keys(parent, columns, referenced, on_update, on_delete) AS (
+  SELECT "table", group_concat("from", ',' ORDER BY seq), group_concat("to", ',' ORDER BY seq),
+         on_update, on_delete
   FROM pragma_foreign_key_list('workspace_events')
   GROUP BY id
 ),
-expected(parent, columns) AS (
+expected(parent, columns, referenced, on_update, on_delete) AS (
   VALUES
-    ('workspaces', 'workspace_id'),
-    ('users', 'actor_user_id'),
-    ('workspace_event_kinds', 'kind'),
-    ('projects', 'workspace_id,project_id'),
-    ('work_items', 'workspace_id,work_item_id'),
-    ('work_items', 'workspace_id,project_id,work_item_id')
+    ('workspaces', 'workspace_id', 'id', 'NO ACTION', 'RESTRICT'),
+    ('users', 'actor_user_id', 'id', 'NO ACTION', 'RESTRICT'),
+    ('workspace_event_kinds', 'kind', 'kind', 'NO ACTION', 'RESTRICT'),
+    ('projects', 'workspace_id,project_id', 'workspace_id,id', 'NO ACTION', 'RESTRICT'),
+    ('work_items', 'workspace_id,work_item_id', 'workspace_id,id', 'NO ACTION', 'RESTRICT'),
+    ('work_items', 'workspace_id,project_id,work_item_id', 'workspace_id,project_id,id',
+     'NO ACTION', 'RESTRICT')
 )
 INSERT INTO migration_0040_guard (checkpoint, ok)
 SELECT 'schema', CASE WHEN
@@ -232,6 +235,7 @@ SELECT 'schema', CASE WHEN
         'registered_repositories',
         'repository_inspections',
         'project_repository_bindings'))
+    AND (SELECT strict FROM pragma_table_list('workspace_events')) = 1
     AND (SELECT COUNT(*) FROM keys) = 6
     AND NOT EXISTS (SELECT * FROM keys EXCEPT SELECT * FROM expected)
     AND NOT EXISTS (

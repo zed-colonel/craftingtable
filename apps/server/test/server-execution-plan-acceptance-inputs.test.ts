@@ -4,11 +4,13 @@ import {
   type ConcurrencySource,
   type EvidenceSubmission,
   PLAN_ACCEPTANCE_INPUTS,
+  asUserId,
+  asWorkspaceMembershipId,
   type RuntimeGeneration,
 } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { carryPlanAcceptance } from '../src/services/generated-plan-evidence.js';
-import { savedPlanSnapshot } from '../src/services/plan-acceptance-policy.js';
+import { savedPlanInputs, savedPlanSnapshot } from '../src/services/plan-acceptance-policy.js';
 import { acceptedEvidence } from '../src/services/runtime-evidence-policy.js';
 import {
   adoptSupervisedMap,
@@ -69,8 +71,9 @@ async function acceptedPlan(
   const save = (
     change: (c: typeof f.input.configuration) => typeof f.input.configuration = (c) => c,
     name = f.input.name,
+    context = f.auth,
   ) =>
-    f.service.save(f.auth, ws, {
+    f.service.save(context, ws, {
       ...f.input,
       name,
       expectedVersion: storage.roadmaps.find(ws, roadmap.id)!.version,
@@ -593,19 +596,172 @@ it('never carries for a new binding or without the operator', async () => {
   );
   expect(accepted()).toBeUndefined();
   expect(storage.runtimeEvidence.submissions(ws, id).map((s) => s.id)).toEqual([first.id]);
-  // Back to the accepted roles, then a new binding revision under the operator's session.
-  roles(['independent-security-reviewer-if-required-by-source', 'repository-maintainer']);
-  expect(accepted()?.id).toBe(first.id);
+});
+
+/**
+ * Runs `change` under the operator's session as a carrying command would (R-C6 review L3), and
+ * returns the saved setup's issues for the accepted roadmap afterwards: each case below has
+ * none, so only the carry guard under test can refuse it.
+ */
+function carryDirectly(
+  plan: Awaited<ReturnType<typeof acceptedPlan>>,
+  change: (tx: Parameters<Parameters<typeof plan.storage.transaction>[0]>[0]) => void,
+) {
+  const { f, ws, id, storage } = plan;
   storage.transaction((tx) =>
     carryPlanAcceptance(
       tx,
       f.auth,
       { workspaceId: ws, definitionId: id, command: 'roadmap save', at: new Date().toISOString() },
-      () => tx.imports.addBindings({ ...tx.imports.bindings(ws, id)[0]!, revision: 2 }),
+      () => change(tx),
     ),
   );
+  const binding = storage.imports.bindings(ws, id)[0]!;
+  return savedPlanInputs(
+    storage,
+    storage.imports.definition(ws, id)!,
+    storage.roadmaps.find(ws, f.input.roadmapId)!,
+    storage.runtimeEvidence.generations(ws, id, binding.revision)[0],
+  ).issues;
+}
+
+// Done-when (d), through the binding guards: the new binding has its runtime, adoption and a
+// roadmap saved on it, so nothing but the binding change itself stands in the way.
+it('never carries across a new binding revision, even with its setup complete', async () => {
+  const plan = await acceptedPlan();
+  const { f, ws, id, storage, first } = plan;
+  const issues = carryDirectly(plan, (tx) => {
+    const binding = tx.imports.bindings(ws, id)[0]!;
+    tx.imports.addBindings({ ...binding, revision: 2 });
+    const runtime = tx.runtimeEvidence.generations(ws, id, 1)[0]!;
+    tx.runtimeEvidence.addGeneration({
+      ...runtime,
+      id: randomUUID(),
+      bindingRevision: 2,
+      generation: 1,
+    });
+    const adoption = tx.imports.adoptions(ws, id)[0]!;
+    tx.imports.addAdoption({ ...adoption, id: randomUUID(), bindingRevision: 2 });
+    const roadmap = tx.roadmaps.find(ws, f.input.roadmapId)!;
+    const definition = {
+      ...roadmap.definition,
+      revision: roadmap.definition.revision + 1,
+      crossProject: { ...roadmap.definition.crossProject!, bindingRevision: 2 },
+      entries: roadmap.definition.entries.map((e) => ({
+        ...e,
+        executionScope: { ...e.executionScope!, bindingRevision: 2 },
+      })),
+    };
+    tx.roadmaps.addDefinition(definition);
+    tx.roadmaps.save({ ...roadmap, definition, version: roadmap.version + 1 }, roadmap.version);
+  });
+  expect(issues).toEqual([]);
   expect(acceptedEvidence(storage, ws, id, 2, PLAN)).toBeUndefined();
   expect(storage.runtimeEvidence.submissions(ws, id).map((s) => s.id)).toEqual([first.id]);
+});
+
+it('never carries a change to the plan archives', async () => {
+  const plan = await acceptedPlan();
+  const { ws, id, storage, first, accepted } = plan;
+  const issues = carryDirectly(plan, (tx) => {
+    const d = tx.imports.definition(ws, id)!;
+    tx.imports.linkPlan({
+      workspaceId: ws,
+      planVersionId: tx.imports.bindings(ws, id)[0]!.bindings[0]!.planVersionId!,
+      archiveId: d.archiveId,
+      implementationPlan: 'implementation-plan.md',
+      workBreakdown: 'work-breakdown.yaml',
+      selectedPaths: [],
+    });
+  });
+  expect(issues).toEqual([]);
+  expect(accepted()).toBeUndefined();
+  expect(storage.runtimeEvidence.submissions(ws, id).map((s) => s.id)).toEqual([first.id]);
+});
+
+// The package is validated before it is recorded: here another roadmap on the map is paused,
+// so plan evidence for this one cannot satisfy the checkpoint though its own setup is clean.
+it('never carries a package that would not validate', async () => {
+  const plan = await acceptedPlan();
+  const { f, ws, id, storage, first, accepted } = plan;
+  const issues = carryDirectly(plan, (tx) => {
+    const roadmap = tx.roadmaps.find(ws, f.input.roadmapId)!;
+    const other = randomUUID();
+    tx.roadmaps.save(
+      {
+        ...roadmap,
+        id: other,
+        version: 1,
+        status: 'paused',
+        definition: { ...roadmap.definition, roadmapId: other, revision: 1 },
+      },
+      0,
+    );
+    tx.roadmaps.addDefinition({ ...roadmap.definition, roadmapId: other, revision: 1 });
+  });
+  expect(issues).toEqual([]);
+  expect(accepted()).toBeUndefined();
+  expect(storage.runtimeEvidence.submissions(ws, id).map((s) => s.id)).toEqual([first.id]);
+});
+
+it('never carries onto a roadmap the change stopped', async () => {
+  const plan = await acceptedPlan();
+  const { f, ws, id, storage, first, accepted } = plan;
+  carryDirectly(plan, (tx) => {
+    const roadmap = tx.roadmaps.find(ws, f.input.roadmapId)!;
+    tx.roadmaps.save(
+      { ...roadmap, status: 'stopped', version: roadmap.version + 1 },
+      roadmap.version,
+    );
+  });
+  expect(accepted()).toBeUndefined();
+  expect(storage.runtimeEvidence.submissions(ws, id).map((s) => s.id)).toEqual([first.id]);
+});
+
+// The carried decision is the commanding operator's, not the earlier reviewer's.
+it('records the operator whose save carried the acceptance', async () => {
+  const { f, ws, save, carried, decisionOf, first } = await acceptedPlan();
+  const { context } = f.state;
+  const editor = asUserId('editor-id');
+  const password = 'another correct horse battery';
+  const occurredAt = new Date().toISOString();
+  context.storage.users.insert({
+    id: editor,
+    username: 'editor-user',
+    usernameNormalized: 'editor-user',
+    passwordHash: `$argon2id$test$${Buffer.from(password).toString('base64url')}`,
+    occurredAt,
+  });
+  context.storage.workspaces.insertMembership({
+    id: asWorkspaceMembershipId('editor-membership'),
+    workspaceId: ws,
+    userId: editor,
+    role: 'editor',
+    occurredAt,
+  });
+  const login = await context.app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    headers: { origin: context.config.publicOrigin, 'content-type': 'application/json' },
+    payload: { username: 'editor-user', password },
+  });
+  expect(login.statusCode, login.body).toBe(200);
+  const setCookie = login.headers['set-cookie'];
+  const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie)!.split(';')[0]!;
+  const auth = context.services.authService.authenticate(cookie.split('=')[1]!);
+  expect(auth.user.id).toBe(editor);
+  save(
+    (c) => ({ ...c, defaults: { ...c.defaults, reviewerRoles: ['repository-maintainer'] } }),
+    f.input.name,
+    auth,
+  );
+  const { decision, audit } = carried();
+  expect(decisionOf(first.id)!.decidedByUserId).toBe(f.state.userId);
+  expect(decision).toMatchObject({
+    decidedByUserId: editor,
+    carriedFrom: decisionOf(first.id)!.id,
+  });
+  expect(audit).toMatchObject({ actorUserId: editor, sessionId: auth.session.id });
 });
 
 /** A saved roadmap whose plan the operator accepted before R-C6: a saved-plan-v1 record. */

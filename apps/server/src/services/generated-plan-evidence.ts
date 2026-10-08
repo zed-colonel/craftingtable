@@ -242,7 +242,7 @@ export function carryPlanAcceptance<T>(
     return result;
   const current = savedPlanInputs(read, d, roadmap, runtime);
   const before = recordedPlanInputs(read, d, prior);
-  if (current.issues.length || !before) return result;
+  if (!before) return result;
   const changed = changedInputs(before, current.inputs);
   if (changed.some((key) => NEVER_CARRIED.has(key))) return result;
   const priorDecision = read.runtimeEvidence
@@ -257,6 +257,8 @@ export function carryPlanAcceptance<T>(
     carriedBy: scope.command,
   });
   const head = submissionHead(submission);
+  // Its validation includes the saved setup's issues (a stopped roadmap, a pending amendment,
+  // a binding or runtime out of step), so it is the one check the package must pass.
   if (
     !withinArtifactLimits(submission) ||
     submissionIssues(read, d, runtime, head).length ||

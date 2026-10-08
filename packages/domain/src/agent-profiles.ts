@@ -44,6 +44,60 @@ export type CycleProfiles = Readonly<
 >;
 /** A workspace default: a profile for one purpose (`workspace_run_profiles`). */
 export type WorkspaceAgentProfile = AgentProfile & { readonly role: AgentProfilePurpose };
+/**
+ * Where an effective selection came from (R-E5, E5-2): the layer of the daemon's resolution
+ * (`resolveAgent`) that supplied it, lowest first. A workspace default is the lowest a new
+ * choice starts from; a saved roadmap definition's profiles are the lowest a roadmap's work
+ * reads (E5-1); `cycle-start` is a cycle's own profiles, chosen when it was started on its own;
+ * an ADR-064 assignment and a delegation grant are the roadmap's operational choices; the rest
+ * are per-action choices, finalization's stage profiles among them (E5-3).
+ */
+export const AGENT_SELECTION_LAYERS = [
+  'daemon-default',
+  'workspace-default',
+  'saved-definition',
+  'cycle-start',
+  'roadmap-delegation',
+  'service-retry',
+  'roadmap-assignment',
+  'integration-resolution',
+  'finalization-stage',
+  'finalization-recovery',
+  'design-recovery',
+  'investigation',
+  'decision-preparation',
+  'resumed-session',
+] as const;
+export type AgentSelectionLayer = (typeof AGENT_SELECTION_LAYERS)[number];
+/** A selection's source: its layer, and which slot and record of that layer supplied it. */
+export type AgentSelectionSource = {
+  readonly layer: AgentSelectionLayer;
+  /**
+   * The purpose whose profile the layer supplied: the one asked for, or the one it inherits
+   * (`PROFILE_INHERITANCE`; remediation inherits implementation among workspace defaults).
+   */
+  readonly slot?: AgentProfilePurpose;
+  /** The ADR-064 assignment, for `roadmap-assignment`. */
+  readonly assignmentId?: string;
+  /** The delegation grant, for `roadmap-delegation`. */
+  readonly delegationId?: string;
+  /** The finalization stage, for `finalization-stage` and `finalization-recovery`. */
+  readonly stageIndex?: number;
+};
+/** A selection and where it came from. */
+export type AgentResolution = {
+  readonly selection: AgentSelection;
+  readonly source: AgentSelectionSource;
+};
+/**
+ * What the daemon reports as an effective selection (R-E5a): the selection, its source, the
+ * permissions it runs with when the place has them, and what it overrides, which is the value the
+ * next layer down would give. The browser shows these; it derives none of them.
+ */
+export type EffectiveAgent = AgentResolution & {
+  readonly permissionMode?: AgentPermissionMode;
+  readonly inherited?: AgentResolution;
+};
 export const PROFILE_LABELS: Record<AgentProfilePurpose, string> = {
   design: 'Design',
   implement: 'Implementation',

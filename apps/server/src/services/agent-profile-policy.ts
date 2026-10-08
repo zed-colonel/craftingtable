@@ -11,10 +11,25 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import { resolveAgents, selectionSet } from './agent-resolution.js';
 import { cycleOwnership } from './cycle-ownership.js';
+/** The roadmap's latest ADR-064 assignment covering an entry: it applies whole. */
+export function latestAssignment(roadmap: Roadmap, entryId: string) {
+  return roadmap.agentAssignments?.findLast((a) => a.entryIds.includes(entryId));
+}
+/** An entry's effective selections: its latest assignment, else its saved definition (E5-1). */
+export function entryAgents(roadmap: Roadmap, entry: RoadmapEntry) {
+  const assignment = latestAssignment(roadmap, entry.id);
+  return resolveAgents({
+    ...(assignment ? { assignment: { id: assignment.id, selections: assignment.selections } } : {}),
+    profiles: { layer: 'saved-definition', value: entry.profiles },
+  });
+}
 export function entryAgentSelections(roadmap: Roadmap, entry: RoadmapEntry) {
-  const assignment = roadmap.agentAssignments?.findLast((a) => a.entryIds.includes(entry.id));
-  return { selections: assignment?.selections ?? agentSelections(entry.profiles), assignment };
+  return {
+    selections: selectionSet(entryAgents(roadmap, entry)),
+    assignment: latestAssignment(roadmap, entry.id),
+  };
 }
 /** Resolve only future launches. A running session's selection is already persisted on its run. */
 export function cycleAgentSelection(

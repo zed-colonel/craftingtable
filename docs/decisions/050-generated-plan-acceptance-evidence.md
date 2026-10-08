@@ -12,7 +12,8 @@ as stack-integration-owner. This is independent review of daemon-collected setup
 not an exemption for agent implementation, qualification or publication evidence.
 
 Bind the package to a digest of those saved facts. Changed configuration requires a
-new generation and review; acceptance rechecks state after asynchronous Git checks.
+new generation and review; acceptance rechecks state after asynchronous Git checks (a
+carried acceptance does not; see the 2026-10-08 amendment).
 Generation never adopts decisions, accepts a checkpoint or starts/resumes a roadmap.
 Unknown plan obligations stay on the ordinary independent-evidence path. Existing
 externally reviewed plan submissions remain valid under their original requirements.
@@ -56,6 +57,8 @@ inputs, and raises no inbox item, since the checkpoint never stops being accepte
 only an acceptance that held just before the command. The first acceptance for a map and
 binding stays the operator's: a new import, an amendment or a new binding never carries, nor
 does a change to the map, binding or plan archives. The scheduler never accepts, and the
-Generate command still only generates. ADR-033 is unchanged: Start, Resume and promotion stay
+Generate command still only generates. A carried acceptance is not rechecked
+against Git: outside a dependency command a carry never moves an upstream pin, the refresh or
+setup that moves one has just read it, and Start never rechecked Git. ADR-033 is unchanged: Start, Resume and promotion stay
 the operator's. Architecture decisions, baseline acceptance, releases and technical checkpoints
 without delegated roles keep their explicit operator decisions.

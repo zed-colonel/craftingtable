@@ -18,7 +18,8 @@ the exact imported map and plan binding, independently of incidental runtime pin
 
 A proposal may explicitly stage early clauses for named slices. Approval authorizes only
 the listed gate substitutions/additions, keeps a later full-checkpoint consumer, and
-requires renewed saved-plan acceptance. It never passes the full ADR or waives parent,
+requires renewed saved-plan acceptance (since 2026-10-08 the approval itself carries an
+accepted plan forward; ADR-050's amendment). It never passes the full ADR or waives parent,
 verification or publication requirements. Original imported requirements remain preserved;
 the reviewed overlay and its retained obligations accompany affected runs.
 

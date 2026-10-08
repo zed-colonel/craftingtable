@@ -146,6 +146,16 @@ function emulateCache(storage: CraftingTableStorage, emulation: CacheEmulation):
 }
 
 /**
+ * Each submission's map, by id: decisions name only their submission, and count towards its map.
+ * A function of its own, so its loop's last head is not kept alive by the measurement's frame.
+ */
+function mapSubmissions(storage: CraftingTableStorage, mapOf: Map<string, string>) {
+  for (const ws of storage.workspaces.listActiveIds())
+    for (const d of storage.imports.definitions(ws))
+      for (const head of storage.runtimeEvidence.submissions(ws, d.id)) mapOf.set(head.id, d.id);
+}
+
+/**
  * A new submission on each map a cross-project roadmap reads, a copy of its newest record under
  * a new id, so no cache can answer the next read. A function of its own, so the records it reads
  * are not kept alive by the measurement's own frame.
@@ -274,10 +284,7 @@ export async function replayEvidenceDecodes(
         });
       }
 
-    // Decisions name only their submission: they count towards that submission's map.
-    for (const ws of storage.workspaces.listActiveIds())
-      for (const d of storage.imports.definitions(ws))
-        for (const head of storage.runtimeEvidence.submissions(ws, d.id)) mapOf.set(head.id, d.id);
+    mapSubmissions(storage, mapOf);
     // A first pass loads code and the services' own state; it is registered, not counted.
     for (const read of reads) read.render();
 
@@ -344,6 +351,25 @@ export async function replayEvidenceDecodes(
     stopObserving();
     storage.close();
   }
+}
+
+/**
+ * Every fault of a measurement and its self-checks: the measurement's own, and each self-check
+ * that passed, since a measurement that passes with a replaced cache put back proves nothing.
+ */
+export function evidenceDecodeFaults(
+  measured: EvidenceDecodeReplay,
+  checks: readonly EvidenceDecodeReplay[],
+): readonly { key: string; fault: string }[] {
+  return [
+    ...formatEvidenceDecodes(measured).faults,
+    ...checks
+      .filter((check) => formatEvidenceDecodes(check).passed)
+      .map((check) => ({
+        key: `self-check ${check.emulated}`,
+        fault: 'the measurement passes with the cache put back',
+      })),
+  ];
 }
 
 /** A text report, with each read and map checked against R-H4's done-when. */

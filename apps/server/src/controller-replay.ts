@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
 import { join, resolve } from 'node:path';
 import {
+  evidenceDecodeFaults,
   exposedCollector,
   formatEvidenceDecodes,
   replayEvidenceDecodes,
@@ -269,15 +270,10 @@ async function evidenceDecode(
     );
   if (jsonPath) writeFileSync(jsonPath, `${JSON.stringify(replays, null, 2)}\n`, { mode: 0o600 });
   // For the replay gate: each fault is a changed record, and nothing is ever expected to change.
-  const faults = [
-    ...measured!.faults,
-    ...checks
-      .filter((check) => check.passed)
-      .map((check) => ({
-        key: `self-check ${check.replay.emulated}`,
-        fault: 'the measurement passes with the cache put back',
-      })),
-  ];
+  const faults = evidenceDecodeFaults(
+    measured!.replay,
+    checks.map((check) => check.replay),
+  );
   report(
     {
       records: measured!.replay.reads.length,

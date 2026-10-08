@@ -141,6 +141,13 @@ it('reads each head at most once per view, ledger or acceptance check, and full 
         kind: 'slice',
         sourceId: f.scopes[0]!.sourceId,
       }),
+    // A parent waits on every slice verified: two prerequisites, each an acceptance check, which
+    // share the evaluation's snapshot.
+    'parent prerequisite check': () =>
+      prerequisiteIssues(storage, storage.imports.definition(ws, id)!, 1, {
+        kind: 'parent',
+        sourceId: f.parentScope.sourceId,
+      }),
   };
   for (const [name, read] of Object.entries(reads)) {
     const { heads, records } = decodesOf(read);

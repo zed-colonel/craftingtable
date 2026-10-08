@@ -291,8 +291,9 @@ export function evidenceHeadProblems(database: Database.Database): string[] {
     headed.push(row.id);
     let same = false;
     try {
+      // Both read as the daemon reads them, upcasters included.
       same = isDeepStrictEqual(
-        JSON.parse(row.head_json),
+        parseRecord('evidence-submission-head', row.head_json),
         submissionHead(parseRecord('evidence-submission', row.record_json)),
       );
     } catch {

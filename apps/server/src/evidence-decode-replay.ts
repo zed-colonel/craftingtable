@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { setFlagsFromString } from 'node:v8';
-import { runInNewContext } from 'node:vm';
 import type { AgentBackend } from '@craftingtable/agents';
 import type { AgentBackendKind, WorkspaceId } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
@@ -10,6 +8,7 @@ import { createServices } from './composition.js';
 import { configFromEnv } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
 import type { AuthContext } from './services/auth-service.js';
+import { resolveScope, scopeEvidenceLedger } from './services/execution-scope.js';
 
 /**
  * Measures how much evidence the roadmap view and the cross-project preview decode, and how
@@ -27,10 +26,21 @@ import type { AuthContext } from './services/auth-service.js';
  *   them, which is then rolled back;
  * - `warm`: the reads repeated.
  *
- * Retained evidence: every decoded evidence value is held weakly, with its size; after the
- * reads, their results are dropped and the heap is collected, and the sizes of the values
- * still alive are summed per map. The daemon's services stay alive throughout, so a cache in
- * any of them counts. Git is stubbed, as in the other replays.
+ * Each open scope's evidence ledger, which a run is given at its start, is read the same way
+ * for comparison; it carries accepted submissions' full records on purpose, so it is not held to
+ * the 0.5 MB bound. No read may decode more head bytes than all the maps' heads together: a
+ * read that decodes a head twice is a loop re-reading the map, and fails the run.
+ *
+ * Retained evidence: every decoded evidence value is registered with a `FinalizationRegistry`,
+ * with its size; after the reads, their results are dropped and the heap is collected, and the
+ * sizes of the values not yet finalized are summed per map. A registry, unlike a `WeakRef`,
+ * keeps nothing alive while a read runs, so a read that decodes a lot is not held in memory by
+ * the measurement; a value whose finalizer has not run yet counts as retained, which errs
+ * towards failing. The daemon's services stay alive throughout, so a cache in any of them
+ * counts. Git is stubbed, as in the other replays.
+ *
+ * Collecting needs `gc()`: run it with `NODE_OPTIONS='--expose-gc --max-old-space-size=2048'`,
+ * the second so that a runaway read fails fast.
  */
 
 const EVIDENCE: ReadonlySet<PersistedRecordKind> = new Set([
@@ -45,10 +55,14 @@ export const RETAINED_BOUND_BYTES = 1_000_000;
 
 export interface DecodeMeasure {
   readonly read: string;
+  /** Held to the done-when's bound: the roadmap view and the cross-project preview. */
+  readonly bounded: boolean;
   readonly state: 'after-insert' | 'in-transaction' | 'warm';
   /** Bytes of evidence documents decoded, by kind. */
   readonly bytes: Readonly<Partial<Record<PersistedRecordKind, number>>>;
   readonly total: number;
+  /** More head bytes than every map's heads together: some head was decoded twice. */
+  readonly repeatedHeads: boolean;
 }
 export interface EvidenceDecodeReplay {
   readonly reads: readonly DecodeMeasure[];
@@ -58,10 +72,19 @@ export interface EvidenceDecodeReplay {
   readonly heapGrowth: number;
 }
 
-/** `gc()`, exposed for this process only. */
-function collector(): () => void {
-  setFlagsFromString('--expose-gc');
-  return runInNewContext('gc') as () => void;
+/** `gc()`, when the process was started with `--expose-gc`. */
+export function exposedCollector(): (() => void) | undefined {
+  const gc = (globalThis as { gc?: unknown }).gc;
+  return typeof gc === 'function' ? (gc as () => void) : undefined;
+}
+
+/** Lets pending finalizers run: they are queued as tasks after a collection. */
+async function settle(gc: () => void) {
+  for (let round = 0; round < 3; round++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    gc();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** Runs over `database`, which it may migrate and write: pass a copy. */
@@ -69,8 +92,8 @@ export async function replayEvidenceDecodes(
   database: string,
   dataDir: string,
   now: Date,
+  gc: () => void,
 ): Promise<EvidenceDecodeReplay> {
-  const gc = collector();
   const storage = openDaemonStorage(database);
   try {
     const config = configFromEnv({
@@ -94,7 +117,7 @@ export async function replayEvidenceDecodes(
       notificationTransport: { send: async () => ({ status: 'accepted' }) },
       restartRecovery: false,
     });
-    const views: { name: string; definitionId?: string; render: () => unknown }[] = [];
+    const views: { name: string; bounded: boolean; render: () => unknown }[] = [];
     for (const ws of storage.workspaces.listActiveIds())
       for (const roadmap of storage.roadmaps.list(ws)) {
         const user = storage.users.findById(roadmap.createdByUserId);
@@ -104,13 +127,14 @@ export async function replayEvidenceDecodes(
         const name = roadmap.definition.name;
         views.push({
           name: `roadmap-view ${name}`,
+          bounded: true,
           render: () => services.roadmapService.page(context, ws as WorkspaceId, roadmap.id),
         });
         const selection = roadmap.definition.crossProject;
         if (selection)
           views.push({
             name: `cross-project-preview ${name}`,
-            definitionId: selection.definitionId,
+            bounded: true,
             render: () =>
               services.crossProjectService.view(context, ws as WorkspaceId, {
                 definitionId: selection.definitionId,
@@ -121,7 +145,30 @@ export async function replayEvidenceDecodes(
           });
       }
 
-    const alive: { ref: WeakRef<object>; bytes: number; definitionId: string }[] = [];
+    // Not bounded, for comparison: each open scope's evidence ledger, which a run of that scope
+    // is given at its start (it carries accepted submissions' full records on purpose).
+    for (const cycle of storage.execution.cycles.listActive())
+      if (cycle.executionScope && cycle.workItemId) {
+        const { workspaceId, workItemId, executionScope } = cycle;
+        views.push({
+          name: `scope-ledger ${executionScope.sourceId}`,
+          bounded: false,
+          render: () =>
+            scopeEvidenceLedger(
+              storage,
+              resolveScope(storage, workspaceId, workItemId, executionScope),
+            ),
+        });
+      }
+
+    // Decisions name only their submission: they count towards that submission's map.
+    const mapOf = new Map<string, string>();
+    for (const ws of storage.workspaces.listActiveIds())
+      for (const d of storage.imports.definitions(ws))
+        for (const head of storage.runtimeEvidence.submissions(ws, d.id)) mapOf.set(head.id, d.id);
+    const alive = new Map<number, { bytes: number; definitionId: string }>();
+    const finalized = new FinalizationRegistry<number>((token) => alive.delete(token));
+    let tokens = 0;
     const measure = (
       read: (typeof views)[number],
       state: DecodeMeasure['state'],
@@ -131,14 +178,16 @@ export async function replayEvidenceDecodes(
         (kind, size, record) => {
           if (!EVIDENCE.has(kind)) return;
           bytes[kind] = (bytes[kind] ?? 0) + size;
-          if (typeof record === 'object' && record !== null)
-            alive.push({
-              ref: new WeakRef(record),
-              bytes: size,
-              definitionId:
-                (record as { definitionId?: string }).definitionId ??
-                `decision ${(record as { submissionId?: string }).submissionId ?? ''}`,
-            });
+          if (typeof record !== 'object' || record === null) return;
+          const token = tokens++;
+          alive.set(token, {
+            bytes: size,
+            definitionId:
+              (record as { definitionId?: string }).definitionId ??
+              mapOf.get((record as { submissionId?: string }).submissionId ?? '') ??
+              'unknown map',
+          });
+          finalized.register(record, token);
         },
         () => {
           read.render();
@@ -146,18 +195,18 @@ export async function replayEvidenceDecodes(
       );
       return {
         read: read.name,
+        bounded: read.bounded,
         state,
         bytes,
         total: Object.values(bytes).reduce((sum, n) => sum + n, 0),
+        repeatedHeads: false,
       };
     };
 
     // A first pass loads code and the services' own state; it is not measured.
     for (const view of views) view.render();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    gc();
+    await settle(gc);
     const heapBefore = process.memoryUsage().heapUsed;
-    alive.length = 0;
 
     const reads: DecodeMeasure[] = [];
     // A new submission on each map the views read, so no cache can answer the next read.
@@ -174,6 +223,22 @@ export async function replayEvidenceDecodes(
           tx.runtimeEvidence.addSubmission({ ...record, id: randomUUID() }),
         );
     }
+    // Every map's heads, decoded once: no read needs more (R-H4 review).
+    let headBytes = 0;
+    observeDecodes(
+      (kind, size) => {
+        if (kind === 'evidence-submission-head') headBytes += size;
+      },
+      () => {
+        for (const ws of storage.workspaces.listActiveIds())
+          for (const d of storage.imports.definitions(ws))
+            storage.runtimeEvidence.submissions(ws, d.id);
+      },
+    );
+    const measured = (read: DecodeMeasure): DecodeMeasure => ({
+      ...read,
+      repeatedHeads: (read.bytes['evidence-submission-head'] ?? 0) > headBytes,
+    });
     for (const view of views) reads.push(measure(view, 'after-insert'));
     const rollback = new Error('measured');
     try {
@@ -186,14 +251,15 @@ export async function replayEvidenceDecodes(
     }
     for (const view of views) reads.push(measure(view, 'warm'));
 
-    // Let this job's weak references go, then collect.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    gc();
+    await settle(gc);
     const retained: Record<string, number> = {};
-    for (const value of alive)
-      if (value.ref.deref())
-        retained[value.definitionId] = (retained[value.definitionId] ?? 0) + value.bytes;
-    return { reads, retained, heapGrowth: process.memoryUsage().heapUsed - heapBefore };
+    for (const value of alive.values())
+      retained[value.definitionId] = (retained[value.definitionId] ?? 0) + value.bytes;
+    return {
+      reads: reads.map(measured),
+      retained,
+      heapGrowth: process.memoryUsage().heapUsed - heapBefore,
+    };
   } finally {
     storage.close();
   }
@@ -208,10 +274,10 @@ export function formatEvidenceDecodes(replay: EvidenceDecodeReplay): {
   let withinBounds = true;
   const mb = (bytes: number) => `${(bytes / 1_000_000).toFixed(3)} MB`;
   for (const read of replay.reads) {
-    const over = read.total > DECODE_BOUND_BYTES;
-    withinBounds &&= !over;
+    const over = read.bounded && read.total > DECODE_BOUND_BYTES;
+    withinBounds &&= !over && !read.repeatedHeads;
     lines.push(
-      `${read.state.padEnd(15)}${read.read}: decoded ${mb(read.total)} of evidence${over ? ' [over 0.5 MB]' : ''} (${Object.entries(
+      `${read.state.padEnd(15)}${read.read}: decoded ${mb(read.total)} of evidence${over ? ' [over 0.5 MB]' : ''}${read.bounded ? '' : ' [not bounded]'}${read.repeatedHeads ? ' [decodes a head more than once]' : ''} (${Object.entries(
         read.bytes,
       )
         .map(([kind, bytes]) => `${kind} ${bytes}`)
@@ -228,7 +294,7 @@ export function formatEvidenceDecodes(replay: EvidenceDecodeReplay): {
   lines.push(
     `heap growth after the reads, everything included: ${mb(replay.heapGrowth)}`,
     withinBounds
-      ? 'PASS: every read decodes at most 0.5 MB of evidence and every map retains at most 1 MB'
+      ? 'PASS: the views decode at most 0.5 MB of evidence, no read decodes a head twice, and every map retains at most 1 MB'
       : 'FAIL: a read or a map is over its bound',
   );
   return { text: `${lines.join('\n')}\n`, withinBounds };

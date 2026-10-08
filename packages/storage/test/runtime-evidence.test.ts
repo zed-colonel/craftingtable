@@ -123,6 +123,21 @@ describe('evidence submissions and their heads (R-H4)', () => {
       refusing.close();
     }
     expect([rows('evidence_submissions'), rows('evidence_submission_heads')]).toEqual([1, 1]);
+
+    // A malformed record is refused by the guard, with its contract error, before a head is made.
+    const guarded = openCraftingTableStorage(f.databasePath, (kind) => {
+      if (kind === 'evidence-submission') throw new Error('record refused');
+    });
+    try {
+      expect(() =>
+        guarded.runtimeEvidence.addSubmission({
+          ...submission('map-1'),
+          artifacts: undefined,
+        } as unknown as EvidenceSubmission),
+      ).toThrow('record refused');
+    } finally {
+      guarded.close();
+    }
   });
 
   it('sees a submission another connection added', () => {

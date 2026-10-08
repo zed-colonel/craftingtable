@@ -730,6 +730,9 @@ function scopeCheckpointIds(r: ResolvedScope): readonly string[] {
 }
 /** Retain evidence in a run artifact instead of repeating full reviews inside every prompt. */
 export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
+  // One read snapshot for the whole ledger: it asks each submission's acceptance, and each
+  // would otherwise decode the map's evidence heads again (R-H4).
+  tx = mapReadSnapshot(tx);
   const bindings = tx.imports
     .bindings(r.item.workspaceId, r.definition.id)
     .find((b) => b.revision === r.scope.bindingRevision);

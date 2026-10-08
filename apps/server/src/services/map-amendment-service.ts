@@ -1,3 +1,4 @@
+import { mapReadSnapshot } from './map-read-snapshot.js';
 import { mapProjectReadiness } from './map-finalization-policy.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -305,6 +306,9 @@ export class MapAmendmentService {
     const receipts = prior.bindings
       .flatMap((p) => p.workItems)
       .flatMap((w) => this.storage.scopeReceipts.list(ws, w.workItemId));
+    // Each submission's acceptance is asked of one read snapshot, so the map's evidence heads
+    // are decoded once, not once per submission (R-H4).
+    const evidenceSnapshot = mapReadSnapshot(this.storage);
     const evidence = [
       ...receipts
         .filter(
@@ -320,13 +324,13 @@ export class MapAmendmentService {
               ? ('current' as const)
               : ('reassess' as const),
         })),
-      ...this.storage.runtimeEvidence.submissions(ws, old.id).map((s) => ({
+      ...evidenceSnapshot.runtimeEvidence.submissions(ws, old.id).map((s) => ({
         id: s.id,
         sourceId: s.subject.sourceId,
         kind: s.subject.kind,
         applicability:
           same &&
-          acceptedEvidence(this.storage, ws, old.id, c.bindingRevision, s.subject)?.id === s.id
+          acceptedEvidence(evidenceSnapshot, ws, old.id, c.bindingRevision, s.subject)?.id === s.id
             ? ('current' as const)
             : ('reassess' as const),
       })),

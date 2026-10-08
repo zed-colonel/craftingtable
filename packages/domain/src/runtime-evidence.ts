@@ -161,7 +161,8 @@ export function submissionHead(s: EvidenceSubmission): EvidenceSubmissionHead {
       name: a.name,
       digest: a.digest,
       bytes: utf8ByteLength(a.content),
-      blank: a.content.trim() === '',
+      // What trim() would leave empty, without copying the contents: `\s` is its set.
+      blank: !/\S/.test(a.content),
     })),
   };
 }

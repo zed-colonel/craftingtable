@@ -165,8 +165,8 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     )[0];
   }
   addSubmission(v: EvidenceSubmission): void {
-    const head = submissionHead(v);
     this.guard('evidence-submission', v);
+    const head = submissionHead(v);
     this.guard('evidence-submission-head', head);
     // In submission order, so the heads' rowids keep it (migration 0039).
     this.db.transaction(() => {

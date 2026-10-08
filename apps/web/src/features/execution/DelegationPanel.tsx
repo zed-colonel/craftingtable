@@ -548,8 +548,8 @@ export function DelegationPanel({
           </label>
           {selectedBackend?.kind === 'codex' && (
             <p className="hint">
-              On Codex, Auto uses the workspace-write sandbox with automatic approval review.
-              Edit-only denies requests to expand access.
+              On Codex, Auto and Edit-only both run commands in its sandbox, reaching only the
+              configured outside sources, and nothing may ask to leave it.
             </p>
           )}
           <label className="field">

@@ -1,6 +1,6 @@
-import { accessSync, constants, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import {
   type AgentBackend,
   type AgentBackendDescriptor,
@@ -19,6 +19,7 @@ import {
   claudeUserMessageLine,
   sandboxAllowedWrites,
 } from './arguments.js';
+import { prepareSourceCaches } from '../outside-sources.js';
 import { ModelCatalog, type ModelCatalogSnapshot } from '../model-catalog.js';
 import { claudeConfigDirectory, readClaudeModelCatalog, readClaudeVersion } from './catalog.js';
 import { CLAUDE_CODE_MODELS } from './models.js';
@@ -342,21 +343,4 @@ function onPath(name: string, path: string | undefined): boolean {
       return false;
     }
   });
-}
-
-/**
- * Creates the outside sources' caches the sandbox lets a fetch write (R-G14), which it can make
- * writable only if they exist. Only inside an existing directory (for `cargo`, an existing
- * Cargo home), so a host without Rust gets none, and never at the cost of the launch: a cache
- * that cannot be created leaves fetches failing, nothing else.
- */
-function prepareSourceCaches(directories: readonly string[]): void {
-  for (const directory of directories) {
-    if (!existsSync(dirname(directory))) continue;
-    try {
-      mkdirSync(directory);
-    } catch {
-      // Already there, or not ours to create.
-    }
-  }
 }

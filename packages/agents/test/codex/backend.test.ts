@@ -1,4 +1,12 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -332,6 +340,64 @@ it('resumes the exact thread, sets the name and developer instructions, and repo
   expect(JSON.stringify(items)).not.toContain('private instructions');
   expect(JSON.stringify(items)).toContain('budget cap');
   expect(items.at(-1)).toMatchObject({ exitCode: 0 });
+});
+
+it("selects the run's permission profile on new and resumed threads and every turn, and never asks for approval (R-G14)", async () => {
+  for (const resume of [false, true]) {
+    const { session, items, done, messages } = await launch('', {
+      ...(resume ? { resumeSessionId: 'resume-id' } : {}),
+      outsideSources: [{ kind: 'cargo', hosts: ['index.crates.io'], caches: [] }],
+    });
+    await waitFor(() => turns(items).length === 1);
+    session.send('again');
+    await waitFor(() => turns(items).length === 2);
+    session.end();
+    await done;
+    const thread = messages().find(
+      (msg) => msg.method === (resume ? 'thread/resume' : 'thread/start'),
+    )?.params as unknown as Record<string, unknown>;
+    expect(thread).toMatchObject({ permissions: 'craftingtable', approvalPolicy: 'never' });
+    expect(thread).not.toHaveProperty('sandbox');
+    expect(thread.config).toMatchObject({
+      'features.network_proxy': true,
+      'permissions.craftingtable': { network: { domains: { 'index.crates.io': 'allow' } } },
+    });
+    const starts = messages().filter((msg) => msg.method === 'turn/start');
+    expect(starts).toHaveLength(2);
+    for (const start of starts) {
+      expect(start.params).toMatchObject({ permissions: 'craftingtable', approvalPolicy: 'never' });
+      expect(start.params).not.toHaveProperty('sandboxPolicy');
+    }
+  }
+});
+
+it("creates the outside sources' caches before launch, so a fetch can write them (R-G14)", async () => {
+  const home = mkdtempSync(join(tmpdir(), 'craftingtable-codex-cargo-'));
+  directories.push(home);
+  const absent = join(home, 'absent');
+  const { session, done } = await launch('', {
+    outsideSources: [
+      {
+        kind: 'cargo',
+        hosts: ['index.crates.io'],
+        caches: [join(home, 'registry'), join(home, 'git'), join(absent, 'registry')],
+      },
+    ],
+  });
+  // Codex can make only an existing directory writable; a missing parent is left alone.
+  expect(readdirSync(home).sort()).toEqual(['git', 'registry']);
+  session.end();
+  await done;
+  // A read-only run gets no sources, so nothing is created for it.
+  const other = mkdtempSync(join(tmpdir(), 'craftingtable-codex-cargo-'));
+  directories.push(other);
+  const readOnly = await launch('', {
+    readOnly: true,
+    outsideSources: [{ kind: 'cargo', hosts: [], caches: [join(other, 'registry')] }],
+  });
+  readOnly.session.end();
+  await readOnly.done;
+  expect(readdirSync(other)).toEqual([]);
 });
 
 it.each(['cost', 'usage-timeout', 'duplicate'])(

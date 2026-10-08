@@ -1,8 +1,7 @@
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentPermissionMode } from '@craftingtable/domain';
 import type { AgentLaunchRequest } from '../index.js';
-import { cargoOutsideSource, type OutsideSource } from '../outside-sources.js';
+import { launchCargoHome, launchOutsideSources, outsideSourceHosts } from '../outside-sources.js';
 
 /**
  * Argument vector for a headless Claude Code session.
@@ -83,25 +82,16 @@ function sandboxDeniedReads(request: AgentLaunchRequest): string[] {
     '~/.codex',
     '~/.claude/.credentials.json',
     // Cargo's registry tokens, which would let a command publish or yank as the operator.
-    join(cargoHome(request), 'credentials.toml'),
-    join(cargoHome(request), 'credentials'),
+    join(launchCargoHome(request), 'credentials.toml'),
+    join(launchCargoHome(request), 'credentials'),
     // The daemon's database, its copies and the credentials file (R-G9).
     ...(request.deniedReads ?? []),
   ];
 }
 
-/**
- * The outside sources sandboxed commands may reach (R-G14): those the launch names, else the
- * `cargo` source in the run's Cargo home, the one source every run had before R-G14, so that
- * `cargo fetch` can download dependencies before the daemon's offline builds.
- */
-function outsideSources(request: AgentLaunchRequest): readonly OutsideSource[] {
-  return request.outsideSources ?? [cargoOutsideSource(cargoHome(request))];
-}
-
 /** Every source's exact hosts, once each. */
 function sandboxAllowedDomains(request: AgentLaunchRequest): string[] {
-  return [...new Set(outsideSources(request).flatMap((source) => source.hosts))];
+  return outsideSourceHosts(launchOutsideSources(request));
 }
 
 /**
@@ -110,12 +100,7 @@ function sandboxAllowedDomains(request: AgentLaunchRequest): string[] {
  * existing directory writable, so the adapter creates them first.
  */
 export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
-  return outsideSources(request).flatMap((source) => source.caches);
-}
-
-/** The Cargo home the daemon named for the run, else Cargo's default; an empty value is unset. */
-function cargoHome(request: AgentLaunchRequest): string {
-  return request.environment?.CARGO_HOME || join(homedir(), '.cargo');
+  return launchOutsideSources(request).flatMap((source) => source.caches);
 }
 
 /**

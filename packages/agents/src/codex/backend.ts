@@ -12,6 +12,8 @@ import { ModelCatalog, type ModelCatalogSnapshot } from '../model-catalog.js';
 import { listCodexModels } from './catalog.js';
 import { CODEX_MODELS } from './models.js';
 import { codexIsolationArguments, probeCodexInventory } from './isolation.js';
+import { codexSourceCaches } from './arguments.js';
+import { prepareSourceCaches } from '../outside-sources.js';
 import { backgroundWorkAllowance } from '../process.js';
 import { CODEX_DRAIN_MS, CodexSession, codexEnvironment } from './session.js';
 
@@ -72,6 +74,8 @@ export class CodexBackend implements AgentBackend {
       return Promise.reject(
         new AgentLaunchError('invalid-request', 'The run deadline is not a valid time'),
       );
+    // Codex can make only an existing directory writable (R-G14).
+    prepareSourceCaches(codexSourceCaches(request));
     // The operator's MCP servers and user skills are found fresh for every run and switched off
     // for it (R-G5, AGT-14); a run whose configuration cannot be read does not start.
     return probeCodexInventory({

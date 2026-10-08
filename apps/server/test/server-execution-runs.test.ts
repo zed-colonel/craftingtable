@@ -1212,7 +1212,7 @@ describe('agent runs', () => {
       cargoHome,
       cargoHome,
     ]);
-    // A sandboxed agent (Codex workspace-write) may write only to the listed directories.
+    // A sandboxed agent (Codex, by its permission profile) may write only the listed directories.
     for (const launch of state.backend.launches)
       expect(launch.additionalDirectories).toContain(registered?.path);
     // Cargo creates it on its first build; a worktree that never builds Rust leaves nothing.

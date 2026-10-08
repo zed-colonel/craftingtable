@@ -180,12 +180,13 @@ export function isTerminalAgentRunStatus(status: AgentRunStatus): boolean {
  * so a posture does not mean the same in every backend (AGT-10, AGT-17):
  *
  * - `edit-only`: Claude Code pre-approves file edits and denies whatever would need a prompt,
- *   commands included. Codex runs in its workspace-write sandbox with approval `never`:
- *   commands run without asking, inside the sandbox (the worktree and the run's directories
- *   writable, no network), and nothing may ask to leave it.
+ *   commands included. Codex runs commands without asking inside its sandbox, a per-run
+ *   permission profile (the worktree, the run's directories and the outside sources' caches
+ *   writable; no network but the outside sources' hosts), and nothing may ask to leave it.
  * - `auto`: Claude Code's safety classifier approves routine actions and denies risky ones,
- *   with commands in its sandbox; Codex's own reviewer decides requests to leave its sandbox.
- *   Prompts are denied.
+ *   with commands in its sandbox. Codex is as in `edit-only`: since R-G14 (operator decision
+ *   2026-10-07) its reviewer no longer approves requests to leave the sandbox. Prompts are
+ *   denied.
  * - `unrestricted`: no permission checks and no backend sandbox: the operator's full local
  *   authority. The worktree is a convention, not a boundary.
  */

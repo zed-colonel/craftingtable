@@ -80,7 +80,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G11](#r-g11) | P3 | S-M | done (see Progress) | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | [R-G13](#r-g13) | P2 | M | done (increments 1 to 3 and 5 in P2; 4 in P3, 2026-10-07) | Declared per-repository checks |
-| [R-G14](#r-g14) | P3 | S-M | partial | Operator-configured outside sources for agent sandboxes |
+| [R-G14](#r-g14) | P3 | S-M | done (2026-10-08, on `remediation/p3`) | Operator-configured outside sources for agent sandboxes |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
@@ -3480,7 +3480,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G14
 
-**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: partial (steps 1 to 3 integrated on `remediation/p3` 2026-10-07; the operator's go-ahead for steps 4 to 6 came 2026-10-08; steps 4 to 6 built on `p3/rg14s4`; the operator decided the live check's open points 2026-10-08: Codex's sandbox now writes the repository's Git directory except `config`, `hooks/` and `info/`, Claude `edit-only` keeps its posture, and Codex's profile denies the reads Claude's sandbox denies, refusing a run that would need more than one file masked)
+**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: done (steps 1 to 3 integrated on `remediation/p3` 2026-10-07; steps 4 to 6, the operator's 2026-10-08 decisions below and the security review's MEDIUM-1 fix, the Git directory redirects closed in three layers, integrated 2026-10-08; the independent re-check left 0 open)
 
 - **Added 2026-09-28** (operator decision, after the R-G5 batch). Claude's sandbox reaches crates.io and nothing else, and that list is fixed in the adapter (`SANDBOX_ALLOWED_DOMAINS`).
 - **Change:**

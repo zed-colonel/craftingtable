@@ -89,7 +89,17 @@ import { offloadToolResult, readToolResult } from './tool-result-store.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
-import { type BriefDirectory, type BriefRecord, citedRunPaths, composeBrief } from './brief.js';
+import {
+  type BriefDirectory,
+  type BriefInput,
+  type BriefRecord,
+  citedRunPaths,
+  composeBrief,
+  briefRules,
+  RULES_FILE,
+  RUN_RECORDS,
+  SUPPLIED_DIRECTORIES,
+} from './brief.js';
 import type { OutputContext } from './brief-output.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { DaemonDrainingError, ExecutionRequestError, NotFoundError } from './errors.js';
@@ -112,12 +122,13 @@ import { assessStageReport } from './finalization-stage-policy.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { operatorDecisions } from './operator-decisions.js';
 import { reservePhase } from './phase-resources.js';
-import { REPOSITORY_POLICY_GUIDANCE, worktreePlan } from './repository-policy.js';
+import { REPOSITORY_POLICY_RULES, worktreePlan } from './repository-policy.js';
 import { outputRepairPrompt, restartResumePrompt, sessionResumeSource } from './restart-resume.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { scopeRepairPacket } from './scope-repair.js';
+import { STEP_RULES } from './step-rules.js';
 import { resolveExecutable } from './executables.js';
 import type { StorageService } from './storage-service.js';
 import {
@@ -945,8 +956,7 @@ export class AgentRunService {
                 {
                   filename: WORKFLOW_OBLIGATIONS_FILE,
                   content: JSON.stringify(workflow.obligations, null, 2),
-                  about:
-                    "the controller's current obligations for this step: required states, not successful evidence",
+                  about: RUN_RECORDS[WORKFLOW_OBLIGATIONS_FILE],
                 },
               ],
             }
@@ -956,9 +966,7 @@ export class AgentRunService {
           cycle.providerRecovery
             ? `This is service retry ${cycle.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session with the configured retry backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. If the previous attempt stopped with questions the service failure caused, do not repeat them; ask again any that remain. The step deadline still applies; it moved only by time spent waiting for a usage-limit reset or for the provider to accept credentials.`
             : '',
-          cycle.scopeRepair
-            ? 'Read craftingtable-scope-repair.json in the supplied plan documents. It contains pinned findings from independent slice and parent reviews. Address every namespaced finding ID, including findings from older parent reviews; identical original IDs from different runs are separate obligations. The history of a finding shows how earlier review rounds reported it; the examples cited in every round remain work until verified fixed. Reviewers must include every namespaced finding with a supported disposition. Current adopted policy answers superseded administrative questions; do not invent a new policy. Source changes belong only to this owning slice. When a finding identifies a broad or recurring family, audit that family systematically in bounded batches, including analogous producers, consumers, assertions and evidence. Explain coverage, actual corrections, remaining gaps and reproducible checks; do not merely patch cited examples or weaken acceptance checks. Ask for genuinely new decisions without expanding scope. Commit intended changes; do not merge.'
-            : '',
+          cycle.scopeRepair ? STEP_RULES.scopeRepair : '',
           ...(recovery
             ? [
                 'This is a bounded design-question recovery in the existing worktree. Read the complete prior handoff, recovery context, shared source documents and operator attachments before asking for information again.',
@@ -986,8 +994,8 @@ export class AgentRunService {
           (cycle.resultContinuations ?? 0) > 0
             ? `This is completion recovery attempt ${cycle.resultContinuations} of 2 for the SAME step. The previous agent exited while awaiting background work; its result is incomplete. CraftingTable waited for its owned process group to finish before this launch. Read the previous run handoff and its scratch verification records; do not assume any check passed. Reuse recorded passing checks only when their source commit, destination commit where relevant, inputs, and complete logs still match. Inspect and address failures; finish missing verification and reporting without restarting the whole polish pass or adding unrelated improvements. Keep every unresolved finding and operator question. If a decision is needed, report it in ## Open questions and stop rather than deciding for the operator. Do not detach commands with nohup, disown, or a new session. Await background work and produce the final outcome before ending; the original step time limit still applies.`
             : '',
-          'Keep verification commands owned by the agent session. Do not use nohup, disown, or setsid to detach work. Wait for background commands to finish, collect their results, and stop any monitors you started before emitting the final outcome.',
-          'This run is one step of an operator-authorized automated cycle. Do not merge. Complete this step and provide a final message; the controller handles the next step.',
+          STEP_RULES.detach,
+          STEP_RULES.automated,
           cycle.executionScope && cycle.executionScope.kind !== 'slice'
             ? 'This is an independent review of the integration snapshot. Do not implement changes or commit. Report findings for recovery in the owning slice.'
             : '',
@@ -1469,8 +1477,7 @@ export class AgentRunService {
           writeFileSync(join(directory, document.name), document.content, { mode: 0o600 });
         directories.push({
           path: directory,
-          files: ['context.json', 'manifest.json'],
-          about: `the decision context, and the manifest of the ${documents.length - 1} exact imported sources that name the checkpoint`,
+          ...SUPPLIED_DIRECTORIES.decisionPreparation(documents.length - 1),
         });
         writeFileSync(
           join(directory, 'manifest.json'),
@@ -1492,8 +1499,7 @@ export class AgentRunService {
           writeFileSync(join(directory, document.name), document.content, { mode: 0o600 });
         directories.push({
           path: directory,
-          files: investigation.documents.map((document) => document.name),
-          about: 'the questions, the stop, the reports and the branch',
+          ...SUPPLIED_DIRECTORIES.investigation(investigation.documents.map((d) => d.name)),
         });
       }
       if (cycle?.scopeRepair) {
@@ -1505,11 +1511,7 @@ export class AgentRunService {
             mode: 0o600,
           },
         );
-        records.push({
-          path,
-          about:
-            'the pinned findings this repair addresses, with how each review round reported them',
-        });
+        records.push({ path, about: RUN_RECORDS['craftingtable-scope-repair.json'] });
       }
       if (cycle?.designRecovery) {
         const recovery = cycle.designRecovery;
@@ -1558,8 +1560,10 @@ export class AgentRunService {
           writeFileSync(join(recoveryDirectory, entry.name), entry.content, { mode: 0o600 });
         directories.push({
           path: recoveryDirectory,
-          files: ['context.json', 'manifest.json'],
-          about: `the recovery's facts, and the manifest of its ${recovery.sources.length} source and ${recovery.attachments.length} operator-supplied files`,
+          ...SUPPLIED_DIRECTORIES.designRecovery(
+            recovery.sources.length,
+            recovery.attachments.length,
+          ),
         });
       }
       if (prepared.worktree.planVersionId) {
@@ -1573,7 +1577,7 @@ export class AgentRunService {
           ),
           { mode: 0o600 },
         );
-        records.push({ path: inventoryPath, about: "the plan's work-item inventory" });
+        records.push({ path: inventoryPath, about: RUN_RECORDS['craftingtable-work-items.json'] });
       }
       if (cycle?.finalizationProgress && cycle.finalizationId) {
         const staged = this.storage.execution.finalizations.find(workspaceId, cycle.finalizationId);
@@ -1592,11 +1596,7 @@ export class AgentRunService {
           ),
           { mode: 0o600 },
         );
-        records.push({
-          path,
-          about:
-            "the staged finalization's authoritative stages, selected IDs, adopted obligations, prior evidence and retained follow-ups",
-        });
+        records.push({ path, about: RUN_RECORDS['craftingtable-finalization-state.json'] });
       }
       const handoff =
         prepared.parentRun === undefined
@@ -1639,11 +1639,7 @@ export class AgentRunService {
           JSON.stringify({ ...ledger, definition: scopeDefinitionRecord(scope) }, null, 2),
           { mode: 0o600 },
         );
-        records.push({
-          path,
-          about:
-            "this scope's phase readiness, receipts, architecture decisions, definition, and an index of its accepted external evidence, each artifact's body in the file its `file` names, relative to this one: requirements there are required states, not observed successes",
-        });
+        records.push({ path, about: RUN_RECORDS['craftingtable-scope-evidence.json'] });
       }
       const policyPlan = worktreePlan(this.storage, prepared.worktree);
       if (policyPlan && this.branches) {
@@ -1669,8 +1665,14 @@ export class AgentRunService {
             'Repository policy changed during review preparation. Start a fresh review.',
           );
         const path = join(planDirectory, 'craftingtable-repository-policy.json');
-        writeFileSync(path, JSON.stringify(evidence, null, 2), { mode: 0o600 });
-        records.push({ path, about: 'the adopted repository policy and fresh observations' });
+        writeFileSync(
+          path,
+          JSON.stringify({ ...evidence, rules: REPOSITORY_POLICY_RULES }, null, 2),
+          {
+            mode: 0o600,
+          },
+        );
+        records.push({ path, about: RUN_RECORDS['craftingtable-repository-policy.json'] });
       }
       if (policyPlan) {
         const decisions = scope
@@ -1694,16 +1696,9 @@ export class AgentRunService {
           ),
           { mode: 0o600 },
         );
-        records.push({
-          path,
-          about: 'earlier operator guidance for this work: guidance, not test results',
-        });
+        records.push({ path, about: RUN_RECORDS['craftingtable-operator-decisions.json'] });
       }
-      const brief = composeBrief({
-        // Its rules only with the policy file they ask the agent to read.
-        ...(policyPlan && this.branches
-          ? { repositoryPolicyGuidance: REPOSITORY_POLICY_GUIDANCE }
-          : {}),
+      const briefInput: BriefInput = {
         ...(scope ? { executionScope: scopeBrief(scope) } : {}),
         ...(prepared.worktree.planVersionId &&
         input.role === 'review' &&
@@ -1823,6 +1818,7 @@ export class AgentRunService {
         },
         ...(reviewBranchContext === undefined ? {} : { reviewBranchContext }),
         planDocuments,
+        runDirectory,
         planDirectory,
         records,
         directories,
@@ -1862,7 +1858,15 @@ export class AgentRunService {
                 ...(handoff === undefined ? {} : { handoff }),
               },
             }),
-      });
+      };
+      // The rules the brief refers to are a file it names (AGT-50).
+      const rules = briefRules(briefInput);
+      const rulesPath = join(planDirectory, RULES_FILE);
+      if (rules)
+        writeFileSync(rulesPath, `# The rules this run's brief refers to\n\n${rules}\n`, {
+          mode: 0o600,
+        });
+      const brief = composeBrief(rules ? { ...briefInput, rulesPath } : briefInput);
       writeFileSync(join(runDirectory, 'brief.md'), brief, { mode: 0o600 });
 
       // Nor after a drain that began while the evidence, baseline or policy was prepared.

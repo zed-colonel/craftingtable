@@ -10,6 +10,7 @@ import {
 import {
   finalMessageSection,
   type OutputContext,
+  workflowContract,
   type RoleInstructions,
   type WorkflowOutput,
 } from './brief-output.js';
@@ -38,6 +39,47 @@ export interface BriefPlanDocument {
   readonly path: string;
 }
 
+/**
+ * What each of CraftingTable's records for a run holds, as the run's brief names it (AGT-50,
+ * part 4). The records are written into the run's plan directory.
+ */
+export const RUN_RECORDS = {
+  'craftingtable-scope-repair.json': 'the pinned findings to address, with their history',
+  'craftingtable-work-items.json': "the plan's work items",
+  'craftingtable-finalization-state.json':
+    'the authoritative stages, selected IDs, adopted obligations, prior evidence and follow-ups',
+  'craftingtable-scope-evidence.json':
+    'readiness, receipts, decisions, the scope definition and an index of accepted evidence (`file` names each body); required states, not successes',
+  'craftingtable-repository-policy.json':
+    'the adopted repository policy, fresh observations and their rules; read it before judging branch protection, a freeze or publication',
+  'craftingtable-operator-decisions.json': 'earlier operator guidance (not test results)',
+  'craftingtable-controller-obligations.json':
+    "the controller's obligations for this step (required states, not evidence)",
+} as const;
+
+/** The directories CraftingTable supplies for some runs, as their briefs list them (AGT-58). */
+export const SUPPLIED_DIRECTORIES = {
+  decisionPreparation: (sources: number) => ({
+    files: ['context.json', 'manifest.json'],
+    about: `the decision context, and the manifest of the ${sources} exact imported sources that name the checkpoint`,
+  }),
+  investigation: (files: readonly string[]) => ({
+    files,
+    about: 'the questions, the stop, the reports and the branch',
+  }),
+  designRecovery: (sources: number, attachments: number) => ({
+    files: ['context.json', 'manifest.json'],
+    about: `the recovery's facts, and the manifest of its ${sources} source and ${attachments} operator-supplied files`,
+  }),
+};
+
+/**
+ * The file in a run's plan directory that holds the rules its brief refers to (AGT-50: schema
+ * and reference prose in a file): its final message's blocks, the controller's workflow
+ * contract and the build environment.
+ */
+export const RULES_FILE = 'craftingtable-rules.md';
+
 /** A file CraftingTable wrote for the run. */
 export interface BriefRecord {
   /** Absolute path. */
@@ -57,7 +99,6 @@ export interface BriefDirectory {
 }
 
 export interface BriefInput {
-  readonly repositoryPolicyGuidance?: string;
   readonly executionScope?: {
     readonly identity: import('@craftingtable/domain').ExecutionScope;
     readonly title: string;
@@ -112,6 +153,13 @@ export interface BriefInput {
   };
   /** The plan bundle's documents, read-only in the run's plan directory. */
   readonly planDocuments: readonly BriefPlanDocument[];
+  /**
+   * Where the daemon wrote `briefRules`' text for this run: the brief names the file instead of
+   * ending with the rules (AGT-50).
+   */
+  readonly rulesPath?: string;
+  /** The run's directory: the brief gives the paths inside it relative to it. */
+  readonly runDirectory?: string;
   /** The run's plan directory, where the bundle and CraftingTable's records are written. */
   readonly planDirectory?: string;
   /** The files CraftingTable wrote for this run, each with what it holds (AGT-50, part 4). */
@@ -222,7 +270,7 @@ function formatDependencies(entries: readonly BriefDependency[]): string {
 }
 
 function formatSourceFields(value: JsonValue): string {
-  const serialized = JSON.stringify(value, null, 2) ?? 'null';
+  const serialized = JSON.stringify(value) ?? 'null';
   return serialized.length > 20_000 ? `${serialized.slice(0, 20_000)}\n…(truncated)` : serialized;
 }
 
@@ -246,7 +294,7 @@ function goalSection(input: BriefInput): string {
       ),
       `Assigned cases: ${s.cases.join(', ') || 'none'}`,
       `The parent's exit gate, which stays the parent's: ${workItem.exitGate}`,
-      'Do not implement excluded work or mark the parent complete. If new requirements or dependencies are needed, report them as open questions and propose a planning amendment with its rationale and affected scopes; do not silently change the plan, map, acceptance criteria or scheduling authority.',
+      'Do not implement excluded work or mark the parent complete; raise new requirements or dependencies as open questions with a proposed planning amendment, never silently changing the plan, map, acceptance criteria or scheduling authority.',
     );
   } else lines.push(`Exit gate: ${workItem.exitGate}`);
   lines.push(
@@ -268,31 +316,35 @@ function goalSection(input: BriefInput): string {
 /** Part 2 (AGT-50): the worktree, its branches, its predecessors and the run's scratch. */
 function whereSection(input: BriefInput): string {
   const { worktree } = input;
+  const at = relativeTo(input.runDirectory);
   const paragraphs = [
-    `You are in a dedicated Git worktree at \`${worktree.path}\` on branch \`${worktree.branchName}\`, created from \`${worktree.baseBranch}\` at \`${worktree.baseSha}\`. This is the only place you may change files; the primary checkout and other worktrees of this repository are off limits.`,
+    `You are in a dedicated Git worktree at \`${worktree.path}\` on branch \`${worktree.branchName}\`, created from \`${worktree.baseBranch}\` at \`${worktree.baseSha}\`: the only place you may change files (the primary checkout and other worktrees are off limits).${worktree.integrationBranch === undefined ? '' : ` Integration destination: ${worktree.integrationBranch}, into which only the daemon merges, under the operator’s approval or recorded integration policy.`}`,
   ];
-  if (worktree.integrationBranch !== undefined)
-    paragraphs.push(
-      `Integration destination: ${worktree.integrationBranch}. Only the daemon may merge into it under the operator’s approval or recorded integration policy.`,
-    );
   if (input.reviewBranchContext !== undefined) {
     const context = input.reviewBranchContext;
     paragraphs.push(
-      `Review baseline: item commit ${context.headSha}; integration branch ${context.targetBranch} at ${context.targetSha}. Verify this combined state and report the checks you ran. Do not move either branch during review.`,
+      `Review baseline: item commit ${context.headSha}; integration branch ${context.targetBranch} at ${context.targetSha}. Verify this combined state and report the checks you ran; do not move either branch.`,
     );
   }
-  paragraphs.push(
-    `${input.executionScope ? 'Original parent predecessors (slice readiness is defined by the controller scope and evidence ledger)' : 'Predecessors'}: required ${formatDependencies(input.requiredDependencies)}; recommended ${formatDependencies(input.recommendedDependencies)}.`,
-  );
+  // A scope's readiness is in its evidence file; its parent's predecessors are in the parent's
+  // fields under Goal and acceptance.
+  if (!input.executionScope)
+    paragraphs.push(
+      `Predecessors: required ${formatDependencies(input.requiredDependencies)}; recommended ${formatDependencies(input.recommendedDependencies)}.`,
+    );
+  if (input.runDirectory)
+    paragraphs.push(
+      `Your run directory is \`${input.runDirectory}\`; paths below that do not begin with / are relative to it.`,
+    );
   if (input.temporaryDirectory)
     paragraphs.push(
-      `Temporary files: TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. ${
+      `Temporary files: TMPDIR, TMP, and TEMP point to \`${at(input.temporaryDirectory)}/\`, outside the worktree. Do not redirect temporary files to the worktree root or commit test artifacts; verification logs and reports go in scratch/verification or scratch/review (other scratch may expire), their results in your final message.${
         !input.cargo
           ? ''
           : input.buildCacheDirectory
-            ? `CARGO_TARGET_DIR points to ${input.buildCacheDirectory}, this worktree’s build cache. Earlier steps in this worktree built into it, so builds are incremental; keep build outputs there rather than creating another target directory, and do not put evidence inside it. It is removed when the worktree is merged or removed.${input.environment?.pinned ? ' The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead (see the build environment below).' : ''} `
-            : 'CARGO_TARGET_DIR points to this run’s scratch/target build cache. Keep build outputs there and do not put evidence inside a build cache. Recognized build caches are disposable and may be removed when this run ends, including failed or cancelled runs. '
-      }Verification logs and reports belong in separate scratch/verification or scratch/review directories. Other scratch may expire under the storage policy, and source edits remain restricted to the worktree; this directory is for temporary data only.`,
+            ? ` CARGO_TARGET_DIR points to ${input.buildCacheDirectory}, this worktree’s build cache: build there, not in another target directory, and keep evidence out of it.${input.environment?.pinned ? ' The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead (see the build environment below).' : ''}`
+            : ' CARGO_TARGET_DIR points to this run’s scratch/target build cache, which may be removed when the run ends: keep evidence out of it.'
+      }`,
     );
   return `## Where you are\n\n${paragraphs.join('\n\n')}`;
 }
@@ -306,6 +358,7 @@ const NAMED_PLAN_DOCUMENTS = 6;
  * CraftingTable's records for this run is named with what it holds, by its full path.
  */
 function filesSection(input: BriefInput): string {
+  const at = relativeTo(input.runDirectory);
   const lines: string[] = ['## Files to read', ''];
   const documents = input.planDocuments;
   if (documents.length) {
@@ -319,7 +372,7 @@ function filesSection(input: BriefInput): string {
       ...(supporting ? [`${supporting} supporting documents (list the directory)`] : []),
     ];
     lines.push(
-      `The plan bundle this work item came from is read-only in \`${input.planDirectory ?? documents[0]!.path.replace(/\/[^/]*$/, '')}/\`: ${listed.join(', ')}. ${
+      `The plan bundle, read-only in \`${at(input.planDirectory ?? documents[0]!.path.replace(/\/[^/]*$/, ''))}/\`: ${listed.join(', ')}. ${
         input.planFinalization
           ? 'Read the entire plan and work-item inventory before starting.'
           : 'Read the parts that concern this work item before starting.'
@@ -327,20 +380,38 @@ function filesSection(input: BriefInput): string {
     );
   }
   const records = [
-    ...(input.records ?? []).map((r) => `- \`${r.path}\`: ${r.about}`),
+    ...(input.records ?? []).map((r) => `- \`${at(r.path)}\`: ${r.about}`),
     ...(input.directories ?? []).map(
-      (d) =>
-        `- \`${d.path}/\`: ${d.files.map((f) => `\`${d.path.replace(/^.*\//, '')}/${f}\``).join(', ')}; ${d.about}`,
+      (d) => `- ${d.files.map((f) => `\`${at(`${d.path}/${f}`)}\``).join(', ')}: ${d.about}`,
     ),
   ];
-  if (records.length) {
-    if (documents.length) lines.push('');
-    lines.push("CraftingTable's records for this run:", ...records);
-  }
-  for (const paragraph of handoffParagraphs(input.parentRun, !!input.planFinalization))
-    lines.push(...(lines.length > 2 ? [''] : []), paragraph);
-  if (input.repositoryPolicyGuidance) lines.push('', input.repositoryPolicyGuidance);
+  if (records.length) lines.push("CraftingTable's records for this run:", ...records);
+  lines.push(...handoffParagraphs(input.parentRun, !!input.planFinalization, at));
   return lines.length > 2 ? lines.join('\n') : '';
+}
+
+/** A path inside the run directory, relative to it; any other path as it is. */
+function relativeTo(runDirectory: string | undefined): (path: string) => string {
+  const prefix = runDirectory && `${runDirectory.replace(/\/+$/, '')}/`;
+  return (path) => (prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path);
+}
+
+/**
+ * The rules a brief refers to: its final message's blocks, the controller's workflow contract
+ * and the build environment, each where it applies. The daemon writes them to `RULES_FILE`;
+ * a brief without one ends with them.
+ */
+export function briefRules(input: BriefInput): string | undefined {
+  const blocks = instructionsFor(input).formats.flatMap((format) => format.rules);
+  const environment = environmentSection(input.environment, (path) => path).rules;
+  const sections = [
+    ...(blocks.length ? [["### Your final message's blocks", ...blocks].join('\n\n')] : []),
+    ...(input.workflow
+      ? [["### The controller's workflow contract", workflowContract()].join('\n\n')]
+      : []),
+    ...(environment.length ? [['### The build environment', ...environment].join('\n\n')] : []),
+  ];
+  return sections.length ? sections.join('\n\n') : undefined;
 }
 
 export function composeBrief(input: BriefInput): string {
@@ -361,17 +432,41 @@ export function composeBrief(input: BriefInput): string {
   // The five parts (AGT-50): the task; where the agent is; what it is and must return; the
   // files to read; then the controller's step rules and the operator's own words.
   sections.push(goalSection(input), whereSection(input));
-  const environment = environmentSection(input.environment);
-  if (environment) sections.push(environment);
+  const at = relativeTo(input.runDirectory);
+  const rules = briefRules(input);
+  // The rules are a file the brief names, or the brief's last section.
+  const rulesAt = !rules
+    ? undefined
+    : input.rulesPath
+      ? `\`${at(input.rulesPath)}\``
+      : 'the Rules section at the end';
+  const environment = environmentSection(input.environment, at);
+  if (environment.text)
+    sections.push(
+      `${environment.text}${environment.rules.length ? `\nIts rules are in ${rulesAt}.` : ''}`,
+    );
   const instructions = instructionsFor(input);
   sections.push(
     [`## Your role\n\n${instructions.role}`, ...instructions.rules].join('\n\n'),
-    finalMessageSection(instructions),
+    finalMessageSection(instructions, rulesAt),
   );
-  const files = filesSection(input);
+  const files = filesSection(
+    input.rulesPath && rules
+      ? {
+          ...input,
+          records: [
+            {
+              path: input.rulesPath,
+              about: 'the rules this brief refers to: read it first',
+            },
+            ...(input.records ?? []),
+          ],
+        }
+      : input,
+  );
   if (files) sections.push(files);
   sections.push(
-    ...parentSections(input.parentRun, {
+    ...parentSections(input.parentRun, relativeTo(input.runDirectory), {
       role: input.role,
       resolvingIntegration: !!input.resolvingIntegration,
       planFinalization: !!input.planFinalization,
@@ -412,6 +507,7 @@ export function composeBrief(input: BriefInput): string {
       ].join('\n\n'),
     );
   }
+  if (rules && !input.rulesPath) sections.push(`## Rules\n\n${rules}`);
   return `${sections.join('\n\n')}\n`;
 }
 
@@ -420,7 +516,7 @@ function upstreamSources(dependencies: readonly BriefUpstreamSource[]): string {
   if (!dependencies.length) return 'Upstream sources: none supplied for this scope.';
   const line = (d: BriefUpstreamSource) =>
     `- ${d.alias}: ${d.purpose === 'current-upstream' ? 'current pin' : 'historical development source'} ${d.commitSha.slice(0, 12)}${d.transition ? ` (moves to the current pin at ${d.transition.slice}${d.transition.recordId ? `, declared by operator record ${d.transition.recordId}` : ', declared in the map'})` : ''}`;
-  return `Upstream sources, chosen per link by the roadmap's declared transitions:\n${dependencies.map(line).join('\n')}\nBuild against exactly these sources. A link on its current pin already moved in this tree's history; do not revert it to a historical version.`;
+  return `Upstream sources, chosen per link by the roadmap's declared transitions:\n${dependencies.map(line).join('\n')}\nBuild against exactly these sources; never revert a link on its current pin to a historical version.`;
 }
 
 /**
@@ -429,29 +525,55 @@ function upstreamSources(dependencies: readonly BriefUpstreamSource[]): string {
  * Text about Kata appears only for a scope with Kata cases, and nothing names a toolchain
  * version the daemon does not know.
  */
-function environmentSection(environment: BriefEnvironment | undefined): string {
-  if (!environment) return '';
+function environmentSection(
+  environment: BriefEnvironment | undefined,
+  at: (path: string) => string,
+): { readonly text: string; readonly rules: readonly string[] } {
+  if (!environment) return { text: '', rules: [] };
   const parts: string[] = [];
+  const rules: string[] = [];
   const pinned = environment.pinned;
   if (pinned) {
     const bin = pinned.binDirectory;
+    const scoped = pinned.verification.mode === 'scoped-checks';
     parts.push(
       [
-        `Pinned dependency environment: ${pinned.manifestPath}`,
+        `Pinned dependency environment: ${at(pinned.manifestPath)}`,
         ...(pinned.nativeApprovalId
           ? [
-              `Managed native verification is approved for this run (${pinned.nativeApprovalId}). Execute applicable non-sensitive repository fixtures using ${bin}/ct-native -- <executable> <arguments>. It provides a fresh HOME/TMPDIR and bounded user service (4 CPUs, 8 GiB, 512 tasks, at most 30 minutes). Retained receipts bind exact clean candidate, dependency manifest, environment approval and logs. Use supplied Cargo for dependency-bearing checks. ct-check/ct-act and inherited implementation results cannot substitute for native verification. Do not use live service credentials${pinned.kata ? ' or claim Kata observations' : ''}; report every scope requirement independently. This is cooperative native execution under the existing OS-user trust model, not a hostile-code sandbox.`,
+              `Managed native verification is approved for this run (${pinned.nativeApprovalId}): run applicable non-sensitive repository fixtures with ${bin}/ct-native -- <executable> <arguments>.`,
             ]
           : []),
         `Verification policy: ${pinned.verification.mode}. ${pinned.verification.reason}`,
         upstreamSources(pinned.dependencies),
-        `Use the controller Cargo launcher ${bin}/cargo for Cargo checks (also supplied on PATH). Do not override supplied sources or use a neighboring checkout. CraftingTable runs its builds and tests, and ct-check/ct-act/ct-native, itself and relays the output; builds and checks run without network, so run cargo fetch first when dependencies must be downloaded. Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses, and the launcher's other Cargo commands use the manifest's (the run’s scratch/target), whatever CARGO_TARGET_DIR says; that is expected, and receipts do not depend on it. Do not edit the manifest or override the build directory (--target-dir or CARGO_TARGET_DIR) for them.`,
-        'The launcher also supports supplementary checks whose resolved graph contains no upstream packages, such as independent foundation/contract manifests within an integration run. Use the same launcher and ct-check normally; no explicit-config bypass or artificial upstream dependency is needed. Their supplementary-check receipts cannot satisfy the current-upstream build requirement.',
-        pinned.verification.mode === 'scoped-checks'
-          ? `Use ${bin}/ct-check -- <executable> <arguments> to retain repository-owned contract, inventory, fixture or domain test evidence. Use ${bin}/ct-act -W .github/workflows/<file>.yml -j <job> for local GitHub Actions execution; CI is supplemental and does not count as the scoped check. ${pinned.adoptedChecks ? 'The adopted checks below are required on the exact clean reviewed commit' : 'A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required'}, together with independent evidence for EVERY scope obligation. Any prepared historical dependency commits are development inputs only. Do not port upstream code or align the workspace to current pins beyond the upstream links supplied as current pins above merely to satisfy this slice. Document known baseline failures separately; new scope checks must pass.`
-          : `A successful Cargo build/test using current exact pins is required before merge/acceptance${pinned.adoptedChecks ? ', with the adopted checks below' : ''}. Other ct-check and ct-act logs supplement but never replace that receipt. Align constraints only within the approved integration scope.`,
-        `${pinned.declaredChecks}Local CI: ${pinned.localCiImage ? `configured with image ${pinned.localCiImage}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native${pinned.kata ? '/Kata' : ''} qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.`,
-      ].join('\n'),
+        `Use the controller Cargo launcher ${at(bin)}/cargo for Cargo checks (also supplied on PATH); builds and checks run without network, so run cargo fetch first when dependencies must be downloaded. Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses, and the launcher's other Cargo commands use the manifest's (the run’s scratch/target), whatever CARGO_TARGET_DIR says; that is expected, and receipts do not depend on it. Do not edit the manifest or override the build directory (--target-dir or CARGO_TARGET_DIR) for them.`,
+        scoped
+          ? `${pinned.adoptedChecks ? 'The adopted checks below are required on the exact clean reviewed commit' : 'A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required'}, with independent evidence for EVERY scope obligation.`
+          : pinned.adoptedChecks
+            ? 'The Cargo build/test receipt the policy requires is needed before merge/acceptance, with the adopted checks below.'
+            : '',
+        `${pinned.declaredChecks}Local CI: ${pinned.localCiImage ? `configured with image ${pinned.localCiImage}.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'}`,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
+    rules.push(
+      'Do not override supplied sources or use a neighboring checkout. CraftingTable runs its builds and tests, and ct-check/ct-act/ct-native, itself and relays the output.',
+      ...(pinned.nativeApprovalId
+        ? [
+            `ct-native gives a fresh HOME/TMPDIR and a bounded user service (4 CPUs, 8 GiB, 512 tasks, 30 minutes); its receipts bind the clean candidate, dependency manifest, approval and logs, and ct-check, ct-act and inherited results cannot substitute for it. Use the supplied Cargo for dependency-bearing checks. Do not use live service credentials${pinned.kata ? ' or claim Kata observations' : ''}; report every scope requirement independently. It is cooperative execution under the OS-user trust model, not a hostile-code sandbox.`,
+          ]
+        : []),
+      'Checks with no upstream packages (independent foundation or contract manifests) use the same launcher and ct-check, with no config bypass; their receipts cannot satisfy the current-upstream build requirement.',
+      scoped
+        ? 'ct-check -- <executable> <arguments> retains repository-owned contract, inventory, fixture or domain test evidence; ct-act -W .github/workflows/<file>.yml -j <job> runs GitHub Actions locally, as supplemental CI, not the scoped check. Historical dependency commits are development inputs only: do not port upstream code or align to current pins beyond the links supplied as current pins to satisfy this slice. Document known baseline failures separately; new scope checks must pass.'
+        : 'Other ct-check and ct-act logs supplement but never replace the Cargo build/test receipt. Align constraints only within the approved integration scope.',
+      ...(pinned.localCiImage
+        ? [
+            'Local CI workflows get CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR, with every supplied path mounted, and pass the config explicitly (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...). Run the jobs a scope needs, not the legacy whole-runtime workflow.',
+          ]
+        : []),
+      `CI receipts do not establish external native${pinned.kata ? '/Kata' : ''} qualification, and a narrow job never waives other scope obligations.`,
     );
   } else if (environment.checkOnly) parts.push(environment.checkOnly.trimEnd());
   const historical = environment.historical;
@@ -463,8 +585,11 @@ function environmentSection(environment: BriefEnvironment | undefined): string {
         `Historical workspace: ${historical.workspacePath}`,
         `Historical Cargo: ${historical.launcher}`,
         `Command receipts: ${historical.receiptPath}`,
-        "Use this separate launcher ONLY to collect the historical baseline. It uses original lockfiles and historical sibling sources, not current upstream pins. For candidate checks, follow the scope verification policy above and use the normal controller Cargo launcher. Reuse recorded historical evidence with matching source identities; collect missing baseline build/test or recovery/benchmark evidence only when required by the plan, within this run's deadline. Record exact failures and missing prerequisites. Do not port historical code, change dependencies/lockfiles or fabricate results. Preserve summaries, measurements and non-Cargo logs under historical-evidence (outside disposable scratch). Do not ask the operator to provision ordinary worktrees or these already supplied sources. Historical results never satisfy current-runtime build gates. Genuine architectural/implementation decisions remain the operator's authority; collected facts do not authorize deviations.",
+        "Use this separate launcher ONLY to collect the historical baseline: it builds original lockfiles and historical sibling sources, not current upstream pins, and its results never satisfy current-runtime build gates. Candidate checks follow the scope verification policy above with the normal controller Cargo launcher. Reuse recorded historical evidence with matching source identities; collect missing baseline build/test or recovery/benchmark evidence only when the plan requires it, within this run's deadline, recording exact failures and missing prerequisites. Do not port historical code, change dependencies or lockfiles, or fabricate results. Keep summaries, measurements and non-Cargo logs under historical-evidence, outside disposable scratch. Do not ask the operator to provision ordinary worktrees or these supplied sources. Genuine architectural/implementation decisions remain the operator's authority; collected facts do not authorize deviations.",
       ].join('\n'),
     );
-  return parts.length ? `## Build environment\n\n${parts.join('\n\n')}` : '';
+  return {
+    text: parts.length ? `## Build environment\n\n${parts.join('\n\n')}` : '',
+    rules,
+  };
 }

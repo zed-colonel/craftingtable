@@ -211,7 +211,12 @@ it("gives a run its scope's accepted evidence as an index, each artifact's body 
   let path: string | undefined;
   const original = f.backend.replyForRequest;
   f.backend.replyForRequest = async (request) => {
-    path ??= /`(\/[^`]+\/craftingtable-scope-evidence\.json)`/.exec(request.prompt)?.[1];
+    if (request.prompt.includes('`plan/craftingtable-scope-evidence.json`'))
+      path ??= join(
+        request.additionalDirectories![0]!,
+        'plan',
+        'craftingtable-scope-evidence.json',
+      );
     return original ? original(request) : { resultText: 'Done.\n\n## Open questions\n\nnone' };
   };
   await roadmapControl(f.state, 'start');

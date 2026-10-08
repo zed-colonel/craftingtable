@@ -1435,10 +1435,20 @@ export function stagedInput<T extends { readonly policy: CompletionPolicy }>(
     })),
   };
 }
-const STAGED_LEDGER = /`([^`]+\/craftingtable-finalization-state\.json)`/;
+/**
+ * The path of one of CraftingTable's records a run's brief names, which it names relative to
+ * the run directory (R-G6); undefined when the brief does not name it.
+ */
+export function runRecord(request: AgentLaunchRequest, name: string): string | undefined {
+  const runDirectory = request.additionalDirectories?.[0];
+  return runDirectory && request.prompt.includes(`\`plan/${name}\``)
+    ? join(runDirectory, 'plan', name)
+    : undefined;
+}
+const STAGED_LEDGER = /`plan\/craftingtable-finalization-state\.json`/;
 /** The staged evidence handoff a finalization prompt names. */
 export function stagedLedger(request: AgentLaunchRequest) {
-  const path = STAGED_LEDGER.exec(request.prompt)?.[1];
+  const path = runRecord(request, 'craftingtable-finalization-state.json');
   if (!path) throw new Error('Expected staged evidence handoff');
   return JSON.parse(readFileSync(path, 'utf8')) as {
     stages: import('@craftingtable/domain').FinalizationStage[];

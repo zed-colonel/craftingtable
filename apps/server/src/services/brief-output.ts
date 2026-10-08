@@ -1,4 +1,4 @@
-import type { AgentRunRole, ExecutionScope } from '@craftingtable/domain';
+import { type AgentRunRole, type ExecutionScope, V03_VOCABULARY } from '@craftingtable/domain';
 
 /**
  * What an agent is asked to be and to return (R-G6, AGT-54). Each role's instructions live in
@@ -48,19 +48,42 @@ export interface RoleInstructions {
   readonly rules: readonly string[];
   /** The final message's parts, in order. */
   readonly finalMessage: readonly string[];
-  /** The shapes and rules of the blocks those parts name, each a paragraph. */
-  readonly formats: readonly string[];
+  /** The blocks those parts name. */
+  readonly formats: readonly BlockFormat[];
 }
 
-/** The final message as the brief states it: one ordered list, then the formats. */
-export function finalMessageSection(instructions: RoleInstructions): string {
+/** A block's shape, which the brief always shows, and its rules, which may live in a file. */
+export interface BlockFormat {
+  /** The block's example and what this run must put in it. */
+  readonly shape: string;
+  /** The rules every such block follows. */
+  readonly rules: readonly string[];
+}
+
+/**
+ * The final message as the brief states it: one ordered list, then each block's shape; the
+ * blocks' rules are where `rulesAt` says (AGT-50: schema prose in a file).
+ */
+export function finalMessageSection(
+  instructions: RoleInstructions,
+  rulesAt: string | undefined,
+): string {
   return [
     '## Your final message',
     '',
     `End your final message with ${instructions.finalMessage.length === 1 ? 'this' : 'these parts, in this order'}:`,
     ...instructions.finalMessage.map((part, index) => `${index + 1}. ${part}`),
-    ...instructions.formats.flatMap((format) => ['', format]),
+    ...instructions.formats.flatMap((format) => ['', format.shape]),
+    ...(rulesAt && instructions.formats.some((format) => format.rules.length)
+      ? ['', `Read the rules for these blocks in ${rulesAt} before you write them.`]
+      : []),
   ].join('\n');
+}
+
+/** The controller's workflow contract, beside the step's own rules (`workflowRules`). */
+export function workflowContract(): string {
+  return `Technical review and permission to merge are separate. Assess source defects and required tests now. Pending merge checkpoints, predecessor work and separately scheduled reviews are controller obligations, not code defects or operator questions: record them as pending, never as passed; the controller enforces every transition gate. Withdraw obsolete administrative findings by their IDs with an explanation, without hiding source defects, and never waive architectural approvals, safety requirements, unproven tests or exceptions. A review's verdict judges the technical candidate; the daemon enforces permission to merge. Answer questions the approved plan, recorded decisions or supplied evidence already settle, citing them; only genuinely new architectural decisions need the operator.
+For a security-sensitive change, declare in the workflow block the source requirement for a second security review, with citations: the controller schedules a DISTINCT read-only security review after remediation if the saved roadmap assigns ${V03_VOCABULARY.securityReviewerRole}, or on the operator's authority when no roadmap delegates this cycle. The ordinary reviewer does not claim two reviews; security requirements stand until a separate review of the same candidate and integration target succeeds.`;
 }
 
 /** The `## Open questions` part, shared by every role that ends with it. */
@@ -70,10 +93,10 @@ export function openQuestionsPart(
   finalization = false,
 ): string {
   return [
-    'A section headed `## Open questions`, containing only `none` when no operator answer is needed.',
+    'A section headed `## Open questions`: only `none` when no operator answer is needed.',
     detail,
     workflow
-      ? 'Repeat there every genuine operator question of the workflow block; never put controller-managed pending obligations there.'
+      ? 'It repeats each genuine operator question of the workflow block, never a pending controller obligation.'
       : '',
     finalization ? 'Genuine questions always stop progression.' : '',
   ]
@@ -81,25 +104,29 @@ export function openQuestionsPart(
     .join(' ');
 }
 
-export const WORKFLOW_PART = 'One fenced `craftingtable-workflow` block (its shape is below).';
+export const WORKFLOW_PART = 'One fenced `craftingtable-workflow` block (shape below).';
 
-/** The `craftingtable-workflow` block's shape (the controller's workflow contract). */
-export function workflowFormat(workflow: WorkflowOutput): string {
-  return [
-    'The `craftingtable-workflow` block:',
-    '```craftingtable-workflow',
-    JSON.stringify({
-      version: 1,
-      questions: [],
-      resolved: [],
-      securityReview: { required: false, sources: [] },
-    }),
-    '```',
-    'questions entries: {question, destination:"shared-decision"|"work-item", checkpointId?:"exact ADR ID"}; a mapped ADR question goes to shared-decision with its exact checkpointId, and local implementation choices, contradictions and unsupported controller actions to work-item. resolved entries: {question, answer, sources:["exact plan section or accepted evidence ID"]}. If a security review is required, set required:true and cite the source policy.',
-    ...(workflow.checkpointId
-      ? [
-          `Add checkpoint:{id:${JSON.stringify(workflow.checkpointId)},passed:boolean,requirements:[{requirement:"exact required text",evidence:"observations and immutable references"}],caseIds:["actually verified case IDs"]} to the workflow block.`,
-        ]
-      : []),
-  ].join('\n');
+/** The `craftingtable-workflow` block (the controller's workflow contract). */
+export function workflowFormat(workflow: WorkflowOutput): BlockFormat {
+  return {
+    shape: [
+      'The `craftingtable-workflow` block:',
+      '```craftingtable-workflow',
+      JSON.stringify({
+        version: 1,
+        questions: [],
+        resolved: [],
+        securityReview: { required: false, sources: [] },
+      }),
+      '```',
+      ...(workflow.checkpointId
+        ? [
+            `Add checkpoint:{id:${JSON.stringify(workflow.checkpointId)},passed:boolean,requirements:[{requirement:"exact required text",evidence:"observations and immutable references"}],caseIds:["actually verified case IDs"]} to the workflow block.`,
+          ]
+        : []),
+    ].join('\n'),
+    rules: [
+      'craftingtable-workflow: questions entries are {question, destination:"shared-decision"|"work-item", checkpointId?:"exact ADR ID"}; mapped ADR questions go to shared-decision with their checkpointId, local implementation choices, contradictions and unsupported controller actions to work-item. resolved entries are {question, answer, sources:["exact plan section or accepted evidence ID"]}. A required security review sets required:true and cites the source policy.',
+    ],
+  };
 }

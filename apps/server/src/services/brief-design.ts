@@ -1,4 +1,5 @@
 import {
+  type BlockFormat,
   type OutputContext,
   openQuestionsPart,
   type RoleInstructions,
@@ -22,8 +23,8 @@ export function designInstructions(context: OutputContext): RoleInstructions {
     ].join(' '),
     rules: context.scope
       ? [
-          'Before asking the operator, consult the exact supplied plans, current predecessor receipts, repository policy and approved architecture decisions in craftingtable-scope-evidence.json. Cite answers already fixed by those sources and proceed within their authority. A recommendation awaiting approval is not an accepted decision. A full-checkpoint approval and a scoped early-clause approval have different coverage.',
-          'Distinguish future merge/verification obligations from what this design needs now. An authorized early slice need not wait for every original parent predecessor. Worktree provisioning, supplied dependency paths and existing receipts are controller context; inspect them before asking the operator to create them.',
+          'Before asking the operator, consult the supplied plans, current predecessor receipts, repository policy and approved architecture decisions in craftingtable-scope-evidence.json; cite answers they already fix and proceed within their authority. A recommendation awaiting approval is not an accepted decision, and a full-checkpoint approval covers more than a scoped early-clause one.',
+          'Separate future merge or verification obligations from what this design needs now: an authorized early slice need not wait for every original parent predecessor. Worktree provisioning, supplied dependency paths and existing receipts are controller context to inspect, not things to ask the operator for.',
         ]
       : [],
     finalMessage: [
@@ -42,20 +43,24 @@ export function designInstructions(context: OutputContext): RoleInstructions {
   };
 }
 
-function designFormat(architectureDecisions: boolean): string {
-  return [
-    'The `craftingtable-design` block:',
-    '```craftingtable-design',
-    '{"version":1,"items":[{"kind":"resolved","question":"Question considered","answer":"Plan-backed answer","sources":["exact source file, section or accepted decision ID"]}]}',
-    '```',
-    'Use an empty items array if there are no questions.',
-    'Classify every remaining question as operator-decision (actual approval needed), planning-conflict (contradictory or missing scheduling/plan rule), or dependency (a known mapped predecessor must finish). A dependency item includes dependency:{kind:"work_item",id:"mapped parent ID",state:"accepted"} or {kind:"slice",id:"mapped slice ID",state:"merged"|"verified"}. Do not invent predecessor rules. Resolved items require answers and citations. Other items still include question, answer and sources (which may be empty).',
-    ...(architectureDecisions
-      ? [
-          'Architecture checkpoint approvals belong to operator-decision. For each operator-decision about a mapped architecture checkpoint, also supply decision:{checkpointId:"exact mapped ADR ID",decisionText:"Complete standalone decision proposed for approval",why:"Why this fits the operator goals",alternatives:[{option:"Alternative",tradeoff:"Practical tradeoff"}],consequences:"Behavior, limitations and what remains to implement or verify",coverage:"full",consumers:[],retainedObligations:""}. Write for an operator who has not read the source artifacts. Include exact citations in the item sources. Never use references such as "as described above" in decisionText: the text must stand alone. Full approval settles this architectural decision, not implementation or tests. For full coverage, consumers must be empty; retainedObligations may describe separately required implementation, verification and release work, never unresolved architectural choices. Only propose coverage:"clauses" for an intentional partial decision; supply consumers:[{sliceId:"exact mapped ID",phase:"start"|"merge",replacesFullCheckpoint:true|false}] and explicit retainedObligations, keeping a later full-checkpoint consumer. Supply one checkpoint per item. These are recommendations, never approvals; the operator approves through CraftingTable.',
-        ]
-      : []),
-  ].join('\n');
+function designFormat(architectureDecisions: boolean): BlockFormat {
+  return {
+    shape: [
+      'The `craftingtable-design` block:',
+      '```craftingtable-design',
+      '{"version":1,"items":[{"kind":"resolved","question":"Question considered","answer":"Plan-backed answer","sources":["exact source file, section or accepted decision ID"]}]}',
+      '```',
+      'Use an empty items array if there are no questions. Every other question is an operator-decision (approval needed), a planning-conflict (a contradictory or missing scheduling or plan rule) or a dependency (a known mapped predecessor must finish); never invent predecessor rules.',
+    ].join('\n'),
+    rules: [
+      'craftingtable-design: a dependency item carries dependency:{kind:"work_item",id:"mapped parent ID",state:"accepted"} or {kind:"slice",id:"mapped slice ID",state:"merged"|"verified"}. A resolved item needs its answer and citations; others still give question, answer and sources (which may be empty).',
+      ...(architectureDecisions
+        ? [
+            'An architecture checkpoint approval is an operator-decision; for one about a mapped architecture checkpoint also supply decision:{checkpointId:"exact mapped ADR ID",decisionText:"Complete standalone decision proposed for approval",why:"Why this fits the operator goals",alternatives:[{option:"Alternative",tradeoff:"Practical tradeoff"}],consequences:"Behavior, limitations and what remains to implement or verify",coverage:"full",consumers:[],retainedObligations:""}, one checkpoint per item. Write for an operator who has not read the sources: exact citations in the item sources, and a decisionText that stands alone (never "as described above"). Full approval settles the architectural decision, not implementation or tests: its consumers are empty, and retainedObligations may name separately required implementation, verification and release work, never open architectural choices. Propose coverage:"clauses" only for an intentional partial decision, with consumers:[{sliceId:"exact mapped ID",phase:"start"|"merge",replacesFullCheckpoint:true|false}] and explicit retainedObligations, keeping a later full-checkpoint consumer. These are recommendations; the operator approves through CraftingTable.',
+          ]
+        : []),
+    ],
+  };
 }
 
 /**

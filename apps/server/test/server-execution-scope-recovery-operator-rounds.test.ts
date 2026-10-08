@@ -23,6 +23,7 @@ import {
   structuredFinding,
   supervisedMapFixture,
   waitFor,
+  runRecord,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -62,7 +63,7 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
           ),
         };
       }
-      const packetPath = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
+      const packetPath = runRecord(request, 'craftingtable-scope-repair.json');
       if (packetPath) {
         if (request.model !== 'review-model') {
           expect(request.prompt).toContain('Repair the missing family.');
@@ -251,7 +252,7 @@ itNeedsCargo(
               .replaceAll('mergeable', 'changes-requested'),
         };
       }
-      const packetPath = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
+      const packetPath = runRecord(request, 'craftingtable-scope-repair.json');
       if (packetPath && request.model !== 'review-model') {
         commitFile(request.cwd, 'repair.txt', 'Corrected the family');
         // Another slice merges into the repair's integration branch meanwhile.

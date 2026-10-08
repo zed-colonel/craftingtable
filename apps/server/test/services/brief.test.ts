@@ -4,9 +4,17 @@ import {
   reviewReportSchema,
 } from '@craftingtable/contracts';
 import { describe, expect, it } from 'vitest';
-import { type BriefInput, citedRunPaths, composeBrief } from '../../src/services/brief.js';
+import {
+  type BriefInput,
+  briefRules,
+  citedRunPaths,
+  composeBrief,
+  RUN_RECORDS,
+} from '../../src/services/brief.js';
 import { finalizationHasNoQuestions } from '../../src/services/finalization-policy.js';
 import { assessReviewReport } from '../../src/services/review-report.js';
+import { STEP_RULES } from '../../src/services/step-rules.js';
+import { workflowRules } from '../../src/services/workflow-policy.js';
 
 function briefInput(overrides: Partial<BriefInput> = {}): BriefInput {
   return {
@@ -282,7 +290,7 @@ describe('composeBrief build environment (R-F2 part 6, AGT-55)', () => {
 
   it('says nothing of Cargo in a worktree that does not build with it', () => {
     const brief = composeBrief(briefInput({ temporaryDirectory: '/runs/r1/scratch' }));
-    expect(brief).toContain('TMPDIR, TMP, and TEMP point to /runs/r1/scratch');
+    expect(brief).toContain('TMPDIR, TMP, and TEMP point to `/runs/r1/scratch/`');
     expect(brief).not.toContain('CARGO_TARGET_DIR');
     expect(brief).not.toContain('Cargo');
   });
@@ -290,7 +298,7 @@ describe('composeBrief build environment (R-F2 part 6, AGT-55)', () => {
   it("names Cargo's build directory for a worktree that builds with Cargo", () => {
     expect(
       composeBrief(briefInput({ temporaryDirectory: '/runs/r1/scratch', cargo: true })),
-    ).toContain('CARGO_TARGET_DIR points to this run’s scratch/target build cache.');
+    ).toContain('CARGO_TARGET_DIR points to this run’s scratch/target build cache');
   });
 
   it('renders the pinned environment from its data, under its own heading', () => {
@@ -326,7 +334,7 @@ describe('composeBrief build environment (R-F2 part 6, AGT-55)', () => {
   it('speaks of Kata only for a scope with Kata cases', () => {
     const brief = composeBrief(briefInput({ cargo: true, environment: { pinned: pinned(true) } }));
     expect(brief).toContain('Do not use live service credentials or claim Kata observations');
-    expect(brief).toContain('CI receipts do not establish external native/Kata qualification.');
+    expect(brief).toContain('CI receipts do not establish external native/Kata qualification');
   });
 });
 
@@ -385,6 +393,8 @@ describe('composeBrief skeleton: the task first (R-G6, AGT-50, AGT-58)', () => {
       'Step rules (from the controller)',
       'Operator instructions',
       'Operator guidance for this step',
+      // Without a rules file the brief ends with the rules it refers to.
+      'Rules',
     ]);
   });
 
@@ -432,15 +442,68 @@ describe('composeBrief skeleton: the task first (R-G6, AGT-50, AGT-58)', () => {
     });
     expect(brief).toContain('implementation plan `plan.md`, supporting `notes.md`');
     expect(brief).toContain(
-      '- `/runs/r1/design-recovery/`: `design-recovery/context.json`, `design-recovery/manifest.json`; the recovery context; manifest.json lists its 32 sources',
+      '- `/runs/r1/design-recovery/context.json`, `/runs/r1/design-recovery/manifest.json`: the recovery context; manifest.json lists its 32 sources',
     );
   });
 
-  it('gives the repository policy rules only with the policy file', () => {
-    expect(full()).not.toContain('Repository policy:');
-    expect(full({ repositoryPolicyGuidance: 'Repository policy: read it.' })).toContain(
-      'Repository policy: read it.',
+  it('gives paths in the run directory relative to it, once it is named', () => {
+    const brief = full({ runDirectory: '/runs/r1' });
+    expect(brief).toContain('Your run directory is `/runs/r1`; paths below');
+    expect(brief).toContain('TMPDIR, TMP, and TEMP point to `scratch/`');
+    expect(brief).toContain('read-only in `plan/`');
+    expect(brief).toContain(
+      "- `plan/craftingtable-scope-evidence.json`: this scope's readiness and evidence",
     );
+    expect(brief).not.toContain('`/runs/r1/plan');
+  });
+
+  it('names the rules file instead of ending with the rules, which it holds in full', () => {
+    const input = briefInput({
+      role: 'review',
+      runDirectory: '/runs/r1',
+      temporaryDirectory: '/runs/r1/scratch',
+      workflow: {},
+      cargo: true,
+      environment: {
+        pinned: {
+          manifestPath: '/runs/r1/dependencies/manifest.json',
+          binDirectory: '/runs/r1/dependencies/bin',
+          verification: { mode: 'scoped-checks', reason: 'A slice.' },
+          dependencies: [],
+          adoptedChecks: false,
+          declaredChecks: '',
+          localCiImage: 'ci@sha256:1',
+          kata: false,
+        },
+      },
+    });
+    const inline = composeBrief(input);
+    const rules = briefRules(input)!;
+    const brief = composeBrief({ ...input, rulesPath: '/runs/r1/plan/craftingtable-rules.md' });
+    // The same rules, in the file or at the end, never both.
+    expect(inline).toContain(`## Rules\n\n${rules}`);
+    expect(brief).not.toContain('## Rules');
+    for (const rule of [
+      'Finding IDs start with a letter or digit',
+      'Technical review and permission to merge are separate',
+      'Do not override supplied sources',
+      'CRAFTINGTABLE_DEPENDENCY_MANIFEST',
+    ]) {
+      expect(rules).toContain(rule);
+      expect(brief).not.toContain(rule);
+    }
+    expect(brief).toContain(
+      '- `plan/craftingtable-rules.md`: the rules this brief refers to: read it first',
+    );
+    expect(brief).toContain(
+      'Read the rules for these blocks in `plan/craftingtable-rules.md` before you write them.',
+    );
+    expect(brief).toContain('Its rules are in `plan/craftingtable-rules.md`.');
+    // The block shapes, the order and the build environment's data stay in the brief.
+    expect(fenced(brief, 'craftingtable-review')).toHaveLength(1);
+    expect(fenced(brief, 'craftingtable-workflow')).toHaveLength(1);
+    expect(brief).toContain('Pinned dependency environment: dependencies/manifest.json');
+    expect(brief).toContain('run cargo fetch first when dependencies must be downloaded');
   });
 });
 
@@ -635,4 +698,170 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
     expect(files).toContain('Handoff warnings (4 different, all in the manifest)');
     expect(files).not.toContain('r4: no completed turn either.');
   });
+});
+
+/**
+ * G6-5: a typical brief per role is at most 12 KB, and its goal and acceptance at least 10% of
+ * it. The inputs have the shape and sizes of the median live run the snapshot measurement
+ * rebuilt (`controller:replay --brief-sizes`), a WI slice's re-review: its obligations and
+ * cases, its parent's fields, a 27-document plan bundle, the pinned environment with an adopted
+ * check, the workflow contract, a handoff, and the step rules every cycle run gets.
+ */
+describe('composeBrief size per role (R-G6, G6-5)', () => {
+  const run = '/mnt/workhorse/craftingtable/runs/0e2b5a4c-7d1f-4c55-9a8e-3f6b1d2c9e70';
+  const sentence = (n: number, words: string) => `${words} `.repeat(n).trim();
+  const handoff = {
+    manifestPath: `${run}/handoff/manifest.json`,
+    finalMessagePath: `${run}/handoff/0000-final.md`,
+    reportPath: `${run}/handoff/0000-review.json`,
+    warnings: [],
+  };
+  const review = (status: 'open' | 'resolved') => ({
+    role: 'review' as const,
+    verdict: 'changes-requested' as const,
+    finalMessage: 'x',
+    findings: Array.from({ length: 6 }, (_, i) => ({
+      id: `F-00${i}`,
+      severity: 'major',
+      status: i < 3 ? status : 'resolved',
+      title: sentence(4, 'A finding title'),
+    })),
+    handoff,
+  });
+  const scope = sentence(3, 'Implement the remaining production integration and source PR tests;');
+  const typical = (role: BriefInput['role'], parentRun?: BriefInput['parentRun']): BriefInput =>
+    briefInput({
+      role,
+      projectName: 'WorldInterface - WI-FABRIC-2',
+      executionScope: {
+        identity: {
+          kind: 'slice',
+          definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+          bindingRevision: 4,
+          sourceId: 'wi/WI-04/integration',
+        },
+        title: 'Complete gated integration',
+        scope,
+        excludes: [sentence(2, 'Legacy adapters or duplicates.'), 'Claiming acceptance.'],
+        requirements: [
+          ...Array.from({ length: 5 }, (_, i) => sentence(4, `obligation ${i} evidence`)),
+          sentence(4, 'Every assigned case has an independently reviewed passing result;'),
+          scope,
+        ],
+        cases: ['AB-WI-002', 'AB-WI-003', 'AB-WI-004'],
+      },
+      workItem: {
+        sourceId: 'wi/WI-04',
+        title: 'Implement intent-first egress',
+        risk: 'critical',
+        primaryAreas: ['effect-admission', 'agency', 'resource-resolution', 'authorization'],
+        exitGate: sentence(
+          2,
+          'Every outbound operation has durable intent and idempotent admission.',
+        ),
+        sourceFields: {
+          id: 'WI-04',
+          title: 'Implement intent-first egress, canonical resource resolution and authorization',
+          depends_on: ['WI-02'],
+          exit_gate: sentence(2, 'Every outbound operation has durable intent and admission.'),
+          foundational_additions: [sentence(4, 'acting-capacity aware authorization')],
+          aq_baseline_acceptance_cases: ['AB-WI-002', 'AB-WI-003', 'AB-WI-004'],
+        },
+      },
+      worktree: {
+        path: '/mnt/workhorse/craftingtable/worktrees/worldinterface/wi-04-15b36285',
+        branchName: 'ct/wi-wi-04-integration-15b36285',
+        baseBranch: 'wi-fabric-2',
+        baseSha: '9e9297289ded1590c14591476566385330e2202c',
+        integrationBranch: 'wi-fabric-2',
+      },
+      ...(role === 'review'
+        ? {
+            reviewBranchContext: {
+              headSha: '80655c43b97ff20249f4a5f36a0f2061f3ef7ab6',
+              targetBranch: 'wi-fabric-2',
+              targetSha: '6f71472cdb8dc69811ced1868588fcbb66cb0b88',
+            } as never,
+          }
+        : {}),
+      runDirectory: run,
+      temporaryDirectory: `${run}/scratch`,
+      buildCacheDirectory: '/mnt/workhorse/craftingtable/runs/worktree-caches/15b36285-8fa1-4834',
+      cargo: true,
+      environment: {
+        pinned: {
+          manifestPath: `${run}/dependencies/manifest.json`,
+          binDirectory: `${run}/dependencies/bin`,
+          verification: {
+            mode: 'current-upstream-build',
+            reason: sentence(3, 'Every link moved.'),
+          },
+          dependencies: [
+            {
+              alias: 'aq',
+              commitSha: '29e096c4f06985d1a9bd9d5fe5a3a6a5db8a6860',
+              purpose: 'current-upstream',
+              transition: { slice: 'wi/WI-02/integration', recordId: '628bf02c-5c9a-4e10' },
+            },
+          ],
+          adoptedChecks: true,
+          declaredChecks: `Adopted repository checks (version 3): ${sentence(6, 'the gate needs each.')}\n- ${run}/dependencies/bin/ct-check --declared fmt   (CraftingTable runs the adopted ["cargo","fmt","--check"]; running that yourself does not count)\n`,
+          localCiImage: 'craftingtable-ci@sha256:4593631d9eb27be51f666a4b8e1e05b779a022bb3c6b',
+          kata: false,
+        },
+      },
+      planDirectory: `${run}/plan`,
+      planDocuments: [
+        {
+          filename: 'implementation-plan.md',
+          role: 'implementation-plan',
+          path: `${run}/plan/a.md`,
+        },
+        { filename: 'work-breakdown.yaml', role: 'work-breakdown', path: `${run}/plan/b.yaml` },
+        ...Array.from({ length: 25 }, (_, i) => ({
+          filename: `s${i}.md`,
+          role: 'supporting',
+          path: `${run}/plan/s${i}.md`,
+        })),
+      ],
+      records: (
+        [
+          'craftingtable-scope-evidence.json',
+          'craftingtable-repository-policy.json',
+          'craftingtable-operator-decisions.json',
+          'craftingtable-controller-obligations.json',
+        ] as const
+      ).map((name) => ({ path: `${run}/plan/${name}`, about: RUN_RECORDS[name] })),
+      workflow: {},
+      rulesPath: `${run}/plan/craftingtable-rules.md`,
+      controllerInstructions: [
+        workflowRules(
+          [
+            { id: 'WI-ADR-004', accepted: true },
+            { id: 'WI-AQ-G2', accepted: false },
+          ],
+          undefined,
+        ),
+        STEP_RULES.detach,
+        STEP_RULES.automated,
+      ].join('\n\n'),
+      ...(parentRun ? { parentRun } : {}),
+    });
+  const goalShare = (brief: string) =>
+    Buffer.byteLength(brief.split('\n## Goal and acceptance')[1]!.split('\n## ')[0]!) /
+    Buffer.byteLength(brief);
+
+  it.each([
+    // A re-review after remediation, the median live run.
+    { name: 'review', input: () => typical('review', review('resolved')) },
+    { name: 'implement (remediation)', input: () => typical('implement', review('open')) },
+    { name: 'design', input: () => typical('design') },
+  ])(
+    'keeps a typical $name brief at most 12 KB, its goal and acceptance at least 10%',
+    ({ input }) => {
+      const brief = composeBrief(input());
+      expect(Buffer.byteLength(brief)).toBeLessThanOrEqual(12_000);
+      expect(goalShare(brief)).toBeGreaterThanOrEqual(0.1);
+    },
+  );
 });

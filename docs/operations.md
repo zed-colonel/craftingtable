@@ -8,7 +8,8 @@ By default the daemon keeps everything under `~/.local/share/craftingtable`
 ```text
 state/craftingtable.sqlite   the database (WAL mode; use a consistent SQLite backup)
 worktrees/<repo>/<item>-<id> linked Git worktrees created for runs
-runs/<runId>/brief.md        the brief handed to the agent, plus plan/ and handoff/ documents
+runs/<runId>/brief.md        the brief handed to the agent, plus plan/ (with the rules file and
+                             CraftingTable's records, scope-evidence/ bodies) and handoff/
 runs/<runId>/scratch/        disposable build output and temporary test files
 t/<12 hex>/                  each live run's agent process TMPDIR (CRAFTINGTABLE_AGENT_TMP_ROOT)
 backups/database/           private, consistent SQLite snapshots

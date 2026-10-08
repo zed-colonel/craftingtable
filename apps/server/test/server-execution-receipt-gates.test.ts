@@ -211,7 +211,7 @@ itNeedsCargo(
       prompt = request.prompt;
       return { resultText: scopeReport(f.state, f.tree.executionScope!) };
     };
-    await runToFinish(f.state, f.tree.id, { role: 'review' });
+    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
     const bin = /Use the controller Cargo launcher (\S+)\/cargo/.exec(prompt)?.[1];
     expect(bin).toBeTruthy();
     expect(prompt).toContain(`${bin}/ct-check --declared fixture`);
@@ -228,6 +228,17 @@ itNeedsCargo(
     // The environment is rendered from the run's data (R-F2 part 6, AGT-55): no stale incident
     // note, no toolchain version, and no Kata text for a scope without Kata cases.
     expect(prompt).toContain('## Build environment');
+    // The rules it refers to are a file it names: the review report's and the environment's,
+    // and none about Kata for this scope (R-G6, AGT-50).
+    expect(prompt).toContain('`plan/craftingtable-rules.md`');
+    expect(prompt).not.toContain('Do not override supplied sources');
+    const rules = readFileSync(
+      join(f.state.context.config.execution.runsRoot, run, 'plan', 'craftingtable-rules.md'),
+      'utf8',
+    );
+    expect(rules).toContain('Finding IDs start with a letter or digit');
+    expect(rules).toContain('Do not override supplied sources');
+    expect(rules).not.toMatch(/kata/i);
     expect(prompt).not.toContain('Earlier reports describing rejection');
     expect(prompt).not.toContain('Rust 1.89');
     expect(prompt).not.toMatch(/kata/i);

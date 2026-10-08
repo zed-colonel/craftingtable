@@ -39,6 +39,7 @@ import {
   structuredFinding,
   supervisedMapFixture,
   waitFor,
+  runRecord,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -302,7 +303,7 @@ itNeedsCargo(
           },
         ];
       }
-      const packetPath = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
+      const packetPath = runRecord(request, 'craftingtable-scope-repair.json');
       if (packetPath) {
         if (request.model !== 'review-model') {
           commitFile(request.cwd, 'repair.txt', 'Corrected verification finding');

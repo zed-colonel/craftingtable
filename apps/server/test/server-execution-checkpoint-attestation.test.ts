@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { afterEach, expect } from 'vitest';
 import {
   adoptSupervisedMap,
@@ -113,13 +114,20 @@ itNeedsCargo(
         }
       | undefined;
     let prompt = '';
+    let packetPath: string | undefined;
     f.backend.replyForRequest = async (request) => {
       if (
         request.model === 'review-model' &&
         request.prompt.includes('This is a separate checkpoint review.')
       ) {
-        const path = /(\/[^\s`'"]+\/craftingtable-scope-evidence\.json)/.exec(request.prompt)?.[1];
-        if (path) packet ??= JSON.parse(readFileSync(path, 'utf8'));
+        // The brief names it relative to the run directory (R-G6).
+        const path = request.prompt.includes('`plan/craftingtable-scope-evidence.json`')
+          ? join(request.additionalDirectories![0]!, 'plan', 'craftingtable-scope-evidence.json')
+          : undefined;
+        if (path) {
+          packet ??= JSON.parse(readFileSync(path, 'utf8'));
+          packetPath ??= path;
+        }
         prompt ||= request.prompt;
       }
       const reply = await original(request);
@@ -240,10 +248,10 @@ itNeedsCargo(
     // as JSON in the brief (R-G6, AGT-58).
     expect(prompt).not.toContain('"contextDigest"');
     expect(prompt).toContain('The checkpoints its merge requires: LOCAL-REVIEW (not accepted)');
-    const obligations = /`(\/[^`]+\/craftingtable-controller-obligations\.json)`/.exec(prompt)?.[1];
-    expect(obligations).toBeTruthy();
+    expect(prompt).toContain('`plan/craftingtable-controller-obligations.json`');
+    const obligations = join(dirname(packetPath!), 'craftingtable-controller-obligations.json');
     expect(
-      JSON.parse(readFileSync(obligations!, 'utf8')).checkpoints.find(
+      JSON.parse(readFileSync(obligations, 'utf8')).checkpoints.find(
         (c: { id: string }) => c.id === 'LOCAL-REVIEW',
       ).inputs,
     ).toEqual(ready.inputs);

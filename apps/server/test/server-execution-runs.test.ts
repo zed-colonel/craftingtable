@@ -620,7 +620,7 @@ describe('agent runs', () => {
     const launch = state.backend.launches[0];
     expect(launch?.buildCacheDirectory).toBeTruthy();
     expect(launch?.prompt).toContain(
-      `CARGO_TARGET_DIR points to ${launch?.buildCacheDirectory}, this worktree’s build cache.`,
+      `CARGO_TARGET_DIR points to ${launch?.buildCacheDirectory}, this worktree’s build cache`,
     );
   });
 
@@ -1663,6 +1663,9 @@ describe('complete review handoffs', () => {
     if (root === undefined) throw new Error('Missing run directory');
     const handoff = join(root, 'handoff');
     const manifest = JSON.parse(readFileSync(join(handoff, 'manifest.json'), 'utf8'));
+    // How to read the handoff is in its manifest, which the brief names (R-G6).
+    expect(manifest.reading).toContain('structurally validated reviewer assertions');
+    expect(detail.brief).toContain('`handoff/manifest.json`');
     expect(manifest.sourceRunId).toBe(review);
     expect(manifest.sources[0].messageCount).toBeGreaterThan(120);
     const conversation = readFileSync(join(handoff, manifest.sources[0].conversation), 'utf8');
@@ -1690,7 +1693,7 @@ describe('complete review handoffs', () => {
     // (ADR-024 as amended by R-G6).
     const remediation = (await runDetail(state, implement)).brief;
     expect(remediation).toContain('- F-001 (minor): Boundary coverage');
-    expect(remediation).toMatch(/`[^`]+\/handoff\/0000-review\.json`/);
+    expect(remediation).toContain('`handoff/0000-review.json`');
     expect(remediation).not.toContain('Cover the boundary.');
     state.backend.repliesForNextRun = [{ resultText: reviewText([]) }];
     const missing = await runToFinish(state, worktree.id, {

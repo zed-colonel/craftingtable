@@ -28,6 +28,7 @@ import {
   structuredFinding,
   supervisedMapFixture,
   waitFor,
+  runRecord,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -214,7 +215,7 @@ itNeedsCargo.each([false, true])(
       | undefined;
     f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
-      const file = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
+      const file = runRecord(request, 'craftingtable-scope-repair.json');
       expect(file, request.prompt).toBeTruthy();
       packet = JSON.parse(readFileSync(file!, 'utf8'));
       expect(packet!.sources).toHaveLength(2);

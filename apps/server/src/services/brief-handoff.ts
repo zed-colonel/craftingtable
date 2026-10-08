@@ -28,7 +28,7 @@ export interface BriefFinding {
 }
 
 /** How much of a parent's message a digest quotes. */
-const SUMMARY_BYTES = 2000;
+const SUMMARY_BYTES = 1200;
 /** How many open findings a digest lists, and how long a title it keeps. */
 const LISTED_FINDINGS = 40;
 const TITLE_CHARACTERS = 200;
@@ -114,13 +114,17 @@ function fenced(message: string, expired: readonly string[] | undefined): string
 }
 
 /** A review's findings as a digest: the open ones by id, severity and title; the closed by id. */
-function findingsDigest(parent: BriefParentRun, findings: readonly BriefFinding[]): string {
+function findingsDigest(
+  parent: BriefParentRun,
+  findings: readonly BriefFinding[],
+  at: (path: string) => string,
+): string {
   const open = findings.filter((finding) => finding.status === 'open');
   const closed = findings.filter((finding) => finding.status !== 'open');
   const title = (text: string) =>
     text.length > TITLE_CHARACTERS ? `${text.slice(0, TITLE_CHARACTERS)}…` : text;
   const where = parent.handoff
-    ? `; its full findings, explanations and recommendations are in ${parent.handoff.reportPath ? `\`${parent.handoff.reportPath}\`` : 'its review report'}, and its final message is \`${parent.handoff.finalMessagePath}\``
+    ? `; its full findings, with explanations and recommendations, are in ${parent.handoff.reportPath ? `\`${at(parent.handoff.reportPath)}\`` : 'its review report'}`
     : '';
   return markExpired(
     [
@@ -142,9 +146,9 @@ function findingsDigest(parent: BriefParentRun, findings: readonly BriefFinding[
 }
 
 /** The digest of a parent's final message: its findings, or a quoted opening (G6-2). */
-function digest(parent: BriefParentRun): string {
-  if (parent.findings) return findingsDigest(parent, parent.findings);
-  const where = parent.handoff ? `\`${parent.handoff.finalMessagePath}\`` : 'the handoff';
+function digest(parent: BriefParentRun, at: (path: string) => string): string {
+  if (parent.findings) return findingsDigest(parent, parent.findings, at);
+  const where = parent.handoff ? `\`${at(parent.handoff.finalMessagePath)}\`` : 'the handoff';
   const lead =
     parent.role === 'review'
       ? `The review has no valid structured report (${parent.reportIssues?.join(' ') || 'none was recorded'}), so its findings are only in its final message, ${where}; reconcile them from there. Its opening:`
@@ -158,6 +162,7 @@ function digest(parent: BriefParentRun): string {
  */
 export function parentSections(
   parent: BriefParentRun | undefined,
+  at: (path: string) => string,
   context: {
     readonly role: AgentRunRole;
     readonly resolvingIntegration: boolean;
@@ -169,8 +174,8 @@ export function parentSections(
   if (!parent || (!parent.finalMessage.trim() && !parent.handoff)) return [];
   const body =
     context.planFinalization && parent.handoff
-      ? `Read the complete outcome at \`${parent.handoff.finalMessagePath}\`. Use the active findings snapshot; do not copy the historical report into your response.`
-      : digest(parent);
+      ? `Read the complete outcome at \`${at(parent.handoff.finalMessagePath)}\`. Use the active findings snapshot; do not copy the historical report into your response.`
+      : digest(parent, at);
   if (!context.resolvingIntegration && parent.role === 'review' && context.role === 'implement')
     return [
       `## Remediation\n\n${context.remediationInstructions}`,
@@ -188,26 +193,21 @@ export function parentSections(
   return [`## Previous ${parent.role} run\n\n${body}`];
 }
 
-/** The handoff in the files to read: where the lineage is, and how to read it. */
+/** The handoff in the files to read: where the lineage is; how to read it is in its manifest. */
 export function handoffParagraphs(
   parent: BriefParentRun | undefined,
   planFinalization: boolean,
+  at: (path: string) => string,
 ): string[] {
   const handoff = parent?.handoff;
   if (!handoff) return [];
   const warnings = [...new Set(handoff.warnings)];
   return [
-    planFinalization
-      ? `Handoff: start with the handoff manifest at \`${handoff.manifestPath}\`, the active findings snapshot and the immediate parent's complete outcome. Consult source conversations for operator decisions, corrections, uncertain observations and evidence; older reports are history, not text to reproduce. Paths in the manifest are relative to its directory.`
-      : `Handoff: read the handoff manifest at \`${handoff.manifestPath}\` and the conversation and report files it lists before starting: earlier messages, operator corrections and prior runs in this lineage. Paths in the manifest are relative to its directory.`,
     [
-      `The previous run's full final message is \`${handoff.finalMessagePath}\`${handoff.reportPath ? `, and its review report \`${handoff.reportPath}\`` : ''}.`,
-      ...(handoff.findingsPath
-        ? [
-            `Active findings and closed-history index: \`${handoff.findingsPath}\`, derived from valid reports at the delivered event cursors; omitted closed findings keep their last reviewer disposition.`,
-          ]
-        : []),
-      'Reports with status complete are structurally validated reviewer assertions; unstructured or invalid reports require reconciliation against the conversation, and the operator decides unresolved ambiguity. Earlier findings may be corrected or withdrawn later: do not treat every historical statement as a current finding, and preserve existing finding IDs across review rounds.',
+      planFinalization
+        ? `Handoff: start with \`${at(handoff.manifestPath)}\`, the active findings snapshot and the immediate parent's complete outcome; consult the source conversations for operator decisions, corrections, uncertain observations and evidence (older reports are history, not text to reproduce).`
+        : `Handoff: \`${at(handoff.manifestPath)}\` lists this lineage's conversations and reports, with earlier messages and operator corrections, and how to read them; read them before starting.`,
+      `The previous run's full final message is \`${at(handoff.finalMessagePath)}\`${handoff.reportPath ? `, its review report \`${at(handoff.reportPath)}\`` : ''}${handoff.findingsPath ? `; active findings and closed history: \`${at(handoff.findingsPath)}\`` : ''}.`,
     ].join(' '),
     ...(warnings.length
       ? [

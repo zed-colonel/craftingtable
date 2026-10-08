@@ -1,4 +1,5 @@
 import {
+  type BlockFormat,
   type OutputContext,
   openQuestionsPart,
   type RoleInstructions,
@@ -14,31 +15,29 @@ export function reviewInstructions(context: OutputContext): RoleInstructions {
   const scope = context.scope;
   return {
     role: [
-      'You are an independent reviewer for this work item.',
-      'Run the repository-required verification checks on this exact branch, including the combined integration changes, and record the commands and results in exitGate.evidence.',
-      'Do not modify repository source files, and do not change or commit code; request remediation when changes are needed. Verification records belong in the provided temporary directory.',
-      'Compare the branch in this worktree against its base revision, read the changed code and its tests, and run the quality checks read-only. State explicitly whether the work meets the exit gate.',
+      'You are an independent reviewer for this work item, read-only: request remediation rather than change or commit source, and keep verification records in the temporary directory.',
+      'Compare this branch with its base revision, read the changed code and its tests, and run the repository-required checks on this exact branch, combined integration changes included; record commands and results in exitGate.evidence and say whether the work meets the exit gate.',
       ...(scope
         ? [
-            'A slice review approves integration of its scope; it never accepts its parent. A parent-acceptance review independently assesses the full original exit gate and retained source-plan obligations. Never claim that missing verification or outside-scope obligations passed.',
+            `${scope.identity.kind === 'slice' ? 'This slice review approves its scope’s integration, never its parent.' : 'This parent-acceptance review independently assesses the full original exit gate and retained source-plan obligations.'} Never claim that missing verification or outside-scope obligations passed.`,
           ]
         : []),
     ].join(' '),
     rules: [
       context.planFinalization
-        ? FINALIZATION_FINDINGS_INSTRUCTIONS
-        : 'Findings continuity: reconcile ALL findings raised anywhere in this run and the handoff lineage, including operator corrections. Keep prior IDs; never omit or recycle them. Retain resolved and withdrawn findings with their dispositions. A later reviewer verifies fixes before marking a finding resolved. Do not silently drop disagreements.',
+        ? 'Findings continuity: report every previously open finding the handoff manifest requires, with its current status, and every new or reopened finding; the rules file says what may be omitted.'
+        : 'Findings continuity: reconcile ALL findings of this run and its handoff lineage, operator corrections included, and keep their IDs; the rules file says more.',
     ],
     finalMessage: [
-      'Your conclusion in prose. Every finding goes in the report below; do not repeat the findings in prose.',
+      'Your conclusion in prose; the findings go in the report, not repeated in prose.',
       ...(context.workflow ? [WORKFLOW_PART] : []),
       openQuestionsPart(
         context.workflow,
-        'Otherwise put each unresolved operator approval, exception or policy choice there as a concrete question, even when it is also a finding. Do not repeatedly delegate an unanswered approval as a code repair.',
+        'Otherwise each unresolved operator approval, exception or policy choice as a concrete question, even if also a finding (never delegated as a code repair).',
         !!context.finalizationStage,
       ),
-      'A section headed `## Review report`, holding exactly one fenced `craftingtable-review` block: your authoritative consolidated report (its shape is below).',
-      'As the very last line, exactly `VERDICT: mergeable` if the branch can be merged as it stands, or `VERDICT: changes-requested` if anything blocking or major remains. It must match the report’s verdict. CraftingTable reads that line; a merge is only offered after a mergeable verdict.',
+      'A section headed `## Review report` with exactly one fenced `craftingtable-review` block, your consolidated report (shape below).',
+      'As the very last line, exactly `VERDICT: mergeable` if the branch can merge as it stands, or `VERDICT: changes-requested` if anything blocking or major remains, matching the report.',
     ],
     formats: [
       ...(context.workflow ? [workflowFormat(context.workflow)] : []),
@@ -60,23 +59,23 @@ const FINALIZATION_FINDINGS_INSTRUCTIONS = [
  * The `craftingtable-review` block: one example with every field this run reports, so a scoped
  * review's `scopeEvidence` is shown at the top level, beside the verdict (LIVE-32).
  */
-function reviewFormat(context: OutputContext): string {
+function reviewFormat(context: OutputContext): BlockFormat {
   const scope = context.scope;
   const stage = context.finalizationStage;
   const example = {
     version: 1,
     complete: true,
     verdict: 'changes-requested',
-    exitGate: { met: false, evidence: 'Explain which criteria and checks passed or failed.' },
+    exitGate: { met: false, evidence: 'Which criteria and checks passed or failed' },
     findings: [
       {
         id: 'F-001',
         severity: 'major',
         status: 'open',
-        title: 'Short title',
-        location: { path: 'src/example.ts', line: 10 },
+        title: 'Title',
+        location: { path: 'src/a.ts', line: 10 },
         explanation: 'What is wrong and why.',
-        recommendation: 'What would resolve it.',
+        recommendation: 'What resolves it.',
         ...(scope?.owningSlices?.length ? { owningSlice: scope.owningSlices[0]!.id } : {}),
       },
     ],
@@ -86,8 +85,8 @@ function reviewFormat(context: OutputContext): string {
             scope: scope.identity,
             requirements: [
               {
-                requirement: 'One entry per evidence obligation, its text copied exactly',
-                evidence: 'Concise commands/results and durable evidence references',
+                requirement: 'An evidence obligation, word for word',
+                evidence: 'Commands, results and durable references',
               },
             ],
             caseIds: scope.cases,
@@ -95,33 +94,38 @@ function reviewFormat(context: OutputContext): string {
         }
       : {}),
   };
-  return [
-    'The `craftingtable-review` block:',
-    '```craftingtable-review',
-    JSON.stringify(example),
-    '```',
-    'Allowed severities: blocking, major, minor, nit. Allowed statuses: open, resolved, withdrawn; resolved and withdrawn findings require a disposition string with evidence or a reason. Location is optional for findings that have no file location. Use an empty findings array when none exist.',
-    'Finding IDs must start with a letter or digit and contain only letters, digits, periods, underscores or hyphens, at most 64 characters; use F-001 or AQ-11.F-009, never slashes.',
-    'Keep exitGate.evidence concise: summarize current checks and conformance, cite detailed evidence, and stay below its 20,000-character limit. Never append evidence from prior reports. Each explanation, recommendation and disposition also has a 20,000-character limit; titles have a 500-character limit.',
-    'Set complete to true only once you have consolidated the entire review. A mergeable report requires exitGate.met=true and no open blocking or major findings.',
-    scope
-      ? 'scopeEvidence is a top-level field of the report, beside version, verdict, exitGate and findings, never inside exitGate or its evidence text. Give this exact scope identity, one requirements entry for each evidence obligation under Goal and acceptance that you actually verified, with the obligation’s text copied exactly as its requirement, and caseIds for the cases you actually checked.'
-      : 'Omit scopeEvidence: this run has no controller-owned scope.',
-    ...(scope?.owningSlices?.length
-      ? [
-          [
-            'For each open finding, set "owningSlice" in the craftingtable-review report to the required slice whose scope covers its fix, so the repair goes there without asking the operator. Omit it only when no single slice can own the fix. The required slices:',
-            ...scope.owningSlices.map(
-              (slice) =>
-                `- ${slice.id}: ${slice.scope}${slice.excludes.length ? ` Excludes: ${slice.excludes.join(' ')}` : ''}`,
-            ),
-          ].join('\n'),
-        ]
-      : []),
-    ...(stage
-      ? [
-          `Add a finalization object to the report: {"stageId":${JSON.stringify(stage.id)},"fullChecks":${stage.fullChecks},"checks":[{"name":"exact configured check name or repository check","status":"passed|failed|not-run","evidence":"concise command/result and log location"}],"obligations":[{"id":"stable obligation ID from ledger or new plan obligation","source":"exact adopted source citation","requirement":"exact adopted requirement","workItemSourceId":"only if present in ledger","status":"met|gap|change-requested","evidence":"implementation location and verification evidence"}]}. Use actual values, not these placeholders. Report all configured requiredChecks by exact name. Include at least one relevant verification check. A met exitGate requires all reported checks passed and all reported obligations met.`,
-        ]
-      : []),
-  ].join('\n');
+  return {
+    shape: [
+      'The `craftingtable-review` block:',
+      '```craftingtable-review',
+      JSON.stringify(example),
+      '```',
+      'Severities: blocking, major, minor, nit; statuses: open, resolved, withdrawn.',
+      scope
+        ? 'scopeEvidence is a top-level field beside verdict, never inside exitGate or its evidence text: this exact scope identity, a requirements entry per evidence obligation you verified, with the obligation’s text copied exactly as its requirement, and caseIds for the cases you checked.'
+        : 'Omit scopeEvidence: this run has no controller-owned scope.',
+      ...(scope?.owningSlices?.length
+        ? [
+            [
+              'For each open finding, set "owningSlice" in the craftingtable-review report to the required slice whose scope covers its fix, so the repair goes there; omit it only when no single slice can own the fix. The required slices:',
+              ...scope.owningSlices.map(
+                (slice) =>
+                  `- ${slice.id}: ${slice.scope}${slice.excludes.length ? ` Excludes: ${slice.excludes.join(' ')}` : ''}`,
+              ),
+            ].join('\n'),
+          ]
+        : []),
+    ].join('\n'),
+    rules: [
+      context.planFinalization
+        ? FINALIZATION_FINDINGS_INSTRUCTIONS
+        : 'Findings continuity: reconcile ALL findings raised in this run and its handoff lineage, operator corrections included. Keep their IDs, never omit or recycle one, and keep resolved and withdrawn findings with their dispositions. Verify a fix before marking its finding resolved; never silently drop a disagreement.',
+      'craftingtable-review: a resolved or withdrawn finding needs a disposition with evidence or a reason; location is optional and findings may be empty. Finding IDs start with a letter or digit and hold only letters, digits, periods, underscores or hyphens, at most 64 (F-001, AQ-11.F-009; never slashes). exitGate.evidence and each explanation, recommendation and disposition stay under 20,000 characters, titles under 500: keep exitGate.evidence a concise summary of current checks and conformance that cites detailed evidence, never appending earlier reports. Set complete to true only once the whole review is consolidated. A mergeable report needs exitGate.met=true and no open blocking or major finding.',
+      ...(stage
+        ? [
+            `Add a finalization object to the report: {"stageId":${JSON.stringify(stage.id)},"fullChecks":${stage.fullChecks},"checks":[{"name":"exact configured check name or repository check","status":"passed|failed|not-run","evidence":"concise command/result and log location"}],"obligations":[{"id":"stable obligation ID from ledger or new plan obligation","source":"exact adopted source citation","requirement":"exact adopted requirement","workItemSourceId":"only if present in ledger","status":"met|gap|change-requested","evidence":"implementation location and verification evidence"}]}, with actual values. Report every configured requiredChecks name exactly and at least one relevant verification check; a met exitGate needs every reported check passed and obligation met.`,
+          ]
+        : []),
+    ],
+  };
 }

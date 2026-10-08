@@ -9,7 +9,6 @@ import {
   asAgentRunId,
   effectiveCycleAttention,
   type AgentRun,
-  V03_VOCABULARY,
   type WorkCycle,
   type WorkflowQuestion,
 } from '@craftingtable/domain';
@@ -278,12 +277,8 @@ export function workflowBrief(
   | undefined {
   const context = workflowContext(tx, cycle);
   if (!context) return undefined;
-  const active = cycle.workflow?.activeReview;
-  const rules = `Controller workflow contract: technical candidate review and permission to merge are separate. Assess source defects and required tests now. Pending merge checkpoints, predecessor work and a separate scheduled review are controller obligations, not code defects or unanswered operator questions. Do not claim they passed; record their pending state in prose. The controller still enforces every transition gate. Withdraw obsolete administrative findings with their stable IDs and an explanation, without hiding actual source defects. Never waive architectural approvals, safety requirements, unproven tests or exceptions. A review's verdict assesses technical candidate correctness; the daemon separately enforces permission to merge.
-Resolve questions already answered by the exact approved plan, recorded decisions or supplied evidence; cite the answer. Genuine new architectural decisions require the operator.
-For security-sensitive changes, declare the source requirement for a second security review in the workflow block, with citations. The controller schedules a DISTINCT read-only security review after technical remediation, if the saved roadmap assigns ${V03_VOCABULARY.securityReviewerRole}, or on the operator's authority when no roadmap delegates this cycle. The ordinary reviewer does not claim two reviews. Security requirements remain until a separate successful review of the same candidate and integration target is recorded.
-The controller's current obligations for this step are in ${WORKFLOW_OBLIGATIONS_FILE}: required states, not successful evidence.${context.checkpoints.length ? ` The checkpoints its merge requires: ${context.checkpoints.map((c) => `${c.id} (${c.accepted ? 'accepted' : 'not accepted'})`).join(', ')}.` : ''}
-${active ? `This is a separate ${active.kind} review. Source run: ${active.sourceRunId}. Responsibilities: ${active.roles.join(', ')}. Read the full lineage and verify the exact candidate without source edits. ${active.kind === 'reassessment' ? 'Classify the prior questions against current plan/evidence and independently assess the technical candidate. Do not resolve genuine operator decisions yourself.' : active.kind === 'security' ? 'Independently examine identity, authorization, disclosure, cross-principal isolation, lifecycle recovery and root-key boundaries. Exercise negative and recovery paths. Include every actual code defect in the normal findings report.' : `Independently assess checkpoint ${active.checkpointId} and attest it in the workflow block. Required claims: ${JSON.stringify(active.requirements)}. Required cases: ${JSON.stringify(active.caseIds)}. Never infer a passing case from eligibility or a plan hash. If prerequisites or proof cannot be established, report passed:false and explain the missing evidence; operator choices belong in questions. This checkpoint review is an agent attestation under the saved responsibilities, never a claim that a human reviewed it.`}` : ''}`;
+  const active = cycle.workflow?.activeReview ?? undefined;
+  const rules = workflowRules(context.checkpoints, active);
   return {
     rules,
     obligations: context,
@@ -292,6 +287,19 @@ ${active ? `This is a separate ${active.kind} review. Source run: ${active.sourc
         ? { checkpointId: active.checkpointId }
         : {},
   };
+}
+
+/**
+ * The workflow contract's rules, from the checkpoints the step's merge requires and the separate
+ * review the step is, if any. Pure, so the brief-size replay renders them as a launch does.
+ */
+export function workflowRules(
+  checkpoints: readonly { readonly id: string; readonly accepted: boolean }[],
+  active: NonNullable<NonNullable<WorkCycle['workflow']>['activeReview']> | undefined,
+): string {
+  return `Controller workflow contract (its full rules are with the rules this brief refers to): pending merge checkpoints, predecessor work and separately scheduled reviews are controller obligations, recorded as pending, never as passed or as code defects.
+The controller's obligations for this step are in ${WORKFLOW_OBLIGATIONS_FILE}: required states, not successful evidence.${checkpoints.length ? ` The checkpoints its merge requires: ${checkpoints.map((c) => `${c.id} (${c.accepted ? 'accepted' : 'not accepted'})`).join(', ')}.` : ''}
+${active ? `This is a separate ${active.kind} review. Source run: ${active.sourceRunId}. Responsibilities: ${active.roles.join(', ')}. Read the full lineage and verify the exact candidate without source edits. ${active.kind === 'reassessment' ? 'Classify the prior questions against current plan/evidence and independently assess the technical candidate. Do not resolve genuine operator decisions yourself.' : active.kind === 'security' ? 'Independently examine identity, authorization, disclosure, cross-principal isolation, lifecycle recovery and root-key boundaries. Exercise negative and recovery paths. Include every actual code defect in the normal findings report.' : `Independently assess checkpoint ${active.checkpointId} and attest it in the workflow block. Required claims: ${JSON.stringify(active.requirements)}. Required cases: ${JSON.stringify(active.caseIds)}. Never infer a passing case from eligibility or a plan hash. If prerequisites or proof cannot be established, report passed:false and explain the missing evidence; operator choices belong in questions. This checkpoint review is an agent attestation under the saved responsibilities, never a claim that a human reviewed it.`}` : ''}`;
 }
 
 /** Presentation only: recognizing an ADR reference never approves it. */

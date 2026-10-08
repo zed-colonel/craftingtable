@@ -20,6 +20,7 @@ import {
   structuredFinding,
   supervisedMapFixture,
   waitFor,
+  runRecord,
 } from './execution-test-support.js';
 
 /**
@@ -134,7 +135,7 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
         ),
       };
     }
-    const packetPath = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
+    const packetPath = runRecord(request, 'craftingtable-scope-repair.json');
     if (packetPath) {
       expect(scope.kind).toBe('slice');
       expect(request.prompt).toContain('audit that family systematically');

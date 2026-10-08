@@ -184,6 +184,10 @@ export function latestReviewReport(
   };
 }
 
+/** How to read a handoff, written into its manifest; the brief points there (R-G6). */
+export const HANDOFF_READING =
+  'Paths here are relative to this manifest. Reports with status complete are structurally validated reviewer assertions; reconcile unstructured or invalid reports against the conversation, and ask the operator about unresolved ambiguity. Earlier findings may be corrected or withdrawn later: do not treat every historical statement as a current finding, and preserve finding IDs across review rounds. The findings file, when there is one, is derived from valid reports at the delivered event cursors; an omitted closed finding keeps its last reviewer disposition.';
+
 export interface HandoffFiles {
   readonly manifestPath: string;
   readonly finalMessagePath: string;
@@ -324,6 +328,7 @@ export function writeRunHandoff(
         version: 1,
         sourceRunId: parent.id,
         order: 'newest run first; messages within each file are chronological',
+        reading: HANDOFF_READING,
         warnings,
         sources,
         ...(findingsPath ? { findings: 'findings.json' } : {}),

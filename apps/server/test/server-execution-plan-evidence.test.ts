@@ -1266,9 +1266,13 @@ it('adopts immutable repository policy, packages fresh evidence, and expires pri
   });
   const run = state.context.storage.execution.runs.find(state.workspaceId, review)!;
   expect(run.reviewBranchContext?.repositoryPolicyVersion).toBe(1);
-  const evidencePath = run.brief.match(/`([^`]+\/craftingtable-repository-policy.json)`/)?.[1];
+  // The brief names it relative to the run directory, and it carries its own rules (R-G6).
+  const evidencePath = run.brief.match(/`(plan\/craftingtable-repository-policy.json)`/)?.[1];
   expect(evidencePath).toBeTruthy();
-  const evidence = JSON.parse(readFileSync(evidencePath!, 'utf8'));
+  const evidence = JSON.parse(
+    readFileSync(join(state.context.config.execution.runsRoot, run.id, evidencePath!), 'utf8'),
+  );
+  expect(evidence.rules).toContain('controller-local protection');
   expect(evidence.policy).toMatchObject({
     version: 1,
     experimentalFreeze: input.experimentalFreeze,

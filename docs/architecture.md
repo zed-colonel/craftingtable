@@ -97,7 +97,13 @@ loops. Runs record `resolvedModel` and `billing` from session metadata, and a re
 a `verdict` from its final `VERDICT:` line, which must agree with its structured report.
 
 Each run gets a registered run directory for its brief and plan documents, with a `scratch`
-subdirectory passed to both backends as their temporary directory. Tool results over 4 KiB
+subdirectory passed to both backends as their temporary directory. The brief (R-G6) states the
+goal and acceptance first, then where the agent is and its build environment, its role and the
+ordered parts of its final message (`brief-review.ts`, `brief-implement.ts`, `brief-design.ts`),
+the files to read, the controller's step rules and the operator's words. The rules it refers to
+(each block's rules, the workflow contract, the build environment's) are
+`plan/craftingtable-rules.md`, and a parent run is a bounded digest pointing to the handoff
+(ADR-024). Tool results over 4 KiB
 (`TOOL_RESULT_PREVIEW_BYTES`) keep a preview in the journal and their gzipped body in the run
 directory, where it expires with the run's scratch; `craftingtable db compact-journal` applies
 the same rule to older runs (ADR-068). Run detail reads the latest completed turn straight from

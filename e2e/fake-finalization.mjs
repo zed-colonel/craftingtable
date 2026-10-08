@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 /**
  * A staged finalization review as the stand-in agents answer it (R-B10). The review brief
@@ -14,8 +14,12 @@ import { join } from 'node:path';
  * Returns undefined for a review that is not a staged finalization stage.
  */
 export function stagedFinalizationReview(text, cwd) {
-  const ledgerPath = /`([^`]+\/craftingtable-finalization-state\.json)`/.exec(text)?.[1];
-  if (!ledgerPath) return undefined;
+  // The brief names its records relative to the run directory it names (R-G6).
+  const relative = /`([^`]*craftingtable-finalization-state\.json)`/.exec(text)?.[1];
+  const runDirectory = /Your run directory is `([^`]+)`/.exec(text)?.[1];
+  if (!relative) return undefined;
+  const ledgerPath =
+    isAbsolute(relative) || !runDirectory ? relative : join(runDirectory, relative);
   const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'));
   const stage = ledger.stages[ledger.progress.stageIndex];
   const findings = [];

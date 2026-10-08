@@ -53,6 +53,12 @@ export interface ExecutionConfig {
    * (its pre-migration copies included), the backups, and the credentials directory.
    */
   readonly protectedReads?: readonly string[];
+  /**
+   * Where the daemon records each live run's agent process group (R-G11; operator decision
+   * 2026-10-07): in the database's directory, under the protected reads, so no sandboxed agent
+   * reads or writes it. Without it, no group is recorded or ended after a restart.
+   */
+  readonly processRecordRoot?: string;
   /** `id=Label,id=Label` model options for the launch form; absent means the built-in list. */
   readonly claudeModels?: string;
   readonly codexModels?: string;
@@ -866,6 +872,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
   const execution: ExecutionConfig = Object.freeze({
     ...roots,
     outsideSources: outsideSourcesSetting(configDir, dataDir, roots),
+    processRecordRoot: join(dataDir, DATABASE_DIRECTORY, 'processes'),
     protectedReads: [
       join(dataDir, DATABASE_DIRECTORY),
       join(dataDir, DATABASE_BACKUP_DIRECTORY),

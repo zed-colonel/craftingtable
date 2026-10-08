@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -174,7 +175,9 @@ async function liveRun(options: { readonly busyTemporaryDirectories?: boolean } 
       existsSync(memberFile),
     'the agent at work',
   );
-  const identityPath = join(state.context.config.execution.runsRoot, runId, 'process.json');
+  // Daemon-private (operator decision 2026-10-07): under the database's directory.
+  const records = state.context.config.execution.processRecordRoot ?? '';
+  const identityPath = join(records, `${runId}.json`);
   const identity = JSON.parse(readFileSync(identityPath, 'utf8')) as {
     pid: number;
     startTime: string;
@@ -185,6 +188,7 @@ async function liveRun(options: { readonly busyTemporaryDirectories?: boolean } 
   return {
     state,
     runId,
+    runDirectory: join(state.context.config.execution.runsRoot, runId),
     // The next daemon's own backend, with the same stand-in.
     backends: new Map([['claude-code' as const, new ClaudeCodeBackend({ executable })]]),
     identity,
@@ -284,10 +288,10 @@ it('leaves alone a group that started before the run, whatever the run directory
   expect(processRunning(forged.pid)).toBe(true);
 });
 
-it('starts at once when the run directory holds a pipe where the record should be (R-G11)', async () => {
+it('starts at once when a pipe stands where the record should be (R-G11)', async () => {
   const { state, runId, backends, identityPath } = await liveRun();
-  // The agent can put anything in its run directory. A reader that waited on this pipe would
-  // hold the daemon's start until the helper below writes to it.
+  // A reader that waited on this pipe would hold the daemon's start until the helper below
+  // writes to it.
   rmSync(identityPath);
   execFileSync('mkfifo', [identityPath]);
   const writer = spawn('sh', ['-c', 'sleep 5; printf x > "$1"', 'sh', identityPath], {
@@ -320,4 +324,24 @@ it("ends a surviving group before it removes the agents' temporary directories i
   expect(processRunning(identity.pid)).toBe(false);
   // Removed after the group that used it was gone, so nothing recreated it.
   expect(runDirectories()).toEqual([]);
+});
+
+it('keeps the record where no sandboxed agent reaches, and ignores one in the run directory (R-G11, operator 2026-10-07)', async () => {
+  const { state, runId, runDirectory, backends, identity, identityPath, member } = await liveRun();
+  const execution = state.context.config.execution;
+  // The daemon's own directory, which R-G9's protected reads keep from sandboxed commands.
+  expect(execution.protectedReads?.some((root) => identityPath.startsWith(`${root}/`))).toBe(true);
+  expect(statSync(identityPath).mode & 0o777).toBe(0o600);
+  expect(statSync(execution.processRecordRoot ?? '').mode & 0o777).toBe(0o700);
+  expect(existsSync(join(runDirectory, 'process.json'))).toBe(false);
+  // An agent writes a true identity in its run directory, as runs before this change had it.
+  rmSync(identityPath);
+  writeFileSync(join(runDirectory, 'process.json'), JSON.stringify(identity));
+
+  await restart(state, backends);
+
+  expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.status).toBe(
+    'interrupted',
+  );
+  expect(processRunning(identity.pid) && processRunning(member)).toBe(true);
 });

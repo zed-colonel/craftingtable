@@ -117,11 +117,15 @@ It submits:
 Process authority is confined to the adapter modules listed in
 `scripts/check-forbidden-scope.mjs`; for Git that is `packages/git/src/runner.ts` alone, which
 every Git module runs its commands through (R-G10). Every spawn uses argument arrays with `shell: false`,
-a detached process group that is terminated as a group, and bounded output. Restart recovery
-signals only a group whose recorded identity proves it is the run's: the same boot, the same
-leader start time, a leader still leading its group that started after the run did, and never
-the daemon's own group. The record is in the run directory, which the agent can write, so it is
-trusted no further than those checks (R-G11).
+a detached process group that is terminated as a group, and bounded output. Right after launch
+the daemon records the run's process group (leader pid, start time, boot id) in its own
+directory, `<data>/state/processes/<runId>.json`, beside the database: the R-G9 protected reads
+keep it from sandboxed commands, which can neither read nor write it. A `process.json` in a run
+directory, which the agent can write, is ignored. Restart recovery signals only a group that
+record proves is the run's: the same boot, the same leader start time, a leader still leading
+its group that started after the run did, or, once the leader has exited, members that all
+started after the run did; never pid 0 or 1, the daemon's own group, or a group it may not
+signal (R-G11).
 
 The agent's permission posture is chosen per run:
 

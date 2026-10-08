@@ -364,9 +364,9 @@ and cleanup remain, and the controller stops its cycle with `legacy-finalization
 bounded raw vendor line travels only on a notice for output the adapter could not normalize; it
 is never the durable vocabulary. Both adapters use the shared supervisor in
 `packages/agents/src/process.ts`. Right after launch the daemon records the run's process group
-(`process.json` in the run directory: leader pid, start time, boot id); after a stop that did not
-drain, the next start ends a group still running only when that record and the run's start prove
-it is the run's, journals it, and then marks the run interrupted (R-G11). The daemon's backend
+(leader pid, start time, boot id) in its own `state/processes/<runId>.json`; after a stop that did
+not drain, the next start ends a group still running only when that record and the run's start
+prove it is the run's, journals it, and then marks the run interrupted (R-G11). The daemon's backend
 registry holds whichever of Claude Code and Codex it found, and defaults to the first available in
 that order. No app-server socket is exposed to the browser or LAN.
 

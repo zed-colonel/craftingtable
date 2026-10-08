@@ -14,10 +14,11 @@ import {
   readSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   type AgentBackend,
   AgentLaunchError,
@@ -196,8 +197,6 @@ interface LiveRun {
 }
 
 const LIVE_STATUSES: readonly AgentRunStatus[] = ['starting', 'running', 'waiting'];
-/** The run directory's record of its agent's process group (R-G11, AGT-02). */
-export const PROCESS_IDENTITY_FILE = 'process.json';
 const PROCESS_IDENTITY_MAX_BYTES = 4096;
 /** How long restart recovery lets a surviving group end on SIGTERM before SIGKILL. */
 const RECOVERY_TERMINATION_GRACE_MS = 5000;
@@ -2010,7 +2009,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
 
-        this.recordProcessIdentity(runId, runDirectory, session);
+        this.recordProcessIdentity(runId, session);
         // A restart began ending sessions while this one was launching: it is the drain's too, so
         // the restart resumes it (R-G13 increment 3 verification).
         if (this.interrupting) {
@@ -2424,23 +2423,41 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
 
   /**
    * Records who the run's agent process group is, right after launch (R-G11, AGT-02), so the
-   * next daemon can end it if this one stops without draining. Written beside the run's other
-   * files and replaced whole, never through a link; a launch never fails for want of it.
+   * next daemon can end it if this one stops without draining. The record is the daemon's own
+   * (operator decision 2026-10-07): beside the database, which no sandboxed command may read or
+   * write (R-G9), replaced whole and never through a link. A launch never fails for want of it.
    */
-  private recordProcessIdentity(
-    runId: AgentRunId,
-    runDirectory: string,
-    session: AgentSession,
-  ): void {
+  private recordProcessIdentity(runId: AgentRunId, session: AgentSession): void {
+    const path = this.processRecordPath(runId);
     const identity = processGroupIdentity(session.pid);
-    if (identity === undefined) return;
-    const path = join(runDirectory, PROCESS_IDENTITY_FILE);
+    if (path === undefined || identity === undefined) return;
     const temporary = `${path}.${randomBytes(8).toString('hex')}`;
     try {
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       writeFileSync(temporary, `${JSON.stringify(identity)}\n`, { flag: 'wx', mode: 0o600 });
       renameSync(temporary, path);
     } catch (error) {
       this.log.warn("The agent's process identity could not be recorded", {
+        runId,
+        error: String(error),
+      });
+    }
+  }
+
+  /** Where a run's process record is kept; none without a daemon-private root. */
+  private processRecordPath(runId: string): string | undefined {
+    const root = this.config.processRecordRoot;
+    return root === undefined ? undefined : join(root, `${runId}.json`);
+  }
+
+  /** A finished run's process record is dropped: nothing of it is left to end. */
+  private removeProcessRecord(runId: string): void {
+    const path = this.processRecordPath(runId);
+    if (path === undefined) return;
+    try {
+      rmSync(path, { force: true });
+    } catch (error) {
+      this.log.warn("A run's process record could not be removed", {
         runId,
         error: String(error),
       });
@@ -2452,9 +2469,10 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
    * (R-G11, AGT-02), when its recorded identity proves the group is the run's, and journals it.
    */
   private async reapRecordedGroup(run: AgentRun, graceMs: number): Promise<void> {
-    const directory =
-      this.storage.maintenance.directory(run.id)?.path ?? join(this.config.runsRoot, run.id);
-    const identity = readProcessIdentity(join(directory, PROCESS_IDENTITY_FILE));
+    // Only the daemon's own record: a `process.json` an agent left in its run directory, or a
+    // run launched before the record moved, is not reaped (operator decision 2026-10-07).
+    const path = this.processRecordPath(run.id);
+    const identity = path === undefined ? undefined : readProcessIdentity(path);
     if (identity === undefined) return;
     let reaping: ProcessGroupReaping;
     try {
@@ -2535,6 +2553,17 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         message: 'The daemon restarted while this run was live',
       });
     }
+    // No run is live now: records a stop left behind (a write cut short, say) go too.
+    const records = this.config.processRecordRoot;
+    if (records !== undefined)
+      try {
+        for (const name of readdirSync(records))
+          if (/^[0-9a-f-]{1,64}\.json(?:\.[0-9a-f]{16})?$/.test(name))
+            rmSync(join(records, name), { force: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+          this.log.warn('Process records could not be cleared', { error: String(error) });
+      }
     return stale.length;
   }
 
@@ -3087,6 +3116,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       // After the run's record, and even if it failed, so nothing an agent left can keep a run
       // from ending, and its directory never waits for a restart (LIVE-31 review).
       this.removeProcessTemporaryDirectory(runId);
+      this.removeProcessRecord(runId);
     }
     // Checks still running record nothing: the build record was frozen above.
     const checks = this.checks?.close(runId);

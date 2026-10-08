@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -139,22 +140,37 @@ const used = root ? fs.readdirSync(root).filter((name) => /^[0-9a-f]+$/.test(nam
 setInterval(() => {
   for (const name of used) fs.mkdirSync(path.join(root, name, 'busy'), { recursive: true });
 }, 5);`)};
-process.on('SIGTERM', () => {});
-const member = require('node:child_process').spawn(process.execPath, ['-e', MEMBER], { stdio: 'ignore' });
+// With POLITE, an ordinary agent instead: no member, and it ends with its input.
+if (!process.env.POLITE) process.on('SIGTERM', () => {});
+const member = process.env.POLITE ? process : require('node:child_process').spawn(process.execPath, ['-e', MEMBER], { stdio: 'ignore' });
 fs.writeFileSync('member.pid', String(member.pid));
+// A \`speak\` file in its directory makes it say something more.
+setInterval(() => {
+  if (!fs.existsSync('speak')) return;
+  fs.unlinkSync('speak');
+  process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'again' }] } }) + '\\n');
+}, 50);
 process.stdin.once('data', () => {
   process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'fake', model: 'fake-model' }) + '\\n');
   process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } }) + '\\n');
   // With LEADER_EXITS, the agent itself goes once the daemon has heard it, leaving its member.
   if (process.env.LEADER_EXITS) setTimeout(() => process.exit(0), 300);
 });
-process.stdin.on('end', () => {});
+process.stdin.on('end', () => {
+  if (process.env.POLITE) process.exit(0);
+});
 setInterval(() => {}, 1000);
 `;
 
 /** A daemon running one live review whose agent is the stubborn stand-in. */
 async function liveRun(
-  options: { readonly busyTemporaryDirectories?: boolean; readonly leaderExits?: boolean } = {},
+  options: {
+    readonly busyTemporaryDirectories?: boolean;
+    readonly leaderExits?: boolean;
+    readonly polite?: boolean;
+    /** The first daemon goes on hearing its agent: it is not the killed one. */
+    readonly daemonLives?: boolean;
+  } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-reaping-'));
   directories.push(directory);
@@ -164,9 +180,14 @@ async function liveRun(
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...(options.leaderExits ? { LEADER_EXITS: '1' } : {}),
+    ...(options.polite ? { POLITE: '1' } : {}),
   };
   const killed = new KilledDaemonBackend(
-    new ClaudeCodeBackend({ executable, env, allowEnvironment: ['BUSY_ROOT', 'LEADER_EXITS'] }),
+    new ClaudeCodeBackend({
+      executable,
+      env,
+      allowEnvironment: ['BUSY_ROOT', 'LEADER_EXITS', 'POLITE'],
+    }),
   );
   const state = await ready({ backends: new Map([['claude-code', killed]]) });
   if (options.busyTemporaryDirectories)
@@ -201,8 +222,9 @@ async function liveRun(
   const memberPid = Number(readFileSync(memberFile, 'utf8'));
   const memberStart = startedAt(memberPid);
   if (memberStart) members.push({ pid: memberPid, startTime: memberStart });
-  killed.die();
+  if (!options.daemonLives) killed.die();
   return {
+    worktreePath: worktree.path,
     state,
     runId,
     runDirectory: join(state.context.config.execution.runsRoot, runId),
@@ -283,8 +305,9 @@ it.each([
   ).toBe(false);
 });
 
-it('leaves alone a group that started before the run, whatever the run directory says (R-G11)', async () => {
-  // The record is in the run directory, which the agent can write: it could name any group.
+it('leaves alone a group that started before the run, whatever its record says (R-G11)', async () => {
+  // A record naming a group older than its run, however it came to (a daemon fault, a hand
+  // edit): a group that started before the run cannot be the run's.
   const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
     detached: true,
     stdio: 'ignore',
@@ -415,4 +438,80 @@ it('leaves alone a leaderless group with a member older than the run (R-G11, ope
     'interrupted',
   );
   expect(processRunning(olderMember)).toBe(true);
+});
+
+it('keeps the record until the agent has exited, and then removes it (R-G11 review LOW-4)', async () => {
+  const { state, runId, identityPath } = await liveRun({ polite: true, daemonLives: true });
+  expect(existsSync(identityPath)).toBe(true);
+  const ended = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/runs/${runId}/end`,
+    headers: mutationHeaders(state),
+    payload: {},
+  });
+  expect(ended.statusCode, ended.body).toBe(200);
+  await waitFor(
+    () =>
+      state.context.storage.execution.runs.find(state.workspaceId, runId)?.status === 'finished',
+    'the run to finish',
+  );
+  expect(existsSync(identityPath)).toBe(false);
+});
+
+it('keeps the record of a run ended before its agent exits, until it has (R-G11 review LOW-4)', async () => {
+  const { state, runId, identity, identityPath, worktreePath } = await liveRun({
+    daemonLives: true,
+  });
+  // Supervision fails at the agent's next message: the run is ended at once and its agent,
+  // which ignores SIGTERM, is killed only after the grace period.
+  const service = state.context.services.agentRunService as unknown as {
+    appendEvent: (
+      workspaceId: string,
+      runId: string,
+      event: { kind: string; payload: unknown },
+    ) => void;
+  };
+  const append = service.appendEvent.bind(service);
+  service.appendEvent = (workspaceId, id, event) => {
+    if (event.kind === 'assistant-message' && JSON.stringify(event.payload).includes('again'))
+      throw new Error('journal unavailable');
+    append(workspaceId, id, event);
+  };
+  writeFileSync(join(worktreePath, 'speak'), '');
+  await waitFor(
+    () => state.context.storage.execution.runs.find(state.workspaceId, runId)?.status === 'failed',
+    'the run to end',
+  );
+  expect(processRunning(identity.pid)).toBe(true);
+  expect(existsSync(identityPath)).toBe(true);
+  await waitFor(() => !existsSync(identityPath), 'the record to go once the agent has exited');
+  expect(processRunning(identity.pid)).toBe(false);
+});
+
+it('clears leftover records at start (R-G11 review)', async () => {
+  const { state, backends } = await liveRun();
+  const records = state.context.config.execution.processRecordRoot ?? '';
+  writeFileSync(join(records, '00000000-0000-4000-8000-000000000000.json'), '{}');
+  writeFileSync(join(records, '00000000-0000-4000-8000-000000000000.json.0123456789abcdef'), '');
+  writeFileSync(join(records, 'operator-notes.txt'), 'kept');
+  await restart(state, backends);
+  expect(readdirSync(records)).toEqual(['operator-notes.txt']);
+});
+
+it.each([
+  ['a link to a true record', 'link'],
+  ['a true record padded past 4 KiB', 'oversize'],
+] as const)('reaps nothing when the record is %s (R-G11 review)', async (_, kind) => {
+  const { state, runId, runDirectory, backends, identity, identityPath, member } = await liveRun();
+  const truth = JSON.stringify(identity);
+  rmSync(identityPath);
+  if (kind === 'link') {
+    writeFileSync(join(runDirectory, 'elsewhere.json'), truth);
+    symlinkSync(join(runDirectory, 'elsewhere.json'), identityPath);
+  } else writeFileSync(identityPath, truth + ' '.repeat(4096));
+  await restart(state, backends);
+  expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.status).toBe(
+    'interrupted',
+  );
+  expect(processRunning(identity.pid) && processRunning(member)).toBe(true);
 });

@@ -17,9 +17,12 @@ trace({args: process.argv.slice(2), pid: process.pid});
 if (mode === 'env-names') trace({envNames: Object.keys(process.env).sort(), path: process.env.PATH, args: process.argv.slice(2)});
 if (mode === 'scratch') trace({temporaryPaths: [process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]});
 if (mode === 'ignore-term') process.on('SIGTERM', () => {});
-// One stderr line from the run's own app-server as it starts (not the configuration probe).
-if (process.env.FAKE_STDERR_LINE && process.argv.join(' ').includes('mcp_servers.operator_mcp'))
+// One stderr line from the run's own app-server as it starts (not the configuration probe);
+// with FAKE_STDERR_LINE=exit, it then exits at once, within the quiet second.
+if (process.env.FAKE_STDERR_LINE && process.argv.join(' ').includes('mcp_servers.operator_mcp')) {
   process.stderr.write('app-server warming up' + String.fromCharCode(10));
+  if (process.env.FAKE_STDERR_LINE === 'exit') process.stderr.write('', () => process.exit(3));
+}
 // Two mebibytes of stderr from the run's own app-server (not the configuration probe).
 if (process.env.FAKE_FLOOD && process.argv.join(' ').includes('mcp_servers.operator_mcp'))
   for (let i = 0; i < 32; i++) process.stderr.write('e'.repeat(65535) + String.fromCharCode(10));
@@ -621,6 +624,18 @@ it('journals a partial stderr batch once stderr has been quiet for about a secon
   expect(stderr()).toEqual(['app-server warming up\n']);
   expect(items.some((item) => item.type === 'exited')).toBe(false);
   session.end();
+});
+
+it('journals a partial stderr batch at exit, before the quiet second is up (R-G11)', async () => {
+  const { items, done } = await launch('', {}, { FAKE_STDERR_LINE: 'exit' });
+  await done;
+  const kinds = items.map((item) => (item.type === 'event' ? item.event.kind : item.type));
+  expect(
+    items.flatMap((item) =>
+      item.type === 'event' && item.event.kind === 'stderr' ? [item.event.payload.text] : [],
+    ),
+  ).toEqual(['app-server warming up\n']);
+  expect(kinds.indexOf('stderr')).toBeLessThan(kinds.indexOf('exited'));
 });
 
 it("journals stderr within the run's budget, then one notice, and still reads every chunk (R-G11)", async () => {

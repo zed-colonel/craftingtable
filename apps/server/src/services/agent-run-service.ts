@@ -2013,7 +2013,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
 
-        this.recordProcessIdentity(runId, session);
+        this.recordProcessIdentity(workspaceId, runId, session);
         // A restart began ending sessions while this one was launching: it is the drain's too, so
         // the restart resumes it (R-G13 increment 3 verification).
         if (this.interrupting) {
@@ -2022,6 +2022,10 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             reason: 'daemon-drain',
             message: DRAIN_INTERRUPTED_MESSAGE,
           });
+          // The record goes once the killed group has (R-G11 review LOW-4).
+          void drainUntilExit(session.items[Symbol.asyncIterator]()).then(() =>
+            this.removeProcessRecord(runId),
+          );
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
         this.appendEvent(workspaceId, runId, {
@@ -2043,6 +2047,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             input.worktreeId,
             drainUntilExit(session.items[Symbol.asyncIterator]()),
           );
+          this.removeProcessRecord(runId);
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
 
@@ -2431,10 +2436,17 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
    * (operator decision 2026-10-07): beside the database, which no sandboxed command may read or
    * write (R-G9), replaced whole and never through a link. A launch never fails for want of it.
    */
-  private recordProcessIdentity(runId: AgentRunId, session: AgentSession): void {
+  private recordProcessIdentity(
+    workspaceId: WorkspaceId,
+    runId: AgentRunId,
+    session: AgentSession,
+  ): void {
     const path = this.processRecordPath(runId);
     const identity = processGroupIdentity(session.pid);
     if (path === undefined || identity === undefined) return;
+    // A run already ended while it launched has nothing for a restart to end (R-G11 review).
+    const run = this.storage.execution.runs.find(workspaceId, runId);
+    if (run === undefined || isTerminalAgentRunStatus(run.status)) return;
     const temporary = `${path}.${randomBytes(8).toString('hex')}`;
     try {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -2454,7 +2466,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     return root === undefined ? undefined : join(root, `${runId}.json`);
   }
 
-  /** A finished run's process record is dropped: nothing of it is left to end. */
+  /** Once a run's process group has exited, its record goes: nothing of it is left to end. */
   private removeProcessRecord(runId: string): void {
     const path = this.processRecordPath(runId);
     if (path === undefined) return;
@@ -2748,6 +2760,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         });
       }
       await reserved;
+      // Not at the finalize above: the killed group may outlive it (R-G11 review LOW-4).
+      this.removeProcessRecord(runId);
       this.orphaned.delete(liveRun);
       this.notifier.notify();
     }
@@ -2771,6 +2785,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     for (let next = await read(); next.done !== true; next = await read()) {
       const item = next.value;
       if (item.type === 'exited') {
+        // Its process group is gone: nothing is left for a restart to end (R-G11 review).
+        this.removeProcessRecord(runId);
         const lastTurn = this.storage.execution.runEvents.latestOfKind(
           workspaceId,
           runId,
@@ -3121,7 +3137,6 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       // After the run's record, and even if it failed, so nothing an agent left can keep a run
       // from ending, and its directory never waits for a restart (LIVE-31 review).
       this.removeProcessTemporaryDirectory(runId);
-      this.removeProcessRecord(runId);
     }
     // Checks still running record nothing: the build record was frozen above.
     const checks = this.checks?.close(runId);

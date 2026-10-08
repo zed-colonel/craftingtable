@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -139,6 +139,24 @@ describe('stdout supervision (R-G11, AGT-16c, AGT-16e)', () => {
     expect(lines).toBe(64);
   });
 
+  it('says stderr is quiet a while after its last chunk, not its first', async () => {
+    // Six chunks 300 ms apart, then nothing for two seconds.
+    const fake = script(`
+      let left = 6;
+      const next = () => {
+        process.stderr.write('chunk\\n');
+        if (--left > 0) setTimeout(next, 300);
+        else setTimeout(() => {}, 2000);
+      };
+      next();`);
+    const kinds = (await collect(spawn(fake, { stderrQuietMs: 1000 }).items)).map(
+      (item) => item.type,
+    );
+    expect(kinds.filter((kind) => kind === 'stderr')).toHaveLength(6);
+    expect(kinds.filter((kind) => kind === 'stderr-quiet')).toHaveLength(1);
+    expect(kinds.lastIndexOf('stderr')).toBeLessThan(kinds.indexOf('stderr-quiet'));
+  });
+
   it('pauses stderr too while the consumer lags', async () => {
     const fake = script(
       `seq 0 999999 | sed 's/$/ ${'x'.repeat(100)}/' >&2\ntouch finished`,
@@ -199,6 +217,46 @@ describe.runIf(process.platform === 'linux')('process group identity (R-G11, AGT
       { ...identity, bootId: '../x' },
     ])
       expect(parseProcessGroupIdentity(junk)).toBeUndefined();
+  });
+
+  it('records nothing for a child that does not lead its own group', () => {
+    // An ordinary child, in this process's group: never this process's to record.
+    const child = nodeSpawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+    });
+    try {
+      expect(processGroupIdentity(child.pid)).toBeUndefined();
+    } finally {
+      child.kill('SIGKILL');
+    }
+  });
+
+  it('never signals the reaper’s own group', async () => {
+    // Run apart, in a group of its own the test starts: a regression could signal only that
+    // group. Its leader starts a member, which asks to reap the group it is in.
+    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-own-group-'));
+    directories.push(directory);
+    const reaper = join(directory, 'reaper.mts');
+    writeFileSync(
+      reaper,
+      `import { readFileSync } from 'node:fs';
+import { reapProcessGroup } from ${JSON.stringify(fileURLToPath(new URL('../src/process.ts', import.meta.url)))};
+const leader = Number(process.argv[2]);
+const stat = readFileSync('/proc/' + leader + '/stat', 'utf8');
+const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+console.log(JSON.stringify(await reapProcessGroup({ pid: leader, startTime, bootId }, { graceMs: 100 })));
+`,
+    );
+    const leader = script(
+      `const ran = require('node:child_process').spawnSync(process.execPath, ['--experimental-transform-types', '--no-warnings', ${JSON.stringify(reaper)}, String(process.pid)], { encoding: 'utf8' });
+      process.stdout.write(ran.stdout || 'no answer\\n');`,
+    );
+    const items = await collect(spawn(leader).items);
+    expect(items.filter((item) => item.type === 'stdout-line')).toEqual([
+      { type: 'stdout-line', line: JSON.stringify({ outcome: 'other-process' }) },
+    ]);
+    expect(items.at(-1)).toMatchObject({ type: 'exited', exitCode: 0, signal: null });
   });
 
   it('ends a recorded group that stops on SIGTERM, and leaves one it cannot prove', async () => {

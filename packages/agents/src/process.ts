@@ -176,6 +176,18 @@ function hasGroupWork(pid: number | undefined, includeLeader = false): boolean {
   }
 }
 
+/** The running (not zombie) members of a process group, with their start times. */
+function groupMembers(pgid: number): { readonly pid: number; readonly startTime: string }[] {
+  const members: { pid: number; startTime: string }[] = [];
+  for (const entry of readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue;
+    const stat = procStat(entry);
+    if (stat?.pgrp === pgid && !['Z', 'X'].includes(stat.state))
+      members.push({ pid: Number(entry), startTime: stat.startTime });
+  }
+  return members;
+}
+
 function currentBootId(): string | undefined {
   try {
     return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() || undefined;
@@ -262,9 +274,10 @@ function startedAtMs(startTime: string): number | undefined {
 
 /**
  * Ends a process group an earlier daemon started (R-G11, AGT-02): SIGTERM, then SIGKILL once
- * the grace period has passed with members still running. Only a group whose leader is still
- * the recorded process (same boot, same start time, still leading its group) is signalled,
- * and never this daemon's own. A group whose leader has exited cannot be proved and is left.
+ * the grace period has passed with members still running. Only a group proved the run's is
+ * signalled, never this daemon's own: its leader still the recorded process (same boot, same
+ * start time, still leading its group), or, once the leader has exited, every member started
+ * after the run and the recorded leader on the same boot.
  */
 export async function reapProcessGroup(
   identity: ProcessGroupIdentity,
@@ -280,25 +293,45 @@ export async function reapProcessGroup(
   if (process.platform !== 'linux') return { outcome: 'unverifiable' };
   // Never 0 or 1: kill(-1) signals every process the daemon may signal, kill(-0) its own group.
   if (parseProcessGroupIdentity(identity) === undefined) return { outcome: 'other-process' };
+  /** Whether a process that started then cannot be the run's; undefined if unknowable. */
+  const beforeRun = (startTime: string): boolean | undefined => {
+    if (options.notStartedBefore === undefined) return false;
+    const startedAt = startedAtMs(startTime);
+    return startedAt === undefined
+      ? undefined
+      : startedAt < options.notStartedBefore - START_TIME_SLACK_MS;
+  };
   const recorded = (): ProcessGroupReaping | undefined => {
     const bootId = currentBootId();
     if (!bootId) return { outcome: 'unverifiable' };
+    if (identity.pid === process.pid || identity.pid === procStat(process.pid)?.pgrp)
+      return { outcome: 'other-process' };
     const stat = procStat(identity.pid);
-    if (!stat) return { outcome: 'gone' };
+    if (!stat) {
+      // The leader has exited (operator decision 2026-10-07). Linux does not reuse a pgid while
+      // any member lives, so members that all started after the run (and after the recorded
+      // leader) on the same boot are the run's.
+      const members = groupMembers(identity.pid);
+      if (members.length === 0) return { outcome: 'gone' };
+      if (bootId !== identity.bootId) return { outcome: 'other-process' };
+      if (options.notStartedBefore === undefined) return { outcome: 'unverifiable' };
+      for (const member of members) {
+        const early = beforeRun(member.startTime);
+        if (early === undefined) return { outcome: 'unverifiable' };
+        if (early || Number(member.startTime) < Number(identity.startTime))
+          return { outcome: 'other-process' };
+      }
+      return undefined;
+    }
     if (
       bootId !== identity.bootId ||
       stat.startTime !== identity.startTime ||
-      stat.pgrp !== identity.pid ||
-      identity.pid === process.pid ||
-      identity.pid === procStat(process.pid)?.pgrp
+      stat.pgrp !== identity.pid
     )
       return { outcome: 'other-process' };
-    if (options.notStartedBefore !== undefined) {
-      const startedAt = startedAtMs(stat.startTime);
-      if (startedAt === undefined) return { outcome: 'unverifiable' };
-      if (startedAt < options.notStartedBefore - START_TIME_SLACK_MS)
-        return { outcome: 'other-process' };
-    }
+    const early = beforeRun(stat.startTime);
+    if (early === undefined) return { outcome: 'unverifiable' };
+    if (early) return { outcome: 'other-process' };
     return undefined;
   };
   let refused: ProcessGroupReaping | undefined;

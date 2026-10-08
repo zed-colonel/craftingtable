@@ -202,4 +202,40 @@ describe.runIf(process.platform === 'linux')('process group identity (R-G11, AGT
     expect(items.at(-1)).toMatchObject({ type: 'exited', signal: 'SIGTERM' });
     expect(await reapProcessGroup(identity, { graceMs: 100 })).toEqual({ outcome: 'gone' });
   });
+
+  it('ends a group whose leader has exited when every member started after the run (operator 2026-10-07)', async () => {
+    const before = Date.now();
+    // The leader starts a member in its own group, says so, and exits.
+    const child = spawn(
+      script(`
+        const member = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+        require('node:fs').writeFileSync('member.pid', String(member.pid));
+        setTimeout(() => process.exit(0), 200);`),
+      // The supervisor waits for the group, so the test's cleanup can still end it.
+      { backgroundWorkTimeoutMs: 60_000 },
+    );
+    const identity = processGroupIdentity(child.pid);
+    if (!identity) throw new Error('no identity');
+    const iterator = child.items[Symbol.asyncIterator]();
+    // The supervisor says the leader exited with work still running in its group.
+    let next = await iterator.next();
+    while (!next.done && next.value.type !== 'background-work-waiting')
+      next = await iterator.next();
+    // Without the run's start, nothing proves whose the leaderless group is.
+    expect(await reapProcessGroup(identity, { graceMs: 100 })).toEqual({
+      outcome: 'unverifiable',
+    });
+    // A run that began after its members started cannot own them.
+    expect(
+      await reapProcessGroup(identity, { graceMs: 100, notStartedBefore: Date.now() + 60_000 }),
+    ).toEqual({ outcome: 'other-process' });
+    expect(await reapProcessGroup(identity, { graceMs: 2000, notStartedBefore: before })).toEqual({
+      outcome: 'terminated',
+      signal: 'SIGTERM',
+    });
+    for (next = await iterator.next(); !next.done; next = await iterator.next());
+    expect(await reapProcessGroup(identity, { graceMs: 100, notStartedBefore: before })).toEqual({
+      outcome: 'gone',
+    });
+  });
 });

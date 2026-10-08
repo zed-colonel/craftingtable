@@ -90,7 +90,17 @@ class KilledDaemonBackend implements AgentBackend {
 const restarted: ServiceSet[] = [];
 /** Process groups this test's daemons started, ended whatever the test did. */
 const groups: { readonly pid: number; readonly startTime: string }[] = [];
+const members: { readonly pid: number; readonly startTime: string }[] = [];
 const directories: string[] = [];
+/** A process's start time, or nothing once it is gone. */
+function startedAt(pid: number): string | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  } catch {
+    return undefined;
+  }
+}
 afterEach(async () => {
   for (const services of restarted.splice(0)) {
     await services.daemonDrain.drain(0);
@@ -98,13 +108,10 @@ afterEach(async () => {
   }
   // Only while the leader is still the process the daemon started, never a reused pid.
   for (const { pid, startTime } of groups.splice(0))
-    try {
-      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-      if (stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] === startTime)
-        process.kill(-pid, 'SIGKILL');
-    } catch {
-      // Already gone.
-    }
+    if (startedAt(pid) === startTime) process.kill(-pid, 'SIGKILL');
+  // Members a test started, alone: one whose leader has exited leaves no leader to check.
+  for (const { pid, startTime } of members.splice(0))
+    if (startedAt(pid) === startTime) process.kill(pid, 'SIGKILL');
   await cleanupExecutionFixtures();
   for (const directory of directories.splice(0))
     rmSync(directory, { recursive: true, force: true });
@@ -138,21 +145,28 @@ fs.writeFileSync('member.pid', String(member.pid));
 process.stdin.once('data', () => {
   process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'fake', model: 'fake-model' }) + '\\n');
   process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } }) + '\\n');
+  // With LEADER_EXITS, the agent itself goes once the daemon has heard it, leaving its member.
+  if (process.env.LEADER_EXITS) setTimeout(() => process.exit(0), 300);
 });
 process.stdin.on('end', () => {});
 setInterval(() => {}, 1000);
 `;
 
 /** A daemon running one live review whose agent is the stubborn stand-in. */
-async function liveRun(options: { readonly busyTemporaryDirectories?: boolean } = {}) {
+async function liveRun(
+  options: { readonly busyTemporaryDirectories?: boolean; readonly leaderExits?: boolean } = {},
+) {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-reaping-'));
   directories.push(directory);
   const executable = join(directory, 'claude');
   writeFileSync(executable, STUBBORN_AGENT);
   chmodSync(executable, 0o755);
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...(options.leaderExits ? { LEADER_EXITS: '1' } : {}),
+  };
   const killed = new KilledDaemonBackend(
-    new ClaudeCodeBackend({ executable, env, allowEnvironment: ['BUSY_ROOT'] }),
+    new ClaudeCodeBackend({ executable, env, allowEnvironment: ['BUSY_ROOT', 'LEADER_EXITS'] }),
   );
   const state = await ready({ backends: new Map([['claude-code', killed]]) });
   if (options.busyTemporaryDirectories)
@@ -184,6 +198,9 @@ async function liveRun(options: { readonly busyTemporaryDirectories?: boolean } 
     bootId: string;
   };
   groups.push(identity);
+  const memberPid = Number(readFileSync(memberFile, 'utf8'));
+  const memberStart = startedAt(memberPid);
+  if (memberStart) members.push({ pid: memberPid, startTime: memberStart });
   killed.die();
   return {
     state,
@@ -344,4 +361,58 @@ it('keeps the record where no sandboxed agent reaches, and ignores one in the ru
     'interrupted',
   );
   expect(processRunning(identity.pid) && processRunning(member)).toBe(true);
+});
+
+it('ends a group whose agent has exited, leaving a member that started with the run (R-G11, operator 2026-10-07)', async () => {
+  const { state, runId, backends, identity, member } = await liveRun({ leaderExits: true });
+  await waitFor(() => !processRunning(identity.pid), 'the agent itself to exit');
+  expect(processRunning(member)).toBe(true);
+
+  await restart(state, backends);
+
+  await waitFor(() => !processRunning(member), 'the member to be gone');
+  const events = journal(state, runId);
+  const reaped = events.findIndex(
+    (event) =>
+      event.kind === 'notice' && event.payload.message.includes(`process group ${identity.pid}`),
+  );
+  expect(reaped).toBeGreaterThan(-1);
+  expect(reaped).toBeLessThan(events.findIndex((event) => event.kind === 'run-finished'));
+  expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.status).toBe(
+    'interrupted',
+  );
+});
+
+it('leaves alone a leaderless group with a member older than the run (R-G11, operator 2026-10-07)', async () => {
+  // A group the test starts before the run: its leader starts a member, then the test ends
+  // the leader alone.
+  const leader = spawn(
+    process.execPath,
+    [
+      '-e',
+      "const m = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); console.log(m.pid); setInterval(() => {}, 1000)",
+    ],
+    { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
+  );
+  const older = processGroupIdentity(leader.pid);
+  if (!older) throw new Error('no identity for the older group');
+  const olderMember = Number(
+    await new Promise<string>((resolve) =>
+      leader.stdout?.once('data', (data) => resolve(String(data))),
+    ),
+  );
+  const olderStart = startedAt(olderMember);
+  if (olderStart) members.push({ pid: olderMember, startTime: olderStart });
+  leader.kill('SIGKILL');
+  await waitFor(() => !processRunning(older.pid), 'the older leader to exit');
+  await new Promise((resolve) => setTimeout(resolve, 4000));
+  const { state, runId, backends, identityPath } = await liveRun();
+  writeFileSync(identityPath, JSON.stringify(older));
+
+  await restart(state, backends);
+
+  expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.status).toBe(
+    'interrupted',
+  );
+  expect(processRunning(olderMember)).toBe(true);
 });

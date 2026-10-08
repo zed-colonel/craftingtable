@@ -443,6 +443,32 @@ async function grantAndStart(fixture: Fixture) {
   await roadmapControl(fixture.f.state, 'start');
 }
 
+it('a standing preparation runs its owning entry’s investigation selection, which the decision settings offer (R-E5a characterization)', async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, saved, tx } = fixture;
+  // The entry saves no investigation profile: it inherits the design selection.
+  const inherited = { backend: 'claude-code', model: 'design-model' };
+  const settings = await f.state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${ws}/roadmaps/${saved.id}/decision-preparations`,
+    headers: { cookie: f.state.cookie },
+  });
+  expect(settings.statusCode, settings.body).toBe(200);
+  expect(
+    (settings.json() as { decisions: { profile: unknown }[] }).decisions.map((d) => d.profile),
+  ).toEqual(DECISIONS.map(() => inherited));
+  await grantAndStart(fixture);
+  await waitFor(() => !!preparation(fixture, 'LOCAL-ADR-01'), 'a standing preparation');
+  const p = preparation(fixture, 'LOCAL-ADR-01')!;
+  expect(p.profile).toEqual(inherited);
+  await waitFor(() => !!tx.execution.runs.find(ws, p.runId), 'its run');
+  expect(tx.execution.runs.find(ws, p.runId)).toMatchObject({
+    ...inherited,
+    permissionMode: 'edit-only',
+    profileSelection: { purpose: 'investigation', preparationId: p.id },
+  });
+});
+
 it('a busy repository leaves a standing preparation for the next pass, not failed (R-C3b review)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;

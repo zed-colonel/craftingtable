@@ -2133,7 +2133,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E5
 
-**Consolidate settings and agent selection** · Phase P3 · Effort M · Status: open
+**Consolidate settings and agent selection** · Phase P3 · Effort M · Status: in progress (R-E5a building on `p3/re5a`; R-E5b open)
 
 - **Resolves:** [UI-14](findings/UI-information-architecture.md#ui-14-settings-that-gate-progress-are-edited-in-many-places), [DATA-11](findings/DATA-storage-domain-contracts.md#data-11-agent-profile-and-selection-shapes-have-multiplied-and-are-stored-in-at-least-12-places)
 - **Change:** Settings sub-routes (general, agents, capacity, notifications, storage); per-roadmap overrides, reviewer responsibilities, integration policy and delegation in roadmap setup with effective values shown; per-action pickers show the effective selection with a "change for this action" disclosure; converge the seven near-identical profile types.
@@ -2147,6 +2147,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *Settled elsewhere:* capacity stays in Settings (UI-14); outside sources are shown on Repositories → Tools, read-only (R-G14). The ui-principles line "Link directly from a roadmap into its settings selection" is amended.
   - *Split:* R-E5a, the resolver and types on the daemon, can run any time; R-E5b, the UI, after R-A6's rest (DecisionPreparation's picker moves then).
   - *Left to the building session:* sub-route slugs, how an effective value's source is shown, the "change for this action" disclosure, whether cycle start offers a full editor or an override, the precedence copy, and what happens to `roadmaps/agent-profiles` and `run-profiles`.
+- **Progress (2026-10-07), R-E5a characterization.** Today the daemon resolves a selection in these places; each is pinned by a test that passes before the resolver exists and is kept unchanged after:
+  - *Workspace defaults* (`run-profiles`, `AgentRunService.resolveProfiles`): a role's saved profile, else its parent's (remediation from implementation, a specialist from its base step, conflict through remediation), else the daemon's default backend with `auto`. `server-execution-agent-selection.test.ts`.
+  - *Roadmap setup* (`roadmaps/agent-profiles`, `entryAgentSelections`): the latest ADR-064 assignment covering the entry, whole, else the saved definition's profiles. `agent-selection-places.test.ts`.
+  - *A cycle's launch* (`startForCycle` over `cycleAgentSelection`): a resumed session's own agent, then a design-question recovery's choice (design permissions), then finalization's stage and recovery profiles, then the integration resolution's recorded profile, then the latest assignment, then a service retry's recorded profile, then the cycle's own profiles (a specialist inherits its base; permissions are the step's, conflict's remediation's). The run records the assignment's id only when it runs the assignment's selection. `server-execution-agent-selection.test.ts` (each layer against `startForCycle`), `agent-selection-places.test.ts` (purposes and provenance); finalization's in `server-execution-finalization-stages.test.ts` and `finalization.test.ts`.
+  - *Future agents and repair cycles* (`effectiveCycleProfiles`, the projection's `nextAgentSelections`, a scope repair's profiles): the assignment's selections with the cycle's permissions, else the cycle's profiles. `agent-selection-places.test.ts`.
+  - *Investigation* (R-C16): the operator's choice, else the cycle's effective investigation selection (inherited from design), read-only. *Design questions*: the operator's choice; the automatic continue takes the effective design selection (`server-execution-cycles-design.test.ts`).
+  - *Integration resolution*, operator: the choice, else on resume the recorded profile, else the cycle's remediation profile, not its conflict specialist. *Delegated*: the latest assignment, then the definition's own conflict specialist, then the delegation's resolution profile, then the inherited remediation. `server-execution-agent-selection.test.ts`.
+  - *Decision preparation*: the operator's choice; under the standing grant, and as the settings offer it, the owning entry's effective investigation selection. `server-execution-decision-preparation.test.ts`.
+  - *Review evidence* (`assignedReviewMatches`): the assignment the run recorded, else the definition's selection for its purpose, with the definition's review permissions. `agent-selection-places.test.ts`, `agent-profile-policy.test.ts`.
+  - Explicit only, nothing resolved: a manual run, a handoff and finalization start take what the command submits.
 
 ### R-E6
 

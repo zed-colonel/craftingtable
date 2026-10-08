@@ -604,6 +604,26 @@ describe('agent runs', () => {
     expect(state.backend.launches[0]?.gitDirectories?.worktreeConfig).toBe(true);
   });
 
+  it("names Cargo's build directory only in a worktree that builds with Cargo (R-F2 part 6, AGT-55)", async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    writeFileSync(join(worktree.path, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+    git(['add', 'Cargo.toml'], worktree.path);
+    git(['commit', '-q', '-m', 'Build with Cargo'], worktree.path);
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, role: 'implement' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const launch = state.backend.launches[0];
+    expect(launch?.buildCacheDirectory).toBeTruthy();
+    expect(launch?.prompt).toContain(
+      `CARGO_TARGET_DIR points to ${launch?.buildCacheDirectory}, this worktree’s build cache.`,
+    );
+  });
+
   it('starts a run with a composed brief, streams events, accepts follow-ups, and finishes', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());
@@ -695,6 +715,10 @@ describe('agent runs', () => {
     });
     expect(parsedDetail.run.verdict).toBeUndefined();
     expect(parsedDetail.brief).toContain('Exit gate: Queue accepts and drains one job.');
+    // The fixture repository does not build with Cargo, so its brief says nothing of Cargo's
+    // build directory (R-F2 part 6, AGT-55); the variable is still set for the agent.
+    expect(parsedDetail.brief).not.toContain('CARGO_TARGET_DIR');
+    expect(launch?.environment?.CARGO_TARGET_DIR).toBeTruthy();
 
     const message = await state.context.app.inject({
       method: 'POST',
@@ -1283,9 +1307,11 @@ describe('agent runs', () => {
       expect(
         registered?.path.startsWith(join(state.context.config.execution.runsRoot, runId)),
       ).toBe(false);
-      expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.brief).toContain(
-        `CARGO_TARGET_DIR points to ${registered?.path}, this worktree’s build cache.`,
-      );
+      // The fixture does not build with Cargo, so its brief does not name the cache (AGT-55);
+      // the next test names it for a worktree that does.
+      expect(
+        state.context.storage.execution.runs.find(state.workspaceId, runId)?.brief,
+      ).not.toContain('CARGO_TARGET_DIR');
     }
   });
 

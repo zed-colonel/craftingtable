@@ -88,6 +88,13 @@ export function scopeCases(r: ResolvedScope): readonly string[] {
     ]),
   ];
 }
+/** Whether any of the scope's acceptance cases needs a Kata host: only then does a brief speak of Kata (AGT-55). */
+export function scopeNeedsKata(r: ResolvedScope): boolean {
+  const cases = new Set(scopeCases(r));
+  return r.definition.source.acceptance_coverage.some(
+    (c) => c.requires_kata_host && cases.has(c.id),
+  );
+}
 export function scopePhaseBlockers(
   tx: StorageRepositories,
   workspaceId: WorkspaceId,

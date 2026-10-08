@@ -50,8 +50,13 @@ export interface BriefInput {
   readonly temporaryDirectory?: string;
   /** The worktree's shared Cargo target directory, when the daemon provides one (R-G7). */
   readonly buildCacheDirectory?: string;
-  /** The run has CraftingTable's Cargo launcher and checks, which choose their own build directories (LIVE-26). */
-  readonly launchers?: boolean;
+  /**
+   * The worktree builds with Cargo: it has a `Cargo.toml`, or a pinned Cargo environment. Only
+   * then does the brief speak of Cargo's build directory (R-F2 part 6, AGT-55).
+   */
+  readonly cargo?: boolean;
+  /** What the daemon prepared for the run's builds and checks, rendered as data (AGT-55). */
+  readonly environment?: BriefEnvironment;
   readonly reviewBranchContext?: ReviewBranchContext;
   readonly role: AgentRunRole;
   readonly projectName: string;
@@ -87,6 +92,45 @@ export interface BriefInput {
   readonly investigation?: boolean;
   /** The run this one continues from, with its final message. */
   readonly parentRun?: BriefParentRun;
+}
+
+/** A run's build environment, as the daemon prepared it (R-F2 part 6, AGT-55). */
+export interface BriefEnvironment {
+  readonly pinned?: BriefPinnedEnvironment;
+  /** A check-only run's adopted checks, from `declaredChecksBrief` (R-G13 increment 4). */
+  readonly checkOnly?: string;
+  /** The controller-prepared historical baseline, for characterization only. */
+  readonly historical?: {
+    readonly manifestPath: string;
+    readonly workspacePath: string;
+    readonly launcher: string;
+    readonly receiptPath: string;
+  };
+}
+
+/** A pinned Cargo environment: the manifest, its launchers and the policy it enforces. */
+export interface BriefPinnedEnvironment {
+  readonly manifestPath: string;
+  readonly binDirectory: string;
+  /** The native verification approval, when the run may use `ct-native`. */
+  readonly nativeApprovalId?: string;
+  readonly verification: { readonly mode: string; readonly reason: string };
+  readonly dependencies: readonly BriefUpstreamSource[];
+  /** The run is held to its repository's adopted checks. */
+  readonly adoptedChecks: boolean;
+  /** Those checks and their commands, from `declaredChecksBrief`. */
+  readonly declaredChecks: string;
+  /** The local CI runner's image, when one is configured. */
+  readonly localCiImage?: string;
+  /** Some of the scope's acceptance cases need a Kata host (AGT-55: the Kata lines). */
+  readonly kata: boolean;
+}
+
+export interface BriefUpstreamSource {
+  readonly alias: string;
+  readonly commitSha: string;
+  readonly purpose: string;
+  readonly transition?: { readonly slice: string; readonly recordId?: string };
 }
 
 export interface BriefParentRun {
@@ -312,10 +356,12 @@ export function composeBrief(input: BriefInput): string {
       [
         '## Temporary files',
         `TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. ${
-          input.buildCacheDirectory
-            ? `CARGO_TARGET_DIR points to ${input.buildCacheDirectory}, this worktree’s build cache. Earlier steps in this worktree built into it, so builds are incremental; keep build outputs there rather than creating another target directory, and do not put evidence inside it. It is removed when the worktree is merged or removed.${input.launchers ? ' The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead (see the pinned dependency environment below).' : ''}`
-            : 'CARGO_TARGET_DIR points to this run’s scratch/target build cache. Keep build outputs there and do not put evidence inside a build cache. Recognized build caches are disposable and may be removed when this run ends, including failed or cancelled runs.'
-        } Verification logs and reports belong in separate scratch/verification or scratch/review directories. Other scratch may expire under the storage policy, and source edits remain restricted to the worktree; this directory is for temporary data only.`,
+          !input.cargo
+            ? ''
+            : input.buildCacheDirectory
+              ? `CARGO_TARGET_DIR points to ${input.buildCacheDirectory}, this worktree’s build cache. Earlier steps in this worktree built into it, so builds are incremental; keep build outputs there rather than creating another target directory, and do not put evidence inside it. It is removed when the worktree is merged or removed.${input.environment?.pinned ? ' The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead (see the build environment below).' : ''} `
+              : 'CARGO_TARGET_DIR points to this run’s scratch/target build cache. Keep build outputs there and do not put evidence inside a build cache. Recognized build caches are disposable and may be removed when this run ends, including failed or cancelled runs. '
+        }Verification logs and reports belong in separate scratch/verification or scratch/review directories. Other scratch may expire under the storage policy, and source edits remain restricted to the worktree; this directory is for temporary data only.`,
       ].join('\n\n'),
     );
   }
@@ -429,5 +475,61 @@ export function composeBrief(input: BriefInput): string {
       ].join('\n\n'),
     );
   }
+  const environment = environmentSection(input.environment);
+  if (environment) sections.push(environment);
   return `${sections.join('\n\n')}\n`;
+}
+
+/** Which source each upstream link was supplied from, and the transition that decided it (ADR-069). */
+function upstreamSources(dependencies: readonly BriefUpstreamSource[]): string {
+  if (!dependencies.length) return 'Upstream sources: none supplied for this scope.';
+  const line = (d: BriefUpstreamSource) =>
+    `- ${d.alias}: ${d.purpose === 'current-upstream' ? 'current pin' : 'historical development source'} ${d.commitSha.slice(0, 12)}${d.transition ? ` (moves to the current pin at ${d.transition.slice}${d.transition.recordId ? `, declared by operator record ${d.transition.recordId}` : ', declared in the map'})` : ''}`;
+  return `Upstream sources, chosen per link by the roadmap's declared transitions:\n${dependencies.map(line).join('\n')}\nBuild against exactly these sources. A link on its current pin already moved in this tree's history; do not revert it to a historical version.`;
+}
+
+/**
+ * The run's build environment, from what the daemon prepared (R-F2 part 6, AGT-55): the pinned
+ * Cargo environment and its policy, a check-only run's adopted checks, the historical baseline.
+ * Text about Kata appears only for a scope with Kata cases, and nothing names a toolchain
+ * version the daemon does not know.
+ */
+function environmentSection(environment: BriefEnvironment | undefined): string {
+  if (!environment) return '';
+  const parts: string[] = [];
+  const pinned = environment.pinned;
+  if (pinned) {
+    const bin = pinned.binDirectory;
+    parts.push(
+      [
+        `Pinned dependency environment: ${pinned.manifestPath}`,
+        ...(pinned.nativeApprovalId
+          ? [
+              `Managed native verification is approved for this run (${pinned.nativeApprovalId}). Execute applicable non-sensitive repository fixtures using ${bin}/ct-native -- <executable> <arguments>. It provides a fresh HOME/TMPDIR and bounded user service (4 CPUs, 8 GiB, 512 tasks, at most 30 minutes). Retained receipts bind exact clean candidate, dependency manifest, environment approval and logs. Use supplied Cargo for dependency-bearing checks. ct-check/ct-act and inherited implementation results cannot substitute for native verification. Do not use live service credentials${pinned.kata ? ' or claim Kata observations' : ''}; report every scope requirement independently. This is cooperative native execution under the existing OS-user trust model, not a hostile-code sandbox.`,
+            ]
+          : []),
+        `Verification policy: ${pinned.verification.mode}. ${pinned.verification.reason}`,
+        upstreamSources(pinned.dependencies),
+        `Use the controller Cargo launcher ${bin}/cargo for Cargo checks (also supplied on PATH). Do not override supplied sources or use a neighboring checkout. CraftingTable runs its builds and tests, and ct-check/ct-act/ct-native, itself and relays the output; builds and checks run without network, so run cargo fetch first when dependencies must be downloaded. Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses, and the launcher's other Cargo commands use the manifest's (the run’s scratch/target), whatever CARGO_TARGET_DIR says; that is expected, and receipts do not depend on it. Do not edit the manifest or override the build directory (--target-dir or CARGO_TARGET_DIR) for them.`,
+        'The launcher also supports supplementary checks whose resolved graph contains no upstream packages, such as independent foundation/contract manifests within an integration run. Use the same launcher and ct-check normally; no explicit-config bypass or artificial upstream dependency is needed. Their supplementary-check receipts cannot satisfy the current-upstream build requirement.',
+        pinned.verification.mode === 'scoped-checks'
+          ? `Use ${bin}/ct-check -- <executable> <arguments> to retain repository-owned contract, inventory, fixture or domain test evidence. Use ${bin}/ct-act -W .github/workflows/<file>.yml -j <job> for local GitHub Actions execution; CI is supplemental and does not count as the scoped check. ${pinned.adoptedChecks ? 'The adopted checks below are required on the exact clean reviewed commit' : 'A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required'}, together with independent evidence for EVERY scope obligation. Any prepared historical dependency commits are development inputs only. Do not port upstream code or align the workspace to current pins beyond the upstream links supplied as current pins above merely to satisfy this slice. Document known baseline failures separately; new scope checks must pass.`
+          : `A successful Cargo build/test using current exact pins is required before merge/acceptance${pinned.adoptedChecks ? ', with the adopted checks below' : ''}. Other ct-check and ct-act logs supplement but never replace that receipt. Align constraints only within the approved integration scope.`,
+        `${pinned.declaredChecks}Local CI: ${pinned.localCiImage ? `configured with image ${pinned.localCiImage}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native${pinned.kata ? '/Kata' : ''} qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.`,
+      ].join('\n'),
+    );
+  } else if (environment.checkOnly) parts.push(environment.checkOnly.trimEnd());
+  const historical = environment.historical;
+  if (historical)
+    parts.push(
+      [
+        'Controller-prepared historical baseline (characterization only):',
+        `Manifest: ${historical.manifestPath}`,
+        `Historical workspace: ${historical.workspacePath}`,
+        `Historical Cargo: ${historical.launcher}`,
+        `Command receipts: ${historical.receiptPath}`,
+        "Use this separate launcher ONLY to collect the historical baseline. It uses original lockfiles and historical sibling sources, not current upstream pins. For candidate checks, follow the scope verification policy above and use the normal controller Cargo launcher. Reuse recorded historical evidence with matching source identities; collect missing baseline build/test or recovery/benchmark evidence only when required by the plan, within this run's deadline. Record exact failures and missing prerequisites. Do not port historical code, change dependencies/lockfiles or fabricate results. Preserve summaries, measurements and non-Cargo logs under historical-evidence (outside disposable scratch). Do not ask the operator to provision ordinary worktrees or these already supplied sources. Historical results never satisfy current-runtime build gates. Genuine architectural/implementation decisions remain the operator's authority; collected facts do not authorize deviations.",
+      ].join('\n'),
+    );
+  return parts.length ? `## Build environment\n\n${parts.join('\n\n')}` : '';
 }

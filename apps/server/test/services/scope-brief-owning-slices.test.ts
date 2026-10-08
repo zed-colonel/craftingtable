@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest';
-import { type ResolvedScope, scopeBrief } from '../../src/services/execution-scope.js';
+import {
+  type ResolvedScope,
+  scopeBrief,
+  scopeNeedsKata,
+} from '../../src/services/execution-scope.js';
 
 const slice = (id: string) => ({ id, scope: `${id} scope`, excludes: [`not ${id}`] });
 const resolved = (kind: 'parent-acceptance' | 'slice') =>
@@ -34,4 +38,26 @@ it("offers a parent reviewer only the parent's required slices as owners (LIVE-2
     slice('wi/WI-1/api'),
   ]);
   expect(scopeBrief(resolved('slice'))).not.toHaveProperty('owningSlices');
+});
+
+it('speaks of Kata only for a scope whose own cases need a Kata host (R-F2 part 6, AGT-55)', () => {
+  const withCoverage = (requiresKata: boolean, slices: string[]) => {
+    const r = resolved('slice');
+    return {
+      ...r,
+      definition: {
+        ...r.definition,
+        source: {
+          ...r.definition.source,
+          acceptance_coverage: [
+            { id: 'K-1', requires_kata_host: requiresKata, producing_slices: slices },
+          ],
+        },
+      },
+    } as unknown as ResolvedScope;
+  };
+  expect(scopeNeedsKata(withCoverage(true, ['wi/WI-1/domain']))).toBe(true);
+  expect(scopeNeedsKata(withCoverage(false, ['wi/WI-1/domain']))).toBe(false);
+  // Another slice's Kata case is not this scope's.
+  expect(scopeNeedsKata(withCoverage(true, ['wi/WI-1/api']))).toBe(false);
 });

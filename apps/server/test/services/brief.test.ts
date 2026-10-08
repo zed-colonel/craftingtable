@@ -141,3 +141,69 @@ describe('composeBrief scoped review report', () => {
     expect(scoped('implement')).not.toContain('scopeEvidence');
   });
 });
+
+describe('composeBrief build environment (R-F2 part 6, AGT-55)', () => {
+  const pinned = (kata: boolean) =>
+    ({
+      manifestPath: '/runs/r1/dependencies/manifest.json',
+      binDirectory: '/runs/r1/dependencies/bin',
+      verification: { mode: 'current-upstream-build', reason: 'Integration scope.' },
+      dependencies: [
+        { alias: 'aq', commitSha: '29e096c4f06985d1a9bd', purpose: 'current-upstream' },
+      ],
+      adoptedChecks: false,
+      declaredChecks: '',
+      localCiImage: 'craftingtable-ci@sha256:4593',
+      nativeApprovalId: 'approval-1',
+      kata,
+    }) as const;
+
+  it('says nothing of Cargo in a worktree that does not build with it', () => {
+    const brief = composeBrief(briefInput({ temporaryDirectory: '/runs/r1/scratch' }));
+    expect(brief).toContain('TMPDIR, TMP, and TEMP point to /runs/r1/scratch');
+    expect(brief).not.toContain('CARGO_TARGET_DIR');
+    expect(brief).not.toContain('Cargo');
+  });
+
+  it("names Cargo's build directory for a worktree that builds with Cargo", () => {
+    expect(
+      composeBrief(briefInput({ temporaryDirectory: '/runs/r1/scratch', cargo: true })),
+    ).toContain('CARGO_TARGET_DIR points to this run’s scratch/target build cache.');
+  });
+
+  it('renders the pinned environment from its data, under its own heading', () => {
+    const brief = composeBrief(
+      briefInput({
+        temporaryDirectory: '/runs/r1/scratch',
+        buildCacheDirectory: '/runs/worktree-caches/w1',
+        cargo: true,
+        environment: { pinned: pinned(false) },
+      }),
+    );
+    expect(brief).toContain(
+      '## Build environment\n\nPinned dependency environment: /runs/r1/dependencies/manifest.json',
+    );
+    expect(brief).toContain('Use the controller Cargo launcher /runs/r1/dependencies/bin/cargo');
+    expect(brief).toContain('- aq: current pin 29e096c4f069');
+    // LIVE-26's wording, in both places that speak of the build directory.
+    expect(brief).toContain(
+      "Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses",
+    );
+    expect(brief).toContain(
+      'The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead',
+    );
+    // R-G14: builds have no network, so dependencies are fetched first.
+    expect(brief).toContain('run cargo fetch first when dependencies must be downloaded');
+    expect(brief).toContain('Local CI: configured with image craftingtable-ci@sha256:4593.');
+    // No stale incident note, no toolchain version the daemon does not know, no Kata.
+    expect(brief).not.toContain('Earlier reports describing rejection');
+    expect(brief).not.toContain('Rust 1.89');
+    expect(brief).not.toMatch(/kata/i);
+  });
+
+  it('speaks of Kata only for a scope with Kata cases', () => {
+    const brief = composeBrief(briefInput({ cargo: true, environment: { pinned: pinned(true) } }));
+    expect(brief).toContain('Do not use live service credentials or claim Kata observations');
+    expect(brief).toContain('CI receipts do not establish external native/Kata qualification.');
+  });
+});

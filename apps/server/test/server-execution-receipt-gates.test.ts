@@ -225,6 +225,12 @@ itNeedsCargo(
       expect(prompt).toContain(
         'The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead',
       );
+    // The environment is rendered from the run's data (R-F2 part 6, AGT-55): no stale incident
+    // note, no toolchain version, and no Kata text for a scope without Kata cases.
+    expect(prompt).toContain('## Build environment');
+    expect(prompt).not.toContain('Earlier reports describing rejection');
+    expect(prompt).not.toContain('Rust 1.89');
+    expect(prompt).not.toMatch(/kata/i);
     // A reviewer runs them read-only on the reviewed head, and is not told to commit.
     expect(prompt).toContain("this review's gate needs a successful run of EACH");
     expect(prompt).not.toContain('After committing');

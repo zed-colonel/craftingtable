@@ -97,6 +97,7 @@ import {
   resolveScope,
   scopeBrief,
   scopeEvidenceLedger,
+  scopeNeedsKata,
 } from './execution-scope.js';
 import { finalizationForCycle, finalizationInstructions } from './finalization-policy.js';
 import { assessStageReport } from './finalization-stage-policy.js';
@@ -270,21 +271,6 @@ function summarise(text: string): string {
  * are guarded by expected-status sets so a late process callback can never
  * regress a run the operator already cancelled.
  */
-/** Which source each upstream link was supplied from, and the transition that decided it (ADR-069). */
-function upstreamSourcesBrief(
-  dependencies: readonly {
-    alias: string;
-    commitSha: string;
-    purpose: string;
-    transition?: { slice: string; recordId?: string };
-  }[],
-): string {
-  if (!dependencies.length) return 'Upstream sources: none supplied for this scope.';
-  const line = (d: (typeof dependencies)[number]) =>
-    `- ${d.alias}: ${d.purpose === 'current-upstream' ? 'current pin' : 'historical development source'} ${d.commitSha.slice(0, 12)}${d.transition ? ` (moves to the current pin at ${d.transition.slice}${d.transition.recordId ? `, declared by operator record ${d.transition.recordId}` : ', declared in the map'})` : ''}`;
-  return `Upstream sources, chosen per link by the roadmap's declared transitions:\n${dependencies.map(line).join('\n')}\nBuild against exactly these sources. A link on its current pin already moved in this tree's history; do not revert it to a historical version.`;
-}
-
 /**
  * The repository's adopted checks a run's gates are held to (R-G13), and the command that runs
  * each: the gate counts only the daemon's runs of them, so the agent must know to ask (LIVE-23).
@@ -1670,7 +1656,7 @@ export class AgentRunService {
           path,
         });
       }
-      const composedBrief = composeBrief({
+      const brief = composeBrief({
         repositoryPolicyGuidance: REPOSITORY_POLICY_GUIDANCE,
         ...(scope ? { executionScope: scopeBrief(scope) } : {}),
         ...(prepared.worktree.planVersionId &&
@@ -1702,7 +1688,60 @@ export class AgentRunService {
         ...(investigation ? { investigation: true } : {}),
         temporaryDirectory,
         ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
-        ...(pinned ? { launchers: true } : {}),
+        // A pinned environment is Cargo's; otherwise the worktree's own manifest says (AGT-55).
+        ...(pinned || existsSync(join(prepared.worktree.path, 'Cargo.toml'))
+          ? { cargo: true }
+          : {}),
+        ...(pinned || checksOnly || historical
+          ? {
+              environment: {
+                ...(pinned
+                  ? {
+                      pinned: {
+                        manifestPath: pinned.manifestPath,
+                        binDirectory: pinned.binDirectory,
+                        ...(pinned.nativeVerification
+                          ? { nativeApprovalId: pinned.nativeVerification.approvalId }
+                          : {}),
+                        verification: pinned.verification,
+                        dependencies: pinned.dependencies,
+                        adoptedChecks: !!pinned.checkDeclarationId,
+                        declaredChecks: declaredChecksBrief(
+                          this.storage,
+                          workspaceId,
+                          input.role,
+                          pinned,
+                        ),
+                        ...(pinned.localCi ? { localCiImage: pinned.localCi.image } : {}),
+                        kata: !!scope && scopeNeedsKata(scope),
+                      },
+                    }
+                  : {}),
+                // A check-only run's brief names its adopted checks, and nothing of Cargo (R-G13
+                // increment 4).
+                ...(checksOnly
+                  ? {
+                      checkOnly: declaredChecksBrief(
+                        this.storage,
+                        workspaceId,
+                        input.role,
+                        checksOnly,
+                      ),
+                    }
+                  : {}),
+                ...(historical
+                  ? {
+                      historical: {
+                        manifestPath: historical.manifestPath,
+                        workspacePath: historical.workspacePath,
+                        launcher: historical.launcher,
+                        receiptPath: historical.receiptPath,
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
         role: input.role,
         projectName: prepared.project.name,
         workItem: {
@@ -1747,43 +1786,6 @@ export class AgentRunService {
               },
             }),
       });
-      // A check-only run's brief names its adopted checks, and nothing of Cargo (R-G13 increment 4).
-      const checksOnlySection = checksOnly
-        ? declaredChecksBrief(this.storage, workspaceId, input.role, checksOnly)
-        : '';
-      let brief =
-        composedBrief +
-        (pinned
-          ? `
-
-Pinned dependency environment: ${pinned.manifestPath}
-${pinned.nativeVerification ? `Managed native verification is approved for this run (${pinned.nativeVerification.approvalId}). Execute applicable non-sensitive repository fixtures using ${pinned.binDirectory}/ct-native -- <executable> <arguments>. It provides a fresh HOME/TMPDIR and bounded user service (4 CPUs, 8 GiB, 512 tasks, at most 30 minutes). Retained receipts bind exact clean candidate, dependency manifest, environment approval and logs. Use supplied Cargo for dependency-bearing checks. ct-check/ct-act and inherited implementation results cannot substitute for native verification. Do not use live service credentials or claim Kata observations; report every scope requirement independently. This is cooperative native execution under the existing OS-user trust model, not a hostile-code sandbox.` : ''}
-Verification policy: ${pinned.verification.mode}. ${pinned.verification.reason}
-${upstreamSourcesBrief(pinned.dependencies)}
-Use the controller Cargo launcher ${pinned.binDirectory}/cargo for Cargo checks (also supplied on PATH). Do not override supplied sources or use a neighboring checkout. CraftingTable runs its builds and tests, and ct-check/ct-act/ct-native, itself and relays the output; builds and checks run without network, so run cargo fetch first when dependencies must be downloaded. Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses, and the launcher's other Cargo commands use the manifest's (the run’s scratch/target), whatever CARGO_TARGET_DIR says; that is expected, and receipts do not depend on it. Do not edit the manifest or override the build directory (--target-dir or CARGO_TARGET_DIR) for them.
-The launcher also supports supplementary checks whose resolved graph contains no upstream packages, such as independent foundation/contract manifests within an integration run. Use the same launcher and ct-check normally; no explicit-config bypass or artificial upstream dependency is needed. Their supplementary-check receipts cannot satisfy the current-upstream build requirement. Earlier reports describing rejection of upstream-free checks refer to the previous launcher; verify with this run's supplied launcher and update stale instructions without waiving any checks.
-${
-  pinned.verification.mode === 'scoped-checks'
-    ? `Use ${pinned.binDirectory}/ct-check -- <executable> <arguments> to retain repository-owned contract, inventory, fixture or domain test evidence. Use ${pinned.binDirectory}/ct-act -W .github/workflows/<file>.yml -j <job> for local GitHub Actions execution; CI is supplemental and does not count as the scoped check. ${pinned.checkDeclarationId ? 'The adopted checks below are required on the exact clean reviewed commit' : 'A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required'}, together with independent evidence for EVERY scope obligation. Any prepared historical dependency commits are development inputs only. Do not port upstream code or align the workspace to current pins beyond the upstream links supplied as current pins above merely to satisfy this slice. Document known baseline failures separately; new scope checks must pass.`
-    : `A successful Cargo build/test using current exact pins is required before merge/acceptance${pinned.checkDeclarationId ? ', with the adopted checks below' : ''}. Other ct-check and ct-act logs supplement but never replace that receipt. Align constraints only within the approved integration scope.`
-}
-${declaredChecksBrief(this.storage, workspaceId, input.role, pinned)}Local CI: ${pinned.localCi ? `configured with image ${pinned.localCi.image}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. The image includes Rust 1.89, rustfmt/clippy and native build tools. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native/Kata qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.
-`
-          : checksOnlySection
-            ? `\n\n${checksOnlySection}`
-            : '');
-      const historicalBrief = historical
-        ? `
-
-Controller-prepared historical baseline (characterization only):
-Manifest: ${historical.manifestPath}
-Historical workspace: ${historical.workspacePath}
-Historical Cargo: ${historical.launcher}
-Command receipts: ${historical.receiptPath}
-Use this separate launcher ONLY to collect the historical baseline. It uses original lockfiles and historical sibling sources, not current upstream pins. For candidate checks, follow the scope verification policy above and use the normal controller Cargo launcher. Reuse recorded historical evidence with matching source identities; collect missing baseline build/test or recovery/benchmark evidence only when required by the plan, within this run's deadline. Record exact failures and missing prerequisites. Do not port historical code, change dependencies/lockfiles or fabricate results. Preserve summaries, measurements and non-Cargo logs under historical-evidence (outside disposable scratch). Do not ask the operator to provision ordinary worktrees or these already supplied sources. Historical results never satisfy current-runtime build gates. Genuine architectural/implementation decisions remain the operator's authority; collected facts do not authorize deviations.
-`
-        : '';
-      brief += historicalBrief;
       writeFileSync(join(runDirectory, 'brief.md'), brief, { mode: 0o600 });
 
       // Nor after a drain that began while the evidence, baseline or policy was prepared.

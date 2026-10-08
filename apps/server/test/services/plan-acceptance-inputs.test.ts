@@ -38,6 +38,10 @@ const facts = () => ({
     generation: 9,
     createdAt: '2026-10-01T00:00:00.000Z',
     environments: [{ id: 'local' }],
+    consumers: [
+      { alias: 'wi', upstreams: ['aq'] },
+      { alias: 'exo', upstreams: ['wi', 'aq'] },
+    ],
     pins: [
       {
         alias: 'wi',
@@ -131,17 +135,24 @@ describe('plan-acceptance inputs (R-C6 D1)', () => {
       ],
       target: { targetId: 'FULL-STACK-RELEASE', selection: 'prioritize-full' },
       resources: { profiles: [{ id: 'isolated' }], locks: [{ id: 'wi-target-branch' }] },
-      upstreamPins: [
-        {
-          alias: 'aq',
-          commitSha: '2'.repeat(40),
-          conformanceRevision: '16',
-          packages: [
-            { name: 'aq_a', path: 'a' },
-            { name: 'aq_b', path: 'b' },
-          ],
-        },
-      ],
+      upstreamPins: {
+        pins: [
+          {
+            alias: 'aq',
+            commitSha: '2'.repeat(40),
+            conformanceRevision: '16',
+            packages: [
+              { name: 'aq_a', path: 'a' },
+              { name: 'aq_b', path: 'b' },
+            ],
+          },
+        ],
+        // Each consumer's supply of implemented upstreams (operator, 2026-10-08, R-C6 OD2).
+        supply: [
+          { consumer: 'exo', upstreams: ['aq'] },
+          { consumer: 'wi', upstreams: ['aq'] },
+        ],
+      },
     });
   });
 
@@ -193,6 +204,13 @@ describe('plan-acceptance inputs (R-C6 D1)', () => {
       (f) => Object.assign(f.runtime.pins[1]!, { ref: 'release' }),
     ],
     [
+      'a consumer link to a planned application, and supply order',
+      (f) => {
+        f.runtime.consumers[1]!.upstreams = ['aq'];
+        f.runtime.consumers.reverse();
+      },
+    ],
+    [
       'host capacities',
       (f) => Object.assign(f.resources, { developmentCapacity: 1, verificationCapacity: 1 }),
     ],
@@ -238,6 +256,11 @@ describe('plan-acceptance inputs (R-C6 D1)', () => {
     [
       'the implemented-upstream pin',
       (f) => Object.assign(f.runtime.pins[1]!, { commitSha: '4'.repeat(40) }),
+      'upstreamPins',
+    ],
+    [
+      'a consumer no longer taking an implemented upstream another still takes',
+      (f) => Object.assign(f.runtime.consumers[0]!, { upstreams: [] }),
       'upstreamPins',
     ],
     ['the map', (f) => Object.assign(f.map, { digest: 'b'.repeat(64) }), 'map'],

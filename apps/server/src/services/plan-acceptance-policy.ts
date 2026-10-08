@@ -145,6 +145,10 @@ interface SavedPlanFacts {
   readonly planArchives: unknown;
   readonly adoption?: { readonly decisionIds: readonly string[] };
   readonly runtime?: {
+    readonly consumers?: readonly {
+      readonly alias: string;
+      readonly upstreams: readonly string[];
+    }[];
     readonly pins: readonly {
       readonly alias: string;
       readonly ref?: string;
@@ -171,9 +175,10 @@ const byKey =
  * What plan acceptance covers (R-C6 D1): the map's identity and archives; the binding and plan
  * archives; the adopted scheduling decisions; decisions with staged clauses (ADR-059); each
  * entry's reviewer roles; the target and selection; the map's resource profiles and locks; and
- * the implemented-upstream pins. Names, instructions, model profiles, automation, policy
- * (parent acceptance included), timestamps, consumer integration pins (ADR-069) and host
- * capacities are not inputs, and neither are the saved revision or the runtime generation.
+ * the implemented-upstream pins with the consumers each supplies. Names, instructions, model
+ * profiles, automation, policy (parent acceptance included), timestamps, consumer integration
+ * pins (ADR-069), host capacities and runtime environments are not inputs, and neither are the
+ * saved revision or the runtime generation.
  */
 export function planAcceptanceInputs(facts: SavedPlanFacts): PlanAcceptanceInputs {
   const upstream = new Set(
@@ -200,14 +205,25 @@ export function planAcceptanceInputs(facts: SavedPlanFacts): PlanAcceptanceInput
       ? { targetId: crossProject.targetId, selection: crossProject.selection }
       : null,
     resources: { profiles: facts.resources.profiles, locks: facts.resources.locks },
-    // The commit, crate mappings and conformance identity, as runtime inputs compare them.
-    upstreamPins: (facts.runtime?.pins ?? [])
-      .filter((p) => upstream.has(p.alias))
-      .map(({ ref: _ref, ...pin }) => ({
-        ...pin,
-        packages: [...pin.packages].sort(byKey((p) => p.name)),
-      }))
-      .sort(byKey((p) => p.alias)),
+    upstreamPins: {
+      // The commit, crate mappings and conformance identity, as runtime inputs compare them.
+      pins: (facts.runtime?.pins ?? [])
+        .filter((p) => upstream.has(p.alias))
+        .map(({ ref: _ref, ...pin }) => ({
+          ...pin,
+          packages: [...pin.packages].sort(byKey((p) => p.name)),
+        }))
+        .sort(byKey((p) => p.alias)),
+      // Which implemented upstreams each consumer takes (decided by the operator 2026-10-08,
+      // R-C6 review OD2): dropping one from a consumer re-opens acceptance though the pin stays.
+      supply: (facts.runtime?.consumers ?? [])
+        .map((c) => ({
+          consumer: c.alias,
+          upstreams: c.upstreams.filter((u) => upstream.has(u)).sort(),
+        }))
+        .filter((c) => c.upstreams.length)
+        .sort(byKey((c) => c.consumer)),
+    },
   };
 }
 /**

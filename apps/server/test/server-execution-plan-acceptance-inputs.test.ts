@@ -377,10 +377,13 @@ it('carries the acceptance when the operator approves decision clauses', async (
   });
 });
 
-// The implemented-upstream pin moves only through the operator's reviewed refresh.
-it('carries the acceptance when the operator refreshes the implemented-upstream pin', async () => {
+/**
+ * `acceptedPlan` on a map with an implemented upstream, `provider`, pinned in a real repository
+ * at binding revision 2 (the local consumer takes it), so dependency commands can move its pin.
+ */
+async function providerPlan() {
   let provider = '';
-  const { f, svc, ws, id, first, carried, decisionOf, state } = await acceptedPlan({
+  const plan = await acceptedPlan({
     amend: (source) => ({
       ...source,
       repositories: [
@@ -444,7 +447,7 @@ it('carries the acceptance when the operator refreshes the implemented-upstream 
             packages: pin.packages,
           },
         ],
-        consumers: [{ alias: 'local', upstreams: [] }],
+        consumers: [{ alias: 'local', upstreams: ['provider'] }],
         environments: [...local.environments],
       });
       const adopted = await mapCommand(f, 'adopt', {
@@ -456,6 +459,35 @@ it('carries the acceptance when the operator refreshes the implemented-upstream 
       return 2;
     },
   });
+  /** Saves the dependency environment again through advanced setup, as `change` edits it. */
+  const configure = (
+    change: (c: { upstreams: string[] }) => { upstreams: string[] } = (c) => c,
+    context: typeof plan.f.auth = plan.f.auth,
+  ) => {
+    const current = plan.storage.runtimeEvidence.generations(plan.ws, plan.id, 2)[0]!;
+    return plan.svc.configure(context, plan.ws, plan.id, {
+      bindingRevision: 2,
+      expectedGeneration: current.generation,
+      pins: current.pins.map((p) => ({
+        alias: p.alias,
+        ref: p.ref,
+        expectedCommitSha: p.commitSha,
+        conformanceRevision: p.conformanceRevision,
+        packages: [...p.packages],
+      })),
+      consumers: current.consumers.map((c) => ({
+        alias: c.alias,
+        ...change({ upstreams: [...c.upstreams] }),
+      })),
+      environments: [...current.environments],
+    });
+  };
+  return { ...plan, provider, configure };
+}
+
+// The implemented-upstream pin moves only through the operator's reviewed refresh.
+it('carries the acceptance when the operator refreshes the implemented-upstream pin', async () => {
+  const { f, svc, ws, id, first, carried, decisionOf, state, provider } = await providerPlan();
   commitFile(provider, 'POLICY.md', 'A provider change the operator reviews.');
   const input = { bindingRevision: 2, expectedGeneration: 1 };
   const preview = await svc.previewRefresh(f.auth, ws, id, input);
@@ -469,6 +501,18 @@ it('carries the acceptance when the operator refreshes the implemented-upstream 
   expect(decision.carriedFrom).toBe(decisionOf(first.id)!.id);
   expect(audit?.metadata).toMatchObject({ command: 'dependency refresh' });
   expect(await state()).toBe('accepted');
+});
+
+// Decided by the operator 2026-10-08 (R-C6 review OD2): which implemented upstreams each
+// consumer takes is part of the pins input, so dropping one re-opens acceptance though the pin
+// stays.
+it('re-opens acceptance when a consumer stops taking an implemented upstream', async () => {
+  const { first, accepted, configure, generate } = await providerPlan();
+  await configure((c) => c);
+  expect(accepted()?.id).toBe(first.id);
+  await configure(() => ({ upstreams: [] }));
+  expect(accepted()).toBeUndefined();
+  expect((await generate()).generatedPlan).toMatchObject({ changedInputs: ['upstreamPins'] });
 });
 
 // Done-when (d) and D2: a new binding never carries, and nothing without an operator's

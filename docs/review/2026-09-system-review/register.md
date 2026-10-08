@@ -1126,6 +1126,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *The refresh's pause reason* no longer tells the operator to accept the updated plan ("Check plan acceptance, then Resume…").
   - *Reads.* Generation's scan for an existing package and the carry's checks read through one snapshot per side, so the saved plan is collected once; one `sha256` helper.
   - *Left as decided:* the plain runtime `configure` still does not carry (D2 names the reviewed refresh). A v1 acceptance therefore lapses on an advanced dependency save, as it did before; under v2 that save re-opens acceptance only when it moves an implemented-upstream pin.
+- **Independent review (2026-10-08) and fixes.** The review of `7287494` found 0 high, 1 medium and 3 low, and confirmed done-when (e)'s table and the replays on its own snapshot copy. Three decisions came with it.
+  - *Decided by the operator 2026-10-08 (review M1, first half, OD2):* the `upstreamPins` input also carries, for each consumer, the sorted list of implemented upstreams it takes (`supply`; consumers taking none are left out, links to planned applications do not count). Dropping `aq` from wi's upstreams while exo keeps the pin re-opens acceptance, as it did under v1. Tests: the unit cases (a consumer dropping an implemented upstream re-opens; a link to a planned application and the supply order do not) and `re-opens acceptance when a consumer stops taking an implemented upstream` (advanced setup drops the provider from the local consumer; the next package names `upstreamPins`), which fails without the supply list. Done-when (e)'s analysis, re-run with it: the table does not move (6 re-generated, 0 operator actions); no live consumer's supply changed.
 
 ### R-C7
 

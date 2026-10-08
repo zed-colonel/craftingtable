@@ -34,7 +34,8 @@ roadmap" for one case.
 **What re-opens acceptance (FMT-17).** The map's identity and archives; the binding and plan
 archives; the adopted scheduling decisions; decisions with staged clauses (ADR-059); each entry's
 reviewer roles; the target and selection; the map's resource profiles and locks; and the
-implemented-upstream pins (commit, tree, crate mappings and conformance). Nothing else does:
+implemented-upstream pins (commit, tree, crate mappings and conformance) with the list of
+implemented upstreams each consumer takes (operator, 2026-10-08). Nothing else does:
 not names, instructions, model profiles, automation, completion or parent-acceptance policy,
 roadmap scheduling limits, timestamps or the saved revision, a save that changes nothing,
 consumer integration pins (ADR-069 governs those), the runtime generation or its environments,

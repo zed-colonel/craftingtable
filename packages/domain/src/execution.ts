@@ -176,13 +176,18 @@ export function isTerminalAgentRunStatus(status: AgentRunStatus): boolean {
 }
 
 /**
- * Vendor-neutral permission posture handed to the backend adapter.
+ * Permission posture handed to the backend adapter. Each adapter maps it onto its own controls,
+ * so a posture does not mean the same in every backend (AGT-10, AGT-17):
  *
- * - `edit-only`: file edits inside the worktree are pre-approved; anything
- *   that would need a prompt is denied.
- * - `auto`: the backend's own safety classifier approves routine actions and
- *   denies risky ones; prompts are denied.
- * - `unrestricted`: no permission checks. The worktree is the only boundary.
+ * - `edit-only`: Claude Code pre-approves file edits and denies whatever would need a prompt,
+ *   commands included. Codex runs in its workspace-write sandbox with approval `never`:
+ *   commands run without asking, inside the sandbox (the worktree and the run's directories
+ *   writable, no network), and nothing may ask to leave it.
+ * - `auto`: Claude Code's safety classifier approves routine actions and denies risky ones,
+ *   with commands in its sandbox; Codex's own reviewer decides requests to leave its sandbox.
+ *   Prompts are denied.
+ * - `unrestricted`: no permission checks and no backend sandbox: the operator's full local
+ *   authority. The worktree is a convention, not a boundary.
  */
 export const AGENT_PERMISSION_MODES = ['edit-only', 'auto', 'unrestricted'] as const;
 export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number];

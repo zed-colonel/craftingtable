@@ -365,16 +365,19 @@ bounded raw vendor line travels only on a notice for output the adapter could no
 is never the durable vocabulary. Both adapters use the shared supervisor in
 `packages/agents/src/process.ts`. Right after launch the daemon records the run's process group
 (`process.json` in the run directory: leader pid, start time, boot id); after a stop that did not
-drain, the next start ends a group still running only when that record, and the run's start,
-prove it is the run's, journals it, and then marks the run interrupted (R-G11). The daemon's backend registry holds whichever of Claude Code and
-Codex it found, and defaults to the first available in that order. No app-server socket is exposed
-to the browser or LAN.
+drain, the next start ends a group still running only when that record and the run's start prove
+it is the run's, journals it, and then marks the run interrupted (R-G11). The daemon's backend
+registry holds whichever of Claude Code and Codex it found, and defaults to the first available in
+that order. No app-server socket is exposed to the browser or LAN.
 
 The Claude Code adapter launches `claude -p` with stream-json input and output, sends the brief as
 the first stdin message, keeps stdin open for follow-ups, maps the vendor-neutral permission
-posture to a CLI permission mode, and terminates the process group on cancel. Background-wait
-expiry and surviving process-group work normalize to an incomplete exit; the supervisor keeps the
-run live until the group drains or its deadline passes, and such a run has no review authority.
+posture to a CLI permission mode, and terminates the process group on cancel. A result given while
+tracked background tasks are still pending is a progress notice, not the turn's outcome: the turn
+ends at the result that collects them, or at the last such result if the session exits first
+(R-G11). Background-wait expiry and surviving process-group work normalize to an incomplete exit;
+the supervisor keeps the run live until the group drains or its deadline passes, and such a run
+has no review authority.
 
 The Codex adapter keeps one supervised `codex app-server --stdio` process per run. An
 adapter-local RPC client starts or resumes a thread; follow-ups steer an active turn or start

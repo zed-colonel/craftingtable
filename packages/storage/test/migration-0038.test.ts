@@ -104,7 +104,7 @@ describe('migration 0038: run environments without a runtime (R-G13 increment 4)
     const database = schema37(path);
     try {
       const before = imageOf(database);
-      runMigrations(database, discoverMigrations());
+      runMigrations(database, discoverMigrations().slice(0, 38));
       const after = imageOf(database);
       expect(preservationProblems(before, after)).toEqual([]);
       expect(after.triggers.run_environment_no_update?.table).toBe('run_environments');

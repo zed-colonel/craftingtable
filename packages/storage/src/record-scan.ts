@@ -216,17 +216,7 @@ export const RELATIONAL_TABLES: Readonly<Record<string, string>> = {
   scope_scheduling_authorizations: 'relational',
   retired_scope_worktrees: 'relational',
   superseded_map_bindings: 'relational',
-  repository_inspections: 'retired CT-04A1 inspector; must stay empty until R-H6 drops it',
-  registered_repositories: 'retired CT-04A2 registry; must stay empty until R-H6 drops it',
-  project_repository_bindings: 'retired CT-04A2 registry; must stay empty until R-H6 drops it',
 };
-
-/** Tables whose rows would be records nothing reads; any row in them is a defect. */
-export const RETIRED_TABLES = [
-  'repository_inspections',
-  'registered_repositories',
-  'project_repository_bindings',
-] as const;
 
 /** The table behind each scanned record kind. */
 export const RECORD_TABLES: Readonly<Record<PersistedRecordKind, string>> = Object.fromEntries(

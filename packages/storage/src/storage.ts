@@ -9,7 +9,6 @@ import {
 } from './migrations.js';
 import {
   evidenceHeadProblems,
-  RETIRED_TABLES,
   type ScannedRecord,
   scanRecords,
   type UnreadableRecord,
@@ -181,12 +180,6 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
       parent: string;
     }[])
       problems.push(`${row.table} row ${row.rowid} references a missing ${row.parent} row`);
-    for (const table of RETIRED_TABLES) {
-      const { count } = this.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
-        count: number;
-      };
-      if (count) problems.push(`${table} is retired but holds ${count} rows`);
-    }
     problems.push(...evidenceHeadProblems(this.database));
     return problems;
   }

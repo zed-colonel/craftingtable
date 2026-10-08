@@ -184,7 +184,7 @@ export interface RecordVerification {
   readonly upcasts: Readonly<Record<string, number>>;
   readonly invalid: readonly InvalidRecord[];
   readonly unreadable: readonly UnreadableRecord[];
-  /** SQLite integrity, foreign keys and retired tables. */
+  /** SQLite integrity, foreign keys and evidence heads. */
   readonly integrity: readonly string[];
 }
 

@@ -3,12 +3,7 @@ import { asEventId, type Roadmap } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/database.js';
 import { SEED_NOW, seedPlan, seedWorkspace } from './planning-test-support.js';
-import {
-  RECORD_TABLES,
-  RELATIONAL_TABLES,
-  RETIRED_TABLES,
-  type ScannedRecord,
-} from '../src/record-scan.js';
+import { RECORD_TABLES, RELATIONAL_TABLES, type ScannedRecord } from '../src/record-scan.js';
 import {
   acceptAnyRecord,
   HistoricalRecordWriteError,
@@ -102,11 +97,7 @@ describe('persisted record registry (R-H3)', () => {
     const f = fixture();
     const database = openDatabase(f.databasePath);
     try {
-      // The retired inspector tables keep their JSON columns until R-H6; they must stay empty.
-      const live = Object.keys(RELATIONAL_TABLES).filter(
-        (table) => !(RETIRED_TABLES as readonly string[]).includes(table),
-      );
-      const hiding = live.flatMap((table) =>
+      const hiding = Object.keys(RELATIONAL_TABLES).flatMap((table) =>
         (database.prepare(`SELECT name FROM pragma_table_info(?)`).all(table) as { name: string }[])
           .filter((column) => column.name.endsWith('_json'))
           .map((column) => `${table}.${column.name}`),

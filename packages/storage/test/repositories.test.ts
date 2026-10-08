@@ -197,43 +197,29 @@ describe('repositories', () => {
     }
   });
 
-  it('fails closed on a stored row of a retired registry kind (R-H6)', () => {
+  it('refuses a retired registry kind, whose catalog row stays, without using a sequence (R-H6)', () => {
     const temporary = temporaryStorage();
     temporaries.push(temporary);
     const graph = seed(temporary, 'retired');
-    const database = rawDatabase(temporary);
-    // The registry rows its correlations named never existed; its catalog row stays.
-    database.pragma('foreign_keys = OFF');
-    database
-      .prepare(
-        `INSERT INTO workspace_events (
-           id, schema_version, occurred_at, workspace_id, repository_id,
-           repository_inspection_id, kind, payload_json)
-         VALUES (?, 1, ?, ?, 'repository-journal', 'inspection-journal', 'repository-registered', ?)`,
-      )
-      .run(
-        'retired-kind',
-        '2026-07-29T00:00:01.000Z',
-        graph.workspaceId,
-        JSON.stringify({
-          repositoryId: 'repository-journal',
-          inspectionId: 'inspection-journal',
-          displayName: 'Retired',
-          status: 'active',
-          statusReason: 'registration-accepted',
-          version: 1,
-        }),
-      );
-    database.close();
+    const beforeSequence = temporary.storage.workspaceEvents.maxSequence();
+    // A caller outside the type system: the domain no longer names the kind.
     expect(() =>
-      temporary.storage.workspaceEvents.listAfter({
+      temporary.storage.workspaceEvents.appendEvent({
+        id: asEventId('retired-kind'),
+        occurredAt: '2026-07-29T00:00:01.000Z',
         workspaceId: graph.workspaceId,
-        after: 1,
-        limit: 20,
-      }),
-    ).toThrow(
-      expect.objectContaining<Partial<WorkspaceEventMappingError>>({ failure: 'unknown-kind' }),
-    );
+        kind: 'repository-registered',
+        payload: {},
+      } as never),
+    ).toThrow(/CHECK constraint failed/);
+    expect(temporary.storage.workspaceEvents.maxSequence()).toBe(beforeSequence);
+    const database = rawDatabase(temporary);
+    expect(
+      database
+        .prepare('SELECT introduced_in_schema FROM workspace_event_kinds WHERE kind = ?')
+        .get('repository-registered'),
+    ).toEqual({ introduced_in_schema: 4 });
+    database.close();
   });
 
   it('B1-STO-011 rejects append disagreement before row or sequence mutation', () => {

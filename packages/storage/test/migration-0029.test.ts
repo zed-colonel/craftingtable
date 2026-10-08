@@ -162,7 +162,7 @@ describe('migration 0029: roadmap definition revisions and cycle owners (R-B3)',
         ).map((row) => [row.id, JSON.parse(row.state_json)]),
       );
       const before = imageOf(database);
-      runMigrations(database, discoverMigrations());
+      runMigrations(database, discoverMigrations().slice(0, 29));
 
       // Everything outside the two rewritten tables and the new definition row is untouched.
       const after = imageOf(database);

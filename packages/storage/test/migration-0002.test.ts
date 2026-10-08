@@ -405,6 +405,7 @@ describe('migration 0002 journal preservation', () => {
       'authentication-hardening',
       'check-only-run-environments',
       'evidence-submission-heads',
+      'journal-without-registry',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

@@ -10,6 +10,7 @@ import type Database from 'better-sqlite3';
  */
 export interface DatabaseImage {
   readonly tables: Readonly<Record<string, readonly Record<string, unknown>[]>>;
+  readonly columns: Readonly<Record<string, readonly string[]>>;
   readonly keys: Readonly<Record<string, readonly string[]>>;
   readonly indexes: Readonly<Record<string, { readonly table: string; readonly sql: string }>>;
   readonly triggers: Readonly<Record<string, { readonly table: string; readonly sql: string }>>;
@@ -25,18 +26,19 @@ export function imageOf(database: Database.Database): DatabaseImage {
       .all() as { name: string }[]
   ).map((row) => row.name);
   const tables: Record<string, Record<string, unknown>[]> = {};
+  const columns: Record<string, string[]> = {};
   const keys: Record<string, string[]> = {};
   for (const name of names) {
     tables[name] = database.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all() as Record<
       string,
       unknown
     >[];
-    keys[name] = (
-      database.prepare('SELECT name, pk FROM pragma_table_info(?)').all(name) as {
-        name: string;
-        pk: number;
-      }[]
-    )
+    const info = database.prepare('SELECT name, pk FROM pragma_table_info(?)').all(name) as {
+      name: string;
+      pk: number;
+    }[];
+    columns[name] = info.map((column) => column.name);
+    keys[name] = info
       .filter((column) => column.pk > 0)
       .sort((a, b) => a.pk - b.pk)
       .map((column) => column.name);
@@ -64,7 +66,14 @@ export function imageOf(database: Database.Database): DatabaseImage {
         ).map((row) => [row.name, row.seq]),
       )
     : {};
-  return { tables, keys, indexes: schema('index'), triggers: schema('trigger'), sequences };
+  return {
+    tables,
+    columns,
+    keys,
+    indexes: schema('index'),
+    triggers: schema('trigger'),
+    sequences,
+  };
 }
 
 export interface Removals {
@@ -72,6 +81,8 @@ export interface Removals {
   readonly tables?: readonly string[];
   /** Indexes or triggers the migration drops or replaces on purpose. */
   readonly schema?: readonly string[];
+  /** Columns the migration drops on purpose, by table. */
+  readonly columns?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** Ledgers and catalogs a migration appends to; their earlier rows must stay first. */
@@ -96,7 +107,13 @@ export function preservationProblems(
       problems.push(`table ${table} had ${rows.length} rows and now has ${now.length}`);
       continue;
     }
-    const columns = Object.keys(rows[0] ?? {});
+    const removedColumns = removed.columns?.[table] ?? [];
+    for (const column of before.columns[table] ?? [])
+      if (!removedColumns.includes(column) && !(after.columns[table] ?? []).includes(column))
+        problems.push(`column ${table}.${column} is gone`);
+    const columns = (before.columns[table] ?? []).filter(
+      (column) => !removedColumns.includes(column),
+    );
     const project = (row: Record<string, unknown>) =>
       JSON.stringify(columns.map((column) => row[column]));
     rows.forEach((row, index) => {

@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-24
-- **Amended:** 2026-10-08 for retired vocabulary (R-H6)
+- **Amended:** 2026-10-08 for retired vocabulary and the second journal rebuild (R-H6)
 
 ## Context
 
@@ -109,7 +109,7 @@ the application does — no repository method exists — but the catalogs are
 protected only against update and delete, not insert, because insert is exactly
 what future migrations need.
 
-## Amendment: retired vocabulary (2026-10-08, R-H6)
+## Amendment: retired vocabulary and the second rebuild (2026-10-08, R-H6)
 
 The catalogs stay append-only, so a kind or action can leave the domain lists
 while its catalog row stays. The domain lists then mirror the catalog's live
@@ -129,6 +129,29 @@ part, and the rest of the catalog is retired vocabulary:
   (`unknown-kind`), and an audit record of a retired action fails its contract;
   `pnpm db:verify` reports either.
 - A retired value is never registered again with another meaning.
+
+**The second journal rebuild (migration 0040).** The registry's three
+correlation columns (`repository_id`, `repository_inspection_id`,
+`repository_binding_id`) carried foreign keys into its three tables, so those
+empty tables could not be dropped without rebuilding `workspace_events` (R-B8
+found that SQLite refuses every journal insert once a referenced table is
+missing). Migration 0040 rebuilds it once more, by the procedure above:
+triggers dropped, rename, a new table, the copy in sequence order, the
+`sqlite_sequence` high-water mark captured before the rename and put back
+exactly, the index and triggers recreated with their old definitions. The new
+table drops the three columns, their per-kind CHECK and their foreign keys, and
+adds `CHECK (kind NOT IN (...))` over the five retired kinds, so their catalog
+rows can never be used again. The registry tables go with it.
+
+Its guards (`migration_0040_guard`) roll the whole migration back unless no
+registry table holds a row and no event names the registry, every row is copied
+with the same sequence and payload bytes, the high-water mark is the captured
+one, and the index, triggers and the journal's six foreign keys are in place
+with nothing left that names a dropped table. `sequence` is the event stream's
+resume cursor (`Last-Event-ID`), so a browser that reconnects with a cursor from
+before the migration is sent every later event once, and the next event follows
+every sequence ever issued. `migration-0040.test.ts` proves this on a fixture
+and, given `CRAFTINGTABLE_MIGRATION_SNAPSHOT`, on a copy of a real database.
 
 ## Alternatives considered
 

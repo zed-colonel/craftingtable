@@ -415,9 +415,10 @@ parents in bounded first-parent history before recording completion, so a finish
 repeated. Repository and worktree mutation guards serialize daemon creation, removal, updates and
 merges; external Git changes are detected through commit and cleanliness checks.
 
-The removed CT-04A1/A2 repository inspector and registry left three empty tables and their
-journal event kinds (`repository-*` and `project-repository-*`) in the schema, because `workspace_events` foreign keys reference them;
-nothing writes them, and `pnpm db:verify` reports any row in them (`RETIRED_TABLES`). Its old
+The removed CT-04A1/A2 repository inspector and registry are gone from the schema too:
+migration 0040 dropped its three tables and the journal's correlation columns (R-H6). Its five
+event kinds (`repository-*`, `project-repository-*`) and six `repository.*` audit actions keep
+their rows in the append-only catalogs, and the journal refuses those kinds (ADR-013). Its old
 environment variables only produce a startup warning.
 
 ## Events and notifications

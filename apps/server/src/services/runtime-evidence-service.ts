@@ -86,6 +86,7 @@ import {
   type ConcurrencyBindingRevision,
   type ConcurrencyDefinition,
   type EvidenceSubmission,
+  type EvidenceSubmissionHead,
   type EvidenceSubject,
   type ManifestDeclaredChecks,
   type RepositoryCheckDeclaration,
@@ -94,6 +95,7 @@ import {
   consumerUpstreams,
   mapCapabilities,
   mapResource,
+  submissionHead,
   upstreamTransitionIssues,
   type WorkspaceId,
   type Worktree,
@@ -152,18 +154,14 @@ function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
 /**
- * A submission as the evidence view lists it: the record without its bodies, the artifact
- * contents and a decision's text (R-H4, LIVE-29). The full record is read on demand.
+ * A submission as the evidence view lists it: its head without a decision's text (R-H4,
+ * LIVE-29). The full record is read on demand.
  */
-export function submissionSummary(s: EvidenceSubmission) {
+export function submissionSummary(s: EvidenceSubmissionHead) {
   const { artifacts, architectureDecision: decision, ...rest } = s;
   return {
     ...rest,
-    artifacts: artifacts.map((a) => ({
-      name: a.name,
-      digest: a.digest,
-      bytes: Buffer.byteLength(a.content),
-    })),
+    artifacts: artifacts.map((a) => ({ name: a.name, digest: a.digest, bytes: a.bytes })),
     ...(decision
       ? {
           architectureDecision: {
@@ -975,7 +973,7 @@ export class RuntimeEvidenceService {
   private freshnessReads(
     tx: StorageRepositories,
     d: ConcurrencyDefinition,
-    s: EvidenceSubmission,
+    s: EvidenceSubmissionHead,
   ): FreshnessReads {
     if (s.architectureDecision) return { decisionIssues: architectureDecisionIssues(tx, d, s) };
     const binding = this.binding(d.workspaceId, d.id, s.bindingRevision, tx);
@@ -1000,7 +998,7 @@ export class RuntimeEvidenceService {
   private async evidenceFreshness(
     d: ConcurrencyDefinition,
     runtime: RuntimeGeneration,
-    s: EvidenceSubmission,
+    s: EvidenceSubmissionHead,
     knownFreshness?: readonly RuntimePinStatus[],
     git?: GitOperations,
     reads?: FreshnessReads,
@@ -1036,7 +1034,7 @@ export class RuntimeEvidenceService {
     return issues;
   }
   private async candidateFreshness(
-    s: EvidenceSubmission,
+    s: EvidenceSubmissionHead,
     view?: GitOperations,
     reads?: FreshnessReads,
   ): Promise<string[]> {
@@ -1250,11 +1248,13 @@ export class RuntimeEvidenceService {
               alias,
             )
           : undefined;
-      if (draft)
+      if (draft) {
+        const head = submissionHead(draft);
         issues.push(
-          ...submissionIssues(this.storage, d, runtime, draft),
-          ...(await this.evidenceFreshness(d, runtime!, draft)),
+          ...submissionIssues(this.storage, d, runtime, head),
+          ...(await this.evidenceFreshness(d, runtime!, head)),
         );
+      }
       candidates.push({
         checkpointId: checkpoint.id,
         title: checkpoint.title,
@@ -1276,7 +1276,8 @@ export class RuntimeEvidenceService {
         buildReceipts: build?.receipts ?? '',
         ...(saved
           ? {
-              submission: saved,
+              // The saved candidate's full record, as recovery shows it (R-H4).
+              submission: this.storage.runtimeEvidence.submission(ws, id, saved.id),
               decision: this.storage.runtimeEvidence
                 .decisions(ws)
                 .find((x) => x.submissionId === saved.id),
@@ -1491,9 +1492,10 @@ export class RuntimeEvidenceService {
         },
       },
     };
+    const head = submissionHead(submission);
     const issues = [
-      ...submissionIssues(this.storage, d, runtime, submission),
-      ...(await this.evidenceFreshness(d, runtime, submission)),
+      ...submissionIssues(this.storage, d, runtime, head),
+      ...(await this.evidenceFreshness(d, runtime, head)),
     ];
     // A pin can also move while the candidate is being accepted (LIVE-21 review).
     if (issues.length) await refuse(issues);
@@ -1564,12 +1566,13 @@ export class RuntimeEvidenceService {
       commit.value.treeSha,
       alias,
     );
-    const issues = await this.evidenceFreshness(d, runtime, submission);
+    const head = submissionHead(submission);
+    const issues = await this.evidenceFreshness(d, runtime, head);
     if (issues.length) conflict(issues.join('\n'));
     this.storage.transaction((tx) => {
       this.workspaces.requireRole(context, ws, ['owner', 'editor']);
       if (this.current(ws, id)?.id !== runtime.id) conflict('Runtime changed during preparation.');
-      const issues = submissionIssues(tx, d, runtime, submission);
+      const issues = submissionIssues(tx, d, runtime, head);
       if (issues.length) conflict(issues.join('\n'));
       tx.runtimeEvidence.addSubmission(submission);
       this.changed(
@@ -1664,9 +1667,10 @@ export class RuntimeEvidenceService {
       createdAt: this.now().toISOString(),
       createdByUserId: context.user.id,
     };
+    const head = submissionHead(s);
     const issues = [
-      ...submissionIssues(this.storage, d, runtime, s),
-      ...(await this.evidenceFreshness(d, runtime, s)),
+      ...submissionIssues(this.storage, d, runtime, head),
+      ...(await this.evidenceFreshness(d, runtime, head)),
     ];
     if (issues.length) conflict(issues.join('\n'));
     this.storage.transaction((tx) => {
@@ -1874,7 +1878,7 @@ export class RuntimeEvidenceService {
         createdByUserId: context.user.id,
         ...(input.sourceRunId ? { sourceRunId: input.sourceRunId, sourceRunDigest } : {}),
       };
-      const issues = architectureDecisionIssues(tx, d, submission);
+      const issues = architectureDecisionIssues(tx, d, submissionHead(submission));
       if (issues.length) conflict(issues.join('\n'));
       tx.runtimeEvidence.addSubmission(submission);
       this.changed(
@@ -1894,7 +1898,7 @@ export class RuntimeEvidenceService {
     tx: StorageRepositories,
     ws: WorkspaceId,
     id: string,
-    s: EvidenceSubmission,
+    s: EvidenceSubmissionHead,
   ) {
     const issues = architectureDecisionIssues(tx, this.definition(ws, id), s);
     if (issues.length) conflict(issues.join('\n'));
@@ -2016,7 +2020,7 @@ export class RuntimeEvidenceService {
           snapshotDigest: snapshot.snapshotDigest,
         },
       };
-      const issues = submissionIssues(tx, d, runtime, submission);
+      const issues = submissionIssues(tx, d, runtime, submissionHead(submission));
       if (issues.length) conflict(issues.join(' '));
       tx.runtimeEvidence.addSubmission(submission);
       this.changed(

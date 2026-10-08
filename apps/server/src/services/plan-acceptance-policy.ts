@@ -3,7 +3,7 @@ import { snapshotCalculation } from './map-read-snapshot.js';
 import { createHash } from 'node:crypto';
 import {
   type ConcurrencyDefinition,
-  type EvidenceSubmission,
+  type EvidenceSubmissionHead,
   mapCapabilities,
   type Roadmap,
   type RuntimeGeneration,
@@ -57,12 +57,10 @@ function collectSavedPlanSnapshot(
   const adoptions = tx.imports
     .adoptions(d.workspaceId, d.id)
     .filter((a) => a.bindingRevision === binding?.revision);
-  const stages = approvedArchitectureDecisions(
-    tx,
-    d.workspaceId,
-    d.id,
-    binding?.revision ?? 0,
-  ).filter((s) => s.architectureDecision?.coverage === 'clauses');
+  // Staged decisions enter the facts, and so the snapshot digest, as their full records (R-H4).
+  const stages = approvedArchitectureDecisions(tx, d.workspaceId, d.id, binding?.revision ?? 0)
+    .filter((s) => s.architectureDecision?.coverage === 'clauses')
+    .flatMap((s) => tx.runtimeEvidence.submission(d.workspaceId, d.id, s.id) ?? []);
   const facts = {
     ...(stages.length ? { architectureStaging: stages } : {}),
     map: {
@@ -125,7 +123,7 @@ export function generatedPlanIssues(
   tx: StorageRepositories,
   d: ConcurrencyDefinition,
   runtime: RuntimeGeneration | undefined,
-  s: EvidenceSubmission,
+  s: EvidenceSubmissionHead,
 ): string[] {
   const g = s.generatedPlan;
   if (!g) return [];

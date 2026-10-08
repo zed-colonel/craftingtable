@@ -286,8 +286,9 @@ export interface CraftingTableStorage extends StorageRepositories {
     observe?: import('./records.js').UpcastObserver,
   ): void;
   /**
-   * SQLite's integrity and foreign-key checks, and any row left in a retired table. Empty
-   * when the file is sound.
+   * SQLite's integrity and foreign-key checks, any row left in a retired table, and every
+   * evidence head that is missing or no longer matches its record (R-H4). Empty when the file
+   * is sound.
    */
   integrityProblems(): readonly string[];
   /** Rebuilds the file to return free pages to the filesystem. Blocks writers while it runs. */

@@ -2,7 +2,7 @@ import {
   evidenceSubmissionSchema,
   evidenceSubmissionSummarySchema,
 } from '@craftingtable/contracts';
-import type { EvidenceSubmission } from '@craftingtable/domain';
+import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import { expect, it } from 'vitest';
 import { submissionSummary, viewGit } from '../../src/services/runtime-evidence-service.js';
@@ -40,7 +40,7 @@ const decision = evidenceSubmissionSchema.parse({
 }) as unknown as EvidenceSubmission;
 
 it('lists a submission without its bodies, and keeps everything else (R-H4)', () => {
-  const summary = submissionSummary(decision);
+  const summary = submissionSummary(submissionHead(decision));
   expect(evidenceSubmissionSummarySchema.parse(summary)).toEqual(summary);
   expect(summary.artifacts).toEqual([
     {

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { EvidenceSubmission } from '@craftingtable/domain';
+import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/database.js';
+import { openCraftingTableStorage } from '../src/storage.js';
 import { seedWorkspace } from './planning-test-support.js';
 import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 
@@ -11,10 +12,9 @@ afterEach(() => {
 });
 
 /**
- * Decoded evidence submissions are shared by every read on the database (R-D5): a map's
- * submissions were decoded again, megabytes of artifact contents, on each read of a work item's
- * slices. They are immutable and only inserted, so a workspace's stay current while their count
- * and newest row do.
+ * Evidence is read through heads (R-H4): each submission's record keeps its artifacts'
+ * contents, megabytes for a live map, and a head beside it lists them by name, digest, size and
+ * blankness. Lists read heads; only a submission's own review reads its record.
  */
 function fixture() {
   const f = temporaryStorage();
@@ -36,30 +36,49 @@ function fixture() {
       workspaceId,
       definitionId,
       runtimeId: 'runtime-1',
-      artifacts: [{ name, content: 'x'.repeat(1000), digest: 'd' }],
+      artifacts: [
+        { name, content: 'x'.repeat(1000), digest: 'd' },
+        { name: `${name}-blank`, content: ' \n', digest: 'e' },
+      ],
     }) as unknown as EvidenceSubmission;
   const add = (value: EvidenceSubmission) =>
     f.storage.transaction((tx) => tx.runtimeEvidence.addSubmission(value));
-  return { f, workspaceId, submission, add };
+  const rows = (table: string) => {
+    const database = openDatabase(f.databasePath);
+    try {
+      return (database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number })
+        .count;
+    } finally {
+      database.close();
+    }
+  };
+  return { f, workspaceId, submission, add, rows };
 }
 
-describe('evidence submissions, decoded once (R-D5)', () => {
-  it('returns the same decoded records until a submission is added, newest first', () => {
+/** db:verify's evidence findings; the fixture's generation has no map, on purpose. */
+const evidenceProblems = (f: TemporaryStorage) =>
+  f.storage.integrityProblems().filter((problem) => problem.startsWith('evidence'));
+
+describe('evidence submissions and their heads (R-H4)', () => {
+  it('lists heads newest first per map, and reads the full record only by id', () => {
     const { f, workspaceId, submission, add } = fixture();
     const [a, b, other] = [submission('map-1'), submission('map-1'), submission('map-2')];
     add(a);
     add(other);
     add(b);
-    const first = f.storage.runtimeEvidence.submissions(workspaceId, 'map-1');
-    expect(first.map((s) => s.id)).toEqual([b.id, a.id]);
-    const again = f.storage.readTransaction((tx) =>
-      tx.runtimeEvidence.submissions(workspaceId, 'map-1'),
-    );
-    expect(again[0]).toBe(first[0]);
-    expect(again[1]).toBe(first[1]);
-    // Shared records cannot be changed by a reader.
-    expect(Object.isFrozen(first[0])).toBe(true);
-    expect(Object.isFrozen(first[0]?.artifacts[0])).toBe(true);
+    const heads = f.storage.runtimeEvidence.submissions(workspaceId, 'map-1');
+    expect(heads).toEqual([submissionHead(b), submissionHead(a)]);
+    expect(heads[0]?.artifacts.map((artifact) => [artifact.bytes, artifact.blank])).toEqual([
+      [1000, false],
+      [2, true],
+    ]);
+    expect(JSON.stringify(heads)).not.toContain('x'.repeat(1000));
+    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-2')).toEqual([
+      submissionHead(other),
+    ]);
+    expect(f.storage.runtimeEvidence.submission(workspaceId, 'map-1', a.id)).toEqual(a);
+    expect(f.storage.runtimeEvidence.submission(workspaceId, 'map-2', a.id)).toBeUndefined();
+    // Every read is current: nothing is kept between reads.
     const c = submission('map-1');
     add(c);
     expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1').map((s) => s.id)).toEqual([
@@ -67,16 +86,13 @@ describe('evidence submissions, decoded once (R-D5)', () => {
       b.id,
       a.id,
     ]);
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-2').map((s) => s.id)).toEqual([
-      other.id,
-    ]);
+    expect(evidenceProblems(f)).toEqual([]);
   });
 
-  it('never keeps a submission its transaction rolled back', () => {
-    const { f, workspaceId, submission, add } = fixture();
+  it('writes a record and its head together, or neither', () => {
+    const { f, workspaceId, submission, add, rows } = fixture();
     const a = submission('map-1');
     add(a);
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1')).toHaveLength(1);
     const lost = submission('map-1');
     expect(() =>
       f.storage.transaction((tx) => {
@@ -89,39 +105,24 @@ describe('evidence submissions, decoded once (R-D5)', () => {
         throw new Error('roll back');
       }),
     ).toThrow('roll back');
+    expect([rows('evidence_submissions'), rows('evidence_submission_heads')]).toEqual([1, 1]);
     expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1').map((s) => s.id)).toEqual([
       a.id,
     ]);
-    // A later submission takes the rolled-back row's place, and is read as itself.
-    const next = submission('map-1');
-    add(next);
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1').map((s) => s.id)).toEqual([
-      next.id,
-      a.id,
-    ]);
-  });
 
-  it('never keeps what a read inside a rolled-back write saw, even when the next insert reuses its row (R-D5 review)', () => {
-    const { f, workspaceId, submission, add } = fixture();
-    const a = submission('map-1');
-    add(a);
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1')).toHaveLength(1);
-    const lost = submission('map-1');
-    expect(() =>
-      f.storage.transaction((tx) => {
-        tx.runtimeEvidence.addSubmission(lost);
-        tx.runtimeEvidence.submissions(workspaceId, 'map-1');
-        throw new Error('roll back');
-      }),
-    ).toThrow('roll back');
-    // No read in between: the next submission takes the rolled-back one's row, so the count and
-    // newest row are what the rolled-back read saw.
-    const next = submission('map-1');
-    add(next);
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1').map((s) => s.id)).toEqual([
-      next.id,
-      a.id,
-    ]);
+    // A head the guard refuses takes its record with it, even outside a storage transaction.
+    f.storage.close();
+    const refusing = openCraftingTableStorage(f.databasePath, (kind) => {
+      if (kind === 'evidence-submission-head') throw new Error('head refused');
+    });
+    try {
+      expect(() => refusing.runtimeEvidence.addSubmission(submission('map-1'))).toThrow(
+        'head refused',
+      );
+    } finally {
+      refusing.close();
+    }
+    expect([rows('evidence_submissions'), rows('evidence_submission_heads')]).toEqual([1, 1]);
   });
 
   it('sees a submission another connection added', () => {
@@ -134,9 +135,49 @@ describe('evidence submissions, decoded once (R-D5)', () => {
       database
         .prepare('INSERT INTO evidence_submissions VALUES (?,?,?,?)')
         .run(outside.id, workspaceId, 'runtime-1', JSON.stringify(outside));
+      database
+        .prepare('INSERT INTO evidence_submission_heads VALUES (?,?,?,?)')
+        .run(outside.id, workspaceId, 'map-1', JSON.stringify(submissionHead(outside)));
     } finally {
       database.close();
     }
     expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1')[0]?.id).toBe(outside.id);
+  });
+
+  it('reports every head that is missing, differs from its record or is out of order (db:verify)', () => {
+    const { f, workspaceId, submission, add } = fixture();
+    add(submission('map-1'));
+    const [headless, wrong, first, second] = [
+      submission('map-1'),
+      submission('map-1'),
+      submission('map-1'),
+      submission('map-1'),
+    ];
+    const database = openDatabase(f.databasePath);
+    try {
+      const record = database.prepare('INSERT INTO evidence_submissions VALUES (?,?,?,?)');
+      const head = database.prepare('INSERT INTO evidence_submission_heads VALUES (?,?,?,?)');
+      for (const s of [headless, wrong, first, second])
+        record.run(s.id, workspaceId, 'runtime-1', JSON.stringify(s));
+      const wrongHead = submissionHead(wrong);
+      head.run(
+        wrong.id,
+        workspaceId,
+        'map-1',
+        JSON.stringify({
+          ...wrongHead,
+          artifacts: wrongHead.artifacts.map((a) => ({ ...a, blank: !a.blank })),
+        }),
+      );
+      head.run(second.id, workspaceId, 'map-1', JSON.stringify(submissionHead(second)));
+      head.run(first.id, workspaceId, 'map-1', JSON.stringify(submissionHead(first)));
+    } finally {
+      database.close();
+    }
+    expect(evidenceProblems(f)).toEqual([
+      `evidence submission ${headless.id} has no head`,
+      `evidence submission ${wrong.id} has a head that differs from its record`,
+      `evidence submission heads are not in submission order from ${first.id}`,
+    ]);
   });
 });

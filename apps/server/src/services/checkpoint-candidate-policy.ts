@@ -1,6 +1,10 @@
 import { historicalReviewerRoles } from './roadmap-delegation-policy.js';
 import { createHash } from 'node:crypto';
-import { asWorktreeId, type EvidenceSubmission, type ExecutionScope } from '@craftingtable/domain';
+import {
+  asWorktreeId,
+  type EvidenceSubmissionHead,
+  type ExecutionScope,
+} from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { assignedReviewMatches } from './agent-profile-policy.js';
 import {
@@ -16,7 +20,7 @@ export const checkpointDigest = (value: unknown) =>
 /** Cheap durable checks used by projections and again inside acceptance transactions. */
 export function candidateCheckpointIssues(
   tx: StorageRepositories,
-  s: EvidenceSubmission,
+  s: EvidenceSubmissionHead,
 ): string[] {
   const c = s.candidateCheckpoint;
   if (!c) return [];
@@ -196,7 +200,7 @@ export function candidateCheckpointIssues(
 /** An unmerged candidate is evidence for its own merge, never a global checkpoint pass. */
 export function candidateApplies(
   tx: StorageRepositories,
-  s: EvidenceSubmission,
+  s: EvidenceSubmissionHead,
   scope?: ExecutionScope,
 ) {
   const c = s.candidateCheckpoint;

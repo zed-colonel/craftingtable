@@ -782,6 +782,8 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
         .map((w) => w.workItemId) ?? [],
       r.scope,
     ),
+    // The reviewer is given each accepted submission's full record, artifacts' contents
+    // included; the heads only choose which (R-H4).
     acceptedExternalEvidence: tx.runtimeEvidence
       .submissions(r.item.workspaceId, r.definition.id)
       .filter(
@@ -794,6 +796,9 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
             r.scope.bindingRevision,
             s.subject,
           )?.id === s.id,
+      )
+      .flatMap(
+        (s) => tx.runtimeEvidence.submission(r.item.workspaceId, r.definition.id, s.id) ?? [],
       ),
     // Each checkpoint this scope requires, with the records that met its prerequisites. It is
     // the evaluation that decides the checkpoint is ready, so a checkpoint reviewer sees

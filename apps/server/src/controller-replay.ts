@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import type { EvidenceSubmission } from '@craftingtable/domain';
+import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
 import { join, resolve } from 'node:path';
 import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
 import { formatPageLoads, replayPageLoads } from './page-load-replay.js';
@@ -144,7 +144,7 @@ function evidenceViewRecords(
       submissions: view.submissions.map((v) => ({
         ...v,
         submission: full.length
-          ? submissionSummary(v.submission as unknown as EvidenceSubmission)
+          ? submissionSummary(submissionHead(v.submission as unknown as EvidenceSubmission))
           : v.submission,
       })),
     };

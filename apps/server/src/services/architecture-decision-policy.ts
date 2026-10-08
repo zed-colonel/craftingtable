@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   type ConcurrencyDefinition,
-  type EvidenceSubmission,
+  type EvidenceSubmissionHead,
   type ExecutionScope,
   mapCapabilities,
   type WorkspaceId,
@@ -40,7 +40,7 @@ export function decisionBindingDigest(
 export function architectureDecisionIssues(
   tx: StorageRepositories,
   d: ConcurrencyDefinition,
-  s: EvidenceSubmission,
+  s: EvidenceSubmissionHead,
 ): string[] {
   const a = s.architectureDecision;
   if (!a) return ['Missing architecture decision proposal.'];
@@ -189,7 +189,7 @@ export function architectureDecisionPacket(
 export function decisionPacketEntries(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  submissions: readonly EvidenceSubmission[],
+  submissions: readonly EvidenceSubmissionHead[],
 ) {
   const approvals = tx.runtimeEvidence.decisions(ws);
   return submissions.map((s) => ({

@@ -1,5 +1,6 @@
+import { isDeepStrictEqual } from 'node:util';
 import type Database from 'better-sqlite3';
-import type { WorkspaceId } from '@craftingtable/domain';
+import { submissionHead, type WorkspaceId } from '@craftingtable/domain';
 import { SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import {
   acceptAnyRecord,
@@ -264,4 +265,51 @@ export function scanRecords(
   };
   if (observe) observeUpcasts(observe, run);
   else run();
+}
+
+/**
+ * Every evidence submission whose head is missing, differs from the head of its record, or is
+ * out of submission order (R-H4, `db:verify`). Heads are written with their records and never
+ * change, so each is recomputed from its record here, one row at a time.
+ */
+export function evidenceHeadProblems(database: Database.Database): string[] {
+  const problems: string[] = [];
+  const rows = database
+    .prepare(
+      `SELECT s.id, s.record_json, h.head_json
+       FROM evidence_submissions AS s
+       LEFT JOIN evidence_submission_heads AS h ON h.id = s.id AND h.workspace_id = s.workspace_id
+       ORDER BY s.rowid`,
+    )
+    .iterate() as Iterable<{ id: string; record_json: string; head_json: string | null }>;
+  const headed: string[] = [];
+  for (const row of rows) {
+    if (row.head_json === null) {
+      problems.push(`evidence submission ${row.id} has no head`);
+      continue;
+    }
+    headed.push(row.id);
+    let same = false;
+    try {
+      same = isDeepStrictEqual(
+        JSON.parse(row.head_json),
+        submissionHead(parseRecord('evidence-submission', row.record_json)),
+      );
+    } catch {
+      // An unreadable record is reported by the scan.
+    }
+    if (!same)
+      problems.push(`evidence submission ${row.id} has a head that differs from its record`);
+  }
+  const order = (
+    database.prepare('SELECT id FROM evidence_submission_heads ORDER BY rowid').all() as {
+      id: string;
+    }[]
+  ).map((row) => row.id);
+  const misplaced = headed.findIndex((id, index) => order[index] !== id);
+  if (misplaced >= 0 || order.length !== headed.length)
+    problems.push(
+      `evidence submission heads are not in submission order from ${headed[misplaced] ?? order[headed.length]}`,
+    );
+  return problems;
 }

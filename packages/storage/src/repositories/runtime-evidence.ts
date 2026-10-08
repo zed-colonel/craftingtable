@@ -1,6 +1,7 @@
 import type {
   EvidenceDecision,
   EvidenceSubmission,
+  EvidenceSubmissionHead,
   NativeVerificationApproval,
   RunBuildRecord,
   RunCheckReceipt,
@@ -9,69 +10,13 @@ import type {
   RepositoryCheckDeclaration,
   UpstreamTransitionRecord,
 } from '@craftingtable/domain';
+import { submissionHead } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { type PersistedRecordKind, parseRecord, type RecordGuard } from '../records.js';
 
-const decode = <K extends PersistedRecordKind>(kind: K, rows: unknown[]) =>
-  rows.map((row) => parseRecord(kind, (row as { record_json: string }).record_json));
+const decode = <K extends PersistedRecordKind>(kind: K, rows: unknown[], column = 'record_json') =>
+  rows.map((row) => parseRecord(kind, (row as Record<string, string>)[column] as string));
 
-/**
- * Decoded evidence submissions, shared by every read on this database (R-D5). A map's
- * submissions carry their artifacts' contents, megabytes for a live map, and every read of a
- * work item's slices or a scope's evidence decoded all of them again. Submissions are immutable
- * and only ever inserted (triggers refuse updates and deletes), so once committed a workspace's
- * set is named by its count and its newest row; each read checks both through the index, without
- * parsing a row, and decodes the set again only when they changed. A read inside a write
- * transaction neither uses nor fills the cache, so a submission that transaction adds and then
- * rolls back is never kept. The records are frozen: readers share them.
- */
-export class SubmissionCache {
-  private readonly byWorkspace = new Map<
-    string,
-    { readonly count: number; readonly newest: number; readonly all: readonly EvidenceSubmission[] }
-  >();
-  private writing = 0;
-
-  /** Brackets one (possibly nested) write transaction. */
-  begin(): void {
-    this.writing += 1;
-  }
-  end(): void {
-    this.writing -= 1;
-  }
-
-  /** The workspace's submissions, newest first. */
-  read(db: Database.Database, ws: string): readonly EvidenceSubmission[] {
-    const load = () =>
-      decode(
-        'evidence-submission',
-        db
-          .prepare(
-            'SELECT record_json FROM evidence_submissions WHERE workspace_id=? ORDER BY rowid DESC',
-          )
-          .all(ws),
-      );
-    if (this.writing > 0) return load();
-    const head = db
-      .prepare(
-        'SELECT count(*) AS count, coalesce(max(rowid), 0) AS newest FROM evidence_submissions WHERE workspace_id=?',
-      )
-      .get(ws) as { count: number; newest: number };
-    const cached = this.byWorkspace.get(ws);
-    if (cached?.count === head.count && cached.newest === head.newest) return cached.all;
-    const all = deepFreeze(load());
-    this.byWorkspace.set(ws, { ...head, all });
-    return all;
-  }
-}
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) deepFreeze(child);
-  }
-  return value;
-}
 export interface RuntimeEvidenceRepository {
   nativeApprovals(
     ws: string,
@@ -92,9 +37,14 @@ export interface RuntimeEvidenceRepository {
     bindingRevision: number,
   ): readonly RuntimeGeneration[];
   addGeneration(value: RuntimeGeneration): void;
-  submissions(ws: string, definitionId: string): readonly EvidenceSubmission[];
-  /** One submission of a definition, decoding only it (R-H4). */
+  /**
+   * A map's submissions, newest first, as heads: without their artifacts' contents (R-H4).
+   * Only `submission` reads a record.
+   */
+  submissions(ws: string, definitionId: string): readonly EvidenceSubmissionHead[];
+  /** One submission's full record, with its artifacts' contents (R-H4). */
   submission(ws: string, definitionId: string, id: string): EvidenceSubmission | undefined;
+  /** Writes the record and its head together. */
   addSubmission(value: EvidenceSubmission): void;
   decisions(ws: string): readonly EvidenceDecision[];
   addDecision(value: EvidenceDecision): void;
@@ -110,7 +60,6 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
   constructor(
     private readonly db: Database.Database,
     private readonly guard: RecordGuard,
-    private readonly submissionCache: SubmissionCache = new SubmissionCache(),
   ) {}
   nativeApprovals(
     ws: string,
@@ -194,8 +143,16 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       .prepare('INSERT INTO runtime_generations VALUES (?,?,?,?,?,?)')
       .run(v.id, v.workspaceId, v.definitionId, v.bindingRevision, v.generation, JSON.stringify(v));
   }
-  submissions(ws: string, definitionId: string): readonly EvidenceSubmission[] {
-    return this.submissionCache.read(this.db, ws).filter((s) => s.definitionId === definitionId);
+  submissions(ws: string, definitionId: string): readonly EvidenceSubmissionHead[] {
+    return decode(
+      'evidence-submission-head',
+      this.db
+        .prepare(
+          'SELECT head_json FROM evidence_submission_heads WHERE workspace_id=? AND definition_id=? ORDER BY rowid DESC',
+        )
+        .all(ws, definitionId),
+      'head_json',
+    );
   }
   submission(ws: string, definitionId: string, id: string): EvidenceSubmission | undefined {
     return decode(
@@ -208,10 +165,18 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     )[0];
   }
   addSubmission(v: EvidenceSubmission): void {
+    const head = submissionHead(v);
     this.guard('evidence-submission', v);
-    this.db
-      .prepare('INSERT INTO evidence_submissions VALUES (?,?,?,?)')
-      .run(v.id, v.workspaceId, v.runtimeId, JSON.stringify(v));
+    this.guard('evidence-submission-head', head);
+    // In submission order, so the heads' rowids keep it (migration 0039).
+    this.db.transaction(() => {
+      this.db
+        .prepare('INSERT INTO evidence_submissions VALUES (?,?,?,?)')
+        .run(v.id, v.workspaceId, v.runtimeId, JSON.stringify(v));
+      this.db
+        .prepare('INSERT INTO evidence_submission_heads VALUES (?,?,?,?)')
+        .run(v.id, v.workspaceId, v.definitionId, JSON.stringify(head));
+    })();
   }
   decisions(ws: string): readonly EvidenceDecision[] {
     return decode(

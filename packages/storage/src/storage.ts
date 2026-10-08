@@ -8,6 +8,7 @@ import {
   snapshotBeforeMigration,
 } from './migrations.js';
 import {
+  evidenceHeadProblems,
   RETIRED_TABLES,
   type ScannedRecord,
   scanRecords,
@@ -25,10 +26,7 @@ import { SqlitePhaseSchedulingRepository } from './repositories/phase-reservatio
 import { planningRepositories } from './repositories/planning/index.js';
 import { DefinitionCache, SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import { SqliteProtectedRefRepository } from './repositories/protected-refs.js';
-import {
-  SqliteRuntimeEvidenceRepository,
-  SubmissionCache,
-} from './repositories/runtime-evidence.js';
+import { SqliteRuntimeEvidenceRepository } from './repositories/runtime-evidence.js';
 import { SqliteScopeReceiptRepository } from './repositories/scope-receipts.js';
 import { SqliteSessionRepository } from './repositories/sessions.js';
 import { SqliteUserRepository } from './repositories/users.js';
@@ -45,11 +43,10 @@ function repositories(
   database: Database.Database,
   guard: RecordGuard,
   definitions: DefinitionCache,
-  submissions: SubmissionCache,
 ): StorageRepositories {
   return {
     amendments: new SqliteMapAmendmentRepository(database, guard),
-    runtimeEvidence: new SqliteRuntimeEvidenceRepository(database, guard, submissions),
+    runtimeEvidence: new SqliteRuntimeEvidenceRepository(database, guard),
     protectedRefs: new SqliteProtectedRefRepository(database, guard),
     phaseScheduling: new SqlitePhaseSchedulingRepository(database),
     scopeReceipts: new SqliteScopeReceiptRepository(database, guard),
@@ -90,8 +87,6 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   private closed = false;
   /** Parsed roadmap definitions, shared by every transaction on this database (R-B3). */
   private readonly definitions = new DefinitionCache();
-  /** Decoded evidence submissions, shared by every read on this database (R-D5). */
-  private readonly submissions = new SubmissionCache();
   private observer: WriteObserver | undefined;
   private depth = 0;
   /** Every write passes the contract guard, then the observer sees it. */
@@ -107,7 +102,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
       contractGuard(kind, record);
       this.observer?.written(kind, record);
     };
-    const repos = repositories(database, this.guard, this.definitions, this.submissions);
+    const repos = repositories(database, this.guard, this.definitions);
     this.amendments = repos.amendments;
     this.runtimeEvidence = repos.runtimeEvidence;
     this.protectedRefs = repos.protectedRefs;
@@ -135,12 +130,11 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     // A nested call runs as a savepoint of the outer transaction, which owns the commit.
     const outermost = this.depth === 0;
     this.definitions.begin();
-    this.submissions.begin();
     this.depth += 1;
     try {
       const result = this.database
         .transaction(() => {
-          const tx = repositories(this.database, this.guard, this.definitions, this.submissions);
+          const tx = repositories(this.database, this.guard, this.definitions);
           const value = operation(tx);
           if (outermost) this.observer?.beforeCommit(tx);
           return value;
@@ -154,16 +148,13 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
       if (outermost) this.observer?.ended(false);
       throw error;
     } finally {
-      this.submissions.end();
       this.depth -= 1;
     }
   }
 
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T {
     return this.database
-      .transaction(() =>
-        operation(repositories(this.database, this.guard, this.definitions, this.submissions)),
-      )
+      .transaction(() => operation(repositories(this.database, this.guard, this.definitions)))
       .deferred();
   }
 
@@ -196,6 +187,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
       };
       if (count) problems.push(`${table} is retired but holds ${count} rows`);
     }
+    problems.push(...evidenceHeadProblems(this.database));
     return problems;
   }
 

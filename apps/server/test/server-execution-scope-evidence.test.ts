@@ -544,7 +544,8 @@ it('lists submissions without their bodies and reads a full record on demand (R-
   const f = await evidenceFixture(),
     ws = f.state.workspaceId;
   await f.svc.submit(f.auth, ws, f.definitionId, f.submission);
-  const [stored] = f.state.context.storage.runtimeEvidence.submissions(ws, f.definitionId);
+  const [head] = f.state.context.storage.runtimeEvidence.submissions(ws, f.definitionId);
+  const stored = f.state.context.storage.runtimeEvidence.submission(ws, f.definitionId, head!.id);
   const base = `/api/workspaces/${ws}/concurrency-definitions/${f.definitionId}/runtime`;
   const get = (url: string) =>
     f.state.context.app.inject({ method: 'GET', url, headers: { cookie: f.state.cookie } });

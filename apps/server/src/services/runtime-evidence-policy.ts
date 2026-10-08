@@ -14,7 +14,7 @@ import type {
   ConcurrencyDefinition,
   RuntimeGeneration,
   EvidenceSubject,
-  EvidenceSubmission,
+  EvidenceSubmissionHead,
   ExecutionScope,
   WorkspaceId,
   PhaseBlocker,
@@ -209,7 +209,7 @@ export function submissionIssues(
   tx: StorageRepositories,
   d: ConcurrencyDefinition,
   runtime: RuntimeGeneration | undefined,
-  s: EvidenceSubmission,
+  s: EvidenceSubmissionHead,
 ): string[] {
   // Records are immutable, so within a read snapshot a submission's issues are asked once
   // (R-H4): the view and every accepted-evidence path share them.
@@ -225,7 +225,7 @@ function evaluateSubmission(
   tx: StorageRepositories,
   d: ConcurrencyDefinition,
   runtime: RuntimeGeneration | undefined,
-  s: EvidenceSubmission,
+  s: EvidenceSubmissionHead,
 ): string[] {
   if (s.architectureDecision) return architectureDecisionIssues(tx, d, s);
   const issues: string[] = [];
@@ -282,7 +282,7 @@ function evaluateSubmission(
   if (!env) issues.push('The recorded environment is not in the active generation.');
   if (new Set(s.artifacts.map((a) => a.name)).size !== s.artifacts.length)
     issues.push('Artifact names must be unique.');
-  const artifact = (name: string) => s.artifacts.some((a) => a.name === name && a.content.trim());
+  const artifact = (name: string) => s.artifacts.some((a) => a.name === name && !a.blank);
   const required = new Set(spec.requirements);
   if (new Set(s.requirements.map((e) => e.requirement)).size !== s.requirements.length)
     issues.push('Duplicate requirement evidence.');
@@ -380,7 +380,7 @@ export function acceptedEvidence(
   subject: EvidenceSubject,
   visiting = new Set<string>(),
   candidateScope?: ExecutionScope,
-): EvidenceSubmission | undefined {
+): EvidenceSubmissionHead | undefined {
   // Preserve the recursion path in the key: a cached success must never bypass
   // circular-prerequisite detection. This cache lives only for this read pass.
   return snapshotCalculation(

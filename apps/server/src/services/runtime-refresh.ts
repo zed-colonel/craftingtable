@@ -35,6 +35,7 @@ function withRuntime(tx: StorageRepositories, runtime: RuntimeGeneration): Stora
       // Repository methods live on the prototype; keep them bound to the real repository.
       nativeApprovals: tx.runtimeEvidence.nativeApprovals.bind(tx.runtimeEvidence),
       submissions: tx.runtimeEvidence.submissions.bind(tx.runtimeEvidence),
+      submission: tx.runtimeEvidence.submission.bind(tx.runtimeEvidence),
       decisions: tx.runtimeEvidence.decisions.bind(tx.runtimeEvidence),
       run: tx.runtimeEvidence.run.bind(tx.runtimeEvidence),
       build: tx.runtimeEvidence.build.bind(tx.runtimeEvidence),

@@ -1,8 +1,8 @@
 -- R-H6 (operator decisions H6-1 and H6-3, 2026-10-06; DATA-09): the workspace journal is rebuilt
 -- without the retired CT-04A2 registry's three correlation columns, their per-kind CHECK and
 -- their foreign keys, and the three empty registry tables those keys pinned are dropped. The
--- registry's five event kinds keep their append-only catalog rows (ADR-013, amended) and the
--- journal now refuses them.
+-- registry's five event kinds and six audit actions keep their append-only catalog rows (ADR-013,
+-- amended), and a trigger on each journal refuses them.
 --
 -- The rebuild follows migration 0004's procedure. `sequence` is the event stream's resume
 -- cursor (Last-Event-ID), so every row keeps its sequence and payload bytes, and the
@@ -36,7 +36,8 @@ CREATE TABLE migration_0040_guard (
 ) STRICT;
 
 -- Nothing that goes holds data: the registry tables are empty, and no event names the registry
--- (each registry kind required its correlations, so this also finds every registry event).
+-- (each registry kind required its correlations, so this also finds every registry event). No
+-- audit record uses a retired action either: the contracts no longer read one.
 INSERT INTO migration_0040_guard (checkpoint, ok)
 SELECT 'nothing-dropped-holds-data', CASE WHEN
     NOT EXISTS (SELECT 1 FROM registered_repositories)
@@ -53,6 +54,15 @@ SELECT 'nothing-dropped-holds-data', CASE WHEN
            'repository-evidence-changed',
            'project-repository-bound',
            'project-repository-binding-retired'))
+    AND NOT EXISTS (
+      SELECT 1 FROM audit_events
+      WHERE action IN (
+        'repository.register',
+        'repository.inspect',
+        'repository.reaffirm',
+        'repository.retire',
+        'repository.bind-project',
+        'repository.unbind-project'))
   THEN 1 ELSE 0 END;
 
 -- Triggers go before the rename, so it cannot rewrite their bodies (ADR-013).
@@ -78,13 +88,6 @@ CREATE TABLE workspace_events (
                      AND json_type(payload_json) = 'object'),
     -- A correlated work item must carry its project (CT03-R2R2).
     CHECK (work_item_id IS NULL OR project_id IS NOT NULL),
-    -- The retired registry kinds stay in the catalog, which is append-only, but never return.
-    CHECK (kind NOT IN (
-      'repository-registered',
-      'repository-status-changed',
-      'repository-evidence-changed',
-      'project-repository-bound',
-      'project-repository-binding-retired')),
     FOREIGN KEY (workspace_id, project_id)
       REFERENCES projects(workspace_id, id) ON DELETE RESTRICT,
     -- Strictly weaker than the three-column key below given the CHECK above; kept as the
@@ -157,6 +160,33 @@ BEGIN
   SELECT RAISE(ABORT, 'workspace events are append-only');
 END;
 
+-- The retired vocabulary stays in the append-only catalogs but is never written again. A
+-- trigger, not a CHECK, so a later retirement replaces it without rebuilding a journal.
+CREATE TRIGGER workspace_events_retired_kinds
+BEFORE INSERT ON workspace_events
+WHEN NEW.kind IN (
+  'repository-registered',
+  'repository-status-changed',
+  'repository-evidence-changed',
+  'project-repository-bound',
+  'project-repository-binding-retired')
+BEGIN
+  SELECT RAISE(ABORT, 'workspace event kind is retired');
+END;
+
+CREATE TRIGGER audit_events_retired_actions
+BEFORE INSERT ON audit_events
+WHEN NEW.action IN (
+  'repository.register',
+  'repository.inspect',
+  'repository.reaffirm',
+  'repository.retire',
+  'repository.bind-project',
+  'repository.unbind-project')
+BEGIN
+  SELECT RAISE(ABORT, 'audit action is retired');
+END;
+
 -- The high-water mark is the one captured, and no lower than any sequence issued.
 INSERT INTO migration_0040_guard (checkpoint, ok)
 SELECT 'sequence', CASE WHEN
@@ -167,7 +197,7 @@ SELECT 'sequence', CASE WHEN
     AND (SELECT sequence_value >= max_sequence FROM migration_0040_state WHERE singleton = 1)
   THEN 1 ELSE 0 END;
 
--- The journal's index and triggers are back on it; the old table and the registry are gone,
+-- The journal's index and triggers are back on it, with the two refusals; the old table and the registry are gone,
 -- with every index and trigger of theirs; the journal's keys are exactly the six expected, and
 -- no table names a dropped one.
 WITH keys(parent, columns) AS (
@@ -191,7 +221,10 @@ SELECT 'schema', CASE WHEN
        AND name IN (
          'idx_workspace_events_workspace_sequence',
          'workspace_events_no_update',
-         'workspace_events_no_delete')) = 3
+         'workspace_events_no_delete',
+         'workspace_events_retired_kinds')) = 4
+    AND (SELECT COUNT(*) FROM sqlite_master
+         WHERE tbl_name = 'audit_events' AND name = 'audit_events_retired_actions') = 1
     AND NOT EXISTS (
       SELECT 1 FROM sqlite_master
       WHERE tbl_name IN (

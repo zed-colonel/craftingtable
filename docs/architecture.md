@@ -418,8 +418,8 @@ merges; external Git changes are detected through commit and cleanliness checks.
 The removed CT-04A1/A2 repository inspector and registry are gone from the schema too:
 migration 0040 dropped its three tables and the journal's correlation columns (R-H6). Its five
 event kinds (`repository-*`, `project-repository-*`) and six `repository.*` audit actions keep
-their rows in the append-only catalogs, and the journal refuses those kinds (ADR-013). Its old
-environment variables only produce a startup warning.
+their rows in the append-only catalogs, and a trigger on each journal refuses them (ADR-013). Its
+old environment variables only produce a startup warning.
 
 ## Events and notifications
 

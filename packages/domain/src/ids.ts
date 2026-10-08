@@ -24,8 +24,6 @@ export type PlanArtifactId = Brand<'PlanArtifactId'>;
 export type PlanImportDiagnosticId = Brand<'PlanImportDiagnosticId'>;
 export type WorkItemDependencyId = Brand<'WorkItemDependencyId'>;
 
-/* CT-04A2 repository registry identifiers. */
-
 /* Execution identifiers: repositories, worktrees, runs, run events. */
 export type SourceRepositoryId = Brand<'SourceRepositoryId'>;
 export type WorktreeId = Brand<'WorktreeId'>;

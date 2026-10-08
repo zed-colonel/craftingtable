@@ -53,7 +53,26 @@ const RETIRED_KINDS = [
   'project-repository-bound',
   'project-repository-binding-retired',
 ];
+const RETIRED_ACTIONS = [
+  'repository.register',
+  'repository.inspect',
+  'repository.reaffirm',
+  'repository.retire',
+  'repository.bind-project',
+  'repository.unbind-project',
+];
+/** The triggers 0040 adds: each journal refuses its retired vocabulary. */
+const REFUSALS = ['workspace_events_retired_kinds', 'audit_events_retired_actions'];
 const NOW = '2026-10-08T00:00:00.000Z';
+
+function insertAudit(database: Database.Database, id: string, action: string) {
+  database
+    .prepare(
+      `INSERT INTO audit_events (id, occurred_at, actor_kind, workspace_id, action, outcome)
+       VALUES (?, ?, 'system', 'workspace-a', ?, 'succeeded')`,
+    )
+    .run(id, NOW, action);
+}
 
 function temporaryPath(name = 'state.sqlite'): string {
   const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-migration-0040-'));
@@ -283,7 +302,10 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
       );
       expect(() => database.prepare('DELETE FROM workspace_events').run()).toThrow(/append-only/);
 
-      // The retired kinds keep their catalog rows, and the journal refuses them.
+      // The retired kinds and actions keep their catalog rows, and the journals refuse them.
+      expect(Object.keys(after.triggers).filter((name) => !(name in before.triggers))).toEqual(
+        REFUSALS,
+      );
       for (const kind of RETIRED_KINDS)
         expect(() =>
           database
@@ -292,7 +314,12 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
                VALUES (?, 1, ?, 'workspace-a', ?, '{}')`,
             )
             .run(`retired-${kind}`, NOW, kind),
-        ).toThrow(/CHECK constraint failed/);
+        ).toThrow('workspace event kind is retired');
+      for (const action of RETIRED_ACTIONS)
+        expect(() => insertAudit(database, `retired-${action}`, action)).toThrow(
+          'audit action is retired',
+        );
+      insertAudit(database, 'live-action', 'source-repository.register');
 
       // The next event follows the old high-water mark, through storage's own append.
       const next = new SqliteWorkspaceEventRepository(database, acceptAnyRecord).appendEvent({
@@ -344,6 +371,20 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
       expect(migrationStatus(database, toSchema39).currentVersion).toBe(39);
       expect(preservationProblems(before, imageOf(database))).toEqual([]);
       expect(columnsOf(database, 'workspace_events')).toEqual(expect.arrayContaining(CORRELATIONS));
+    } finally {
+      database.close();
+    }
+  });
+
+  it('rolls back, leaving schema 39 whole, when an audit record uses a retired action', () => {
+    const database = schema39(temporaryPath());
+    try {
+      // The action's catalog row lets it in at schema 39; the contract no longer reads it.
+      insertAudit(database, 'registry-audit', 'repository.retire');
+      const before = imageOf(database);
+      expect(() => runMigrations(database, migrations)).toThrow(/CHECK constraint failed: ok = 1/);
+      expect(migrationStatus(database, toSchema39).currentVersion).toBe(39);
+      expect(preservationProblems(before, imageOf(database))).toEqual([]);
     } finally {
       database.close();
     }
@@ -486,13 +527,20 @@ it.skipIf(SNAPSHOT === undefined)(
           )
           .get(),
       ).toEqual({ count: 0 });
-      // Every index and trigger, with its definition, but the registry's.
-      for (const type of ['index', 'trigger'])
-        expect(objects('main', type), type).toEqual(
-          objects('prior', type).filter((entry) => !dropped(entry)),
-        );
+      // Every index and trigger, with its definition, but the registry's; and the two refusals.
+      expect(objects('main', 'index')).toEqual(
+        objects('prior', 'index').filter((entry) => !dropped(entry)),
+      );
+      expect(objects('main', 'trigger').filter((entry) => !REFUSALS.includes(entry.name))).toEqual(
+        objects('prior', 'trigger').filter((entry) => !dropped(entry)),
+      );
+      // Every sequence but a dropped table's (an inspection ever written would have left one).
       expect(database.prepare('SELECT name, seq FROM sqlite_sequence ORDER BY name').all()).toEqual(
-        database.prepare('SELECT name, seq FROM prior.sqlite_sequence ORDER BY name').all(),
+        (
+          database.prepare('SELECT name, seq FROM prior.sqlite_sequence ORDER BY name').all() as {
+            name: string;
+          }[]
+        ).filter((row) => !(REGISTRY_TABLES as readonly string[]).includes(row.name)),
       );
       database.exec('DETACH DATABASE prior');
       expect(database.pragma('foreign_key_check')).toEqual([]);

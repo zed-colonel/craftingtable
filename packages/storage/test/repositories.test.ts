@@ -197,6 +197,54 @@ describe('repositories', () => {
     }
   });
 
+  it('B1-STO-009 rejects a direct-SQL payload that disagrees with its structural correlation on read', () => {
+    const temporary = temporaryStorage();
+    temporaries.push(temporary);
+    const graph = seed(temporary, 'poison');
+    const database = rawDatabase(temporary);
+    // The project and work item it names need not exist for the mapper to judge it.
+    database.pragma('foreign_keys = OFF');
+    database
+      .prepare(
+        `INSERT INTO workspace_events (
+           id, schema_version, occurred_at, workspace_id, project_id, work_item_id, kind,
+           payload_json)
+         VALUES ('payload-mismatch', 1, ?, ?, 'project-poison', 'item-structural',
+           'worktree-created', ?)`,
+      )
+      .run(
+        '2026-07-29T00:00:01.000Z',
+        graph.workspaceId,
+        JSON.stringify({
+          worktreeId: 'worktree-poison',
+          sourceRepositoryId: 'repository-poison',
+          workItemId: 'item-in-payload',
+          branchName: 'ct/poison',
+          baseSha: '0123456789abcdef0123456789abcdef01234567',
+        }),
+      );
+    database.close();
+    for (const read of [
+      () =>
+        temporary.storage.workspaceEvents.listAfter({
+          workspaceId: graph.workspaceId,
+          after: 1,
+          limit: 20,
+        }),
+      () =>
+        temporary.storage.workspaceEvents.listRecentAtOrBefore({
+          workspaceId: graph.workspaceId,
+          asOfSequence: 100,
+          limit: 20,
+        }),
+    ])
+      expect(read).toThrow(
+        expect.objectContaining<Partial<WorkspaceEventMappingError>>({
+          failure: 'payload-correlation-mismatch',
+        }),
+      );
+  });
+
   it('refuses a retired registry kind, whose catalog row stays, without using a sequence (R-H6)', () => {
     const temporary = temporaryStorage();
     temporaries.push(temporary);
@@ -211,7 +259,7 @@ describe('repositories', () => {
         kind: 'repository-registered',
         payload: {},
       } as never),
-    ).toThrow(/CHECK constraint failed/);
+    ).toThrow('workspace event kind is retired');
     expect(temporary.storage.workspaceEvents.maxSequence()).toBe(beforeSequence);
     const database = rawDatabase(temporary);
     expect(

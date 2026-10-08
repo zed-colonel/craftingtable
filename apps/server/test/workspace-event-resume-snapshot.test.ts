@@ -93,7 +93,8 @@ it.skipIf(SNAPSHOT === undefined)(
         `SELECT workspace_id AS workspaceId FROM workspace_events
          GROUP BY workspace_id ORDER BY COUNT(*) DESC LIMIT 1`,
       )
-      .get() as { workspaceId: string };
+      .get() as { workspaceId: string } | undefined;
+    if (busiest === undefined) throw new Error('The snapshot has no workspace events');
     const sequences = (
       prepared
         .prepare('SELECT sequence FROM workspace_events WHERE workspace_id = ? ORDER BY sequence')
@@ -105,7 +106,9 @@ it.skipIf(SNAPSHOT === undefined)(
          JOIN users AS u ON u.id = m.user_id
          WHERE m.workspace_id = ? AND m.status = 'active' AND u.status = 'active' LIMIT 1`,
       )
-      .get(busiest.workspaceId) as { userId: string };
+      .get(busiest.workspaceId) as { userId: string } | undefined;
+    if (member === undefined)
+      throw new Error(`Workspace ${busiest.workspaceId} has no active member to stream for`);
     prepared.close();
     expect(inspectMigrationStatus(path).currentVersion).toBe(39);
     const lastSeen = sequences.at(-RESUMED - 1) ?? 0;

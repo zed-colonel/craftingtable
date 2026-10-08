@@ -139,14 +139,20 @@ missing). Migration 0040 rebuilds it once more, by the procedure above:
 triggers dropped, rename, a new table, the copy in sequence order, the
 `sqlite_sequence` high-water mark captured before the rename and put back
 exactly, the index and triggers recreated with their old definitions. The new
-table drops the three columns, their per-kind CHECK and their foreign keys, and
-adds `CHECK (kind NOT IN (...))` over the five retired kinds, so their catalog
-rows can never be used again. The registry tables go with it.
+table drops the three columns, their per-kind CHECK and their foreign keys. The
+registry tables go with it.
+
+Retired vocabulary is refused by a `BEFORE INSERT` trigger on each journal
+(`workspace_events_retired_kinds`, `audit_events_retired_actions`), so its
+catalog rows can never be used again. A trigger rather than a CHECK: a later
+retirement replaces the trigger, without rebuilding a journal.
 
 Its guards (`migration_0040_guard`) roll the whole migration back unless no
-registry table holds a row and no event names the registry, every row is copied
+registry table holds a row, no event names the registry and no audit record
+uses a retired action (the contracts no longer read one), every row is copied
 with the same sequence and payload bytes, the high-water mark is the captured
-one, and the index, triggers and the journal's six foreign keys are in place
+one, and the index, triggers, the two refusals and the journal's six foreign
+keys are in place
 with nothing left that names a dropped table. `sequence` is the event stream's
 resume cursor (`Last-Event-ID`), so a browser that reconnects with a cursor from
 before the migration is sent every later event once, and the next event follows

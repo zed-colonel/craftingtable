@@ -24,7 +24,7 @@ import {
 import { startAgentRunResponseSchema } from '@craftingtable/contracts';
 import type { AgentRunId } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, inject, it } from 'vitest';
 import { createServices, type ServiceSet } from '../src/composition.js';
 import { configFromEnv } from '../src/config.js';
 import { openDaemonStorage } from '../src/persisted-records.js';
@@ -93,6 +93,8 @@ class KilledDaemonBackend implements AgentBackend {
   }
 }
 const restarted: ServiceSet[] = [];
+/** Each test's first daemon, revived at cleanup so its close never waits on what it froze. */
+const firstDaemons: KilledDaemonBackend[] = [];
 /** Process groups this test's daemons started, ended whatever the test did. */
 const groups: { readonly pid: number; readonly startTime: string }[] = [];
 const members: { readonly pid: number; readonly startTime: string }[] = [];
@@ -117,6 +119,9 @@ afterEach(async () => {
   // Members a test started, alone: one whose leader has exited leaves no leader to check.
   for (const { pid, startTime } of members.splice(0))
     if (startedAt(pid) === startTime) process.kill(pid, 'SIGKILL');
+  // A test that failed before reviving its first daemon would leave that daemon's close waiting
+  // for an exit it can no longer hear, past the server's close timeout.
+  for (const daemon of firstDaemons.splice(0)) daemon.revive();
   await cleanupExecutionFixtures();
   for (const directory of directories.splice(0))
     rmSync(directory, { recursive: true, force: true });
@@ -212,25 +217,40 @@ async function liveRun(
   });
   expect(started.statusCode, started.body).toBe(200);
   const runId = startAgentRunResponseSchema.parse(started.json()).run.id;
+  // The member's pid, once the stand-in has written all of it: the file exists, empty, for a
+  // moment before its digits land, and a busy host can catch that moment.
   const memberFile = join(worktree.path, 'member.pid');
-  await waitFor(
-    () =>
-      state.context.storage.execution.runs.find(state.workspaceId, runId)?.status === 'running' &&
-      existsSync(memberFile),
-    'the agent at work',
-  );
-  // Daemon-private (operator decision 2026-10-07): under the database's directory.
+  const writtenMember = () => {
+    try {
+      const text = readFileSync(memberFile, 'utf8');
+      return /^\d+$/.test(text) ? Number(text) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  // Records are replaced whole, so one that exists is complete.
   const records = state.context.config.execution.processRecordRoot ?? '';
   const identityPath = join(records, `${runId}.json`);
+  await waitFor(() => {
+    const member = writtenMember();
+    return (
+      state.context.storage.execution.runs.find(state.workspaceId, runId)?.status === 'running' &&
+      member !== undefined &&
+      processRunning(member) &&
+      existsSync(identityPath)
+    );
+  }, 'the agent at work, its member running and its group recorded');
+  const memberPid = writtenMember() ?? 0;
+  // Daemon-private (operator decision 2026-10-07): under the database's directory.
   const identity = JSON.parse(readFileSync(identityPath, 'utf8')) as {
     pid: number;
     startTime: string;
     bootId: string;
   };
   groups.push(identity);
-  const memberPid = Number(readFileSync(memberFile, 'utf8'));
   const memberStart = startedAt(memberPid);
   if (memberStart) members.push({ pid: memberPid, startTime: memberStart });
+  firstDaemons.push(killed);
   if (!options.daemonLives) killed.die();
   return {
     worktreePath: worktree.path,
@@ -243,7 +263,7 @@ async function liveRun(
     backends: new Map([['claude-code' as const, new ClaudeCodeBackend({ executable })]]),
     identity,
     identityPath,
-    member: Number(readFileSync(memberFile, 'utf8')),
+    member: memberPid,
   };
 }
 
@@ -514,7 +534,8 @@ it('keeps the record of a run ended before its agent exits, until it has (R-G11 
 
 it('ends at start the group of a run already ended whose agent outlived a hard kill (R-G11 re-check LOW-4)', async () => {
   const { state, runId, identity, identityPath, member, worktreePath, firstDaemon, backends } =
-    await liveRun({ daemonLives: true, terminationGraceMs: 120_000 });
+    // The first daemon's own SIGKILL waits far longer than the test can take, at any load.
+    await liveRun({ daemonLives: true, terminationGraceMs: 120_000 * inject('testTimeScale') });
   failSupervision(state, worktreePath);
   await waitFor(
     () => state.context.storage.execution.runs.find(state.workspaceId, runId)?.status === 'failed',

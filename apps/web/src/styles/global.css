@@ -1537,16 +1537,6 @@ button:disabled {
   }
 }
 
-.cycle-panel {
-  margin-block: 1rem;
-}
-.cycle-panel details {
-  margin-block: 0.75rem;
-}
-.cycle-panel form {
-  display: grid;
-  gap: 1rem;
-}
 .cycle-settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -1564,31 +1554,11 @@ button:disabled {
   margin-block: 1rem;
 }
 
-.cycle-panel .field,
-.cycle-panel .field select,
-.cycle-panel .field input {
-  min-width: 0;
-  max-width: 100%;
-}
 .cycle-settings-grid fieldset {
   grid-template-columns: minmax(0, 1fr);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-2);
   padding: var(--space-3);
-}
-.cycle-panel form > button {
-  justify-self: start;
-}
-.cycle-panel .inline-actions,
-.cycle-panel > p + p {
-  margin-top: var(--space-2);
-}
-.cycle-panel summary {
-  cursor: pointer;
-}
-.cycle-panel pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .branch-panel,
@@ -1678,7 +1648,6 @@ button:disabled {
     min-width: 44px;
   }
 
-  /* biome-ignore lint/style/noDescendingSpecificity: all disclosures get a touch target; component padding still takes precedence. */
   details > summary {
     min-height: 44px;
     padding-block: var(--space-2);
@@ -1719,15 +1688,15 @@ button:disabled {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .run-row > .status-badge,
-  .run-row > button {
-    justify-self: start;
-  }
-
   .run-row-title,
   .run-row-meta,
   .status-badge {
     white-space: normal;
+  }
+
+  .run-row > .status-badge,
+  .run-row > button {
+    justify-self: start;
   }
 
   .run-row-title {
@@ -2344,6 +2313,7 @@ button:disabled {
 }
 
 /* Field labels read as labels, not headings. */
+/* biome-ignore lint/style/noDescendingSpecificity: sets type and colour only; `.inline-form .field` sets width only. */
 .field {
   text-transform: none;
   letter-spacing: normal;

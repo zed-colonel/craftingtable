@@ -102,7 +102,7 @@ it('refuses a test data root at, inside or above a daemon data directory, throug
   expect(() => choose(join(live, 'state'), { CRAFTINGTABLE_DATA_DIR: live })).toThrow(
     `overlaps the daemon data directory ${live}`,
   );
-  expect(choose(join(live, 'state'), { CRAFTINGTABLE_DATA_DIR: sibling + '-other' })).toBe(
+  expect(choose(join(live, 'state'), { CRAFTINGTABLE_DATA_DIR: `${sibling}-other` })).toBe(
     join(live, 'state'),
   );
   // A data directory that is a link to a directory not made yet is followed to it (review L1):

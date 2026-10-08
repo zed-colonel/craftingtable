@@ -4394,6 +4394,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - `noBannedTypes`: `{}`, used as "no fields yet", is now `Record<string, never>`.
   - `noDescendingSpecificity`: the general `.section-body` rule moves above the two more specific `.section-body` rules. Specificity decides between them either way, so rendering is unchanged.
   - **The gate.** `pnpm lint` (part of `pnpm check`) now runs `biome lint --error-on-warnings`. The count is 0 warnings and 2 infos (the `useLiteralKeys` private reach above). Adding an unused import made the command exit 1.
+- **Amended 2026-10-08 (operator): Biome 2.5.5 → 2.5.15.**
+  - *Why:* Biome 2.5.5 aborted (SIGABRT, a core and a desktop notification) whenever its output went to a reader that closed early, such as `| head`: an unwrapped broken-pipe error in `biome_console` (biomejs/biome#11817, fixed in 2.5.15). There were 14 such cores between 2026-09-22 and 2026-10-07. With 2.5.15, heavy lint output piped into `head -1` exits normally and leaves no core.
+  - *New findings,* all settled without a gate exception:
+    - 6 `noDescendingSpecificity` warnings came from `.cycle-panel` rules. Nothing has used that class since the work-item page was restructured (3fd1573), so its eight rules are deleted. Nothing they matched is left to render differently.
+    - `.status-badge`'s `white-space` rule moves above the adjacent `.run-row > .status-badge` rule in the narrow layout. The two set different properties, so rendering is unchanged.
+    - `.field`'s type rule is suppressed with its reason: it sets type and colour, `.inline-form .field` only width.
+    - 1 `useTemplate` in a test. The disclosure touch-target suppression is now unused and is removed.
 
 ### R-I7
 

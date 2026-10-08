@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdtempSync,
   readdirSync,
@@ -25,6 +26,8 @@ import type { AgentRunId } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, expect, it } from 'vitest';
 import { createServices, type ServiceSet } from '../src/composition.js';
+import { configFromEnv } from '../src/config.js';
+import { openDaemonStorage } from '../src/persisted-records.js';
 import {
   cleanupExecutionFixtures,
   fixtureRepository,
@@ -36,7 +39,7 @@ import {
   stepUp,
   waitFor,
 } from './execution-test-support.js';
-import { FastTestPasswordHasher } from './test-support.js';
+import { FastTestPasswordHasher, testDataRoot } from './test-support.js';
 
 /**
  * R-G11 (AGT-02): a daemon that stops without draining (a hard kill outside systemd, such as
@@ -50,7 +53,8 @@ class KilledDaemonBackend implements AgentBackend {
   readonly kind = 'claude-code' as const;
   /** Set once the daemon "dies": nothing more reaches it until its session is killed. */
   private dead: Promise<void> | undefined;
-  private revive: () => void = () => undefined;
+  /** Lets what the agent did reach the first daemon again, so its cleanup can finish. */
+  revive: () => void = () => undefined;
   constructor(private readonly inner: ClaudeCodeBackend) {}
   describe() {
     return this.inner.describe();
@@ -170,6 +174,8 @@ async function liveRun(
     readonly polite?: boolean;
     /** The first daemon goes on hearing its agent: it is not the killed one. */
     readonly daemonLives?: boolean;
+    /** How long the first daemon's own kill waits before SIGKILL. */
+    readonly terminationGraceMs?: number;
   } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-reaping-'));
@@ -187,6 +193,9 @@ async function liveRun(
       executable,
       env,
       allowEnvironment: ['BUSY_ROOT', 'LEADER_EXITS', 'POLITE'],
+      ...(options.terminationGraceMs === undefined
+        ? {}
+        : { terminationGraceMs: options.terminationGraceMs }),
     }),
   );
   const state = await ready({ backends: new Map([['claude-code', killed]]) });
@@ -225,6 +234,8 @@ async function liveRun(
   if (!options.daemonLives) killed.die();
   return {
     worktreePath: worktree.path,
+    /** The first daemon's backend: `die()` stands for its hard kill. */
+    firstDaemon: killed,
     state,
     runId,
     runDirectory: join(state.context.config.execution.runsRoot, runId),
@@ -318,7 +329,11 @@ it('leaves alone a group that started before the run, whatever its record says (
   // The run is created at least a slack's worth after the bystander started.
   await new Promise((resolve) => setTimeout(resolve, 4000));
   const { state, runId, backends, identityPath } = await liveRun();
-  writeFileSync(identityPath, JSON.stringify(forged));
+  // The run's own record, naming that group instead.
+  writeFileSync(
+    identityPath,
+    JSON.stringify({ ...JSON.parse(readFileSync(identityPath, 'utf8')), ...forged }),
+  );
 
   await restart(state, backends);
 
@@ -430,7 +445,11 @@ it('leaves alone a leaderless group with a member older than the run (R-G11, ope
   await waitFor(() => !processRunning(older.pid), 'the older leader to exit');
   await new Promise((resolve) => setTimeout(resolve, 4000));
   const { state, runId, backends, identityPath } = await liveRun();
-  writeFileSync(identityPath, JSON.stringify(older));
+  // The run's own record, naming that group instead.
+  writeFileSync(
+    identityPath,
+    JSON.stringify({ ...JSON.parse(readFileSync(identityPath, 'utf8')), ...older }),
+  );
 
   await restart(state, backends);
 
@@ -458,12 +477,8 @@ it('keeps the record until the agent has exited, and then removes it (R-G11 revi
   expect(existsSync(identityPath)).toBe(false);
 });
 
-it('keeps the record of a run ended before its agent exits, until it has (R-G11 review LOW-4)', async () => {
-  const { state, runId, identity, identityPath, worktreePath } = await liveRun({
-    daemonLives: true,
-  });
-  // Supervision fails at the agent's next message: the run is ended at once and its agent,
-  // which ignores SIGTERM, is killed only after the grace period.
+/** Makes the daemon's supervision of its run fail at the agent's next message ("again"). */
+function failSupervision(state: Ready, worktreePath: string) {
   const service = state.context.services.agentRunService as unknown as {
     appendEvent: (
       workspaceId: string,
@@ -478,6 +493,15 @@ it('keeps the record of a run ended before its agent exits, until it has (R-G11 
     append(workspaceId, id, event);
   };
   writeFileSync(join(worktreePath, 'speak'), '');
+}
+
+it('keeps the record of a run ended before its agent exits, until it has (R-G11 review LOW-4)', async () => {
+  const { state, runId, identity, identityPath, worktreePath } = await liveRun({
+    daemonLives: true,
+  });
+  // The run is ended at once and its agent, which ignores SIGTERM, is killed only after the
+  // grace period.
+  failSupervision(state, worktreePath);
   await waitFor(
     () => state.context.storage.execution.runs.find(state.workspaceId, runId)?.status === 'failed',
     'the run to end',
@@ -486,6 +510,85 @@ it('keeps the record of a run ended before its agent exits, until it has (R-G11 
   expect(existsSync(identityPath)).toBe(true);
   await waitFor(() => !existsSync(identityPath), 'the record to go once the agent has exited');
   expect(processRunning(identity.pid)).toBe(false);
+});
+
+it('ends at start the group of a run already ended whose agent outlived a hard kill (R-G11 re-check LOW-4)', async () => {
+  const { state, runId, identity, identityPath, member, worktreePath, firstDaemon, backends } =
+    await liveRun({ daemonLives: true, terminationGraceMs: 120_000 });
+  failSupervision(state, worktreePath);
+  await waitFor(
+    () => state.context.storage.execution.runs.find(state.workspaceId, runId)?.status === 'failed',
+    'the run to end',
+  );
+  // The daemon is hard-killed while its killed agent still runs (it ignores SIGTERM).
+  firstDaemon.die();
+  expect(processRunning(identity.pid) && processRunning(member)).toBe(true);
+  expect(existsSync(identityPath)).toBe(true);
+
+  await restart(state, backends);
+
+  await waitFor(
+    () => !processRunning(identity.pid) && !processRunning(member),
+    'the group to be gone',
+  );
+  expect(
+    journal(state, runId).some(
+      (event) =>
+        event.kind === 'notice' && event.payload.message.includes(`process group ${identity.pid}`),
+    ),
+  ).toBe(true);
+  expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.status).toBe(
+    'failed',
+  );
+  expect(existsSync(identityPath)).toBe(false);
+  // The first daemon's supervision still waits to hear its agent exit before it can close.
+  firstDaemon.revive();
+});
+
+it('leaves alone the agents of the installation whose data directory it was copied from (R-G11 re-check LOW-6)', async () => {
+  const { state, runId, identity, member } = await liveRun();
+  // A copy of the data directory, taken while the original daemon's run is live.
+  const copy = mkdtempSync(join(testDataRoot(), 'craftingtable-copy-'));
+  directories.push(copy);
+  cpSync(join(state.context.config.dataDir, 'state'), join(copy, 'state'), { recursive: true });
+  const config = configFromEnv({
+    CRAFTINGTABLE_DATA_DIR: copy,
+    CRAFTINGTABLE_CONFIG_DIR: join(copy, 'config'),
+    CRAFTINGTABLE_LOG_LEVEL: 'silent',
+    CRAFTINGTABLE_WEB_DIST: '',
+    CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '0',
+    CRAFTINGTABLE_CHECK_CONFINEMENT: 'none',
+  });
+  const storage = openDaemonStorage(config.databasePath);
+  let services: ServiceSet | undefined;
+  try {
+    services = await createServices(storage, config, {
+      notificationTransport: { send: async () => ({ status: 'accepted' }) },
+      passwordHasher: new FastTestPasswordHasher(),
+      gitOperations: createGitOperations({ gitExecutable: 'git' }),
+      agentBackends: new Map(),
+      recoveryTerminationGraceMs: 300,
+    });
+    // The copy marks its own record of the run interrupted, and leaves the original's agent.
+    expect(storage.execution.runs.find(state.workspaceId, runId)?.status).toBe('interrupted');
+    expect(
+      storage.execution.runEvents
+        .listAfter({ workspaceId: state.workspaceId, runId, after: 0, limit: 500 })
+        .some(
+          (event) =>
+            event.kind === 'notice' && event.payload.message.includes('another installation'),
+        ),
+    ).toBe(true);
+    expect(processRunning(identity.pid) && processRunning(member)).toBe(true);
+    expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.status).toBe(
+      'running',
+    );
+  } finally {
+    // The copy's daemon stops before its database closes.
+    await services?.daemonDrain.drain(0);
+    await services?.checkRequestService.closeAll();
+    storage.close();
+  }
 });
 
 it('clears leftover records at start (R-G11 review)', async () => {

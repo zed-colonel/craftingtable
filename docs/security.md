@@ -123,7 +123,9 @@ directory, `<data>/state/processes/<runId>.json`, beside the database. No sandbo
 write it: neither backend's sandbox lets a command write there. Claude's sandbox cannot read it
 either (the R-G9 protected reads); a Codex run can, which is harmless, since a pid, a start time
 and a boot id are not secret. A `process.json` in a run directory, which the agent can write, is
-ignored. Restart recovery signals only a group that record proves is the run's: the same boot,
+ignored. Each record names the installation that wrote it (the database file's device and
+inode): a daemon started on a copy of the data directory leaves the original's agents alone and
+journals that it did. Restart recovery signals only a group that record proves is the run's: the same boot,
 the same leader start time, a leader still leading its group that started after the run did,
 or, once the leader has exited, members that are all in the leader's session, started after the
 run did and carry the run's `CRAFTINGTABLE_RUN_ID` in their environment; never pid 0 or 1, the

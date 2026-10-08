@@ -157,6 +157,22 @@ describe('stdout supervision (R-G11, AGT-16c, AGT-16e)', () => {
     expect(kinds.lastIndexOf('stderr')).toBeLessThan(kinds.indexOf('stderr-quiet'));
   });
 
+  it('pauses stderr once the waiting chunks pass 16 MiB, however few they are', async () => {
+    // 48 MiB in a pipe kept full: chunks of up to 64 KiB, so fewer than 1000 of them.
+    const fake = script(
+      'head -c 50331648 /dev/zero | tr "\\\\0" x >&2\ntouch finished',
+      'agent',
+      '/bin/sh',
+    );
+    const child = spawn(fake);
+    const iterator = child.items[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({ type: 'stderr' });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(existsSync(join(fake.cwd, 'finished'))).toBe(false);
+    for (let next = await iterator.next(); next.done !== true; next = await iterator.next());
+    expect(existsSync(join(fake.cwd, 'finished'))).toBe(true);
+  });
+
   it('pauses stderr too while the consumer lags', async () => {
     const fake = script(
       `seq 0 999999 | sed 's/$/ ${'x'.repeat(100)}/' >&2\ntouch finished`,
@@ -282,13 +298,26 @@ console.log(JSON.stringify(await reapProcessGroup({ pid: leader, startTime, boot
   });
 
   /** A supervised group whose leader starts a member and exits, leaving the member running. */
-  async function leaderlessGroup(memberKeepsMarker = true) {
+  /**
+   * A supervised group whose leader starts members and exits, leaving them running. A member
+   * is `marked` (it inherits the run's marker), `unmarked` (started without it), or
+   * `undumpable` (marked, but its environment unreadable: it makes itself non-dumpable).
+   */
+  async function leaderlessGroup(
+    members: readonly ('marked' | 'unmarked' | 'undumpable')[] = ['marked'],
+  ) {
     const child = spawn(
       script(`
-        const env = { ...process.env };
-        ${memberKeepsMarker ? '' : 'delete env.CRAFTINGTABLE_RUN_ID;'}
-        require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', env });
-        setTimeout(() => process.exit(0), 200);`),
+        const { spawn } = require('node:child_process');
+        const unmarked = { ...process.env };
+        delete unmarked.CRAFTINGTABLE_RUN_ID;
+        for (const kind of ${JSON.stringify(members)}) {
+          if (kind === 'undumpable')
+            spawn('python3', ['-c', 'import ctypes, time\\nctypes.CDLL(None).prctl(4, 0, 0, 0, 0)\\ntime.sleep(1000)'], { stdio: 'ignore' });
+          else
+            spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', env: kind === 'marked' ? process.env : unmarked });
+        }
+        setTimeout(() => process.exit(0), 500);`),
       {
         env: { PATH: process.env.PATH ?? '', CRAFTINGTABLE_RUN_ID: 'run-1' },
         // The supervisor waits for the group, so the test's cleanup can still end it.
@@ -335,9 +364,27 @@ console.log(JSON.stringify(await reapProcessGroup({ pid: leader, startTime, boot
     expect(await reapProcessGroup(identity, proven)).toEqual({ outcome: 'gone' });
   });
 
+  it.each([
+    ['one of its members lacks the marker', ['marked', 'unmarked']],
+    ['a member’s environment cannot be read', ['marked', 'undumpable']],
+  ] as const)(
+    'leaves a leaderless group alone when %s (R-G11 re-check LOW-7)',
+    async (_, members) => {
+      const before = Date.now();
+      const { identity } = await leaderlessGroup(members);
+      expect(
+        await reapProcessGroup(identity, {
+          graceMs: 100,
+          notStartedBefore: before,
+          runId: 'run-1',
+        }),
+      ).toEqual({ outcome: 'unverifiable' });
+    },
+  );
+
   it('leaves a leaderless group alone when a member does not carry the run’s marker (operator 2026-10-07)', async () => {
     const before = Date.now();
-    const { identity } = await leaderlessGroup(false);
+    const { identity } = await leaderlessGroup(['unmarked']);
     expect(
       await reapProcessGroup(identity, { graceMs: 100, notStartedBefore: before, runId: 'run-1' }),
     ).toEqual({ outcome: 'unverifiable' });

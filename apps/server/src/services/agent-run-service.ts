@@ -2447,10 +2447,13 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     // A run already ended while it launched has nothing for a restart to end (R-G11 review).
     const run = this.storage.execution.runs.find(workspaceId, runId);
     if (run === undefined || isTerminalAgentRunStatus(run.status)) return;
+    const installation = this.installation();
+    if (installation === undefined) return;
+    const record: ProcessRecord = { ...identity, workspaceId, runId, installation };
     const temporary = `${path}.${randomBytes(8).toString('hex')}`;
     try {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      writeFileSync(temporary, `${JSON.stringify(identity)}\n`, { flag: 'wx', mode: 0o600 });
+      writeFileSync(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
       renameSync(temporary, path);
     } catch (error) {
       this.log.warn("The agent's process identity could not be recorded", {
@@ -2460,10 +2463,38 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     }
   }
 
+  /**
+   * Which installation this daemon is: its database file's device and inode (R-G11 re-check
+   * LOW-6). A daemon started on a copy of the data directory has another, so it never takes the
+   * original's records for its own.
+   */
+  private installation(): ProcessRecord['installation'] | undefined {
+    try {
+      const status = statSync(this.storage.databasePath);
+      return { device: status.dev, inode: status.ino };
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Where a run's process record is kept; none without a daemon-private root. */
   private processRecordPath(runId: string): string | undefined {
     const root = this.config.processRecordRoot;
     return root === undefined ? undefined : join(root, `${runId}.json`);
+  }
+
+  /** Each record in the daemon-private root, by run id. */
+  private processRecords(): [string, string][] {
+    const root = this.config.processRecordRoot;
+    if (root === undefined) return [];
+    try {
+      return readdirSync(root).flatMap((name): [string, string][] => {
+        const runId = /^([0-9a-f-]{1,64})\.json$/.exec(name)?.[1];
+        return runId === undefined ? [] : [[runId, join(root, name)]];
+      });
+    } catch {
+      return [];
+    }
   }
 
   /** Once a run's process group has exited, its record goes: nothing of it is left to end. */
@@ -2484,12 +2515,33 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
    * Ends what a live run's agent left running when the daemon stopped without draining
    * (R-G11, AGT-02), when its recorded identity proves the group is the run's, and journals it.
    */
-  private async reapRecordedGroup(run: AgentRun, graceMs: number): Promise<void> {
-    // Only the daemon's own record: a `process.json` an agent left in its run directory, or a
-    // run launched before the record moved, is not reaped (operator decision 2026-10-07).
-    const path = this.processRecordPath(run.id);
-    const identity = path === undefined ? undefined : readProcessIdentity(path);
-    if (identity === undefined) return;
+  private async reapRecordedGroup(
+    run: AgentRun,
+    record: ProcessRecord,
+    graceMs: number,
+    installation: ProcessRecord['installation'] | undefined,
+  ): Promise<void> {
+    const identity: ProcessGroupIdentity = {
+      pid: record.pid,
+      startTime: record.startTime,
+      bootId: record.bootId,
+    };
+    // Written by another installation, such as the one whose data directory this is a copy of:
+    // its agents are not this daemon's to end (R-G11 re-check LOW-6).
+    if (
+      installation === undefined ||
+      record.installation.device !== installation.device ||
+      record.installation.inode !== installation.inode
+    ) {
+      this.appendEvent(run.workspaceId, run.id, {
+        kind: 'notice',
+        payload: {
+          category: 'other',
+          message: `On restart, CraftingTable left process group ${identity.pid} alone: its record was written by another installation (a copy of this data directory, or the one it was copied from).`,
+        },
+      });
+      return;
+    }
     let reaping: ProcessGroupReaping;
     try {
       reaping = await reapProcessGroup(identity, {
@@ -2529,13 +2581,31 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   async recoverInterrupted(
     options: { readonly terminationGraceMs?: number } = {},
   ): Promise<number> {
-    // First what is still running, so nothing writes into what is removed below (R-G11).
+    // First what is still running, so nothing writes into what is removed below (R-G11): the
+    // group behind every record, whether its run is still live or already ended while its killed
+    // agent outlived it (R-G11 re-check LOW-4). Only the daemon's own records: a `process.json`
+    // an agent left in its run directory is never read (operator decision 2026-10-07).
     const stale = this.storage.execution.runs.listLive();
-    await Promise.all(
-      stale.map((run) =>
-        this.reapRecordedGroup(run, options.terminationGraceMs ?? RECOVERY_TERMINATION_GRACE_MS),
-      ),
-    );
+    const live = new Map(stale.map((run) => [run.id as string, run]));
+    const installation = this.installation();
+    const reaping: Promise<void>[] = [];
+    for (const [runId, path] of this.processRecords()) {
+      const record = readProcessRecord(path);
+      if (record === undefined || record.runId !== runId) continue;
+      const run =
+        live.get(runId) ??
+        this.storage.execution.runs.find(record.workspaceId as WorkspaceId, runId as AgentRunId);
+      if (run === undefined) continue;
+      reaping.push(
+        this.reapRecordedGroup(
+          run,
+          record,
+          options.terminationGraceMs ?? RECOVERY_TERMINATION_GRACE_MS,
+          installation,
+        ),
+      );
+    }
+    await Promise.all(reaping);
     // Their agents' temporary directories went with them (LIVE-31). One that cannot be removed
     // is logged; it never keeps the daemon from starting (LIVE-31 review).
     const root = this.config.agentTemporaryRoot;
@@ -3212,10 +3282,20 @@ async function drainUntilExit(items: AsyncIterator<AgentSessionItem>): Promise<v
 }
 
 /**
- * A run's recorded process identity, or nothing. The run directory is the agent's to write:
- * never read through a link, never wait on a pipe put in its place, and at most 4 KiB.
+ * What the daemon records of a run's agent process group (R-G11): who the group is, whose run
+ * it is, and which installation wrote it (the database file's device and inode).
  */
-function readProcessIdentity(path: string): ProcessGroupIdentity | undefined {
+interface ProcessRecord extends ProcessGroupIdentity {
+  readonly workspaceId: string;
+  readonly runId: string;
+  readonly installation: { readonly device: number; readonly inode: number };
+}
+
+/**
+ * A run's process record, or nothing. Never read through a link, never waiting on a pipe put in
+ * its place, and at most 4 KiB; anything malformed reads as nothing.
+ */
+function readProcessRecord(path: string): ProcessRecord | undefined {
   let descriptor: number;
   try {
     descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -3229,7 +3309,26 @@ function readProcessIdentity(path: string): ProcessGroupIdentity | undefined {
     for (let read = -1; read !== 0 && length < buffer.length; length += read)
       read = readSync(descriptor, buffer, length, buffer.length - length, length);
     if (length > PROCESS_IDENTITY_MAX_BYTES) return undefined;
-    return parseProcessGroupIdentity(JSON.parse(buffer.subarray(0, length).toString('utf8')));
+    const value: unknown = JSON.parse(buffer.subarray(0, length).toString('utf8'));
+    const identity = parseProcessGroupIdentity(value);
+    if (identity === undefined || typeof value !== 'object' || value === null) return undefined;
+    const { workspaceId, runId, installation } = value as Record<string, unknown>;
+    if (
+      typeof workspaceId !== 'string' ||
+      workspaceId.length > 200 ||
+      typeof runId !== 'string' ||
+      typeof installation !== 'object' ||
+      installation === null
+    )
+      return undefined;
+    const { device, inode } = installation as Record<string, unknown>;
+    if (!Number.isSafeInteger(device) || !Number.isSafeInteger(inode)) return undefined;
+    return {
+      ...identity,
+      workspaceId,
+      runId,
+      installation: { device: device as number, inode: inode as number },
+    };
   } catch {
     return undefined;
   } finally {

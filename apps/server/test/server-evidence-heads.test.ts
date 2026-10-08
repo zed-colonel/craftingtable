@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import type { ConcurrencySource } from '@craftingtable/domain';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { type ConcurrencySource, submissionHead } from '@craftingtable/domain';
 import { observeDecodes } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
-import { resolveScope, scopeEvidenceLedger } from '../src/services/execution-scope.js';
+import {
+  resolveScope,
+  scopeEvidenceIndex,
+  scopeEvidenceLedger,
+} from '../src/services/execution-scope.js';
 import { savedPlanSnapshot } from '../src/services/plan-acceptance-policy.js';
 import {
   acceptedEvidence,
@@ -13,7 +19,9 @@ import { runtimeRefreshImpact } from '../src/services/runtime-refresh.js';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
+  roadmapControl,
   supervisedMapFixture,
+  waitFor,
 } from './execution-test-support.js';
 
 /**
@@ -172,6 +180,53 @@ it('reads each head at most once per view, ledger or acceptance check, and full 
   expect(
     ledger.acceptedExternalEvidence[0]?.artifacts.every((a) => typeof a.content === 'string'),
   ).toBe(true);
+  // A run's file indexes it instead (R-G6, AGT-56): each submission's head, and each artifact's
+  // body in a file of its own.
+  const { ledger: indexed, bodies } = scopeEvidenceIndex(ledger);
+  const full = storage.runtimeEvidence.submission(ws, id, plan)!;
+  expect(JSON.stringify(indexed)).not.toContain('"content"');
+  expect(indexed.acceptedExternalEvidence).toEqual([
+    {
+      ...submissionHead(full),
+      artifacts: submissionHead(full).artifacts.map((head, index) => ({
+        ...head,
+        file: expect.stringMatching(new RegExp(`^scope-evidence/${plan}/${index + 1}-`)),
+      })),
+    },
+  ]);
+  expect(bodies).toEqual(
+    full.artifacts.map((artifact, index) => ({
+      file: indexed.acceptedExternalEvidence[0]!.artifacts[index]!.file,
+      content: artifact.content,
+    })),
+  );
+  expect({ ...indexed, acceptedExternalEvidence: [] }).toEqual({
+    ...ledger,
+    acceptedExternalEvidence: [],
+  });
+});
+
+it("gives a run its scope's accepted evidence as an index, each artifact's body in its own file (R-G6, AGT-56)", async () => {
+  const { f, ws, id, storage, plan } = await stagedFixture();
+  let path: string | undefined;
+  const original = f.backend.replyForRequest;
+  f.backend.replyForRequest = async (request) => {
+    path ??= /`(\/[^`]+\/craftingtable-scope-evidence\.json)`/.exec(request.prompt)?.[1];
+    return original ? original(request) : { resultText: 'Done.\n\n## Open questions\n\nnone' };
+  };
+  await roadmapControl(f.state, 'start');
+  await waitFor(() => path !== undefined, "a scoped run's brief");
+  const written = readFileSync(path!, 'utf8');
+  expect(written).not.toContain('"content"');
+  const full = storage.runtimeEvidence.submission(ws, id, plan)!;
+  const indexed = JSON.parse(written).acceptedExternalEvidence.find(
+    (s: { id: string }) => s.id === plan,
+  );
+  expect(indexed.artifacts).toHaveLength(full.artifacts.length);
+  for (const [index, artifact] of full.artifacts.entries())
+    expect(readFileSync(join(dirname(path!), indexed.artifacts[index].file), 'utf8')).toBe(
+      artifact.content,
+    );
 });
 
 it("digests a saved plan's staged decisions as their full records (R-H4)", async () => {

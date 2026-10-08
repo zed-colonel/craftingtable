@@ -8,6 +8,7 @@ import { operatorDecisions } from './operator-decisions.js';
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { adoptedDecisions, mapAdopted, scopeReviewerRoles } from './map-adoption-policy.js';
 import {
+  submissionHead,
   sameExecutionScope,
   executionScopeKey,
   type ExecutionPhase,
@@ -872,4 +873,36 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
           current: currentScopeReceipt(tx, r.item.workspaceId, receipt),
         })) ?? [],
   };
+}
+
+/** A file name part made of safe characters, bounded. */
+function fileNamePart(text: string): string {
+  return (
+    text
+      .replace(/[^A-Za-z0-9._-]+/g, '_')
+      .replace(/^\.+/, '_')
+      .slice(0, 80) || '_'
+  );
+}
+
+/**
+ * The scope evidence file a run reads, as an index (R-G6, G6-4, AGT-56): the ledger as it is,
+ * except that each accepted external evidence submission is its head, and each artifact names
+ * the file, relative to the evidence file, that holds its body. The bodies were most of the
+ * file (median 0.7 of 0.8 MB on the 2026-10-07 snapshot), which agents skimmed.
+ */
+export function scopeEvidenceIndex(ledger: ReturnType<typeof scopeEvidenceLedger>) {
+  const bodies: { readonly file: string; readonly content: string }[] = [];
+  const acceptedExternalEvidence = ledger.acceptedExternalEvidence.map((submission) => {
+    const head = submissionHead(submission);
+    return {
+      ...head,
+      artifacts: head.artifacts.map((artifact, index) => {
+        const file = `scope-evidence/${fileNamePart(submission.id)}/${index + 1}-${fileNamePart(artifact.name)}`;
+        bodies.push({ file, content: submission.artifacts[index]!.content });
+        return { ...artifact, file };
+      }),
+    };
+  });
+  return { ledger: { ...ledger, acceptedExternalEvidence }, bodies };
 }

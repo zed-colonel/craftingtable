@@ -99,6 +99,7 @@ import {
   resolveScope,
   scopeBrief,
   scopeDefinitionRecord,
+  scopeEvidenceIndex,
   scopeEvidenceLedger,
   scopeNeedsKata,
 } from './execution-scope.js';
@@ -1626,24 +1627,22 @@ export class AgentRunService {
           : undefined;
       if (scope) {
         const path = join(planDirectory, 'craftingtable-scope-evidence.json');
-        // The scope's definition, its identifiers and digests, is here and not in the brief
-        // (AGT-58).
+        // Accepted evidence as an index, its artifacts' bodies in files beside it (AGT-56); the
+        // scope's definition, its identifiers and digests, here and not in the brief (AGT-58).
+        const { ledger, bodies } = scopeEvidenceIndex(scopeEvidenceLedger(this.storage, scope));
+        for (const body of bodies) {
+          mkdirSync(dirname(join(planDirectory, body.file)), { recursive: true, mode: 0o700 });
+          writeFileSync(join(planDirectory, body.file), body.content, { mode: 0o600 });
+        }
         writeFileSync(
           path,
-          JSON.stringify(
-            {
-              ...scopeEvidenceLedger(this.storage, scope),
-              definition: scopeDefinitionRecord(scope),
-            },
-            null,
-            2,
-          ),
+          JSON.stringify({ ...ledger, definition: scopeDefinitionRecord(scope) }, null, 2),
           { mode: 0o600 },
         );
         records.push({
           path,
           about:
-            "this scope's phase readiness, receipts, architecture decisions, accepted external evidence and definition: requirements there are required states, not observed successes",
+            "this scope's phase readiness, receipts, architecture decisions, definition, and an index of its accepted external evidence, each artifact's body in the file its `file` names, relative to this one: requirements there are required states, not observed successes",
         });
       }
       const policyPlan = worktreePlan(this.storage, prepared.worktree);

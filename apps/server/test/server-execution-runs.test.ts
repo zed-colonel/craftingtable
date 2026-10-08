@@ -585,6 +585,24 @@ describe('agent runs', () => {
     ]);
   });
 
+  it('gives no Git directories to a run in a repository that enables per-worktree configuration (R-G14, operator decision 2026-10-08)', async () => {
+    const state = await ready();
+    const repository = fixtureRepository();
+    // `config.worktree` in a run's Git directory would then be read as configuration, and an
+    // agent can create it there; so Codex gets no Git grant at all.
+    git(['config', 'extensions.worktreeConfig', 'true'], repository);
+    const { worktree } = await registerAndWorktree(state, repository);
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, role: 'implement' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    expect(state.backend.launches[0]?.cwd).toBe(worktree.path);
+    expect(state.backend.launches[0]).not.toHaveProperty('gitDirectories');
+  });
+
   it('starts a run with a composed brief, streams events, accepts follow-ups, and finishes', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());

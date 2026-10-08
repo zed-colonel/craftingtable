@@ -243,6 +243,35 @@ export function worktreeGitDirectories(
   }
 }
 
+/**
+ * Whether the repository's own configuration enables per-worktree configuration
+ * (`extensions.worktreeConfig`), read from its common directory's `config` alone, without
+ * following includes (R-G14, operator decision 2026-10-08). Git then reads a run's
+ * `config.worktree`, which an agent could create, so such a repository gets no Git grant. A
+ * configuration that cannot be read counts as enabling it.
+ */
+export function repositoryEnablesWorktreeConfig(
+  gitExecutable: string,
+  gitCommonDirectory: string,
+): boolean {
+  const read = spawnSync(
+    gitExecutable,
+    [
+      'config',
+      '--file',
+      join(gitCommonDirectory, 'config'),
+      '--no-includes',
+      '--type=bool',
+      '--get',
+      'extensions.worktreeConfig',
+    ],
+    { encoding: 'utf8', timeout: 10000, maxBuffer: 65536, env: daemonGitEnvironment() },
+  );
+  // Exit 1: the key is not set.
+  if (read.status === 1 && !read.stdout?.trim()) return false;
+  return read.status !== 0 || read.stdout?.trim() !== 'false';
+}
+
 /** The same observation without blocking the daemon's event loop, on the pinned git directory. */
 async function observeGitState(m: CheckManifest) {
   if (!m.gitDirectory) throw new Error('The run has no daemon-resolved git directory.');

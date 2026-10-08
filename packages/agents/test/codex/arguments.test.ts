@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { homedir } from 'node:os';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { codexDeniedReads, codexThreadParams, codexTurnParams } from '../../src/codex/arguments.js';
 import { cargoOutsideSource } from '../../src/outside-sources.js';
@@ -206,47 +207,91 @@ it('restricts decision preparation to read-only with no escalation on every turn
   });
 });
 
-it("lets a sandboxed run's commands commit: its Git directories writable, but not the repository's config, hooks or info (R-G14, operator decision 2026-10-08)", () => {
-  const gitDirectories = {
-    gitDirectory: '/src/repo/.git/worktrees/wt-1',
-    gitCommonDirectory: '/src/repo/.git',
-  };
-  for (const permissionMode of ['auto', 'edit-only'] as const) {
-    const { profile } = profileOf({
-      cwd: '/work/x',
-      prompt: 'Go',
-      permissionMode,
-      outsideSources: [],
-      gitDirectories,
-    });
-    expect((profile as { filesystem: Record<string, string> }).filesystem).toEqual({
-      '/src/repo/.git': 'write',
-      // Codex keeps the worktree's own Git directory read-only unless it is named itself.
-      '/src/repo/.git/worktrees/wt-1': 'write',
-      // The daemon's own Git reads them: settings, hook programs, and attributes (which could pick
-      // another merge driver for its merges) stay as the repository has them.
-      '/src/repo/.git/config': 'read',
-      '/src/repo/.git/hooks': 'read',
-      '/src/repo/.git/info': 'read',
-    });
-  }
-  // Without the daemon's resolved directories, nothing of Git is granted.
-  expect(
-    (
-      profileOf({ cwd: '/work/x', prompt: 'Go', permissionMode: 'auto', outsideSources: [] })
-        .profile as { filesystem: Record<string, string> }
-    ).filesystem,
-  ).toEqual({});
-  // Read-only and unrestricted runs are unchanged.
-  for (const request of [
-    { permissionMode: 'auto' as const, readOnly: true },
-    { permissionMode: 'unrestricted' as const },
-  ])
+/** A repository's Git directories as Git lays them out for a linked worktree, on disk. */
+function gitLayout() {
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-codex-git-'));
+  const common = join(root, 'repo', '.git');
+  const own = join(common, 'worktrees', 'wt-1');
+  for (const directory of ['objects/info', 'refs', 'logs', 'hooks', 'info'])
+    mkdirSync(join(common, directory), { recursive: true });
+  mkdirSync(own, { recursive: true });
+  writeFileSync(join(common, 'config'), '');
+  writeFileSync(join(own, 'commondir'), '../..\n');
+  writeFileSync(join(own, 'gitdir'), `${join(root, 'wt-1', '.git')}\n`);
+  return { root, common, own, gitDirectories: { gitDirectory: own, gitCommonDirectory: common } };
+}
+
+it("lets a sandboxed run's commands commit, through Git's objects, refs and logs and its own Git directory only (R-G14, operator decisions 2026-10-08)", () => {
+  const git = gitLayout();
+  try {
+    for (const permissionMode of ['auto', 'edit-only'] as const) {
+      const { profile } = profileOf({
+        cwd: '/work/x',
+        prompt: 'Go',
+        permissionMode,
+        outsideSources: [],
+        gitDirectories: git.gitDirectories,
+      });
+      expect((profile as { filesystem: Record<string, string> }).filesystem).toEqual({
+        // What staging and committing write in the common directory.
+        [join(git.common, 'objects')]: 'write',
+        [join(git.common, 'refs')]: 'write',
+        [join(git.common, 'logs')]: 'write',
+        // Not alternates, which would make Git read objects from elsewhere.
+        [join(git.common, 'objects', 'info')]: 'read',
+        // The run's own Git directory (index, HEAD), but not the files that say where the
+        // repository is. The common directory itself (its config, hooks, info, commondir,
+        // config.worktree, packed-refs, other worktrees) is not granted, so it stays read-only
+        // without masking a path that does not exist (Codex 0.160.0 masks at most one).
+        [git.own]: 'write',
+        [join(git.own, 'commondir')]: 'read',
+        [join(git.own, 'gitdir')]: 'read',
+      });
+    }
+    // Without the daemon's resolved directories, nothing of Git is granted.
     expect(
-      JSON.stringify(
-        codexThreadParams({ cwd: '/work/x', prompt: 'Go', gitDirectories, ...request }),
-      ),
-    ).not.toContain('/src/repo/.git');
+      (
+        profileOf({ cwd: '/work/x', prompt: 'Go', permissionMode: 'auto', outsideSources: [] })
+          .profile as { filesystem: Record<string, string> }
+      ).filesystem,
+    ).toEqual({});
+    // Read-only and unrestricted runs are unchanged.
+    for (const request of [
+      { permissionMode: 'auto' as const, readOnly: true },
+      { permissionMode: 'unrestricted' as const },
+    ])
+      expect(
+        JSON.stringify(
+          codexThreadParams({
+            cwd: '/work/x',
+            prompt: 'Go',
+            gitDirectories: git.gitDirectories,
+            ...request,
+          }),
+        ),
+      ).not.toContain(git.common);
+  } finally {
+    rmSync(git.root, { recursive: true, force: true });
+  }
+});
+
+it('grants no Git directory whose read-only part is missing, rather than mask a missing path (R-G14, operator decision 2026-10-08)', () => {
+  for (const missing of ['objects/info', 'worktrees/wt-1/commondir', 'worktrees/wt-1/gitdir']) {
+    const git = gitLayout();
+    try {
+      rmSync(join(git.common, missing), { recursive: true });
+      const { profile } = profileOf({
+        cwd: '/work/x',
+        prompt: 'Go',
+        permissionMode: 'auto',
+        outsideSources: [],
+        gitDirectories: git.gitDirectories,
+      });
+      expect((profile as { filesystem: Record<string, string> }).filesystem).toEqual({});
+    } finally {
+      rmSync(git.root, { recursive: true, force: true });
+    }
+  }
 });
 
 it("denies a sandboxed run's commands the reads Claude's sandbox denies, in the form Codex can mask (R-G14, operator decision 2026-10-08)", () => {

@@ -9,6 +9,7 @@ export {
   executeCheck,
   resolveGitDirectories,
   worktreeGitDirectories,
+  repositoryEnablesWorktreeConfig,
   stopCheckUnits,
   syncDaemonCargoHome,
   confinedCheckArguments,

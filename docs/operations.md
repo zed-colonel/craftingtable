@@ -370,9 +370,12 @@ under the XDG config home), read when the daemon starts; edit it and restart to 
   through Codex's own proxy with `features.network_proxy`; verified with Codex CLI 0.160.0, where
   permission profiles are a Beta feature). Codex `auto` never asks to leave its sandbox: it has
   approval policy `never`, as `edit-only` has. Both agents' sandboxed commands can stage and commit
-  from the worktree: Codex's profile writes the repository's Git directory, as the daemon
-  resolved it from the primary checkout, except its `config`, `hooks/` and `info/` (operator
-  decision 2026-10-08); Claude Code's sandbox writes it except `config` and `hooks`.
+  from the worktree: Codex's profile writes only the common directory's `objects/`, `refs/`
+  and `logs/` and the run's own Git directory (not its `commondir` or `gitdir`), as the daemon
+  resolved them from the primary checkout (operator decisions 2026-10-08); a repository that
+  enables `extensions.worktreeConfig` gives Codex no Git grant, so its runs cannot commit from
+  the sandbox. Claude Code's sandbox writes the repository's Git directory except `config` and
+  `hooks`.
 - Codex's profile also denies the reads Claude's sandbox denies (the daemon's database,
   backups and settings directory, the operator's credentials, the runtime directory and the
   Docker socket; see `docs/security.md`). Codex 0.160.0 can mask only one existing file per

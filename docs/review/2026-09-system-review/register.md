@@ -3641,6 +3641,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       1. The daemon pins its own Git directories: every Git command against a registered repository or a run's worktree passes `GIT_DIR` and `GIT_COMMON_DIR` (and `GIT_WORK_TREE` where a work tree is meant). They come from the registered repository and the worktree's validated directories, never from files an agent can write.
       2. Both adapters make the redirect files read-only. Under the common directory: `commondir`, `config.worktree`, `objects/info`, and `worktrees/` other than the run's own Git directory. Under the run's Git directory: `commondir`, `gitdir`, `config.worktree`. This is on top of `config`, `hooks` and `info` (Claude gets `info/` too). Writing each must be refused whether it exists or not, while staging and committing still work. A CLI that cannot stop a missing path's creation is reported, not shipped partially.
       3. A run-end check: before any finalization commit or merge, the daemon looks for a redirect file that was not there at launch, and if it finds one, refuses with a stable code naming the path.
+  - **Codex's part of layer 2, decided by the operator 2026-10-08** (after the evidence below): Codex gets a narrower Git grant.
+    - Writable: the common directory's `objects/`, `refs/` and `logs/`, and the run's own Git directory.
+    - Read-only: the common directory itself, `objects/info`, and the run's `commondir` and `gitdir` (and so `config`, `hooks` and `info` as before).
+    - No rule for a path that does not exist.
+    - A repository whose configuration enables `extensions.worktreeConfig` gets no Codex Git grant at all. The daemon reads that from the repository's config at launch, which agents cannot write. Layer 3 also covers the run's `config.worktree`.
+    - *Evidence (Codex 0.160.0, model-free `codex sandbox -P`, scratch repository; `probe67.log`, `probe-socket-plus-missing.log` and `probe8.log` under `~/.cache/ct-p3-tmp/rg14s4/`):*
+      - A rule for a missing path is a bubblewrap file mask, from the same one-slot budget as the denied-read files. One missing read-only path under the granted common directory did stop its creation, and staging still worked. Two or more broke every command ("Can't write data to file … Bad file descriptor"). So did the Docker socket deny plus even one missing Git path.
+      - A missing path under a read-only directory (`objects/info/alternates`) broke every command too ("Can't create file … Read-only file system").
+      - The redirect files the decision named include three that are normally missing (`<common>/commondir`, `<common>/config.worktree`, `<gitdir>/config.worktree`), so the grant as first decided could not be built.
+    - *Built:* `codexGitAccess` (`codex/arguments.ts`) now gives exactly that. If `objects/info` or the run's `commondir` or `gitdir` is missing, it grants no Git at all rather than mask it. The agent run service gives no `gitDirectories` when `repositoryEnablesWorktreeConfig` (`local-check.ts`) finds the setting. That reads the common directory's `config` alone with `--no-includes`, and counts a configuration it cannot read as enabled.
+    - *Tests:*
+      - `codex/arguments.test.ts`: the exact writable and read-only sets on `auto` and `edit-only`; no grant when one of the three read-only paths is missing. Both failed before the change.
+      - `server-execution-runs.test.ts`: a repository with `extensions.worktreeConfig = true` launches with no Git directories. It failed before the change.
+    - *Live (Codex 0.160.0, `auto` and `edit-only`, with the profile the adapter builds and the Docker socket deny in place, model-free through the app-server's `command/exec`):*
+      - Staging and committing in the worktree worked, and so did creating a branch.
+      - Refused ("Read-only file system"): creating `<common>/commondir`, `<common>/config.worktree`, `packed-refs`, `objects/info/alternates` and `worktrees/other`; writing the run's `commondir` and `gitdir`; and `config`, `hooks/probe-hook` and `info/attributes`.
+      - Creating the run's `config.worktree` was not refused, as decided (`codex-{auto,edit-only}-git-mf`).
+      - The commit printed "Unable to create '…/packed-refs.lock'". That is Git 2.55's automatic maintenance after a commit, and the commit itself succeeded.
   - **LOW-1, fixed.** The count guard's boundary depended on the host's Docker socket. `unmaskableDeniedFiles` (`codex/arguments.ts`) now takes the list, and `codex/denied-files.test.ts` checks it with paths the test owns: exactly two existing files refuse, and exactly one passes. Changing `> 1` to `> 2` fails it.
   - **LOW-2, fixed.** The same test checks that two links that name nothing refuse and one passes. Counting a dangling link as absent fails it.
 

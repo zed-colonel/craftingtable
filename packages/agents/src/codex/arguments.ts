@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '../index.js';
@@ -45,22 +45,31 @@ function codexPermissionProfile(request: AgentLaunchRequest): Record<string, unk
 
 /**
  * What a sandboxed run's commands may do with the worktree's Git directories (R-G14, operator
- * decision 2026-10-08): write them, so they can stage and commit, as Claude Code's sandbox
- * allows. Codex keeps the worktree's own Git directory read-only unless it is named itself. The
- * common directory's `config`, `hooks` and `info` stay read-only: the daemon's own Git reads its
- * settings and hook programs there, and `info/attributes` could pick another built-in merge
- * driver (`union`, say) for the daemon's merges.
+ * decisions 2026-10-08): enough to stage and commit, and nothing that says where the repository
+ * or its configuration is. Writable: the common directory's `objects/`, `refs/` and `logs/`, and
+ * the run's own Git directory (Codex keeps that read-only unless it is named itself). Read-only:
+ * `objects/info` (alternates), and the run's `commondir` and `gitdir`. The common directory
+ * itself is not granted, so its `config`, `hooks/`, `info/`, `commondir`, `config.worktree`,
+ * `packed-refs` and other worktrees' entries stay read-only, existing or not, without a rule for
+ * a path that does not exist: Codex 0.160.0 masks such a path as a file, at most one per sandbox,
+ * and not at all under a read-only directory. Where a path that must stay read-only is missing,
+ * nothing of Git is granted.
  */
 function codexGitAccess(request: AgentLaunchRequest): [string, string][] {
   const git = request.gitDirectories;
   if (git === undefined) return [];
+  const common = git.gitCommonDirectory;
+  const readOnly = [
+    join(common, 'objects', 'info'),
+    join(git.gitDirectory, 'commondir'),
+    join(git.gitDirectory, 'gitdir'),
+  ];
+  if (!readOnly.every((path) => existsSync(path))) return [];
   return [
-    [git.gitCommonDirectory, 'write'],
+    ...['objects', 'refs', 'logs'].map((name): [string, string] => [join(common, name), 'write']),
+    [readOnly[0] as string, 'read'],
     [git.gitDirectory, 'write'],
-    ...['config', 'hooks', 'info'].map((name): [string, string] => [
-      join(git.gitCommonDirectory, name),
-      'read',
-    ]),
+    ...readOnly.slice(1).map((path): [string, string] => [path, 'read']),
   ];
 }
 

@@ -161,15 +161,21 @@ outside sources' caches, and reach no network but the outside sources' hosts, th
 own proxy, which refuses any other host; a direct connection cannot resolve or connect. With no
 source the network is off. Permission profiles are a Beta Codex feature and the proxy
 (`features.network_proxy`) an experimental one, verified with CLI 0.160.0. The profile also lets
-commands write the repository's Git directory, so they can stage and commit, except its
-`config`, `hooks/` and `info/`, which stay read-only (operator decision 2026-10-08): the
-daemon's own Git reads the repository's settings and hook programs there, and
-`info/attributes` could pick another built-in merge driver, such as `union`, for the daemon's
-merges. The daemon resolves the directories itself before launch and grants them only when the
-worktree's common directory is the one the primary checkout names and its own Git directory is
-one of that directory's `worktrees/` entries, so a `.git` pointer or `commondir` file an agent
-rewrote cannot point the grant elsewhere. A command can still create or move branches there,
-which the ref watch below detects.
+commands stage and commit (operator decisions 2026-10-08): it makes writable only the common
+directory's `objects/`, `refs/` and `logs/` and the run's own Git directory, and keeps
+`objects/info` and the run's `commondir` and `gitdir` read-only. The common directory itself is
+not granted, so its `config`, `hooks/`, `info/`, `commondir`, `config.worktree`, `packed-refs`
+and other worktrees' entries stay read-only whether they exist or not: none of the files that
+say where the repository or its configuration is, or that pick a merge driver or a signing
+program for the daemon's own Git, can be written. (A rule for a path that does not exist would
+have to be a mask, and Codex 0.160.0 masks at most one per sandbox, the slot the Docker socket
+already uses.) Git reads the run's own `config.worktree` only when the repository enables
+`extensions.worktreeConfig`; such a repository gets no Git grant at all. The daemon resolves the
+directories itself before launch and grants them only when the worktree's common directory is
+the one the primary checkout names and its own Git directory is one of that directory's
+`worktrees/` entries, so a `.git` pointer or `commondir` file an agent rewrote cannot point the
+grant elsewhere. A command can still create or move branches, which the ref watch below
+detects; the ref watch does not detect anything else written there.
 
 The profile also denies reads of everything Claude's sandbox denies, from the same list
 (`sandboxDeniedReads`; R-G14, operator decision 2026-10-08): the user's runtime directory, the

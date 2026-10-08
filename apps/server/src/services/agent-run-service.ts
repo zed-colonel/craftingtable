@@ -33,6 +33,7 @@ import {
   processGroupIdentity,
   RUN_ID_VARIABLE,
   reapProcessGroup,
+  repositoryEnablesWorktreeConfig,
   worktreeGitDirectories,
 } from '@craftingtable/agents';
 import {
@@ -582,11 +583,20 @@ export class AgentRunService {
       repository && gitExecutable
         ? worktreeGitDirectories(gitExecutable, worktree.path, repository.rootPath)
         : undefined;
-    if (resolved === undefined)
+    if (resolved === undefined) {
       this.log.warn("A worktree's Git directories could not be resolved for its run", {
         worktree: worktree.path,
       });
-    return resolved ? { gitDirectories: resolved } : {};
+      return {};
+    }
+    // A repository that reads per-worktree configuration gets no Git grant (operator decision
+    // 2026-10-08): a run could create its `config.worktree`.
+    if (
+      gitExecutable &&
+      repositoryEnablesWorktreeConfig(gitExecutable, resolved.gitCommonDirectory)
+    )
+      return {};
+    return { gitDirectories: resolved };
   }
 
   hasBackend(kind: AgentBackendKind): boolean {

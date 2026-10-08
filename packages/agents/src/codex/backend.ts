@@ -12,7 +12,7 @@ import { ModelCatalog, type ModelCatalogSnapshot } from '../model-catalog.js';
 import { listCodexModels } from './catalog.js';
 import { CODEX_MODELS } from './models.js';
 import { codexIsolationArguments, probeCodexInventory } from './isolation.js';
-import { codexDeniedFiles, codexSourceCaches } from './arguments.js';
+import { codexSourceCaches, codexUnmaskableFiles } from './arguments.js';
 import { prepareSourceCaches } from '../outside-sources.js';
 import { backgroundWorkAllowance } from '../process.js';
 import { CODEX_DRAIN_MS, CodexSession, codexEnvironment } from './session.js';
@@ -76,8 +76,8 @@ export class CodexBackend implements AgentBackend {
       );
     // Codex 0.160.0 masks only one existing file per sandbox; with more, every command of the
     // run would fail, and dropping a denial would let commands read it (R-G14).
-    const files = codexDeniedFiles(request);
-    if (files.length > 1)
+    const files = codexUnmaskableFiles(request);
+    if (files !== undefined)
       return Promise.reject(
         new AgentLaunchError(
           'environment-unavailable',

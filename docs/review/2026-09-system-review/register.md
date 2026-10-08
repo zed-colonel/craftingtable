@@ -3634,6 +3634,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - On the host, outside any sandbox, every one of those reads succeeds (the control). The worktree and the Cargo home stay readable in the sandbox.
     - The guard found one existing file on this workstation's list, `/run/docker.sock`, so the runs launched.
     - In the model sessions, `cargo fetch` succeeded into the scratch Cargo home, `example.com` and `crates.io` were refused (403), and a Codex `auto` session committed from its worktree inside the sandbox, all with no escalation.
+- **Independent security review (2026-10-08, ee56286..5212ec1): 0 HIGH, 1 MEDIUM, 2 LOW.**
+  - **MEDIUM-1, decided by the operator 2026-10-08.**
+    - *The finding:* a sandboxed command can write `<common>/commondir`, or the run's `<gitdir>/commondir`, `config.worktree`, `objects/info/alternates`, or another worktree's entry. Git then reads its configuration from a directory the agent made. That gets around the read-only `config`, `hooks/` and `info/`. It also reaches the daemon's own Git (`gpg.program` for a signed merge, merge drivers, filters) and the operator's interactive Git. Claude Code's sandbox has the same exposure, live today, because it grants the common directory except `config` and `hooks`. The ref watch does not detect any of it, so the wording that it bounds the damage was wrong.
+    - *Decision: the layered fix, all three layers required.*
+      1. The daemon pins its own Git directories: every Git command against a registered repository or a run's worktree passes `GIT_DIR` and `GIT_COMMON_DIR` (and `GIT_WORK_TREE` where a work tree is meant). They come from the registered repository and the worktree's validated directories, never from files an agent can write.
+      2. Both adapters make the redirect files read-only. Under the common directory: `commondir`, `config.worktree`, `objects/info`, and `worktrees/` other than the run's own Git directory. Under the run's Git directory: `commondir`, `gitdir`, `config.worktree`. This is on top of `config`, `hooks` and `info` (Claude gets `info/` too). Writing each must be refused whether it exists or not, while staging and committing still work. A CLI that cannot stop a missing path's creation is reported, not shipped partially.
+      3. A run-end check: before any finalization commit or merge, the daemon looks for a redirect file that was not there at launch, and if it finds one, refuses with a stable code naming the path.
+  - **LOW-1, fixed.** The count guard's boundary depended on the host's Docker socket. `unmaskableDeniedFiles` (`codex/arguments.ts`) now takes the list, and `codex/denied-files.test.ts` checks it with paths the test owns: exactly two existing files refuse, and exactly one passes. Changing `> 1` to `> 2` fails it.
+  - **LOW-2, fixed.** The same test checks that two links that name nothing refuse and one passes. Counting a dangling link as absent fails it.
 
 ### R-G15
 

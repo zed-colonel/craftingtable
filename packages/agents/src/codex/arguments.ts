@@ -96,13 +96,13 @@ export function codexDeniedReads(
 }
 
 /**
- * The denied reads Codex would have to mask as files: those that exist and are not directories
- * (a link that names nothing counts, as it cannot be looked through). More than one makes every
- * command of the run fail in Codex 0.160.0, so the backend refuses such a launch (R-G14).
+ * Of the given denied reads, those Codex would have to mask as files: they exist and are not
+ * directories (a link that names nothing counts, as it cannot be looked through). Returned only
+ * when there is more than one, which makes every command of the run fail in Codex 0.160.0, so
+ * the backend refuses such a launch (R-G14); undefined when the profile can mask them.
  */
-export function codexDeniedFiles(request: AgentLaunchRequest): string[] {
-  if (!codexSandboxed(request)) return [];
-  return codexDeniedReads(request).filter((path) => {
+export function unmaskableDeniedFiles(paths: readonly string[]): string[] | undefined {
+  const files = paths.filter((path) => {
     try {
       lstatSync(path);
     } catch {
@@ -114,6 +114,12 @@ export function codexDeniedFiles(request: AgentLaunchRequest): string[] {
       return true;
     }
   });
+  return files.length > 1 ? files : undefined;
+}
+
+/** For a sandboxed run, the denied reads its profile could not mask; undefined otherwise. */
+export function codexUnmaskableFiles(request: AgentLaunchRequest): string[] | undefined {
+  return codexSandboxed(request) ? unmaskableDeniedFiles(codexDeniedReads(request)) : undefined;
 }
 
 /** The outside sources' caches a sandboxed run may write, which the backend creates first. */

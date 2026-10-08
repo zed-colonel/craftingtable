@@ -90,15 +90,16 @@ describe('ClaudeCodeBackend', () => {
     const items = await collecting;
 
     const kinds = items.map((item) => (item.type === 'event' ? item.event.kind : 'exited'));
-    expect(kinds).toEqual([
+    // Stderr goes out after a second of quiet or at the end, whichever comes first (R-G11).
+    expect(kinds.filter((kind) => kind !== 'stderr')).toEqual([
       'session-started',
       'assistant-message',
       'turn-completed',
       'assistant-message',
       'turn-completed',
-      'stderr',
       'exited',
     ]);
+    expect(kinds.filter((kind) => kind === 'stderr')).toHaveLength(1);
     const texts = items.flatMap((item) =>
       item.type === 'event' && item.event.kind === 'assistant-message'
         ? [item.event.payload.text]
@@ -521,6 +522,34 @@ describe('Claude background lifecycle', () => {
       exitCode: 0,
       reason: 'background-work-incomplete',
     });
+  });
+
+  it('journals a partial stderr batch once stderr has been quiet for about a second (R-G11)', async () => {
+    // The stand-in writes one stderr line at start, then waits for its input to end.
+    const fake = fakeClaude();
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'first',
+      permissionMode: 'auto',
+    });
+    const iterator = session.items[Symbol.asyncIterator]();
+    const seen: AgentSessionItem[] = [];
+    const started = Date.now();
+    for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
+      seen.push(next.value);
+      if (next.value.type === 'event' && next.value.event.kind === 'stderr') break;
+    }
+    // Journaled while the session is still open, not only when it ends.
+    expect(seen.at(-1)).toMatchObject({
+      event: { kind: 'stderr', payload: { text: expect.stringMatching(/^fake claude started/) } },
+    });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+    session.end();
+    for (let next = await iterator.next(); !next.done; next = await iterator.next())
+      seen.push(next.value);
+    expect(
+      seen.filter((item) => item.type === 'event' && item.event.kind === 'stderr'),
+    ).toHaveLength(1);
   });
 
   it("journals stderr within the run's budget, then one notice, and still reads every chunk (R-G11)", async () => {

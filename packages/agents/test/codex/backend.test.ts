@@ -17,6 +17,9 @@ trace({args: process.argv.slice(2), pid: process.pid});
 if (mode === 'env-names') trace({envNames: Object.keys(process.env).sort(), path: process.env.PATH, args: process.argv.slice(2)});
 if (mode === 'scratch') trace({temporaryPaths: [process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]});
 if (mode === 'ignore-term') process.on('SIGTERM', () => {});
+// One stderr line from the run's own app-server as it starts (not the configuration probe).
+if (process.env.FAKE_STDERR_LINE && process.argv.join(' ').includes('mcp_servers.operator_mcp'))
+  process.stderr.write('app-server warming up' + String.fromCharCode(10));
 // Two mebibytes of stderr from the run's own app-server (not the configuration probe).
 if (process.env.FAKE_FLOOD && process.argv.join(' ').includes('mcp_servers.operator_mcp'))
   for (let i = 0; i < 32; i++) process.stderr.write('e'.repeat(65535) + String.fromCharCode(10));
@@ -596,6 +599,19 @@ it('pauses the app-server while the daemon lags behind its session (R-G11, AGT-1
   }
   expect(flooded).toBe(20000);
   expect(existsSync(join(cwd, 'finished'))).toBe(true);
+});
+
+it('journals a partial stderr batch once stderr has been quiet for about a second (R-G11)', async () => {
+  const { session, items } = await launch('', {}, { FAKE_STDERR_LINE: '1' });
+  const stderr = () =>
+    items.flatMap((item) =>
+      item.type === 'event' && item.event.kind === 'stderr' ? [item.event.payload.text] : [],
+    );
+  // Journaled while the session is still open, not only when it ends.
+  await waitFor(() => stderr().length === 1);
+  expect(stderr()).toEqual(['app-server warming up\n']);
+  expect(items.some((item) => item.type === 'exited')).toBe(false);
+  session.end();
 });
 
 it("journals stderr within the run's budget, then one notice, and still reads every chunk (R-G11)", async () => {

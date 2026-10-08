@@ -4,13 +4,18 @@ import type { NormalizedAgentEvent } from './index.js';
 export const STDERR_RUN_BUDGET_BYTES = 1024 * 1024;
 /** The largest single `stderr` event. */
 export const STDERR_EVENT_LIMIT_BYTES = 8 * 1024;
+/**
+ * How long stderr must be quiet before a partial batch is journaled (operator decision
+ * 2026-10-07), so a lone warning shows while the session runs, not only when it ends.
+ */
+export const STDERR_QUIET_MS = 1000;
 
 const SUPPRESSED_MESSAGE = `stderr suppressed: the agent wrote more than ${STDERR_RUN_BUDGET_BYTES / (1024 * 1024)} MiB to stderr in this run, and the rest is not journaled.`;
 
 /**
  * What of a run's stderr is journaled, shared by every adapter (R-G11, AGT-16): output is
  * batched into events of at most 8 KiB, at most 1 MiB in all, then one notice says the rest
- * was suppressed. Adapters that scan stderr for diagnostics read the raw chunks themselves;
+ * was suppressed. A partial batch goes out after a second of quiet. Adapters that scan stderr for diagnostics read the raw chunks themselves;
  * this decides only what is recorded.
  */
 export class StderrJournal {
@@ -50,7 +55,10 @@ export class StderrJournal {
     return events;
   }
 
-  /** What is still pending, at the session's end; blank output is not journaled. */
+  /**
+   * What is still pending, once stderr has been quiet (the supervisor's `stderr-quiet`) or the
+   * session ends; blank output is not journaled.
+   */
   flush(): NormalizedAgentEvent[] {
     const text = this.pending.toString('utf8');
     this.pending = Buffer.alloc(0);

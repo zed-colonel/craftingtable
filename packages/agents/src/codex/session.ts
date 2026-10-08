@@ -13,7 +13,7 @@ import {
   type SupervisedProcess,
   spawnSupervisedProcess,
 } from '../process.js';
-import { StderrJournal } from '../stderr-journal.js';
+import { STDERR_QUIET_MS, StderrJournal } from '../stderr-journal.js';
 import { codexThreadParams, codexTurnParams } from './arguments.js';
 import { agentEnvironment } from '../child-environment.js';
 import type { CodexBackendOptions } from './backend.js';
@@ -90,6 +90,7 @@ export class CodexSession implements AgentSession {
       ...backgroundWorkAllowance(request.deadlineAt, CODEX_DRAIN_MS),
       terminationGraceMs: options.terminationGraceMs ?? 5000,
       maxLineBytes: 4 * 1024 * 1024,
+      stderrQuietMs: STDERR_QUIET_MS,
     });
     this.rpc = new CodexRpc(this.child, options.requestTimeoutMs ?? 30000);
     void this.consume().catch((error) => this.fail(error));
@@ -430,6 +431,10 @@ export class CodexSession implements AgentSession {
         return;
       }
       if (item.type === 'background-work-waiting') continue;
+      if (item.type === 'stderr-quiet') {
+        for (const event of this.stderr.flush()) this.emit(event);
+        continue;
+      }
       if (item.type === 'stderr') {
         this.normalizer.observeStderr(item.text);
         for (const event of this.stderr.write(item.text)) this.emit(event);

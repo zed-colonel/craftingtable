@@ -26,12 +26,15 @@ export interface SupervisedProcessOptions {
   readonly backgroundWorkDeadlineAt?: number;
   /** Standalone drain allowance measured from the agent exit, not launch. */
   readonly backgroundWorkTimeoutMs?: number;
+  /** After this long without stderr, a `stderr-quiet` item says a partial batch may go out. */
+  readonly stderrQuietMs?: number;
 }
 
 export type SupervisedProcessItem =
   | { readonly type: 'stdout-line'; readonly line: string }
   | { readonly type: 'stdout-overflow'; readonly bytes: number }
   | { readonly type: 'stderr'; readonly text: string }
+  | { readonly type: 'stderr-quiet' }
   | { readonly type: 'background-work-waiting' }
   | {
       readonly type: 'exited';
@@ -435,8 +438,16 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
     }
   });
   child.stderr?.setEncoding('utf8');
+  let quietTimer: NodeJS.Timeout | undefined;
   child.stderr?.on('data', (chunk: string) => {
     pushOutput({ type: 'stderr', text: chunk });
+    if (options.stderrQuietMs === undefined) return;
+    if (quietTimer !== undefined) clearTimeout(quietTimer);
+    quietTimer = setTimeout(() => {
+      quietTimer = undefined;
+      if (!finished) queue.push({ type: 'stderr-quiet' });
+    }, options.stderrQuietMs);
+    quietTimer.unref();
   });
   child.stdin?.on('error', () => {
     // EPIPE after the agent exits is expected; the close event reports the outcome.
@@ -480,6 +491,7 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
     if (!closed) return;
     finished = true;
     if (killTimer !== undefined) clearTimeout(killTimer);
+    if (quietTimer !== undefined) clearTimeout(quietTimer);
     if (lineBuffer.length > 0) {
       queue.push({ type: 'stdout-line', line: lineBuffer });
       lineBuffer = '';

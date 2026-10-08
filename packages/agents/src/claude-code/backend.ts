@@ -12,7 +12,7 @@ import {
 } from '../index.js';
 import { agentEnvironment } from '../child-environment.js';
 import { backgroundWorkAllowance, spawnSupervisedProcess } from '../process.js';
-import { StderrJournal } from '../stderr-journal.js';
+import { STDERR_QUIET_MS, StderrJournal } from '../stderr-journal.js';
 import {
   claudeCodeArguments,
   claudeSandboxed,
@@ -177,6 +177,7 @@ export class ClaudeCodeBackend implements AgentBackend {
         env,
         terminationGraceMs: this.options.terminationGraceMs ?? 5000,
         maxLineBytes: MAX_LINE_BYTES,
+        stderrQuietMs: STDERR_QUIET_MS,
         ...allowance,
       });
     } catch (error) {
@@ -254,6 +255,9 @@ export class ClaudeCodeBackend implements AgentBackend {
             for (const event of stderr.write(item.text)) yield { type: 'event', event };
             break;
           }
+          case 'stderr-quiet':
+            for (const event of stderr.flush()) yield { type: 'event', event };
+            break;
           case 'exited': {
             for (const event of stderr.flush()) yield { type: 'event', event };
             // A session that ends before collecting its background work: its last result is the

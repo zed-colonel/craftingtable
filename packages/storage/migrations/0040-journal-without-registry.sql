@@ -108,7 +108,8 @@ FROM workspace_events_schema39
 ORDER BY sequence;
 
 -- The explicit-sequence copy only sets the new row to MAX(sequence); put back the high-water
--- mark captured before the rename, exactly (an absent row stays absent).
+-- mark captured before the rename, exactly. An absent row stays absent: SQLite then issues
+-- MAX(sequence) + 1, which for a journal that never lost its tail is the same next sequence.
 DELETE FROM sqlite_sequence WHERE name = 'workspace_events';
 INSERT INTO sqlite_sequence (name, seq)
 SELECT 'workspace_events', sequence_value
@@ -187,14 +188,17 @@ BEGIN
   SELECT RAISE(ABORT, 'audit action is retired');
 END;
 
--- The high-water mark is the one captured, and no lower than any sequence issued.
+-- The high-water mark is the one captured and, when there is one, no lower than any sequence
+-- issued (a lower one is refused, as 0004 refused it).
 INSERT INTO migration_0040_guard (checkpoint, ok)
 SELECT 'sequence', CASE WHEN
     (SELECT COUNT(*) FROM sqlite_sequence WHERE name = 'workspace_events')
       = (SELECT sequence_row_was_present FROM migration_0040_state WHERE singleton = 1)
     AND COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'workspace_events'), 0)
       = (SELECT sequence_value FROM migration_0040_state WHERE singleton = 1)
-    AND (SELECT sequence_value >= max_sequence FROM migration_0040_state WHERE singleton = 1)
+    AND (
+      SELECT sequence_row_was_present = 0 OR sequence_value >= max_sequence
+      FROM migration_0040_state WHERE singleton = 1)
   THEN 1 ELSE 0 END;
 
 -- The journal's index and triggers are back on it, with the two refusals; the old table and the

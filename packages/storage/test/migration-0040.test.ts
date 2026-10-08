@@ -450,6 +450,37 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
     }
   });
 
+  it('leaves a missing high-water row missing, so the next event follows the last row (R-H6 review LOW-1)', () => {
+    // SQLite issues MAX(sequence) + 1 when an AUTOINCREMENT table has no sqlite_sequence row,
+    // so the stream continues without a gap; 0004 accepted this state too.
+    for (const populated of [true, false]) {
+      const database = populated ? schema39(temporaryPath()) : openDatabase(temporaryPath());
+      try {
+        if (!populated) runMigrations(database, toSchema39);
+        database.exec("DELETE FROM sqlite_sequence WHERE name = 'workspace_events'");
+        runMigrations(database, migrations);
+        expect(sequenceRow(database), String(populated)).toBeUndefined();
+        if (!populated)
+          database.exec(`
+            INSERT INTO users (id, username, username_normalized, password_hash, status, created_at, updated_at)
+              VALUES ('user-a', 'user-a', 'user-a', '$argon2id$seed', 'active', '${NOW}', '${NOW}');
+            INSERT INTO workspaces (id, name, slug, status, created_by_user_id, created_at, updated_at)
+              VALUES ('workspace-a', 'Workspace a', 'workspace-a', 'active', 'user-a', '${NOW}', '${NOW}');
+          `);
+        const next = new SqliteWorkspaceEventRepository(database, acceptAnyRecord).appendEvent({
+          id: asEventId('after-migration'),
+          occurredAt: NOW,
+          workspaceId: asWorkspaceId('workspace-a'),
+          kind: 'attention-changed',
+          payload: { open: 1 },
+        });
+        expect(next.sequence, String(populated)).toBe(populated ? 9 : 1);
+      } finally {
+        database.close();
+      }
+    }
+  });
+
   it('rolls back, leaving schema 39 whole, when an event carries a registry correlation', () => {
     const database = schema39(temporaryPath());
     try {

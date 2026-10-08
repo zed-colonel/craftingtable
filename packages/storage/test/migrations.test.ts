@@ -110,7 +110,7 @@ const PENDING_MIGRATIONS: readonly PinnedMigration[] = [
   { version: 37, name: 'authentication-hardening', checksum: 'd6de10ea4b993dd1aa50b899adb64fda3d253bcace4a2330abb630c5e074c0f9' },
   { version: 38, name: 'check-only-run-environments', checksum: '35a6a857b4667b24a12c1cd8b431ca1bde87a0113a71d6e675bc0e92d4e0a35a' },
   { version: 39, name: 'evidence-submission-heads', checksum: 'be68520f5f6dc32d037cfb7406c8ca8050f9847cc9c3d7979f8cb0b7f1b979dd' },
-  { version: 40, name: 'journal-without-registry', checksum: 'f65a2ddbcbb722d550536776a82e6dbb840881ebf0c81b005263fbb9365f3454' },
+  { version: 40, name: 'journal-without-registry', checksum: '8b4bfb875768c5d734dac8803d99b25ab9a01a508e47bc7857932a118cc4c147' },
 ];
 
 const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];

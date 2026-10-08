@@ -56,11 +56,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E2](#r-e2) | P2 | M | done (3feb310; increment 2 with R-A6 2026-09-30, accepted as built by operator decision the same day) | Split the Roadmaps mega-page |
 | [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a done (2026-09-27); R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
-| [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
+| [R-E5](#r-e5) | P3 | M | partial (R-E5a done; R-E5b open) | Consolidate settings and agent selection |
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
-| [R-F2](#r-f2) | P3 | M | in progress | Typed feature recognition instead of prose and magic identifiers |
+| [R-F2](#r-f2) | P3 | M | partial (parts 1 to 4; 5 and 6 open) | Typed feature recognition instead of prose and magic identifiers |
 | [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95; FMT-15 done in 432bb00, 0ef20b1) | Format ingestion bugs and test honesty |
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
@@ -76,16 +76,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G7](#r-g7) | P1 | M | partial (0fc17d2; live measurement after deploy) | Stop cold-building Rust on every step |
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
 | [R-G9](#r-g9) | P2 | M | done | Authentication and authorization hardening |
-| [R-G10](#r-g10) | P3 | M | in progress | Git adapter robustness and structure |
+| [R-G10](#r-g10) | P3 | M | done (D3 goes with R-A6) | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | done (see Progress) | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
-| [R-G13](#r-g13) | P2 | M | partial (increments 1, 2, 3 and 5; 4 open until a plan-bundle or non-Rust repository joins a roadmap) | Declared per-repository checks |
+| [R-G13](#r-g13) | P2 | M | done (increments 1 to 3 and 5 in P2; 4 in P3, 2026-10-07) | Declared per-repository checks |
 | [R-G14](#r-g14) | P3 | S-M | partial | Operator-configured outside sources for agent sandboxes |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
 | [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
-| [R-H4](#r-h4) | P2 | M | partial (increment 1 done: the evidence view, LIVE-29, 1.37 MB accepted; the rest built on `p3/rh4`, awaiting review) | Lighter evidence and definition storage |
+| [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
@@ -2133,7 +2133,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E5
 
-**Consolidate settings and agent selection** · Phase P3 · Effort M · Status: in progress (R-E5a building on `p3/re5a`; R-E5b open)
+**Consolidate settings and agent selection** · Phase P3 · Effort M · Status: partial (R-E5a reviewed and integrated on `remediation/p3` 2026-10-07; R-E5b open, after R-A6's rest)
 
 - **Resolves:** [UI-14](findings/UI-information-architecture.md#ui-14-settings-that-gate-progress-are-edited-in-many-places), [DATA-11](findings/DATA-storage-domain-contracts.md#data-11-agent-profile-and-selection-shapes-have-multiplied-and-are-stored-in-at-least-12-places)
 - **Change:** Settings sub-routes (general, agents, capacity, notifications, storage); per-roadmap overrides, reviewer responsibilities, integration policy and delegation in roadmap setup with effective values shown; per-action pickers show the effective selection with a "change for this action" disclosure; converge the seven near-identical profile types.
@@ -2235,7 +2235,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F2
 
-**Typed feature recognition instead of prose and magic identifiers** · Phase P3 · Effort M · Status: in progress (parts 1 to 4 built on `p3/rf2`, awaiting review; parts 5 and 6 open)
+**Typed feature recognition instead of prose and magic identifiers** · Phase P3 · Effort M · Status: partial (parts 1 to 4 reviewed and integrated on `remediation/p3` 2026-10-07; parts 5 and 6 open, with R-A6/R-E5 and R-G6/R-G13)
 
 - **Resolves:** [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map), [CTRL-21](findings/CTRL-controller.md#ctrl-21-map-specific-vocabulary-is-hard-coded-in-the-controller), [AGT-55](findings/AGT-GIT-SEC-agents-git-security.md#agt-55-rust--and-project-specific-text-is-hard-coded-into-generic-brief-paths)
 - **Change:** Replace exact-English-string, role-name, resource-id and regex triggers with a typed recognition layer and explicit defaults; move role/resource/brief vocabulary into data keyed by map-declared ids; keep today's ids as defaults so the v0.3 map behaves identically.
@@ -3061,7 +3061,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G10
 
-**Git adapter robustness and structure** · Phase P3 · Effort M · Status: in progress
+**Git adapter robustness and structure** · Phase P3 · Effort M · Status: done (parts A to F and the review fixes, integrated on `remediation/p3` 2026-10-07; D3, the merge-approval hint, goes with R-A6)
 
 - **Resolves:** [GIT-03](findings/AGT-GIT-SEC-agents-git-security.md#git-03-large-diffs-fail-outright-instead-of-truncating-and-the-diff-limit-setting-is-partly-ignored), [GIT-05](findings/AGT-GIT-SEC-agents-git-security.md#git-05-scratch-worktree-merges-check-out-the-whole-target-every-time-and-the-target-check-is-not-atomic), [GIT-06](findings/AGT-GIT-SEC-agents-git-security.md#git-06-git-timeouts-and-output-limits-are-hard-coded), [GIT-07](findings/AGT-GIT-SEC-agents-git-security.md#git-07-promotions-into-the-primary-checkout-are-brittle), [GIT-10](findings/AGT-GIT-SEC-agents-git-security.md#git-10-operationsts-is-one-1754-line-factory-behind-a-24-method-interface), [GIT-11](findings/AGT-GIT-SEC-agents-git-security.md#git-11-the-risky-git-paths-lack-tests)
 - **Change:** Large diffs truncate instead of failing; configurable timeouts and output limits; cheaper and atomic scratch merges; resilient promotions; split operations.ts by concern; tests for the risky paths.
@@ -3107,7 +3107,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G11
 
-**Supervisor loose ends** · Phase P3 · Effort S-M · Status: done (see Progress; awaiting its independent review)
+**Supervisor loose ends** · Phase P3 · Effort S-M · Status: done (see Progress; independently reviewed and integrated on `remediation/p3` 2026-10-07)
 
 - **Resolves:** [AGT-02](findings/AGT-GIT-SEC-agents-git-security.md#agt-02-restart-recovery-relies-entirely-on-systemd-no-process-identity-is-persisted), [AGT-16](findings/AGT-GIT-SEC-agents-git-security.md#agt-16-smaller-supervisor-defects), [AGT-17](findings/AGT-GIT-SEC-agents-git-security.md#agt-17-documentation-drift-in-the-agent-seam), [AGT-62](findings/AGT-GIT-SEC-agents-git-security.md#agt-62-claude-background-task-notifications-create-streams-of-invalid-review-turns-and-status-churn)
 - **Change:** Persist process identity for restart recovery; fix the smaller supervisor defects; stop Claude background-task notifications from producing invalid review turns; update agent seam docs.
@@ -3161,7 +3161,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G13
 
-**Declared per-repository checks** · Phase P2 (increments 1 to 3 and 5) / P3 (increment 4, moved by the operator 2026-10-02) · Effort M · Status: partial (increments 1 to 3 and 5; 4 built 2026-10-07, awaiting its independent security review)
+**Declared per-repository checks** · Phase P2 (increments 1 to 3 and 5) / P3 (increment 4, moved by the operator 2026-10-02) · Effort M · Status: done (increments 1 to 3 and 5; increment 4 built, security-reviewed and integrated on `remediation/p3` 2026-10-07)
 
 - **Added 2026-09-28** (operator decision, after the R-G4 batch), for what R-G4 left open.
 - **Resolves:** the rest of [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification), and R-G4's residual gap on [SEC-01](findings/AGT-GIT-SEC-agents-git-security.md#sec-01-agents-can-forge-the-buildcheckcinative-receipts-that-gate-integration).
@@ -3480,7 +3480,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G14
 
-**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: partial (steps 1 to 3, 2026-10-07; left: steps 4 to 6)
+**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: partial (steps 1 to 3 integrated on `remediation/p3` 2026-10-07; steps 4 to 6 wait for the operator's go-ahead on step 4, Codex's route)
 
 - **Added 2026-09-28** (operator decision, after the R-G5 batch). Claude's sandbox reaches crates.io and nothing else, and that list is fixed in the adapter (`SANDBOX_ALLOWED_DOMAINS`).
 - **Change:**
@@ -3776,7 +3776,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H4
 
-**Lighter evidence and definition storage** · Phase P2 (increment 1) / P3 (the rest, moved by the operator 2026-10-02) · Effort M · Status: partial (increment 1 done 2026-09-30)
+**Lighter evidence and definition storage** · Phase P2 (increment 1) / P3 (the rest, moved by the operator 2026-10-02) · Effort M · Status: done (increment 1 2026-09-30; the rest, the head table, reviewed and integrated on `remediation/p3` 2026-10-07)
 
 - **Resolves:** [PERF-08](findings/PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview), [LIVE-29](findings/LIVE-live-run-2026-09-25.md#live-29-the-plans-evidence-view-grows-with-history-until-panels-across-the-app-stall-behind-it)
 - **Change:** Evidence submissions become a light index row plus a lazily decoded body; persist canonical digests at write time instead of canonicalizing whole definitions at read time.

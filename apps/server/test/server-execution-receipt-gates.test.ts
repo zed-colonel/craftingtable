@@ -16,7 +16,7 @@ import { deflateSync } from 'node:zlib';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, PinnedCargoManifest } from '@craftingtable/agents';
 import type { DeclaredCheck } from '@craftingtable/domain';
-import { afterEach, expect, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   checkGate,
   cleanupExecutionFixtures,
@@ -45,6 +45,36 @@ import {
 import { CheckDefinitionChangedError } from '../src/services/errors.js';
 
 afterEach(cleanupExecutionFixtures);
+
+it('a launcher still running when its test ends fails the test and is killed (R-I5)', async () => {
+  // A launcher that never ends on its own, and that nothing in the cleanup but the leak check
+  // stops: it records its process ID, then sleeps.
+  const bin = mkdtempSync(join(tmpdir(), 'ct-launcher-leak-'));
+  const launcher = join(bin, 'ct-check');
+  const pidFile = `${launcher}.pid`;
+  const script = '#!/bin/sh\necho $$ > "$0.tmp"\nmv "$0.tmp" "$0.pid"\nexec sleep 3600\n';
+  writeFileSync(launcher, script, { mode: 0o700 });
+  const request = { cwd: bin, buildEnvironment: { binDirectory: bin } } as AgentLaunchRequest;
+  // Not awaited: the test "forgets" it.
+  const ended = runLauncher(request, 'ct-check', []).then(
+    () => ({ signal: undefined }),
+    (error: { signal?: string }) => error,
+  );
+  let pid: number | undefined;
+  try {
+    await waitUntil(() => existsSync(pidFile), 'the launcher running');
+    pid = Number(readFileSync(pidFile, 'utf8'));
+    await expect(cleanupExecutionFixtures()).rejects.toThrow('A check launcher outlived its test');
+    expect(await withinHangGuard(ended, 'the leaked launcher ending')).toMatchObject({
+      signal: 'SIGKILL',
+    });
+    expect(processRunning(pid)).toBe(false);
+  } finally {
+    // Nothing left behind, even when the check under test fails.
+    if (pid !== undefined && processRunning(pid)) process.kill(pid, 'SIGKILL');
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
 
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -710,7 +740,7 @@ itNeedsCargo(
     // The agent's own requests: the daemon's runs before a review are tested on their own.
     withoutDaemonChecks(f.state);
     const storage = f.state.context.storage;
-    let pending: Promise<unknown> | undefined;
+    let pending: Promise<{ code?: number; stderr?: string }> | undefined;
     f.backend.replyForRequest = (request) => {
       // Not awaited: the agent ends its turn while its check is still running.
       pending = runLauncher(request, 'ct-check', [
@@ -719,8 +749,8 @@ itNeedsCargo(
         '-e',
         'setTimeout(() => console.log("finished late"), 60000)',
       ]).then(
-        () => 0,
-        (error: { code?: number }) => error.code,
+        ({ stderr }) => ({ code: 0, stderr }),
+        (error: { code?: number; stderr?: string }) => error,
       );
       const checks = f.state.context.services.checkRequestService;
       const runId = request.buildEnvironment!.namespace!;
@@ -731,7 +761,11 @@ itNeedsCargo(
       return { resultText: scopeReport(f.state, f.tree.executionScope!), release };
     };
     const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
-    expect(await pending).not.toBe(0);
+    // The run's end stopped the check, and the daemon told the launcher, which exited (R-I5).
+    expect(await withinHangGuard(pending!, 'the ct-check launcher exiting')).toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('The run ended before this check finished'),
+    });
     expect(storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run)).toEqual([]);
     expect(storage.runtimeEvidence.build(f.state.workspaceId, run)?.receipts).toBe('');
   },

@@ -56,6 +56,7 @@ import {
   asAuditEventId,
   asEventId,
   isTerminalAgentRunStatus,
+  mapCapabilities,
   modelSpelling,
   OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
@@ -89,6 +90,7 @@ import type { AuthContext, CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
+import type { OutputContext } from './brief-output.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { DaemonDrainingError, ExecutionRequestError, NotFoundError } from './errors.js';
 import {
@@ -99,7 +101,11 @@ import {
   scopeEvidenceLedger,
   scopeNeedsKata,
 } from './execution-scope.js';
-import { finalizationForCycle, finalizationInstructions } from './finalization-policy.js';
+import {
+  finalizationForCycle,
+  finalizationInstructions,
+  finalizationStageOutput,
+} from './finalization-policy.js';
 import { assessStageReport } from './finalization-stage-policy.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { operatorDecisions } from './operator-decisions.js';
@@ -112,7 +118,7 @@ import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { scopeRepairPacket } from './scope-repair.js';
 import { resolveExecutable } from './executables.js';
 import type { StorageService } from './storage-service.js';
-import { controllerReviewRunnable, workflowPrompt } from './workflow-policy.js';
+import { controllerReviewRunnable, workflowBrief } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -130,6 +136,11 @@ export interface StartRunInput {
   readonly stepGuidance?: string;
   /** Controller-authored rules for an automated step; never presented as operator text. */
   readonly controllerInstructions?: string;
+  /**
+   * What the controller's step adds to the run's final message, which the role's instructions
+   * state (`brief-output.ts`, AGT-54): the workflow block, a finalization stage's report.
+   */
+  readonly output?: Pick<OutputContext, 'workflow' | 'finalizationStage'>;
   readonly parentRunId?: AgentRunId;
 }
 
@@ -895,6 +906,10 @@ export class AgentRunService {
       ...(resolution ? { resolution } : {}),
     });
     const profile = launchProfile(launch);
+    const workflow = ownsIntegrationResolution(cycle)
+      ? undefined
+      : workflowBrief(this.storage, cycle);
+    const stage = finalization && finalizationStageOutput(finalization, cycle);
     return this.launchAuthorized(
       cycle.workspaceId,
       cycle.workItemId,
@@ -907,8 +922,12 @@ export class AgentRunService {
         stepGuidance: [cycle.stepGuidance, recovery?.instructions, resolution?.instructions]
           .filter(Boolean)
           .join('\n\n'),
+        output: {
+          ...(workflow ? { workflow: workflow.output } : {}),
+          ...(stage ? { finalizationStage: stage } : {}),
+        },
         controllerInstructions: [
-          ownsIntegrationResolution(cycle) ? '' : workflowPrompt(this.storage, cycle),
+          workflow?.rules ?? '',
           cycle.providerRecovery
             ? `This is service retry ${cycle.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session with the configured retry backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. If the previous attempt stopped with questions the service failure caused, do not repeat them; ask again any that remain. The step deadline still applies; it moved only by time spent waiting for a usage-limit reset or for the provider to accept credentials.`
             : '',
@@ -937,7 +956,6 @@ export class AgentRunService {
                 `Conflict files: ${resolution.paths.join(', ')}`,
                 resolution.diagnostics,
                 'Read the supplied plan and both sides of the incoming commits. Preserve both work items’ intended behavior, including automatically merged files. Use the supplied scratch directory, run the repository checks on the combined state, and report commands, outcomes and any semantic decisions. Remove only your confirmed generated files; leave no untracked files. Preserve existing finding IDs in the handoff.',
-                'If questions remain or checks fail, explain them and end with ## Resolution status followed by blocked. Only when every conflict is resolved, intended changes are staged, and checks pass, end with ## Resolution status followed by ready. A successful process exit alone is not approval.',
               ]
             : []),
           (cycle.resultContinuations ?? 0) > 0
@@ -945,11 +963,8 @@ export class AgentRunService {
             : '',
           'Keep verification commands owned by the agent session. Do not use nohup, disown, or setsid to detach work. Wait for background commands to finish, collect their results, and stop any monitors you started before emitting the final outcome.',
           'This run is one step of an operator-authorized automated cycle. Do not merge. Complete this step and provide a final message; the controller handles the next step.',
-          cycle.step === 'design'
-            ? 'End with exactly one section headed ## Open questions. Its entire body must be none when there are no unresolved questions. Otherwise list the questions for the operator.'
-            : '',
           cycle.executionScope && cycle.executionScope.kind !== 'slice'
-            ? 'This is an independent review of the integration snapshot. Do not implement changes or commit. Report findings for recovery in the owning slice. Include exactly one ## Open questions section containing only none if no input is needed, otherwise list questions. Put it BEFORE ## Review report and the structured report; keep the final VERDICT line last.'
+            ? 'This is an independent review of the integration snapshot. Do not implement changes or commit. Report findings for recovery in the owning slice.'
             : '',
           cycle.step === 'review' && (cycle.integrationRefreshes ?? 0) > 0
             ? 'The integration branch has been refreshed during this cycle. Review the combined changes and rerun the relevant repository checks; a prior review or a clean Git merge is not verification of this state.'
@@ -1686,6 +1701,15 @@ export class AgentRunService {
         resolvingIntegration: ownsIntegrationResolution(cycle),
         planFinalization: !!prepared.worktree.planVersionId && !preparation && !investigation,
         ...(investigation ? { investigation: true } : {}),
+        ...(input.output?.workflow ? { workflow: input.output.workflow } : {}),
+        ...(input.output?.finalizationStage
+          ? { finalizationStage: input.output.finalizationStage }
+          : {}),
+        // A design proposes architecture decisions only where the map has such checkpoints.
+        ...(preparation ||
+        (scope && mapCapabilities(scope.definition.source).architectureDecisions.length)
+          ? { architectureDecisions: true }
+          : {}),
         temporaryDirectory,
         ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
         // A pinned environment is Cargo's; otherwise the worktree's own manifest says (AGT-55).

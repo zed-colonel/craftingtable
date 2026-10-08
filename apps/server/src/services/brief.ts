@@ -1,4 +1,18 @@
 import type { AgentRunRole, JsonValue, ReviewBranchContext, WorkItem } from '@craftingtable/domain';
+import { designInstructions, investigationInstructions } from './brief-design.js';
+import {
+  ACCEPTED_DESIGN_INSTRUCTIONS,
+  implementInstructions,
+  REMEDIATION_INSTRUCTIONS,
+  resolutionInstructions,
+} from './brief-implement.js';
+import {
+  finalMessageSection,
+  type OutputContext,
+  type RoleInstructions,
+  type WorkflowOutput,
+} from './brief-output.js';
+import { reviewInstructions } from './brief-review.js';
 import type { HandoffFiles } from './run-handoff.js';
 
 /**
@@ -90,6 +104,12 @@ export interface BriefInput {
    * role is to investigate, and the controller's rules say what it returns.
    */
   readonly investigation?: boolean;
+  /** The controller's workflow contract applies to this step (its rules are in the step rules). */
+  readonly workflow?: WorkflowOutput;
+  /** The staged finalization stage a review reports on. */
+  readonly finalizationStage?: OutputContext['finalizationStage'];
+  /** The plan has architecture checkpoints a design may propose decisions for. */
+  readonly architectureDecisions?: boolean;
   /** The run this one continues from, with its final message. */
   readonly parentRun?: BriefParentRun;
 }
@@ -141,100 +161,40 @@ export interface BriefParentRun {
   readonly handoff?: Omit<HandoffFiles, 'sources'>;
 }
 
-const REMEDIATION_INSTRUCTIONS = [
-  'This run remediates a review. The review findings are supplied in the handoff as the',
-  'reviewer wrote them. Read the handoff files and reconcile earlier messages with later',
-  'corrections and withdrawals. Preserve finding IDs. Work through the required findings and any explicitly selected batch: fix each, or if you disagree explain',
-  'precisely why in your final message. Run the quality checks, commit on this branch,',
-  'and finish with a disposition for each finding (fixed, disagreed, or deferred with a',
-  'reason) followed by your usual summary. Your disposition is a claim for the next',
-  'reviewer to verify; it does not itself close the finding. When the supplied scope retains optional ideas as follow-up, do not implement those unselected ideas.',
-].join(' ');
-
-const ACCEPTED_DESIGN_INSTRUCTIONS = [
-  'Implement this design. The operator accepted the proposal reproduced below from a',
-  'design run on this work item; treat it as the plan. Deviate only where the code forces',
-  'it, and say exactly where and why in your summary. If the proposal lists open',
-  'questions, resolve each one with the simplest choice consistent with the exit gate',
-  'and state the choice you made.',
-].join(' ');
-
-const REVIEW_REPORT_INSTRUCTIONS = [
-  'Immediately before that final verdict line, include exactly one fenced JSON block',
-  'with the language craftingtable-review. It is your authoritative consolidated report.',
-  'A later reviewer verifies fixes before marking a finding resolved. Do not silently drop disagreements.',
-  'Finding IDs must start with a letter or digit and contain only letters, digits, periods, underscores or hyphens, at most 64 characters; use F-001 or AQ-11.F-009, never slashes.',
-  'Keep exitGate.evidence concise: summarize current checks and conformance, cite detailed evidence, and stay below its 20,000-character limit. Never append evidence from prior reports. Each explanation, recommendation and disposition also has a 20,000-character limit; titles have a 500-character limit.',
-  'The report shape is:',
-  '```craftingtable-review',
-  '{"version":1,"complete":true,"verdict":"changes-requested","exitGate":{"met":false,"evidence":"Explain which criteria and checks passed or failed."},"findings":[{"id":"F-001","severity":"major","status":"open","title":"Short title","location":{"path":"src/example.ts","line":10},"explanation":"What is wrong and why.","recommendation":"What would resolve it."}]}',
-  '```',
-  'Allowed severities: blocking, major, minor, nit. Allowed statuses: open, resolved,',
-  'withdrawn. Location is optional for findings that have no file location. Resolved and',
-  'withdrawn findings require a disposition string with evidence or a reason. Use an',
-  'empty findings array when none exist. The verdict must match your final VERDICT line.',
-  'Set complete to true only once you have consolidated the entire review. A mergeable',
-  'report requires exitGate.met=true and no open blocking or major findings.',
-  'Only when this brief has a "Controller-owned execution scope" section, also add the top-level scopeEvidence field it shows; otherwise omit scopeEvidence.',
-].join('\n');
-
-const INVESTIGATION_ROLE = [
-  'You are investigating the questions a stopped step asked, for the operator who must answer them.',
-  'This is read-only: you read and report; you do not design, implement, review, commit or decide.',
-  'Nothing runs after you: the operator reads your final message. Follow the step rules below',
-  'for what it must contain.',
-].join('\n');
-
-const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
-  implement: [
-    'You are the implementation agent for this work item.',
-    'Implement it completely inside this worktree. Write focused tests where behaviour is',
-    'non-trivial, run the project’s quality checks, and commit your work on this branch',
-    'with clear commit messages as you reach coherent increments. Do not push, do not',
-    'switch branches, and keep source changes inside this worktree. Use the provided temporary directory for scratch files.',
-    'After all verification, inspect git status including untracked files. Commit intended source changes; explicitly stage any intended new source files even if you cannot finish the commit. Never stage generated test output, scratch files, credentials, or unrelated files. Report remaining paths and why they remain.',
-    'Finish with a summary of what changed, how you verified it, and anything left undone',
-    'or worth the operator’s attention.',
-    'End with a section headed `## Open questions`, containing only `none` when no operator answer is needed. Put every unresolved approval, exception or policy decision there, with a concrete question and proposed resolution; do not bury a request only in a finding disposition or verification summary. An unanswered operator decision must not be treated as another implementation task.',
-  ].join(' '),
-  review: [
-    'You are an independent reviewer for this work item.',
-    'Run the repository-required verification checks on this exact branch, including the combined integration changes. Record the commands and results in exitGate.evidence. Do not change or commit code during review; request remediation when changes are needed.',
-    'Do not modify repository source files. Verification records belong in the provided temporary directory. Compare the branch in this worktree against its base',
-    'revision, read the changed code and its tests, and run the quality checks read-only.',
-    'Summarize your conclusion in prose and include every finding in the structured',
-    'report below; do not duplicate the full findings in prose. State explicitly',
-    'whether the work meets the exit gate. The very last line of your final message must',
-    'be exactly `VERDICT: mergeable` if the branch can be merged as it stands, or',
-    '`VERDICT: changes-requested` if anything blocking or major remains. CraftingTable',
-    'reads that line; a merge is only offered after a mergeable verdict.',
-    REVIEW_REPORT_INSTRUCTIONS,
-    'Include `## Open questions` followed by `## Review report` and the structured report/final VERDICT line. The questions section contains only `none` when no operator answer is needed. Put unresolved operator approvals, exceptions and policy choices there as concrete questions, even when also recorded as findings. Do not repeatedly delegate an unanswered approval as a code repair.',
-  ].join(' '),
-  design: [
-    'You are exploring and designing this work item before implementation.',
-    'Read the relevant code and plan documents, identify the decisions that matter,',
-    'and propose a concrete approach: which files change, what the interfaces look like,',
-    'what the risks are, and what you would test. Do not modify source files; write your',
-    'proposal as your final message. End it with a section headed `## Open questions`',
-    'listing every decision that needs the operator, or the single word `none` if it can',
-    'be implemented as written. CraftingTable hands your final message to the implement',
-    'run that follows.',
-    'Before asking the operator, consult the exact supplied plans, current predecessor receipts, repository policy and approved architecture decisions in craftingtable-scope-evidence.json. Cite answers already fixed by those sources and proceed within their authority. A recommendation awaiting approval is not an accepted decision. A full-checkpoint approval and a scoped early-clause approval have different coverage.',
-    'Distinguish future merge/verification obligations from what this design needs now. An authorized early slice need not wait for every original parent predecessor. Worktree provisioning, supplied dependency paths and existing receipts are controller context; inspect them before asking the operator to create them.',
-    'Immediately before Open questions, include one fenced craftingtable-design JSON block: {"version":1,"items":[{"kind":"resolved","question":"Question considered","answer":"Plan-backed answer","sources":["exact source file, section or accepted decision ID"]}]}. Use an empty items array if there are no questions. Classify every remaining question as operator-decision (actual approval needed), planning-conflict (contradictory or missing scheduling/plan rule), or dependency (a known mapped predecessor must finish). A dependency item includes dependency:{kind:"work_item",id:"mapped parent ID",state:"accepted"} or {kind:"slice",id:"mapped slice ID",state:"merged"|"verified"}. Do not invent predecessor rules. Architecture checkpoint approvals belong to operator-decision. Resolved items require answers and citations. Other items still include question, answer and sources (which may be empty). Keep all unresolved items in Open questions; use none only when all items are resolved.',
-    'For each operator-decision about a mapped architecture checkpoint, also supply decision:{checkpointId:"exact mapped ADR ID",decisionText:"Complete standalone decision proposed for approval",why:"Why this fits the operator goals",alternatives:[{option:"Alternative",tradeoff:"Practical tradeoff"}],consequences:"Behavior, limitations and what remains to implement or verify",coverage:"full",consumers:[],retainedObligations:""}. Write for an operator who has not read the source artifacts. Include exact citations in the item sources. Never use references such as "as described above" in decisionText: the text must stand alone. Full approval settles this architectural decision, not implementation or tests. For full coverage, consumers must be empty; retainedObligations may describe separately required implementation, verification and release work, never unresolved architectural choices. Only propose coverage:"clauses" for an intentional partial decision; supply consumers:[{sliceId:"exact mapped ID",phase:"start"|"merge",replacesFullCheckpoint:true|false}] and explicit retainedObligations, keeping a later full-checkpoint consumer. Supply one checkpoint per item. These are recommendations, never approvals; the operator approves through CraftingTable.',
-  ].join(' '),
-};
-
-const FINALIZATION_FINDINGS_INSTRUCTIONS = [
-  'Finalization reports cover active findings and changes in reviewer disposition.',
-  'Report every previously OPEN finding required by the handoff manifest with its current status, plus every new or reopened finding. In staged finalization, unchanged optional follow-ups retained in the controller ledger may be omitted. Verify a fix before reporting its resolution, with a concise disposition.',
-  'Unchanged resolved or withdrawn findings may be omitted from later reports. They remain in the journal and closed-findings history; omission does not reopen, erase or re-resolve them. Never recycle their IDs.',
-  'Do not import closed work-item findings into the finalization report merely to recount history. Assess the combined implementation against the plan; reopen a historical concern only if current evidence warrants it.',
-  'Reconcile findings and operator corrections from this run and the handoff, including observations in invalid reports. An invalid report cannot establish closure or approval.',
-  'Use an empty findings array only when no new findings exist and no previously open findings require a current disposition. A report that silently omits an open finding is rejected.',
-].join(' ');
+/** The run's role and final message, from the one module that owns that role (AGT-54). */
+function instructionsFor(input: BriefInput): RoleInstructions {
+  const context: OutputContext = {
+    role: input.role,
+    investigation: !!input.investigation,
+    resolvingIntegration: !!input.resolvingIntegration,
+    planFinalization: !!input.planFinalization,
+    remediation:
+      !input.resolvingIntegration &&
+      input.role === 'implement' &&
+      input.parentRun?.role === 'review',
+    ...(input.executionScope
+      ? {
+          scope: {
+            identity: input.executionScope.identity,
+            cases: input.executionScope.cases,
+            ...(input.executionScope.owningSlices
+              ? { owningSlices: input.executionScope.owningSlices }
+              : {}),
+          },
+        }
+      : {}),
+    ...(input.workflow ? { workflow: input.workflow } : {}),
+    ...(input.finalizationStage ? { finalizationStage: input.finalizationStage } : {}),
+    architectureDecisions: !!input.architectureDecisions,
+  };
+  if (context.investigation) return investigationInstructions();
+  if (context.resolvingIntegration) return resolutionInstructions();
+  return context.role === 'review'
+    ? reviewInstructions(context)
+    : context.role === 'design'
+      ? designInstructions(context)
+      : implementInstructions(context);
+}
 
 function formatDependencies(entries: readonly BriefDependency[]): string {
   if (entries.length === 0) {
@@ -274,39 +234,12 @@ export function composeBrief(input: BriefInput): string {
     sections.push(
       `## Controller-owned execution scope\n\nThis run covers only ${s.identity.sourceId}. The parent exit gate remains: ${input.workItem.exitGate}. Do not implement excluded work or mark the parent complete. If new requirements or dependencies are needed, report them as open questions and propose a planning amendment with its rationale and affected scopes. Do not silently change the plan, map, acceptance criteria or scheduling authority during remediation.\nScope: ${s.scope}\nExclusions:\n${s.excludes.map((e) => `- ${e}`).join('\n') || '- none'}\n${s.context}\nEvidence obligations:\n${s.requirements.map((e) => `- ${e}`).join('\n')}\nAssigned cases: ${s.cases.join(', ') || 'none'}`,
     );
-    if (input.role === 'review')
-      sections.push(
-        // A complete example, not only the field: reviewers put it inside exitGate (LIVE-32).
-        `In the structured craftingtable-review report add scopeEvidence with this exact scope identity, an evidence entry for each requirement actually verified, and caseIds for cases actually checked. Never claim missing verification or outside-scope obligations passed. scopeEvidence is a top-level field of the report, beside version, verdict, exitGate and findings, never inside exitGate or its evidence text. A complete report for this scope has this shape:\n${JSON.stringify({ version: 1, complete: true, verdict: 'mergeable', exitGate: { met: true, evidence: 'Summarize the checks and conformance.' }, findings: [], scopeEvidence: { scope: s.identity, requirements: s.requirements.map((requirement) => ({ requirement, evidence: 'Concise commands/results and durable evidence references' })), caseIds: s.cases } })}\nA slice review approves integration of this scope; it never accepts its parent. Use the supplied craftingtable-scope-evidence.json artifact for recorded slice receipts and verification references. A parent-acceptance review must independently assess the full original exit gate and retained source-plan obligations. Do not modify source files during acceptance review.`,
-      );
-    if (input.role === 'review' && s.owningSlices?.length)
-      sections.push(
-        [
-          'For each open finding, set "owningSlice" in the craftingtable-review report to the required slice whose scope covers its fix, so the repair goes there without asking the operator. Omit it only when no single slice can own the fix. The required slices:',
-          ...s.owningSlices.map(
-            (slice) =>
-              `- ${slice.id}: ${slice.scope}${slice.excludes.length ? ` Excludes: ${slice.excludes.join(' ')}` : ''}`,
-          ),
-        ].join('\n'),
-      );
   }
+  const instructions = instructionsFor(input);
   sections.push(
-    `## Your role\n\n${input.investigation ? INVESTIGATION_ROLE : input.resolvingIntegration ? 'Resolve the daemon-prepared integration merge in this worktree. Stage intended changes and verify the combined behavior. Do not commit, switch branches, start another merge, abort the merge, or move any branch. The daemon owns completion. Follow the pinned resolution instructions below.' : ROLE_INSTRUCTIONS[input.role]}`,
+    [`## Your role\n\n${instructions.role}`, ...instructions.rules].join('\n\n'),
+    finalMessageSection(instructions),
   );
-  if (input.role === 'review' && !input.resolvingIntegration) {
-    sections.push(
-      `## Findings continuity\n\n${
-        input.planFinalization
-          ? FINALIZATION_FINDINGS_INSTRUCTIONS
-          : 'Reconcile ALL findings raised anywhere in this run and the handoff lineage, including operator corrections. Keep prior IDs; never omit or recycle them. Retain resolved and withdrawn findings with their dispositions.'
-      }`,
-    );
-  }
-  if (input.planFinalization && input.role !== 'review') {
-    sections.push(
-      '## Findings scope\n\nAddress the open findings and report dispositions for work done in this attempt. Previously closed findings remain in the recorded history; do not repeat or re-resolve them without new evidence.',
-    );
-  }
   sections.push(
     [
       '## Objective and exit gate',

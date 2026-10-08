@@ -248,11 +248,7 @@ export function investigationRules(investigation: CycleInvestigation): string {
     `Investigate the questions this work item's stop (${investigation.code}) asks, for the operator who must answer them. This is a read-only investigation, not implementation, review or remediation.`,
     'Read the worktree as it is, investigation/questions.md, investigation/context.json, investigation/branch.json and investigation/patch.diff, the handoff from the run that asked the questions, the plan documents and any recorded evidence. Do not change source, commit, merge, run commands or builds, provision environments, approve decisions or claim that tests passed.',
     'For each question, propose an answer and cite the exact sources it rests on (file and line, commit, run report or recorded evidence), separating facts from proposals. When the evidence does not settle a question, keep it open and say what is missing. You propose; the operator decides.',
-    'End your final message with one craftingtable-investigation block:',
-    '```craftingtable-investigation',
-    '{"version":1,"questions":[{"question":"<the question>","status":"proposed","answer":"<proposed answer>","sources":["<file:line or run>"]},{"question":"<the question>","status":"open","answer":"","sources":[],"reason":"<what the evidence lacks>"}]}',
-    '```',
-    'Your final message is the artifact; do not write report files.',
+    // The craftingtable-investigation block it ends with is the role's (`brief-design.ts`, AGT-54).
   ].join('\n\n');
 }
 

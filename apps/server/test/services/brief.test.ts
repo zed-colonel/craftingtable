@@ -1,6 +1,12 @@
-import { reviewReportSchema } from '@craftingtable/contracts';
+import {
+  parseDesignReport,
+  parseWorkflowReport,
+  reviewReportSchema,
+} from '@craftingtable/contracts';
 import { describe, expect, it } from 'vitest';
 import { type BriefInput, composeBrief } from '../../src/services/brief.js';
+import { finalizationHasNoQuestions } from '../../src/services/finalization-policy.js';
+import { assessReviewReport } from '../../src/services/review-report.js';
 
 function briefInput(overrides: Partial<BriefInput> = {}): BriefInput {
   return {
@@ -111,34 +117,152 @@ describe('composeBrief scoped review report', () => {
     );
 
   // LIVE-32: three reviews wrote scopeEvidence inside exitGate.evidence, so the report had none.
-  it('shows scopeEvidence as a top-level field of a complete report', () => {
+  it('shows scopeEvidence as a top-level field of the one report example', () => {
     const brief = scoped('review');
-    const lines = brief.split('\n');
-    const shape =
-      lines[
-        lines.findIndex((line) =>
-          line.endsWith('A complete report for this scope has this shape:'),
-        ) + 1
-      ];
+    const [shape, ...more] = fenced(brief, 'craftingtable-review');
+    expect(more).toEqual([]);
     const parsed = reviewReportSchema.safeParse(JSON.parse(shape ?? 'null'));
     expect(parsed.success).toBe(true);
-    expect(parsed.data?.scopeEvidence).toEqual({
-      scope: identity,
-      requirements: [
-        { requirement: 'Prepare the instance design.', evidence: expect.any(String) },
-        { requirement: 'Local test results', evidence: expect.any(String) },
-      ],
-      caseIds: ['EE-001'],
-    });
+    expect(parsed.data?.scopeEvidence).toMatchObject({ scope: identity, caseIds: ['EE-001'] });
     expect(brief).toContain('never inside exitGate or its evidence text');
-    // The generic report shape, read after the scope section, points back to it.
-    expect(brief).toContain(
-      'Only when this brief has a "Controller-owned execution scope" section, also add the top-level scopeEvidence field it shows',
-    );
+    expect(brief).toContain('with the obligation’s text copied exactly as its requirement');
   });
 
   it('asks only a review for scope evidence', () => {
     expect(scoped('implement')).not.toContain('scopeEvidence');
+  });
+});
+
+/** The bodies of the brief's fenced blocks in one language. */
+function fenced(brief: string, language: string): string[] {
+  return [...brief.matchAll(new RegExp(`^\`\`\`${language}\n([\\s\\S]*?)^\`\`\``, 'gm'))].map(
+    (match) => match[1]!.trim(),
+  );
+}
+
+/** The brief's final-message parts, in order. */
+function finalMessageParts(brief: string): string[] {
+  const section = brief.split('## Your final message\n\n')[1]?.split('\n## ')[0] ?? '';
+  return [...section.matchAll(/^\d+\. (.*)$/gm)].map((match) => match[1]!);
+}
+
+describe('composeBrief output contracts, one module per role (R-G6, AGT-54)', () => {
+  const scope = {
+    identity: {
+      kind: 'slice',
+      definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+      bindingRevision: 1,
+      sourceId: 'wi/WI-1/domain',
+    },
+    title: 'Domain',
+    scope: 'Build the domain.',
+    excludes: [],
+    requirements: ['Build the domain.'],
+    cases: ['C-1'],
+    context: '',
+  } as const;
+  const blocks = ['craftingtable-review', 'craftingtable-workflow', 'craftingtable-design'];
+  const count = (brief: string) =>
+    Object.fromEntries(blocks.map((block) => [block, fenced(brief, block).length]));
+
+  it('asks a cycle review for each block once, in one order its parsers accept', () => {
+    const brief = composeBrief(
+      briefInput({
+        role: 'review',
+        executionScope: scope,
+        workflow: {},
+        finalizationStage: { id: 'correctness', fullChecks: false },
+      }),
+    );
+    expect(count(brief)).toEqual({
+      'craftingtable-review': 1,
+      'craftingtable-workflow': 1,
+      'craftingtable-design': 0,
+    });
+    const parts = finalMessageParts(brief);
+    const at = (text: string) => parts.findIndex((part) => part.includes(text));
+    expect(at('`craftingtable-workflow`')).toBeGreaterThan(-1);
+    expect(at('`craftingtable-workflow`')).toBeLessThan(at('`## Open questions`'));
+    expect(at('`## Open questions`')).toBeLessThan(at('`## Review report`'));
+    expect(at('`## Review report`')).toBeLessThan(at('VERDICT: mergeable'));
+    expect(at('VERDICT: mergeable')).toBe(parts.length - 1);
+    // A message built in that order from the brief's own examples is accepted.
+    const report = JSON.parse(fenced(brief, 'craftingtable-review')[0]!);
+    report.scopeEvidence.requirements = [{ requirement: 'Build the domain.', evidence: 'ok' }];
+    report.finalization = {
+      stageId: 'correctness',
+      fullChecks: false,
+      checks: [{ name: 'tests', status: 'passed', evidence: 'pnpm test' }],
+      obligations: [],
+    };
+    const message = [
+      'Conclusion.',
+      `\`\`\`craftingtable-workflow\n${fenced(brief, 'craftingtable-workflow')[0]}\n\`\`\``,
+      '## Open questions\n\nnone',
+      `## Review report\n\n\`\`\`craftingtable-review\n${JSON.stringify(report)}\n\`\`\``,
+      'VERDICT: changes-requested',
+    ].join('\n\n');
+    expect(assessReviewReport(message)).toMatchObject({ status: 'complete' });
+    expect(parseWorkflowReport(message).status).toBe('complete');
+    expect(finalizationHasNoQuestions(message)).toBe(true);
+  });
+
+  it('asks a design for its design block, then the workflow block, then Open questions', () => {
+    const brief = composeBrief(
+      briefInput({ role: 'design', workflow: {}, architectureDecisions: true }),
+    );
+    expect(count(brief)).toEqual({
+      'craftingtable-review': 0,
+      'craftingtable-workflow': 1,
+      'craftingtable-design': 1,
+    });
+    // AGT-54: it said both blocks go "immediately before" Open questions.
+    expect(brief).not.toContain('Immediately before');
+    const parts = finalMessageParts(brief);
+    expect(parts.map((part) => /`(craftingtable-\w+|## Open questions)`/.exec(part)?.[1])).toEqual([
+      undefined,
+      'craftingtable-design',
+      'craftingtable-workflow',
+      '## Open questions',
+    ]);
+    expect(
+      parseDesignReport(
+        `\`\`\`craftingtable-design\n${fenced(brief, 'craftingtable-design')[0]}\n\`\`\``,
+      ).status,
+    ).toBe('complete');
+    expect(brief).toContain('decision:{checkpointId:');
+  });
+
+  it("gives a design the decision proposal's shape only where the map has architecture checkpoints", () => {
+    expect(composeBrief(briefInput({ role: 'design' }))).not.toContain('decision:{checkpointId:');
+  });
+
+  it('tells an implementation nothing of review reports or verdicts', () => {
+    const brief = composeBrief(briefInput({ role: 'implement', workflow: {} }));
+    expect(count(brief)).toEqual({
+      'craftingtable-review': 0,
+      'craftingtable-workflow': 1,
+      'craftingtable-design': 0,
+    });
+    expect(brief).not.toContain('VERDICT');
+    expect(brief).not.toContain('review report');
+    expect(finalMessageParts(brief).at(-1)).toContain('`## Open questions`');
+  });
+
+  it('adds a checkpoint attestation to the workflow block of a checkpoint review', () => {
+    const brief = composeBrief(
+      briefInput({ role: 'review', workflow: { checkpointId: 'WI-AQ-G3' } }),
+    );
+    expect(brief).toContain('Add checkpoint:{id:"WI-AQ-G3",passed:boolean');
+  });
+
+  it('ends an integration resolution with its status and an investigation with its block', () => {
+    const resolution = composeBrief(briefInput({ resolvingIntegration: true, workflow: {} }));
+    expect(finalMessageParts(resolution).at(-1)).toContain('`## Resolution status`');
+    expect(count(resolution)['craftingtable-workflow']).toBe(0);
+    const investigation = composeBrief(briefInput({ role: 'design', investigation: true }));
+    expect(fenced(investigation, 'craftingtable-investigation')).toHaveLength(1);
+    expect(investigation).not.toContain('craftingtable-design');
   });
 });
 

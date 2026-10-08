@@ -42,6 +42,14 @@ export function finalizationHasNoQuestions(text: string): boolean {
   }
   return count === 1 && body.join('\n').trim().toLowerCase() === 'none';
 }
+/** What a review of this stage reports in its finalization object (`brief-review.ts`). */
+export function finalizationStageOutput(
+  value: Finalization,
+  cycle: WorkCycle,
+): { readonly id: string; readonly fullChecks: boolean } | undefined {
+  const stage = value.stages?.[cycle.finalizationProgress?.stageIndex ?? 0];
+  return stage && { id: stage.id, fullChecks: stage.kind === 'final-review' };
+}
 /** The finalization part of a run's instructions. Only staged finalizations run (R-B10). */
 export function finalizationInstructions(value: Finalization, cycle: WorkCycle): string {
   const stage = value.stages?.[cycle.finalizationProgress?.stageIndex ?? 0];
@@ -71,15 +79,11 @@ export function finalizationInstructions(value: Finalization, cycle: WorkCycle):
       ? `When this stage's remediation attempts are spent and only ${stage.kind === 'conformance' ? 'conformance ' : ''}nit-severity findings remain open, the controller keeps those nits as follow-up work and the stage continues; the final review still runs every required check. Report such nits as they are; do not ask the operator about the nit policy.`
       : '',
     'Every finding must have category correctness, conformance, simplification or polish, separate from severity. A simplification that reveals a correctness defect is a correctness finding. Split bundled concerns into separate IDs. Correctness/conformance findings, all blocking/major findings, failed checks and selected batch findings are required work. Optional minor/nit simplification and polish suggestions may remain OPEN as follow-up; never mark them resolved merely because they were not selected.',
-    'Keep the normal craftingtable-review JSON report and final VERDICT line. Add a finalization object: {"stageId":"' +
-      stage.id +
-      '","fullChecks":' +
-      (stage.kind === 'final-review' ? 'true' : 'false') +
-      ',"checks":[{"name":"exact configured check name or repository check","status":"passed|failed|not-run","evidence":"concise command/result and log location"}],"obligations":[{"id":"stable obligation ID from ledger or new plan obligation","source":"exact adopted source citation","requirement":"exact adopted requirement","workItemSourceId":"only if present in ledger","status":"met|gap|change-requested","evidence":"implementation location and verification evidence"}]}. Use actual values, not these placeholders. Report all configured requiredChecks by exact name. Include at least one relevant verification check. A met exitGate requires all reported checks passed and all reported obligations met.',
+    // The report's finalization object, and where Open questions go, are the review role's
+    // (`brief-review.ts`, AGT-54).
     'For an existing obligation, report only its id, status, concise evidence and any explicit proposedRequirement or reusedFromRunId. Omit unchanged source, requirement and workItemSourceId; the controller retains them from the ledger. Include source and requirement when adding a NEW obligation. Do not copy the whole ledger into each report. Conformance and final review must report every adopted obligation in scope. Other stages report affected obligations. Do not silently alter adopted requirements or scope. To propose a plan adjustment use status change-requested plus proposedRequirement with the exact proposed replacement, explain it, set exitGate.met false and ask the operator. A proposal is not approval; after approval the ledger contains the adopted replacement and it must still be implemented and verified. Required checks cannot be waived by a plan adjustment, stage budget or nit allowance.',
     'Keep evidence concise: cite source locations, commands, results and verification log paths. Do not repeat closed findings or earlier reports. Follow-up IDs listed in the ledger may be omitted while unchanged; report them if resolved, withdrawn, materially changed or reclassified as required. Never recycle IDs. New optional suggestions and the follow-ups in the ledger, including nits parked at a spent allowance, do not negate an otherwise met technical exit gate or require a changes-requested verdict. A real technical concern always does.',
     'Outside final review, an obligation may cite reusedFromRunId only for a completed stage at the SAME candidate and destination commits, with unchanged source, requirement and evidence. Omit reusedFromRunId when performing new verification. Prior evidence after any candidate/destination change is stale; verify affected obligations again. Final review revalidates them all.',
-    'Every final message must contain exactly one ## Open questions section, containing only none if no operator input is required. Put it before ## Review report and the structured block. Genuine questions always stop progression.',
     ownsIntegrationResolution(cycle)
       ? 'Follow the owned conflict-resolution instructions: stage and verify, but do not commit or advance branches.'
       : 'Implementation runs must commit intended changes, run relevant checks and leave a clean worktree. Review runs are independent and read-only. Never merge or push; final promotion belongs exclusively to the operator.',

@@ -2,6 +2,7 @@ import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
 import { attemptDefinition, effectiveDelegation } from './roadmap-delegation-policy.js';
 import { stagedDecision, supportsArchitectureDecision } from './architecture-decision-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import type { WorkflowOutput } from './brief-output.js';
 import { createHash } from 'node:crypto';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
@@ -256,18 +257,30 @@ export function workflowQuestions(
       : { question: q.question, destination: 'work-item' as const };
   });
 }
-export function workflowPrompt(tx: StorageRepositories, cycle: WorkCycle): string {
+/**
+ * The controller's workflow contract for a cycle's step: its rules for the brief's step rules,
+ * and what the run's final message adds for it (one `craftingtable-workflow` block, and a
+ * checkpoint review's attestation), which the run's role states (`brief-output.ts`, AGT-54).
+ */
+export function workflowBrief(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+): { readonly rules: string; readonly output: WorkflowOutput } | undefined {
   const context = workflowContext(tx, cycle);
-  if (!context) return '';
+  if (!context) return undefined;
   const active = cycle.workflow?.activeReview;
-  return `Controller workflow contract: technical candidate review and permission to merge are separate. Assess source defects and required tests now. Pending merge checkpoints, predecessor work and a separate scheduled review are controller obligations, not code defects or unanswered operator questions. Do not claim they passed; record their pending state in prose. The controller still enforces every transition gate. Withdraw obsolete administrative findings with their stable IDs and an explanation, without hiding actual source defects. Never waive architectural approvals, safety requirements, unproven tests or exceptions.
-Resolve questions already answered by the exact approved plan, recorded decisions or supplied evidence; cite the answer. Genuine new architectural decisions require the operator. Direct mapped ADR questions to shared-decision with the exact checkpointId; local implementation choices, contradictions and unsupported controller actions go to work-item.
-For security-sensitive changes, declare the source requirement for a second security review below, with citations. The controller schedules a DISTINCT read-only security review after technical remediation, if the saved roadmap assigns ${V03_VOCABULARY.securityReviewerRole}, or on the operator's authority when no roadmap delegates this cycle. The ordinary reviewer does not claim two reviews. Security requirements remain until a separate successful review of the same candidate and integration target is recorded.
-Before ## Open questions, include exactly one fenced craftingtable-workflow JSON block:
-${JSON.stringify({ version: 1, questions: [], resolved: [], securityReview: { required: false, sources: [] } })}
-questions entries: {question, destination:"shared-decision"|"work-item", checkpointId?:"exact ADR ID"}. resolved entries: {question, answer, sources:["exact plan section or accepted evidence ID"]}. If a security review is required, set required:true and cite the source policy. Open questions contains only none when questions is empty; otherwise repeat every genuine operator question. Never put controller-managed pending obligations there. Return your normal complete review report and final verdict when reviewing; that verdict assesses technical candidate correctness, while the daemon separately enforces permission to merge.
+  const rules = `Controller workflow contract: technical candidate review and permission to merge are separate. Assess source defects and required tests now. Pending merge checkpoints, predecessor work and a separate scheduled review are controller obligations, not code defects or unanswered operator questions. Do not claim they passed; record their pending state in prose. The controller still enforces every transition gate. Withdraw obsolete administrative findings with their stable IDs and an explanation, without hiding actual source defects. Never waive architectural approvals, safety requirements, unproven tests or exceptions. A review's verdict assesses technical candidate correctness; the daemon separately enforces permission to merge.
+Resolve questions already answered by the exact approved plan, recorded decisions or supplied evidence; cite the answer. Genuine new architectural decisions require the operator.
+For security-sensitive changes, declare the source requirement for a second security review in the workflow block, with citations. The controller schedules a DISTINCT read-only security review after technical remediation, if the saved roadmap assigns ${V03_VOCABULARY.securityReviewerRole}, or on the operator's authority when no roadmap delegates this cycle. The ordinary reviewer does not claim two reviews. Security requirements remain until a separate successful review of the same candidate and integration target is recorded.
 Current controller obligations (required states are not successful evidence): ${JSON.stringify(context)}
-${active ? `This is a separate ${active.kind} review. Source run: ${active.sourceRunId}. Responsibilities: ${active.roles.join(', ')}. Read the full lineage and verify the exact candidate without source edits. ${active.kind === 'reassessment' ? 'Classify the prior questions against current plan/evidence and independently assess the technical candidate. Do not resolve genuine operator decisions yourself.' : active.kind === 'security' ? 'Independently examine identity, authorization, disclosure, cross-principal isolation, lifecycle recovery and root-key boundaries. Exercise negative and recovery paths. Include every actual code defect in the normal findings report.' : `Independently assess checkpoint ${active.checkpointId}. Add checkpoint:{id:${JSON.stringify(active.checkpointId)},passed:boolean,requirements:[{requirement:"exact required text",evidence:"observations and immutable references"}],caseIds:["actually verified case IDs"]} to the workflow report. Required claims: ${JSON.stringify(active.requirements)}. Required cases: ${JSON.stringify(active.caseIds)}. Never infer a passing case from eligibility or a plan hash. If prerequisites or proof cannot be established, report passed:false and explain the missing evidence; operator choices belong in questions. This checkpoint review is an agent attestation under the saved responsibilities, never a claim that a human reviewed it.`}` : ''}`;
+${active ? `This is a separate ${active.kind} review. Source run: ${active.sourceRunId}. Responsibilities: ${active.roles.join(', ')}. Read the full lineage and verify the exact candidate without source edits. ${active.kind === 'reassessment' ? 'Classify the prior questions against current plan/evidence and independently assess the technical candidate. Do not resolve genuine operator decisions yourself.' : active.kind === 'security' ? 'Independently examine identity, authorization, disclosure, cross-principal isolation, lifecycle recovery and root-key boundaries. Exercise negative and recovery paths. Include every actual code defect in the normal findings report.' : `Independently assess checkpoint ${active.checkpointId} and attest it in the workflow block. Required claims: ${JSON.stringify(active.requirements)}. Required cases: ${JSON.stringify(active.caseIds)}. Never infer a passing case from eligibility or a plan hash. If prerequisites or proof cannot be established, report passed:false and explain the missing evidence; operator choices belong in questions. This checkpoint review is an agent attestation under the saved responsibilities, never a claim that a human reviewed it.`}` : ''}`;
+  return {
+    rules,
+    output:
+      active?.kind === 'checkpoint' && active.checkpointId
+        ? { checkpointId: active.checkpointId }
+        : {},
+  };
 }
 
 /** Presentation only: recognizing an ADR reference never approves it. */

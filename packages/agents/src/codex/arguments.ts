@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { AgentLaunchRequest } from '../index.js';
 import { launchOutsideSources, outsideSourceHosts } from '../outside-sources.js';
 
@@ -24,16 +25,39 @@ function codexPermissionProfile(request: AgentLaunchRequest): Record<string, unk
   const hosts = outsideSourceHosts(sources);
   return {
     extends: ':workspace',
-    filesystem: Object.fromEntries(
-      [...(request.additionalDirectories ?? []), ...sources.flatMap((source) => source.caches)].map(
-        (path) => [path, 'write'],
-      ),
-    ),
+    filesystem: Object.fromEntries([
+      ...[
+        ...(request.additionalDirectories ?? []),
+        ...sources.flatMap((source) => source.caches),
+      ].map((path) => [path, 'write']),
+      ...codexGitAccess(request),
+    ]),
     network:
       hosts.length === 0
         ? { enabled: false }
         : { enabled: true, domains: Object.fromEntries(hosts.map((host) => [host, 'allow'])) },
   };
+}
+
+/**
+ * What a sandboxed run's commands may do with the worktree's Git directories (R-G14, operator
+ * decision 2026-10-08): write them, so they can stage and commit, as Claude Code's sandbox
+ * allows. Codex keeps the worktree's own Git directory read-only unless it is named itself. The
+ * common directory's `config`, `hooks` and `info` stay read-only: the daemon's own Git reads its
+ * settings and hook programs there, and `info/attributes` could pick another built-in merge
+ * driver (`union`, say) for the daemon's merges.
+ */
+function codexGitAccess(request: AgentLaunchRequest): [string, string][] {
+  const git = request.gitDirectories;
+  if (git === undefined) return [];
+  return [
+    [git.gitCommonDirectory, 'write'],
+    [git.gitDirectory, 'write'],
+    ...['config', 'hooks', 'info'].map((name): [string, string] => [
+      join(git.gitCommonDirectory, name),
+      'read',
+    ]),
+  ];
 }
 
 /** The outside sources' caches a sandboxed run may write, which the backend creates first. */

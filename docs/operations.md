@@ -367,9 +367,10 @@ under the XDG config home), read when the daemon starts; edit it and restart to 
   configuration: the worktree, temporary, run and cache directories writable, the hosts allowed
   through Codex's own proxy with `features.network_proxy`; verified with Codex CLI 0.160.0, where
   permission profiles are a Beta feature). Codex `auto` never asks to leave its sandbox: it has
-  approval policy `never`, as `edit-only` has. A sandboxed Codex command cannot write the
-  repository's Git directory, so it cannot stage or commit; Claude Code's sandbox can, except
-  the repository's `config` and `hooks`.
+  approval policy `never`, as `edit-only` has. Both agents' sandboxed commands can stage and commit
+  from the worktree: Codex's profile writes the repository's Git directory, as the daemon
+  resolved it from the primary checkout, except its `config`, `hooks/` and `info/` (operator
+  decision 2026-10-08); Claude Code's sandbox writes it except `config` and `hooks`.
 
 The daemon learns published crates from crates.io's own index over HTTPS
 (`https://index.crates.io/`), once per crate, and keeps each crate's index file and every

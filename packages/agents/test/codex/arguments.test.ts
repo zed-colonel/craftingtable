@@ -188,3 +188,46 @@ it('restricts decision preparation to read-only with no escalation on every turn
     approvalPolicy: 'never',
   });
 });
+
+it("lets a sandboxed run's commands commit: its Git directories writable, but not the repository's config, hooks or info (R-G14, operator decision 2026-10-08)", () => {
+  const gitDirectories = {
+    gitDirectory: '/src/repo/.git/worktrees/wt-1',
+    gitCommonDirectory: '/src/repo/.git',
+  };
+  for (const permissionMode of ['auto', 'edit-only'] as const) {
+    const { profile } = profileOf({
+      cwd: '/work/x',
+      prompt: 'Go',
+      permissionMode,
+      outsideSources: [],
+      gitDirectories,
+    });
+    expect((profile as { filesystem: Record<string, string> }).filesystem).toEqual({
+      '/src/repo/.git': 'write',
+      // Codex keeps the worktree's own Git directory read-only unless it is named itself.
+      '/src/repo/.git/worktrees/wt-1': 'write',
+      // The daemon's own Git reads them: settings, hook programs, and attributes (which could pick
+      // another merge driver for its merges) stay as the repository has them.
+      '/src/repo/.git/config': 'read',
+      '/src/repo/.git/hooks': 'read',
+      '/src/repo/.git/info': 'read',
+    });
+  }
+  // Without the daemon's resolved directories, nothing of Git is granted.
+  expect(
+    (
+      profileOf({ cwd: '/work/x', prompt: 'Go', permissionMode: 'auto', outsideSources: [] })
+        .profile as { filesystem: Record<string, string> }
+    ).filesystem,
+  ).toEqual({});
+  // Read-only and unrestricted runs are unchanged.
+  for (const request of [
+    { permissionMode: 'auto' as const, readOnly: true },
+    { permissionMode: 'unrestricted' as const },
+  ])
+    expect(
+      JSON.stringify(
+        codexThreadParams({ cwd: '/work/x', prompt: 'Go', gitDirectories, ...request }),
+      ),
+    ).not.toContain('/src/repo/.git');
+});

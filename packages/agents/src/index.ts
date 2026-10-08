@@ -8,6 +8,7 @@ export {
   cleanupDaemonRunChecks,
   executeCheck,
   resolveGitDirectories,
+  worktreeGitDirectories,
   stopCheckUnits,
   syncDaemonCargoHome,
   confinedCheckArguments,
@@ -75,6 +76,12 @@ export interface AgentLaunchRequest {
    * none.
    */
   readonly outsideSources?: readonly OutsideSource[];
+  /**
+   * The worktree's Git directories, resolved by the daemon before launch (R-G14, operator
+   * decision 2026-10-08), so a sandboxed command can stage and commit. Adapters whose sandbox
+   * needs them grant them, never the common directory's `config`, `hooks` or `info`.
+   */
+  readonly gitDirectories?: { readonly gitDirectory: string; readonly gitCommonDirectory: string };
   /** Where the run's launchers are; the daemon puts them on `pathPrefix`. */
   readonly buildEnvironment?: { readonly binDirectory: string; readonly namespace?: string };
   /**

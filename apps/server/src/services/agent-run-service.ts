@@ -33,6 +33,7 @@ import {
   processGroupIdentity,
   RUN_ID_VARIABLE,
   reapProcessGroup,
+  worktreeGitDirectories,
 } from '@craftingtable/agents';
 import {
   AGENT_BACKEND_LABELS,
@@ -107,6 +108,7 @@ import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { scopeRepairPacket } from './scope-repair.js';
+import { resolveExecutable } from './executables.js';
 import type { StorageService } from './storage-service.js';
 import { controllerReviewRunnable, workflowPrompt } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -561,6 +563,31 @@ export class AgentRunService {
     private readonly runtimeEvidence?: RuntimeEvidenceService,
     private readonly baselines?: BaselinePreparationService,
   ) {}
+
+  /**
+   * The worktree's Git directories as the daemon resolves them from the repository's primary
+   * checkout (R-G14), or nothing when they cannot be resolved or do not agree: the run then
+   * cannot commit from a sandbox, and the daemon says why in its log.
+   */
+  private worktreeGitDirectories(
+    workspaceId: WorkspaceId,
+    worktree: Pick<Worktree, 'repositoryId' | 'path'>,
+  ): Pick<AgentLaunchRequest, 'gitDirectories'> {
+    const repository = this.storage.execution.sourceRepositories.find(
+      workspaceId,
+      worktree.repositoryId,
+    );
+    const gitExecutable = resolveExecutable('git', this.config.gitExecutable);
+    const resolved =
+      repository && gitExecutable
+        ? worktreeGitDirectories(gitExecutable, worktree.path, repository.rootPath)
+        : undefined;
+    if (resolved === undefined)
+      this.log.warn("A worktree's Git directories could not be resolved for its run", {
+        worktree: worktree.path,
+      });
+    return resolved ? { gitDirectories: resolved } : {};
+  }
 
   hasBackend(kind: AgentBackendKind): boolean {
     return this.backends.has(kind);
@@ -1932,6 +1959,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             ? { buildEnvironment: { binDirectory: verifying.binDirectory, namespace: runId } }
             : {}),
           cwd: prepared.worktree.path,
+          // The worktree's Git directories, so a sandboxed run can stage and commit (R-G14,
+          // operator decision 2026-10-08); only when they are the repository's own.
+          ...this.worktreeGitDirectories(workspaceId, prepared.worktree),
           temporaryDirectory,
           processTemporaryDirectory,
           ...(buildCacheDirectory ? { buildCacheDirectory } : {}),

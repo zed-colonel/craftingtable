@@ -216,6 +216,33 @@ export function resolveGitDirectories(
   return { gitDirectory, gitCommonDirectory };
 }
 
+/**
+ * A linked worktree's Git directories, for its agent's sandbox (R-G14, operator decision
+ * 2026-10-08): resolved through the worktree, and taken only when its common directory is the
+ * repository's own, resolved from the primary checkout no agent writes, and its Git directory is
+ * one of that directory's `worktrees/` entries, through links. So nothing an agent may have
+ * rewritten (the worktree's `.git` pointer, a `commondir` file, a link) can point the grant
+ * elsewhere. Undefined when they cannot be resolved or do not agree.
+ */
+export function worktreeGitDirectories(
+  gitExecutable: string,
+  worktreePath: string,
+  repositoryRoot: string,
+): { gitDirectory: string; gitCommonDirectory: string } | undefined {
+  try {
+    const own = resolveGitDirectories(gitExecutable, worktreePath);
+    const common = realpathSync(
+      resolveGitDirectories(gitExecutable, repositoryRoot).gitCommonDirectory,
+    );
+    if (realpathSync(own.gitCommonDirectory) !== common) return undefined;
+    const gitDirectory = realpathSync(own.gitDirectory);
+    if (dirname(gitDirectory) !== join(common, 'worktrees')) return undefined;
+    return { gitDirectory, gitCommonDirectory: common };
+  } catch {
+    return undefined;
+  }
+}
+
 /** The same observation without blocking the daemon's event loop, on the pinned git directory. */
 async function observeGitState(m: CheckManifest) {
   if (!m.gitDirectory) throw new Error('The run has no daemon-resolved git directory.');

@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type {
   AgentBackend,
@@ -634,6 +634,15 @@ describe('agent runs', () => {
       join(dataDir, 'backups'),
       configDir,
     ]);
+    // The worktree's Git directories, resolved by the daemon, so a sandboxed run can commit
+    // (R-G14, operator decision 2026-10-08).
+    const common = realpathSync(
+      git(['rev-parse', '--path-format=absolute', '--git-common-dir'], worktree.path).trim(),
+    );
+    expect(launch?.gitDirectories).toEqual({
+      gitDirectory: join(common, 'worktrees', basename(worktree.path)),
+      gitCommonDirectory: common,
+    });
     // With no outside sources file, the one source is cargo, fetching into the daemon's own
     // Cargo home (R-G14).
     expect(launch?.outsideSources).toEqual([

@@ -158,9 +158,16 @@ sandbox): they may write the worktree, the temporary directories, the run's dire
 outside sources' caches, and reach no network but the outside sources' hosts, through Codex's
 own proxy, which refuses any other host; a direct connection cannot resolve or connect. With no
 source the network is off. Permission profiles are a Beta Codex feature and the proxy
-(`features.network_proxy`) an experimental one, verified with CLI 0.160.0. Unlike Claude Code's
-sandbox, which lets a command write the repository's Git directory except its `config` and
-`hooks`, the profile cannot write it, so a sandboxed Codex command cannot stage or commit. A read-only Codex run uses Codex's
+(`features.network_proxy`) an experimental one, verified with CLI 0.160.0. The profile also lets
+commands write the repository's Git directory, so they can stage and commit, except its
+`config`, `hooks/` and `info/`, which stay read-only (operator decision 2026-10-08): the
+daemon's own Git reads the repository's settings and hook programs there, and
+`info/attributes` could pick another built-in merge driver, such as `union`, for the daemon's
+merges. The daemon resolves the directories itself before launch and grants them only when the
+worktree's common directory is the one the primary checkout names and its own Git directory is
+one of that directory's `worktrees/` entries, so a `.git` pointer or `commondir` file an agent
+rewrote cannot point the grant elsewhere. A command can still create or move branches there,
+which the ref watch below detects. A read-only Codex run uses Codex's
 read-only sandbox, and `unrestricted` removes the sandbox. The brief instructs the agent to stay
 in its worktree, and the diff makes deviations visible, but an unrestricted run has the
 operator's full local authority. Treat `unrestricted` as you would running the agent by hand.
@@ -202,7 +209,7 @@ only the worktree, the run's directories, its scratch space (also the commands' 
 and TEMP; Claude Code itself keeps its sandbox's sockets in a short private directory of the
 run's, `<data>/t/<12 hex>`, 0700, removed when the run ends without following anything an agent
 left there, LIVE-31; Claude Code lets commands write its `claude-<uid>` directory inside it,
-and nothing else of it or of other runs' directories), the repository's Git directory except its `config` and `hooks` (Claude Code allows that itself, so a run can commit from its worktree and could move a branch, which the ref watch below detects; verified with 2.1.288, R-G14) and the outside sources' caches, which for `cargo` are Cargo's `registry` and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
+and nothing else of it or of other runs' directories), the repository's Git directory except its `config` and `hooks` (Claude Code allows that itself, so a run can commit from its worktree and could move a branch, which the ref watch below detects; it can also write `info/`, which Codex's profile keeps read-only; verified with 2.1.288, R-G14) and the outside sources' caches, which for `cargo` are Cargo's `registry` and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
 crate an agent plants never runs in the operator's own builds, R-G5 review; check units do not build
 from it either: each gets a fresh Cargo home of its own, a local registry of crates.io's published
 index entries and only the downloads whose SHA-256 matches them, which the daemon reads from

@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AgentPermissionMode } from '@craftingtable/domain';
 import type { AgentLaunchRequest } from '../index.js';
 import { launchOutsideSources, outsideSourceHosts } from '../outside-sources.js';
@@ -84,6 +86,39 @@ export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
  * a command may not ask to leave it. Sandboxed commands run without asking only in the auto
  * posture; edit-only keeps its approval rule for commands.
  */
+/**
+ * What sandboxed commands may not write in the repository's Git directory (R-G14 review
+ * MEDIUM-1, operator decision 2026-10-08). Claude Code lets them write it, so a run can commit,
+ * except `config` and `hooks/`; these keep the rest of what says where the repository and its
+ * configuration are read-only, existing or not (Claude Code stops a denied path's creation, and
+ * leaves an empty placeholder for a missing `config.worktree`): `info/` (whose `attributes`
+ * could pick a merge driver for the daemon's merges), the common directory's `commondir`,
+ * `config.worktree` and `objects/info` (alternates), every other worktree's entry, and the run's
+ * own `commondir`, `gitdir` and `config.worktree`. `worktrees/` as a whole cannot be denied: the
+ * run's own entry, which a commit writes, lies in it, and a deny would win.
+ */
+function gitDeniedWrites(git: NonNullable<AgentLaunchRequest['gitDirectories']>): string[] {
+  const common = git.gitCommonDirectory;
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(join(common, 'worktrees'));
+  } catch {
+    // No other worktree.
+  }
+  return [
+    join(common, 'info'),
+    join(common, 'commondir'),
+    join(common, 'config.worktree'),
+    join(common, 'objects', 'info'),
+    ...entries
+      .map((entry) => join(common, 'worktrees', entry))
+      .filter((entry) => entry !== git.gitDirectory),
+    join(git.gitDirectory, 'commondir'),
+    join(git.gitDirectory, 'gitdir'),
+    join(git.gitDirectory, 'config.worktree'),
+  ];
+}
+
 /** Whether the run's Bash is sandboxed: every posture but unrestricted. */
 export function claudeSandboxed(request: AgentLaunchRequest): boolean {
   return request.readOnly === true || request.permissionMode !== 'unrestricted';
@@ -113,6 +148,9 @@ function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown>
             filesystem: {
               denyRead: sandboxDeniedReads(request),
               allowWrite: sandboxAllowedWrites(request),
+              ...(request.gitDirectories === undefined
+                ? {}
+                : { denyWrite: gitDeniedWrites(request.gitDirectories) }),
             },
             network: {
               allowLocalBinding: true,

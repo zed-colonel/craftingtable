@@ -225,6 +225,12 @@ the command fails with `untrusted-git-directory` and nothing runs. The run's che
 private clones and pinned fetches check the same before reading a store. Commands with no
 repository yet (`git init` of a scratch store, `git version`) are not pinned.
 
+A residual this does not cover, and which is not new: a person running Git *inside a run's
+worktree* uses whatever `.git` pointer the agent left there, and a run may point its own
+worktree's `.git` anywhere. The daemon is not affected (it is pinned as above), and the run-end
+check reports a moved pointer before anything is finalized or merged; check the pointer before
+running Git there by hand.
+
 Every Git command the daemon runs (R-G5, SEC-03, GIT-08) passes `core.fsmonitor=false` and
 `core.hooksPath=/dev/null`, so repository hooks and fsmonitor commands never run in the daemon's
 context, and every diff passes `--no-ext-diff --no-textconv`. It starts from named variables only
@@ -242,7 +248,7 @@ only the worktree, the run's directories, its scratch space (also the commands' 
 and TEMP; Claude Code itself keeps its sandbox's sockets in a short private directory of the
 run's, `<data>/t/<12 hex>`, 0700, removed when the run ends without following anything an agent
 left there, LIVE-31; Claude Code lets commands write its `claude-<uid>` directory inside it,
-and nothing else of it or of other runs' directories), the repository's Git directory except its `config` and `hooks` (Claude Code allows that itself, so a run can commit from its worktree and could move a branch, which the ref watch below detects; it can also write `info/`, which Codex's profile keeps read-only; verified with 2.1.288, R-G14) and the outside sources' caches, which for `cargo` are Cargo's `registry` and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
+and nothing else of it or of other runs' directories), the repository's Git directory except its `config` and `hooks` (Claude Code allows that itself, so a run can commit from its worktree and could move a branch, which the ref watch below detects) and except, by the adapter's `denyWrite` (R-G14 review MEDIUM-1, operator decision 2026-10-08), its `info/`, `commondir`, `config.worktree`, `objects/info`, every other worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`, existing or not (Claude Code stops a denied path's creation, and leaves an empty placeholder for a missing `config.worktree`, which changes nothing in Git); a new entry in `worktrees/` cannot be stopped without stopping the run's own commits, and the run-end check reports one (verified with 2.1.288) and the outside sources' caches, which for `cargo` are Cargo's `registry` and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
 crate an agent plants never runs in the operator's own builds, R-G5 review; check units do not build
 from it either: each gets a fresh Cargo home of its own, a local registry of crates.io's published
 index entries and only the downloads whose SHA-256 matches them, which the daemon reads from

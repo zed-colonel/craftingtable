@@ -374,8 +374,11 @@ under the XDG config home), read when the daemon starts; edit it and restart to 
   and `logs/` and the run's own Git directory (not its `commondir` or `gitdir`), as the daemon
   resolved them from the primary checkout (operator decisions 2026-10-08); a repository that
   enables `extensions.worktreeConfig` gives Codex no Git grant, so its runs cannot commit from
-  the sandbox. Claude Code's sandbox writes the repository's Git directory except `config` and
-  `hooks`.
+  the sandbox. Claude Code's sandbox writes the repository's Git directory except `config`,
+  `hooks`, `info/`, the files that say where the repository and its configuration are, and
+  other worktrees' entries (it leaves empty `config.worktree` placeholders, which change
+  nothing). A person running Git inside a run's worktree still uses whatever `.git` pointer the
+  agent left there; the daemon does not (see `docs/security.md`).
 - Codex's profile also denies the reads Claude's sandbox denies (the daemon's database,
   backups and settings directory, the operator's credentials, the runtime directory and the
   Docker socket; see `docs/security.md`). Codex 0.160.0 can mask only one existing file per

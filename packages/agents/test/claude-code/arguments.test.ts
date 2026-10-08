@@ -1,4 +1,5 @@
-import { homedir } from 'node:os';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { claudeCodeArguments } from '../../src/claude-code/arguments.js';
@@ -228,4 +229,46 @@ it("passes today's arguments for the cargo source in the run's Cargo home, on ev
     hosts: ['index.crates.io', 'static.crates.io'],
     caches: ['/opt/cargo/registry', '/opt/cargo/git'],
   });
+});
+
+it("keeps Git's redirect files and info/ read-only for sandboxed commands, so a commit still works (R-G14 review MEDIUM-1)", () => {
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-claude-git-'));
+  try {
+    const common = join(root, 'repo', '.git');
+    const own = join(common, 'worktrees', 'wt-1');
+    for (const directory of ['objects/info', 'info', 'worktrees/wt-1', 'worktrees/other'])
+      mkdirSync(join(common, directory), { recursive: true });
+    const settings = (request: Partial<Parameters<typeof claudeCodeArguments>[0]>) => {
+      const args = claudeCodeArguments({
+        cwd: '/work/x',
+        prompt: 'Go',
+        permissionMode: 'auto',
+        ...request,
+      });
+      return JSON.parse(args[args.indexOf('--settings') + 1]!) as {
+        sandbox?: { filesystem: { denyWrite?: string[] } };
+      };
+    };
+    const gitDirectories = { gitDirectory: own, gitCommonDirectory: common, worktreeConfig: false };
+    for (const permissionMode of ['auto', 'edit-only'] as const)
+      expect(settings({ permissionMode, gitDirectories }).sandbox?.filesystem.denyWrite).toEqual([
+        // Claude Code already keeps `config` and `hooks/` read-only; `info/attributes` could pick
+        // a merge driver for the daemon's merges.
+        join(common, 'info'),
+        // What says where the repository and its configuration are: existing or not.
+        join(common, 'commondir'),
+        join(common, 'config.worktree'),
+        join(common, 'objects', 'info'),
+        // Every other worktree's entry (not the run's own, which a commit writes).
+        join(common, 'worktrees', 'other'),
+        join(own, 'commondir'),
+        join(own, 'gitdir'),
+        join(own, 'config.worktree'),
+      ]);
+    // Without the daemon's directories, and without a sandbox, nothing is added.
+    expect(settings({}).sandbox?.filesystem.denyWrite).toBeUndefined();
+    expect(settings({ permissionMode: 'unrestricted', gitDirectories }).sandbox).toBeUndefined();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

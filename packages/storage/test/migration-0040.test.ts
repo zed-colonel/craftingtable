@@ -223,10 +223,15 @@ function resumed(database: Database.Database, cursors: readonly number[]) {
   );
 }
 
-/** Migration 0040 with one edit, as a fault injected into it; `from` must occur once. */
-function edited(from: string, to: string): MigrationDefinition {
+function migration40(): MigrationDefinition {
   const migration = migrations.find((candidate) => candidate.version === 40);
   if (migration === undefined) throw new Error('Expected migration 0040');
+  return migration;
+}
+
+/** Migration 0040 with one edit, as a fault injected into it; `from` must occur once. */
+function edited(from: string, to: string): MigrationDefinition {
+  const migration = migration40();
   expect(migration.sql.split(from), from).toHaveLength(2);
   const sql = migration.sql.replace(from, to);
   return { ...migration, sql, checksum: checksumSql(sql) };
@@ -524,6 +529,56 @@ describe('migration 0040: the journal without the registry (R-H6)', () => {
       edited(
         'FROM workspace_events_schema39\nORDER BY sequence;',
         'FROM workspace_events_schema39 WHERE sequence > 1\nORDER BY sequence;',
+      ),
+    );
+  });
+
+  // R-H6 review LOW-2: each guard, made to see the fault it exists for.
+  it('rolls back when a registry table holds a row, though no event names it', () => {
+    expectRollback(migration40(), (database) => {
+      // The registry's own trigger wants an active repository; the row only has to exist.
+      database.exec('DROP TRIGGER project_repository_bindings_initial_state');
+      database.pragma('foreign_keys = OFF');
+      database
+        .prepare(
+          `INSERT INTO project_repository_bindings (id, workspace_id, project_id, repository_id,
+             status, bound_by_user_id, bound_at, version)
+           VALUES ('binding-1', 'workspace-a', 'project-a', 'repository-1', 'active', 'user-a', ?, 1)`,
+        )
+        .run(NOW);
+      database.pragma('foreign_keys = ON');
+    });
+  });
+
+  it('rolls back on a copy that changes a value but keeps the count: the row guard', () => {
+    expectRollback(
+      edited(
+        '    project_id, work_item_id, run_id, kind, payload_json\nFROM workspace_events_schema39',
+        `    project_id, work_item_id, run_id, kind,
+    CASE WHEN sequence = 2 THEN '{"name":"changed"}' ELSE payload_json END
+FROM workspace_events_schema39`,
+      ),
+    );
+  });
+
+  it('rolls back when the high-water mark is not the captured one, or lies below the last row: the sequence guard', () => {
+    expectRollback(
+      edited(
+        "SELECT 'workspace_events', sequence_value\nFROM migration_0040_state",
+        "SELECT 'workspace_events', sequence_value + 1\nFROM migration_0040_state",
+      ),
+    );
+    // SQLite would issue a sequence a client may already hold; 0004 refused this too.
+    expectRollback(migration40(), (database) =>
+      database.exec("UPDATE sqlite_sequence SET seq = 2 WHERE name = 'workspace_events'"),
+    );
+  });
+
+  it('rolls back when the journal index is not recreated: the schema guard', () => {
+    expectRollback(
+      edited(
+        'CREATE INDEX idx_workspace_events_workspace_sequence\n    ON workspace_events(workspace_id, sequence);',
+        '',
       ),
     );
   });

@@ -291,7 +291,9 @@ describe('a cycle’s launch (startForCycle)', () => {
     });
   });
 
-  it('a roadmap’s cycle: its latest assignment beats a service retry; an equal explicit choice keeps the assignment’s id', async () => {
+  // Operator decision 2026-10-07 (R-E5a question 2): a run names the assignment only when the
+  // assignment chose its agent. Characterized before: also when another layer's equal choice ran.
+  it('a roadmap’s cycle: its latest assignment beats a service retry; only the assignment’s own choice names it', async () => {
     const { state, launch, design, stored } = await launchFixture();
     const assignment = {
       id: randomUUID(),
@@ -364,15 +366,37 @@ describe('a cycle’s launch (startForCycle)', () => {
           sources: [],
         },
       }) as unknown as Partial<WorkCycle>;
-    // The recorded run names the assignment only when it runs the assignment's selection.
+    // An equal selection the recovery chose does not name the assignment.
     expect(await launch(recovery('assigned-design'))).toEqual({
       agent: agent('assigned-design', 'auto'),
-      provenance: { purpose: 'design', assignmentId: assignment.id },
+      provenance: { purpose: 'design' },
     });
     expect(await launch(recovery('other-design'))).toEqual({
       agent: agent('other-design', 'auto'),
       provenance: { purpose: 'design' },
     });
+    // Nor does a resumed session whose agent the assignment would also choose.
+    (roadmap.agentAssignments as unknown as (typeof assignment)[]).push({
+      ...assignment,
+      id: randomUUID(),
+      selections: {
+        ...assignment.selections,
+        design: { backend: 'claude-code', model: 'design-model' },
+      },
+    });
+    expect(
+      await launch({
+        owner,
+        step: 'design',
+        parentRunId: design.id,
+        outputRepair: {
+          attempts: 1,
+          sourceRunId: design.id,
+          code: 'design-report-invalid',
+          issues: [],
+        },
+      } as unknown as Partial<WorkCycle>),
+    ).toEqual({ agent: agent('design-model', 'auto'), provenance: { purpose: 'design' } });
   });
 });
 

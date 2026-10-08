@@ -58,7 +58,12 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { AGENTS_ROOT_LOCK_FILE } from '../instance-lock.js';
-import { cycleAgentSelection, cycleLaunchAgent, workspaceLayer } from './agent-profile-policy.js';
+import {
+  cycleAgentSelection,
+  cycleLaunchAgent,
+  launchProvenance,
+  workspaceLayer,
+} from './agent-profile-policy.js';
 import { launchProfile, resolveAgents } from './agent-resolution.js';
 import { removeAgentTree } from './agent-tree.js';
 import { cycleOwnership } from './cycle-ownership.js';
@@ -840,14 +845,13 @@ export class AgentRunService {
       cycle,
       cycle.parentRunId && this.storage.execution.runs.find(cycle.workspaceId, cycle.parentRunId),
     )?.run;
-    const profile = launchProfile(
-      cycleLaunchAgent(this.storage, cycle, {
-        ...(resumed ? { resumed } : {}),
-        ...(recovery ? { recovery } : {}),
-        ...(finalization ? { finalization } : {}),
-        ...(resolution ? { resolution } : {}),
-      }),
-    );
+    const launch = cycleLaunchAgent(this.storage, cycle, {
+      ...(resumed ? { resumed } : {}),
+      ...(recovery ? { recovery } : {}),
+      ...(finalization ? { finalization } : {}),
+      ...(resolution ? { resolution } : {}),
+    });
+    const profile = launchProfile(launch);
     return this.launchAuthorized(
       cycle.workspaceId,
       cycle.workItemId,
@@ -919,18 +923,7 @@ export class AgentRunService {
       { userId: cycle.createdByUserId },
       undefined,
       cycle,
-      {
-        purpose: selected.provenance.purpose,
-        ...(selected.provenance.delegationId
-          ? { delegationId: selected.provenance.delegationId }
-          : {}),
-        ...(profile.backend === selected.profile.backend &&
-        profile.model === selected.profile.model &&
-        profile.reasoningEffort === selected.profile.reasoningEffort &&
-        selected.provenance.assignmentId
-          ? { assignmentId: selected.provenance.assignmentId }
-          : {}),
-      },
+      launchProvenance(selected.provenance, launch),
     );
   }
 

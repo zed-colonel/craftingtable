@@ -1,8 +1,11 @@
 import type { Finalization, Roadmap, RoadmapEntry, WorkCycle } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
+import { resolveAgent } from '../../src/services/agent-resolution.js';
 import type { StorageRepositories } from '@craftingtable/storage';
 import {
+  assignedReviewMatches,
   finalizationAgents,
+  launchProvenance,
   operatorResolutionProfile,
   preparationAgent,
 } from '../../src/services/agent-profile-policy.js';
@@ -159,5 +162,88 @@ describe('an integration resolution the operator starts (operator decision 2026-
     expect(operatorResolutionProfile(tx(true), of({ conflict }), undefined, recorded)).toEqual(
       recorded,
     );
+  });
+});
+
+describe('which launches name the assignment (operator decision 2026-10-07)', () => {
+  const same = { backend: 'claude-code' as const, model: 'same' };
+  const profiles = {
+    design: stage('design'),
+    implement: stage('implement'),
+    review: stage('review'),
+    remediate: stage('remediate'),
+  };
+  const base = {
+    purpose: 'review' as const,
+    permissionMode: 'edit-only' as const,
+    assignment: { id: 'assignment', selections: { ...profiles, review: same } },
+    profiles: { layer: 'saved-definition' as const, value: profiles },
+  };
+  const recorded = { purpose: 'review' as const, delegationId: 'grant' };
+  it('a launch the assignment chose names it, a service retry it outranks included', () => {
+    for (const context of [base, { ...base, serviceRetry: { ...stage('retry') } }])
+      expect(launchProvenance(recorded, resolveAgent(context))).toEqual({
+        purpose: 'review',
+        delegationId: 'grant',
+        assignmentId: 'assignment',
+      });
+  });
+  it.each([
+    ['a resumed session', { resumed: { ...same, permissionMode: 'edit-only' as const } }],
+    [
+      'a design-question recovery',
+      { action: { layer: 'design-recovery' as const, selection: same } },
+    ],
+    [
+      'a finalization stage',
+      {
+        finalization: {
+          stage: { ...same, permissionMode: 'edit-only' as const },
+          slot: 'review' as const,
+          stageIndex: 0,
+        },
+      },
+    ],
+    [
+      'a finalization recovery',
+      { finalization: { stage: stage('stage'), slot: 'review' as const, recovery: same } },
+    ],
+    [
+      'an integration resolution',
+      { integrationResolution: { ...same, permissionMode: 'edit-only' as const } },
+    ],
+  ])('an equal selection %s chose does not', (_, layer) => {
+    const launch = resolveAgent({ ...base, ...layer });
+    expect(launch.selection).toEqual(same);
+    expect(launchProvenance(recorded, launch)).toEqual({
+      purpose: 'review',
+      delegationId: 'grant',
+    });
+  });
+  it('a review run that does not name the assignment is held to the saved definition', () => {
+    const entry = { id: 'entry', profiles } as unknown as RoadmapEntry;
+    const roadmap = {
+      agentAssignments: [
+        {
+          id: 'assignment',
+          entryIds: ['entry'],
+          selections: base.assignment.selections,
+          appliedAt: '2026-10-01T00:00:00Z',
+        },
+      ],
+    } as unknown as Roadmap;
+    const run = { ...same, permissionMode: 'edit-only', createdAt: '2026-10-02T00:00:00Z' };
+    expect(
+      assignedReviewMatches(roadmap, entry, {
+        ...run,
+        profileSelection: { purpose: 'review', assignmentId: 'assignment' },
+      } as never),
+    ).toBe(true);
+    expect(
+      assignedReviewMatches(roadmap, entry, {
+        ...run,
+        profileSelection: { purpose: 'review' },
+      } as never),
+    ).toBe(false);
   });
 });

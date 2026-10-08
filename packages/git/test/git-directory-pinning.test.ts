@@ -126,3 +126,54 @@ it('refuses a worktree whose `.git` names a Git directory outside the repositori
   // Without trust nothing is known to be managed, and the pointer is followed as Git would.
   expect(await runnerAnswer(replaced, {})).not.toBe('untrusted-git-directory');
 });
+
+it("refuses the finalization commit and the merge while a managed run's own Git directory holds a non-empty `config.worktree`; an empty one is fine (R-G14, operator decision 2026-10-08)", async () => {
+  const s = setup();
+  const git = createGitOperations({ gitExecutable: GIT_EXECUTABLE, gitTrust: s.trust });
+  const own = join(s.common, 'worktrees', 'wt');
+  const checkpoint = async (content: string) => {
+    writeFileSync(join(s.worktree, 'README.md'), content);
+    const changes = await git.inspectWorktreeChanges(s.worktree);
+    if (!changes.ok) throw new Error(changes.failure.message);
+    return () =>
+      git.checkpointWorktree({
+        worktreePath: s.worktree,
+        branchName: 'item',
+        expectedHeadSha: changes.value.headSha,
+        fingerprint: changes.value.fingerprint,
+        paths: changes.value.paths,
+        sourceRunId: `run-${content.length}`,
+      });
+  };
+  const merge = () =>
+    git.mergeBranch({
+      repositoryPath: s.fixture.repository,
+      branchName: 'item',
+      targetBranch: 'main',
+      message: 'merge item',
+    });
+  // Claude Code leaves an empty placeholder there; Git reads nothing from it.
+  writeFileSync(join(own, 'config.worktree'), '');
+  const first = await (await checkpoint('first change'))();
+  expect(first.ok, JSON.stringify(first)).toBe(true);
+  // Git never writes one there, so a non-empty one is the agent's: refused, not read.
+  const commit = await checkpoint('second change');
+  writeFileSync(join(own, 'config.worktree'), '[core]\n\tsshCommand = /tmp/planted\n');
+  expect((await commit()).ok).toBe(false);
+  expect(await runnerAnswer(s.worktree, { gitTrust: s.trust })).toBe('untrusted-git-directory');
+  expect((await merge()).ok).toBe(false);
+  expect(await runnerAnswer(s.fixture.repository, { gitTrust: s.trust })).toBe(
+    'untrusted-git-directory',
+  );
+  // Emptied again, both go through.
+  writeFileSync(join(own, 'config.worktree'), '');
+  expect((await commit()).ok).toBe(true);
+  const merged = await merge();
+  expect(merged.ok, JSON.stringify(merged)).toBe(true);
+  // A worktree of the operator's own, outside the managed roots, may use one.
+  const mine = join(s.fixture.root, 'mine');
+  runFixtureGit(['-C', s.fixture.repository, 'worktree', 'add', '-q', '-b', 'mine', mine, 'main']);
+  writeFileSync(join(s.common, 'worktrees', 'mine', 'config.worktree'), '[core]\n\tabbrev = 12\n');
+  expect(await runnerAnswer(mine, { gitTrust: s.trust })).toMatch(/^[0-9a-f]{40}$/);
+  expect(await runnerAnswer(s.fixture.repository, { gitTrust: s.trust })).toMatch(/^[0-9a-f]{40}$/);
+});

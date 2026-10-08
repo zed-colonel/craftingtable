@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { GitTrust } from './operations.js';
 
@@ -93,6 +93,53 @@ function exists(path: string): boolean {
   }
 }
 
+/** Whether a file exists and holds anything. */
+function nonEmpty(path: string): boolean {
+  try {
+    return statSync(path).size > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A non-empty `config.worktree` in the Git directory of a managed worktree the pinned
+ * directories reach: the checkout's own entry, or for a repository's own checkout, any of its
+ * `worktrees/` entries whose `gitdir` file names a checkout under a managed worktree root.
+ */
+function managedConfigWorktree(named: PinnedGitDirectories, trust: GitTrust): string | undefined {
+  const roots = trust.worktreeRoots.map((root) => canonical(root) ?? root);
+  const managed = (checkoutDotGit: string) => {
+    const checkout = dirname(canonical(checkoutDotGit) ?? checkoutDotGit);
+    return roots.some((root) => inside(checkout, root) && checkout !== root);
+  };
+  if (named.gitDirectory !== named.commonDirectory)
+    return named.workTree !== undefined &&
+      managed(join(named.workTree, '.git')) &&
+      nonEmpty(join(named.gitDirectory, 'config.worktree'))
+      ? join(named.gitDirectory, 'config.worktree')
+      : undefined;
+  const entries = (() => {
+    try {
+      return readdirSync(join(named.commonDirectory, 'worktrees')).map((entry) =>
+        join(named.commonDirectory, 'worktrees', entry),
+      );
+    } catch {
+      return [];
+    }
+  })();
+  return entries
+    .filter((entry) => {
+      try {
+        return managed(readFileSync(join(entry, 'gitdir'), 'utf8').trim());
+      } catch {
+        return false;
+      }
+    })
+    .map((entry) => join(entry, 'config.worktree'))
+    .find(nonEmpty);
+}
+
 /** Whether a linked worktree entry's `gitdir` file names this checkout's `.git`. */
 function namesCheckout(gitDirectory: string, checkout: string): boolean {
   try {
@@ -153,7 +200,12 @@ export function pinGitDirectories(
   // Git's ref store reads a `commondir` file in the Git directory even when `GIT_COMMON_DIR` names
   // another (checked with Git 2.55), so a planted or rewritten one is refused, not overridden.
   if (!commonDirectoryFileAgrees(named)) return 'untrusted';
-  if (trust === undefined || entry.isDirectory()) return named;
+  if (trust === undefined) return named;
+  // A non-empty `config.worktree` in a managed run's own Git directory: Git never writes one
+  // there, so it is the agent's (operator decision 2026-10-08). Refused for the run's worktree
+  // and for its repository, whose merges and branches it would otherwise share.
+  if (managedConfigWorktree(named, trust) !== undefined) return 'untrusted';
+  if (entry.isDirectory()) return named;
   const trusted = trust.commonDirectories.map((path) => canonical(path) ?? path);
   if (!trusted.includes(named.commonDirectory)) return 'untrusted';
   if (named.gitDirectory !== named.commonDirectory && !namesCheckout(named.gitDirectory, cwd))

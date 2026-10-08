@@ -378,7 +378,9 @@ under the XDG config home), read when the daemon starts; edit it and restart to 
   `hooks`, `info/`, the files that say where the repository and its configuration are, and
   other worktrees' entries (it leaves empty `config.worktree` placeholders, which change
   nothing). A person running Git inside a run's worktree still uses whatever `.git` pointer the
-  agent left there; the daemon does not (see `docs/security.md`).
+  agent left there; the daemon does not (see `docs/security.md`). The daemon's own Git refuses a
+  managed run's worktree and repository while the run's Git directory holds a non-empty
+  `config.worktree` (`untrusted-git-directory`); empty it to go on.
 - Codex's profile also denies the reads Claude's sandbox denies (the daemon's database,
   backups and settings directory, the operator's credentials, the runtime directory and the
   Docker socket; see `docs/security.md`). Codex 0.160.0 can mask only one existing file per

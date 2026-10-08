@@ -4,6 +4,9 @@ import { resolveAgent } from '../../src/services/agent-resolution.js';
 import type { StorageRepositories } from '@craftingtable/storage';
 import {
   assignedReviewMatches,
+  cycleAgents,
+  cycleLaunchRecord,
+  entryAgents,
   finalizationAgents,
   launchProvenance,
   operatorResolutionProfile,
@@ -219,14 +222,25 @@ describe('which launches name the assignment (operator decision 2026-10-07)', ()
       delegationId: 'grant',
     });
   });
-  // Operator decision 2026-10-07: a resumed session (an output repair, a restart resume) keeps
-  // the attribution of the run it continues.
+  // Operator decisions 2026-10-07: a resumed session (an output repair, a restart resume) keeps
+  // the attribution of the run it continues, while that assignment is still the entry's latest.
   it('a resumed session names the assignment exactly when the run it continues did', () => {
     const launch = resolveAgent({ ...base, resumed: { ...same, permissionMode: 'edit-only' } });
     expect(launch.source.layer).toBe('resumed-session');
+    const current = { ...recorded, latestAssignmentId: 'earlier' };
+    expect(
+      launchProvenance(current, launch, { purpose: 'review', assignmentId: 'earlier' }),
+    ).toEqual({ purpose: 'review', delegationId: 'grant', assignmentId: 'earlier' });
+    // Once a newer assignment replaced it, the resume names none and is held to the definition.
+    expect(
+      launchProvenance({ ...recorded, latestAssignmentId: 'later' }, launch, {
+        purpose: 'review',
+        assignmentId: 'earlier',
+      }),
+    ).toEqual({ purpose: 'review', delegationId: 'grant' });
     expect(
       launchProvenance(recorded, launch, { purpose: 'review', assignmentId: 'earlier' }),
-    ).toEqual({ purpose: 'review', delegationId: 'grant', assignmentId: 'earlier' });
+    ).toEqual({ purpose: 'review', delegationId: 'grant' });
     expect(launchProvenance(recorded, launch, { purpose: 'review' })).toEqual({
       purpose: 'review',
       delegationId: 'grant',
@@ -241,7 +255,10 @@ describe('which launches name the assignment (operator decision 2026-10-07)', ()
       action: { layer: 'design-recovery', selection: same },
     });
     expect(
-      launchProvenance(recorded, recovery, { purpose: 'review', assignmentId: 'earlier' }),
+      launchProvenance({ ...recorded, latestAssignmentId: 'earlier' }, recovery, {
+        purpose: 'review',
+        assignmentId: 'earlier',
+      }),
     ).toEqual({ purpose: 'review', delegationId: 'grant' });
   });
   it('a review run that does not name the assignment is held to the saved definition', () => {
@@ -269,5 +286,155 @@ describe('which launches name the assignment (operator decision 2026-10-07)', ()
         profileSelection: { purpose: 'review' },
       } as never),
     ).toBe(false);
+  });
+});
+
+describe('the R-E5a review’s gaps', () => {
+  const profiles = {
+    design: stage('design'),
+    implement: { ...stage('implement'), permissionMode: 'auto' as const },
+    review: stage('review'),
+    remediate: { ...stage('remediate'), permissionMode: 'auto' as const },
+  };
+  const entry = { id: 'entry', profiles } as unknown as RoadmapEntry;
+  const assignment = {
+    id: 'assignment',
+    entryIds: ['entry'],
+    selections: {
+      design: { backend: 'claude-code' as const, model: 'a-design' },
+      implement: { backend: 'claude-code' as const, model: 'a-implement' },
+      review: { backend: 'claude-code' as const, model: 'a-review' },
+      remediate: { backend: 'claude-code' as const, model: 'a-remediate' },
+    },
+    appliedAt: '2026-10-01T00:00:00Z',
+  };
+  const grant = (integrationConflicts: 'manual' | 'automatic') => ({
+    id: 'grant',
+    entryIds: ['entry'],
+    automation: {
+      integrationMerge: 'automatic',
+      integrationConflicts,
+      resolutionProfile: { ...stage('delegated'), permissionMode: 'auto' as const },
+    },
+    reviewerRoles: [],
+  });
+  const roadmapOf = (fields: Record<string, unknown> = {}) =>
+    ({
+      id: 'roadmap',
+      definition: { entries: [entry] },
+      attempts: [{ id: 'attempt', entryId: 'entry', cycleId: 'cycle', status: 'active' }],
+      ...fields,
+    }) as unknown as Roadmap;
+  const txOf = (roadmap?: Roadmap) =>
+    ({
+      roadmaps: {
+        list: () => (roadmap ? [roadmap] : []),
+        find: () => roadmap,
+        definition: () => roadmap?.definition,
+      },
+    }) as unknown as StorageRepositories;
+  const cycle = (fields: Partial<WorkCycle> = {}) =>
+    ({ id: 'cycle', workspaceId: 'ws', step: 'implement', profiles, ...fields }) as WorkCycle;
+
+  it('MEDIUM-2: the reported conflict agent is the delegation’s when conflicts are automatic', () => {
+    const delegated = {
+      selection: { backend: 'codex', model: 'delegated' },
+      source: { layer: 'roadmap-delegation', delegationId: 'grant' },
+      permissionMode: 'auto',
+    };
+    const granted = roadmapOf({ delegationAssignments: [grant('automatic')] });
+    expect(entryAgents(granted, entry).conflict).toMatchObject(delegated);
+    expect(cycleAgents(txOf(granted), cycle()).conflict).toMatchObject(delegated);
+    // The saved definition's own automation, without a grant, has its own label.
+    const saved = roadmapOf({
+      definition: {
+        entries: [entry],
+        automation: grant('automatic').automation,
+      },
+    });
+    expect(entryAgents(saved, entry).conflict.source).toEqual({ layer: 'roadmap-automation' });
+    // Manual conflicts launch nothing delegated; an assignment or a specialist comes first.
+    expect(
+      entryAgents(roadmapOf({ delegationAssignments: [grant('manual')] }), entry).conflict.source,
+    ).toEqual({ layer: 'saved-definition', slot: 'remediate' });
+    expect(
+      entryAgents(
+        roadmapOf({ delegationAssignments: [grant('automatic')], agentAssignments: [assignment] }),
+        entry,
+      ).conflict.source,
+    ).toMatchObject({ layer: 'roadmap-assignment', slot: 'remediate' });
+    // The selection set (nextAgentSelections, a repair's profiles) is unchanged by it.
+    expect(cycleAgents(txOf(granted), cycle()).remediate.source.layer).toBe('saved-definition');
+  });
+  it('LOW-2: a launch record carries no attribution of its own', () => {
+    const record = cycleLaunchRecord(
+      txOf(roadmapOf({ agentAssignments: [assignment], delegationAssignments: [grant('manual')] })),
+      cycle(),
+    );
+    expect(record).toEqual({
+      purpose: 'implement',
+      delegationId: 'grant',
+      latestAssignmentId: 'assignment',
+    });
+    expect(record).not.toHaveProperty('assignmentId');
+  });
+  it('LOW-3: a roadmap’s cycle reads its saved definition, one started on its own its start, and an assigned cycle runs with its steps’ permissions', () => {
+    expect(cycleAgents(txOf(roadmapOf()), cycle()).implement.source).toEqual({
+      layer: 'saved-definition',
+      slot: 'implement',
+    });
+    expect(cycleAgents(txOf(), cycle({ owner: null })).implement.source).toEqual({
+      layer: 'cycle-start',
+      slot: 'implement',
+    });
+    const assigned = cycleAgents(txOf(roadmapOf({ agentAssignments: [assignment] })), cycle());
+    expect(
+      Object.fromEntries(
+        (['design', 'implement', 'review', 'remediate', 'security'] as const).map((p) => [
+          p,
+          assigned[p].permissionMode,
+        ]),
+      ),
+    ).toEqual({
+      design: 'edit-only',
+      implement: 'auto',
+      review: 'edit-only',
+      remediate: 'auto',
+      security: 'edit-only',
+    });
+  });
+  it('LOW-4: a run names an assignment only if it was applied by then and covers its entry', () => {
+    const run = (assignmentId: string, createdAt: string) =>
+      ({
+        backend: 'claude-code',
+        model: 'a-review',
+        permissionMode: 'edit-only',
+        createdAt,
+        profileSelection: { purpose: 'review', assignmentId },
+      }) as never;
+    const other = { ...assignment, id: 'other', entryIds: ['elsewhere'] };
+    const roadmap = roadmapOf({ agentAssignments: [assignment, other] });
+    expect(assignedReviewMatches(roadmap, entry, run('assignment', '2026-10-02T00:00:00Z'))).toBe(
+      true,
+    );
+    // Applied after the run started.
+    expect(assignedReviewMatches(roadmap, entry, run('assignment', '2026-09-30T00:00:00Z'))).toBe(
+      false,
+    );
+    // Unknown, or another entry's: refused, even though the definition would match.
+    const definitionRun = (assignmentId: string) =>
+      ({
+        ...stage('review'),
+        createdAt: '2026-10-02T00:00:00Z',
+        profileSelection: { purpose: 'review', assignmentId },
+      }) as never;
+    expect(assignedReviewMatches(roadmap, entry, definitionRun('unknown'))).toBe(false);
+    expect(assignedReviewMatches(roadmap, entry, definitionRun('other'))).toBe(false);
+    expect(
+      assignedReviewMatches(roadmap, entry, {
+        ...stage('review'),
+        createdAt: '2026-10-02T00:00:00Z',
+      } as never),
+    ).toBe(true);
   });
 });

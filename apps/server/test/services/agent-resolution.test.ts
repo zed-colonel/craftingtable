@@ -168,7 +168,7 @@ describe('a delegated integration resolution’s profile (conflict only)', () =>
         profiles: definition,
         delegation: { profile: delegated.profile },
       }).source,
-    ).toEqual({ layer: 'saved-definition', slot: 'conflict' });
+    ).toEqual({ layer: 'roadmap-automation' });
   });
   it('loses to a conflict specialist the profiles name', () => {
     const named = { ...definition, value: { ...profiles, conflict: codex('p-conflict') } };
@@ -176,10 +176,13 @@ describe('a delegated integration resolution’s profile (conflict only)', () =>
       resolveAgent({ purpose: 'conflict', profiles: named, delegation: delegated }).source,
     ).toEqual({ layer: 'saved-definition', slot: 'conflict' });
   });
-  it('is ignored for any other purpose', () => {
+  it('is ignored for any other purpose, a specialist that inherits included', () => {
     expect(
       resolveAgent({ purpose: 'remediate', profiles: definition, delegation: delegated }).source,
     ).toEqual({ layer: 'saved-definition', slot: 'remediate' });
+    expect(
+      resolveAgent({ purpose: 'security', profiles: definition, delegation: delegated }).source,
+    ).toEqual({ layer: 'saved-definition', slot: 'review' });
   });
 });
 

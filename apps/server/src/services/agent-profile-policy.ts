@@ -22,6 +22,7 @@ import {
   selectionSet,
 } from './agent-resolution.js';
 import { cycleOwnership } from './cycle-ownership.js';
+import { attemptDelegation, effectiveDelegation } from './roadmap-delegation-policy.js';
 
 /**
  * Where each daemon place gathers the layers of its agent selection (R-E5a, E5-2). Every
@@ -48,9 +49,33 @@ function entryLayers(
     profiles: { layer: 'saved-definition', value: entry.profiles },
   };
 }
+/**
+ * The delegated integration resolution's profile as a layer (conflict only), when the entry's
+ * effective automation resolves conflicts automatically: what `delegatedResolutionProfile`
+ * would launch, so the reported conflict agent is the one that runs (R-E5a review MEDIUM-2).
+ */
+function delegationLayer(
+  delegation: Pick<ReturnType<typeof effectiveDelegation>, 'automation' | 'assignment'>,
+): Pick<AgentContext, 'delegation'> {
+  const { automation, assignment } = delegation;
+  return automation.integrationConflicts === 'automatic' && automation.resolutionProfile
+    ? {
+        delegation: {
+          ...(assignment ? { id: assignment.id } : {}),
+          profile: automation.resolutionProfile,
+        },
+      }
+    : {};
+}
 /** An entry's effective selections, each with its step's permissions. */
 export function entryAgents(roadmap: Roadmap, entry: RoadmapEntry) {
-  return resolveAgents(entryLayers(roadmap, entry), entry.profiles);
+  return resolveAgents(
+    {
+      ...entryLayers(roadmap, entry),
+      ...delegationLayer(effectiveDelegation(roadmap, entry, roadmap.definition)),
+    },
+    entry.profiles,
+  );
 }
 /**
  * What a decision preparation for the entry runs, read-only: the operator's choice, else (under
@@ -97,56 +122,57 @@ function stepPermission(cycle: WorkCycle, purpose: AgentProfilePurpose) {
   return cycle.profiles[purpose === 'conflict' ? 'remediate' : cycle.step].permissionMode;
 }
 
-/** Resolve only future launches. A running session's selection is already persisted on its run. */
-export function cycleAgentSelection(
+/**
+ * What a cycle's launch records beside its agent: its purpose, the delegation grant covering its
+ * entry, and the entry's latest assignment, which `launchProvenance` names only when the launch
+ * is attributed to it (R-E5a review LOW-2: nothing here names an assignment by itself).
+ */
+export function cycleLaunchRecord(
   tx: StorageRepositories,
   cycle: WorkCycle,
-  purpose = cycleProfilePurpose(cycle),
 ): {
-  profile: AgentProfile;
-  provenance: NonNullable<AgentRun['profileSelection']>;
+  readonly purpose: AgentProfilePurpose;
+  readonly delegationId?: string;
+  readonly latestAssignmentId?: string;
 } {
-  const resolved = resolveAgent({
-    purpose,
-    permissionMode: stepPermission(cycle, purpose),
-    ...cycleLayers(tx, cycle),
-  });
   const owner = cycleOwnership(tx, cycle);
   const grant = owner?.roadmap.delegationAssignments?.findLast((a) =>
     a.entryIds.includes(owner.attempt.entryId),
   );
+  const assignment = owner && latestAssignment(owner.roadmap, owner.attempt.entryId);
   return {
-    profile: launchProfile(resolved),
-    provenance: {
-      purpose,
-      ...(resolved.source.assignmentId ? { assignmentId: resolved.source.assignmentId } : {}),
-      ...(grant ? { delegationId: grant.id } : {}),
-    },
+    purpose: cycleProfilePurpose(cycle),
+    ...(grant ? { delegationId: grant.id } : {}),
+    ...(assignment ? { latestAssignmentId: assignment.id } : {}),
   };
 }
 
 /**
  * What a cycle's launch records about its selection: the purpose, the delegation grant, and the
  * assignment only when the resolver attributes the launched agent to it (operator decisions
- * 2026-10-07). A resumed session (an output repair, a restart resume) keeps the attribution of
- * the run it continues. An equal selection any other layer chose (a recovery, a finalization
- * stage or recovery, an integration resolution) does not name it, so `assignedReviewMatches`
- * holds such a run to the saved definition.
+ * 2026-10-07). A resumed session (an output repair, a restart resume) keeps the assignment the
+ * run it continues named, while that is still the entry's latest; once a newer assignment
+ * replaced it, the resume names none. An equal selection any other layer chose (a recovery, a
+ * finalization stage or recovery, an integration resolution) does not name it, so
+ * `assignedReviewMatches` holds such a run to the saved definition.
  */
 export function launchProvenance(
-  recorded: Pick<NonNullable<AgentRun['profileSelection']>, 'purpose' | 'delegationId'>,
+  record: ReturnType<typeof cycleLaunchRecord>,
   launch: EffectiveAgent,
   continued?: AgentRun['profileSelection'],
 ): NonNullable<AgentRun['profileSelection']> {
   const assignmentId =
     launch.source.layer === 'resumed-session'
-      ? continued?.assignmentId
+      ? continued?.assignmentId !== undefined &&
+        continued.assignmentId === record.latestAssignmentId
+        ? continued.assignmentId
+        : undefined
       : launch.source.layer === 'roadmap-assignment'
         ? launch.source.assignmentId
         : undefined;
   return {
-    purpose: recorded.purpose,
-    ...(recorded.delegationId ? { delegationId: recorded.delegationId } : {}),
+    purpose: record.purpose,
+    ...(record.delegationId ? { delegationId: record.delegationId } : {}),
     ...(assignmentId ? { assignmentId } : {}),
   };
 }
@@ -257,7 +283,19 @@ export function cycleLaunchAgent(
  * `delegatedResolutionProfile`) and the finalization view reports its own.
  */
 export function cycleAgents(tx: StorageRepositories, cycle: WorkCycle) {
-  return resolveAgents(cycleLayers(tx, cycle), cycle.profiles);
+  const owner = cycleOwnership(tx, cycle);
+  const entry = owner && roadmapEntryOf(owner.roadmap, owner.attempt.entryId);
+  const delegation =
+    owner &&
+    (attemptDelegation(tx, owner.roadmap, owner.attempt) ??
+      (entry && effectiveDelegation(owner.roadmap, entry, owner.roadmap.definition)));
+  return resolveAgents(
+    { ...cycleLayers(tx, cycle), ...(delegation ? delegationLayer(delegation) : {}) },
+    cycle.profiles,
+  );
+}
+function roadmapEntryOf(roadmap: Roadmap, entryId: string) {
+  return roadmap.definition.entries.find((e) => e.id === entryId);
 }
 
 /**

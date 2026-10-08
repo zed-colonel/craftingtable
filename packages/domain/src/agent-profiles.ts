@@ -57,6 +57,7 @@ export const AGENT_SELECTION_LAYERS = [
   'workspace-default',
   'saved-definition',
   'cycle-start',
+  'roadmap-automation',
   'roadmap-delegation',
   'service-retry',
   'roadmap-assignment',
@@ -79,7 +80,10 @@ export type AgentSelectionSource = {
   readonly slot?: AgentProfilePurpose;
   /** The ADR-064 assignment, for `roadmap-assignment`. */
   readonly assignmentId?: string;
-  /** The delegation grant, for `roadmap-delegation`. */
+  /**
+   * The delegation grant, for `roadmap-delegation`; `roadmap-automation` is the saved
+   * definition's own integration automation, without a grant.
+   */
   readonly delegationId?: string;
   /** The finalization stage, for `finalization-stage` and `finalization-recovery`. */
   readonly stageIndex?: number;

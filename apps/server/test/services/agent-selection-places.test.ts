@@ -12,10 +12,26 @@ import type { StorageRepositories } from '@craftingtable/storage';
 import { describe, expect, it } from 'vitest';
 import {
   assignedReviewMatches,
-  cycleAgentSelection,
+  cycleLaunchAgent,
+  cycleLaunchRecord,
   effectiveCycleProfiles,
   entryAgentSelections,
+  launchProvenance,
 } from '../../src/services/agent-profile-policy.js';
+import { launchProfile } from '../../src/services/agent-resolution.js';
+
+/**
+ * A cycle's next launch with no one-off layer, as `startForCycle` records it. The R-E5a review
+ * (LOW-2) retired `cycleAgentSelection`, whose provenance named any covering assignment; these
+ * expectations are unchanged and now read `cycleLaunchAgent` and `launchProvenance`.
+ */
+function cycleAgentSelection(tx: StorageRepositories, cycle: WorkCycle) {
+  const launch = cycleLaunchAgent(tx, cycle, {});
+  return {
+    profile: launchProfile(launch),
+    provenance: launchProvenance(cycleLaunchRecord(tx, cycle), launch),
+  };
+}
 
 /**
  * Characterization of today's agent selection, place by place (R-E5a, DATA-11): what each
@@ -130,7 +146,15 @@ describe('a cycle’s next launch (cycleAgentSelection)', () => {
   });
   it('a conflict resolution inherits remediation and keeps remediation’s permissions', () => {
     expect(
-      cycleAgentSelection(txOf(), cycleOf({ owner: null, step: 'review' }), 'conflict'),
+      // An integration resolution in progress is a conflict launch (`cycleProfilePurpose`).
+      cycleAgentSelection(
+        txOf(),
+        cycleOf({
+          owner: null,
+          step: 'review',
+          integrationResolution: { status: 'resolving' },
+        } as Partial<WorkCycle>),
+      ),
     ).toEqual({ profile: codex('remediate'), provenance: { purpose: 'conflict' } });
   });
   it('a roadmap’s cycle: the latest assignment for the purpose, with the step’s permissions', () => {
@@ -156,9 +180,9 @@ describe('a cycle’s next launch (cycleAgentSelection)', () => {
         txOf(roadmap),
         cycleOf({
           step: 'design',
+          currentRunId: 'run',
           designRecovery: { mode: 'investigate', runId: 'run' },
         } as Partial<WorkCycle>),
-        'investigation',
       ).profile,
     ).toEqual({ ...assigned.design, permissionMode: 'unrestricted' });
   });

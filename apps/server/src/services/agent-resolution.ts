@@ -200,7 +200,7 @@ function candidates(context: AgentContext): readonly Candidate[] {
       candidate(
         profile,
         id === undefined
-          ? { layer: 'saved-definition', slot: 'conflict' }
+          ? { layer: 'roadmap-automation' }
           : { layer: 'roadmap-delegation', delegationId: id },
         profile.permissionMode,
       ),

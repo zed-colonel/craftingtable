@@ -9,8 +9,24 @@ import type { StorageRepositories } from '@craftingtable/storage';
 import { expect, it } from 'vitest';
 import {
   assignedReviewMatches,
-  cycleAgentSelection,
+  cycleLaunchAgent,
+  cycleLaunchRecord,
+  launchProvenance,
 } from '../../src/services/agent-profile-policy.js';
+import { launchProfile } from '../../src/services/agent-resolution.js';
+/**
+ * A cycle's next launch with no one-off layer, as `startForCycle` records it. The R-E5a review
+ * (LOW-2) retired `cycleAgentSelection`, whose provenance named any covering assignment; these
+ * expectations are unchanged and now read `cycleLaunchAgent` and `launchProvenance`.
+ */
+function cycleAgentSelection(tx: StorageRepositories, cycle: WorkCycle) {
+  const launch = cycleLaunchAgent(tx, cycle, {});
+  return {
+    profile: launchProfile(launch),
+    provenance: launchProvenance(cycleLaunchRecord(tx, cycle), launch),
+  };
+}
+
 const profile = {
   backend: 'codex' as const,
   model: 'old-review',

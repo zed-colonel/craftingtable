@@ -59,7 +59,7 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import type { ExecutionConfig } from '../config.js';
 import { AGENTS_ROOT_LOCK_FILE } from '../instance-lock.js';
 import {
-  cycleAgentSelection,
+  cycleLaunchRecord,
   cycleLaunchAgent,
   launchProvenance,
   workspaceLayer,
@@ -838,7 +838,7 @@ export class AgentRunService {
       cycle.step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
         ? cycle.designRecovery
         : undefined;
-    const selected = cycleAgentSelection(this.storage, cycle);
+    const record = cycleLaunchRecord(this.storage, cycle);
     // A resumed session keeps the agent, model and permissions it was started with.
     const resumed = sessionResumeSource(
       this.storage.execution,
@@ -923,7 +923,7 @@ export class AgentRunService {
       { userId: cycle.createdByUserId },
       undefined,
       cycle,
-      launchProvenance(selected.provenance, launch, resumed?.profileSelection),
+      launchProvenance(record, launch, resumed?.profileSelection),
     );
   }
 

@@ -400,6 +400,65 @@ describe('a cycle’s launch (startForCycle)', () => {
       } as unknown as Partial<WorkCycle>),
     ).toEqual({ agent: agent('design-model', 'auto'), provenance: { purpose: 'design' } });
   });
+
+  // Operator decisions 2026-10-07 (R-E5a review MEDIUM-1, LOW-1): a resumed session keeps the
+  // assignment the run it continues named, while that assignment is still the entry's latest.
+  it('a resumed session names the assignment its run named, until a newer one replaces it', async () => {
+    const { state, launch, design, stored } = await launchFixture();
+    const first = {
+      id: randomUUID(),
+      entryIds: ['entry'],
+      selections: agentSelections(stored.profiles),
+      appliedAt: new Date().toISOString(),
+      appliedByUserId: state.userId,
+    };
+    const roadmap = {
+      id: randomUUID(),
+      workspaceId: state.workspaceId,
+      status: 'running',
+      version: 1,
+      definition: { entries: [{ id: 'entry', profiles: stored.profiles }] },
+      attempts: [{ id: 'attempt', entryId: 'entry', cycleId: stored.id, status: 'active' }],
+      agentAssignments: [first],
+    } as unknown as Roadmap;
+    const find = state.context.storage.roadmaps.find.bind(state.context.storage.roadmaps);
+    vi.spyOn(state.context.storage.roadmaps, 'find').mockImplementation((ws, id) =>
+      id === roadmap.id ? roadmap : find(ws, id),
+    );
+    // The design run as the assignment launched it, naming it.
+    const runs = state.context.storage.execution.runs;
+    const findRun = runs.find.bind(runs);
+    vi.spyOn(runs, 'find').mockImplementation((ws, id) =>
+      id === design.id
+        ? { ...design, profileSelection: { purpose: 'design', assignmentId: first.id } }
+        : findRun(ws, id),
+    );
+    const resume = {
+      owner: {
+        roadmapId: roadmap.id,
+        attemptId: 'attempt',
+        entryId: 'entry',
+        definitionRevision: 1,
+      },
+      step: 'design',
+      parentRunId: design.id,
+      outputRepair: {
+        attempts: 1,
+        sourceRunId: design.id,
+        code: 'design-report-invalid',
+        issues: [],
+      },
+    } as unknown as Partial<WorkCycle>;
+    expect(await launch(resume)).toEqual({
+      agent: agent('design-model', 'auto'),
+      provenance: { purpose: 'design', assignmentId: first.id },
+    });
+    (roadmap.agentAssignments as unknown as (typeof first)[]).push({ ...first, id: randomUUID() });
+    expect(await launch(resume)).toEqual({
+      agent: agent('design-model', 'auto'),
+      provenance: { purpose: 'design' },
+    });
+  });
 });
 
 describe('a question stop’s investigation (R-C16)', () => {

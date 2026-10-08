@@ -2470,8 +2470,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
    */
   private installation(): ProcessRecord['installation'] | undefined {
     try {
-      const status = statSync(this.storage.databasePath);
-      return { device: status.dev, inode: status.ino };
+      // As decimal text from the exact values: a device or inode number may pass 2^53.
+      const status = statSync(this.storage.databasePath, { bigint: true });
+      return { device: status.dev.toString(), inode: status.ino.toString() };
     } catch {
       return undefined;
     }
@@ -3288,7 +3289,7 @@ async function drainUntilExit(items: AsyncIterator<AgentSessionItem>): Promise<v
 interface ProcessRecord extends ProcessGroupIdentity {
   readonly workspaceId: string;
   readonly runId: string;
-  readonly installation: { readonly device: number; readonly inode: number };
+  readonly installation: { readonly device: string; readonly inode: string };
 }
 
 /**
@@ -3322,13 +3323,14 @@ function readProcessRecord(path: string): ProcessRecord | undefined {
     )
       return undefined;
     const { device, inode } = installation as Record<string, unknown>;
-    if (!Number.isSafeInteger(device) || !Number.isSafeInteger(inode)) return undefined;
-    return {
-      ...identity,
-      workspaceId,
-      runId,
-      installation: { device: device as number, inode: inode as number },
-    };
+    if (
+      typeof device !== 'string' ||
+      !/^\d{1,20}$/.test(device) ||
+      typeof inode !== 'string' ||
+      !/^\d{1,20}$/.test(inode)
+    )
+      return undefined;
+    return { ...identity, workspaceId, runId, installation: { device, inode } };
   } catch {
     return undefined;
   } finally {

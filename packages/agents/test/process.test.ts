@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -158,16 +158,26 @@ describe('stdout supervision (R-G11, AGT-16c, AGT-16e)', () => {
   });
 
   it('pauses stderr once the waiting chunks pass 16 MiB, however few they are', async () => {
-    // 48 MiB in a pipe kept full: chunks of up to 64 KiB, so fewer than 1000 of them.
+    // 768 writes of 64 KiB, a millisecond apart, so each arrives as a whole chunk: 48 MiB in
+    // fewer than 1000 chunks. The writer records how far it got after each write.
     const fake = script(
-      'head -c 50331648 /dev/zero | tr "\\\\0" x >&2\ntouch finished',
+      [
+        'import os, time',
+        'for i in range(768):',
+        "    os.write(2, b'x' * 65536)",
+        "    open('written', 'w').write(str((i + 1) * 65536))",
+        '    time.sleep(0.001)',
+        "open('finished', 'w').close()",
+      ].join('\n'),
       'agent',
-      '/bin/sh',
+      '/usr/bin/env python3',
     );
     const child = spawn(fake);
     const iterator = child.items[Symbol.asyncIterator]();
     expect((await iterator.next()).value).toMatchObject({ type: 'stderr' });
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Paused near 16 MiB, far short of the 48 MiB a bound on 1000 items alone would allow.
+    expect(Number(readFileSync(join(fake.cwd, 'written'), 'utf8'))).toBeLessThan(24 * 1024 * 1024);
     expect(existsSync(join(fake.cwd, 'finished'))).toBe(false);
     for (let next = await iterator.next(); next.done !== true; next = await iterator.next());
     expect(existsSync(join(fake.cwd, 'finished'))).toBe(true);

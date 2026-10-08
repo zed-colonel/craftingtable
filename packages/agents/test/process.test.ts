@@ -1,4 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -119,6 +121,24 @@ describe('stdout supervision (R-G11, AGT-16c, AGT-16e)', () => {
     expect(existsSync(join(fake.cwd, 'finished'))).toBe(true);
   });
 
+  it('pauses stdout once the waiting lines pass 16 MiB, however few they are', async () => {
+    // 64 lines of a mebibyte: far fewer than 1000 items, but 64 MiB of memory.
+    const fake = script(
+      'for i in $(seq 64); do head -c 1048576 /dev/zero | tr "\\\\0" x; echo; done\ntouch finished',
+      'agent',
+      '/bin/sh',
+    );
+    const child = spawn(fake, { maxLineBytes: 4 * 1024 * 1024 });
+    const iterator = child.items[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({ type: 'stdout-line' });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(existsSync(join(fake.cwd, 'finished'))).toBe(false);
+    let lines = 1;
+    for (let next = await iterator.next(); next.done !== true; next = await iterator.next())
+      if (next.value.type === 'stdout-line') lines += 1;
+    expect(lines).toBe(64);
+  });
+
   it('pauses stderr too while the consumer lags', async () => {
     const fake = script(
       `seq 0 999999 | sed 's/$/ ${'x'.repeat(100)}/' >&2\ntouch finished`,
@@ -203,16 +223,19 @@ describe.runIf(process.platform === 'linux')('process group identity (R-G11, AGT
     expect(await reapProcessGroup(identity, { graceMs: 100 })).toEqual({ outcome: 'gone' });
   });
 
-  it('ends a group whose leader has exited when every member started after the run (operator 2026-10-07)', async () => {
-    const before = Date.now();
-    // The leader starts a member in its own group, says so, and exits.
+  /** A supervised group whose leader starts a member and exits, leaving the member running. */
+  async function leaderlessGroup(memberKeepsMarker = true) {
     const child = spawn(
       script(`
-        const member = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-        require('node:fs').writeFileSync('member.pid', String(member.pid));
+        const env = { ...process.env };
+        ${memberKeepsMarker ? '' : 'delete env.CRAFTINGTABLE_RUN_ID;'}
+        require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', env });
         setTimeout(() => process.exit(0), 200);`),
-      // The supervisor waits for the group, so the test's cleanup can still end it.
-      { backgroundWorkTimeoutMs: 60_000 },
+      {
+        env: { PATH: process.env.PATH ?? '', CRAFTINGTABLE_RUN_ID: 'run-1' },
+        // The supervisor waits for the group, so the test's cleanup can still end it.
+        backgroundWorkTimeoutMs: 60_000,
+      },
     );
     const identity = processGroupIdentity(child.pid);
     if (!identity) throw new Error('no identity');
@@ -221,21 +244,142 @@ describe.runIf(process.platform === 'linux')('process group identity (R-G11, AGT
     let next = await iterator.next();
     while (!next.done && next.value.type !== 'background-work-waiting')
       next = await iterator.next();
-    // Without the run's start, nothing proves whose the leaderless group is.
-    expect(await reapProcessGroup(identity, { graceMs: 100 })).toEqual({
+    return { identity, iterator };
+  }
+
+  it('ends a group whose leader has exited when every member is the run’s (operator 2026-10-07)', async () => {
+    const before = Date.now();
+    const { identity, iterator } = await leaderlessGroup();
+    const proven = { graceMs: 2000, notStartedBefore: before, runId: 'run-1' };
+    // Without the run's start or its marker, nothing proves whose the leaderless group is.
+    for (const partial of [{ runId: 'run-1' }, { notStartedBefore: before }])
+      expect(await reapProcessGroup(identity, { graceMs: 100, ...partial })).toEqual({
+        outcome: 'unverifiable',
+      });
+    // Another run's marker, another boot, or a run that began after the members started.
+    expect(await reapProcessGroup(identity, { ...proven, runId: 'run-2' })).toEqual({
       outcome: 'unverifiable',
     });
-    // A run that began after its members started cannot own them.
     expect(
-      await reapProcessGroup(identity, { graceMs: 100, notStartedBefore: Date.now() + 60_000 }),
+      await reapProcessGroup(
+        { ...identity, bootId: '00000000-0000-4000-8000-000000000000' },
+        proven,
+      ),
     ).toEqual({ outcome: 'other-process' });
-    expect(await reapProcessGroup(identity, { graceMs: 2000, notStartedBefore: before })).toEqual({
+    expect(
+      await reapProcessGroup(identity, { ...proven, notStartedBefore: Date.now() + 60_000 }),
+    ).toEqual({ outcome: 'other-process' });
+    expect(await reapProcessGroup(identity, proven)).toEqual({
       outcome: 'terminated',
       signal: 'SIGTERM',
     });
-    for (next = await iterator.next(); !next.done; next = await iterator.next());
-    expect(await reapProcessGroup(identity, { graceMs: 100, notStartedBefore: before })).toEqual({
-      outcome: 'gone',
-    });
+    for (let next = await iterator.next(); !next.done; next = await iterator.next());
+    expect(await reapProcessGroup(identity, proven)).toEqual({ outcome: 'gone' });
+  });
+
+  it('leaves a leaderless group alone when a member does not carry the run’s marker (operator 2026-10-07)', async () => {
+    const before = Date.now();
+    const { identity } = await leaderlessGroup(false);
+    expect(
+      await reapProcessGroup(identity, { graceMs: 100, notStartedBefore: before, runId: 'run-1' }),
+    ).toEqual({ outcome: 'unverifiable' });
   });
 });
+
+/**
+ * Whether this host lets a test make its own user and pid namespace, where pids can be reused
+ * on purpose and every process is the test's: the namespace ends with its first process.
+ */
+const isolatedPids =
+  process.platform === 'linux' &&
+  spawnSync('unshare', ['--user', '--map-root-user', '--pid', '--fork', '--mount-proc', 'true'])
+    .status === 0 &&
+  spawnSync('python3', ['-c', 'pass']).status === 0;
+
+/**
+ * The independent review's reuse case (MEDIUM-1): the run's group is recorded, then ends
+ * entirely; later an unrelated program gets the same pid, leads a group (by setpgid, or by
+ * setsid as another daemon's agent would) and exits, leaving a member. Run as pid 1's child in a
+ * fresh pid namespace, it prints what the reaper decided and whether the member still runs.
+ */
+const REUSE_CASE = `
+import { spawn } from 'node:child_process';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { processGroupIdentity, reapProcessGroup } from ${JSON.stringify(fileURLToPath(new URL('../src/process.ts', import.meta.url)))};
+if (process.pid > 50) throw new Error('not in a fresh pid namespace; refusing');
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const stat = (pid) => {
+  try {
+    const text = readFileSync('/proc/' + pid + '/stat', 'utf8');
+    const fields = text.slice(text.lastIndexOf(')') + 2).split(' ');
+    return { state: fields[0], pgrp: Number(fields[2]) };
+  } catch {
+    return undefined;
+  }
+};
+const runStarted = Date.now() - 1000;
+const leader = spawn('sleep', ['1000'], {
+  detached: true,
+  stdio: 'ignore',
+  env: { ...process.env, CRAFTINGTABLE_RUN_ID: 'run-1' },
+});
+await sleep(50);
+const identity = processGroupIdentity(leader.pid);
+process.kill(-leader.pid, 'SIGKILL');
+await new Promise((resolve) => leader.once('exit', resolve));
+writeFileSync('/proc/sys/kernel/ns_last_pid', String(identity.pid - 1));
+const lead = process.argv[2] === 'setsid' ? 'os.setsid()' : 'os.setpgid(0, 0)';
+const unrelated = spawn('python3', ['-c', 'import os, time\\n' + lead + '\\nif os.fork() == 0:\\n  time.sleep(1000)\\nprint(os.getpid(), flush=True)\\ntime.sleep(0.3)\\n'], { stdio: ['ignore', 'pipe', 'inherit'] });
+const reused = Number(await new Promise((resolve) => unrelated.stdout.once('data', (data) => resolve(String(data)))));
+// The member holds the pipe open for good: stop reading it, or this process never ends.
+unrelated.stdout.destroy();
+await new Promise((resolve) => unrelated.once('exit', resolve));
+await sleep(100);
+const members = () => readdirSync('/proc').filter((entry) => /^\\d+$/.test(entry)).map(Number)
+  .filter((pid) => stat(pid)?.pgrp === identity.pid && stat(pid)?.state !== 'Z');
+const before = members();
+const reaping = await reapProcessGroup(identity, { graceMs: 300, notStartedBefore: runStarted, runId: 'run-1' });
+console.log(JSON.stringify({ reused: reused === identity.pid, members: before.length, reaping, after: members().length }));
+// This is the namespace's first process: its end ends every process in it.
+process.exit(0);
+`;
+
+describe.runIf(isolatedPids)(
+  'a reused pgid (R-G11 independent review, operator 2026-10-07)',
+  () => {
+    it.each([
+      ['setpgid', 'other-process'],
+      ['setsid', 'unverifiable'],
+    ])('leaves alone an unrelated group that took the recorded pid by %s', (variant, outcome) => {
+      const directory = mkdtempSync(join(tmpdir(), 'craftingtable-reuse-'));
+      directories.push(directory);
+      const path = join(directory, 'reuse.mts');
+      writeFileSync(path, REUSE_CASE);
+      const ran = spawnSync(
+        'unshare',
+        [
+          '--user',
+          '--map-root-user',
+          '--pid',
+          '--fork',
+          // Should the test give up on it, the namespace's first process goes with it.
+          '--kill-child',
+          '--mount-proc',
+          process.execPath,
+          '--experimental-transform-types',
+          '--no-warnings',
+          path,
+          variant,
+        ],
+        { encoding: 'utf8', timeout: 30_000, killSignal: 'SIGKILL' },
+      );
+      expect(ran.status, ran.stderr).toBe(0);
+      expect(JSON.parse(ran.stdout.trim().split('\n').at(-1) ?? '')).toEqual({
+        reused: true,
+        members: 1,
+        reaping: { outcome },
+        after: 1,
+      });
+    });
+  },
+);

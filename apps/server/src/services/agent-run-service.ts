@@ -30,6 +30,7 @@ import {
   type ProcessGroupIdentity,
   type ProcessGroupReaping,
   processGroupIdentity,
+  RUN_ID_VARIABLE,
   reapProcessGroup,
 } from '@craftingtable/agents';
 import {
@@ -1945,6 +1946,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             // a sandboxed `cargo fetch` may write its registry and Git caches, and what an agent
             // plants there stays out of the operator's own builds (R-G5 review).
             CARGO_HOME: this.config.cargoHome,
+            // Marks every process of the run, so a restart can tell its leaderless group from
+            // one that reused its pgid (R-G11; operator decision 2026-10-07).
+            [RUN_ID_VARIABLE]: runId,
             ...(verifying ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
           },
           ...(verifying ? { pathPrefix: [verifying.binDirectory] } : {}),
@@ -2479,6 +2483,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       reaping = await reapProcessGroup(identity, {
         graceMs,
         notStartedBefore: Date.parse(run.createdAt),
+        runId: run.id,
       });
     } catch (error) {
       this.log.warn("A run's surviving process group could not be ended", {

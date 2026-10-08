@@ -53,10 +53,12 @@ export interface SupervisedProcess {
 }
 
 /**
- * Buffered items above which the child's output (stdout and stderr) is paused until the
- * consumer has taken them all.
+ * Buffered items, or bytes, above which the child's output (stdout and stderr) is paused until
+ * the consumer has taken them all: lines may be megabytes long, so the count alone does not
+ * bound memory (R-G11 independent review).
  */
 export const OUTPUT_HIGH_WATER_ITEMS = 1000;
+export const OUTPUT_HIGH_WATER_BYTES = 16 * 1024 * 1024;
 
 /**
  * Minimal async queue: producers push, one consumer iterates. Closing the
@@ -65,9 +67,10 @@ export const OUTPUT_HIGH_WATER_ITEMS = 1000;
  * paused at a high-water mark can resume.
  */
 export class AsyncQueue<T> implements AsyncIterable<T> {
-  private readonly buffered: T[] = [];
+  private readonly buffered: { readonly item: T; readonly weight: number }[] = [];
   private waiter: ((value: IteratorResult<T>) => void) | undefined;
   private closed = false;
+  private weight = 0;
 
   constructor(private readonly onDrained?: () => void) {}
 
@@ -76,7 +79,15 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
     return this.buffered.length;
   }
 
-  push(item: T): void {
+  /** Whether what waits for the consumer has reached either high-water mark. */
+  get full(): boolean {
+    return (
+      this.buffered.length >= OUTPUT_HIGH_WATER_ITEMS || this.weight >= OUTPUT_HIGH_WATER_BYTES
+    );
+  }
+
+  /** `weight` is the item's size in bytes, as near as the producer knows it. */
+  push(item: T, weight = 0): void {
     if (this.closed) return;
     if (this.waiter !== undefined) {
       const resolve = this.waiter;
@@ -84,7 +95,8 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
       resolve({ value: item, done: false });
       return;
     }
-    this.buffered.push(item);
+    this.buffered.push({ item, weight });
+    this.weight += weight;
   }
 
   close(): void {
@@ -99,10 +111,11 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: () => {
-        const item = this.buffered.shift();
-        if (item !== undefined) {
+        const entry = this.buffered.shift();
+        if (entry !== undefined) {
+          this.weight -= entry.weight;
           if (this.buffered.length === 0) this.onDrained?.();
-          return Promise.resolve({ value: item, done: false });
+          return Promise.resolve({ value: entry.item, done: false });
         }
         if (this.closed) {
           return Promise.resolve({ value: undefined as never, done: true });
@@ -131,7 +144,7 @@ function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 /** What `/proc/<pid>/stat` says of a process: its state, parent, group and start time. */
 function procStat(
   pid: number | string,
-): { state: string; ppid: number; pgrp: number; startTime: string } | undefined {
+): { state: string; ppid: number; pgrp: number; session: number; startTime: string } | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     // The command name is in parentheses and may hold spaces; fields resume after the last one.
@@ -142,6 +155,7 @@ function procStat(
       state: fields[0] ?? '',
       ppid: Number(fields[1]),
       pgrp: Number(fields[2]),
+      session: Number(fields[3]),
       // Field 22: clock ticks after boot. With the boot id, it names one process for good.
       startTime,
     };
@@ -176,16 +190,35 @@ function hasGroupWork(pid: number | undefined, includeLeader = false): boolean {
   }
 }
 
-/** The running (not zombie) members of a process group, with their start times. */
-function groupMembers(pgid: number): { readonly pid: number; readonly startTime: string }[] {
-  const members: { pid: number; startTime: string }[] = [];
+/** The running (not zombie) members of a process group, with their sessions and start times. */
+function groupMembers(
+  pgid: number,
+): { readonly pid: number; readonly session: number; readonly startTime: string }[] {
+  const members: { pid: number; session: number; startTime: string }[] = [];
   for (const entry of readdirSync('/proc')) {
     if (!/^\d+$/.test(entry)) continue;
     const stat = procStat(entry);
     if (stat?.pgrp === pgid && !['Z', 'X'].includes(stat.state))
-      members.push({ pid: Number(entry), startTime: stat.startTime });
+      members.push({ pid: Number(entry), session: stat.session, startTime: stat.startTime });
   }
   return members;
+}
+
+/**
+ * The variable that marks every process of a run with its id (operator decision 2026-10-07):
+ * the launch environment carries it, and whatever the agent starts inherits it.
+ */
+export const RUN_ID_VARIABLE = 'CRAFTINGTABLE_RUN_ID';
+
+/** Whether a process's environment carries the run's marker; undefined when unreadable. */
+function carriesRunMarker(pid: number, runId: string): boolean | undefined {
+  try {
+    return readFileSync(`/proc/${pid}/environ`, 'latin1')
+      .split('\0')
+      .includes(`${RUN_ID_VARIABLE}=${runId}`);
+  } catch {
+    return undefined;
+  }
 }
 
 function currentBootId(): string | undefined {
@@ -276,18 +309,21 @@ function startedAtMs(startTime: string): number | undefined {
  * Ends a process group an earlier daemon started (R-G11, AGT-02): SIGTERM, then SIGKILL once
  * the grace period has passed with members still running. Only a group proved the run's is
  * signalled, never this daemon's own: its leader still the recorded process (same boot, same
- * start time, still leading its group), or, once the leader has exited, every member started
- * after the run and the recorded leader on the same boot.
+ * start time, still leading its group), or, once the leader has exited, every member in the
+ * leader's session, started after the run and the leader on the same boot, and carrying the
+ * run's marker in its environment.
  */
 export async function reapProcessGroup(
   identity: ProcessGroupIdentity,
   options: {
     readonly graceMs: number;
     /**
-     * When the group's run began, in epoch milliseconds. The record sits where the agent can
-     * write, so a leader that started before its run cannot be the run's and is left alone.
+     * When the group's run began, in epoch milliseconds: a leader or member that started
+     * before its run cannot be the run's and is left alone.
      */
     readonly notStartedBefore?: number;
+    /** The run's id, which each member of a leaderless group must carry (`RUN_ID_VARIABLE`). */
+    readonly runId?: string;
   },
 ): Promise<ProcessGroupReaping> {
   if (process.platform !== 'linux') return { outcome: 'unverifiable' };
@@ -308,19 +344,26 @@ export async function reapProcessGroup(
       return { outcome: 'other-process' };
     const stat = procStat(identity.pid);
     if (!stat) {
-      // The leader has exited (operator decision 2026-10-07). Linux does not reuse a pgid while
-      // any member lives, so members that all started after the run (and after the recorded
-      // leader) on the same boot are the run's.
+      // The leader has exited (operator decisions 2026-10-07). Linux does not reuse a pgid while
+      // any member lives, but the pid may have come round after the run's group ended: the
+      // group is the run's only if, on the same boot, every member is in the session the run's
+      // leader made, started after the run (and after the leader), and carries the run's marker.
       const members = groupMembers(identity.pid);
       if (members.length === 0) return { outcome: 'gone' };
       if (bootId !== identity.bootId) return { outcome: 'other-process' };
-      if (options.notStartedBefore === undefined) return { outcome: 'unverifiable' };
+      if (members.some((member) => member.session !== identity.pid))
+        return { outcome: 'other-process' };
+      if (options.notStartedBefore === undefined || options.runId === undefined)
+        return { outcome: 'unverifiable' };
       for (const member of members) {
         const early = beforeRun(member.startTime);
         if (early === undefined) return { outcome: 'unverifiable' };
         if (early || Number(member.startTime) < Number(identity.startTime))
           return { outcome: 'other-process' };
       }
+      // A member without the marker, or whose environment cannot be read, is not proved.
+      if (members.some((member) => carriesRunMarker(member.pid, options.runId ?? '') !== true))
+        return { outcome: 'unverifiable' };
       return undefined;
     }
     if (
@@ -420,9 +463,9 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
   let lineBytes = 0;
   let dropping = false;
   let droppedBytes = 0;
-  const pushOutput = (item: SupervisedProcessItem) => {
-    queue.push(item);
-    if (!paused && queue.size >= OUTPUT_HIGH_WATER_ITEMS) {
+  const pushOutput = (item: SupervisedProcessItem, bytes: number) => {
+    queue.push(item, bytes);
+    if (!paused && queue.full) {
       paused = true;
       child.stdout?.pause();
       child.stderr?.pause();
@@ -454,7 +497,7 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
       const segmentBytes = Buffer.byteLength(segment, 'utf8');
       if (dropping) {
         droppedBytes += segmentBytes;
-        pushOutput({ type: 'stdout-overflow', bytes: droppedBytes });
+        pushOutput({ type: 'stdout-overflow', bytes: droppedBytes }, 0);
         dropping = false;
         droppedBytes = 0;
         continue;
@@ -464,16 +507,16 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
       lineBuffer = '';
       lineBytes = 0;
       if (bytes > options.maxLineBytes) {
-        pushOutput({ type: 'stdout-overflow', bytes });
+        pushOutput({ type: 'stdout-overflow', bytes }, 0);
         continue;
       }
-      pushOutput({ type: 'stdout-line', line });
+      pushOutput({ type: 'stdout-line', line }, bytes);
     }
   });
   child.stderr?.setEncoding('utf8');
   let quietTimer: NodeJS.Timeout | undefined;
   child.stderr?.on('data', (chunk: string) => {
-    pushOutput({ type: 'stderr', text: chunk });
+    pushOutput({ type: 'stderr', text: chunk }, Buffer.byteLength(chunk, 'utf8'));
     if (options.stderrQuietMs === undefined) return;
     if (quietTimer !== undefined) clearTimeout(quietTimer);
     quietTimer = setTimeout(() => {

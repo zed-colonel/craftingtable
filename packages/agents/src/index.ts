@@ -232,5 +232,6 @@ export {
   type ProcessGroupIdentity,
   type ProcessGroupReaping,
   processGroupIdentity,
+  RUN_ID_VARIABLE,
   reapProcessGroup,
 } from './process.js';

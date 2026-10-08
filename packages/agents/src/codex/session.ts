@@ -9,7 +9,6 @@ import type {
 import {
   AsyncQueue,
   backgroundWorkAllowance,
-  OUTPUT_HIGH_WATER_ITEMS,
   type SupervisedProcess,
   spawnSupervisedProcess,
 } from '../process.js';
@@ -120,7 +119,8 @@ export class CodexSession implements AgentSession {
     } else this.terminate();
   }
   private emit(event: NormalizedAgentEvent): void {
-    this.output.push({ type: 'event', event });
+    // Weighed by its payload, so a few large events also hold the app-server back.
+    this.output.push({ type: 'event', event }, JSON.stringify(event.payload).length);
   }
   private notice(message: string): void {
     this.emit({
@@ -393,7 +393,7 @@ export class CodexSession implements AgentSession {
     for await (const item of this.child.items) {
       // Read no further while the daemon has not taken what is already here: the supervisor
       // then pauses the app-server's output (R-G11, AGT-16).
-      if (this.output.size >= OUTPUT_HIGH_WATER_ITEMS)
+      if (this.output.full)
         await new Promise<void>((resolve) => {
           this.drained = resolve;
         });

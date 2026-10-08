@@ -108,11 +108,14 @@ lines.on('line', line => {
     const id = active;
     if (mode === 'complete-before-reply') {finish(); setTimeout(() => reply({turn: {id, status: 'completed'}}), 20); return;}
     reply({turn: {id, status: 'inProgress'}});
-    if (mode === 'flood') {
+    if (mode === 'flood' || mode === 'flood-large') {
       // Blocking writes, after what is already queued: the writer waits while nobody reads.
+      // flood-large: 200 messages of 200 KiB, far fewer than 1000 items but 40 MB.
+      const count = mode === 'flood' ? 20000 : 200;
+      const padding = mode === 'flood' ? '' : ' ' + 'x'.repeat(200 * 1024);
       process.stdout.write('', () => {
-        for (let i = 0; i < 20000; i++) {
-          let pending = Buffer.from(JSON.stringify({method: 'item/completed', params: {threadId, turnId: id, item: {id: 'flood-' + i, type: 'agentMessage', text: 'FLOOD ' + i}}}) + String.fromCharCode(10));
+        for (let i = 0; i < count; i++) {
+          let pending = Buffer.from(JSON.stringify({method: 'item/completed', params: {threadId, turnId: id, item: {id: 'flood-' + i, type: 'agentMessage', text: 'FLOOD ' + i + padding}}}) + String.fromCharCode(10));
           while (pending.length) {
             try { pending = pending.subarray(fs.writeSync(1, pending)); } catch (error) { if (error.code !== 'EAGAIN') throw error; }
           }
@@ -568,38 +571,44 @@ it('reports a provider-side credential rejection, and fails the run it blocked (
   expect(approval.items.at(-1)).toEqual({ type: 'exited', exitCode: 0, signal: null });
 });
 
-it('pauses the app-server while the daemon lags behind its session (R-G11, AGT-16)', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'craftingtable-codex-'));
-  directories.push(cwd);
-  const executable = join(cwd, 'codex');
-  writeFileSync(executable, FAKE);
-  chmodSync(executable, 0o755);
-  const session = await new CodexBackend({
-    executable,
-    env: { FAKE_MODE: 'flood' },
-    allowEnvironment: ['FAKE_MODE'],
-    terminationGraceMs: 50,
-  }).launch({ cwd, prompt: 'go', permissionMode: 'auto' });
-  sessions.push(session);
-  const iterator = session.items[Symbol.asyncIterator]();
-  const flood = (item: AgentSessionItem | undefined) =>
-    item?.type === 'event' &&
-    item.event.kind === 'assistant-message' &&
-    item.event.payload.text.startsWith('FLOOD');
-  let next = await iterator.next();
-  while (!next.done && !flood(next.value)) next = await iterator.next();
-  // A daemon that reads nothing more for a while: the app-server must wait for it, not have
-  // its whole output buffered in the daemon's memory.
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  expect(existsSync(join(cwd, 'finished'))).toBe(false);
-  let flooded = 1;
-  for (next = await iterator.next(); !next.done; next = await iterator.next()) {
-    if (flood(next.value)) flooded += 1;
-    if (next.value.type === 'event' && next.value.event.kind === 'turn-completed') session.end();
-  }
-  expect(flooded).toBe(20000);
-  expect(existsSync(join(cwd, 'finished'))).toBe(true);
-});
+it.each([
+  ['flood', 20000],
+  ['flood-large', 200],
+] as const)(
+  'pauses the app-server while the daemon lags behind its session (%s; R-G11, AGT-16)',
+  async (mode, count) => {
+    const cwd = mkdtempSync(join(tmpdir(), 'craftingtable-codex-'));
+    directories.push(cwd);
+    const executable = join(cwd, 'codex');
+    writeFileSync(executable, FAKE);
+    chmodSync(executable, 0o755);
+    const session = await new CodexBackend({
+      executable,
+      env: { FAKE_MODE: mode },
+      allowEnvironment: ['FAKE_MODE'],
+      terminationGraceMs: 50,
+    }).launch({ cwd, prompt: 'go', permissionMode: 'auto' });
+    sessions.push(session);
+    const iterator = session.items[Symbol.asyncIterator]();
+    const flood = (item: AgentSessionItem | undefined) =>
+      item?.type === 'event' &&
+      item.event.kind === 'assistant-message' &&
+      item.event.payload.text.startsWith('FLOOD');
+    let next = await iterator.next();
+    while (!next.done && !flood(next.value)) next = await iterator.next();
+    // A daemon that reads nothing more for a while: the app-server must wait for it, not have
+    // its whole output buffered in the daemon's memory.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(existsSync(join(cwd, 'finished'))).toBe(false);
+    let flooded = 1;
+    for (next = await iterator.next(); !next.done; next = await iterator.next()) {
+      if (flood(next.value)) flooded += 1;
+      if (next.value.type === 'event' && next.value.event.kind === 'turn-completed') session.end();
+    }
+    expect(flooded).toBe(count);
+    expect(existsSync(join(cwd, 'finished'))).toBe(true);
+  },
+);
 
 it('journals a partial stderr batch once stderr has been quiet for about a second (R-G11)', async () => {
   const { session, items } = await launch('', {}, { FAKE_STDERR_LINE: '1' });

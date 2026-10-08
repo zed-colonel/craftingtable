@@ -1,7 +1,7 @@
-import { join } from 'node:path';
 import type { AgentPermissionMode } from '@craftingtable/domain';
 import type { AgentLaunchRequest } from '../index.js';
-import { launchCargoHome, launchOutsideSources, outsideSourceHosts } from '../outside-sources.js';
+import { launchOutsideSources, outsideSourceHosts } from '../outside-sources.js';
+import { sandboxDeniedReads } from '../sandbox-reads.js';
 
 /**
  * Argument vector for a headless Claude Code session.
@@ -59,34 +59,6 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
     args.push('--name', request.sessionName);
   }
   return args;
-}
-
-/**
- * What sandboxed Bash may not read (R-G5 review): the user's runtime directory, which holds the
- * rootless Docker socket and the session bus (Unix sockets are not otherwise blocked where
- * Claude Code's seccomp helper is absent), system Docker sockets, and the operator's
- * credentials. Claude itself still reads its own login; only the agent's commands are denied.
- */
-function sandboxDeniedReads(request: AgentLaunchRequest): string[] {
-  const uid = process.getuid?.();
-  return [
-    ...(uid === undefined ? [] : [`/run/user/${uid}`]),
-    '/var/run/docker.sock',
-    '/run/docker.sock',
-    '~/.ssh',
-    '~/.gnupg',
-    '~/.aws',
-    '~/.docker',
-    '~/.config/gh',
-    '~/.git-credentials',
-    '~/.codex',
-    '~/.claude/.credentials.json',
-    // Cargo's registry tokens, which would let a command publish or yank as the operator.
-    join(launchCargoHome(request), 'credentials.toml'),
-    join(launchCargoHome(request), 'credentials'),
-    // The daemon's database, its copies and the credentials file (R-G9).
-    ...(request.deniedReads ?? []),
-  ];
 }
 
 /** Every source's exact hosts, once each. */

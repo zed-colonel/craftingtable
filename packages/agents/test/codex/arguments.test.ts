@@ -1,5 +1,7 @@
 import { expect, it } from 'vitest';
-import { codexThreadParams, codexTurnParams } from '../../src/codex/arguments.js';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { codexDeniedReads, codexThreadParams, codexTurnParams } from '../../src/codex/arguments.js';
 import { cargoOutsideSource } from '../../src/outside-sources.js';
 
 const PROFILE = 'craftingtable';
@@ -45,10 +47,25 @@ it.each(['auto', 'edit-only', 'unrestricted'] as const)(
   },
 );
 
-/** The profile a sandboxed launch defines in its thread's configuration. */
+/**
+ * The profile a sandboxed launch defines in its thread's configuration, with its denied reads
+ * apart (the tests of the denied reads look at them; the others at what is granted).
+ */
 function profileOf(request: Parameters<typeof codexThreadParams>[0]) {
   const config = codexThreadParams(request).config as Record<string, unknown>;
-  return { config, profile: config[`permissions.${PROFILE}`] };
+  const full = config[`permissions.${PROFILE}`] as
+    | { filesystem: Record<string, string> }
+    | undefined;
+  if (full === undefined) return { config, profile: undefined, denied: [] };
+  const entries = Object.entries(full.filesystem);
+  return {
+    config,
+    profile: {
+      ...full,
+      filesystem: Object.fromEntries(entries.filter(([, access]) => access !== 'deny')),
+    },
+    denied: entries.filter(([, access]) => access === 'deny').map(([path]) => path),
+  };
 }
 
 it("gives a sandboxed run's commands the outside sources' hosts and caches, and its own directories (R-G14)", () => {
@@ -101,7 +118,7 @@ it('lists each host once across sources, and keeps the network off with no sourc
       { kind: 'cargo', hosts: ['index.crates.io'], caches: ['/c/registry'] },
       { kind: 'cargo', hosts: ['index.crates.io', 'static.crates.io'], caches: ['/c/git'] },
     ],
-  }).profile as { network: { domains: Record<string, string> } };
+  }).profile as unknown as { network: { domains: Record<string, string> } };
   expect(Object.keys(two.network.domains)).toEqual(['index.crates.io', 'static.crates.io']);
 
   const { config, profile } = profileOf({
@@ -230,4 +247,63 @@ it("lets a sandboxed run's commands commit: its Git directories writable, but no
         codexThreadParams({ cwd: '/work/x', prompt: 'Go', gitDirectories, ...request }),
       ),
     ).not.toContain('/src/repo/.git');
+});
+
+it("denies a sandboxed run's commands the reads Claude's sandbox denies, in the form Codex can mask (R-G14, operator decision 2026-10-08)", () => {
+  const home = homedir();
+  const request = {
+    cwd: '/work/x',
+    prompt: 'Go',
+    permissionMode: 'auto' as const,
+    environment: { CARGO_HOME: '/nowhere/cargo-home' },
+    deniedReads: ['/data/state', '/data/backups', '/home/op/.config/craftingtable'],
+  };
+  const { denied } = profileOf(request);
+  // Every directory on Claude's list, and the daemon's own files.
+  expect(denied).toEqual(
+    expect.arrayContaining([
+      `/run/user/${process.getuid?.()}`,
+      join(home, '.ssh'),
+      join(home, '.gnupg'),
+      join(home, '.aws'),
+      join(home, '.docker'),
+      join(home, '.config', 'gh'),
+      join(home, '.codex'),
+      '/data/state',
+      '/data/backups',
+      '/home/op/.config/craftingtable',
+      // Missing files are passed through: Codex masks a path that does not exist.
+      join(home, '.git-credentials'),
+      '/nowhere/cargo-home/credentials.toml',
+      '/nowhere/cargo-home/credentials',
+    ]),
+  );
+  // All of `~/.claude`, in place of its credentials file: Codex 0.160.0 masks only one file.
+  expect(denied).toContain(join(home, '.claude'));
+  expect(denied.some((path) => path.endsWith('.credentials.json'))).toBe(false);
+  // Nothing is denied twice, and only sandboxed runs get the list.
+  expect(new Set(denied).size).toBe(denied.length);
+  for (const other of [
+    { ...request, readOnly: true },
+    { ...request, permissionMode: 'unrestricted' as const },
+  ])
+    expect(JSON.stringify(codexThreadParams(other))).not.toContain('/data/state');
+});
+
+it('denies the Docker socket once, resolved through links (R-G14, operator decision 2026-10-08)', () => {
+  const links: Record<string, string> = { '/var/run/docker.sock': '/run/docker.sock' };
+  const denied = codexDeniedReads(
+    { cwd: '/work/x', prompt: 'Go', permissionMode: 'auto' },
+    (path) => links[path] ?? path,
+  );
+  expect(denied.filter((path) => path.endsWith('docker.sock'))).toEqual(['/run/docker.sock']);
+  // Without the link, both are listed: each is a path of its own.
+  const separate = codexDeniedReads(
+    { cwd: '/work/x', prompt: 'Go', permissionMode: 'auto' },
+    (path) => path,
+  );
+  expect(separate.filter((path) => path.endsWith('docker.sock'))).toEqual([
+    '/var/run/docker.sock',
+    '/run/docker.sock',
+  ]);
 });

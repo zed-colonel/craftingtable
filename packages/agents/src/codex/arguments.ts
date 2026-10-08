@@ -1,6 +1,9 @@
+import { lstatSync, realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '../index.js';
 import { launchOutsideSources, outsideSourceHosts } from '../outside-sources.js';
+import { CLAUDE_CREDENTIALS_FILE, sandboxDeniedReads } from '../sandbox-reads.js';
 
 /**
  * The permission profile a sandboxed Codex run's commands get (R-G14), defined for the run in
@@ -31,6 +34,7 @@ function codexPermissionProfile(request: AgentLaunchRequest): Record<string, unk
         ...sources.flatMap((source) => source.caches),
       ].map((path) => [path, 'write']),
       ...codexGitAccess(request),
+      ...codexDeniedReads(request).map((path) => [path, 'deny']),
     ]),
     network:
       hosts.length === 0
@@ -58,6 +62,58 @@ function codexGitAccess(request: AgentLaunchRequest): [string, string][] {
       'read',
     ]),
   ];
+}
+
+/** The path a link names, for a path that exists; the path itself otherwise. */
+function throughLinks(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/**
+ * What a sandboxed run's commands may not read (R-G14, operator decision 2026-10-08): the list
+ * Claude's sandbox denies (`sandboxDeniedReads`), in the form Codex 0.160.0 can apply. It masks
+ * any number of directories and paths that do not exist, but more than one existing file makes
+ * every command fail, so the whole of `~/.claude` is denied in place of its credentials file, and
+ * each path is taken through its links and listed once (the Docker socket has two names).
+ */
+export function codexDeniedReads(
+  request: AgentLaunchRequest,
+  resolve: (path: string) => string = throughLinks,
+): string[] {
+  const home = homedir();
+  return [
+    ...new Set(
+      sandboxDeniedReads(request)
+        .map((path) => (path === CLAUDE_CREDENTIALS_FILE ? '~/.claude' : path))
+        .map((path) => (path.startsWith('~/') ? join(home, path.slice(2)) : path))
+        .map(resolve),
+    ),
+  ];
+}
+
+/**
+ * The denied reads Codex would have to mask as files: those that exist and are not directories
+ * (a link that names nothing counts, as it cannot be looked through). More than one makes every
+ * command of the run fail in Codex 0.160.0, so the backend refuses such a launch (R-G14).
+ */
+export function codexDeniedFiles(request: AgentLaunchRequest): string[] {
+  if (!codexSandboxed(request)) return [];
+  return codexDeniedReads(request).filter((path) => {
+    try {
+      lstatSync(path);
+    } catch {
+      return false;
+    }
+    try {
+      return !statSync(path).isDirectory();
+    } catch {
+      return true;
+    }
+  });
 }
 
 /** The outside sources' caches a sandboxed run may write, which the backend creates first. */

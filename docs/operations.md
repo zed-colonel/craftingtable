@@ -373,6 +373,12 @@ under the XDG config home), read when the daemon starts; edit it and restart to 
   from the worktree: Codex's profile writes the repository's Git directory, as the daemon
   resolved it from the primary checkout, except its `config`, `hooks/` and `info/` (operator
   decision 2026-10-08); Claude Code's sandbox writes it except `config` and `hooks`.
+- Codex's profile also denies the reads Claude's sandbox denies (the daemon's database,
+  backups and settings directory, the operator's credentials, the runtime directory and the
+  Docker socket; see `docs/security.md`). Codex 0.160.0 can mask only one existing file per
+  sandbox, so a sandboxed Codex run that would need more is refused before it starts, as
+  `agent-environment-unavailable`, naming the files: move or remove all but one (for example
+  registry tokens left in `<data>/cargo-home`).
 
 The daemon learns published crates from crates.io's own index over HTTPS
 (`https://index.crates.io/`), once per crate, and keeps each crate's index file and every

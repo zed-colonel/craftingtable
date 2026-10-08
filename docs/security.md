@@ -120,9 +120,9 @@ every Git module runs its commands through (R-G10). Every spawn uses argument ar
 a detached process group that is terminated as a group, and bounded output. Right after launch
 the daemon records the run's process group (leader pid, start time, boot id) in its own
 directory, `<data>/state/processes/<runId>.json`, beside the database. No sandboxed command can
-write it: neither backend's sandbox lets a command write there. Claude's sandbox cannot read it
-either (the R-G9 protected reads); a Codex run can, which is harmless, since a pid, a start time
-and a boot id are not secret. A `process.json` in a run directory, which the agent can write, is
+write it: neither backend's sandbox lets a command write there. No sandboxed command can read it
+either (the R-G9 protected reads, which Codex's profile denies too since R-G14); an unrestricted
+run can, which is harmless, since a pid, a start time and a boot id are not secret. A `process.json` in a run directory, which the agent can write, is
 ignored. Each record names the installation that wrote it (the database file's device and
 inode): a daemon started on a copy of the data directory leaves the original's agents alone and
 journals that it did. Restart recovery signals only a group that record proves is the run's: the same boot,
@@ -169,7 +169,21 @@ merges. The daemon resolves the directories itself before launch and grants them
 worktree's common directory is the one the primary checkout names and its own Git directory is
 one of that directory's `worktrees/` entries, so a `.git` pointer or `commondir` file an agent
 rewrote cannot point the grant elsewhere. A command can still create or move branches there,
-which the ref watch below detects. A read-only Codex run uses Codex's
+which the ref watch below detects.
+
+The profile also denies reads of everything Claude's sandbox denies, from the same list
+(`sandboxDeniedReads`; R-G14, operator decision 2026-10-08): the user's runtime directory, the
+system Docker socket, `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.docker`, `~/.config/gh`, `~/.codex`,
+`~/.git-credentials`, the Cargo home's registry tokens, and the daemon's database directory,
+backups and settings directory. It is put in the form Codex 0.160.0 can apply: that release
+masks any number of directories and paths that do not exist, but with more than one existing
+file every command of the run fails. So the whole of `~/.claude` is denied in place of its
+credentials file, each path is taken through its links and listed once (the Docker socket's two
+names are one file), and a token file that does not exist is passed as it is. A sandboxed Codex
+run whose list would still need more than one existing file masked (Cargo tokens in the
+daemon's Cargo home, say) is refused before anything starts, as `environment-unavailable`
+(a cycle stops as `agent-environment-unavailable`), with a message naming the files: it never
+starts into a sandbox where every command fails, and no denial is dropped. A read-only Codex run uses Codex's
 read-only sandbox, and `unrestricted` removes the sandbox. The brief instructs the agent to stay
 in its worktree, and the diff makes deviations visible, but an unrestricted run has the
 operator's full local authority. Treat `unrestricted` as you would running the agent by hand.
@@ -297,8 +311,9 @@ spawned-agent environments. This uses the existing OS-user trust boundary: a pro
 with that user's full filesystem authority can read the file. A Claude run in a sandboxed posture
 cannot: the file's directory, the database directory (with its pre-migration copies), the backups
 and the Settings backup root are among its sandbox's denied reads, and permission rules deny its
-own file tools (Read, Grep, Glob, Edit) the same paths. A Codex run, or a Claude run with the
-unrestricted posture, runs as the operator and can read them. Database copies made before the
+own file tools (Read, Grep, Glob, Edit) the same paths. A sandboxed Codex run cannot either: its
+profile denies the same paths (R-G14, operator decision 2026-10-08). A run with the unrestricted
+posture, on either agent, runs as the operator and can read them. Database copies made before the
 credentials moved still hold them, including the pre-migration copy taken at the start that moved
 them; clearing credentials does not securely erase SQLite pages or older backups.
 

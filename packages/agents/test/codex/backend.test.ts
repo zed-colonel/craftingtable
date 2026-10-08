@@ -400,6 +400,51 @@ it("creates the outside sources' caches before launch, so a fetch can write them
   expect(readdirSync(other)).toEqual([]);
 });
 
+it('refuses to launch a sandboxed run whose denied reads would need more than one file masked (R-G14, operator decision 2026-10-08)', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'craftingtable-codex-reads-'));
+  directories.push(home);
+  const files = [join(home, 'a.db'), join(home, 'b.json')];
+  for (const file of files) writeFileSync(file, '');
+  // Codex 0.160.0 cannot mask two existing files: every command of the run would fail.
+  const refused = launch('', { deniedReads: files, environment: { CARGO_HOME: home } });
+  await expect(refused).rejects.toMatchObject({
+    name: 'AgentLaunchError',
+    reason: 'environment-unavailable',
+  });
+  await expect(refused).rejects.toThrow(files[0]);
+  await expect(refused).rejects.toThrow(files[1]);
+  // A read-only run gets no profile, so nothing stops it.
+  const readOnly = await launch('', {
+    readOnly: true,
+    deniedReads: files,
+    environment: { CARGO_HOME: home },
+  });
+  readOnly.session.end();
+  await readOnly.done;
+});
+
+it('passes missing files through to the profile and launches (R-G14, operator decision 2026-10-08)', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'craftingtable-codex-reads-'));
+  directories.push(home);
+  const { session, done, messages } = await launch('', {
+    deniedReads: [join(home, 'state'), join(home, 'missing.json')],
+    environment: { CARGO_HOME: join(home, 'cargo-home') },
+  });
+  session.end();
+  await done;
+  const start = messages().find((msg) => msg.method === 'thread/start');
+  const config = (
+    start?.params as unknown as
+      | { config: Record<string, { filesystem: Record<string, string> }> }
+      | undefined
+  )?.config['permissions.craftingtable'];
+  expect(config?.filesystem).toMatchObject({
+    [join(home, 'state')]: 'deny',
+    [join(home, 'missing.json')]: 'deny',
+    [join(home, 'cargo-home', 'credentials.toml')]: 'deny',
+  });
+});
+
 it.each(['cost', 'usage-timeout', 'duplicate'])(
   'handles optional usage and duplicate completion: %s',
   async (mode) => {

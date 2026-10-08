@@ -12,7 +12,7 @@ import { ModelCatalog, type ModelCatalogSnapshot } from '../model-catalog.js';
 import { listCodexModels } from './catalog.js';
 import { CODEX_MODELS } from './models.js';
 import { codexIsolationArguments, probeCodexInventory } from './isolation.js';
-import { codexSourceCaches } from './arguments.js';
+import { codexDeniedFiles, codexSourceCaches } from './arguments.js';
 import { prepareSourceCaches } from '../outside-sources.js';
 import { backgroundWorkAllowance } from '../process.js';
 import { CODEX_DRAIN_MS, CodexSession, codexEnvironment } from './session.js';
@@ -73,6 +73,16 @@ export class CodexBackend implements AgentBackend {
     if (backgroundWorkAllowance(request.deadlineAt, CODEX_DRAIN_MS) === undefined)
       return Promise.reject(
         new AgentLaunchError('invalid-request', 'The run deadline is not a valid time'),
+      );
+    // Codex 0.160.0 masks only one existing file per sandbox; with more, every command of the
+    // run would fail, and dropping a denial would let commands read it (R-G14).
+    const files = codexDeniedFiles(request);
+    if (files.length > 1)
+      return Promise.reject(
+        new AgentLaunchError(
+          'environment-unavailable',
+          `Codex's sandbox can keep only one existing file from its commands, and this run's denied reads name ${files.length}: ${files.join(', ')}. The run was not started; move or remove all but one, or deny their directory.`,
+        ),
       );
     // Codex can make only an existing directory writable (R-G14).
     prepareSourceCaches(codexSourceCaches(request));

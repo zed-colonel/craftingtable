@@ -16,6 +16,7 @@ import {
   formatEvidenceDecodes,
   replayEvidenceDecodes,
 } from './evidence-decode-replay.js';
+import { formatBriefSizes, replayBriefSizes } from './brief-size-replay.js';
 import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
 import { formatPageLoads, replayPageLoads } from './page-load-replay.js';
 import { openDaemonStorage } from './persisted-records.js';
@@ -51,6 +52,8 @@ import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
  *       decoded evidence kept afterwards; exit 1 when R-H4's done-when breaks or the self-check
  *       against an emulated cache passes (R-H4); `--report <file>` writes each fault as a changed
  *       record for the replay gate. It needs NODE_OPTIONS='--expose-gc --max-old-space-size=2048'
+ *   pnpm controller:replay <snapshot.sqlite> --brief-sizes [--since <ISO date>] [--json <file>]
+ *       measure each stored brief against the same run's brief rebuilt by today's code (R-G6)
  *   pnpm controller:replay <snapshot.sqlite> --page-load [--json <file>]  load every work item
  *       page through the daemon's routes with Git stubbed, and print its requests and server
  *       time (R-D5)
@@ -291,9 +294,47 @@ async function evidenceDecode(
   return faults.length ? 1 : 0;
 }
 
+/** Stored briefs against the same runs' briefs rebuilt by today's code (R-G6). */
+function briefSizes(snapshot: string, since: string, json: string | undefined): number {
+  const directory = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
+  try {
+    const copy = join(directory, 'snapshot.sqlite');
+    copyFileSync(snapshot, copy);
+    const storage = openDaemonStorage(copy);
+    try {
+      const sizes = replayBriefSizes(storage, copy, since);
+      if (json) writeFileSync(json, `${JSON.stringify(sizes, null, 2)}\n`, { mode: 0o600 });
+      process.stdout.write(formatBriefSizes(sizes));
+      return 0;
+    } finally {
+      storage.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 async function main(args: readonly string[]): Promise<number> {
   // pnpm runs the script in the server package; paths are relative to where it was invoked.
   const base = process.env.INIT_CWD ?? process.cwd();
+  if (args.includes('--brief-sizes')) {
+    const [snapshotArg, ...flags] = args.filter((arg) => arg !== '--brief-sizes');
+    const snapshot = snapshotArg && resolve(base, snapshotArg);
+    const options = new Map<string, string>();
+    for (let index = 0; index < flags.length; index += 2) {
+      const [flag, value] = [flags[index], flags[index + 1]];
+      if (!flag || !value || !['--since', '--json'].includes(flag) || options.has(flag))
+        options.set('invalid', '');
+      else options.set(flag, flag === '--json' ? resolve(base, value) : value);
+    }
+    if (!snapshot || !existsSync(snapshot) || options.has('invalid')) {
+      process.stderr.write(
+        'Usage: pnpm controller:replay <snapshot.sqlite> --brief-sizes [--since <ISO date>] [--json <file>]\n',
+      );
+      return 2;
+    }
+    return briefSizes(snapshot, options.get('--since') ?? '1970-01-01', options.get('--json'));
+  }
   if (args.includes('--evidence-decode')) {
     const [snapshotArg, ...flags] = args.filter((arg) => arg !== '--evidence-decode');
     const snapshot = snapshotArg && resolve(base, snapshotArg);

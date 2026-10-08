@@ -659,24 +659,31 @@ export function scopeBrief(r: ResolvedScope) {
             .map((s) => ({ id: s.id, scope: s.scope, excludes: [...s.excludes] })),
         }
       : {}),
-    context: JSON.stringify({
-      definitionId: r.definition.id,
-      digest: r.definition.digest,
-      bindingRevision: r.scope.bindingRevision,
-      parent: r.parent.id,
-      originalPredecessors: r.parent.depends_on,
-      requiredSlices: r.parent.required_slices,
-      gateInterpretation:
-        'These are REQUIRED states, not evidence of success. Consult phaseReadiness and current receipts in craftingtable-scope-evidence.json. Only the controller may approve staging changes.',
-      earlyStartProposed: r.slice?.early_start_exception,
-      start: r.slice?.start_requires,
-      merge: r.slice?.merge_requires,
-      verify: r.slice?.verify_requires,
-      parentAcceptance: r.parent.acceptance_requires,
-      sources: r.slice?.source_refs ?? [r.parent.source_test_reference],
-      reviewerRoles: r.profile.reviewer_roles,
-      evidenceProfile: r.profile.id,
-    }),
+  };
+}
+
+/**
+ * The scope's definition as the controller reads it (AGT-58): written into the run's scope
+ * evidence file, never into the brief.
+ */
+export function scopeDefinitionRecord(r: ResolvedScope) {
+  return {
+    definitionId: r.definition.id,
+    digest: r.definition.digest,
+    bindingRevision: r.scope.bindingRevision,
+    parent: r.parent.id,
+    originalPredecessors: r.parent.depends_on,
+    requiredSlices: r.parent.required_slices,
+    gateInterpretation:
+      'These are REQUIRED states, not evidence of success. Consult phaseReadiness and current receipts in craftingtable-scope-evidence.json. Only the controller may approve staging changes.',
+    earlyStartProposed: r.slice?.early_start_exception,
+    start: r.slice?.start_requires,
+    merge: r.slice?.merge_requires,
+    verify: r.slice?.verify_requires,
+    parentAcceptance: r.parent.acceptance_requires,
+    sources: r.slice?.source_refs ?? [r.parent.source_test_reference],
+    reviewerRoles: r.profile.reviewer_roles,
+    evidenceProfile: r.profile.id,
   };
 }
 

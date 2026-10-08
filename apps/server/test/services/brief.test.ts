@@ -111,7 +111,6 @@ describe('composeBrief scoped review report', () => {
           excludes: [],
           requirements: ['Prepare the instance design.', 'Local test results'],
           cases: ['EE-001'],
-          context: '',
         },
       }),
     );
@@ -159,7 +158,6 @@ describe('composeBrief output contracts, one module per role (R-G6, AGT-54)', ()
     excludes: [],
     requirements: ['Build the domain.'],
     cases: ['C-1'],
-    context: '',
   } as const;
   const blocks = ['craftingtable-review', 'craftingtable-workflow', 'craftingtable-design'];
   const count = (brief: string) =>
@@ -329,5 +327,119 @@ describe('composeBrief build environment (R-F2 part 6, AGT-55)', () => {
     const brief = composeBrief(briefInput({ cargo: true, environment: { pinned: pinned(true) } }));
     expect(brief).toContain('Do not use live service credentials or claim Kata observations');
     expect(brief).toContain('CI receipts do not establish external native/Kata qualification.');
+  });
+});
+
+describe('composeBrief skeleton: the task first (R-G6, AGT-50, AGT-58)', () => {
+  const headings = (brief: string) => [...brief.matchAll(/^## (.*)$/gm)].map((m) => m[1]);
+  const scope = {
+    identity: {
+      kind: 'slice',
+      definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+      bindingRevision: 4,
+      sourceId: 'wi/WI-03/integration',
+    },
+    title: 'Complete gated integration',
+    scope: 'Implement the remaining production integration and all source PR tests.',
+    excludes: ['Legacy adapters.'],
+    requirements: [
+      'candidate and merged implementation revision',
+      'Implement the remaining production integration and all source PR tests.',
+    ],
+    cases: ['AB-WI-006'],
+  } as const;
+  const full = (overrides: Partial<BriefInput> = {}) =>
+    composeBrief(
+      briefInput({
+        role: 'review',
+        temporaryDirectory: '/runs/r1/scratch',
+        planDirectory: '/runs/r1/plan',
+        planDocuments: [
+          { filename: 'plan.md', role: 'implementation-plan', path: '/runs/r1/plan/plan.md' },
+          ...Array.from({ length: 12 }, (_, i) => ({
+            filename: `notes-${i}.md`,
+            role: 'supporting',
+            path: `/runs/r1/plan/notes-${i}.md`,
+          })),
+        ],
+        records: [
+          {
+            path: '/runs/r1/plan/craftingtable-scope-evidence.json',
+            about: "this scope's readiness and evidence",
+          },
+        ],
+        controllerInstructions: 'Do not merge.',
+        instructions: 'Keep the API.',
+        stepGuidance: 'Rerun the failing check.',
+        ...overrides,
+      }),
+    );
+
+  it('puts goal and acceptance first, then where the agent is, its role, files, rules and the operator', () => {
+    expect(headings(full())).toEqual([
+      'Goal and acceptance',
+      'Where you are',
+      'Your role',
+      'Your final message',
+      'Files to read',
+      'Step rules (from the controller)',
+      'Operator instructions',
+      'Operator guidance for this step',
+    ]);
+  });
+
+  it('states a scope once, with what is excluded, the evidence required and the cases', () => {
+    const brief = full({ executionScope: scope });
+    const goal = brief.split('## Goal and acceptance\n\n')[1]!.split('\n## ')[0]!;
+    expect(goal).toContain('This run covers only wi/WI-03/integration, a slice of AQ-01.');
+    expect(goal.split(scope.scope)).toHaveLength(2);
+    expect(brief.split(scope.scope)).toHaveLength(2);
+    expect(goal).toContain('- Legacy adapters.');
+    expect(goal).toContain('- candidate and merged implementation revision');
+    expect(goal).toContain('- The Scope line above, word for word.');
+    expect(goal).toContain('Assigned cases: AB-WI-006');
+    expect(goal).toContain("The parent's exit gate");
+    expect(goal).toContain('Queue accepts and drains one job.');
+    // AGT-58: internal identifiers stay in the evidence file.
+    expect(brief).not.toContain('gateInterpretation');
+    expect(brief).not.toContain('Exit gate: Implement the remaining');
+  });
+
+  it('lists the plan bundle as one directory and names each of CraftingTable’s records', () => {
+    const brief = full();
+    expect(brief).toContain('`/runs/r1/plan/`');
+    expect(brief).toContain('implementation plan `plan.md`');
+    expect(brief).toContain('12 supporting documents');
+    expect(brief).not.toContain('/runs/r1/plan/notes-0.md');
+    expect(brief).toContain(
+      "- `/runs/r1/plan/craftingtable-scope-evidence.json`: this scope's readiness and evidence",
+    );
+  });
+
+  it('names a small bundle’s documents and a supplied directory’s files', () => {
+    const brief = full({
+      planDocuments: [
+        { filename: 'plan.md', role: 'implementation-plan', path: '/runs/r1/plan/plan.md' },
+        { filename: 'notes.md', role: 'supporting', path: '/runs/r1/plan/notes.md' },
+      ],
+      directories: [
+        {
+          path: '/runs/r1/design-recovery',
+          files: ['context.json', 'manifest.json'],
+          about: 'the recovery context; manifest.json lists its 32 sources',
+        },
+      ],
+    });
+    expect(brief).toContain('implementation plan `plan.md`, supporting `notes.md`');
+    expect(brief).toContain(
+      '- `/runs/r1/design-recovery/`: `design-recovery/context.json`, `design-recovery/manifest.json`; the recovery context; manifest.json lists its 32 sources',
+    );
+  });
+
+  it('gives the repository policy rules only with the policy file', () => {
+    expect(full()).not.toContain('Repository policy:');
+    expect(full({ repositoryPolicyGuidance: 'Repository policy: read it.' })).toContain(
+      'Repository policy: read it.',
+    );
   });
 });

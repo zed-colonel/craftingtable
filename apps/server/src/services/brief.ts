@@ -37,6 +37,24 @@ export interface BriefPlanDocument {
   readonly path: string;
 }
 
+/** A file CraftingTable wrote for the run. */
+export interface BriefRecord {
+  /** Absolute path. */
+  readonly path: string;
+  /** What it holds, in a phrase. */
+  readonly about: string;
+}
+
+/** A directory CraftingTable supplied for the run, listed once (AGT-58). */
+export interface BriefDirectory {
+  /** Absolute path, without a trailing slash. */
+  readonly path: string;
+  /** The files to start with. */
+  readonly files: readonly string[];
+  /** What the directory holds, and what lists the rest. */
+  readonly about: string;
+}
+
 export interface BriefInput {
   readonly repositoryPolicyGuidance?: string;
   readonly executionScope?: {
@@ -46,7 +64,6 @@ export interface BriefInput {
     readonly excludes: readonly string[];
     readonly requirements: readonly string[];
     readonly cases: readonly string[];
-    readonly context: string;
     /** The parent's required slices, for a parent-acceptance review to name owners (LIVE-27). */
     readonly owningSlices?: readonly {
       readonly id: string;
@@ -92,7 +109,14 @@ export interface BriefInput {
     readonly baseSha: string;
     readonly integrationBranch?: string;
   };
+  /** The plan bundle's documents, read-only in the run's plan directory. */
   readonly planDocuments: readonly BriefPlanDocument[];
+  /** The run's plan directory, where the bundle and CraftingTable's records are written. */
+  readonly planDirectory?: string;
+  /** The files CraftingTable wrote for this run, each with what it holds (AGT-50, part 4). */
+  readonly records?: readonly BriefRecord[];
+  /** Directories CraftingTable supplied for this run: the files to start with and the rest. */
+  readonly directories?: readonly BriefDirectory[];
   /** Operator-authored instructions that hold for every step. */
   readonly instructions?: string;
   /** One-shot operator guidance for this run only. */
@@ -197,15 +221,129 @@ function instructionsFor(input: BriefInput): RoleInstructions {
 }
 
 function formatDependencies(entries: readonly BriefDependency[]): string {
-  if (entries.length === 0) {
-    return '- none';
-  }
-  return entries.map((entry) => `- ${entry.sourceId}: ${entry.title} (${entry.status})`).join('\n');
+  return entries.length === 0
+    ? 'none'
+    : entries.map((entry) => `${entry.sourceId}: ${entry.title} (${entry.status})`).join('; ');
 }
 
 function formatSourceFields(value: JsonValue): string {
   const serialized = JSON.stringify(value, null, 2) ?? 'null';
   return serialized.length > 20_000 ? `${serialized.slice(0, 20_000)}\n…(truncated)` : serialized;
+}
+
+/**
+ * Part 1, the task (AGT-50): what this run must achieve and how it is accepted. A scope is
+ * stated once (AGT-58): its statement, what it excludes, the evidence it requires and its
+ * cases; the parent's exit gate is context. Identifiers and digests stay in the evidence file.
+ */
+function goalSection(input: BriefInput): string {
+  const { workItem } = input;
+  const s = input.executionScope;
+  const lines: string[] = ['## Goal and acceptance', ''];
+  if (s) {
+    lines.push(
+      `This run covers only ${s.identity.sourceId}, ${s.identity.kind === 'slice' ? 'a slice' : 'the acceptance'} of ${workItem.sourceId}.`,
+      `Scope: ${s.scope}`,
+      ...(s.excludes.length ? ['Not in scope:', ...s.excludes.map((e) => `- ${e}`)] : []),
+      'Evidence required:',
+      ...s.requirements.map((e) =>
+        e === s.scope ? '- The Scope line above, word for word.' : `- ${e}`,
+      ),
+      `Assigned cases: ${s.cases.join(', ') || 'none'}`,
+      `The parent's exit gate, which stays the parent's: ${workItem.exitGate}`,
+      'Do not implement excluded work or mark the parent complete. If new requirements or dependencies are needed, report them as open questions and propose a planning amendment with its rationale and affected scopes; do not silently change the plan, map, acceptance criteria or scheduling authority.',
+    );
+  } else lines.push(`Exit gate: ${workItem.exitGate}`);
+  lines.push(
+    '',
+    [
+      `Risk: ${workItem.risk}`,
+      ...(workItem.phase === undefined ? [] : [`Phase: ${workItem.phase}`]),
+      `Primary areas: ${workItem.primaryAreas.length === 0 ? 'unspecified' : workItem.primaryAreas.join(', ')}`,
+    ].join(' · '),
+    '',
+    `The work item ${workItem.sourceId} as the plan writes it:`,
+    '```json',
+    formatSourceFields(workItem.sourceFields),
+    '```',
+  );
+  return lines.join('\n');
+}
+
+/** Part 2 (AGT-50): the worktree, its branches, its predecessors and the run's scratch. */
+function whereSection(input: BriefInput): string {
+  const { worktree } = input;
+  const paragraphs = [
+    `You are in a dedicated Git worktree at \`${worktree.path}\` on branch \`${worktree.branchName}\`, created from \`${worktree.baseBranch}\` at \`${worktree.baseSha}\`. This is the only place you may change files; the primary checkout and other worktrees of this repository are off limits.`,
+  ];
+  if (worktree.integrationBranch !== undefined)
+    paragraphs.push(
+      `Integration destination: ${worktree.integrationBranch}. Only the daemon may merge into it under the operator’s approval or recorded integration policy.`,
+    );
+  if (input.reviewBranchContext !== undefined) {
+    const context = input.reviewBranchContext;
+    paragraphs.push(
+      `Review baseline: item commit ${context.headSha}; integration branch ${context.targetBranch} at ${context.targetSha}. Verify this combined state and report the checks you ran. Do not move either branch during review.`,
+    );
+  }
+  paragraphs.push(
+    `${input.executionScope ? 'Original parent predecessors (slice readiness is defined by the controller scope and evidence ledger)' : 'Predecessors'}: required ${formatDependencies(input.requiredDependencies)}; recommended ${formatDependencies(input.recommendedDependencies)}.`,
+  );
+  if (input.temporaryDirectory)
+    paragraphs.push(
+      `Temporary files: TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. ${
+        !input.cargo
+          ? ''
+          : input.buildCacheDirectory
+            ? `CARGO_TARGET_DIR points to ${input.buildCacheDirectory}, this worktree’s build cache. Earlier steps in this worktree built into it, so builds are incremental; keep build outputs there rather than creating another target directory, and do not put evidence inside it. It is removed when the worktree is merged or removed.${input.environment?.pinned ? ' The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead (see the build environment below).' : ''} `
+            : 'CARGO_TARGET_DIR points to this run’s scratch/target build cache. Keep build outputs there and do not put evidence inside a build cache. Recognized build caches are disposable and may be removed when this run ends, including failed or cancelled runs. '
+      }Verification logs and reports belong in separate scratch/verification or scratch/review directories. Other scratch may expire under the storage policy, and source edits remain restricted to the worktree; this directory is for temporary data only.`,
+    );
+  return `## Where you are\n\n${paragraphs.join('\n\n')}`;
+}
+
+/** How many plan documents are named one by one; a larger bundle is listed as its directory. */
+const NAMED_PLAN_DOCUMENTS = 6;
+
+/**
+ * Part 4 (AGT-50): the files to read. The plan bundle is one directory (AGT-58): its plan and
+ * work breakdown are named, and a large bundle's supporting documents are counted. Each of
+ * CraftingTable's records for this run is named with what it holds, by its full path.
+ */
+function filesSection(input: BriefInput): string {
+  const lines: string[] = ['## Files to read', ''];
+  const documents = input.planDocuments;
+  if (documents.length) {
+    const named =
+      documents.length <= NAMED_PLAN_DOCUMENTS
+        ? documents
+        : documents.filter((d) => d.role !== 'supporting');
+    const supporting = documents.length - named.length;
+    const listed = [
+      ...named.map((d) => `${d.role.replaceAll('-', ' ')} \`${d.filename}\``),
+      ...(supporting ? [`${supporting} supporting documents (list the directory)`] : []),
+    ];
+    lines.push(
+      `The plan bundle this work item came from is read-only in \`${input.planDirectory ?? documents[0]!.path.replace(/\/[^/]*$/, '')}/\`: ${listed.join(', ')}. ${
+        input.planFinalization
+          ? 'Read the entire plan and work-item inventory before starting.'
+          : 'Read the parts that concern this work item before starting.'
+      }`,
+    );
+  }
+  const records = [
+    ...(input.records ?? []).map((r) => `- \`${r.path}\`: ${r.about}`),
+    ...(input.directories ?? []).map(
+      (d) =>
+        `- \`${d.path}/\`: ${d.files.map((f) => `\`${d.path.replace(/^.*\//, '')}/${f}\``).join(', ')}; ${d.about}`,
+    ),
+  ];
+  if (records.length) {
+    if (documents.length) lines.push('');
+    lines.push("CraftingTable's records for this run:", ...records);
+  }
+  if (input.repositoryPolicyGuidance) lines.push('', input.repositoryPolicyGuidance);
+  return lines.length > 2 ? lines.join('\n') : '';
 }
 
 export function composeBrief(input: BriefInput): string {
@@ -214,10 +352,8 @@ export function composeBrief(input: BriefInput): string {
         ...input.workItem,
         sourceId: input.executionScope.identity.sourceId,
         title: input.executionScope.title,
-        exitGate: input.executionScope.scope,
       }
     : input.workItem;
-  const { worktree } = input;
   const sections: string[] = [];
   sections.push(
     input.planFinalization
@@ -225,104 +361,18 @@ export function composeBrief(input: BriefInput): string {
       : `# Work item ${workItem.sourceId}: ${workItem.title}`,
   );
   sections.push(`Project: ${input.projectName}\nRole: ${input.role}`);
-  if (input.repositoryPolicyGuidance)
-    sections.push(
-      `## Repository policy and operator decisions\n\n${input.repositoryPolicyGuidance}`,
-    );
-  if (input.executionScope) {
-    const s = input.executionScope;
-    sections.push(
-      `## Controller-owned execution scope\n\nThis run covers only ${s.identity.sourceId}. The parent exit gate remains: ${input.workItem.exitGate}. Do not implement excluded work or mark the parent complete. If new requirements or dependencies are needed, report them as open questions and propose a planning amendment with its rationale and affected scopes. Do not silently change the plan, map, acceptance criteria or scheduling authority during remediation.\nScope: ${s.scope}\nExclusions:\n${s.excludes.map((e) => `- ${e}`).join('\n') || '- none'}\n${s.context}\nEvidence obligations:\n${s.requirements.map((e) => `- ${e}`).join('\n')}\nAssigned cases: ${s.cases.join(', ') || 'none'}`,
-    );
-  }
+  // The five parts (AGT-50): the task; where the agent is; what it is and must return; the
+  // files to read; then the controller's step rules and the operator's own words.
+  sections.push(goalSection(input), whereSection(input));
+  const environment = environmentSection(input.environment);
+  if (environment) sections.push(environment);
   const instructions = instructionsFor(input);
   sections.push(
     [`## Your role\n\n${instructions.role}`, ...instructions.rules].join('\n\n'),
     finalMessageSection(instructions),
   );
-  sections.push(
-    [
-      '## Objective and exit gate',
-      '',
-      `Exit gate: ${workItem.exitGate}`,
-      '',
-      `Risk: ${workItem.risk}${workItem.phase === undefined ? '' : `\nPhase: ${workItem.phase}`}`,
-      `Primary areas: ${workItem.primaryAreas.length === 0 ? 'unspecified' : workItem.primaryAreas.join(', ')}`,
-    ].join('\n'),
-  );
-  sections.push(
-    [
-      '## Dependencies',
-      '',
-      input.executionScope
-        ? 'Original parent predecessors (slice readiness is defined by the controller scope and evidence ledger):'
-        : 'Required predecessors:',
-      formatDependencies(input.requiredDependencies),
-      '',
-      'Recommended predecessors:',
-      formatDependencies(input.recommendedDependencies),
-    ].join('\n'),
-  );
-  sections.push(
-    [
-      '## Working environment',
-      '',
-      `You are in a dedicated Git worktree at \`${worktree.path}\` on branch \`${worktree.branchName}\`,`,
-      `created from \`${worktree.baseBranch}\` at \`${worktree.baseSha}\`.`,
-      'This is the only place you may change files. The primary checkout and other worktrees',
-      'of this repository are off limits.',
-    ].join('\n'),
-  );
-  if (worktree.integrationBranch !== undefined) {
-    sections.push(
-      `Integration destination: ${worktree.integrationBranch}. Only the daemon may merge into it under the operator’s approval or recorded integration policy.`,
-    );
-  }
-  if (input.reviewBranchContext !== undefined) {
-    const context = input.reviewBranchContext;
-    sections.push(
-      `Review baseline: item commit ${context.headSha}; integration branch ${context.targetBranch} at ${context.targetSha}. Verify this combined state and report the checks you ran. Do not move either branch during review.`,
-    );
-  }
-  if (input.temporaryDirectory) {
-    sections.push(
-      [
-        '## Temporary files',
-        `TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. ${
-          !input.cargo
-            ? ''
-            : input.buildCacheDirectory
-              ? `CARGO_TARGET_DIR points to ${input.buildCacheDirectory}, this worktree’s build cache. Earlier steps in this worktree built into it, so builds are incremental; keep build outputs there rather than creating another target directory, and do not put evidence inside it. It is removed when the worktree is merged or removed.${input.environment?.pinned ? ' The supplied Cargo launcher and CraftingTable’s checks use their own build directories instead (see the build environment below).' : ''} `
-              : 'CARGO_TARGET_DIR points to this run’s scratch/target build cache. Keep build outputs there and do not put evidence inside a build cache. Recognized build caches are disposable and may be removed when this run ends, including failed or cancelled runs. '
-        }Verification logs and reports belong in separate scratch/verification or scratch/review directories. Other scratch may expire under the storage policy, and source edits remain restricted to the worktree; this directory is for temporary data only.`,
-      ].join('\n\n'),
-    );
-  }
-  if (input.planDocuments.length > 0) {
-    sections.push(
-      [
-        '## Plan documents',
-        '',
-        'The plan bundle this work item came from is available read-only at these paths.',
-        input.planFinalization
-          ? 'Read the entire plan and work-item inventory before starting.'
-          : 'Read the parts that concern this work item before starting.',
-        '',
-        ...input.planDocuments.map((document) => `- ${document.role}: \`${document.path}\``),
-      ].join('\n'),
-    );
-  }
-  sections.push(
-    [
-      '## Source definition',
-      '',
-      'Every field of this work item as written in the plan:',
-      '',
-      '```json',
-      formatSourceFields(workItem.sourceFields),
-      '```',
-    ].join('\n'),
-  );
+  const files = filesSection(input);
+  if (files) sections.push(files);
   const parent = input.parentRun;
   if (parent?.handoff !== undefined) {
     sections.push(
@@ -408,8 +458,6 @@ export function composeBrief(input: BriefInput): string {
       ].join('\n\n'),
     );
   }
-  const environment = environmentSection(input.environment);
-  if (environment) sections.push(environment);
   return `${sections.join('\n\n')}\n`;
 }
 

@@ -89,7 +89,7 @@ import { offloadToolResult, readToolResult } from './tool-result-store.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
-import { composeBrief } from './brief.js';
+import { type BriefDirectory, type BriefRecord, composeBrief } from './brief.js';
 import type { OutputContext } from './brief-output.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { DaemonDrainingError, ExecutionRequestError, NotFoundError } from './errors.js';
@@ -98,6 +98,7 @@ import {
   requireTreeScope,
   resolveScope,
   scopeBrief,
+  scopeDefinitionRecord,
   scopeEvidenceLedger,
   scopeNeedsKata,
 } from './execution-scope.js';
@@ -118,7 +119,11 @@ import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { scopeRepairPacket } from './scope-repair.js';
 import { resolveExecutable } from './executables.js';
 import type { StorageService } from './storage-service.js';
-import { controllerReviewRunnable, workflowBrief } from './workflow-policy.js';
+import {
+  controllerReviewRunnable,
+  WORKFLOW_OBLIGATIONS_FILE,
+  workflowBrief,
+} from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -141,6 +146,12 @@ export interface StartRunInput {
    * state (`brief-output.ts`, AGT-54): the workflow block, a finalization stage's report.
    */
   readonly output?: Pick<OutputContext, 'workflow' | 'finalizationStage'>;
+  /** Controller records for this step, written into the run's plan directory and named in its brief. */
+  readonly records?: readonly {
+    readonly filename: string;
+    readonly content: string;
+    readonly about: string;
+  }[];
   readonly parentRunId?: AgentRunId;
 }
 
@@ -926,6 +937,19 @@ export class AgentRunService {
           ...(workflow ? { workflow: workflow.output } : {}),
           ...(stage ? { finalizationStage: stage } : {}),
         },
+        // The obligations the workflow contract names, as a file rather than inline JSON (AGT-58).
+        ...(workflow
+          ? {
+              records: [
+                {
+                  filename: WORKFLOW_OBLIGATIONS_FILE,
+                  content: JSON.stringify(workflow.obligations, null, 2),
+                  about:
+                    "the controller's current obligations for this step: required states, not successful evidence",
+                },
+              ],
+            }
+          : {}),
         controllerInstructions: [
           workflow?.rules ?? '',
           cycle.providerRecovery
@@ -1427,19 +1451,26 @@ export class AgentRunService {
         writeFileSync(path, artifact.content, { mode: 0o600 });
         return { filename: artifact.logicalFilename, role: artifact.role, path };
       });
+      // CraftingTable's own files for the run, each named in the brief with what it holds, and
+      // the directories it supplies, each listed once (AGT-50, AGT-58).
+      const records: BriefRecord[] = [];
+      const directories: BriefDirectory[] = [];
+      for (const record of input.records ?? []) {
+        const path = join(planDirectory, record.filename);
+        writeFileSync(path, record.content, { mode: 0o600 });
+        records.push({ path, about: record.about });
+      }
       if (preparation) {
         const directory = join(runDirectory, 'decision-preparation');
         mkdirSync(directory, { recursive: true, mode: 0o700 });
         const documents = decisionPreparationDocuments(this.storage, preparation.value);
-        for (const document of documents) {
-          const path = join(directory, document.name);
-          writeFileSync(path, document.content, { mode: 0o600 });
-          planDocuments.push({
-            filename: `decision-preparation/${document.name}`,
-            role: 'supporting',
-            path,
-          });
-        }
+        for (const document of documents)
+          writeFileSync(join(directory, document.name), document.content, { mode: 0o600 });
+        directories.push({
+          path: directory,
+          files: ['context.json', 'manifest.json'],
+          about: `the decision context, and the manifest of the ${documents.length - 1} exact imported sources that name the checkpoint`,
+        });
         writeFileSync(
           join(directory, 'manifest.json'),
           JSON.stringify(
@@ -1456,15 +1487,13 @@ export class AgentRunService {
       if (investigation) {
         const directory = join(runDirectory, 'investigation');
         mkdirSync(directory, { recursive: true, mode: 0o700 });
-        for (const document of investigation.documents) {
-          const path = join(directory, document.name);
-          writeFileSync(path, document.content, { mode: 0o600 });
-          planDocuments.push({
-            filename: `investigation/${document.name}`,
-            role: 'supporting',
-            path,
-          });
-        }
+        for (const document of investigation.documents)
+          writeFileSync(join(directory, document.name), document.content, { mode: 0o600 });
+        directories.push({
+          path: directory,
+          files: investigation.documents.map((document) => document.name),
+          about: 'the questions, the stop, the reports and the branch',
+        });
       }
       if (cycle?.scopeRepair) {
         const path = join(planDirectory, 'craftingtable-scope-repair.json');
@@ -1475,10 +1504,10 @@ export class AgentRunService {
             mode: 0o600,
           },
         );
-        planDocuments.push({
-          filename: 'craftingtable-scope-repair.json',
-          role: 'supporting',
+        records.push({
           path,
+          about:
+            'the pinned findings this repair addresses, with how each review round reported them',
         });
       }
       if (cycle?.designRecovery) {
@@ -1524,15 +1553,13 @@ export class AgentRunService {
             ),
           },
         ];
-        for (const entry of entries) {
-          const path = join(recoveryDirectory, entry.name);
-          writeFileSync(path, entry.content, { mode: 0o600 });
-          planDocuments.push({
-            filename: `design-recovery/${entry.name}`,
-            role: 'supporting',
-            path,
-          });
-        }
+        for (const entry of entries)
+          writeFileSync(join(recoveryDirectory, entry.name), entry.content, { mode: 0o600 });
+        directories.push({
+          path: recoveryDirectory,
+          files: ['context.json', 'manifest.json'],
+          about: `the recovery's facts, and the manifest of its ${recovery.sources.length} source and ${recovery.attachments.length} operator-supplied files`,
+        });
       }
       if (prepared.worktree.planVersionId) {
         const inventoryPath = join(planDirectory, 'craftingtable-work-items.json');
@@ -1545,11 +1572,7 @@ export class AgentRunService {
           ),
           { mode: 0o600 },
         );
-        planDocuments.push({
-          filename: 'craftingtable-work-items.json',
-          role: 'work-breakdown',
-          path: inventoryPath,
-        });
+        records.push({ path: inventoryPath, about: "the plan's work-item inventory" });
       }
       if (cycle?.finalizationProgress && cycle.finalizationId) {
         const staged = this.storage.execution.finalizations.find(workspaceId, cycle.finalizationId);
@@ -1568,10 +1591,10 @@ export class AgentRunService {
           ),
           { mode: 0o600 },
         );
-        planDocuments.push({
-          filename: 'craftingtable-finalization-state.json',
-          role: 'work-breakdown',
+        records.push({
           path,
+          about:
+            "the staged finalization's authoritative stages, selected IDs, adopted obligations, prior evidence and retained follow-ups",
         });
       }
       const handoff =
@@ -1603,13 +1626,24 @@ export class AgentRunService {
           : undefined;
       if (scope) {
         const path = join(planDirectory, 'craftingtable-scope-evidence.json');
-        writeFileSync(path, JSON.stringify(scopeEvidenceLedger(this.storage, scope), null, 2), {
-          mode: 0o600,
-        });
-        planDocuments.push({
-          filename: 'craftingtable-scope-evidence.json',
-          role: 'work-breakdown',
+        // The scope's definition, its identifiers and digests, is here and not in the brief
+        // (AGT-58).
+        writeFileSync(
           path,
+          JSON.stringify(
+            {
+              ...scopeEvidenceLedger(this.storage, scope),
+              definition: scopeDefinitionRecord(scope),
+            },
+            null,
+            2,
+          ),
+          { mode: 0o600 },
+        );
+        records.push({
+          path,
+          about:
+            "this scope's phase readiness, receipts, architecture decisions, accepted external evidence and definition: requirements there are required states, not observed successes",
         });
       }
       const policyPlan = worktreePlan(this.storage, prepared.worktree);
@@ -1637,11 +1671,7 @@ export class AgentRunService {
           );
         const path = join(planDirectory, 'craftingtable-repository-policy.json');
         writeFileSync(path, JSON.stringify(evidence, null, 2), { mode: 0o600 });
-        planDocuments.push({
-          filename: 'craftingtable-repository-policy.json',
-          role: 'supporting',
-          path,
-        });
+        records.push({ path, about: 'the adopted repository policy and fresh observations' });
       }
       if (policyPlan) {
         const decisions = scope
@@ -1665,14 +1695,16 @@ export class AgentRunService {
           ),
           { mode: 0o600 },
         );
-        planDocuments.push({
-          filename: 'craftingtable-operator-decisions.json',
-          role: 'supporting',
+        records.push({
           path,
+          about: 'earlier operator guidance for this work: guidance, not test results',
         });
       }
       const brief = composeBrief({
-        repositoryPolicyGuidance: REPOSITORY_POLICY_GUIDANCE,
+        // Its rules only with the policy file they ask the agent to read.
+        ...(policyPlan && this.branches
+          ? { repositoryPolicyGuidance: REPOSITORY_POLICY_GUIDANCE }
+          : {}),
         ...(scope ? { executionScope: scopeBrief(scope) } : {}),
         ...(prepared.worktree.planVersionId &&
         input.role === 'review' &&
@@ -1792,6 +1824,9 @@ export class AgentRunService {
         },
         ...(reviewBranchContext === undefined ? {} : { reviewBranchContext }),
         planDocuments,
+        planDirectory,
+        records,
+        directories,
         ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
         ...(input.stepGuidance ? { stepGuidance: input.stepGuidance } : {}),
         ...(input.controllerInstructions

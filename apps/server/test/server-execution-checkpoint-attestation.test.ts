@@ -236,7 +236,16 @@ itNeedsCargo(
       expect.stringMatching(/^slice:local\/AQ-02\/a:verified=receipt:/),
       `checkpoint:LOCAL-ADR-01:passed=evidence:${decisionId}`,
     ]);
-    // The reviewer's prompt names the same inputs.
-    expect(prompt).toContain(ready.inputs[0]!);
+    // The reviewer is given the same inputs, in the obligations file its brief names rather than
+    // as JSON in the brief (R-G6, AGT-58).
+    expect(prompt).not.toContain('"contextDigest"');
+    expect(prompt).toContain('The checkpoints its merge requires: LOCAL-REVIEW (not accepted)');
+    const obligations = /`(\/[^`]+\/craftingtable-controller-obligations\.json)`/.exec(prompt)?.[1];
+    expect(obligations).toBeTruthy();
+    expect(
+      JSON.parse(readFileSync(obligations!, 'utf8')).checkpoints.find(
+        (c: { id: string }) => c.id === 'LOCAL-REVIEW',
+      ).inputs,
+    ).toEqual(ready.inputs);
   },
 );

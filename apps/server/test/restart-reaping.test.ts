@@ -1,5 +1,13 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -107,8 +115,19 @@ afterEach(async () => {
  */
 const STUBBORN_AGENT = `#!${process.execPath}
 const fs = require('node:fs');
+// With BUSY_ROOT, the member keeps using the agents' temporary directories there, as a
+// background build keeps writing its TMPDIR, recreating them if they are removed.
+const MEMBER = ${JSON.stringify(`
+const fs = require('node:fs');
+const path = require('node:path');
 process.on('SIGTERM', () => {});
-const member = require('node:child_process').spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: 'ignore' });
+const root = process.env.BUSY_ROOT;
+const used = root ? fs.readdirSync(root).filter((name) => /^[0-9a-f]+$/.test(name)) : [];
+setInterval(() => {
+  for (const name of used) fs.mkdirSync(path.join(root, name, 'busy'), { recursive: true });
+}, 5);`)};
+process.on('SIGTERM', () => {});
+const member = require('node:child_process').spawn(process.execPath, ['-e', MEMBER], { stdio: 'ignore' });
 fs.writeFileSync('member.pid', String(member.pid));
 process.stdin.once('data', () => {
   process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'fake', model: 'fake-model' }) + '\\n');
@@ -119,14 +138,19 @@ setInterval(() => {}, 1000);
 `;
 
 /** A daemon running one live review whose agent is the stubborn stand-in. */
-async function liveRun() {
+async function liveRun(options: { readonly busyTemporaryDirectories?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-reaping-'));
   directories.push(directory);
   const executable = join(directory, 'claude');
   writeFileSync(executable, STUBBORN_AGENT);
   chmodSync(executable, 0o755);
-  const killed = new KilledDaemonBackend(new ClaudeCodeBackend({ executable }));
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  const killed = new KilledDaemonBackend(
+    new ClaudeCodeBackend({ executable, env, allowEnvironment: ['BUSY_ROOT'] }),
+  );
   const state = await ready({ backends: new Map([['claude-code', killed]]) });
+  if (options.busyTemporaryDirectories)
+    env.BUSY_ROOT = state.context.config.execution.agentTemporaryRoot;
   const { worktree } = await registerAndWorktree(state, fixtureRepository());
   // Unrestricted, which needs a fresh password: the stand-in needs no command sandbox.
   await stepUp(state);
@@ -273,4 +297,22 @@ it('starts at once when the run directory holds a pipe where the record should b
   expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.status).toBe(
     'interrupted',
   );
+});
+
+it("ends a surviving group before it removes the agents' temporary directories it used (R-G11)", async () => {
+  const { state, backends, identity } = await liveRun({ busyTemporaryDirectories: true });
+  const root = state.context.config.execution.agentTemporaryRoot;
+  const runDirectories = () => readdirSync(root).filter((name) => /^[0-9a-f]+$/.test(name));
+  expect(runDirectories()).toHaveLength(1);
+  await waitFor(
+    () => runDirectories().every((name) => existsSync(join(root, name, 'busy'))),
+    'the member at work in its temporary directory',
+  );
+
+  const services = await restart(state, backends);
+  await services.agentRunService.quiesce();
+
+  expect(processRunning(identity.pid)).toBe(false);
+  // Removed after the group that used it was gone, so nothing recreated it.
+  expect(runDirectories()).toEqual([]);
 });

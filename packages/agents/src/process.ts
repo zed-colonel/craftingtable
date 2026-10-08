@@ -232,7 +232,9 @@ export type ProcessGroupReaping =
   /** Nothing here can prove whose the pid is (no `/proc`): left alone. */
   | { readonly outcome: 'unverifiable' }
   /** The recorded group was still running and was ended by this signal. */
-  | { readonly outcome: 'terminated'; readonly signal: 'SIGTERM' | 'SIGKILL' };
+  | { readonly outcome: 'terminated'; readonly signal: 'SIGTERM' | 'SIGKILL' }
+  /** The recorded group was still running and still is, after SIGTERM and SIGKILL. */
+  | { readonly outcome: 'surviving' };
 
 const REAP_POLL_MS = 50;
 /** Linux reports start times to user space in USER_HZ ticks, 100 a second. */
@@ -270,6 +272,8 @@ export async function reapProcessGroup(
   },
 ): Promise<ProcessGroupReaping> {
   if (process.platform !== 'linux') return { outcome: 'unverifiable' };
+  // Never 0 or 1: kill(-1) signals every process the daemon may signal, kill(-0) its own group.
+  if (parseProcessGroupIdentity(identity) === undefined) return { outcome: 'other-process' };
   const recorded = (): ProcessGroupReaping | undefined => {
     const bootId = currentBootId();
     if (!bootId) return { outcome: 'unverifiable' };
@@ -305,14 +309,17 @@ export async function reapProcessGroup(
     }
     return !hasGroupWork(identity.pid, true);
   };
+  /** Whether the group could be signalled: gone meanwhile counts, refused does not. */
   const signal = (name: NodeJS.Signals) => {
     try {
       process.kill(-identity.pid, name);
-    } catch {
-      // Gone meanwhile.
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ESRCH';
     }
   };
-  signal('SIGTERM');
+  // Not the daemon's to signal (another user's group): never its run's.
+  if (!signal('SIGTERM')) return { outcome: 'other-process' };
   if (await ended(options.graceMs)) return { outcome: 'terminated', signal: 'SIGTERM' };
   // The pid cannot have been reused while its group had members, unless the leader alone was
   // replaced; it is checked again before the group is killed.
@@ -324,8 +331,9 @@ export async function reapProcessGroup(
     // Unreadable: the group is still the one signalled above.
   }
   signal('SIGKILL');
-  await ended(options.graceMs);
-  return { outcome: 'terminated', signal: 'SIGKILL' };
+  return (await ended(options.graceMs))
+    ? { outcome: 'terminated', signal: 'SIGKILL' }
+    : { outcome: 'surviving' };
 }
 
 /**

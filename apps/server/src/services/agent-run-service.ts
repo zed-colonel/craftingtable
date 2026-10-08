@@ -2469,14 +2469,22 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       });
       return;
     }
-    if (reaping.outcome !== 'terminated') return;
+    if (reaping.outcome !== 'terminated' && reaping.outcome !== 'surviving') return;
     this.appendEvent(run.workspaceId, run.id, {
       kind: 'notice',
       payload: {
         category: 'other',
-        message: `The daemon stopped without ending this run's agent. On restart, CraftingTable ended its process group ${identity.pid}, still running, with ${reaping.signal}.`,
+        message:
+          reaping.outcome === 'terminated'
+            ? `The daemon stopped without ending this run's agent. On restart, CraftingTable ended its process group ${identity.pid}, still running, with ${reaping.signal}.`
+            : `The daemon stopped without ending this run's agent. On restart, CraftingTable could not end its process group ${identity.pid}: it still runs after SIGTERM and SIGKILL.`,
       },
     });
+    if (reaping.outcome === 'surviving')
+      this.log.warn("A run's surviving process group could not be ended", {
+        runId: run.id,
+        pid: identity.pid,
+      });
   }
 
   /**
@@ -2486,6 +2494,13 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   async recoverInterrupted(
     options: { readonly terminationGraceMs?: number } = {},
   ): Promise<number> {
+    // First what is still running, so nothing writes into what is removed below (R-G11).
+    const stale = this.storage.execution.runs.listLive();
+    await Promise.all(
+      stale.map((run) =>
+        this.reapRecordedGroup(run, options.terminationGraceMs ?? RECOVERY_TERMINATION_GRACE_MS),
+      ),
+    );
     // Their agents' temporary directories went with them (LIVE-31). One that cannot be removed
     // is logged; it never keeps the daemon from starting (LIVE-31 review).
     const root = this.config.agentTemporaryRoot;
@@ -2514,12 +2529,6 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       );
     this.storage.transaction((tx) =>
       tx.phaseScheduling.releaseOperations(this.now().toISOString()),
-    );
-    const stale = this.storage.execution.runs.listLive();
-    await Promise.all(
-      stale.map((run) =>
-        this.reapRecordedGroup(run, options.terminationGraceMs ?? RECOVERY_TERMINATION_GRACE_MS),
-      ),
     );
     for (const run of stale) {
       this.finalize(run.workspaceId, run.id, 'interrupted', {

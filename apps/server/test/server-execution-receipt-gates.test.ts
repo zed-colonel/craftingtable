@@ -737,8 +737,12 @@ itNeedsCargo(
   },
 );
 
-/** An operator local CI configuration whose act prints and then sleeps for `seconds`. */
-function fakeLocalCi(root: string, seconds: number) {
+/**
+ * An operator local CI configuration whose act prints and then, if given, runs `then` (a check
+ * gate's command, so the test decides when it ends).
+ */
+function fakeLocalCi(root: string, then?: readonly string[]) {
+  const quote = (arg: string) => `'${arg.replaceAll("'", `'\\''`)}'`;
   const tool = (name: string, body: string) => {
     const path = join(root, name);
     writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o700 });
@@ -748,7 +752,10 @@ function fakeLocalCi(root: string, seconds: number) {
   writeFileSync(
     config,
     JSON.stringify({
-      actExecutable: tool('act', `echo "act ran"; sleep ${seconds}`),
+      actExecutable: tool(
+        'act',
+        `echo "act ran"${then ? `; exec ${then.map(quote).join(' ')}` : ''}`,
+      ),
       dockerExecutable: tool('docker', 'exit 0'),
       dockerHost: 'unix:///run/user/1000/docker.sock',
       image: `image@sha256:${'a'.repeat(64)}`,
@@ -771,7 +778,7 @@ itNeedsCargo(
     git(['add', '.'], f.tree.path);
     git(['commit', '-m', 'workflow'], f.tree.path);
     const previous = process.env.CRAFTINGTABLE_ACT_CONFIG;
-    process.env.CRAFTINGTABLE_ACT_CONFIG = fakeLocalCi(root, 0);
+    process.env.CRAFTINGTABLE_ACT_CONFIG = fakeLocalCi(root);
     try {
       let output = '';
       f.backend.replyForRequest = async (request) => {
@@ -792,13 +799,24 @@ itNeedsCargo(
         expect.objectContaining({ kind: 'local-ci', recordedBy: 'daemon', success: true }),
       ]);
 
-      process.env.CRAFTINGTABLE_ACT_CONFIG = fakeLocalCi(root, 60);
+      // An act that never finishes on its own: only the run's end stops it.
+      const gate = checkGate();
+      process.env.CRAFTINGTABLE_ACT_CONFIG = fakeLocalCi(root, [
+        process.execPath,
+        ...gate.command.slice(1),
+      ]);
+      let pending: Promise<{ code?: number; stderr?: string }> | undefined;
       f.backend.replyForRequest = (request) => {
-        void runLauncher(request, 'ct-act', ['-W', '.github/workflows/ci.yml']).catch(() => {});
+        // Not awaited: the agent ends its turn while its CI is still running.
+        pending = runLauncher(request, 'ct-act', ['-W', '.github/workflows/ci.yml']).then(
+          ({ stderr }) => ({ code: 0, stderr }),
+          (error: { code?: number; stderr?: string }) => error,
+        );
         const checks = f.state.context.services.checkRequestService;
         const runId = request.buildEnvironment!.namespace!;
+        // The turn ends once the daemon's act is running.
         const release = (async () => {
-          while (!checks.inFlight(runId).includes('ct-act'))
+          while (!checks.inFlight(runId).includes('ct-act') || gate.pids().length === 0)
             await new Promise((r) => setTimeout(r, 20));
         })();
         return { resultText: scopeReport(f.state, f.tree.executionScope!), release };
@@ -807,6 +825,12 @@ itNeedsCargo(
       expect(storage.runtimeEvidence.build(f.state.workspaceId, unfinished)?.error).toContain(
         'Local CI did not finish collection',
       );
+      // The run's end stopped the act, and the daemon told the launcher, which exited (R-I5).
+      expect(await withinHangGuard(pending!, 'the ct-act launcher exiting')).toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining('The run ended before this check finished'),
+      });
+      expect(processRunning(gate.pids()[0]!)).toBe(false);
     } finally {
       if (previous === undefined) delete process.env.CRAFTINGTABLE_ACT_CONFIG;
       else process.env.CRAFTINGTABLE_ACT_CONFIG = previous;

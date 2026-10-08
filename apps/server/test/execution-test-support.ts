@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { type ChildProcess, execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   closeSync,
@@ -79,10 +79,19 @@ import { createTestContext, TEST_PASSWORD, type TestContext } from './test-suppo
 
 export const contexts: TestContext[] = [];
 export const directories: string[] = [];
+/** Launchers `runLauncher` started that have not exited. */
+const launchers = new Set<ChildProcess>();
 export async function cleanupExecutionFixtures(): Promise<void> {
   // A wait the ended test left running stops at its next step instead of stepping the next
   // test's daemons (R-I2).
   fixtureGeneration += 1;
+  // A launcher still running when its test ends was never reaped (R-I5). Once the fixture's
+  // directories are gone, the daemon's answer can no longer reach it, and it polls for that
+  // answer until its own time limit, past the end of the suite: the test fails, and the
+  // launcher is killed rather than left behind.
+  const leaked = [...launchers].filter((c) => c.exitCode === null && c.signalCode === null);
+  launchers.clear();
+  for (const child of leaked) child.kill('SIGKILL');
   // Ends every check waiting on a gate before its daemon closes, and any that would start.
   for (const gate of gates.splice(0)) {
     rmSync(gate.fifo, { force: true });
@@ -98,6 +107,10 @@ export async function cleanupExecutionFixtures(): Promise<void> {
   // A failed backend-callback assertion is the test's own failure (AS F-9); then any cleanup
   // error.
   if (callbackErrors.length) throw callbackErrors[0];
+  if (leaked.length)
+    throw new Error(
+      `A check launcher outlived its test; await it: ${leaked.map((c) => c.spawnargs.join(' ')).join('; ')}`,
+    );
   for (const result of closed) if (result.status === 'rejected') throw result.reason;
 }
 
@@ -1814,7 +1827,8 @@ export const itNeedsCargo: ReturnType<typeof it.skipIf> = it.skipIf(HOST_CARGO =
 
 /**
  * Runs one of a run's launchers as its agent would. `ct-check` waits for the daemon in this
- * same process to run the check (R-G4), so it must not block the event loop.
+ * same process to run the check (R-G4), so it must not block the event loop. The test must
+ * await the launcher: one still running when the test ends fails it (R-I5).
  */
 export function runLauncher(
   request: import('@craftingtable/agents').AgentLaunchRequest,
@@ -1822,15 +1836,17 @@ export function runLauncher(
   args: readonly string[],
   env?: NodeJS.ProcessEnv,
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) =>
-    execFile(
+  return new Promise((resolve, reject) => {
+    const child = execFile(
       join(request.buildEnvironment!.binDirectory, name),
       [...args],
       { cwd: request.cwd, encoding: 'utf8', ...(env ? { env } : {}) },
       (error, stdout, stderr) =>
         error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr }),
-    ),
-  );
+    );
+    launchers.add(child);
+    child.once('exit', () => launchers.delete(child));
+  });
 }
 
 export async function runScopedFixtureCheck(

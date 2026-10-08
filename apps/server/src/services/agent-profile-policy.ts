@@ -12,6 +12,7 @@ import {
   type Roadmap,
   type RoadmapEntry,
   type WorkCycle,
+  type WorkspaceAgentProfile,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import {
@@ -226,4 +227,65 @@ export function effectiveCycleProfiles(tx: StorageRepositories, cycle: WorkCycle
     review: { ...selections.review, permissionMode: cycle.profiles.review.permissionMode },
     remediate: { ...selections.remediate, permissionMode: cycle.profiles.remediate.permissionMode },
   };
+}
+
+/**
+ * The operator's integration resolution: the command's choice, else on resume the profile the
+ * resolution recorded, else the cycle's remediation profile. Today's rule, kept as characterized:
+ * the assignment and a conflict specialist are not consulted here (the browser sends the
+ * cycle's conflict selection as the choice).
+ */
+export function operatorResolutionProfile(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+  chosen: AgentProfile | undefined,
+  recorded?: AgentProfile,
+): AgentProfile {
+  return launchProfile(
+    resolveAgent({
+      purpose: 'remediate',
+      permissionMode: cycle.profiles.remediate.permissionMode,
+      ...(chosen
+        ? {
+            action: {
+              layer: 'integration-resolution',
+              selection: chosen,
+              permissionMode: chosen.permissionMode,
+            },
+          }
+        : {}),
+      ...(recorded ? { integrationResolution: recorded } : {}),
+      profiles: cycleLayers(tx, cycle).profiles,
+    }),
+  );
+}
+
+/**
+ * A roadmap's delegated integration resolution: the latest assignment, the entry's own conflict
+ * specialist, the delegation's resolution profile, then the remediation conflict inherits.
+ */
+export function delegatedResolutionProfile(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+  delegation: { readonly id?: string; readonly profile?: AgentProfile },
+): AgentProfile {
+  const { profile, id } = delegation;
+  return launchProfile(
+    resolveAgent({
+      purpose: 'conflict',
+      permissionMode: cycle.profiles.remediate.permissionMode,
+      ...cycleLayers(tx, cycle),
+      ...(profile ? { delegation: { ...(id === undefined ? {} : { id }), profile } } : {}),
+    }),
+  );
+}
+
+/** Workspace defaults for every purpose (`run-profiles`): saved, inherited, or the daemon's. */
+export function workspaceAgents(
+  saved: readonly WorkspaceAgentProfile[],
+  fallback: AgentSelection['backend'],
+) {
+  return resolveAgents({
+    workspace: { profiles: saved, fallback: { backend: fallback, permissionMode: 'auto' } },
+  });
 }

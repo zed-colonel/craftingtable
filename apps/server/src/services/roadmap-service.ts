@@ -29,7 +29,6 @@ import type {
   ScopeRepairRequest,
 } from '@craftingtable/contracts';
 import {
-  selectionsForPurpose,
   asAgentRunId,
   asAuditEventId,
   asEventId,
@@ -61,7 +60,11 @@ import {
   type AgentSelection,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
-import { cycleAgentSelection, entryAgentSelections } from './agent-profile-policy.js';
+import {
+  delegatedResolutionProfile,
+  entryAgentSelections,
+  entryAgents,
+} from './agent-profile-policy.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { neededDecisions, slicesWaitingOn } from './decision-demand.js';
 import { decisionSettlement, settlementLines } from './decision-settlement.js';
@@ -494,10 +497,7 @@ export class RoadmapService {
             {
               id: c.id,
               title: c.title,
-              profile: selectionsForPurpose(
-                entryAgentSelections(roadmap, entry).selections,
-                'investigation',
-              ),
+              profile: entryAgents(roadmap, entry).investigation.selection,
               ...(latest
                 ? {
                     latest: {
@@ -769,10 +769,7 @@ export class RoadmapService {
           current,
           target,
           {
-            profile: selectionsForPurpose(
-              entryAgentSelections(current, target.entry).selections,
-              'investigation',
-            ),
+            profile: entryAgents(current, target.entry).investigation.selection,
             minutes: grant.minutes,
             instructions: 'Prepared under the standing decision preparation grant of this roadmap.',
           },
@@ -2380,10 +2377,10 @@ export class RoadmapService {
       const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
       if (cycle) {
         const boundAttempt = attempt;
-        const automation = (
+        const delegation =
           attemptDelegation(this.storage, roadmap, boundAttempt, entry.id) ??
-          effectiveDelegation(roadmap, entry, roadmap.definition)
-        ).automation;
+          effectiveDelegation(roadmap, entry, roadmap.definition);
+        const automation = delegation.automation;
         const check = () => {
           const current = this.find(roadmap.workspaceId, roadmap.id);
           if (
@@ -2427,12 +2424,10 @@ export class RoadmapService {
             {
               action: 'start',
               expectedVersion: cycle.version,
-              profile: (() => {
-                const selected = cycleAgentSelection(this.storage, cycle, 'conflict');
-                return selected.provenance.assignmentId || cycle.profiles.conflict
-                  ? selected.profile
-                  : (automation.resolutionProfile ?? selected.profile);
-              })(),
+              profile: delegatedResolutionProfile(this.storage, cycle, {
+                ...(delegation.assignment ? { id: delegation.assignment.id } : {}),
+                ...(automation.resolutionProfile ? { profile: automation.resolutionProfile } : {}),
+              }),
             },
             check,
           );

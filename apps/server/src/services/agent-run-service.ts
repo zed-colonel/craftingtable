@@ -43,10 +43,8 @@ import {
   modelSpelling,
   OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
-  PROFILE_INHERITANCE,
   type ReviewReportAssessment,
   type SessionId,
-  type SpecialistProfile,
   type UserId,
   type WorkCycle,
   type WorkItemId,
@@ -60,7 +58,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { AGENTS_ROOT_LOCK_FILE } from '../instance-lock.js';
-import { cycleAgentSelection, cycleLaunchAgent } from './agent-profile-policy.js';
+import { cycleAgentSelection, cycleLaunchAgent, workspaceAgents } from './agent-profile-policy.js';
 import { launchProfile } from './agent-resolution.js';
 import { removeAgentTree } from './agent-tree.js';
 import { cycleOwnership } from './cycle-ownership.js';
@@ -647,23 +645,13 @@ export class AgentRunService {
     workspaceId: WorkspaceId,
     tx: StorageRepositories = this.storage,
   ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
-    const stored = new Map(
-      tx.execution.runProfiles.list(workspaceId).map((profile) => [profile.role, profile]),
-    );
-    const fallbackBackend = this.defaultBackend() ?? AGENT_BACKENDS[0];
-    return AGENT_PROFILE_PURPOSES.map((role) => {
-      const parent =
-        role === 'remediate' ? 'implement' : PROFILE_INHERITANCE[role as SpecialistProfile];
-      const inherited = parent
-        ? (stored.get(parent) ?? (parent === 'remediate' ? stored.get('implement') : undefined))
-        : undefined;
-      const profile = stored.get(role) ?? inherited;
-      return {
-        ...(profile ?? { backend: fallbackBackend, permissionMode: 'auto' as const }),
-        role,
-        stored: stored.has(role),
-      };
-    });
+    const saved = tx.execution.runProfiles.list(workspaceId);
+    const agents = workspaceAgents(saved, this.defaultBackend() ?? AGENT_BACKENDS[0]);
+    return AGENT_PROFILE_PURPOSES.map((role) => ({
+      ...launchProfile(agents[role]),
+      role,
+      stored: saved.some((profile) => profile.role === role),
+    }));
   }
 
   /* ---------------------------------------------------------------------- */

@@ -2,7 +2,13 @@ import {
   type CheckDefinitionDiagnosis,
   definitionChangeReason,
 } from './repository-checks-service.js';
-import { cycleAgents, cycleLayers, investigationAgent } from './agent-profile-policy.js';
+import {
+  cycleAgents,
+  cycleLayers,
+  finalizationAgent,
+  investigationAgent,
+  operatorResolutionProfile,
+} from './agent-profile-policy.js';
 import { resolveAgent, selectionSet } from './agent-resolution.js';
 import { mapCapabilities, V03_VOCABULARY } from '@craftingtable/domain';
 import { createHash, randomUUID } from 'node:crypto';
@@ -34,7 +40,6 @@ import {
   DEFAULT_ROADMAP_SCHEDULING,
   evaluateCycleCompletion,
   type FinalizationProgress,
-  finalizationProfile,
   isTerminalAgentRunStatus,
   optionalFinding,
   heldOnlyByParkedNits,
@@ -4519,7 +4524,7 @@ export class WorkCycleService {
             'conflict',
             'Branches changed since inspection. Inspect integration conflicts again.',
           );
-        const profile = input.profile ?? cycle.profiles.remediate;
+        const profile = operatorResolutionProfile(this.storage, cycle, input.profile);
         if (!this.runs.hasBackend(profile.backend))
           throw new ExecutionRequestError('unavailable', 'Resolution agent is unavailable');
         check();
@@ -4585,7 +4590,12 @@ export class WorkCycleService {
             'conflict',
             'Resolution reached its three-agent-attempt limit. Abandon and inspect again to authorize a new attempt.',
           );
-        const profile = input.profile ?? resolution.profile ?? cycle.profiles.remediate;
+        const profile = operatorResolutionProfile(
+          this.storage,
+          cycle,
+          input.profile,
+          resolution.profile,
+        );
         if (!this.runs.hasBackend(profile.backend))
           throw new ExecutionRequestError('unavailable', 'Resolution agent is unavailable');
         check();
@@ -4853,7 +4863,9 @@ export class WorkCycleService {
       const value = finalizationForCycle(this.storage, cycle);
       if (
         !value ||
-        !this.runs.hasBackend(finalizationProfile(value, { ...cycle, ...changes, step }).backend)
+        !this.runs.hasBackend(
+          finalizationAgent(value, { ...cycle, ...changes, step }).selection.backend,
+        )
       )
         throw new ExecutionRequestError(
           'unavailable',

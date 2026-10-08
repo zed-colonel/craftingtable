@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   mergeWorktreeResponseSchema,
@@ -282,7 +282,7 @@ describe('review-gated merge', () => {
     git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
     await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
     git(['checkout', '-q', '-b', 'elsewhere'], repositoryPath);
-    const linked = join(dirname(repositoryPath), 'holding-main');
+    const linked = join(mkdtempSync(join(dirname(repositoryPath), 'ct-holding-')), 'main');
     git(['worktree', 'add', '-q', linked, 'main'], repositoryPath);
 
     const refused = await merge(state, worktree.id);
@@ -292,6 +292,7 @@ describe('review-gated merge', () => {
     });
 
     git(['worktree', 'remove', linked], repositoryPath);
+    rmSync(dirname(linked), { recursive: true, force: true });
     reported = linked;
     const merged = await merge(state, worktree.id);
     expect(merged.statusCode, merged.body).toBe(200);

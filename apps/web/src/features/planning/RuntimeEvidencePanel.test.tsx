@@ -412,7 +412,9 @@ it('separates saved readiness, evidence generation and explicit independent plan
   fireEvent.click(reviewed);
   expect(accept.hasAttribute('disabled')).toBe(false);
   fireEvent.click(accept);
-  await screen.findByText(/Plan evidence accepted. Your own saves, dependency refreshes/);
+  await screen.findByText(
+    'Plan evidence accepted. Your saves, dependency refreshes and setup, and clause approvals carry it forward; an amendment or a new map or binding needs your review. Start or Resume remains your action.',
+  );
   expect(calls(/decide$/)).toHaveLength(1);
   await screen.findByText('Plan review recorded by operator as plan-owner.');
 });

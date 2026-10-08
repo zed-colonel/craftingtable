@@ -313,7 +313,7 @@ export function RuntimeEvidencePanel({
                               ? `changed: ${inputLabels(r.carried.changedInputs)}`
                               : 'no plan-acceptance input changed'
                           }. Start or Resume remains your action.`
-                        : 'Plan evidence accepted. Your own saves, dependency refreshes and clause approvals carry it forward; a new map or binding needs your review. Start or Resume remains your action.'
+                        : 'Plan evidence accepted. Your saves, dependency refreshes and setup, and clause approvals carry it forward; an amendment or a new map or binding needs your review. Start or Resume remains your action.'
                       : r.state === 'awaiting-review'
                         ? 'Evidence generated — awaiting your plan review.'
                         : r.state === 'ready-to-generate'

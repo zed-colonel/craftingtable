@@ -269,6 +269,10 @@ it('opens the exact reviewer checkboxes, retains other assignments, and saves ch
       .checked,
   ).toBe(true);
   expect(screen.getByText(/Unsaved changes. Save these settings/)).toBeTruthy();
+  // R-C6: the save carries the accepted plan forward.
+  screen.getByText(
+    'Save first. Acceptance covers saved settings only; your save carries the accepted plan forward.',
+  );
   expect(screen.getByRole('button', { name: 'View accepted plan' }).hasAttribute('disabled')).toBe(
     true,
   );
@@ -285,6 +289,21 @@ it('opens the exact reviewer checkboxes, retains other assignments, and saves ch
   expect(save.hasAttribute('disabled')).toBe(true);
   expect(changed).toHaveBeenLastCalledWith(id, false);
   expect(screen.queryByText(/Accepted for saved revision 2/)).toBeNull();
+});
+
+// R-C6 review L2: with no accepted plan there is nothing a save could carry.
+it('promises no carried acceptance for unsaved settings when no plan is accepted', async () => {
+  setup(savedRoadmap(), {
+    planAcceptance: {
+      roadmaps: [{ roadmapId: id, definitionRevision: 2, state: 'ready-to-generate' }],
+    },
+  } as import('@craftingtable/contracts').RuntimeEvidenceView);
+  await screen.findByText(/Saved settings need a new acceptance review/);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Assign independent reviewer responsibilities' }),
+  );
+  fireEvent.click(screen.getByRole('checkbox', { name: 'repository-maintainer' }));
+  screen.getByText('Save first. Acceptance covers saved settings only.');
 });
 
 it("re-reads the target's prerequisites on its map's evidence and roadmap events, and when the environment is saved (R-D4)", async () => {

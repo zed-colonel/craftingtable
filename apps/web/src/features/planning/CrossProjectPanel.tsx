@@ -437,9 +437,11 @@ export function CrossProjectPanel({
                 {dependencySettingsDirty
                   ? 'Unsaved dependency changes. Save the dependency environment before generating or accepting plan evidence.'
                   : dirty || staleSettings
-                    ? 'Save first. Acceptance covers saved settings only; saving carries it forward unless the map or binding changes.'
+                    ? currentPlan?.state === 'accepted'
+                      ? 'Save first. Acceptance covers saved settings only; your save carries the accepted plan forward.'
+                      : 'Save first. Acceptance covers saved settings only.'
                     : currentPlan?.state === 'accepted'
-                      ? `Accepted for saved revision ${currentPlan.definitionRevision}. Your own saves, refreshes and clause approvals carry it forward; a new map or binding needs a new review.`
+                      ? `Accepted for saved revision ${currentPlan.definitionRevision}. Your saves, dependency refreshes and setup, and clause approvals carry it forward; an amendment or a new map or binding needs a new review.`
                       : currentPlan?.state === 'awaiting-review'
                         ? 'Evidence is generated. Review and accept it; do not save the roadmap again.'
                         : currentPlan?.state === 'ready-to-generate'

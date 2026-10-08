@@ -126,3 +126,37 @@ it('keeps roadmap controls usable for editors without requesting installation au
     ),
   ).toBeTruthy();
 });
+
+// R-C6 review L2: a host capacity save carries an older plan acceptance only for the saving
+// workspace's roadmaps, so the list says what holds for each roadmap.
+it('says which roadmaps a capacity change leaves without a plan review', async () => {
+  const roadmap = (id: string, workspaceId: string, crossProject: boolean) => ({
+    id,
+    workspaceId,
+    name: id,
+    status: 'paused',
+    crossProject,
+  });
+  vi.mocked(request).mockImplementation(async (url) =>
+    url.endsWith('/capacities')
+      ? { roadmaps: [] }
+      : {
+          ...status,
+          roadmaps: [
+            roadmap('Here', 'workspace', true),
+            roadmap('Elsewhere', 'other-workspace', true),
+            roadmap('Queue', 'workspace', false),
+          ],
+        },
+  );
+  render(<HostSchedulingPanel workspaceId="workspace" csrfToken="csrf" />);
+  const item = async (name: string) =>
+    (await screen.findByRole('link', { name })).closest('li')!.textContent;
+  expect(await item('Here')).toBe(
+    'Here · paused · No plan review required after a capacity change',
+  );
+  expect(await item('Elsewhere')).toBe(
+    'Elsewhere · paused · A plan accepted there before 2026-10-08 may need review after a capacity change',
+  );
+  expect(await item('Queue')).toBe('Queue · paused · No cross-project plan review required');
+});

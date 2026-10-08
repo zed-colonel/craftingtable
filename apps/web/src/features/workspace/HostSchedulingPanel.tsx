@@ -253,8 +253,9 @@ export function HostSchedulingPanel({
                 other prerequisites. Refresh is explicit and preserves unsaved edits.
               </p>
               <p>
-                Host capacity is not part of saved-plan acceptance, so a limit change needs no new
-                plan review. Dependency pins need no change for a capacity adjustment alone.
+                Host capacity is not part of saved-plan acceptance; saving carries an older
+                acceptance forward for this workspace&apos;s roadmaps. Dependency pins need no
+                change for a capacity adjustment alone.
               </p>
             </About>
             {draft && (
@@ -318,7 +319,11 @@ export function HostSchedulingPanel({
             )}
             <details>
               <summary>Roadmaps affected by workstation changes ({status.roadmaps.length})</summary>
-              <p>A limit change needs no new plan review. Resume remains a separate action.</p>
+              <p>
+                Host capacity is not part of saved-plan acceptance. Saving here carries a plan
+                accepted before 2026-10-08 forward for this workspace&apos;s roadmaps only. Resume
+                remains a separate action.
+              </p>
               <ul>
                 {status.roadmaps.map((r) => (
                   <li key={r.id}>
@@ -332,7 +337,12 @@ export function HostSchedulingPanel({
                     >
                       {r.name}
                     </Link>{' '}
-                    · {r.status} · No plan review required after a capacity change
+                    · {r.status} ·{' '}
+                    {!r.crossProject
+                      ? 'No cross-project plan review required'
+                      : r.workspaceId === workspaceId
+                        ? 'No plan review required after a capacity change'
+                        : 'A plan accepted there before 2026-10-08 may need review after a capacity change'}
                   </li>
                 ))}
               </ul>

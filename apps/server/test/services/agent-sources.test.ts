@@ -366,6 +366,38 @@ describe('the R-E5a review’s gaps', () => {
     // The selection set (nextAgentSelections, a repair's profiles) is unchanged by it.
     expect(cycleAgents(txOf(granted), cycle()).remediate.source.layer).toBe('saved-definition');
   });
+  it('LOW-6: the projection reads the delegation of the revision its attempt started under', () => {
+    const automation = (model: string) => ({
+      integrationMerge: 'automatic' as const,
+      integrationConflicts: 'automatic' as const,
+      resolutionProfile: { ...stage(model), permissionMode: 'auto' as const },
+    });
+    const started = { revision: 1, entries: [entry], automation: automation('attempt-revision') };
+    const roadmap = roadmapOf({
+      definition: { revision: 2, entries: [entry], automation: automation('current-revision') },
+      attempts: [
+        {
+          id: 'attempt',
+          entryId: 'entry',
+          cycleId: 'cycle',
+          status: 'active',
+          definitionRevision: 1,
+        },
+      ],
+    });
+    const tx = {
+      roadmaps: {
+        list: () => [roadmap],
+        find: () => roadmap,
+        definition: (_: string, __: string, revision: number) =>
+          revision === 1 ? started : undefined,
+      },
+    } as unknown as StorageRepositories;
+    expect(cycleAgents(tx, cycle()).conflict).toMatchObject({
+      selection: { backend: 'codex', model: 'attempt-revision' },
+      source: { layer: 'roadmap-automation' },
+    });
+  });
   it('LOW-2: a launch record carries no attribution of its own', () => {
     const record = cycleLaunchRecord(
       txOf(roadmapOf({ agentAssignments: [assignment], delegationAssignments: [grant('manual')] })),

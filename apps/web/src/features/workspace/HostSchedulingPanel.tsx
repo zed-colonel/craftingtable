@@ -319,11 +319,7 @@ export function HostSchedulingPanel({
             )}
             <details>
               <summary>Roadmaps affected by workstation changes ({status.roadmaps.length})</summary>
-              <p>
-                Host capacity is not part of saved-plan acceptance. Saving here carries a plan
-                accepted before 2026-10-08 forward for this workspace&apos;s roadmaps only. Resume
-                remains a separate action.
-              </p>
+              <p>Not a plan-acceptance input. Resume remains a separate action.</p>
               <ul>
                 {status.roadmaps.map((r) => (
                   <li key={r.id}>

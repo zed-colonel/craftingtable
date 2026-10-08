@@ -89,7 +89,7 @@ import { offloadToolResult, readToolResult } from './tool-result-store.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
-import { type BriefDirectory, type BriefRecord, composeBrief } from './brief.js';
+import { type BriefDirectory, type BriefRecord, citedRunPaths, composeBrief } from './brief.js';
 import type { OutputContext } from './brief-output.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { DaemonDrainingError, ExecutionRequestError, NotFoundError } from './errors.js';
@@ -1841,6 +1841,25 @@ export class AgentRunService {
                   ? {}
                   : { verdict: prepared.parentRun.verdict }),
                 finalMessage: prepared.parentFinalMessage ?? '',
+                // A review's digest is its report's findings; without a valid report, the
+                // brief quotes the message and says why (G6-2).
+                ...(parentAssessment?.status === 'complete'
+                  ? {
+                      findings: parentAssessment.report.findings.map((finding) => ({
+                        id: finding.id,
+                        severity: finding.severity,
+                        status: finding.status,
+                        title: finding.title,
+                      })),
+                    }
+                  : parentAssessment
+                    ? { reportIssues: parentAssessment.issues }
+                    : {}),
+                // Links into run directories that have since gone are marked (AGT-57).
+                expiredPaths: citedRunPaths(
+                  prepared.parentFinalMessage ?? '',
+                  this.config.runsRoot,
+                ).filter((path) => !existsSync(path)),
                 ...(handoff === undefined ? {} : { handoff }),
               },
             }),

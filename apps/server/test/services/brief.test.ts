@@ -4,7 +4,7 @@ import {
   reviewReportSchema,
 } from '@craftingtable/contracts';
 import { describe, expect, it } from 'vitest';
-import { type BriefInput, composeBrief } from '../../src/services/brief.js';
+import { type BriefInput, citedRunPaths, composeBrief } from '../../src/services/brief.js';
 import { finalizationHasNoQuestions } from '../../src/services/finalization-policy.js';
 import { assessReviewReport } from '../../src/services/review-report.js';
 
@@ -441,5 +441,198 @@ describe('composeBrief skeleton: the task first (R-G6, AGT-50, AGT-58)', () => {
     expect(full({ repositoryPolicyGuidance: 'Repository policy: read it.' })).toContain(
       'Repository policy: read it.',
     );
+  });
+});
+
+describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6-2, AGT-53, AGT-57)", () => {
+  const handoff = {
+    manifestPath: '/runs/r2/handoff/manifest.json',
+    finalMessagePath: '/runs/r2/handoff/0000-final.md',
+    reportPath: '/runs/r2/handoff/0000-review.json',
+    warnings: [],
+  };
+  const review = [
+    'The queue drops a job on restart.',
+    '',
+    '## Open questions',
+    '',
+    'none',
+    '',
+    '## Review report',
+    '',
+    '```craftingtable-review',
+    '{"version":1,"complete":true,"verdict":"changes-requested","exitGate":{"met":false,"evidence":"x"},"findings":[]}',
+    '```',
+    'VERDICT: changes-requested',
+  ].join('\n');
+  /** The brief's lines outside fenced blocks. */
+  const unfenced = (brief: string) => {
+    let fence = '';
+    return brief.split('\n').filter((line) => {
+      const opener = /^(`{3,})/.exec(line)?.[1];
+      if (fence) {
+        if (line.startsWith(fence) && line.trim() === fence) fence = '';
+        return false;
+      }
+      if (opener) fence = opener;
+      return !opener;
+    });
+  };
+
+  it("lists a review's findings by id, severity and title, and points to the handoff for the rest", () => {
+    const brief = composeBrief(
+      briefInput({
+        parentRun: {
+          role: 'review',
+          verdict: 'changes-requested',
+          finalMessage: review,
+          findings: [
+            { id: 'F-001', severity: 'major', status: 'open', title: 'Restart drops a job' },
+            { id: 'F-002', severity: 'nit', status: 'resolved', title: 'Typo' },
+          ],
+          handoff,
+        },
+      }),
+    );
+    const section = brief.split(
+      '## Review findings to address (verdict: changes-requested)\n\n',
+    )[1]!;
+    expect(section).toContain('- F-001 (major): Restart drops a job');
+    expect(section).toContain('Closed in that report: F-002 (resolved)');
+    expect(section).toContain('`/runs/r2/handoff/0000-review.json`');
+    // Not the message itself: its prose, its headings and its verdict line stay in the handoff.
+    expect(brief).not.toContain('The queue drops a job on restart.');
+    expect(brief).not.toContain('VERDICT: changes-requested');
+    expect(unfenced(brief)).not.toContain('## Open questions');
+    expect(unfenced(brief)).not.toContain('## Review report');
+  });
+
+  it("quotes a bounded opening of an implementation's summary, with its headings demoted and blocks left out", () => {
+    const summary = [
+      'Committed the fix.',
+      '',
+      '## Verification',
+      '',
+      'All checks passed.',
+      '',
+      '```craftingtable-workflow',
+      '{"version":1,"questions":[],"resolved":[],"securityReview":{"required":false,"sources":[]}}',
+      '```',
+      '',
+      '## Open questions',
+      '',
+      'none',
+      '',
+      'x'.repeat(5000),
+      'The last line.',
+    ].join('\n');
+    const brief = composeBrief(
+      briefInput({
+        role: 'review',
+        parentRun: { role: 'implement', finalMessage: summary, handoff },
+      }),
+    );
+    const section = brief
+      .split("## The implementation run's own summary\n\n")[1]!
+      .split('\n## ')[0]!;
+    expect(section).toContain('Treat this as a claim to verify, not as evidence.');
+    expect(section).toContain('> Committed the fix.');
+    expect(section).toContain('> **Verification**');
+    expect(section).not.toContain('craftingtable-workflow');
+    expect(section).not.toContain('The last line.');
+    expect(section).toContain('`/runs/r2/handoff/0000-final.md`');
+    expect(Buffer.byteLength(section)).toBeLessThan(2600);
+    expect(unfenced(brief)).not.toContain('## Open questions');
+  });
+
+  it('quotes an unstructured review, saying its findings are only in its message', () => {
+    const brief = composeBrief(
+      briefInput({
+        parentRun: {
+          role: 'review',
+          finalMessage: 'F-1: the queue drops a job.\n\nVERDICT: changes-requested',
+          reportIssues: ['No structured findings report.'],
+          handoff,
+        },
+      }),
+    );
+    expect(brief).toContain('No structured findings report.');
+    expect(brief).toContain('> F-1: the queue drops a job.');
+    expect(unfenced(brief)).not.toContain('VERDICT: changes-requested');
+  });
+
+  it('keeps an accepted design whole, fenced so its headings and blocks stay inside it', () => {
+    const proposal = [
+      'Change queue.ts to hold a ring buffer.',
+      '',
+      '```craftingtable-design',
+      '{"version":1,"items":[]}',
+      '```',
+      '',
+      '## Open questions',
+      '',
+      'none',
+    ].join('\n');
+    const brief = composeBrief(
+      briefInput({ parentRun: { role: 'design', finalMessage: proposal, handoff } }),
+    );
+    expect(brief).toContain(`\`\`\`\`markdown\n${proposal}\n\`\`\`\``);
+    expect(unfenced(brief)).not.toContain('## Open questions');
+  });
+
+  it("marks the message's links into other runs' directories that no longer exist", () => {
+    const brief = composeBrief(
+      briefInput({
+        role: 'review',
+        parentRun: {
+          role: 'implement',
+          finalMessage:
+            'Logs: [summary](/runs/r0/scratch/verification/summary.md) and /runs/r2/scratch/kept.md',
+          expiredPaths: ['/runs/r0/scratch/verification/summary.md'],
+          handoff,
+        },
+      }),
+    );
+    expect(brief).toContain('[expired: /runs/r0/scratch/verification/summary.md]');
+    expect(brief).toContain('/runs/r2/scratch/kept.md');
+  });
+
+  it('finds the paths a message cites under the runs root', () => {
+    expect(
+      citedRunPaths(
+        'See `/runs/r0/scratch/a.md`, [b](/runs/r1/plan/b.json) and /elsewhere/c, /runs/r9.',
+        '/runs',
+      ),
+    ).toEqual(['/runs/r0/scratch/a.md', '/runs/r1/plan/b.json', '/runs/r9']);
+  });
+
+  it('names the handoff files once, and collapses repeated warnings', () => {
+    const brief = composeBrief(
+      briefInput({
+        parentRun: {
+          role: 'implement',
+          finalMessage: 'Done.',
+          handoff: {
+            ...handoff,
+            warnings: [
+              ...Array.from(
+                { length: 20 },
+                () => 'r1: the agent exited before collecting background work.',
+              ),
+              'r2: 3 recorded message(s) were already truncated upstream.',
+              'r3: no completed turn.',
+              'r4: no completed turn either.',
+            ],
+          },
+        },
+      }),
+    );
+    const files = brief.split('## Files to read\n\n')[1]!.split('\n## ')[0]!;
+    expect(files).toContain('`/runs/r2/handoff/manifest.json`');
+    expect(files).toContain('`/runs/r2/handoff/0000-final.md`');
+    expect(brief.split('the agent exited before collecting background work')).toHaveLength(2);
+    expect(files).toContain('already truncated upstream');
+    expect(files).toContain('Handoff warnings (4 different, all in the manifest)');
+    expect(files).not.toContain('r4: no completed turn either.');
   });
 });

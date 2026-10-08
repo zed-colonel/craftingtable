@@ -190,6 +190,8 @@ export interface HandoffFiles {
   readonly warnings: readonly string[];
   readonly sources: readonly RunHandoffSource[];
   readonly findingsPath?: string;
+  /** The immediate parent's review report, when it has one. */
+  readonly reportPath?: string;
 }
 
 /**
@@ -336,5 +338,6 @@ export function writeRunHandoff(
     warnings,
     sources: sources.map(({ runId, throughSequence }) => ({ runId, throughSequence })),
     ...(findingsPath ? { findingsPath } : {}),
+    ...(sources[0]?.report ? { reportPath: join(directory, sources[0].report) } : {}),
   };
 }

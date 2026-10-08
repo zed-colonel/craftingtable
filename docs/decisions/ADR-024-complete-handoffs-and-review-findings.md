@@ -1,6 +1,6 @@
 # ADR-024 — Complete handoffs and consolidated review findings
 
-- **Status:** accepted
+- **Status:** accepted; amended 2026-10-08 (R-G6): the prompt carries a digest, not a preview
 - **Date:** 2026-09-10
 
 ## Context
@@ -16,9 +16,8 @@ review-assessment files from the journal for every run in the explicit parent li
 Messages retain their order, source run, and event cursor. The initial user-message
 event records the source cursors delivered at launch; descendants inherit those
 snapshots. Later edits to an open source review cannot silently change its children’s
-context or required finding IDs. The prompt previews up to
-256 KiB of the immediate parent's final message and directs the agent to the source
-files. A 32 MiB aggregate ceiling rejects a handoff before launch rather than dropping
+context or required finding IDs. The prompt carries a bounded digest of the immediate
+parent's final message and directs the agent to the source files (amended, below). A 32 MiB aggregate ceiling rejects a handoff before launch rather than dropping
 text. Adapter limits remain bounded; explicit truncation flags and legacy markers
 warn when source text was already lost. Handoffs cannot cross worktrees or snapshot a
 source turn while it is running.
@@ -56,3 +55,23 @@ Increasing only the byte ceiling leaves earlier messages out. Concatenating pros
 treating every statement as current resurrects withdrawn findings. A mutable finding
 ledger or model-driven prose extractor adds authority and reconciliation complexity
 before the structured report path has been exercised.
+
+## Amendment (2026-10-08, R-G6): a digest of the parent, not a preview
+
+The 256 KiB preview pasted the parent's final message into the brief verbatim: its
+`## Open questions`, `## Review report`, structured block and `VERDICT` line became
+sibling sections of the brief (AGT-53); such previews were a quarter of all brief bytes
+on live data (2026-09-24 to 2026-10-07); and their links into other runs' scratch
+outlived the files (AGT-57). The handoff files already held every word.
+
+The brief now carries a digest and points to the files. For a review parent with a valid
+report, the digest lists its open findings by ID, severity and title (at most 40, titles
+bounded) and its closed findings by ID and status, naming the review report and final
+message files. Any other parent, and a review without a valid report (whose issues the
+brief names), is quoted: at most 2,000 bytes of its opening, without CraftingTable's
+structured blocks, its headings turned into bold text and every line quoted. An accepted
+design proposal stays whole, because the implement run treats it as the plan, inside a
+fence longer than any it contains. Paths the message cites under the runs root that no
+longer exist at launch are marked `[expired: <path>]`. Repeated handoff warnings are
+collapsed and at most three listed; the manifest keeps them all. Nothing persisted
+changes: the handoff files, findings snapshots and cursors are as before.

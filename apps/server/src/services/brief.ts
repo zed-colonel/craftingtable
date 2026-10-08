@@ -1,5 +1,6 @@
 import type { AgentRunRole, JsonValue, ReviewBranchContext, WorkItem } from '@craftingtable/domain';
 import { designInstructions, investigationInstructions } from './brief-design.js';
+export { citedRunPaths } from './brief-handoff.js';
 import {
   ACCEPTED_DESIGN_INSTRUCTIONS,
   implementInstructions,
@@ -13,7 +14,7 @@ import {
   type WorkflowOutput,
 } from './brief-output.js';
 import { reviewInstructions } from './brief-review.js';
-import type { HandoffFiles } from './run-handoff.js';
+import { type BriefParentRun, handoffParagraphs, parentSections } from './brief-handoff.js';
 
 /**
  * Composes the prompt handed to an agent as its first message.
@@ -177,13 +178,7 @@ export interface BriefUpstreamSource {
   readonly transition?: { readonly slice: string; readonly recordId?: string };
 }
 
-export interface BriefParentRun {
-  readonly role: AgentRunRole;
-  readonly verdict?: 'mergeable' | 'changes-requested';
-  /** The parent's final message: a review's findings, an implementation's summary. */
-  readonly finalMessage: string;
-  readonly handoff?: Omit<HandoffFiles, 'sources'>;
-}
+export type { BriefFinding, BriefParentRun } from './brief-handoff.js';
 
 /** The run's role and final message, from the one module that owns that role (AGT-54). */
 function instructionsFor(input: BriefInput): RoleInstructions {
@@ -342,6 +337,8 @@ function filesSection(input: BriefInput): string {
     if (documents.length) lines.push('');
     lines.push("CraftingTable's records for this run:", ...records);
   }
+  for (const paragraph of handoffParagraphs(input.parentRun, !!input.planFinalization))
+    lines.push(...(lines.length > 2 ? [''] : []), paragraph);
   if (input.repositoryPolicyGuidance) lines.push('', input.repositoryPolicyGuidance);
   return lines.length > 2 ? lines.join('\n') : '';
 }
@@ -373,58 +370,15 @@ export function composeBrief(input: BriefInput): string {
   );
   const files = filesSection(input);
   if (files) sections.push(files);
-  const parent = input.parentRun;
-  if (parent?.handoff !== undefined) {
-    sections.push(
-      [
-        '## Handoff source files',
-        '',
-        input.planFinalization
-          ? `Start with the handoff manifest at \`${parent.handoff.manifestPath}\`, the active findings snapshot and the immediate parent's complete outcome. Consult source conversations for operator decisions, corrections, uncertain observations and evidence; older reports are history, not text to reproduce.`
-          : `Read the handoff manifest at \`${parent.handoff.manifestPath}\` and the conversation and report files it lists before starting.`,
-        'These files include earlier messages, operator corrections, and prior runs in this lineage. Paths in the manifest are relative to its directory.',
-        'Reports with status complete are structurally validated reviewer assertions. Unstructured or invalid reports require reconciliation against the conversation; ask the operator about unresolved ambiguity.',
-        'Earlier findings may be corrected or withdrawn later. Do not treat every historical statement as a current finding. Preserve existing finding IDs across review rounds.',
-        `The full recorded final message is at \`${parent.handoff.finalMessagePath}\`.`,
-        ...(parent.handoff.findingsPath
-          ? [
-              `Active findings and closed-history index: \`${parent.handoff.findingsPath}\`. This is derived from valid reports at the delivered event cursors. Omitted closed findings retain their last reviewer disposition.`,
-            ]
-          : []),
-        ...parent.handoff.warnings.map((warning) => `Handoff warning: ${warning}`),
-      ].join('\n\n'),
-    );
-  }
-  const parentMessage =
-    input.planFinalization && parent?.handoff
-      ? `Read the complete outcome at \`${parent.handoff.finalMessagePath}\`. Use the active findings snapshot; do not copy the historical report into your response.`
-      : (parent?.finalMessage.trim() ?? '');
-  if (
-    parent !== undefined &&
-    (parent.finalMessage.trim().length > 0 || parent.handoff !== undefined)
-  ) {
-    if (!input.resolvingIntegration && parent.role === 'review' && input.role === 'implement') {
-      sections.push(`## Remediation\n\n${REMEDIATION_INSTRUCTIONS}`);
-      sections.push(
-        `## Review findings to address${
-          parent.verdict === undefined ? '' : ` (verdict: ${parent.verdict})`
-        }\n\n${parentMessage}`,
-      );
-    } else if (
-      !input.resolvingIntegration &&
-      parent.role === 'design' &&
-      input.role === 'implement'
-    ) {
-      sections.push(`## Accepted design\n\n${ACCEPTED_DESIGN_INSTRUCTIONS}`);
-      sections.push(`## Design proposal\n\n${parentMessage}`);
-    } else if (parent.role === 'implement' && input.role === 'review') {
-      sections.push(
-        `## The implementation run's own summary\n\nTreat this as a claim to verify, not as evidence.\n\n${parentMessage}`,
-      );
-    } else {
-      sections.push(`## Previous ${parent.role} run\n\n${parentMessage}`);
-    }
-  }
+  sections.push(
+    ...parentSections(input.parentRun, {
+      role: input.role,
+      resolvingIntegration: !!input.resolvingIntegration,
+      planFinalization: !!input.planFinalization,
+      remediationInstructions: REMEDIATION_INSTRUCTIONS,
+      acceptedDesignInstructions: ACCEPTED_DESIGN_INSTRUCTIONS,
+    }),
+  );
   if (input.controllerInstructions?.trim()) {
     sections.push(`## Step rules (from the controller)\n\n${input.controllerInstructions.trim()}`);
   }

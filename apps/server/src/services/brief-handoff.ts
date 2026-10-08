@@ -1,0 +1,221 @@
+import type { AgentRunRole } from '@craftingtable/domain';
+import type { HandoffFiles } from './run-handoff.js';
+
+/**
+ * The run a brief continues from, as the brief carries it (ADR-024, amended by R-G6): the
+ * handoff files hold everything the parent wrote; the brief holds a bounded digest of its final
+ * message and points to them (G6-2, AGT-53).
+ */
+export interface BriefParentRun {
+  readonly role: AgentRunRole;
+  readonly verdict?: 'mergeable' | 'changes-requested';
+  /** The parent's final message: a review's findings, an implementation's summary. */
+  readonly finalMessage: string;
+  /** A review parent's findings, from its valid structured report. */
+  readonly findings?: readonly BriefFinding[];
+  /** Why a review parent's report is not a valid structured report, when it is not. */
+  readonly reportIssues?: readonly string[];
+  /** Paths the message cites under the runs root that no longer exist (AGT-57). */
+  readonly expiredPaths?: readonly string[];
+  readonly handoff?: Omit<HandoffFiles, 'sources'>;
+}
+
+export interface BriefFinding {
+  readonly id: string;
+  readonly severity: string;
+  readonly status: string;
+  readonly title: string;
+}
+
+/** How much of a parent's message a digest quotes. */
+const SUMMARY_BYTES = 2000;
+/** How many open findings a digest lists, and how long a title it keeps. */
+const LISTED_FINDINGS = 40;
+const TITLE_CHARACTERS = 200;
+/** How many different handoff warnings the brief repeats; the manifest has them all. */
+const LISTED_WARNINGS = 3;
+
+/**
+ * The absolute paths a message cites under the runs root (AGT-57), in order, each once: the
+ * daemon checks which still exist before the brief quotes the message.
+ */
+export function citedRunPaths(text: string, runsRoot: string): string[] {
+  const root = runsRoot.replace(/\/+$/, '');
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const paths = [...text.matchAll(new RegExp(`${escaped}(?:/[^\\s\`'"()<>\\[\\]]*)?`, 'g'))]
+    .map((match) => match[0].replace(/[.,;:]+$/, ''))
+    .filter((path) => path.length > root.length);
+  return [...new Set(paths)];
+}
+
+function markExpired(text: string, expired: readonly string[] | undefined): string {
+  let marked = text;
+  // Longest first, so a path is never marked inside a longer one.
+  for (const path of [...(expired ?? [])].sort((a, b) => b.length - a.length))
+    marked = marked.split(path).join(`[expired: ${path}]`);
+  return marked;
+}
+
+/**
+ * A quoted, bounded opening of a message (G6-2): CraftingTable's structured blocks are left out
+ * (the handoff has them), headings become bold text, and every line is quoted, so nothing in it
+ * reads as the brief's own section, block or verdict.
+ */
+function quotedOpening(message: string, expired: readonly string[] | undefined): string {
+  const lines: string[] = [];
+  let fence = '';
+  let skipping = false;
+  for (const line of markExpired(message.trim(), expired).split('\n')) {
+    const opener = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      if (opener && opener[1]!.startsWith(fence) && !opener[2]!.trim()) {
+        fence = '';
+        if (skipping) {
+          skipping = false;
+          continue;
+        }
+      } else if (skipping) continue;
+      lines.push(line);
+      continue;
+    }
+    if (opener) {
+      fence = opener[1]!;
+      skipping = /^craftingtable-/.test(opener[2]!.trim());
+      if (skipping) continue;
+      lines.push(line);
+      continue;
+    }
+    const heading = /^#{1,6}\s+(.*)$/.exec(line);
+    lines.push(heading ? `**${heading[1]!.trim()}**` : line);
+  }
+  const collapsed = lines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  let opening = collapsed;
+  if (Buffer.byteLength(collapsed) > SUMMARY_BYTES) {
+    opening = Buffer.from(collapsed).subarray(0, SUMMARY_BYTES).toString('utf8').replace(/�$/, '');
+    const cut = opening.lastIndexOf('\n');
+    if (cut > SUMMARY_BYTES / 2) opening = opening.slice(0, cut);
+    opening = `${opening.trimEnd()}\n…`;
+  }
+  return opening
+    .split('\n')
+    .map((line) => (line ? `> ${line}` : '>'))
+    .join('\n');
+}
+
+/** A message whole, inside a fence longer than any it contains (an accepted design, G6-2). */
+function fenced(message: string, expired: readonly string[] | undefined): string {
+  const text = markExpired(message.trim(), expired);
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((run) => run[0].length));
+  const fence = '`'.repeat(Math.max(4, longest + 1));
+  return `${fence}markdown\n${text}\n${fence}`;
+}
+
+/** A review's findings as a digest: the open ones by id, severity and title; the closed by id. */
+function findingsDigest(parent: BriefParentRun, findings: readonly BriefFinding[]): string {
+  const open = findings.filter((finding) => finding.status === 'open');
+  const closed = findings.filter((finding) => finding.status !== 'open');
+  const title = (text: string) =>
+    text.length > TITLE_CHARACTERS ? `${text.slice(0, TITLE_CHARACTERS)}…` : text;
+  const where = parent.handoff
+    ? `; its full findings, explanations and recommendations are in ${parent.handoff.reportPath ? `\`${parent.handoff.reportPath}\`` : 'its review report'}, and its final message is \`${parent.handoff.finalMessagePath}\``
+    : '';
+  return markExpired(
+    [
+      `The review's report has ${open.length} open ${open.length === 1 ? 'finding' : 'findings'}${where}.`,
+      ...open
+        .slice(0, LISTED_FINDINGS)
+        .map((finding) => `- ${finding.id} (${finding.severity}): ${title(finding.title)}`),
+      ...(open.length > LISTED_FINDINGS
+        ? [`- and ${open.length - LISTED_FINDINGS} more in the report`]
+        : []),
+      ...(closed.length
+        ? [
+            `Closed in that report: ${closed.map((finding) => `${finding.id} (${finding.status})`).join(', ')}.`,
+          ]
+        : []),
+    ].join('\n'),
+    parent.expiredPaths,
+  );
+}
+
+/** The digest of a parent's final message: its findings, or a quoted opening (G6-2). */
+function digest(parent: BriefParentRun): string {
+  if (parent.findings) return findingsDigest(parent, parent.findings);
+  const where = parent.handoff ? `\`${parent.handoff.finalMessagePath}\`` : 'the handoff';
+  const lead =
+    parent.role === 'review'
+      ? `The review has no valid structured report (${parent.reportIssues?.join(' ') || 'none was recorded'}), so its findings are only in its final message, ${where}; reconcile them from there. Its opening:`
+      : `Its full final message is ${where}. Its opening:`;
+  return `${lead}\n\n${quotedOpening(parent.finalMessage, parent.expiredPaths)}`;
+}
+
+/**
+ * The sections a brief gives the run it continues from (G6-2), headed as before: a remediation's
+ * findings, an accepted design, an implementation's claims, or another previous run.
+ */
+export function parentSections(
+  parent: BriefParentRun | undefined,
+  context: {
+    readonly role: AgentRunRole;
+    readonly resolvingIntegration: boolean;
+    readonly planFinalization: boolean;
+    readonly remediationInstructions: string;
+    readonly acceptedDesignInstructions: string;
+  },
+): string[] {
+  if (!parent || (!parent.finalMessage.trim() && !parent.handoff)) return [];
+  const body =
+    context.planFinalization && parent.handoff
+      ? `Read the complete outcome at \`${parent.handoff.finalMessagePath}\`. Use the active findings snapshot; do not copy the historical report into your response.`
+      : digest(parent);
+  if (!context.resolvingIntegration && parent.role === 'review' && context.role === 'implement')
+    return [
+      `## Remediation\n\n${context.remediationInstructions}`,
+      `## Review findings to address${parent.verdict === undefined ? '' : ` (verdict: ${parent.verdict})`}\n\n${body}`,
+    ];
+  if (!context.resolvingIntegration && parent.role === 'design' && context.role === 'implement')
+    return [
+      `## Accepted design\n\n${context.acceptedDesignInstructions}`,
+      `## Design proposal\n\n${context.planFinalization && parent.handoff ? body : fenced(parent.finalMessage, parent.expiredPaths)}`,
+    ];
+  if (parent.role === 'implement' && context.role === 'review')
+    return [
+      `## The implementation run's own summary\n\nTreat this as a claim to verify, not as evidence. ${body}`,
+    ];
+  return [`## Previous ${parent.role} run\n\n${body}`];
+}
+
+/** The handoff in the files to read: where the lineage is, and how to read it. */
+export function handoffParagraphs(
+  parent: BriefParentRun | undefined,
+  planFinalization: boolean,
+): string[] {
+  const handoff = parent?.handoff;
+  if (!handoff) return [];
+  const warnings = [...new Set(handoff.warnings)];
+  return [
+    planFinalization
+      ? `Handoff: start with the handoff manifest at \`${handoff.manifestPath}\`, the active findings snapshot and the immediate parent's complete outcome. Consult source conversations for operator decisions, corrections, uncertain observations and evidence; older reports are history, not text to reproduce. Paths in the manifest are relative to its directory.`
+      : `Handoff: read the handoff manifest at \`${handoff.manifestPath}\` and the conversation and report files it lists before starting: earlier messages, operator corrections and prior runs in this lineage. Paths in the manifest are relative to its directory.`,
+    [
+      `The previous run's full final message is \`${handoff.finalMessagePath}\`${handoff.reportPath ? `, and its review report \`${handoff.reportPath}\`` : ''}.`,
+      ...(handoff.findingsPath
+        ? [
+            `Active findings and closed-history index: \`${handoff.findingsPath}\`, derived from valid reports at the delivered event cursors; omitted closed findings keep their last reviewer disposition.`,
+          ]
+        : []),
+      'Reports with status complete are structurally validated reviewer assertions; unstructured or invalid reports require reconciliation against the conversation, and the operator decides unresolved ambiguity. Earlier findings may be corrected or withdrawn later: do not treat every historical statement as a current finding, and preserve existing finding IDs across review rounds.',
+    ].join(' '),
+    ...(warnings.length
+      ? [
+          `Handoff warnings${warnings.length > LISTED_WARNINGS ? ` (${warnings.length} different, all in the manifest)` : ''}:\n${warnings
+            .slice(0, LISTED_WARNINGS)
+            .map((warning) => `- ${warning}`)
+            .join('\n')}`,
+        ]
+      : []),
+  ];
+}

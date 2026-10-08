@@ -430,7 +430,10 @@ describe('review-gated merge', () => {
     const launch = state.backend.launches.at(-1);
     expect(launch?.prompt).toContain('## Remediation');
     expect(launch?.prompt).toContain('## Review findings to address (verdict: changes-requested)');
-    expect(launch?.prompt).toContain('VERDICT: changes-requested');
+    // The unstructured review is quoted, so its verdict line is not one of the brief's own
+    // (R-G6, AGT-53).
+    expect(launch?.prompt).toContain('> VERDICT: changes-requested');
+    expect(launch?.prompt).not.toMatch(/^VERDICT: changes-requested$/m);
     expect(launch?.prompt).toContain('disposition for each finding');
 
     // A parent from another work item is refused.

@@ -1654,7 +1654,11 @@ describe('complete review handoffs', () => {
     const review = await runToFinish(state, worktree.id, { role: 'review' });
     const child = await runToFinish(state, worktree.id, { role: 'implement', parentRunId: review });
     const detail = await runDetail(state, child);
-    expect(detail.brief).toContain('Last finding after 180,000 bytes.');
+    // The brief quotes a bounded opening of the unstructured review and names the file that
+    // holds all of it (ADR-024 as amended by R-G6); the file below has every byte.
+    expect(detail.brief).not.toContain('Last finding after 180,000 bytes.');
+    expect(detail.brief).toContain('so its findings are only in its final message');
+    expect(Buffer.byteLength(detail.brief)).toBeLessThan(40_000);
     const root = state.backend.launches.at(-1)?.additionalDirectories?.[0];
     if (root === undefined) throw new Error('Missing run directory');
     const handoff = join(root, 'handoff');
@@ -1682,6 +1686,12 @@ describe('complete review handoffs', () => {
       role: 'implement',
       parentRunId: review,
     });
+    // The remediation's brief lists the review's findings, and the files hold the rest
+    // (ADR-024 as amended by R-G6).
+    const remediation = (await runDetail(state, implement)).brief;
+    expect(remediation).toContain('- F-001 (minor): Boundary coverage');
+    expect(remediation).toMatch(/`[^`]+\/handoff\/0000-review\.json`/);
+    expect(remediation).not.toContain('Cover the boundary.');
     state.backend.repliesForNextRun = [{ resultText: reviewText([]) }];
     const missing = await runToFinish(state, worktree.id, {
       role: 'review',

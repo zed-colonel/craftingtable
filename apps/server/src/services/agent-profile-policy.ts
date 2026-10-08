@@ -127,21 +127,27 @@ export function cycleAgentSelection(
 
 /**
  * What a cycle's launch records about its selection: the purpose, the delegation grant, and the
- * assignment only when the resolver attributes the launched agent to it (operator decision
- * 2026-10-07). An equal selection another layer chose (a resumed session, a recovery, a
- * finalization stage, an integration resolution) does not name it, so `assignedReviewMatches`
+ * assignment only when the resolver attributes the launched agent to it (operator decisions
+ * 2026-10-07). A resumed session (an output repair, a restart resume) keeps the attribution of
+ * the run it continues. An equal selection any other layer chose (a recovery, a finalization
+ * stage or recovery, an integration resolution) does not name it, so `assignedReviewMatches`
  * holds such a run to the saved definition.
  */
 export function launchProvenance(
   recorded: Pick<NonNullable<AgentRun['profileSelection']>, 'purpose' | 'delegationId'>,
   launch: EffectiveAgent,
+  continued?: AgentRun['profileSelection'],
 ): NonNullable<AgentRun['profileSelection']> {
+  const assignmentId =
+    launch.source.layer === 'resumed-session'
+      ? continued?.assignmentId
+      : launch.source.layer === 'roadmap-assignment'
+        ? launch.source.assignmentId
+        : undefined;
   return {
     purpose: recorded.purpose,
     ...(recorded.delegationId ? { delegationId: recorded.delegationId } : {}),
-    ...(launch.source.layer === 'roadmap-assignment' && launch.source.assignmentId
-      ? { assignmentId: launch.source.assignmentId }
-      : {}),
+    ...(assignmentId ? { assignmentId } : {}),
   };
 }
 

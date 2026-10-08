@@ -189,7 +189,6 @@ describe('which launches name the assignment (operator decision 2026-10-07)', ()
       });
   });
   it.each([
-    ['a resumed session', { resumed: { ...same, permissionMode: 'edit-only' as const } }],
     [
       'a design-question recovery',
       { action: { layer: 'design-recovery' as const, selection: same } },
@@ -219,6 +218,31 @@ describe('which launches name the assignment (operator decision 2026-10-07)', ()
       purpose: 'review',
       delegationId: 'grant',
     });
+  });
+  // Operator decision 2026-10-07: a resumed session (an output repair, a restart resume) keeps
+  // the attribution of the run it continues.
+  it('a resumed session names the assignment exactly when the run it continues did', () => {
+    const launch = resolveAgent({ ...base, resumed: { ...same, permissionMode: 'edit-only' } });
+    expect(launch.source.layer).toBe('resumed-session');
+    expect(
+      launchProvenance(recorded, launch, { purpose: 'review', assignmentId: 'earlier' }),
+    ).toEqual({ purpose: 'review', delegationId: 'grant', assignmentId: 'earlier' });
+    expect(launchProvenance(recorded, launch, { purpose: 'review' })).toEqual({
+      purpose: 'review',
+      delegationId: 'grant',
+    });
+    expect(launchProvenance(recorded, launch)).toEqual({
+      purpose: 'review',
+      delegationId: 'grant',
+    });
+    // Only a resume inherits: another layer's launch ignores the run before it.
+    const recovery = resolveAgent({
+      ...base,
+      action: { layer: 'design-recovery', selection: same },
+    });
+    expect(
+      launchProvenance(recorded, recovery, { purpose: 'review', assignmentId: 'earlier' }),
+    ).toEqual({ purpose: 'review', delegationId: 'grant' });
   });
   it('a review run that does not name the assignment is held to the saved definition', () => {
     const entry = { id: 'entry', profiles } as unknown as RoadmapEntry;

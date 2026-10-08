@@ -923,7 +923,7 @@ export class AgentRunService {
       { userId: cycle.createdByUserId },
       undefined,
       cycle,
-      launchProvenance(selected.provenance, launch),
+      launchProvenance(selected.provenance, launch, resumed?.profileSelection),
     );
   }
 

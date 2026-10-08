@@ -375,7 +375,9 @@ describe('a cycle’s launch (startForCycle)', () => {
       agent: agent('other-design', 'auto'),
       provenance: { purpose: 'design' },
     });
-    // Nor does a resumed session whose agent the assignment would also choose.
+    // Nor does a resumed session whose agent the assignment would also choose, when the run it
+    // continues did not name the assignment (operator decision 2026-10-07: a resume keeps the
+    // attribution of the run it continues; this design run was launched before any owner).
     (roadmap.agentAssignments as unknown as (typeof assignment)[]).push({
       ...assignment,
       id: randomUUID(),

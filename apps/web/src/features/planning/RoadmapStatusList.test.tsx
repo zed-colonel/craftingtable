@@ -121,7 +121,7 @@ it("re-reads on its own roadmap's events and its cycles' and runs', never anothe
   render(wrap(<RoadmapStatusList roadmap={roadmap} onOpenWorkItem={vi.fn()} />));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
   await send('roadmap-changed', { workspaceId: 'workspace', payload: { roadmapId: 'another' } });
-  await send('repository-registered', { workspaceId: 'workspace', repositoryId: 'repo' });
+  await send('source-repository-registered', { workspaceId: 'workspace' });
   expect(request).toHaveBeenCalledTimes(1);
   await send('roadmap-changed', { workspaceId: 'workspace', payload: { roadmapId: 'roadmap' } });
   expect(request).toHaveBeenCalledTimes(2);

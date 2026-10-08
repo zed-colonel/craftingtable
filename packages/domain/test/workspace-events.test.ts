@@ -13,11 +13,6 @@ describe('workspace event vocabulary', () => {
       'plan-version-imported',
       'work-item-admitted',
       'work-item-removed-from-agenda',
-      'repository-registered',
-      'repository-status-changed',
-      'repository-evidence-changed',
-      'project-repository-bound',
-      'project-repository-binding-retired',
       'source-repository-registered',
       'worktree-created',
       'worktree-removed',
@@ -41,11 +36,6 @@ describe('workspace event vocabulary', () => {
       'plan-version-imported': 2,
       'work-item-admitted': 2,
       'work-item-removed-from-agenda': 17,
-      'repository-registered': 4,
-      'repository-status-changed': 4,
-      'repository-evidence-changed': 4,
-      'project-repository-bound': 4,
-      'project-repository-binding-retired': 4,
       'source-repository-registered': 5,
       'worktree-created': 5,
       'worktree-removed': 5,
@@ -70,5 +60,17 @@ describe('workspace event vocabulary', () => {
     expect(isWorkspaceEventKind('work-item-imported')).toBe(false);
     expect(isWorkspaceEventKind('run-started')).toBe(false);
     expect(isWorkspaceEventKind('')).toBe(false);
+  });
+
+  it('no longer names the retired repository registry kinds (R-H6)', () => {
+    // Their catalog rows stay (the catalog is append-only), but no event of theirs is readable.
+    for (const kind of [
+      'repository-registered',
+      'repository-status-changed',
+      'repository-evidence-changed',
+      'project-repository-bound',
+      'project-repository-binding-retired',
+    ])
+      expect(isWorkspaceEventKind(kind), kind).toBe(false);
   });
 });

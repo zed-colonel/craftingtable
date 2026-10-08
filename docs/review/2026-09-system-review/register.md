@@ -87,7 +87,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
-| [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
+| [R-H6](#r-h6) | P3 | M | partial (vocabulary retired; migration 0040 next) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -3966,7 +3966,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H6
 
-**Journal cleanup: registry tables and `repository-*` vocabulary** · Phase P3 · Effort M · Status: open
+**Journal cleanup: registry tables and `repository-*` vocabulary** · Phase P3 · Effort M · Status: partial (vocabulary retired; migration 0040 next)
 
 - **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review. The operator confirmed P3 the same day.
 - **Resolves:** [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident) (the schema residue).
@@ -3987,6 +3987,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **H6-3, R-H6 is done alone;** the condition to share a rebuild with another journal change is dropped, since none is planned.
   - *Migration order across P3:* 0038 R-G13 increment 4 (`run_environments`), 0039 R-H4 (`evidence_submission_heads`), 0040 R-H6. They are independent and may ship in one deploy (one pre-migration snapshot, one rollback point). The two rebuilds each need a count guard and a place on `migrations.test.ts`'s rebuild list.
   - *Left to the building session:* the SQL (following 0004's procedure), the preservation test on a snapshot copy, the `db:verify` run.
+- **Progress (2026-10-08, branch `p3/rh6`).**
+  - *Order, settled here:* two commits. The vocabulary goes first, so that storage no longer names the correlation columns when the migration drops them and no commit carries transitional mapping code; the migration follows with its tests.
+  - *Before (copy of the 2026-10-07 snapshot, schema 37):* `pnpm db:verify` passes (0 invalid, integrity ok); no workspace event of a `repository-*` or `project-repository-*` kind (0 of 6,573), no correlation column set, no `repository.*` audit record (0 of 6,033), the three registry tables empty.
+  - **Commit 1, the vocabulary (H6-1's envelope fields, H6-2).**
+    - *Domain:* the five registry kinds leave `WORKSPACE_EVENT_KINDS` and the event union; `repositoryId`, `repositoryInspectionId` and `repositoryBindingId` leave `WorkspaceEventBase` and every variant; the six `repository.*` actions leave `AUDIT_ACTIONS`; `repository.ts` (the registry's status vocabulary, used only by those kinds) and the three registry id brands are deleted.
+    - *Contracts:* the five event schemas, the three envelope fields, `repository.ts` (the display-name schema) and the three id schemas are deleted. An envelope carrying any of the three fields is rejected as an unknown key, as `strictObject` rejects any other.
+    - *Storage:* the mapper and the append no longer name the three columns or the five kinds; a stored row of a retired kind reads as `unknown-kind`. The append names only the columns every schema from 2 on has, so its schema-1-to-3 compatibility branch is gone. The `invalid-retirement-correlation` failure code went with the only kind that used it.
+    - *Web:* `ActivityPanel` and `event-invalidations` lose the five branches; tests that sent `repository-registered` as an unrelated event send `source-repository-registered`, which invalidates a subset of what it did.
+    - *ADR-013 amended:* a kind or action can leave the domain lists while its catalog row stays; the lists mirror the catalog's live part.
+    - *Tests (each failed before the change):* `workspace-events.test.ts` (domain: the exact vocabulary; the retired kinds are not kinds), `audit.test.ts` (contracts: the six actions are refused, `source-repository.register` accepted), `workspace-event.test.ts` (contracts: the five retired events as the contract accepted them are refused, and each of the three fields on every live kind), `repositories.test.ts` (storage: a stored `repository-registered` row fails closed with `unknown-kind`; it mapped before). The registry-only contract cases (B1-CON-001 to 012, B1-COR-012) and the binding invalidation case are removed with their kinds; `migration-0003` and `migration-0004` tests name the retired catalog rows they seed.
 
 ### R-I1
 

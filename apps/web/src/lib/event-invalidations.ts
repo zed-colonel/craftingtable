@@ -169,14 +169,8 @@ function pageKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'workspace-created':
     case 'workspace-updated':
       return [...snapshot, audit];
-    case 'repository-registered':
-    case 'repository-status-changed':
-    case 'repository-evidence-changed':
     case 'source-repository-registered':
       return [audit];
-    case 'project-repository-bound':
-    case 'project-repository-binding-retired':
-      return [project, audit];
     case 'project-created':
     case 'plan-version-imported':
       return [...summary, audit];
@@ -241,16 +235,7 @@ function panelKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'plan-version-imported':
       return [all('work-item', ws)];
     // A work item's view lists the workspace's repositories for its launch forms (R-D5).
-    case 'repository-registered':
-      return [repositories, checks, all('work-item', ws)];
-    // A repository's status shows in every slice that builds from it (4b review F2).
-    case 'repository-status-changed':
-      return [repositories, checks, policy, all('work-item', ws)];
-    case 'repository-evidence-changed':
-      return [repositories, checks, policy, all('work-item', ws)];
     case 'source-repository-registered':
-    case 'project-repository-bound':
-    case 'project-repository-binding-retired':
       return [repositories, all('work-item', ws)];
     // An item's admission, completion, evidence or merge changes its dependents' readiness,
     // slices and waits, and the event names only the item (4b review F2).
@@ -306,11 +291,6 @@ function roadmapAndPlanKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'workspace-updated':
     case 'project-created':
     case 'plan-version-imported':
-    case 'repository-registered':
-    case 'repository-status-changed':
-    case 'repository-evidence-changed':
-    case 'project-repository-bound':
-    case 'project-repository-binding-retired':
     case 'source-repository-registered':
       return [];
     case 'work-item-admitted':

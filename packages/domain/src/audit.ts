@@ -12,7 +12,9 @@ export type AuditOutcome = (typeof AUDIT_OUTCOMES)[number];
  * From schema 2 onward this list is mirrored by the migration-owned
  * `audit_action_kinds` catalog, which the `audit_events.action` foreign key
  * references. Adding an action here without seeding it in a migration makes
- * every insert of that action fail closed.
+ * every insert of that action fail closed. The catalog is append-only, so it
+ * also keeps the six retired CT-04A2 registry actions (`repository.*`, schema 3)
+ * that this list no longer names; no stored record uses them (R-H6, ADR-013).
  */
 export const AUDIT_ACTIONS = [
   'admin.bootstrap',
@@ -33,13 +35,6 @@ export const AUDIT_ACTIONS = [
   'work-item.admitted',
   'work-item.removed-from-agenda',
   'work-contract-draft.created',
-  /* CT-04A2a (schema 3). */
-  'repository.register',
-  'repository.inspect',
-  'repository.reaffirm',
-  'repository.retire',
-  'repository.bind-project',
-  'repository.unbind-project',
   /* Execution (schema 5). */
   'source-repository.register',
   'source-repository.retire',
@@ -101,12 +96,6 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'work-item.admitted': 2,
   'work-item.removed-from-agenda': 17,
   'work-contract-draft.created': 2,
-  'repository.register': 3,
-  'repository.inspect': 3,
-  'repository.reaffirm': 3,
-  'repository.retire': 3,
-  'repository.bind-project': 3,
-  'repository.unbind-project': 3,
   'source-repository.register': 5,
   'source-repository.retire': 5,
   'worktree.create': 5,
@@ -149,7 +138,6 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
     AuditAction,
     | 1
     | 2
-    | 3
     | 5
     | 6
     | 8

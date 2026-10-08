@@ -108,14 +108,27 @@ describe('migration 0003 repository model', () => {
     runMigrations(database, migrations.slice(0, 3));
     const rows = database
       .prepare(`SELECT action, introduced_in_schema FROM audit_action_kinds ORDER BY action`)
-      .all() as { action: (typeof AUDIT_ACTIONS)[number]; introduced_in_schema: 1 | 2 | 3 }[];
+      .all() as { action: string; introduced_in_schema: number }[];
+    // The six registry actions schema 3 seeded: retired from the domain by R-H6, still in the
+    // append-only catalog.
+    const retired = [
+      'repository.register',
+      'repository.inspect',
+      'repository.reaffirm',
+      'repository.retire',
+      'repository.bind-project',
+      'repository.unbind-project',
+    ].map((action) => ({ action, introduced_in_schema: 3 }));
     expect(rows).toEqual(
-      AUDIT_ACTIONS.filter((action) => AUDIT_ACTION_INTRODUCED_IN_SCHEMA[action] <= 3)
-        .map((action) => ({
-          action,
-          introduced_in_schema: AUDIT_ACTION_INTRODUCED_IN_SCHEMA[action],
-        }))
-        .toSorted((left, right) => left.action.localeCompare(right.action)),
+      [
+        ...AUDIT_ACTIONS.filter((action) => AUDIT_ACTION_INTRODUCED_IN_SCHEMA[action] <= 3).map(
+          (action) => ({
+            action: action as string,
+            introduced_in_schema: AUDIT_ACTION_INTRODUCED_IN_SCHEMA[action] as number,
+          }),
+        ),
+        ...retired,
+      ].toSorted((left, right) => left.action.localeCompare(right.action)),
     );
     database.close();
   });

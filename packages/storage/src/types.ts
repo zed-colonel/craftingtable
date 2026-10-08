@@ -129,8 +129,7 @@ export type WorkspaceEventMappingFailure =
   | 'unknown-kind'
   | 'invalid-json'
   | 'invalid-structural-correlations'
-  | 'payload-correlation-mismatch'
-  | 'invalid-retirement-correlation';
+  | 'payload-correlation-mismatch';
 
 export class WorkspaceEventMappingError extends Error {
   constructor(

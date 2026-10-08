@@ -113,7 +113,7 @@ it("re-reads a worktree's branch on worktree, branch, cycle and run events, not 
   fireEvent.click(screen.getByRole('button', { name: 'Check branch status' }));
   await waitFor(() => expect(loadWorktreeBranchStatus).toHaveBeenCalledTimes(1));
   await send('notifications-changed', { workspaceId: ws });
-  await send('repository-registered', { workspaceId: ws, repositoryId: 'repo-1' });
+  await send('source-repository-registered', { workspaceId: ws });
   await send('roadmap-changed', { workspaceId: ws, payload: { roadmapId: 'r' } });
   expect(loadWorktreeBranchStatus).toHaveBeenCalledTimes(1);
   await send('branches-changed', { workspaceId: ws });
@@ -151,7 +151,7 @@ it("re-reads a plan's branch settings, repositories and policy each on their own
   expect(loadPlanBranchSettings).toHaveBeenCalledTimes(2);
   expect(loadRepositoryPolicy).toHaveBeenCalledTimes(3);
   expect(loadRepositories).toHaveBeenCalledTimes(1);
-  await send('repository-registered', { workspaceId: ws, repositoryId: 'repo-2' });
+  await send('source-repository-registered', { workspaceId: ws });
   expect(loadRepositories).toHaveBeenCalledTimes(2);
   // Refresh branches reads all three now.
   fireEvent.click(screen.getByRole('button', { name: 'Refresh branches' }));

@@ -36,16 +36,6 @@ export function describeEvent(event: WorkspaceEventEnvelope): string {
           ? ''
           : ` (merged ${event.payload.mergeSha.slice(0, 10)})`
       }`;
-    case 'repository-registered':
-      return `Repository registered: ${event.payload.displayName}`;
-    case 'repository-status-changed':
-      return `Repository status changed from ${event.payload.fromStatus} to ${event.payload.toStatus}: ${event.payload.displayName}`;
-    case 'repository-evidence-changed':
-      return `Repository risk evidence changed: ${event.payload.displayName}`;
-    case 'project-repository-bound':
-      return `Repository bound to project: ${event.payload.repositoryDisplayName}`;
-    case 'project-repository-binding-retired':
-      return `Repository binding retired: ${event.payload.repositoryDisplayName}`;
     case 'source-repository-registered':
       return `Repository registered: ${event.payload.displayName} (${event.payload.rootPath})`;
     case 'worktree-created':

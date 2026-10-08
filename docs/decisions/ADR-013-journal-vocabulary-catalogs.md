@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-24
+- **Amended:** 2026-10-08 for retired vocabulary (R-H6)
 
 ## Context
 
@@ -107,6 +108,27 @@ A test or a defect could in principle insert directly into a catalog. Nothing in
 the application does — no repository method exists — but the catalogs are
 protected only against update and delete, not insert, because insert is exactly
 what future migrations need.
+
+## Amendment: retired vocabulary (2026-10-08, R-H6)
+
+The catalogs stay append-only, so a kind or action can leave the domain lists
+while its catalog row stays. The domain lists then mirror the catalog's live
+part, and the rest of the catalog is retired vocabulary:
+
+- The five CT-04A2 registry kinds (`repository-registered`,
+  `repository-status-changed`, `repository-evidence-changed`,
+  `project-repository-bound`, `project-repository-binding-retired`; schema 4)
+  and the six `repository.*` audit actions (schema 3) are retired (operator
+  decision H6-2, 2026-10-06). The registry that wrote them was removed by R-B8.
+  They are gone from `WORKSPACE_EVENT_KINDS`, `AUDIT_ACTIONS`, the contracts, the
+  storage mapper and the browser, and so are the envelope's `repositoryId`,
+  `repositoryInspectionId` and `repositoryBindingId` fields (H6-1).
+- No stored row used them: on a copy of the 2026-10-07 snapshot, none of 6,573
+  workspace events and none of 6,033 audit records.
+- A stored workspace event of a retired kind fails closed on read
+  (`unknown-kind`), and an audit record of a retired action fails its contract;
+  `pnpm db:verify` reports either.
+- A retired value is never registered again with another meaning.
 
 ## Alternatives considered
 

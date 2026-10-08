@@ -297,7 +297,7 @@ it("re-reads the target's prerequisites on its map's evidence and roadmap events
     workspaceId: ws,
     payload: { definitionId: '00000000-0000-4000-8000-000000000000', message: 'x' },
   });
-  await send('repository-registered', { workspaceId: ws, repositoryId: 'repo' });
+  await send('source-repository-registered', { workspaceId: ws });
   expect(previewCrossProject).toHaveBeenCalledTimes(1);
   await send('runtime-evidence-changed', {
     workspaceId: ws,

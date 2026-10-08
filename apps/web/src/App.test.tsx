@@ -638,7 +638,7 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
     });
     expect(notificationCalls.length).toBe(before);
     const callbacks = vi.mocked(useWorkspaceEventStream).mock.lastCall![2];
-    act(() => callbacks.onEvent(streamEvent(9, 'repository-registered', { repositoryId: 'repo' })));
+    act(() => callbacks.onEvent(streamEvent(9, 'source-repository-registered')));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });

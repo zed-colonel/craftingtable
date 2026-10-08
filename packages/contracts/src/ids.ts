@@ -10,9 +10,6 @@ import {
   type PlanImportDiagnosticId,
   type PlanVersionId,
   type ProjectId,
-  type ProjectRepositoryBindingId,
-  type RepositoryId,
-  type RepositoryInspectionId,
   type SessionId,
   type SourceRepositoryId,
   type UserId,
@@ -44,12 +41,6 @@ export const planImportAttemptIdSchema = idSchema<PlanImportAttemptId>('planImpo
 export const planArtifactIdSchema = idSchema<PlanArtifactId>('planArtifactId');
 export const planImportDiagnosticIdSchema =
   idSchema<PlanImportDiagnosticId>('planImportDiagnosticId');
-export const repositoryIdSchema = idSchema<RepositoryId>('repositoryId');
-export const repositoryInspectionIdSchema =
-  idSchema<RepositoryInspectionId>('repositoryInspectionId');
-export const projectRepositoryBindingIdSchema = idSchema<ProjectRepositoryBindingId>(
-  'projectRepositoryBindingId',
-);
 export const sourceRepositoryIdSchema = idSchema<SourceRepositoryId>('sourceRepositoryId');
 export const worktreeIdSchema = idSchema<WorktreeId>('worktreeId');
 export const agentRunEventIdSchema = idSchema<AgentRunEventId>('agentRunEventId');

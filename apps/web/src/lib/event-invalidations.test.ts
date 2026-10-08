@@ -70,8 +70,7 @@ it('makes no request for an event that changes nothing a mounted query shows (R-
   await vi.advanceTimersByTimeAsync(0);
   loads.mockClear();
   for (const unrelated of [
-    event('repository-registered', { repositoryId: 'repo' }),
-    event('repository-evidence-changed', { repositoryId: 'repo' }),
+    event('source-repository-registered'),
     event('workspace-updated'),
     event('project-created', { projectId: 'p' }),
   ])
@@ -141,9 +140,7 @@ it("narrows a work item's reads to the work item an event names, and reads them 
   );
   for (const kind of ['notifications-changed', 'workspace-updated', 'attention-changed'])
     expect(
-      invalidationsFor(event(kind, { repositoryId: 'repo', payload: {} })).some(
-        (key) => key[0] === 'work-item',
-      ),
+      invalidationsFor(event(kind, { payload: {} })).some((key) => key[0] === 'work-item'),
       kind,
     ).toBe(false);
 });
@@ -151,25 +148,16 @@ it("narrows a work item's reads to the work item an event names, and reads them 
 it("reads a work item's view again when a repository changes, since the view lists them (R-D5)", () => {
   const view = queryKeys.workItemView(ws, 'w1');
   const under = (prefix: readonly string[]) => prefix.every((part, index) => view[index] === part);
-  for (const kind of [
-    'repository-registered',
-    'repository-status-changed',
-    'repository-evidence-changed',
-    'source-repository-registered',
-    'project-repository-bound',
-    'project-repository-binding-retired',
-  ])
-    expect(
-      invalidationsFor(event(kind, { repositoryId: 'repo', projectId: 'p', payload: {} })).some(
-        (key) => under(key),
-      ),
-      kind,
-    ).toBe(true);
+  expect(
+    invalidationsFor(event('source-repository-registered', { payload: {} })).some((key) =>
+      under(key),
+    ),
+  ).toBe(true);
 });
 
 it('re-reads branches, repositories, checks and policy on the events that change them, and on nothing else', () => {
   const touches = (kind: string, family: string) =>
-    invalidationsFor(event(kind, { repositoryId: 'repo', workItemId: 'w1', payload: {} })).some(
+    invalidationsFor(event(kind, { workItemId: 'w1', payload: {} })).some(
       (key) => key[0] === family,
     );
   const rows: Record<string, readonly string[]> = {
@@ -181,28 +169,9 @@ it('re-reads branches, repositories, checks and policy on the events that change
       'work-cycle-changed',
       'agent-run-status-changed',
     ],
-    repositories: [
-      'repository-registered',
-      'repository-status-changed',
-      'repository-evidence-changed',
-      'source-repository-registered',
-      'project-repository-bound',
-      'project-repository-binding-retired',
-    ],
-    'repository-checks': [
-      'repository-registered',
-      'repository-status-changed',
-      'repository-evidence-changed',
-      'work-cycle-changed',
-      'agent-run-status-changed',
-      'worktree-merged',
-    ],
-    'repository-policy': [
-      'repository-status-changed',
-      'repository-evidence-changed',
-      'branches-changed',
-      'worktree-merged',
-    ],
+    repositories: ['source-repository-registered'],
+    'repository-checks': ['work-cycle-changed', 'agent-run-status-changed', 'worktree-merged'],
+    'repository-policy': ['branches-changed', 'worktree-merged'],
   };
   for (const [family, kinds] of Object.entries(rows))
     for (const kind of KINDS)
@@ -214,7 +183,6 @@ it("re-reads each page's data on the events that change it, and on nothing else"
   const touches = (kind: string, family: string) =>
     invalidationsFor(
       event(kind, {
-        repositoryId: 'repo',
         workItemId: 'w1',
         projectId: 'p1',
         runId: 'run-1',
@@ -257,7 +225,7 @@ it("re-reads each page's data on the events that change it, and on nothing else"
       'attention-changed',
     ],
     agenda: summary,
-    project: [...summary, 'project-repository-bound', 'project-repository-binding-retired'],
+    project: summary,
     cycles: [
       ...summary.filter((kind) => !['project-created', 'plan-version-imported'].includes(kind)),
       'runtime-evidence-changed',
@@ -323,32 +291,17 @@ it("reads every work item's data when a predecessor, repository or plan changes"
     'work-item-completed',
     'scope-evidence-recorded',
     'worktree-merged',
-    'repository-status-changed',
+    'source-repository-registered',
     'plan-version-imported',
   ])
-    expect(
-      invalidationsFor(event(kind, { workItemId: 'w1', repositoryId: 'repo', payload: {} })),
-      kind,
-    ).toEqual(expect.arrayContaining([['work-item', ws]]));
+    expect(invalidationsFor(event(kind, { workItemId: 'w1', payload: {} })), kind).toEqual(
+      expect.arrayContaining([['work-item', ws]]),
+    );
   // A run's or a cycle's own events still name only their item.
   for (const kind of ['agent-run-status-changed', 'work-cycle-changed'])
     expect(invalidationsFor(event(kind, { workItemId: 'w1', payload: {} })), kind).not.toEqual(
       expect.arrayContaining([['work-item', ws]]),
     );
-});
-
-// B1-UI-003/B1-UI-013 and A2B-JRN-007, carried from the projection's former stale scopes: a
-// binding event names its project structurally, and a payload that disagrees is never read.
-it("reads the project a binding event names structurally, never the payload's", () => {
-  const keys = invalidationsFor(
-    event('project-repository-bound', {
-      projectId: 'structural-project',
-      repositoryId: 'structural-repository',
-      payload: { projectId: 'payload-project', repositoryId: 'payload-repository' },
-    }),
-  );
-  expect(keys).toEqual(expect.arrayContaining([queryKeys.project(ws, 'structural-project')]));
-  expect(keys.some((key) => key.includes('payload-project'))).toBe(false);
 });
 
 it('reads a roadmap page again whenever its roadmap or its status list would be (R-D5)', () => {
@@ -361,8 +314,8 @@ it('reads a roadmap page again whenever its roadmap or its status list would be 
   expect(reads('agent-run-status-changed', { runId: 'run-1', payload: {} })).toBe(true);
   expect(reads('roadmap-changed', { payload: { roadmapId: 'r1' } })).toBe(true);
   expect(reads('work-cycle-changed', { workItemId: 'w1', payload: {} })).toBe(true);
-  for (const kind of ['notifications-changed', 'repository-registered', 'workspace-updated'])
-    expect(reads(kind, { repositoryId: 'repo', payload: {} }), kind).toBe(false);
+  for (const kind of ['notifications-changed', 'source-repository-registered', 'workspace-updated'])
+    expect(reads(kind, { payload: {} }), kind).toBe(false);
   // Every kind: read exactly when the roadmaps or a status list are.
   for (const kind of KINDS) {
     const keys = invalidationsFor(

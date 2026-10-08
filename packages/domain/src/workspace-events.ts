@@ -4,16 +4,12 @@ import type {
   EventId,
   PlanVersionId,
   ProjectId,
-  ProjectRepositoryBindingId,
-  RepositoryId,
-  RepositoryInspectionId,
   SourceRepositoryId,
   UserId,
   WorkItemId,
   WorkspaceId,
   WorktreeId,
 } from './ids.js';
-import type { RepositoryStatus, RepositoryStatusReason } from './repository.js';
 
 /**
  * Registered workspace-event kinds.
@@ -22,6 +18,11 @@ import type { RepositoryStatus, RepositoryStatusReason } from './repository.js';
  * `workspace_event_kinds` catalog, which the `workspace_events.kind` foreign
  * key references. A kind added here but not seeded in a migration fails closed
  * at insert time rather than producing an unreadable journal row.
+ *
+ * The catalog is append-only, so it also keeps the five retired CT-04A2 registry
+ * kinds (`repository-*`, `project-repository-*`, schema 4) that this list no
+ * longer names; no stored row uses them, and since schema 40 the journal refuses
+ * them (R-H6, ADR-013).
  *
  * Import deliberately appends *summary* events. Importing a 14-item plan
  * appends one `plan-version-imported`, not fourteen per-item events
@@ -34,12 +35,6 @@ export const WORKSPACE_EVENT_KINDS = [
   'plan-version-imported',
   'work-item-admitted',
   'work-item-removed-from-agenda',
-  /* CT-04A2b1 (schema 4). */
-  'repository-registered',
-  'repository-status-changed',
-  'repository-evidence-changed',
-  'project-repository-bound',
-  'project-repository-binding-retired',
   /* Execution (schema 5). */
   'source-repository-registered',
   'worktree-created',
@@ -68,11 +63,6 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'plan-version-imported': 2,
   'work-item-admitted': 2,
   'work-item-removed-from-agenda': 17,
-  'repository-registered': 4,
-  'repository-status-changed': 4,
-  'repository-evidence-changed': 4,
-  'project-repository-bound': 4,
-  'project-repository-binding-retired': 4,
   'source-repository-registered': 5,
   'worktree-created': 5,
   'worktree-removed': 5,
@@ -90,7 +80,7 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'runtime-evidence-changed': 20,
   'attention-changed': 32,
 } as const satisfies Readonly<
-  Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18 | 19 | 20 | 32>
+  Record<WorkspaceEventKind, 1 | 2 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18 | 19 | 20 | 32>
 >;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
@@ -113,17 +103,11 @@ export interface WorkspaceEventBase {
   readonly projectId?: ProjectId;
   readonly workItemId?: WorkItemId;
   readonly runId?: AgentRunId;
-  readonly repositoryId?: RepositoryId;
-  readonly repositoryInspectionId?: RepositoryInspectionId;
-  readonly repositoryBindingId?: ProjectRepositoryBindingId;
   readonly schemaVersion: 1;
 }
 
 export interface WorkspaceCreatedEvent extends WorkspaceEventBase {
   readonly kind: 'workspace-created';
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly name: string;
     readonly slug: string;
@@ -132,9 +116,6 @@ export interface WorkspaceCreatedEvent extends WorkspaceEventBase {
 
 export interface ProjectCreatedEvent extends WorkspaceEventBase {
   readonly kind: 'project-created';
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly projectId: ProjectId;
     readonly name: string;
@@ -143,9 +124,6 @@ export interface ProjectCreatedEvent extends WorkspaceEventBase {
 
 export interface PlanVersionImportedEvent extends WorkspaceEventBase {
   readonly kind: 'plan-version-imported';
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly projectId: ProjectId;
     readonly planVersionId: PlanVersionId;
@@ -159,9 +137,6 @@ export interface PlanVersionImportedEvent extends WorkspaceEventBase {
 
 export interface WorkItemAdmittedEvent extends WorkspaceEventBase {
   readonly kind: 'work-item-admitted';
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly projectId: ProjectId;
     readonly planVersionId: PlanVersionId;
@@ -174,110 +149,11 @@ export interface WorkItemRemovedFromAgendaEvent extends Omit<WorkItemAdmittedEve
   readonly kind: 'work-item-removed-from-agenda';
 }
 
-export interface RepositoryRegisteredEvent extends WorkspaceEventBase {
-  readonly kind: 'repository-registered';
-  readonly projectId?: never;
-  readonly workItemId?: never;
-  readonly runId?: never;
-  readonly repositoryId: RepositoryId;
-  readonly repositoryInspectionId: RepositoryInspectionId;
-  readonly repositoryBindingId?: never;
-  readonly payload: {
-    readonly repositoryId: RepositoryId;
-    readonly inspectionId: RepositoryInspectionId;
-    readonly displayName: string;
-    readonly status: 'active';
-    readonly statusReason: 'registration-accepted';
-    readonly version: 1;
-  };
-}
-
-export interface RepositoryStatusChangedEvent extends WorkspaceEventBase {
-  readonly kind: 'repository-status-changed';
-  readonly projectId?: never;
-  readonly workItemId?: never;
-  readonly runId?: never;
-  readonly repositoryId: RepositoryId;
-  readonly repositoryInspectionId?: RepositoryInspectionId;
-  readonly repositoryBindingId?: never;
-  readonly payload: {
-    readonly repositoryId: RepositoryId;
-    readonly inspectionId?: RepositoryInspectionId;
-    readonly displayName: string;
-    readonly fromStatus: RepositoryStatus;
-    readonly toStatus: RepositoryStatus;
-    readonly statusReason: RepositoryStatusReason;
-    readonly priorVersion: number;
-    readonly resultingVersion: number;
-  };
-}
-
-export interface RepositoryEvidenceChangedEvent extends WorkspaceEventBase {
-  readonly kind: 'repository-evidence-changed';
-  readonly projectId?: never;
-  readonly workItemId?: never;
-  readonly runId?: never;
-  readonly repositoryId: RepositoryId;
-  readonly repositoryInspectionId: RepositoryInspectionId;
-  readonly repositoryBindingId?: never;
-  readonly payload: {
-    readonly repositoryId: RepositoryId;
-    readonly inspectionId: RepositoryInspectionId;
-    readonly displayName: string;
-    readonly evidenceClass: 'risk-scan';
-    /** Repository version in effect after the committing transaction. */
-    readonly repositoryVersion: number;
-  };
-}
-
-export interface ProjectRepositoryBoundEvent extends WorkspaceEventBase {
-  readonly kind: 'project-repository-bound';
-  readonly projectId: ProjectId;
-  readonly workItemId?: never;
-  readonly runId?: never;
-  readonly repositoryId: RepositoryId;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId: ProjectRepositoryBindingId;
-  readonly payload: {
-    readonly projectId: ProjectId;
-    readonly repositoryId: RepositoryId;
-    readonly bindingId: ProjectRepositoryBindingId;
-    readonly repositoryDisplayName: string;
-    readonly bindingVersion: 1;
-  };
-}
-
-export interface ProjectRepositoryBindingRetiredEvent extends WorkspaceEventBase {
-  readonly kind: 'project-repository-binding-retired';
-  readonly projectId: ProjectId;
-  readonly workItemId?: never;
-  readonly runId?: never;
-  readonly repositoryId: RepositoryId;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId: ProjectRepositoryBindingId;
-  readonly payload: {
-    readonly projectId: ProjectId;
-    readonly repositoryId: RepositoryId;
-    readonly bindingId: ProjectRepositoryBindingId;
-    readonly repositoryDisplayName: string;
-    readonly priorVersion: number;
-    readonly resultingVersion: number;
-  };
-}
-
-/**
- * Execution events carry only the pre-existing structural correlations
- * (`projectId`, `workItemId`, `runId`); repository-registry correlations stay
- * null for them, as the schema-4 structural CHECK requires of later kinds.
- */
 export interface SourceRepositoryRegisteredEvent extends WorkspaceEventBase {
   readonly kind: 'source-repository-registered';
   readonly projectId?: never;
   readonly workItemId?: never;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly sourceRepositoryId: SourceRepositoryId;
     readonly displayName: string;
@@ -291,9 +167,6 @@ export interface WorktreeCreatedEvent extends WorkspaceEventBase {
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly planVersionId?: PlanVersionId;
     readonly worktreeId: WorktreeId;
@@ -309,9 +182,6 @@ export interface WorktreeRemovedEvent extends WorkspaceEventBase {
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly planVersionId?: PlanVersionId;
     readonly worktreeId: WorktreeId;
@@ -325,9 +195,6 @@ export interface AgentRunStartedEvent extends WorkspaceEventBase {
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
   readonly runId: AgentRunId;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly planVersionId?: PlanVersionId;
     readonly runId: AgentRunId;
@@ -343,9 +210,6 @@ export interface AgentRunStatusChangedEvent extends WorkspaceEventBase {
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
   readonly runId: AgentRunId;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly planVersionId?: PlanVersionId;
     readonly runId: AgentRunId;
@@ -360,9 +224,6 @@ export interface WorkspaceUpdatedEvent extends WorkspaceEventBase {
   readonly projectId?: never;
   readonly workItemId?: never;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly name: string;
     readonly priorVersion: number;
@@ -375,9 +236,6 @@ export interface WorkItemCompletedEvent extends WorkspaceEventBase {
   readonly projectId: ProjectId;
   readonly workItemId: WorkItemId;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly projectId: ProjectId;
     readonly workItemId: WorkItemId;
@@ -392,9 +250,6 @@ export interface WorktreeMergedEvent extends WorkspaceEventBase {
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly planVersionId?: PlanVersionId;
     readonly worktreeId: WorktreeId;
@@ -410,9 +265,6 @@ export interface WorkCycleChangedEvent extends WorkspaceEventBase {
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly planVersionId?: PlanVersionId;
     readonly cycleId: string;
@@ -427,9 +279,6 @@ export interface BranchesChangedEvent extends WorkspaceEventBase {
   readonly projectId: ProjectId;
   readonly workItemId?: never;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly planVersionId: PlanVersionId;
     readonly action: 'configured' | 'retargeted' | 'update-requested' | 'updated';
@@ -442,9 +291,6 @@ export interface AttentionChangedEvent extends WorkspaceEventBase {
   readonly projectId?: never;
   readonly workItemId?: never;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: { readonly open: number };
 }
 
@@ -453,9 +299,6 @@ export interface NotificationsChangedEvent extends WorkspaceEventBase {
   readonly projectId?: never;
   readonly workItemId?: never;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: { readonly action: 'settings' | 'attention' | 'delivery' | 'test' };
 }
 
@@ -464,9 +307,6 @@ export interface RoadmapChangedEvent extends WorkspaceEventBase {
   readonly projectId?: never;
   readonly workItemId?: never;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly roadmapId: string;
     readonly status: import('./roadmap.js').RoadmapStatus;
@@ -478,9 +318,6 @@ export interface ScopeEvidenceRecordedEvent extends WorkspaceEventBase {
   readonly projectId?: never;
   readonly workItemId?: never;
   readonly runId?: never;
-  readonly repositoryId?: never;
-  readonly repositoryInspectionId?: never;
-  readonly repositoryBindingId?: never;
   readonly payload: {
     readonly workItemId: WorkItemId;
     readonly worktreeId: WorktreeId;
@@ -512,11 +349,6 @@ export type WorkspaceEvent =
   | PlanVersionImportedEvent
   | WorkItemAdmittedEvent
   | WorkItemRemovedFromAgendaEvent
-  | RepositoryRegisteredEvent
-  | RepositoryStatusChangedEvent
-  | RepositoryEvidenceChangedEvent
-  | ProjectRepositoryBoundEvent
-  | ProjectRepositoryBindingRetiredEvent
   | SourceRepositoryRegisteredEvent
   | WorktreeCreatedEvent
   | WorktreeRemovedEvent

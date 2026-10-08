@@ -1,11 +1,13 @@
 import {
   asAuditEventId,
   asEventId,
-  asRepositoryId,
-  asRepositoryInspectionId,
+  asProjectId,
+  asSourceRepositoryId,
   asUserId,
+  asWorkItemId,
   asWorkspaceId,
   asWorkspaceMembershipId,
+  asWorktreeId,
 } from '@craftingtable/domain';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -65,10 +67,6 @@ function seed(temporary: TemporaryStorage, suffix = '1') {
   });
   return { userId, workspaceId };
 }
-
-/** Retired repository-registry ids: the journal still maps their kinds (R-B8). */
-const REPOSITORY_ID = asRepositoryId('repository-journal');
-const INSPECTION_ID = asRepositoryInspectionId('inspection-journal');
 
 function rawDatabase(temporary: TemporaryStorage): Database.Database {
   const database = new Database(temporary.databasePath);
@@ -199,29 +197,31 @@ describe('repositories', () => {
     }
   });
 
-  it('B1-STO-009 rejects direct-SQL payload disagreement and retirement mismatch on read', () => {
+  it('fails closed on a stored row of a retired registry kind (R-H6)', () => {
     const temporary = temporaryStorage();
     temporaries.push(temporary);
-    const graph = seed(temporary, 'poison');
+    const graph = seed(temporary, 'retired');
     const database = rawDatabase(temporary);
-    // The registry rows these correlations named are gone; only the journal mapping remains.
+    // The registry rows its correlations named never existed; its catalog row stays.
     database.pragma('foreign_keys = OFF');
     database
       .prepare(
         `INSERT INTO workspace_events (
            id, schema_version, occurred_at, workspace_id, repository_id,
            repository_inspection_id, kind, payload_json)
-         VALUES (?, 1, ?, ?, ?, ?, 'repository-registered', ?)`,
+         VALUES (?, 1, ?, ?, 'repository-journal', 'inspection-journal', 'repository-registered', ?)`,
       )
       .run(
-        'payload-mismatch',
+        'retired-kind',
         '2026-07-29T00:00:01.000Z',
         graph.workspaceId,
-        REPOSITORY_ID,
-        INSPECTION_ID,
         JSON.stringify({
-          repositoryId: asRepositoryId('repository-different'),
-          inspectionId: INSPECTION_ID,
+          repositoryId: 'repository-journal',
+          inspectionId: 'inspection-journal',
+          displayName: 'Retired',
+          status: 'active',
+          statusReason: 'registration-accepted',
+          version: 1,
         }),
       );
     database.close();
@@ -232,48 +232,7 @@ describe('repositories', () => {
         limit: 20,
       }),
     ).toThrow(
-      expect.objectContaining<Partial<WorkspaceEventMappingError>>({
-        failure: 'payload-correlation-mismatch',
-      }),
-    );
-
-    const retirementTemporary = temporaryStorage();
-    temporaries.push(retirementTemporary);
-    const retirementGraph = seed(retirementTemporary, 'retirement-poison');
-    const retirementDatabase = rawDatabase(retirementTemporary);
-    retirementDatabase.pragma('foreign_keys = OFF');
-    retirementDatabase
-      .prepare(
-        `INSERT INTO workspace_events (
-           id, schema_version, occurred_at, workspace_id, repository_id, kind, payload_json)
-         VALUES (?, 1, ?, ?, ?, 'repository-status-changed', ?)`,
-      )
-      .run(
-        'retirement-mismatch',
-        '2026-07-29T00:00:01.000Z',
-        retirementGraph.workspaceId,
-        REPOSITORY_ID,
-        JSON.stringify({
-          repositoryId: REPOSITORY_ID,
-          displayName: 'Retirement poison',
-          fromStatus: 'unavailable',
-          toStatus: 'active',
-          statusReason: 'evidence-matches',
-          priorVersion: 1,
-          resultingVersion: 2,
-        }),
-      );
-    retirementDatabase.close();
-    expect(() =>
-      retirementTemporary.storage.workspaceEvents.listRecentAtOrBefore({
-        workspaceId: retirementGraph.workspaceId,
-        asOfSequence: 100,
-        limit: 20,
-      }),
-    ).toThrow(
-      expect.objectContaining<Partial<WorkspaceEventMappingError>>({
-        failure: 'invalid-retirement-correlation',
-      }),
+      expect.objectContaining<Partial<WorkspaceEventMappingError>>({ failure: 'unknown-kind' }),
     );
   });
 
@@ -288,16 +247,15 @@ describe('repositories', () => {
         id: asEventId('append-mismatch'),
         occurredAt: '2026-07-29T00:00:01.000Z',
         workspaceId: graph.workspaceId,
-        repositoryId: REPOSITORY_ID,
-        repositoryInspectionId: INSPECTION_ID,
-        kind: 'repository-registered',
+        projectId: asProjectId('project-append-mismatch'),
+        workItemId: asWorkItemId('item-structural'),
+        kind: 'worktree-created',
         payload: {
-          repositoryId: asRepositoryId('repository-other'),
-          inspectionId: INSPECTION_ID,
-          displayName: 'Mismatch',
-          status: 'active',
-          statusReason: 'registration-accepted',
-          version: 1,
+          worktreeId: asWorktreeId('worktree-append-mismatch'),
+          sourceRepositoryId: asSourceRepositoryId('repository-append-mismatch'),
+          workItemId: asWorkItemId('item-in-payload'),
+          branchName: 'ct/append-mismatch',
+          baseSha: '0123456789abcdef0123456789abcdef01234567',
         },
       }),
     ).toThrow(

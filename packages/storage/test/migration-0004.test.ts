@@ -357,13 +357,25 @@ describe('migration 0004 repository journal', () => {
     const rows = database
       .prepare(`SELECT kind, introduced_in_schema FROM workspace_event_kinds ORDER BY kind`)
       .all();
+    // The five registry kinds schema 4 seeded: retired from the domain by R-H6, still in the
+    // append-only catalog.
+    const retired = [
+      'repository-registered',
+      'repository-status-changed',
+      'repository-evidence-changed',
+      'project-repository-bound',
+      'project-repository-binding-retired',
+    ].map((kind) => ({ kind, introduced_in_schema: 4 }));
     expect(rows).toEqual(
-      WORKSPACE_EVENT_KINDS.filter((kind) => WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA[kind] <= 4)
-        .map((kind) => ({
-          kind,
-          introduced_in_schema: WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA[kind],
-        }))
-        .toSorted((left, right) => left.kind.localeCompare(right.kind)),
+      [
+        ...WORKSPACE_EVENT_KINDS.filter(
+          (kind) => WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA[kind] <= 4,
+        ).map((kind) => ({
+          kind: kind as string,
+          introduced_in_schema: WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA[kind] as number,
+        })),
+        ...retired,
+      ].toSorted((left, right) => left.kind.localeCompare(right.kind)),
     );
     expect(database.pragma('foreign_key_check')).toEqual([]);
     expect(database.pragma('integrity_check', { simple: true })).toBe('ok');

@@ -444,7 +444,7 @@ it('re-reads the roadmaps on their events, once for every view that lists them, 
   render(wrap(<RoadmapsPage workspaceId={ws} csrfToken="csrf" canMutate />));
   await screen.findByRole('region', { name: 'Active roadmaps' });
   const reads = vi.mocked(loadRoadmaps).mock.calls.length;
-  await send('repository-registered', { workspaceId: ws, repositoryId: 'repo' });
+  await send('source-repository-registered', { workspaceId: ws });
   await send('agent-run-status-changed', { workspaceId: ws, payload: { runId: 'run' } });
   expect(loadRoadmaps).toHaveBeenCalledTimes(reads);
   await send('roadmap-changed', { workspaceId: ws, payload: { roadmapId: 'r-active' } });

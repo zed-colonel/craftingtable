@@ -10,7 +10,6 @@ export * from './imports.js';
 export * from './merge-operation.js';
 export * from './notification.js';
 export * from './planning.js';
-export * from './repository.js';
 export * from './review.js';
 export * from './roadmap.js';
 export * from './cross-project.js';

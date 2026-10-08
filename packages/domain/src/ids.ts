@@ -25,9 +25,6 @@ export type PlanImportDiagnosticId = Brand<'PlanImportDiagnosticId'>;
 export type WorkItemDependencyId = Brand<'WorkItemDependencyId'>;
 
 /* CT-04A2 repository registry identifiers. */
-export type RepositoryId = Brand<'RepositoryId'>;
-export type RepositoryInspectionId = Brand<'RepositoryInspectionId'>;
-export type ProjectRepositoryBindingId = Brand<'ProjectRepositoryBindingId'>;
 
 /* Execution identifiers: repositories, worktrees, runs, run events. */
 export type SourceRepositoryId = Brand<'SourceRepositoryId'>;
@@ -63,11 +60,6 @@ export const asPlanImportAttemptId = idFactory<PlanImportAttemptId>('PlanImportA
 export const asPlanArtifactId = idFactory<PlanArtifactId>('PlanArtifactId');
 export const asPlanImportDiagnosticId = idFactory<PlanImportDiagnosticId>('PlanImportDiagnosticId');
 export const asWorkItemDependencyId = idFactory<WorkItemDependencyId>('WorkItemDependencyId');
-export const asRepositoryId = idFactory<RepositoryId>('RepositoryId');
-export const asRepositoryInspectionId = idFactory<RepositoryInspectionId>('RepositoryInspectionId');
-export const asProjectRepositoryBindingId = idFactory<ProjectRepositoryBindingId>(
-  'ProjectRepositoryBindingId',
-);
 export const asSourceRepositoryId = idFactory<SourceRepositoryId>('SourceRepositoryId');
 export const asWorktreeId = idFactory<WorktreeId>('WorktreeId');
 export const asAgentRunEventId = idFactory<AgentRunEventId>('AgentRunEventId');

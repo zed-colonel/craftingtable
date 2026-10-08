@@ -30,7 +30,7 @@ it('re-reads delivery status on notification and attention events, and no others
   render(wrap(<NotificationPanel workspaceId={asWorkspaceId('ws')} csrfToken="csrf" />));
   expect(await screen.findByText('No notifications yet.')).toBeTruthy();
   expect(loadNotifications).toHaveBeenCalledTimes(1);
-  await send('repository-registered', { workspaceId: 'ws', repositoryId: 'repo' });
+  await send('source-repository-registered', { workspaceId: 'ws' });
   await send('roadmap-changed', { workspaceId: 'ws', payload: { roadmapId: 'r' } });
   expect(loadNotifications).toHaveBeenCalledTimes(1);
   await send('notifications-changed', { workspaceId: 'ws', payload: { action: 'delivery' } });

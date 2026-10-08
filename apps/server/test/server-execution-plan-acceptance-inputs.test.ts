@@ -507,12 +507,36 @@ it('carries the acceptance when the operator refreshes the implemented-upstream 
 // consumer takes is part of the pins input, so dropping one re-opens acceptance though the pin
 // stays.
 it('re-opens acceptance when a consumer stops taking an implemented upstream', async () => {
-  const { first, accepted, configure, generate } = await providerPlan();
-  await configure((c) => c);
+  const { f, first, accepted, configure, generate } = await providerPlan();
+  // Without a session, so no carry hides the re-opening (OD1).
+  const system = { user: f.auth.user } as typeof f.auth;
+  await configure((c) => c, system);
   expect(accepted()?.id).toBe(first.id);
-  await configure(() => ({ upstreams: [] }));
+  await configure(() => ({ upstreams: [] }), system);
   expect(accepted()).toBeUndefined();
   expect((await generate()).generatedPlan).toMatchObject({ changedInputs: ['upstreamPins'] });
+});
+
+// Decided by the operator 2026-10-08 (R-C6 review OD1): the advanced dependency setup is the
+// operator's own command too, so it carries like the reviewed refresh; without a session it
+// never does.
+it('carries the acceptance through advanced dependency setup, never without a session', async () => {
+  const { f, first, carried, decisionOf, accepted, configure, storage, ws, id } =
+    await providerPlan();
+  const before = storage.runtimeEvidence.submissions(ws, id).length;
+  await configure((c) => c, { user: f.auth.user } as typeof f.auth);
+  expect(accepted()?.id).toBe(first.id);
+  // The local consumer stops taking the implemented upstream; the pin stays.
+  await configure(() => ({ upstreams: [] }), { user: f.auth.user } as typeof f.auth);
+  expect(accepted()).toBeUndefined();
+  expect(storage.runtimeEvidence.submissions(ws, id)).toHaveLength(before);
+  await configure((c) => ({ upstreams: [...c.upstreams, 'provider'] }));
+  expect(accepted()?.id).toBe(first.id);
+  await configure(() => ({ upstreams: [] }));
+  const { plan, decision, audit } = carried();
+  expect(plan.generatedPlan).toMatchObject({ changedInputs: ['upstreamPins'] });
+  expect(decision.carriedFrom).toBe(decisionOf(first.id)!.id);
+  expect(audit?.metadata).toMatchObject({ command: 'dependency environment save' });
 });
 
 // Done-when (d) and D2: a new binding never carries, and nothing without an operator's

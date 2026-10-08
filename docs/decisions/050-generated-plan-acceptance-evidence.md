@@ -46,7 +46,8 @@ last own review; for a carried one, those changed since the acceptance it carrie
 original rule, so nothing re-opens when this ships; an older release cannot read a v2 record.
 
 **Carry-forward.** A re-generation caused by the operator's own authenticated command, a
-roadmap save, a reviewed dependency refresh, approving a clause-level decision or an adoption,
+roadmap save (including its limits), a dependency refresh or advanced dependency setup
+(operator, 2026-10-08), a host capacity save, approving a clause-level decision or an adoption,
 is accepted as that operator in the command's transaction. The decision records `carriedFrom`,
 the prior decision; it is audited as `evidence.decided` with the prior decision and the changed
 inputs, and raises no inbox item, since the checkpoint never stops being accepted. It carries

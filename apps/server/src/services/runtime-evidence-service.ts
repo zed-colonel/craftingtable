@@ -922,15 +922,19 @@ export class RuntimeEvidenceService {
         tx.runtimeEvidence.addGeneration(generation);
         queueRuntimeReviews(tx, context, generation, impact.reviews, at);
       };
-      // The operator's reviewed refresh carries a plan acceptance it re-opens (R-C6 D2).
-      if (refresh)
-        carryPlanAcceptance(
-          tx,
-          context,
-          { workspaceId: ws, definitionId: id, command: 'dependency refresh', at },
-          save,
-        );
-      else save();
+      // The operator's reviewed refresh, and the advanced setup too (decided by the operator
+      // 2026-10-08, R-C6 review OD1), carry a plan acceptance they re-open (R-C6 D2).
+      carryPlanAcceptance(
+        tx,
+        context,
+        {
+          workspaceId: ws,
+          definitionId: id,
+          command: refresh ? 'dependency refresh' : 'dependency environment save',
+          at,
+        },
+        save,
+      );
       this.changed(
         tx,
         context,

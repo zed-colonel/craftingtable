@@ -218,7 +218,12 @@ function gitLayout() {
   writeFileSync(join(common, 'config'), '');
   writeFileSync(join(own, 'commondir'), '../..\n');
   writeFileSync(join(own, 'gitdir'), `${join(root, 'wt-1', '.git')}\n`);
-  return { root, common, own, gitDirectories: { gitDirectory: own, gitCommonDirectory: common } };
+  return {
+    root,
+    common,
+    own,
+    gitDirectories: { gitDirectory: own, gitCommonDirectory: common, worktreeConfig: false },
+  };
 }
 
 it("lets a sandboxed run's commands commit, through Git's objects, refs and logs and its own Git directory only (R-G14, operator decisions 2026-10-08)", () => {
@@ -270,6 +275,22 @@ it("lets a sandboxed run's commands commit, through Git's objects, refs and logs
           }),
         ),
       ).not.toContain(git.common);
+  } finally {
+    rmSync(git.root, { recursive: true, force: true });
+  }
+});
+
+it('grants no Git at all for a repository that enables per-worktree configuration (R-G14, operator decision 2026-10-08)', () => {
+  const git = gitLayout();
+  try {
+    const { profile } = profileOf({
+      cwd: '/work/x',
+      prompt: 'Go',
+      permissionMode: 'auto',
+      outsideSources: [],
+      gitDirectories: { ...git.gitDirectories, worktreeConfig: true },
+    });
+    expect((profile as { filesystem: Record<string, string> }).filesystem).toEqual({});
   } finally {
     rmSync(git.root, { recursive: true, force: true });
   }

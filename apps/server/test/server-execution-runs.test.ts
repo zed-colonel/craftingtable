@@ -585,7 +585,7 @@ describe('agent runs', () => {
     ]);
   });
 
-  it('gives no Git directories to a run in a repository that enables per-worktree configuration (R-G14, operator decision 2026-10-08)', async () => {
+  it("says when a run's repository enables per-worktree configuration (R-G14, operator decision 2026-10-08)", async () => {
     const state = await ready();
     const repository = fixtureRepository();
     // `config.worktree` in a run's Git directory would then be read as configuration, and an
@@ -600,7 +600,8 @@ describe('agent runs', () => {
     });
     expect(started.statusCode, started.body).toBe(200);
     expect(state.backend.launches[0]?.cwd).toBe(worktree.path);
-    expect(state.backend.launches[0]).not.toHaveProperty('gitDirectories');
+    // The daemon read it from the repository's own configuration; the adapters act on it.
+    expect(state.backend.launches[0]?.gitDirectories?.worktreeConfig).toBe(true);
   });
 
   it('starts a run with a composed brief, streams events, accepts follow-ups, and finishes', async () => {
@@ -660,6 +661,7 @@ describe('agent runs', () => {
     expect(launch?.gitDirectories).toEqual({
       gitDirectory: join(common, 'worktrees', basename(worktree.path)),
       gitCommonDirectory: common,
+      worktreeConfig: false,
     });
     // With no outside sources file, the one source is cargo, fetching into the daemon's own
     // Cargo home (R-G14).

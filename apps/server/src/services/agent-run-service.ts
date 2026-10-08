@@ -589,14 +589,17 @@ export class AgentRunService {
       });
       return {};
     }
-    // A repository that reads per-worktree configuration gets no Git grant (operator decision
-    // 2026-10-08): a run could create its `config.worktree`.
-    if (
-      gitExecutable &&
-      repositoryEnablesWorktreeConfig(gitExecutable, resolved.gitCommonDirectory)
-    )
-      return {};
-    return { gitDirectories: resolved };
+    // Whether the repository reads per-worktree configuration, from its own configuration
+    // (operator decision 2026-10-08): Codex then gets no Git grant, as a run could create its
+    // `config.worktree`.
+    return {
+      gitDirectories: {
+        ...resolved,
+        worktreeConfig:
+          gitExecutable === undefined ||
+          repositoryEnablesWorktreeConfig(gitExecutable, resolved.gitCommonDirectory),
+      },
+    };
   }
 
   hasBackend(kind: AgentBackendKind): boolean {

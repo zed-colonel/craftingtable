@@ -79,10 +79,16 @@ export interface AgentLaunchRequest {
   readonly outsideSources?: readonly OutsideSource[];
   /**
    * The worktree's Git directories, resolved by the daemon before launch (R-G14, operator
-   * decision 2026-10-08), so a sandboxed command can stage and commit. Adapters whose sandbox
-   * needs them grant them, never the common directory's `config`, `hooks` or `info`.
+   * decisions 2026-10-08), so a sandboxed command can stage and commit while the files that say
+   * where the repository and its configuration are stay read-only. `worktreeConfig`: the
+   * repository's own configuration enables `extensions.worktreeConfig`, so Git would read a
+   * run's `config.worktree`; Codex then gets no Git grant.
    */
-  readonly gitDirectories?: { readonly gitDirectory: string; readonly gitCommonDirectory: string };
+  readonly gitDirectories?: {
+    readonly gitDirectory: string;
+    readonly gitCommonDirectory: string;
+    readonly worktreeConfig: boolean;
+  };
   /** Where the run's launchers are; the daemon puts them on `pathPrefix`. */
   readonly buildEnvironment?: { readonly binDirectory: string; readonly namespace?: string };
   /**

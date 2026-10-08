@@ -53,11 +53,12 @@ function codexPermissionProfile(request: AgentLaunchRequest): Record<string, unk
  * `packed-refs` and other worktrees' entries stay read-only, existing or not, without a rule for
  * a path that does not exist: Codex 0.160.0 masks such a path as a file, at most one per sandbox,
  * and not at all under a read-only directory. Where a path that must stay read-only is missing,
- * nothing of Git is granted.
+ * nothing of Git is granted, and so for a repository that enables `extensions.worktreeConfig`
+ * (Git would read the run's `config.worktree`, which this cannot keep from being created).
  */
 function codexGitAccess(request: AgentLaunchRequest): [string, string][] {
   const git = request.gitDirectories;
-  if (git === undefined) return [];
+  if (git === undefined || git.worktreeConfig) return [];
   const common = git.gitCommonDirectory;
   const readOnly = [
     join(common, 'objects', 'info'),

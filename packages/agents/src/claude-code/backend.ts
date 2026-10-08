@@ -11,7 +11,7 @@ import {
   type AgentSessionItem,
 } from '../index.js';
 import { agentEnvironment } from '../child-environment.js';
-import { spawnSupervisedProcess } from '../process.js';
+import { backgroundWorkAllowance, spawnSupervisedProcess } from '../process.js';
 import {
   claudeCodeArguments,
   claudeSandboxed,
@@ -129,6 +129,11 @@ export class ClaudeCodeBackend implements AgentBackend {
         new AgentLaunchError('invalid-request', 'Launch requires an absolute cwd and a prompt'),
       );
     }
+    const allowance = backgroundWorkAllowance(request.deadlineAt, 30 * 60_000);
+    if (allowance === undefined)
+      return Promise.reject(
+        new AgentLaunchError('invalid-request', 'The run deadline is not a valid time'),
+      );
     const normalizer = new ClaudeStreamNormalizer({
       permissionMode: request.permissionMode,
       cwd: request.cwd,
@@ -172,9 +177,7 @@ export class ClaudeCodeBackend implements AgentBackend {
         env,
         terminationGraceMs: this.options.terminationGraceMs ?? 5000,
         maxLineBytes: MAX_LINE_BYTES,
-        ...(request.deadlineAt
-          ? { backgroundWorkDeadlineMs: Date.parse(request.deadlineAt) }
-          : { backgroundWorkTimeoutMs: 30 * 60_000 }),
+        ...allowance,
       });
     } catch (error) {
       return Promise.reject(

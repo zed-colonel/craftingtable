@@ -18,8 +18,12 @@ export interface SupervisedProcessOptions {
   readonly terminationGraceMs: number;
   /** Longest single stdout line accepted before it is dropped with a marker. */
   readonly maxLineBytes: number;
-  /** Keep the session reserved while its process group drains after the agent exits. */
-  readonly backgroundWorkDeadlineMs?: number;
+  /**
+   * When the step's time runs out, in epoch milliseconds: the session stays reserved while its
+   * process group drains after the agent exits, until then. A launch refuses one that is not a
+   * finite time, which would never expire (AGT-16).
+   */
+  readonly backgroundWorkDeadlineAt?: number;
   /** Standalone drain allowance measured from the agent exit, not launch. */
   readonly backgroundWorkTimeoutMs?: number;
 }
@@ -45,14 +49,26 @@ export interface SupervisedProcess {
   terminate(): void;
 }
 
+/** Buffered stdout items above which the child's stdout is paused until the consumer drains. */
+export const STDOUT_HIGH_WATER_ITEMS = 1000;
+
 /**
  * Minimal async queue: producers push, one consumer iterates. Closing the
- * queue after the final item lets `for await` complete naturally.
+ * queue after the final item lets `for await` complete naturally. `onDrained`
+ * runs whenever the consumer takes the last buffered item, so a producer that
+ * paused at a high-water mark can resume.
  */
 export class AsyncQueue<T> implements AsyncIterable<T> {
   private readonly buffered: T[] = [];
   private waiter: ((value: IteratorResult<T>) => void) | undefined;
   private closed = false;
+
+  constructor(private readonly onDrained?: () => void) {}
+
+  /** Items pushed and not yet taken by the consumer. */
+  get size(): number {
+    return this.buffered.length;
+  }
 
   push(item: T): void {
     if (this.closed) return;
@@ -79,6 +95,7 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
       next: () => {
         const item = this.buffered.shift();
         if (item !== undefined) {
+          if (this.buffered.length === 0) this.onDrained?.();
           return Promise.resolve({ value: item, done: false });
         }
         if (this.closed) {
@@ -132,8 +149,35 @@ function hasGroupWork(pid: number | undefined): boolean {
   }
 }
 
+/**
+ * How long a session's process group may drain after the agent exits: until the step's
+ * deadline when it has one, else a standalone allowance. `undefined` for a deadline that is
+ * not a time, which an adapter refuses at launch.
+ */
+export function backgroundWorkAllowance(
+  deadlineAt: string | undefined,
+  standaloneMs: number,
+):
+  | Pick<SupervisedProcessOptions, 'backgroundWorkDeadlineAt' | 'backgroundWorkTimeoutMs'>
+  | undefined {
+  if (!deadlineAt) return { backgroundWorkTimeoutMs: standaloneMs };
+  const at = Date.parse(deadlineAt);
+  return Number.isFinite(at) ? { backgroundWorkDeadlineAt: at } : undefined;
+}
+
 export function spawnSupervisedProcess(options: SupervisedProcessOptions): SupervisedProcess {
-  const queue = new AsyncQueue<SupervisedProcessItem>();
+  if (
+    options.backgroundWorkDeadlineAt !== undefined &&
+    !Number.isFinite(options.backgroundWorkDeadlineAt)
+  )
+    throw new Error('The background-work deadline is not a finite time');
+  // A consumer that lags holds stdout back instead of buffering without bound (AGT-16).
+  let paused = false;
+  const queue = new AsyncQueue<SupervisedProcessItem>(() => {
+    if (!paused) return;
+    paused = false;
+    child.stdout?.resume();
+  });
   const child = spawn(options.executable, [...options.args], {
     cwd: options.cwd,
     env: options.env,
@@ -144,42 +188,57 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
   });
 
   let lineBuffer = '';
+  /** The partial line's bytes, counted as its pieces arrive (AGT-16). */
+  let lineBytes = 0;
   let dropping = false;
   let droppedBytes = 0;
+  const pushStdout = (item: SupervisedProcessItem) => {
+    queue.push(item);
+    if (!paused && queue.size >= STDOUT_HIGH_WATER_ITEMS) {
+      paused = true;
+      child.stdout?.pause();
+    }
+  };
   child.stdout?.setEncoding('utf8');
   child.stdout?.on('data', (chunk: string) => {
     let data = chunk;
     while (data.length > 0) {
       const newline = data.indexOf('\n');
       if (newline === -1) {
+        const bytes = Buffer.byteLength(data, 'utf8');
         if (dropping) {
-          droppedBytes += Buffer.byteLength(data, 'utf8');
+          droppedBytes += bytes;
         } else {
           lineBuffer += data;
-          if (Buffer.byteLength(lineBuffer, 'utf8') > options.maxLineBytes) {
+          lineBytes += bytes;
+          if (lineBytes > options.maxLineBytes) {
             dropping = true;
-            droppedBytes = Buffer.byteLength(lineBuffer, 'utf8');
+            droppedBytes = lineBytes;
             lineBuffer = '';
+            lineBytes = 0;
           }
         }
         return;
       }
       const segment = data.slice(0, newline);
       data = data.slice(newline + 1);
+      const segmentBytes = Buffer.byteLength(segment, 'utf8');
       if (dropping) {
-        droppedBytes += Buffer.byteLength(segment, 'utf8');
-        queue.push({ type: 'stdout-overflow', bytes: droppedBytes });
+        droppedBytes += segmentBytes;
+        pushStdout({ type: 'stdout-overflow', bytes: droppedBytes });
         dropping = false;
         droppedBytes = 0;
         continue;
       }
       const line = lineBuffer + segment;
+      const bytes = lineBytes + segmentBytes;
       lineBuffer = '';
-      if (Buffer.byteLength(line, 'utf8') > options.maxLineBytes) {
-        queue.push({ type: 'stdout-overflow', bytes: Buffer.byteLength(line, 'utf8') });
+      lineBytes = 0;
+      if (bytes > options.maxLineBytes) {
+        pushStdout({ type: 'stdout-overflow', bytes });
         continue;
       }
-      queue.push({ type: 'stdout-line', line });
+      pushStdout({ type: 'stdout-line', line });
     }
   });
   child.stderr?.setEncoding('utf8');
@@ -198,7 +257,7 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
   let finished = false;
   let backgroundWorkIncomplete = false;
   let backgroundWorkTimedOut = false;
-  let drainDeadline = options.backgroundWorkDeadlineMs;
+  let drainDeadline = options.backgroundWorkDeadlineAt;
 
   const terminate = () => {
     if (finished || terminating) return;
@@ -231,6 +290,7 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
     if (lineBuffer.length > 0) {
       queue.push({ type: 'stdout-line', line: lineBuffer });
       lineBuffer = '';
+      lineBytes = 0;
     }
     queue.push({
       type: 'exited',

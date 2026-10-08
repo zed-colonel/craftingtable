@@ -77,7 +77,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
 | [R-G9](#r-g9) | P2 | M | done | Authentication and authorization hardening |
 | [R-G10](#r-g10) | P3 | M | in progress | Git adapter robustness and structure |
-| [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
+| [R-G11](#r-g11) | P3 | S-M | partial (see Progress) | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | [R-G13](#r-g13) | P2 | M | partial (increments 1, 2, 3 and 5; 4 open until a plan-bundle or non-Rust repository joins a roadmap) | Declared per-repository checks |
 | [R-G14](#r-g14) | P3 | S-M | partial | Operator-configured outside sources for agent sandboxes |
@@ -3107,7 +3107,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G11
 
-**Supervisor loose ends** · Phase P3 · Effort S-M · Status: open
+**Supervisor loose ends** · Phase P3 · Effort S-M · Status: partial (see Progress)
 
 - **Resolves:** [AGT-02](findings/AGT-GIT-SEC-agents-git-security.md#agt-02-restart-recovery-relies-entirely-on-systemd-no-process-identity-is-persisted), [AGT-16](findings/AGT-GIT-SEC-agents-git-security.md#agt-16-smaller-supervisor-defects), [AGT-17](findings/AGT-GIT-SEC-agents-git-security.md#agt-17-documentation-drift-in-the-agent-seam), [AGT-62](findings/AGT-GIT-SEC-agents-git-security.md#agt-62-claude-background-task-notifications-create-streams-of-invalid-review-turns-and-status-churn)
 - **Change:** Persist process identity for restart recovery; fix the smaller supervisor defects; stop Claude background-task notifications from producing invalid review turns; update agent seam docs.
@@ -3123,6 +3123,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Change, as separate commits:* (1) `process.ts`: a non-finite deadline refused at launch (`backgroundWorkDeadlineAt`), stdout paused above a high-water mark (about 1000 items) and resumed once drained, line bytes counted as they arrive; (2) `packages/agents/src/stderr-journal.ts`, used by both adapters, batching into events of at most 8 KiB under the budget, while the adapters' own scanners still see raw chunks; (3) the Claude normalizer holds intermediate results (pending tracked tasks and no untracked ones); error results and runs with untracked tasks are unchanged; no daemon change; (4) `processGroupIdentity` and `reapProcessGroup` in `process.ts` (all `/proc` access and signalling stay in the process authority), the identity written right after launch, and `recoverInterrupted` made async and awaited in `createServices`; (5) the `AgentPermissionMode` comment and this entry.
   - *Left out:* the `runtime.close()` race with a launch already past the drain check (at most an orphan run directory) stays with R-B9/R-I7.
   - **Done when:** (i) restart recovery terminates a still-running recorded group before marking its run interrupted, and journals it; a recorded identity whose pid now belongs to another process (another start time or boot) is left alone; (ii) a Claude stream with N task-notification results and then the collected result yields exactly one `turn-completed`, the run never returns to `waiting` in between, and a review is assessed once; (iii) an exit with uncollected work still records the last result as the step's turn; (iv) a non-finite deadline is refused; (v) stderr beyond the budget yields bounded events and one notice in both backends; (vi) a lagging consumer pauses stdout.
+- **Progress 2026-10-07 (P3 wave 1, branch `p3/rg11`).**
+  - *Commit 1, `process.ts` (AGT-16 a, c, e):* the drain deadline is `backgroundWorkDeadlineAt`, and both adapters refuse a `deadlineAt` that is not a time as `invalid-request` before anything starts (`backgroundWorkAllowance`); `spawnSupervisedProcess` refuses a non-finite one too. Stdout is paused once 1000 items wait for the consumer and resumed when it has taken them all. A partial line's bytes are counted as its pieces arrive. Tests: `packages/agents/test/process.test.ts` (a real `/bin/sh` writer that blocks while the consumer lags; done-when iv and vi).
 
 ### R-G12
 

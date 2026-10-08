@@ -6,7 +6,12 @@ import type {
   AgentSessionItem,
   NormalizedAgentEvent,
 } from '../index.js';
-import { AsyncQueue, type SupervisedProcess, spawnSupervisedProcess } from '../process.js';
+import {
+  AsyncQueue,
+  backgroundWorkAllowance,
+  type SupervisedProcess,
+  spawnSupervisedProcess,
+} from '../process.js';
 import { codexThreadParams, codexTurnParams } from './arguments.js';
 import { agentEnvironment } from '../child-environment.js';
 import type { CodexBackendOptions } from './backend.js';
@@ -30,6 +35,9 @@ export function codexEnvironment(
 }
 import { CodexStreamNormalizer } from './normalize.js';
 import { CodexRpc, CodexRpcError } from './rpc.js';
+
+/** How long the app-server's process group may drain after it exits, without a deadline. */
+export const CODEX_DRAIN_MS = 30 * 60_000;
 
 /** Variables through which Codex can send an API key instead of the ChatGPT login. */
 const CODEX_API_KEY_VARIABLES = ['OPENAI_API_KEY', 'CODEX_API_KEY'] as const;
@@ -73,9 +81,8 @@ export class CodexSession implements AgentSession {
       args: ['app-server', '--stdio', ...isolation],
       cwd: request.cwd,
       env: codexEnvironment(options, request),
-      ...(request.deadlineAt
-        ? { backgroundWorkDeadlineMs: Date.parse(request.deadlineAt) }
-        : { backgroundWorkTimeoutMs: 30 * 60_000 }),
+      // The backend refused a deadline that is not a time before this session was made.
+      ...backgroundWorkAllowance(request.deadlineAt, CODEX_DRAIN_MS),
       terminationGraceMs: options.terminationGraceMs ?? 5000,
       maxLineBytes: 4 * 1024 * 1024,
     });

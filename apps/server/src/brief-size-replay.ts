@@ -154,7 +154,10 @@ function parseActive(text: string): ActiveReview | undefined {
       text,
     );
   if (!head) return undefined;
-  const checkpoint = /Independently assess checkpoint (\S+?)\./.exec(text)?.[1];
+  // The id as the attestation shape quotes it; an id may contain periods.
+  const checkpoint =
+    /Add checkpoint:\{id:"([^"]+)"/.exec(text)?.[1] ??
+    /Independently assess checkpoint (\S+?)\.(?:\s|$)/.exec(text)?.[1];
   const claims = /Required claims: (\[.*?\])\. Required cases: (\[.*?\])\./.exec(text);
   return {
     kind: head[1] as NonNullable<ActiveReview>['kind'],
@@ -450,6 +453,7 @@ function rebuildInput(storage: CraftingTableStorage, row: RunRow): BriefInput {
               status: finding.status,
               title: finding.title,
             })),
+            exitGate: assessment.report.exitGate,
           }
         : assessment
           ? { reportIssues: assessment.issues }

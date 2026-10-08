@@ -19,7 +19,7 @@ export function reviewInstructions(context: OutputContext): RoleInstructions {
       'Compare this branch with its base revision, read the changed code and its tests, and run the repository-required checks on this exact branch, combined integration changes included; record commands and results in exitGate.evidence and say whether the work meets the exit gate.',
       ...(scope
         ? [
-            `${scope.identity.kind === 'slice' ? 'This slice review approves its scope’s integration, never its parent.' : 'This parent-acceptance review independently assesses the full original exit gate and retained source-plan obligations.'} Never claim that missing verification or outside-scope obligations passed.`,
+            `${scope.identity.kind === 'parent-acceptance' ? 'This parent-acceptance review independently assesses the full original exit gate and retained source-plan obligations.' : 'This slice review approves its scope, never its parent.'} Never claim that missing verification or outside-scope obligations passed.`,
           ]
         : []),
     ].join(' '),

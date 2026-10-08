@@ -13,6 +13,8 @@ export interface BriefParentRun {
   readonly finalMessage: string;
   /** A review parent's findings, from its valid structured report. */
   readonly findings?: readonly BriefFinding[];
+  /** That report's exit gate: a gate not met is the review's finding too, findings or not. */
+  readonly exitGate?: { readonly met: boolean; readonly evidence: string };
   /** Why a review parent's report is not a valid structured report, when it is not. */
   readonly reportIssues?: readonly string[];
   /** Paths the message cites under the runs root that no longer exist (AGT-57). */
@@ -32,6 +34,8 @@ const SUMMARY_BYTES = 1200;
 /** How many open findings a digest lists, and how long a title it keeps. */
 const LISTED_FINDINGS = 40;
 const TITLE_CHARACTERS = 200;
+/** How much of a review's evidence for an unmet exit gate a digest gives. */
+const GATE_BYTES = 600;
 /** How many different handoff warnings the brief repeats; the manifest has them all. */
 const LISTED_WARNINGS = 3;
 
@@ -43,17 +47,24 @@ export function citedRunPaths(text: string, runsRoot: string): string[] {
   const root = runsRoot.replace(/\/+$/, '');
   const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const paths = [...text.matchAll(new RegExp(`${escaped}(?:/[^\\s\`'"()<>\\[\\]]*)?`, 'g'))]
-    .map((match) => match[0].replace(/[.,;:]+$/, ''))
+    // A trailing `:line` or `:line:column` and sentence punctuation are not part of the path.
+    .map((match) =>
+      match[0]
+        .replace(/(?::\d+)+$/, '')
+        .replace(/[.,;:]+$/, '')
+        .replace(/(?::\d+)+$/, ''),
+    )
     .filter((path) => path.length > root.length);
   return [...new Set(paths)];
 }
 
 function markExpired(text: string, expired: readonly string[] | undefined): string {
-  let marked = text;
-  // Longest first, so a path is never marked inside a longer one.
-  for (const path of [...(expired ?? [])].sort((a, b) => b.length - a.length))
-    marked = marked.split(path).join(`[expired: ${path}]`);
-  return marked;
+  if (!expired?.length) return text;
+  // One pass, longest first, so a path is never marked inside a longer one or twice.
+  const alternatives = [...expired]
+    .sort((a, b) => b.length - a.length)
+    .map((path) => path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return text.replace(new RegExp(alternatives.join('|'), 'g'), (path) => `[expired: ${path}]`);
 }
 
 /**
@@ -105,6 +116,17 @@ function quotedOpening(message: string, expired: readonly string[] | undefined):
     .join('\n');
 }
 
+/** Text cut to a byte bound at a word, with an ellipsis when cut. */
+function bounded(text: string, limit: number): string {
+  const trimmed = text.trim().replace(/\s+/g, ' ');
+  if (Buffer.byteLength(trimmed) <= limit) return trimmed;
+  const cut = Buffer.from(trimmed)
+    .subarray(0, limit)
+    .toString('utf8')
+    .replace(/\uFFFD$/, '');
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), limit / 2)).trimEnd()}…`;
+}
+
 /** A message whole, inside a fence longer than any it contains (an accepted design, G6-2). */
 function fenced(message: string, expired: readonly string[] | undefined): string {
   const text = markExpired(message.trim(), expired);
@@ -114,18 +136,13 @@ function fenced(message: string, expired: readonly string[] | undefined): string
 }
 
 /** A review's findings as a digest: the open ones by id, severity and title; the closed by id. */
-function findingsDigest(
-  parent: BriefParentRun,
-  findings: readonly BriefFinding[],
-  at: (path: string) => string,
-): string {
+function findingsDigest(parent: BriefParentRun, findings: readonly BriefFinding[]): string {
   const open = findings.filter((finding) => finding.status === 'open');
   const closed = findings.filter((finding) => finding.status !== 'open');
   const title = (text: string) =>
     text.length > TITLE_CHARACTERS ? `${text.slice(0, TITLE_CHARACTERS)}…` : text;
-  const where = parent.handoff
-    ? `; its full findings, with explanations and recommendations, are in ${parent.handoff.reportPath ? `\`${at(parent.handoff.reportPath)}\`` : 'its review report'}`
-    : '';
+  // The files to read name the report; it holds each finding's explanation and recommendation.
+  const where = parent.handoff?.reportPath ? ' (each explained in its review report)' : '';
   return markExpired(
     [
       `The review's report has ${open.length} open ${open.length === 1 ? 'finding' : 'findings'}${where}.`,
@@ -137,8 +154,15 @@ function findingsDigest(
         : []),
       ...(closed.length
         ? [
-            `Closed in that report: ${closed.map((finding) => `${finding.id} (${finding.status})`).join(', ')}.`,
+            `Closed in that report: ${['resolved', 'withdrawn']
+              .map((status) => [status, closed.filter((f) => f.status === status)] as const)
+              .filter(([, group]) => group.length)
+              .map(([status, group]) => `${group.map((f) => f.id).join(', ')} (${status})`)
+              .join('; ')}.`,
           ]
+        : []),
+      ...(parent.exitGate && !parent.exitGate.met
+        ? [`Its exit gate is not met: ${bounded(parent.exitGate.evidence, GATE_BYTES)}`]
         : []),
     ].join('\n'),
     parent.expiredPaths,
@@ -147,7 +171,7 @@ function findingsDigest(
 
 /** The digest of a parent's final message: its findings, or a quoted opening (G6-2). */
 function digest(parent: BriefParentRun, at: (path: string) => string): string {
-  if (parent.findings) return findingsDigest(parent, parent.findings, at);
+  if (parent.findings) return findingsDigest(parent, parent.findings);
   const where = parent.handoff ? `\`${at(parent.handoff.finalMessagePath)}\`` : 'the handoff';
   const lead =
     parent.role === 'review'

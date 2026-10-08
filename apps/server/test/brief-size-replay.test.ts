@@ -137,3 +137,25 @@ it('rebuilds a stored brief from its own inputs with the current code (R-G6, G6-
   expect(after).toContain('One fenced `craftingtable-workflow` block');
   expect(after).toContain('`plan/craftingtable-rules.md`');
 });
+
+it("rebuilds a checkpoint review's workflow rules with its checkpoint's whole id (R-G6 review)", () => {
+  const storage = {
+    execution: { worktrees: { find: () => undefined } },
+  } as unknown as CraftingTableStorage;
+  const checkpoint = stored.replace(
+    '{"checkpoints":[{"id":"AQ-G1","accepted":false}]}\n',
+    '{"checkpoints":[{"id":"AQ-11.CP-2","accepted":false}]}\nThis is a separate checkpoint review. Source run: r0. Responsibilities: maintainer. Read the full lineage and verify the exact candidate without source edits. Independently assess checkpoint AQ-11.CP-2. Add checkpoint:{id:"AQ-11.CP-2",passed:boolean} to the workflow report. Required claims: ["Claim one."]. Required cases: ["C-1"]. Never infer a passing case from eligibility or a plan hash.\n',
+  );
+  const after = rebuildBrief(storage, {
+    id: 'r1',
+    workspace_id: 'w1',
+    role: 'review',
+    brief: checkpoint,
+    worktree_id: 't1',
+    work_item_id: 'i1',
+    parent_run_id: null,
+  });
+  expect(after).toContain('Independently assess checkpoint AQ-11.CP-2 and attest it');
+  expect(after).toContain('Required claims: ["Claim one."]. Required cases: ["C-1"].');
+  expect(after).toContain('Add checkpoint:{id:"AQ-11.CP-2",passed:boolean');
+});

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -622,6 +623,23 @@ describe('agent runs', () => {
     expect(launch?.prompt).toContain(
       `CARGO_TARGET_DIR points to ${launch?.buildCacheDirectory}, this worktree’s build cache`,
     );
+  });
+
+  it("names Cargo's build directory for a Cargo manifest one directory down too (R-G6 review)", async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    mkdirSync(join(worktree.path, 'rust'));
+    writeFileSync(join(worktree.path, 'rust', 'Cargo.toml'), '[package]\nname = "fixture"\n');
+    git(['add', 'rust/Cargo.toml'], worktree.path);
+    git(['commit', '-q', '-m', 'Build with Cargo below the root'], worktree.path);
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, role: 'implement' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    expect(state.backend.launches[0]?.prompt).toContain('CARGO_TARGET_DIR points to');
   });
 
   it('starts a run with a composed brief, streams events, accepts follow-ups, and finishes', async () => {

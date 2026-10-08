@@ -403,6 +403,26 @@ ${lines.join('\n')}
 A check counts for the gate only when it succeeded on the clean reviewed head. Read a failed check's output, and report it as a finding when the change caused it.
 `;
 }
+/**
+ * Whether a worktree builds with Cargo, for its brief (R-F2 part 6, AGT-55): a `Cargo.toml` at
+ * its root or in a directory just below it (`rust/Cargo.toml`), outside hidden directories and
+ * build output.
+ */
+function buildsWithCargo(worktree: string): boolean {
+  if (existsSync(join(worktree, 'Cargo.toml'))) return true;
+  try {
+    return readdirSync(worktree, { withFileTypes: true }).some(
+      (entry) =>
+        entry.isDirectory() &&
+        !entry.name.startsWith('.') &&
+        entry.name !== 'node_modules' &&
+        entry.name !== 'target' &&
+        existsSync(join(worktree, entry.name, 'Cargo.toml')),
+    );
+  } catch {
+    return false;
+  }
+}
 /** How much of a failed check's log a reviewer is given. */
 const DECLARED_LOG_TAIL_BYTES = 64 * 1024;
 
@@ -1739,9 +1759,7 @@ export class AgentRunService {
         temporaryDirectory,
         ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
         // A pinned environment is Cargo's; otherwise the worktree's own manifest says (AGT-55).
-        ...(pinned || existsSync(join(prepared.worktree.path, 'Cargo.toml'))
-          ? { cargo: true }
-          : {}),
+        ...(pinned || buildsWithCargo(prepared.worktree.path) ? { cargo: true } : {}),
         ...(pinned || checksOnly || historical
           ? {
               environment: {
@@ -1846,6 +1864,7 @@ export class AgentRunService {
                         status: finding.status,
                         title: finding.title,
                       })),
+                      exitGate: parentAssessment.report.exitGate,
                     }
                   : parentAssessment
                     ? { reportIssues: parentAssessment.issues }

@@ -290,7 +290,7 @@ describe('composeBrief build environment (R-F2 part 6, AGT-55)', () => {
 
   it('says nothing of Cargo in a worktree that does not build with it', () => {
     const brief = composeBrief(briefInput({ temporaryDirectory: '/runs/r1/scratch' }));
-    expect(brief).toContain('TMPDIR, TMP, and TEMP point to `/runs/r1/scratch/`');
+    expect(brief).toContain('TMPDIR, TMP, and TEMP point to `/runs/r1/scratch`');
     expect(brief).not.toContain('CARGO_TARGET_DIR');
     expect(brief).not.toContain('Cargo');
   });
@@ -449,7 +449,7 @@ describe('composeBrief skeleton: the task first (R-G6, AGT-50, AGT-58)', () => {
   it('gives paths in the run directory relative to it, once it is named', () => {
     const brief = full({ runDirectory: '/runs/r1' });
     expect(brief).toContain('Your run directory is `/runs/r1`; paths below');
-    expect(brief).toContain('TMPDIR, TMP, and TEMP point to `scratch/`');
+    expect(brief).toContain('TMPDIR, TMP, and TEMP point to `/runs/r1/scratch`');
     expect(brief).toContain('read-only in `plan/`');
     expect(brief).toContain(
       "- `plan/craftingtable-scope-evidence.json`: this scope's readiness and evidence",
@@ -562,7 +562,8 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
     )[1]!;
     expect(section).toContain('- F-001 (major): Restart drops a job');
     expect(section).toContain('Closed in that report: F-002 (resolved)');
-    expect(section).toContain('`/runs/r2/handoff/0000-review.json`');
+    expect(section).toContain('(each explained in its review report)');
+    expect(brief).toContain('its review report `/runs/r2/handoff/0000-review.json`');
     // Not the message itself: its prose, its headings and its verdict line stay in the handoff.
     expect(brief).not.toContain('The queue drops a job on restart.');
     expect(brief).not.toContain('VERDICT: changes-requested');
@@ -667,6 +668,11 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
         '/runs',
       ),
     ).toEqual(['/runs/r0/scratch/a.md', '/runs/r1/plan/b.json', '/runs/r9']);
+    // A line or column after a path is not part of it, so an existing file is not expired.
+    expect(citedRunPaths('At /runs/r0/a.rs:12 and /runs/r0/b.rs:3:7.', '/runs')).toEqual([
+      '/runs/r0/a.rs',
+      '/runs/r0/b.rs',
+    ]);
   });
 
   it('names the handoff files once, and collapses repeated warnings', () => {
@@ -864,4 +870,96 @@ describe('composeBrief size per role (R-G6, G6-5)', () => {
       expect(goalShare(brief)).toBeGreaterThanOrEqual(0.1);
     },
   );
+});
+
+describe('composeBrief: code review fixes (R-G6)', () => {
+  const scope = (kind: 'slice' | 'slice-verification' | 'parent-acceptance') =>
+    composeBrief(
+      briefInput({
+        role: 'review',
+        executionScope: {
+          identity: {
+            kind,
+            definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+            bindingRevision: 1,
+            sourceId: kind === 'parent-acceptance' ? 'wi/WI-1' : 'wi/WI-1/domain',
+          },
+          title: 'Domain',
+          scope: 'Build the domain.',
+          excludes: [],
+          requirements: ['Build the domain.'],
+          cases: [],
+        },
+      }),
+    );
+
+  it("tells a slice's verification review it judges the slice, never the parent's exit gate", () => {
+    const verification = scope('slice-verification');
+    expect(verification).toContain('the verification of a slice of AQ-01');
+    expect(verification).toContain('never its parent');
+    expect(verification).not.toContain('full original exit gate');
+    expect(scope('parent-acceptance')).toContain('the acceptance of AQ-01');
+    expect(scope('parent-acceptance')).toContain('full original exit gate');
+    expect(scope('slice')).toContain('a slice of AQ-01');
+  });
+
+  it('says a pinned current-upstream build is required before merge or acceptance', () => {
+    const brief = composeBrief(
+      briefInput({
+        cargo: true,
+        environment: {
+          pinned: {
+            manifestPath: '/runs/r1/dependencies/manifest.json',
+            binDirectory: '/runs/r1/dependencies/bin',
+            verification: { mode: 'current-upstream-build', reason: 'Integration scope.' },
+            dependencies: [],
+            adoptedChecks: false,
+            declaredChecks: '',
+            kata: false,
+          },
+        },
+      }),
+    );
+    expect(brief).toContain('required before merge/acceptance');
+  });
+
+  it("gives a remediation the review's exit gate when it was not met, even with no open finding", () => {
+    const brief = composeBrief(
+      briefInput({
+        parentRun: {
+          role: 'review',
+          verdict: 'changes-requested',
+          finalMessage: 'x',
+          findings: [],
+          exitGate: { met: false, evidence: 'The queue tests fail on restart.' },
+        },
+      }),
+    );
+    expect(brief).toContain("The review's report has 0 open findings");
+    expect(brief).toContain('Its exit gate is not met: The queue tests fail on restart.');
+  });
+
+  it('marks an expired path once even when another expired path begins with it', () => {
+    const brief = composeBrief(
+      briefInput({
+        role: 'review',
+        parentRun: {
+          role: 'implement',
+          finalMessage: 'See /runs/A/scratch/review and /runs/A/scratch/review/report.md.',
+          expiredPaths: ['/runs/A/scratch/review', '/runs/A/scratch/review/report.md'],
+        },
+      }),
+    );
+    expect(brief).toContain(
+      'See [expired: /runs/A/scratch/review] and [expired: /runs/A/scratch/review/report.md].',
+    );
+  });
+
+  it('gives TMPDIR as an absolute path and says the relative paths are not in the worktree', () => {
+    const brief = composeBrief(
+      briefInput({ runDirectory: '/runs/r1', temporaryDirectory: '/runs/r1/scratch' }),
+    );
+    expect(brief).toContain('TMPDIR, TMP, and TEMP point to `/runs/r1/scratch`');
+    expect(brief).toContain('are inside it, never in the worktree');
+  });
 });

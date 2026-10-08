@@ -285,7 +285,7 @@ function goalSection(input: BriefInput): string {
   const lines: string[] = ['## Goal and acceptance', ''];
   if (s) {
     lines.push(
-      `This run covers only ${s.identity.sourceId}, ${s.identity.kind === 'slice' ? 'a slice' : 'the acceptance'} of ${workItem.sourceId}.`,
+      `This run covers only ${s.identity.sourceId}, ${s.identity.kind === 'slice' ? 'a slice' : s.identity.kind === 'slice-verification' ? 'the verification of a slice' : 'the acceptance'} of ${workItem.sourceId}.`,
       `Scope: ${s.scope}`,
       ...(s.excludes.length ? ['Not in scope:', ...s.excludes.map((e) => `- ${e}`)] : []),
       'Evidence required:',
@@ -316,7 +316,6 @@ function goalSection(input: BriefInput): string {
 /** Part 2 (AGT-50): the worktree, its branches, its predecessors and the run's scratch. */
 function whereSection(input: BriefInput): string {
   const { worktree } = input;
-  const at = relativeTo(input.runDirectory);
   const paragraphs = [
     `You are in a dedicated Git worktree at \`${worktree.path}\` on branch \`${worktree.branchName}\`, created from \`${worktree.baseBranch}\` at \`${worktree.baseSha}\`: the only place you may change files (the primary checkout and other worktrees are off limits).${worktree.integrationBranch === undefined ? '' : ` Integration destination: ${worktree.integrationBranch}, into which only the daemon merges, under the operator’s approval or recorded integration policy.`}`,
   ];
@@ -334,11 +333,11 @@ function whereSection(input: BriefInput): string {
     );
   if (input.runDirectory)
     paragraphs.push(
-      `Your run directory is \`${input.runDirectory}\`; paths below that do not begin with / are relative to it.`,
+      `Your run directory is \`${input.runDirectory}\`; paths below that do not begin with / are inside it, never in the worktree.`,
     );
   if (input.temporaryDirectory)
     paragraphs.push(
-      `Temporary files: TMPDIR, TMP, and TEMP point to \`${at(input.temporaryDirectory)}/\`, outside the worktree. Do not redirect temporary files to the worktree root or commit test artifacts; verification logs and reports go in scratch/verification or scratch/review (other scratch may expire), their results in your final message.${
+      `Temporary files: TMPDIR, TMP, and TEMP point to \`${input.temporaryDirectory}\`. Do not redirect temporary files to the worktree root or commit test artifacts; verification logs and reports go in scratch/verification or scratch/review (other scratch may expire), their results in your final message.${
         !input.cargo
           ? ''
           : input.buildCacheDirectory
@@ -516,7 +515,7 @@ function upstreamSources(dependencies: readonly BriefUpstreamSource[]): string {
   if (!dependencies.length) return 'Upstream sources: none supplied for this scope.';
   const line = (d: BriefUpstreamSource) =>
     `- ${d.alias}: ${d.purpose === 'current-upstream' ? 'current pin' : 'historical development source'} ${d.commitSha.slice(0, 12)}${d.transition ? ` (moves to the current pin at ${d.transition.slice}${d.transition.recordId ? `, declared by operator record ${d.transition.recordId}` : ', declared in the map'})` : ''}`;
-  return `Upstream sources, chosen per link by the roadmap's declared transitions:\n${dependencies.map(line).join('\n')}\nBuild against exactly these sources; never revert a link on its current pin to a historical version.`;
+  return `Upstream sources, as the roadmap's declared transitions chose them:\n${dependencies.map(line).join('\n')}\nBuild against exactly these sources${dependencies.some((d) => d.purpose === 'current-upstream') ? '; never revert a link on its current pin to a historical version' : ''}.`;
 }
 
 /**
@@ -549,9 +548,7 @@ function environmentSection(
         `Use the controller Cargo launcher ${at(bin)}/cargo for Cargo checks (also supplied on PATH); builds and checks run without network, so run cargo fetch first when dependencies must be downloaded. Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses, and the launcher's other Cargo commands use the manifest's (the run’s scratch/target), whatever CARGO_TARGET_DIR says; that is expected, and receipts do not depend on it. Do not edit the manifest or override the build directory (--target-dir or CARGO_TARGET_DIR) for them.`,
         scoped
           ? `${pinned.adoptedChecks ? 'The adopted checks below are required on the exact clean reviewed commit' : 'A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required'}, with independent evidence for EVERY scope obligation.`
-          : pinned.adoptedChecks
-            ? 'The Cargo build/test receipt the policy requires is needed before merge/acceptance, with the adopted checks below.'
-            : '',
+          : `That build/test receipt is required before merge/acceptance${pinned.adoptedChecks ? ', with the adopted checks below' : ''}; other ct-check and ct-act logs never replace it.`,
         `${pinned.declaredChecks}Local CI: ${pinned.localCiImage ? `configured with image ${pinned.localCiImage}.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'}`,
       ]
         .filter(Boolean)
@@ -567,7 +564,7 @@ function environmentSection(
       'Checks with no upstream packages (independent foundation or contract manifests) use the same launcher and ct-check, with no config bypass; their receipts cannot satisfy the current-upstream build requirement.',
       scoped
         ? 'ct-check -- <executable> <arguments> retains repository-owned contract, inventory, fixture or domain test evidence; ct-act -W .github/workflows/<file>.yml -j <job> runs GitHub Actions locally, as supplemental CI, not the scoped check. Historical dependency commits are development inputs only: do not port upstream code or align to current pins beyond the links supplied as current pins to satisfy this slice. Document known baseline failures separately; new scope checks must pass.'
-        : 'Other ct-check and ct-act logs supplement but never replace the Cargo build/test receipt. Align constraints only within the approved integration scope.',
+        : 'Align constraints only within the approved integration scope.',
       ...(pinned.localCiImage
         ? [
             'Local CI workflows get CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR, with every supplied path mounted, and pass the config explicitly (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...). Run the jobs a scope needs, not the legacy whole-runtime workflow.',

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -324,7 +325,8 @@ it("keeps the stored roots off the outside sources' caches and the settings file
     reopen({ ...s.context.config, configDir: join(stored.roots.worktreeRoot.path, 'settings') }),
   ).toThrow(/outside-sources\.json .*worktree root/);
 });
-it('refuses a start with earlier worktrees, run files or backups in a cache, or holding the settings file (R-G14 stray review)', async () => {
+/** A run fixture whose storage can be given earlier placements, and reopened (R-G14). */
+async function placementFixture() {
   const s = await runFixture();
   const { context } = s;
   const { config, storage } = context;
@@ -338,10 +340,6 @@ it('refuses a start with earlier worktrees, run files or backups in a cache, or 
         { ...config, configDir: settingsIn },
         context.services.workspaceService,
       );
-  expect(reopen()).not.toThrow();
-  // Each was placed at an earlier storage setting, before the check existed; the stored roots
-  // have moved on since, yet agents still write there.
-  const earlier = join(config.dataDir, 'earlier');
   const now = new Date().toISOString();
   const owner = {
     workspaceId: s.workspaceId,
@@ -362,23 +360,6 @@ it('refuses a start with earlier worktrees, run files or backups in a cache, or 
         path,
       }),
     );
-  worktree('earlier', join(earlier, 'tree'));
-  expect(reopen()).not.toThrow();
-  expect(reopen(join(earlier, 'tree', '.craftingtable'))).toThrow(
-    /outside-sources\.json .*active worktree/,
-  );
-  worktree('cached', join(cache, 'tree'));
-  expect(reopen()).toThrow(/cache .* must not overlap the active worktree .*registry\/tree/);
-  storage.execution.worktrees.markRemoved({
-    workspaceId: s.workspaceId,
-    worktreeId: asWorktreeId('cached'),
-    occurredAt: now,
-  });
-  expect(reopen()).not.toThrow();
-  storage.maintenance.saveBackup({ path: join(cache, 'old.sqlite'), createdAt: now, bytes: 1 });
-  expect(reopen()).toThrow(/cache .* must not overlap the backup .*old\.sqlite/);
-  storage.maintenance.forgetBackup(join(cache, 'old.sqlite'));
-  expect(reopen()).not.toThrow();
   const runDirectory = (path: string) => {
     const runId = asAgentRunId(randomUUID());
     storage.transaction((tx) =>
@@ -394,11 +375,76 @@ it('refuses a start with earlier worktrees, run files or backups in a cache, or 
     );
     storage.maintenance.registerRunDirectory(runId, path, 1);
   };
+  const backup = (path: string) =>
+    storage.maintenance.saveBackup({ path, createdAt: now, bytes: 1 });
+  return { ...s, cache, reopen, now, worktree, runDirectory, backup };
+}
+it('refuses a start with earlier worktrees, run files or backups in a cache, or holding the settings file (R-G14 stray review)', async () => {
+  const s = await placementFixture();
+  const { cache, reopen, worktree, runDirectory, backup } = s;
+  const { storage } = s.context;
+  expect(reopen()).not.toThrow();
+  // Each was placed at an earlier storage setting, before the check existed; the stored roots
+  // have moved on since, yet agents still write there.
+  const earlier = join(s.context.config.dataDir, 'earlier');
+  mkdirSync(join(earlier, 'tree'), { recursive: true });
+  worktree('earlier', join(earlier, 'tree'));
+  expect(reopen()).not.toThrow();
+  expect(reopen(join(earlier, 'tree', '.craftingtable'))).toThrow(
+    /outside-sources\.json .*active worktree/,
+  );
+  mkdirSync(join(cache, 'tree'));
+  worktree('cached', join(cache, 'tree'));
+  expect(reopen()).toThrow(/cache .* must not overlap the active worktree .*registry\/tree/);
+  storage.execution.worktrees.markRemoved({
+    workspaceId: s.workspaceId,
+    worktreeId: asWorktreeId('cached'),
+    occurredAt: s.now,
+  });
+  expect(reopen()).not.toThrow();
+  writeFileSync(join(cache, 'old.sqlite'), '');
+  backup(join(cache, 'old.sqlite'));
+  expect(reopen()).toThrow(/cache .* must not overlap the backup .*old\.sqlite/);
+  storage.maintenance.forgetBackup(join(cache, 'old.sqlite'));
+  expect(reopen()).not.toThrow();
+  mkdirSync(join(earlier, 'run'));
   runDirectory(join(earlier, 'run'));
   expect(reopen()).not.toThrow();
   expect(reopen(join(earlier, 'run', 'settings'))).toThrow(/outside-sources\.json .*run directory/);
+  mkdirSync(join(cache, 'run'));
   runDirectory(join(cache, 'run'));
   expect(reopen()).toThrow(/cache .* must not overlap the run directory .*registry\/run/);
+});
+it('starts past earlier placements gone from disk, but not past one it cannot check (R-G14 follow-up review F-1)', async () => {
+  const { cache, reopen, worktree, runDirectory, backup } = await placementFixture();
+  // Rows are kept when their files go (run directories are never forgotten), so a gone
+  // placement inside a cache, which holds nothing to protect, must not stop every start.
+  worktree('gone', join(cache, 'tree'));
+  runDirectory(join(cache, 'run'));
+  backup(join(cache, 'old.sqlite'));
+  writeFileSync(join(cache, 'file'), '');
+  worktree('under-file', join(cache, 'file', 'tree'));
+  expect(reopen()).not.toThrow();
+  // Once one exists again, even as a link that names nothing, the start is refused.
+  symlinkSync(join(cache, 'missing'), join(cache, 'tree'));
+  expect(reopen()).toThrow(/must not overlap the active worktree .*registry\/tree/);
+  rmSync(join(cache, 'tree'));
+  mkdirSync(join(cache, 'run'));
+  expect(reopen()).toThrow(/must not overlap the run directory .*registry\/run/);
+  rmSync(join(cache, 'run'), { recursive: true });
+  writeFileSync(join(cache, 'old.sqlite'), '');
+  expect(reopen()).toThrow(/must not overlap the backup .*old\.sqlite/);
+  rmSync(join(cache, 'old.sqlite'));
+  expect(reopen()).not.toThrow();
+  // A placement that cannot be looked at is kept in the check, so it still refuses.
+  mkdirSync(join(cache, 'locked'));
+  runDirectory(join(cache, 'locked', 'run'));
+  chmodSync(join(cache, 'locked'), 0);
+  try {
+    expect(reopen()).toThrow(/must not overlap the run directory .*locked\/run/);
+  } finally {
+    chmodSync(join(cache, 'locked'), 0o700);
+  }
 });
 it("keeps the stored roots off the daemon's Cargo caches with no source configured (R-G14 stray review)", async () => {
   const s = await runFixture();

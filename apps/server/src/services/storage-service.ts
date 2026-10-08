@@ -193,19 +193,39 @@ export class StorageService {
   }
   /**
    * What earlier roots still hold, which the save path protects too (R-G14 stray review): the
-   * active worktrees and registered run directories, which agents write, and the backups.
+   * active worktrees and registered run directories, which agents write, and the backups. Only
+   * what is still on disk (a link that names nothing counts): rows outlive their files, and a
+   * gone placement holds nothing to protect, so it must not stop every start (follow-up review
+   * F-1). One that cannot be looked at stays in the check.
    */
   private earlierPlacements(): {
     agentWritable: LabelledRoot[];
     daemon: LabelledRoot[];
   } {
+    const present = (path: string): boolean => {
+      try {
+        lstatSync(path);
+        return true;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        return code !== 'ENOENT' && code !== 'ENOTDIR';
+      }
+    };
     const { maintenance } = this.storage;
+    const placed = (label: string, paths: readonly string[]): LabelledRoot[] =>
+      paths.filter(present).map((path) => [label, path] as const);
     return {
       agentWritable: [
-        ...maintenance.activeWorktreePaths().map((path) => ['active worktree', path] as const),
-        ...maintenance.directories().map((run) => ['run directory', run.path] as const),
+        ...placed('active worktree', maintenance.activeWorktreePaths()),
+        ...placed(
+          'run directory',
+          maintenance.directories().map((run) => run.path),
+        ),
       ],
-      daemon: maintenance.backups().map((backup) => ['backup', backup.path] as const),
+      daemon: placed(
+        'backup',
+        maintenance.backups().map((backup) => backup.path),
+      ),
     };
   }
   registerRun(runId: AgentRunId, directory: string): void {

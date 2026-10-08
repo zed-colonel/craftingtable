@@ -135,7 +135,9 @@ The agent's permission posture is chosen per run:
 
 - `auto` (default): Claude Code's own classifier approves routine actions; anything that
   would need a human prompt is denied.
-- `edit-only`: Claude file edits are pre-approved, prompts are denied.
+- `edit-only`: Claude file edits are pre-approved, prompts are denied. Every command would need
+  a prompt, so a Claude `edit-only` run runs no commands, and the outside sources do nothing for
+  it (operator decision 2026-10-08, R-G14).
 - Codex `auto` and `edit-only` are the same (R-G14, operator decision 2026-10-07): commands
   run without asking inside Codex's sandbox, a per-run permission profile (below), with
   approval policy `never`, so no command may ask to leave it. Until R-G14, `auto` let Codex's

@@ -245,10 +245,11 @@ export function RepositoriesPage({
           />
           <About label="About outside sources">
             <p>
-              Sandboxed agent commands (Auto and Edit-only, on either agent) reach only these hosts,
-              and write only these caches beside their worktree and run. Set in{' '}
-              <code>outside-sources.json</code> in the daemon&rsquo;s settings directory, applied
-              when the daemon restarts. Read-only runs get none. Unrestricted runs have no sandbox.
+              Sandboxed agent commands (Auto on either agent, and Edit-only on Codex; Claude&rsquo;s
+              Edit-only runs no commands) reach only these hosts, and write only these caches beside
+              their worktree and run. Set in <code>outside-sources.json</code> in the daemon&rsquo;s
+              settings directory, applied when the daemon restarts. Read-only runs get none.
+              Unrestricted runs have no sandbox.
             </p>
           </About>
           {missingTool && (

@@ -359,7 +359,9 @@ under the XDG config home), read when the daemon starts; edit it and restart to 
 - The effective list is shown on **Repositories → Tools on the workstation** (read-only) and in
   `GET /api/execution-status` (`outsideSources`), and each run's journal notes at launch what its
   commands may reach.
-- They apply to `auto` and `edit-only` runs of either agent. Read-only runs get none;
+- They apply to the commands of Claude `auto` runs and of Codex `auto` and `edit-only` runs.
+  Claude `edit-only` runs no commands (each would need a prompt, and prompts are denied), so the
+  sources do nothing for it (operator decision 2026-10-08). Read-only runs get none;
   `unrestricted` runs have no sandbox and reach anything. Claude's WebFetch and WebSearch are not
   commands and are not limited by them (see `docs/security.md`).
 - Claude Code applies them as its sandbox's network allowlist and write list. Codex gets them

@@ -968,7 +968,12 @@ roles per entry set), `agentAssignments[]` (model selections), `decisionPreparat
 ### FMT-17: STACK-PLAN-ACCEPTED evidence is bound to a digest of the whole roadmap definition
 - Severity: medium
 - Category: ux / architecture
-- Status: CONFIRMED
+- Status: CONFIRMED; fixed 2026-10-08 ([R-C6](../register.md#r-c6)). Which edits re-open
+  acceptance is decided in ADR-050's amendment: the map's identity and archives, the binding and
+  plan archives, adopted decisions, staged clause decisions, per-entry reviewer roles, the target
+  and selection, the map's resource profiles and locks, and the implemented-upstream pins.
+  `saved-plan-v2` binds to a canonical-JSON digest of those inputs with no revision check, and
+  the operator's own commands carry the acceptance when they change one.
 - Evidence: `plan-acceptance-policy.ts:83-127` hashes facts including `roadmap: roadmap.definition`
   (all entries with instructions/profiles/policy, `createdAt`, revision), resource capacities and the
   full binding; `generatedPlanIssues` also requires the same `definitionRevision` (`:172-175`). The

@@ -512,7 +512,10 @@ records in the preceding hours. Representative stop→commit pairs (DB UTC → g
 ### HIST-07: Checkpoint evidence acceptance is a self-attestation ceremony (65 operator actions, 100% accepted)
 - Severity: medium
 - Category: ux
-- Status: CONFIRMED
+- Status: CONFIRMED; addressed 2026-10-08 ([R-C6](../register.md#r-c6)). Technical checkpoints
+  and daemon receipts already needed no operator; STACK-PLAN-ACCEPTED is now re-requested only
+  when its inputs change, and the operator's own commands carry it then (on the live record, 6
+  of 13 re-requests re-generate, none needing an operator action).
 - Evidence:
   - `evidence_submissions`: 33 rows, all `subject.kind = checkpoint`. 22 are architecture
     decisions (WI-ADR-*/EXO-ADR-*). STACK-PLAN-ACCEPTED was submitted 9 times; AQ-BASELINE-ACCEPTED

@@ -268,7 +268,7 @@ passed. `CRAFTINGTABLE_AGENT_ENV_ALLOW=NAME,OTHER` lets further names through. P
 reach `git` and `claude` and/or `codex` (or set the explicit executable variables), and
 HOME must be the account signed in to the selected agent. Run `codex login` as that account before
 using Codex. Tool status reports executable availability, not authentication health.
-`CRAFTINGTABLE_CODEX_EXECUTABLE` overrides discovery. Codex app-server behavior was verified with CLI 0.153.4. The adapter communicates
+`CRAFTINGTABLE_CODEX_EXECUTABLE` overrides discovery. Codex app-server behavior was verified with CLI 0.153.4, and its permission profiles (outside sources, below) with 0.160.0. The adapter communicates
 over local stdio; do not start a separate app-server listener for CraftingTable.
 
 Model pickers offer each CLI's own catalog (R-G15), read at start, about hourly, and on
@@ -337,6 +337,40 @@ and the build fails. The check cannot see the shared home, and its own is emptie
 
 A run with no pinned dependency environment (a whole-item roadmap entry, a manual run, a slice of a map without a runtime), in a repository with adopted checks, gets a check-only manifest at `<run>/checks/manifest.json` and one launcher, `<run>/checks/bin/ct-check`, on its PATH (R-G13 increment 4, schema 38); the agent's own `cargo` is untouched. The daemon runs the adopted checks before its review, in the same private clone and unit as any declared check, and its merge, delegated or not, needs each of them to have passed on the reviewed head. On a host without Cargo the checks run with no Rust toolchain; where the daemon finds Cargo they run the commit's rustup-managed toolchain, as above. A roadmap's cycle in a repository with no adopted checks stops as `repository-checks-undeclared` before anything launches, so every repository a roadmap runs in needs an adoption first (ActionQueue had none when the increment was designed); other runs in such a repository are not held. Schema 38 stores run environments without a runtime, which a release before it cannot read: the deploy preflight refuses a rollback across it (`unsupported-version`), and the copy in `<data>/state/pre-migration/` is the way back. After the deploy, a review prepared earlier without a pinned environment, in a repository with adopted checks (whole-item and manual work in WI and EXO), is refused at merge until it is reviewed afresh (operator decision 2026-10-07): a roadmap's automatic merge starts that review itself (LIVE-24); a merge that is yours needs it by hand: a new review of a manual worktree, or, for a cycle that awaits your merge, pause the cycle, resume it (a fresh review), merge, then resume its roadmap, which holds on the paused cycle meanwhile (Stop would end the roadmap's cycle). The refusal names the exit that applies.
 
+**Outside sources** (R-G14) are the hosts a sandboxed agent command may reach, and the caches it
+may write beside its worktree and run, for both agents. They are named in
+`outside-sources.json` in the settings directory (`CRAFTINGTABLE_CONFIG_DIR`, or `craftingtable`
+under the XDG config home), read when the daemon starts; edit it and restart to change them:
+
+```json
+{ "version": 1, "sources": [{ "kind": "cargo", "extraHosts": ["mirror.example.org"] }] }
+```
+
+- The only kind is `cargo`: `index.crates.io` and `static.crates.io` (what a sparse `cargo fetch`
+  reads; not the `crates.io` API), writing the `registry` and `git` caches of the daemon's Cargo
+  home. `extraHosts` is optional: exact lowercase host names of at least three labels, no
+  wildcard, IP address, port or trailing dot. Each kind may appear once.
+- No file means the `cargo` source, as before R-G14. `"sources": []` means none: sandboxed
+  commands then reach no network, and `cargo fetch` fails.
+- An invalid file (bad JSON, an unknown key or kind, a bad host, a link or anything but a regular
+  file, over 64 KiB), a settings directory where agents write, or a cache that is a link or
+  overlaps the database, backups or another daemon root stops the start with a message naming
+  the file and the problem. **Settings → Storage** refuses a root that would overlap a cache.
+- The effective list is shown on **Repositories → Tools on the workstation** (read-only) and in
+  `GET /api/execution-status` (`outsideSources`), and each run's journal notes at launch what its
+  commands may reach.
+- They apply to `auto` and `edit-only` runs of either agent. Read-only runs get none;
+  `unrestricted` runs have no sandbox and reach anything. Claude's WebFetch and WebSearch are not
+  commands and are not limited by them (see `docs/security.md`).
+- Claude Code applies them as its sandbox's network allowlist and write list. Codex gets them
+  through a permission profile defined per run (`permissions.craftingtable` in the thread's
+  configuration: the worktree, temporary, run and cache directories writable, the hosts allowed
+  through Codex's own proxy with `features.network_proxy`; verified with Codex CLI 0.160.0, where
+  permission profiles are a Beta feature). Codex `auto` never asks to leave its sandbox: it has
+  approval policy `never`, as `edit-only` has. A sandboxed Codex command cannot write the
+  repository's Git directory, so it cannot stage or commit; Claude Code's sandbox can, except
+  the repository's `config` and `hooks`.
+
 The daemon learns published crates from crates.io's own index over HTTPS
 (`https://index.crates.io/`), once per crate, and keeps each crate's index file and every
 version's checksum under `<data>/crates-io/`, since a published version never changes; a crate it
@@ -347,8 +381,8 @@ verified. A tree without a committed `Cargo.lock` (or with a format-1 lock) gets
 crates, and the check says so. The approved native environment keeps the operator's Cargo home
 (ADR-054). At each start the daemon copies into it, one way, the `registry` and
 `git` caches of the operator's Cargo home that it lacks (`CARGO_HOME`, else `~/.cargo`; override with
-`CRAFTINGTABLE_CARGO_SEED_FROM`, or set it empty to turn seeding off), so offline builds and Codex
-runs, which cannot fetch, find what the operator has downloaded. Existing files are never replaced,
+`CRAFTINGTABLE_CARGO_SEED_FROM`, or set it empty to turn seeding off), so offline builds, and runs
+without the `cargo` outside source, find what the operator has downloaded. Existing files are never replaced,
 and no tokens, configuration or binaries are copied. The first start copies the whole cache (about
 500 MB on this workstation; copy-on-write only when the data directory shares a file system with
 it). A crate the operator fetches later reaches agents on the next daemon start.

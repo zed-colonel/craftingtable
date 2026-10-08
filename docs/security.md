@@ -136,22 +136,52 @@ The agent's permission posture is chosen per run:
 - `auto` (default): Claude Code's own classifier approves routine actions; anything that
   would need a human prompt is denied.
 - `edit-only`: Claude file edits are pre-approved, prompts are denied.
-- Codex `auto` uses workspace-write with `on-request` and `auto_review`: Codex's
-  reviewer decides requests to expand permissions. `edit-only` uses workspace-write
-  with `never`, denying escalation. These overrides apply to new and resumed threads
-  and every turn. Unexpected client approval requests are declined; the browser has
-  no generic permission-grant or RPC surface.
-- `unrestricted`: approval checks and any backend sandbox are disabled.
+- Codex `auto` and `edit-only` are the same (R-G14, operator decision 2026-10-07): commands
+  run without asking inside Codex's sandbox, a per-run permission profile (below), with
+  approval policy `never`, so no command may ask to leave it. Until R-G14, `auto` let Codex's
+  own reviewer approve such a request, and an approved command ran fully unsandboxed, for
+  network and files; in the R-G14 experiment it approved one on an "owner authorized" claim
+  that nothing can check. These overrides apply to new and resumed threads and every turn.
+  Unexpected client approval requests are declined; the browser has no generic
+  permission-grant or RPC surface.
+- `unrestricted`: approval checks and any backend sandbox are disabled. Leaving the sandbox is
+  only ever this, the operator's explicit choice.
 
-Claude's permission modes do not confine the agent to the worktree at the OS level.
-Codex app-server communicates only over the supervised process's stdio. Authentication
-remains in Codex; CraftingTable reads the account type but does not persist account
-identities, credentials or raw authentication responses.
+Claude's permission modes do not confine the agent to the worktree at the OS level; its
+command sandbox does (below). Codex app-server communicates only over the supervised
+process's stdio. Authentication remains in Codex; CraftingTable reads the account type but
+does not persist account identities, credentials or raw authentication responses.
 
-Codex's workspace-write mode applies its own sandbox; unrestricted removes it. The brief instructs it
-to stay there, and the diff makes deviations visible, but an unrestricted run has the
-operator's full local authority. Treat `unrestricted` as you would running the agent by
-hand.
+A sandboxed Codex run's commands get a permission profile defined for the run in its thread's
+configuration (`craftingtable`, selected on the thread and on every turn in place of the legacy
+sandbox): they may write the worktree, the temporary directories, the run's directories and the
+outside sources' caches, and reach no network but the outside sources' hosts, through Codex's
+own proxy, which refuses any other host; a direct connection cannot resolve or connect. With no
+source the network is off. Permission profiles are a Beta Codex feature and the proxy
+(`features.network_proxy`) an experimental one, verified with CLI 0.160.0. Unlike Claude Code's
+sandbox, which lets a command write the repository's Git directory except its `config` and
+`hooks`, the profile cannot write it, so a sandboxed Codex command cannot stage or commit. A read-only Codex run uses Codex's
+read-only sandbox, and `unrestricted` removes the sandbox. The brief instructs the agent to stay
+in its worktree, and the diff makes deviations visible, but an unrestricted run has the
+operator's full local authority. Treat `unrestricted` as you would running the agent by hand.
+
+### Outside sources
+
+The only places a sandboxed agent command may reach beyond loopback, and the only caches it may
+write beside its worktree and run, are the operator's outside sources (R-G14). They are named
+in one file, `outside-sources.json` in the settings directory, read at start, and applied to
+both agents' sandboxes: Claude's allowlist and write list, and Codex's profile. A source is a
+known kind (only `cargo`: `index.crates.io` and `static.crates.io`, and the `registry` and `git`
+caches of the daemon's Cargo home, never the `crates.io` API, which publishes) plus optional
+extra exact hosts; see `docs/operations.md`. The daemon refuses to start when the file is
+invalid, lies where agents write, or would put a cache over its own files. The effective list
+is shown read-only on Repositories → Tools on the workstation and in the execution status, and
+each run's journal notes at launch what its commands may reach. Read-only runs get none;
+`unrestricted` runs have no sandbox, so the list does not limit them. Claude Code's own
+in-process tools, WebFetch and WebSearch, are not commands and stay ungated by the list
+(operator decision 2026-10-06): limiting them would stop agents reading documentation, and
+since R-G9 a sandboxed Claude run cannot read the daemon's credentials or database (its file
+tools are denied them, and so are its commands), so they have nothing of the daemon's to send.
 
 ## Daemon Git
 
@@ -172,21 +202,21 @@ only the worktree, the run's directories, its scratch space (also the commands' 
 and TEMP; Claude Code itself keeps its sandbox's sockets in a short private directory of the
 run's, `<data>/t/<12 hex>`, 0700, removed when the run ends without following anything an agent
 left there, LIVE-31; Claude Code lets commands write its `claude-<uid>` directory inside it,
-and nothing else of it or of other runs' directories) and Cargo's `registry` and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
+and nothing else of it or of other runs' directories), the repository's Git directory except its `config` and `hooks` (Claude Code allows that itself, so a run can commit from its worktree and could move a branch, which the ref watch below detects; verified with 2.1.288, R-G14) and the outside sources' caches, which for `cargo` are Cargo's `registry` and `git` caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
 crate an agent plants never runs in the operator's own builds, R-G5 review; check units do not build
 from it either: each gets a fresh Cargo home of its own, a local registry of crates.io's published
 index entries and only the downloads whose SHA-256 matches them, which the daemon reads from
 crates.io's index over HTTPS, runs offline, and cannot see the shared one; operator decisions
-2026-09-29), reaching nothing but loopback and the crates.io
-registry's index and downloads (`index.crates.io`, `static.crates.io`, a strict allowlist, so
-that `cargo fetch` can download dependencies; operator decision 2026-09-28; not the `crates.io`
-API, which publishes), unable to read Cargo's registry tokens, the user's runtime directory (the rootless Docker socket
+2026-09-29), reaching nothing but loopback and the outside sources' hosts
+(a strict allowlist; by default the crates.io registry's index and downloads, `index.crates.io`
+and `static.crates.io`, so that `cargo fetch` can download dependencies, operator decision
+2026-09-28; see *Outside sources* above), unable to read Cargo's registry tokens, the user's runtime directory (the rootless Docker socket
 and session bus), system Docker sockets, the operator's credentials, or the daemon's database,
 backups and credentials file (R-G9), and with no way to leave
 it. Claude loads no settings file from any scope, not even the repository's, so a worktree cannot
 widen its sandbox or add hooks. Claude's Edit and Write tools stay under the permission posture,
 and the network allowlist gates sandboxed commands only: Claude Code's own in-process tools
-(WebFetch, WebSearch) are not gated by it. Checks the daemon runs on a worktree use the git
+(WebFetch, WebSearch) are not gated by it, by decision (see *Outside sources*). Checks the daemon runs on a worktree use the git
 directory it resolved before the agent started, never the worktree's `.git` pointer (R-G4).
 The daemon also records a run's repository's branch heads when it starts and compares them when it
 ends (R-G5, SEC-02d): a branch no managed worktree owns that moved, and that none of the daemon's

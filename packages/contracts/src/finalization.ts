@@ -15,7 +15,11 @@ import {
   worktreeIdSchema,
 } from './ids.js';
 import { reviewFindingSchema } from './review.js';
-import { agentProfileSchema, agentSelectionSchema } from './agent-profiles.js';
+import {
+  agentProfileSchema,
+  agentSelectionSchema,
+  effectiveAgentSchema,
+} from './agent-profiles.js';
 import { completionPolicySchema, workCycleSchema } from './work-cycle.js';
 
 const profile = agentProfileSchema;
@@ -138,6 +142,25 @@ export const finalizationViewSchema = z.strictObject({
   actions: z.array(z.enum(FINALIZATION_DECISIONS)).default([]),
   checkpointFindings: z.array(reviewFindingSchema).default([]),
   canAuthorizeRemediation: z.boolean().default(false),
+  /**
+   * The agents the finalization runs (R-E5a, E5-3): the current step's, a recovery's change
+   * over its stage's, and each stage's review and implementation profile over the workspace
+   * default it replaced.
+   */
+  agents: z
+    .strictObject({
+      current: effectiveAgentSchema.optional(),
+      stages: z
+        .array(
+          z.strictObject({
+            id: z.string(),
+            review: effectiveAgentSchema,
+            implement: effectiveAgentSchema,
+          }),
+        )
+        .max(24),
+    })
+    .optional(),
 });
 export const finalizationsResponseSchema = z.strictObject({
   finalizations: z.array(finalizationViewSchema),

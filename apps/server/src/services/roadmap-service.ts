@@ -64,6 +64,7 @@ import {
   delegatedResolutionProfile,
   entryAgentSelections,
   entryAgents,
+  preparationAgent,
 } from './agent-profile-policy.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { neededDecisions, slicesWaitingOn } from './decision-demand.js';
@@ -424,6 +425,7 @@ export class RoadmapService {
               projectName:
                 this.storage.planning.projects.find(workspaceId, e.projectId)?.name ?? e.projectId,
               selections,
+              agents: entryAgents(r, e),
               ...(assignment ? { appliedAt: assignment.appliedAt } : {}),
               started: startedAttempts(r).some((a) => a.entryId === e.id),
             };
@@ -497,7 +499,10 @@ export class RoadmapService {
             {
               id: c.id,
               title: c.title,
-              profile: entryAgents(roadmap, entry).investigation.selection,
+              ...(() => {
+                const agent = preparationAgent(roadmap, entry);
+                return { profile: agent.selection, agent };
+              })(),
               ...(latest
                 ? {
                     latest: {
@@ -769,7 +774,7 @@ export class RoadmapService {
           current,
           target,
           {
-            profile: entryAgents(current, target.entry).investigation.selection,
+            profile: preparationAgent(current, target.entry).selection,
             minutes: grant.minutes,
             instructions: 'Prepared under the standing decision preparation grant of this roadmap.',
           },

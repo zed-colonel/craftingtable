@@ -39,11 +39,26 @@ function assignmentLayer(
 ): Pick<AgentContext, 'assignment'> {
   return assignment ? { assignment: { id: assignment.id, selections: assignment.selections } } : {};
 }
-/** An entry's effective selections: its latest assignment, else its saved definition (E5-1). */
-export function entryAgents(roadmap: Roadmap, entry: RoadmapEntry) {
-  return resolveAgents({
+/** An entry's layers: its latest assignment and its saved definition, the lowest (E5-1). */
+function entryLayers(
+  roadmap: Roadmap,
+  entry: RoadmapEntry,
+): Pick<AgentContext, 'assignment' | 'profiles'> {
+  return {
     ...assignmentLayer(latestAssignment(roadmap, entry.id)),
     profiles: { layer: 'saved-definition', value: entry.profiles },
+  };
+}
+/** An entry's effective selections, each with its step's permissions. */
+export function entryAgents(roadmap: Roadmap, entry: RoadmapEntry) {
+  return resolveAgents(entryLayers(roadmap, entry), entry.profiles);
+}
+/** What a decision preparation for the entry runs: its investigation selection, read-only. */
+export function preparationAgent(roadmap: Roadmap, entry: RoadmapEntry): EffectiveAgent {
+  return resolveAgent({
+    purpose: 'investigation',
+    permissionMode: 'edit-only',
+    ...entryLayers(roadmap, entry),
   });
 }
 export function entryAgentSelections(roadmap: Roadmap, entry: RoadmapEntry) {
@@ -125,6 +140,31 @@ export function finalizationAgent(
 }
 
 /**
+ * A finalization's agents (E5-3): the current step's (the legacy final reviewer without a
+ * cycle) and each stage's review and implementation profile, a per-action override over the
+ * workspace default it replaced.
+ */
+export function finalizationAgents(
+  value: Finalization,
+  cycle: WorkCycle | undefined,
+  workspace: NonNullable<AgentContext['workspace']>,
+) {
+  const finalization = cycle
+    ? finalizationLayer(value, cycle)
+    : { stage: value.finalReview, slot: 'review' as const };
+  const stageAgent = (index: number, slot: 'review' | 'implement', stage: AgentProfile) =>
+    resolveAgent({ purpose: slot, finalization: { stage, slot, stageIndex: index }, workspace });
+  return {
+    current: resolveAgent({ purpose: finalization.slot, finalization, workspace }),
+    stages: (value.stages ?? []).map((stage, index) => ({
+      id: stage.id,
+      review: stageAgent(index, 'review', stage.review),
+      implement: stageAgent(index, 'implement', stage.implement),
+    })),
+  };
+}
+
+/**
  * A cycle's next launch, every layer considered: a resumed session keeps its run's agent; a
  * design-question recovery, a finalization step and an integration resolution run what they
  * recorded; then the roadmap's assignment, a service retry's profile and the cycle's profiles.
@@ -170,9 +210,12 @@ export function cycleLaunchAgent(
   });
 }
 
-/** A cycle's future agents for every purpose: its assignment, else its own profiles. */
+/**
+ * A cycle's future agents for every purpose: its assignment, else its own profiles, each with
+ * its base step's permissions.
+ */
 export function cycleAgents(tx: StorageRepositories, cycle: WorkCycle) {
-  return resolveAgents(cycleLayers(tx, cycle));
+  return resolveAgents(cycleLayers(tx, cycle), cycle.profiles);
 }
 
 /**
@@ -280,12 +323,10 @@ export function delegatedResolutionProfile(
   );
 }
 
-/** Workspace defaults for every purpose (`run-profiles`): saved, inherited, or the daemon's. */
-export function workspaceAgents(
+/** The workspace's defaults as a layer: its saved profiles and the daemon's default backend. */
+export function workspaceLayer(
   saved: readonly WorkspaceAgentProfile[],
   fallback: AgentSelection['backend'],
-) {
-  return resolveAgents({
-    workspace: { profiles: saved, fallback: { backend: fallback, permissionMode: 'auto' } },
-  });
+): NonNullable<AgentContext['workspace']> {
+  return { profiles: saved, fallback: { backend: fallback, permissionMode: 'auto' } };
 }

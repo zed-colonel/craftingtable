@@ -14,6 +14,7 @@ import {
   agentProfileSchema,
   agentSelectionSchema,
   agentSelectionsSchema,
+  effectiveAgentsSchema,
   specialistSelectionsShape,
 } from './agent-profiles.js';
 import { cycleAttentionSchema } from './attention.js';
@@ -447,6 +448,7 @@ export const workCycleSchema = z
 export const cycleProjectionSchema = equivalentSchema<CycleProjection>()(
   z.strictObject({
     nextAgentSelections: agentSelectionsSchema,
+    agents: effectiveAgentsSchema.optional(),
     actions: z.array(z.enum(CYCLE_ACTIONS)),
     unsettledDecisions: z.array(z.string().min(1).max(200)).max(200).optional(),
     scopeReviewWait: z.string().optional(),

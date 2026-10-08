@@ -16,7 +16,11 @@ import {
   WORKTREE_STATUSES,
 } from '@craftingtable/domain';
 import { z } from 'zod';
-import { profileSelectionSchema, reasoningEffortSchema } from './agent-profiles.js';
+import {
+  effectiveAgentsSchema,
+  profileSelectionSchema,
+  reasoningEffortSchema,
+} from './agent-profiles.js';
 import { executionScopeSchema } from './execution-scope.js';
 import {
   agentRunEventIdSchema,
@@ -423,6 +427,8 @@ export const runProfilesResponseSchema = z.strictObject({
   profiles: z
     .array(agentRunProfileSchema.extend({ stored: z.boolean() }))
     .max(AGENT_PROFILE_PURPOSES.length),
+  /** Each purpose's workspace default and its source: saved, inherited or the daemon's (R-E5a). */
+  agents: effectiveAgentsSchema.optional(),
 });
 
 export const saveRunProfilesRequestSchema = z.strictObject({

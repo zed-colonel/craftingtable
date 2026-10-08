@@ -1427,14 +1427,19 @@ describe('run profiles', () => {
       headers: { cookie: state.cookie },
     });
     expect(initial.statusCode, initial.body).toBe(200);
-    expect(runProfilesResponseSchema.parse(initial.json())).toEqual({
-      profiles: AGENT_PROFILE_PURPOSES.map((role) => ({
+    const listed = runProfilesResponseSchema.parse(initial.json());
+    expect(listed.profiles).toEqual(
+      AGENT_PROFILE_PURPOSES.map((role) => ({
         role,
         backend: 'claude-code',
         permissionMode: 'auto',
         stored: false,
       })),
-    });
+    );
+    // Beside them, each purpose's default and its source (R-E5a).
+    expect(AGENT_PROFILE_PURPOSES.map((role) => listed.agents?.[role].source)).toEqual(
+      AGENT_PROFILE_PURPOSES.map(() => ({ layer: 'daemon-default' })),
+    );
 
     const saved = await state.context.app.inject({
       method: 'POST',

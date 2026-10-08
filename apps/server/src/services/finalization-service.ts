@@ -539,6 +539,7 @@ export class FinalizationService {
       checkpointFindings: cycle ? this.cycles.finalizationCheckpointFindings(cycle) : [],
       canAuthorizeRemediation:
         value.status === 'active' && !!cycle && !this.cycles.finalizationRemediationBlocker(cycle),
+      agents: this.cycles.finalizationAgentsView(value, cycle),
       worktree: (() => {
         const tree = this.storage.execution.worktrees.find(value.workspaceId, value.worktreeId);
         return tree

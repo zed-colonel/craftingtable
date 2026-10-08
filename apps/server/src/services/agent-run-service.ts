@@ -58,8 +58,8 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { AGENTS_ROOT_LOCK_FILE } from '../instance-lock.js';
-import { cycleAgentSelection, cycleLaunchAgent, workspaceAgents } from './agent-profile-policy.js';
-import { launchProfile } from './agent-resolution.js';
+import { cycleAgentSelection, cycleLaunchAgent, workspaceLayer } from './agent-profile-policy.js';
+import { launchProfile, resolveAgents } from './agent-resolution.js';
 import { removeAgentTree } from './agent-tree.js';
 import { cycleOwnership } from './cycle-ownership.js';
 import { WORKTREE_CACHES_DIRECTORY } from './storage-files.js';
@@ -633,6 +633,27 @@ export class AgentRunService {
     return this.resolveProfiles(workspaceId);
   }
 
+  /** The workspace's defaults as a resolution layer (R-E5a). */
+  workspaceLayerIn(tx: StorageRepositories, workspaceId: WorkspaceId) {
+    return workspaceLayer(
+      tx.execution.runProfiles.list(workspaceId),
+      this.defaultBackend() ?? AGENT_BACKENDS[0],
+    );
+  }
+
+  /**
+   * Each purpose's workspace default with its source (R-E5a), as `run-profiles` and the page
+   * reads report it beside the profiles. Callers authorize first.
+   */
+  workspaceAgentsIn(tx: StorageRepositories, workspaceId: WorkspaceId) {
+    return resolveAgents({ workspace: this.workspaceLayerIn(tx, workspaceId) });
+  }
+
+  /** `workspaceAgentsIn` read on its own, after `listRunProfiles` or `saveRunProfiles`. */
+  workspaceAgents(workspaceId: WorkspaceId) {
+    return this.workspaceAgentsIn(this.storage, workspaceId);
+  }
+
   /** The workspace's profiles as `listRunProfiles` returns them, read in the caller's read (R-D5). */
   profilesIn(
     tx: StorageRepositories,
@@ -646,7 +667,7 @@ export class AgentRunService {
     tx: StorageRepositories = this.storage,
   ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
     const saved = tx.execution.runProfiles.list(workspaceId);
-    const agents = workspaceAgents(saved, this.defaultBackend() ?? AGENT_BACKENDS[0]);
+    const agents = this.workspaceAgentsIn(tx, workspaceId);
     return AGENT_PROFILE_PURPOSES.map((role) => ({
       ...launchProfile(agents[role]),
       role,

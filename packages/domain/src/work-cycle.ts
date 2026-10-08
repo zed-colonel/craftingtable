@@ -342,6 +342,16 @@ export interface WorkCycle {
 export interface CycleProjection {
   /** The model selections the next steps would launch with, from the cycle's profiles now. */
   readonly nextAgentSelections: import('./agent-profiles.js').AgentSelections;
+  /**
+   * The same future agents for every purpose, each with its source and the step permissions it
+   * runs with (R-E5a): the browser shows these and derives none.
+   */
+  readonly agents?: Readonly<
+    Record<
+      import('./agent-profiles.js').AgentProfilePurpose,
+      import('./agent-profiles.js').EffectiveAgent
+    >
+  >;
   /** The operator actions the daemon offers now, from `cycleActions` (R-A6). */
   readonly actions: readonly import('./cycle-actions.js').CycleAction[];
   /** The shared decisions a `shared-decision-required` stop still waits on (LIVE-18). */

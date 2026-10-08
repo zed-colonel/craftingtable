@@ -6,6 +6,7 @@ import {
   cycleAgents,
   cycleLayers,
   finalizationAgent,
+  finalizationAgents,
   investigationAgent,
   operatorResolutionProfile,
 } from './agent-profile-policy.js';
@@ -342,10 +343,12 @@ export class WorkCycleService {
   }
 
   private projection(tx: StorageRepositories, c: WorkCycle): CycleProjection {
-    const nextAgentSelections = selectionSet(cycleAgents(tx, c));
+    const agents = cycleAgents(tx, c);
+    const nextAgentSelections = selectionSet(agents);
     if (TERMINAL_CYCLE_STATUSES.has(c.status))
       return {
         nextAgentSelections,
+        agents,
         actions: [],
         // A completed cycle can be reviewed again; its preparation still shows.
         ...(this.isTransitioning(c.id) ? { scopeReviewWait: PREPARING_RECOVERY } : {}),
@@ -379,6 +382,7 @@ export class WorkCycleService {
         : [];
     return {
       nextAgentSelections,
+      agents,
       actions,
       ...(unsettled.length ? { unsettledDecisions: unsettled } : {}),
       ...(wait ? { scopeReviewWait: wait } : {}),
@@ -1165,6 +1169,15 @@ export class WorkCycleService {
         reason,
       },
       'design-continue',
+    );
+  }
+
+  /** A finalization's agents with their sources (R-E5a, E5-3), for its view. */
+  finalizationAgentsView(value: import('@craftingtable/domain').Finalization, cycle?: WorkCycle) {
+    return finalizationAgents(
+      value,
+      cycle,
+      this.runs.workspaceLayerIn(this.storage, value.workspaceId),
     );
   }
 

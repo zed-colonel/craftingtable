@@ -10,6 +10,7 @@ import {
   agentProfileSchema,
   agentSelectionSchema,
   agentSelectionsSchema,
+  effectiveAgentSchema,
 } from './agent-profiles.js';
 import { phaseBlockerCodeSchema, roadmapAttentionSchema } from './attention.js';
 import { crossProjectConfigurationSchema } from './cross-project.js';
@@ -421,6 +422,8 @@ export const decisionPreparationSettingsSchema = z.strictObject({
       id: z.string(),
       title: z.string(),
       profile: agentSelectionSchema,
+      /** The same selection with its source: the entry's assignment or saved definition (R-E5a). */
+      agent: effectiveAgentSchema.optional(),
       latest: z
         .strictObject({
           runId: agentRunIdSchema,

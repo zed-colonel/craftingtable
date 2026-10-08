@@ -26,6 +26,7 @@ export const workItemViewSchema = z.strictObject({
   repositories: sourceRepositoryListResponseSchema.shape.repositories,
   backends: executionStatusResponseSchema.shape.backends,
   profiles: runProfilesResponseSchema.shape.profiles,
+  agents: runProfilesResponseSchema.shape.agents,
   /**
    * The parts that could not be read this time (R-D5 review): they come empty, and the page says
    * so where they show, while the rest of the region still works.
@@ -47,5 +48,6 @@ export const runViewSchema = z.strictObject({
   runs: z.array(agentRunSummarySchema).max(200),
   backends: executionStatusResponseSchema.shape.backends,
   profiles: runProfilesResponseSchema.shape.profiles,
+  agents: runProfilesResponseSchema.shape.agents,
 });
 export type RunView = z.infer<typeof runViewSchema>;

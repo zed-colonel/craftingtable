@@ -89,7 +89,7 @@ export function inheritanceChain(purpose: AgentProfilePurpose): readonly AgentPr
 }
 
 /** The step whose permissions a purpose runs with when nothing else gives them. */
-function baseStep(purpose: AgentProfilePurpose): CycleStep {
+export function baseStep(purpose: AgentProfilePurpose): CycleStep {
   return (CYCLE_STEPS as readonly string[]).includes(purpose)
     ? (purpose as CycleStep)
     : PROFILE_INHERITANCE[purpose as SpecialistProfile];
@@ -232,12 +232,23 @@ export function resolveAgent(context: AgentContext): EffectiveAgent {
   };
 }
 
-/** The effective selection for every purpose, from the same layers. */
+/**
+ * The effective selection for every purpose, from the same layers. With `steps`, each purpose
+ * runs with its base step's permissions there, as a cycle's or an entry's launches would.
+ */
 export function resolveAgents(
   context: Omit<AgentContext, 'purpose'>,
+  steps?: CycleProfiles,
 ): Readonly<Record<AgentProfilePurpose, EffectiveAgent>> {
   return Object.fromEntries(
-    AGENT_PROFILE_PURPOSES.map((purpose) => [purpose, resolveAgent({ ...context, purpose })]),
+    AGENT_PROFILE_PURPOSES.map((purpose) => [
+      purpose,
+      resolveAgent({
+        ...context,
+        purpose,
+        ...(steps ? { permissionMode: steps[baseStep(purpose)].permissionMode } : {}),
+      }),
+    ]),
   ) as Record<AgentProfilePurpose, EffectiveAgent>;
 }
 

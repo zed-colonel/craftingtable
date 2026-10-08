@@ -139,6 +139,7 @@ export function registerExecutionRoutes(
       return noStore(reply).send(
         runProfilesResponseSchema.parse({
           profiles: agentRunService.listRunProfiles(context, workspaceId.data, request.id),
+          agents: agentRunService.workspaceAgents(workspaceId.data),
         }),
       );
     },
@@ -165,6 +166,7 @@ export function registerExecutionRoutes(
             body.data.profiles,
             request.id,
           ),
+          agents: agentRunService.workspaceAgents(workspaceId.data),
         }),
       );
     },

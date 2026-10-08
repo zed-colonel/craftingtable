@@ -40,6 +40,7 @@ import {
   generatedPlanIssues,
 } from './plan-acceptance-policy.js';
 import {
+  carryPlanAcceptance,
   changesSince,
   generatedPlanSubmission,
   newestAcceptedPlan,
@@ -916,8 +917,19 @@ export class RuntimeEvidenceService {
         createdByUserId: context.user.id,
       };
       const impact = runtimeRefreshImpact(tx, d, generation);
-      tx.runtimeEvidence.addGeneration(generation);
-      queueRuntimeReviews(tx, context, generation, impact.reviews, at);
+      const save = () => {
+        tx.runtimeEvidence.addGeneration(generation);
+        queueRuntimeReviews(tx, context, generation, impact.reviews, at);
+      };
+      // The operator's reviewed refresh carries a plan acceptance it re-opens (R-C6 D2).
+      if (refresh)
+        carryPlanAcceptance(
+          tx,
+          context,
+          { workspaceId: ws, definitionId: id, command: 'dependency refresh', at },
+          save,
+        );
+      else save();
       this.changed(
         tx,
         context,
@@ -1771,22 +1783,33 @@ export class RuntimeEvidenceService {
         const issues = generatedPlanIssues(tx, d, this.current(ws, id), s);
         if (issues.length) conflict(issues.join(' '));
       }
-      tx.runtimeEvidence.addDecision({
-        ...input,
-        id: randomUUID(),
-        workspaceId: ws,
-        decidedAt: at,
-        decidedByUserId: context.user.id,
-      });
-      this.changed(
-        tx,
-        context,
-        ws,
-        id,
-        'evidence.decided',
-        `${s.subject.sourceId} evidence ${input.outcome}.`,
-        at,
-      );
+      const record = () => {
+        tx.runtimeEvidence.addDecision({
+          ...input,
+          id: randomUUID(),
+          workspaceId: ws,
+          decidedAt: at,
+          decidedByUserId: context.user.id,
+        });
+        this.changed(
+          tx,
+          context,
+          ws,
+          id,
+          'evidence.decided',
+          `${s.subject.sourceId} evidence ${input.outcome}.`,
+          at,
+        );
+      };
+      // Approving staged clauses (ADR-059) carries a plan acceptance it re-opens (R-C6 D2).
+      if (input.outcome === 'accepted' && s.architectureDecision?.coverage === 'clauses')
+        carryPlanAcceptance(
+          tx,
+          context,
+          { workspaceId: ws, definitionId: id, command: 'decision approval', at },
+          record,
+        );
+      else record();
     });
     this.notifier.notify();
     return this.view(context, ws, id);

@@ -475,17 +475,24 @@ it('invalidates generated plan evidence when saved settings change and rejects s
   service['deferredEntries'](changed);
   expect(spy.mock.calls.length).toBeLessThanOrEqual(3);
   spy.mockRestore();
-  f.service.save(f.auth, ws, {
-    ...f.input,
-    expectedVersion: changed.version,
-    configuration: {
-      ...f.input.configuration,
-      defaults: {
-        ...f.input.configuration.defaults,
-        reviewerRoles: ['independent-security-reviewer-if-required-by-source'],
+  // Applied as an amendment, which never carries the acceptance (R-C6 D2); an ordinary save
+  // would carry it.
+  f.service.save(
+    f.auth,
+    ws,
+    {
+      ...f.input,
+      expectedVersion: changed.version,
+      configuration: {
+        ...f.input.configuration,
+        defaults: {
+          ...f.input.configuration.defaults,
+          reviewerRoles: ['independent-security-reviewer-if-required-by-source'],
+        },
       },
     },
-  });
+    { retainAttemptIds: [] },
+  );
   expect(acceptedEvidence(context.storage, ws, id, 1, second.subject)).toBeUndefined();
   expect(
     // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.

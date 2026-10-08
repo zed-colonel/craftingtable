@@ -206,6 +206,12 @@ export interface EvidenceDecision {
   readonly rationale: string;
   readonly decidedAt: string;
   readonly decidedByUserId: UserId;
+  /**
+   * The accepted plan decision this one carries forward (R-C6 D2): the operator's own command
+   * changed the plan-acceptance inputs, and the daemon accepted the re-generated plan as that
+   * operator in the same transaction.
+   */
+  readonly carriedFrom?: string;
 }
 export interface RunEnvironment {
   readonly architectureDecisionDigest?: string;

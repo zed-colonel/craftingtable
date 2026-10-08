@@ -32,6 +32,7 @@ import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { RoadmapService } from './roadmap-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
+import { carryPlanAcceptance } from './generated-plan-evidence.js';
 import {
   acceptedEvidence,
   activeRuntime,
@@ -422,16 +423,23 @@ export class CrossProjectService {
       );
     const at = new Date().toISOString();
     this.storage.transaction((tx) => {
-      tx.imports.addAdoption({
-        id: randomUUID(),
-        workspaceId: ws,
-        definitionId: id,
-        bindingRevision: input.bindingRevision,
-        decisionIds: ids,
-        rationale: input.rationale,
-        createdAt: at,
-        createdByUserId: context.user.id,
-      });
+      // An adoption carries a plan acceptance it re-opens (R-C6 D2).
+      carryPlanAcceptance(
+        tx,
+        context,
+        { workspaceId: ws, definitionId: id, command: 'adoption', at },
+        () =>
+          tx.imports.addAdoption({
+            id: randomUUID(),
+            workspaceId: ws,
+            definitionId: id,
+            bindingRevision: input.bindingRevision,
+            decisionIds: ids,
+            rationale: input.rationale,
+            createdAt: at,
+            createdByUserId: context.user.id,
+          }),
+      );
       tx.audit.append({
         id: asAuditEventId(randomUUID()),
         workspaceId: ws,

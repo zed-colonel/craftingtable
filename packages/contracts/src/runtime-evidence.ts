@@ -284,6 +284,7 @@ export const evidenceDecisionSchema = z.strictObject({
   rationale: text,
   decidedAt: z.iso.datetime(),
   decidedByUserId: userIdSchema,
+  carriedFrom: z.uuid().optional(),
 });
 export const checkpointRecoverySchema = z.strictObject({
   worktreeId: z.uuid(),

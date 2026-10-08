@@ -1,16 +1,24 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts';
 import {
+  type ConcurrencySource,
   type EvidenceSubmission,
   PLAN_ACCEPTANCE_INPUTS,
   type RuntimeGeneration,
 } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
+import { carryPlanAcceptance } from '../src/services/generated-plan-evidence.js';
 import { savedPlanSnapshot } from '../src/services/plan-acceptance-policy.js';
 import { acceptedEvidence } from '../src/services/runtime-evidence-policy.js';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
+  commitFile,
+  fixtureRepository,
   git,
+  mapCommand,
+  mutationHeaders,
+  roadmapControl,
   supervisedMapFixture,
 } from './execution-test-support.js';
 
@@ -22,13 +30,21 @@ const PLAN = { kind: 'checkpoint' as const, sourceId: 'STACK-PLAN-ACCEPTED' };
  * A saved cross-project roadmap whose generated STACK-PLAN-ACCEPTED evidence the operator
  * accepted, with the commands the tests change it through.
  */
-async function acceptedPlan() {
-  const f = await supervisedMapFixture(false, 'automatic', false, true);
+async function acceptedPlan(
+  options: {
+    amend?: (source: ConcurrencySource) => ConcurrencySource;
+    /** Runs before the roadmap is saved; the binding revision it returns is the roadmap's. */
+    setup?: (f: Awaited<ReturnType<typeof supervisedMapFixture>>) => Promise<number>;
+  } = {},
+) {
+  const f = await supervisedMapFixture(false, 'automatic', false, true, false, options.amend);
   const { context, workspaceId: ws } = f.state;
   const storage = context.storage,
     svc = context.services.runtimeEvidenceService,
     id = f.parentScope.definitionId;
-  await adoptSupervisedMap(f);
+  const bindingRevision = options.setup ? await options.setup(f) : 1;
+  if (!options.setup) await adoptSupervisedMap(f);
+  f.input = { ...f.input, configuration: { ...f.input.configuration, bindingRevision } };
   const roadmap = f.service.save(f.auth, ws, f.input).roadmap;
   const generate = async () => {
     const ready = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;
@@ -60,9 +76,46 @@ async function acceptedPlan() {
       expectedVersion: storage.roadmaps.find(ws, roadmap.id)!.version,
       configuration: change(f.input.configuration),
     });
-  const accepted = () => acceptedEvidence(storage, ws, id, 1, PLAN);
+  const accepted = () => acceptedEvidence(storage, ws, id, bindingRevision, PLAN);
   const state = async () => (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!.state;
-  return { f, ws, id, storage, svc, roadmap, first, generate, accept, save, accepted, state };
+  const decisionOf = (submissionId: string) =>
+    storage.runtimeEvidence.decisions(ws).find((a) => a.submissionId === submissionId);
+  /** The plan the operator's command carried, with its decision and audit event. */
+  const carried = () => {
+    const plan = accepted()!;
+    const audit = storage.audit
+      .listWorkspace({ workspaceId: ws, limit: 50 })
+      .find(
+        (e) =>
+          e.action === 'evidence.decided' &&
+          (e.metadata as { submissionId?: string }).submissionId === plan.id,
+      );
+    return { plan, decision: decisionOf(plan.id)!, audit };
+  };
+  /** The plan items open now, and those the roadmap's scheduler pass would raise (R-A5). */
+  const planItems = () => [
+    ...storage.attention.open(ws).filter((item) => item.code === 'plan-acceptance'),
+    ...context.services.roadmapService
+      .passAttention(storage.roadmaps.find(ws, roadmap.id)!)
+      .filter((item) => item.code === 'plan-acceptance'),
+  ];
+  return {
+    f,
+    ws,
+    id,
+    storage,
+    svc,
+    roadmap,
+    first,
+    generate,
+    accept,
+    save,
+    accepted,
+    state,
+    decisionOf,
+    carried,
+    planItems,
+  };
 }
 
 it('records saved-plan-v2 evidence bound to the plan-acceptance inputs, one artifact per input', async () => {
@@ -165,16 +218,267 @@ it('keeps STACK-PLAN-ACCEPTED accepted across saves, generations and capacities 
   await unchanged();
 });
 
-it('re-opens STACK-PLAN-ACCEPTED when a save changes reviewer roles, naming the changed input', async () => {
-  const { save, accepted, state, generate } = await acceptedPlan();
+// Done-when (b) and D2: a save that changes reviewer roles re-generates the plan, and the
+// operator's own command accepts it in the same transaction.
+it('carries the acceptance when the operator saves new reviewer roles', async () => {
+  const { f, first, save, carried, decisionOf, state, storage, ws, id } = await acceptedPlan();
   save((c) => ({ ...c, defaults: { ...c.defaults, reviewerRoles: ['repository-maintainer'] } }));
-  expect(accepted()).toBeUndefined();
-  expect(await state()).toBe('ready-to-generate');
-  const next = await generate();
-  expect(next.generatedPlan).toMatchObject({
+  const { plan, decision, audit } = carried();
+  expect(plan.id).not.toBe(first.id);
+  expect(plan.generatedPlan).toMatchObject({
     kind: 'saved-plan-v2',
     changedInputs: ['reviewerRoles'],
   });
+  expect(decision).toMatchObject({
+    outcome: 'accepted',
+    decidedByUserId: f.state.userId,
+    carriedFrom: decisionOf(first.id)!.id,
+  });
+  expect(audit).toMatchObject({
+    actorKind: 'user',
+    actorUserId: f.state.userId,
+    metadata: {
+      carriedFrom: decisionOf(first.id)!.id,
+      priorSubmissionId: first.id,
+      changedInputs: ['reviewerRoles'],
+      command: 'roadmap save',
+    },
+  });
+  expect(await state()).toBe('accepted');
+  expect(storage.runtimeEvidence.submission(ws, id, plan.id)!.artifacts[0]!.content).toContain(
+    'Your roadmap save changed only the inputs named above',
+  );
+});
+
+// Done-when (c): the carried acceptance never reaches the inbox. An amendment never carries
+// (D2), so the same kind of change applied as one raises the plan item.
+it('opens no inbox item for a carried acceptance, and an amendment never carries', async () => {
+  const { f, ws, storage, save, carried, first, accepted, planItems, decisionOf } =
+    await acceptedPlan();
+  await roadmapControl(f.state, 'start');
+  await roadmapControl(f.state, 'pause');
+  expect(planItems()).toEqual([]);
+  save((c) => ({ ...c, defaults: { ...c.defaults, reviewerRoles: ['repository-maintainer'] } }));
+  expect(carried().decision.carriedFrom).toBe(decisionOf(first.id)!.id);
+  expect(planItems()).toEqual([]);
+  f.service.save(
+    f.auth,
+    ws,
+    {
+      ...f.input,
+      expectedVersion: storage.roadmaps.find(ws, f.input.roadmapId)!.version,
+      configuration: {
+        ...f.input.configuration,
+        defaults: {
+          ...f.input.configuration.defaults,
+          reviewerRoles: ['independent-security-reviewer-if-required-by-source'],
+        },
+      },
+    },
+    { retainAttemptIds: [] },
+  );
+  expect(accepted()).toBeUndefined();
+  expect(planItems().map((item) => item.title)).toEqual([
+    'Cross-project fixture · STACK-PLAN-ACCEPTED · Plan to accept',
+  ]);
+});
+
+it('carries the acceptance when the operator approves decision clauses', async () => {
+  const DECISION = 'LOCAL-ADR-01';
+  const { f, svc, ws, id, storage, first, carried, decisionOf } = await acceptedPlan({
+    amend: (source) => ({
+      ...source,
+      evidence_profiles: [
+        ...source.evidence_profiles,
+        {
+          id: 'architecture-approval',
+          independence_required: true,
+          reviewer_roles: ['repository-maintainer'],
+          required_evidence: [
+            'accepted decision artifact digest and revision',
+            'source contract and affected schema or protocol references',
+            'decision owner approval and applicability to the active plan generation',
+          ],
+        },
+      ],
+      checkpoints: [
+        ...source.checkpoints,
+        {
+          ...source.checkpoints[0]!,
+          id: DECISION,
+          owner: 'local',
+          kind: 'architecture_decision' as const,
+          evidence_profile: 'architecture-approval',
+          requires: [],
+        },
+      ],
+      slices: source.slices.map((s) => ({
+        ...s,
+        start_requires: [
+          ...s.start_requires,
+          { kind: 'checkpoint' as const, id: DECISION, state: 'passed' as const },
+        ],
+      })),
+    }),
+  });
+  await svc.proposeArchitectureDecision(f.auth, ws, id, {
+    bindingRevision: 1,
+    checkpointId: DECISION,
+    coverage: 'clauses',
+    proposal: 'Use the documented boundary.',
+    sourceReferences: `Exact imported plan ${DECISION}`,
+    consumers: [{ sliceId: f.scopes[0]!.sourceId, phase: 'start', replacesFullCheckpoint: true }],
+    retainedObligations: 'Implementation tests remain mandatory.',
+  });
+  const staged = storage.runtimeEvidence.submissions(ws, id)[0]!.id;
+  await svc.decide(f.auth, ws, id, {
+    submissionId: staged,
+    outcome: 'accepted',
+    rationale: 'Settled for the first slice.',
+  });
+  const { plan, decision, audit } = carried();
+  expect(plan.generatedPlan).toMatchObject({ changedInputs: ['stagedDecisions'] });
+  expect(decision.carriedFrom).toBe(decisionOf(first.id)!.id);
+  expect(audit?.metadata).toMatchObject({ command: 'decision approval' });
+});
+
+// The implemented-upstream pin moves only through the operator's reviewed refresh.
+it('carries the acceptance when the operator refreshes the implemented-upstream pin', async () => {
+  let provider = '';
+  const { f, svc, ws, id, first, carried, decisionOf, state } = await acceptedPlan({
+    amend: (source) => ({
+      ...source,
+      repositories: [
+        ...source.repositories,
+        {
+          ...source.repositories[0]!,
+          id: 'provider',
+          role: 'implemented_upstream',
+          target_branch: null,
+          merge_lock: null,
+        },
+      ],
+    }),
+    setup: async (f) => {
+      const { context, workspaceId: ws } = f.state;
+      const id = f.parentScope.definitionId;
+      provider = fixtureRepository();
+      commitFile(
+        provider,
+        'Cargo.toml',
+        '[package]\nname="plan_provider"\nversion="0.2.0"\nedition="2021"\n',
+      );
+      const registered = await context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/repositories`,
+        headers: mutationHeaders(f.state),
+        payload: { rootPath: provider, displayName: 'Plan provider' },
+      });
+      const repository = registerSourceRepositoryResponseSchema.parse(registered.json()).repository;
+      const binding = context.storage.imports.bindings(ws, id)[0]!;
+      context.storage.imports.addBindings({
+        ...binding,
+        revision: 2,
+        bindings: [
+          ...binding.bindings,
+          {
+            alias: 'provider',
+            repositoryId: repository.id,
+            integrationBranch: 'main',
+            sourceArtifacts: [],
+            workItems: [],
+          },
+        ],
+      });
+      const svc = context.services.runtimeEvidenceService;
+      const pin = await svc.inspect(f.auth, ws, id, {
+        bindingRevision: 2,
+        alias: 'provider',
+        ref: 'main',
+      });
+      const local = context.storage.runtimeEvidence.generations(ws, id, 1)[0]!;
+      await svc.configure(f.auth, ws, id, {
+        bindingRevision: 2,
+        expectedGeneration: 0,
+        pins: [
+          {
+            alias: 'provider',
+            ref: 'main',
+            expectedCommitSha: pin.commitSha,
+            conformanceRevision: 'fixture',
+            packages: pin.packages,
+          },
+        ],
+        consumers: [{ alias: 'local', upstreams: [] }],
+        environments: [...local.environments],
+      });
+      const adopted = await mapCommand(f, 'adopt', {
+        bindingRevision: 2,
+        decisionIds: ['CS-D01'],
+        rationale: 'Reviewed exact definition and retained obligations.',
+      });
+      expect(adopted.statusCode, adopted.body).toBe(200);
+      return 2;
+    },
+  });
+  commitFile(provider, 'POLICY.md', 'A provider change the operator reviews.');
+  const input = { bindingRevision: 2, expectedGeneration: 1 };
+  const preview = await svc.previewRefresh(f.auth, ws, id, input);
+  await svc.refresh(f.auth, ws, id, {
+    ...input,
+    snapshotDigest: preview.snapshotDigest,
+    rationale: 'Reviewed the provider change.',
+  });
+  const { plan, decision, audit } = carried();
+  expect(plan.generatedPlan).toMatchObject({ changedInputs: ['upstreamPins'] });
+  expect(decision.carriedFrom).toBe(decisionOf(first.id)!.id);
+  expect(audit?.metadata).toMatchObject({ command: 'dependency refresh' });
+  expect(await state()).toBe('accepted');
+});
+
+// Done-when (d) and D2: a new binding never carries, and nothing without an operator's
+// session does: the scheduler never accepts.
+it('never carries for a new binding or without the operator', async () => {
+  const { f, ws, id, storage, first, accepted } = await acceptedPlan();
+  const roles = (reviewerRoles: string[]) => {
+    const roadmap = storage.roadmaps.find(ws, f.input.roadmapId)!;
+    const definition = {
+      ...roadmap.definition,
+      revision: roadmap.definition.revision + 1,
+      entries: roadmap.definition.entries.map((e) => ({ ...e, reviewerRoles })),
+    };
+    storage.roadmaps.addDefinition(definition);
+    expect(
+      storage.roadmaps.save(
+        { ...roadmap, definition, version: roadmap.version + 1 },
+        roadmap.version,
+      ),
+    ).toBe(true);
+  };
+  const system = { user: f.auth.user };
+  storage.transaction((tx) =>
+    carryPlanAcceptance(
+      tx,
+      system as typeof f.auth,
+      { workspaceId: ws, definitionId: id, command: 'roadmap save', at: new Date().toISOString() },
+      () => roles(['repository-maintainer']),
+    ),
+  );
+  expect(accepted()).toBeUndefined();
+  expect(storage.runtimeEvidence.submissions(ws, id).map((s) => s.id)).toEqual([first.id]);
+  // Back to the accepted roles, then a new binding revision under the operator's session.
+  roles(['independent-security-reviewer-if-required-by-source', 'repository-maintainer']);
+  expect(accepted()?.id).toBe(first.id);
+  storage.transaction((tx) =>
+    carryPlanAcceptance(
+      tx,
+      f.auth,
+      { workspaceId: ws, definitionId: id, command: 'roadmap save', at: new Date().toISOString() },
+      () => tx.imports.addBindings({ ...tx.imports.bindings(ws, id)[0]!, revision: 2 }),
+    ),
+  );
+  expect(acceptedEvidence(storage, ws, id, 2, PLAN)).toBeUndefined();
+  expect(storage.runtimeEvidence.submissions(ws, id).map((s) => s.id)).toEqual([first.id]);
 });
 
 // R-C6 D3: a v1 record keeps its frozen rule, so nothing re-opens at deploy.
@@ -231,7 +535,23 @@ it('validates a saved-plan-v1 acceptance with the frozen v1 rule', async () => {
     rationale: 'Reviewed before the upgrade.',
   });
   expect(acceptedEvidence(storage, ws, id, 1, PLAN)?.id).toBe(v1.id);
-  // The frozen rule still binds a v1 record to the saved revision.
+  const v1Decision = storage.runtimeEvidence.decisions(ws).find((a) => a.submissionId === v1.id)!;
+  // Adopting the same proposals again changes neither the v1 facts nor the inputs.
+  await adoptSupervisedMap(f);
+  expect(acceptedEvidence(storage, ws, id, 1, PLAN)?.id).toBe(v1.id);
+  // The frozen rule binds a v1 record to the saved revision, so a save that changes nothing
+  // re-opens it; the operator's save carries it into v2, with no plan-acceptance input changed.
   f.service.save(f.auth, ws, { ...f.input, expectedVersion: roadmap.version });
-  expect(acceptedEvidence(storage, ws, id, 1, PLAN)).toBeUndefined();
+  const carried = acceptedEvidence(storage, ws, id, 1, PLAN)!;
+  expect(carried.generatedPlan).toMatchObject({ kind: 'saved-plan-v2', changedInputs: [] });
+  expect(
+    storage.runtimeEvidence.decisions(ws).find((a) => a.submissionId === carried.id),
+  ).toMatchObject({ outcome: 'accepted', carriedFrom: v1Decision.id });
+  // v2 is not bound to the revision: the next save that changes nothing keeps it.
+  f.service.save(f.auth, ws, {
+    ...f.input,
+    expectedVersion: storage.roadmaps.find(ws, roadmap.id)!.version,
+  });
+  expect(acceptedEvidence(storage, ws, id, 1, PLAN)?.id).toBe(carried.id);
+  expect(storage.runtimeEvidence.submissions(ws, id)).toHaveLength(2);
 });

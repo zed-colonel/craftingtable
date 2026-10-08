@@ -104,6 +104,7 @@ import type { ExecutionService } from './execution-service.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
 import { planCheckpoint } from './plan-acceptance-policy.js';
+import { carryPlanAcceptance } from './generated-plan-evidence.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
 import {
   findingFingerprint,
@@ -1436,8 +1437,20 @@ export class RoadmapService {
           attempts: [],
         };
     this.storage.transaction((tx) => {
-      this.persist(tx, roadmap, input.expectedVersion, 'save', context);
-      tx.roadmaps.addDefinition(definition);
+      const persist = () => {
+        this.persist(tx, roadmap, input.expectedVersion, 'save', context);
+        tx.roadmaps.addDefinition(definition);
+      };
+      // The operator's save carries a plan acceptance it re-opens (R-C6 D2); an amendment's
+      // new binding never does.
+      if (crossProject && !amendment)
+        carryPlanAcceptance(
+          tx,
+          context,
+          { workspaceId, definitionId: crossProject.definitionId, command: 'roadmap save', at },
+          persist,
+        );
+      else persist();
     });
     this.notifier.notify();
     return this.view(roadmap);

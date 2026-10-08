@@ -1,27 +1,47 @@
 import {
+  type AgentProfile,
   type AgentProfilePurpose,
   type AgentRun,
-  agentSelections,
+  type AgentSelection,
+  type CycleProfiles,
   cycleProfilePurpose,
+  type EffectiveAgent,
+  type Finalization,
   matchingAgent,
-  profileForPurpose,
+  ownsIntegrationResolution,
   type Roadmap,
   type RoadmapEntry,
-  selectionsForPurpose,
   type WorkCycle,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
-import { resolveAgents, selectionSet } from './agent-resolution.js';
+import {
+  type AgentContext,
+  launchProfile,
+  resolveAgent,
+  resolveAgents,
+  selectionSet,
+} from './agent-resolution.js';
 import { cycleOwnership } from './cycle-ownership.js';
+
+/**
+ * Where each daemon place gathers the layers of its agent selection (R-E5a, E5-2). Every
+ * selection is then `resolveAgent`'s answer; nothing here decides precedence.
+ */
+
 /** The roadmap's latest ADR-064 assignment covering an entry: it applies whole. */
 export function latestAssignment(roadmap: Roadmap, entryId: string) {
   return roadmap.agentAssignments?.findLast((a) => a.entryIds.includes(entryId));
 }
+/** The latest assignment as a resolution layer. */
+function assignmentLayer(
+  assignment: ReturnType<typeof latestAssignment>,
+): Pick<AgentContext, 'assignment'> {
+  return assignment ? { assignment: { id: assignment.id, selections: assignment.selections } } : {};
+}
 /** An entry's effective selections: its latest assignment, else its saved definition (E5-1). */
 export function entryAgents(roadmap: Roadmap, entry: RoadmapEntry) {
-  const assignment = latestAssignment(roadmap, entry.id);
   return resolveAgents({
-    ...(assignment ? { assignment: { id: assignment.id, selections: assignment.selections } } : {}),
+    ...assignmentLayer(latestAssignment(roadmap, entry.id)),
     profiles: { layer: 'saved-definition', value: entry.profiles },
   });
 }
@@ -31,42 +51,145 @@ export function entryAgentSelections(roadmap: Roadmap, entry: RoadmapEntry) {
     assignment: latestAssignment(roadmap, entry.id),
   };
 }
+
+/**
+ * The layers every choice for a cycle shares: its roadmap's latest assignment and its own
+ * profiles, which for a roadmap's cycle are its saved entry's.
+ */
+export function cycleLayers(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+): Pick<AgentContext, 'assignment' | 'profiles'> {
+  const owner = cycleOwnership(tx, cycle);
+  return {
+    ...assignmentLayer(owner && latestAssignment(owner.roadmap, owner.attempt.entryId)),
+    profiles: { layer: owner ? 'saved-definition' : 'cycle-start', value: cycle.profiles },
+  };
+}
+/** The permissions a cycle's launch for `purpose` runs with: its step's, remediation's for conflict. */
+function stepPermission(cycle: WorkCycle, purpose: AgentProfilePurpose) {
+  return cycle.profiles[purpose === 'conflict' ? 'remediate' : cycle.step].permissionMode;
+}
+
 /** Resolve only future launches. A running session's selection is already persisted on its run. */
 export function cycleAgentSelection(
   tx: StorageRepositories,
   cycle: WorkCycle,
   purpose = cycleProfilePurpose(cycle),
 ): {
-  profile: ReturnType<typeof profileForPurpose>;
+  profile: AgentProfile;
   provenance: NonNullable<AgentRun['profileSelection']>;
 } {
-  const fallback = {
-    ...profileForPurpose(cycle.profiles, purpose),
-    permissionMode:
-      cycle.profiles[purpose === 'conflict' ? 'remediate' : cycle.step].permissionMode,
-  };
+  const resolved = resolveAgent({
+    purpose,
+    permissionMode: stepPermission(cycle, purpose),
+    ...cycleLayers(tx, cycle),
+  });
   const owner = cycleOwnership(tx, cycle);
-  if (owner) {
-    const { roadmap, attempt } = owner;
-    const assignment = roadmap.agentAssignments?.findLast((a) =>
-      a.entryIds.includes(attempt.entryId),
-    );
-    const grant = roadmap.delegationAssignments?.findLast((a) =>
-      a.entryIds.includes(attempt.entryId),
-    );
-    const authority = grant ? { delegationId: grant.id } : {};
-    if (assignment)
-      return {
-        profile: {
-          ...selectionsForPurpose(assignment.selections, purpose),
-          permissionMode: fallback.permissionMode,
-        },
-        provenance: { purpose, assignmentId: assignment.id, ...authority },
-      };
-    return { profile: fallback, provenance: { purpose, ...authority } };
-  }
-  return { profile: fallback, provenance: { purpose } };
+  const grant = owner?.roadmap.delegationAssignments?.findLast((a) =>
+    a.entryIds.includes(owner.attempt.entryId),
+  );
+  return {
+    profile: launchProfile(resolved),
+    provenance: {
+      purpose,
+      ...(resolved.source.assignmentId ? { assignmentId: resolved.source.assignmentId } : {}),
+      ...(grant ? { delegationId: grant.id } : {}),
+    },
+  };
 }
+
+/** A finalization step's layer: its stage's profile for the step and the recovery's agent. */
+export function finalizationLayer(
+  value: Pick<Finalization, 'finalReview' | 'stages'>,
+  cycle: Pick<WorkCycle, 'step' | 'finalizationAgentOverride' | 'finalizationProgress'>,
+): NonNullable<AgentContext['finalization']> {
+  const stageIndex = cycle.finalizationProgress?.stageIndex ?? 0;
+  const stage = value.stages?.[stageIndex];
+  const slot = cycle.step === 'review' ? 'review' : 'implement';
+  return {
+    stage: stage ? stage[slot] : value.finalReview,
+    slot: stage ? slot : 'review',
+    ...(stage ? { stageIndex } : {}),
+    ...(cycle.finalizationAgentOverride ? { recovery: cycle.finalizationAgentOverride } : {}),
+  };
+}
+/** The agent a finalization step runs (R-B10, ADR-040). */
+export function finalizationAgent(
+  value: Pick<Finalization, 'finalReview' | 'stages'>,
+  cycle: Pick<WorkCycle, 'step' | 'finalizationAgentOverride' | 'finalizationProgress'>,
+): EffectiveAgent {
+  const finalization = finalizationLayer(value, cycle);
+  return resolveAgent({ purpose: finalization.slot, finalization });
+}
+
+/**
+ * A cycle's next launch, every layer considered: a resumed session keeps its run's agent; a
+ * design-question recovery, a finalization step and an integration resolution run what they
+ * recorded; then the roadmap's assignment, a service retry's profile and the cycle's profiles.
+ */
+export function cycleLaunchAgent(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+  recorded: { readonly resumed?: AgentRun; readonly finalization?: Finalization },
+): EffectiveAgent {
+  const purpose = cycleProfilePurpose(cycle);
+  const { resumed, finalization } = recorded;
+  const recovery =
+    cycle.step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
+      ? cycle.designRecovery
+      : undefined;
+  const resolution = ownsIntegrationResolution(cycle) ? cycle.integrationResolution : undefined;
+  return resolveAgent({
+    purpose,
+    permissionMode: stepPermission(cycle, purpose),
+    ...(resumed
+      ? {
+          resumed: {
+            backend: resumed.backend,
+            permissionMode: resumed.permissionMode,
+            ...(resumed.model === undefined ? {} : { model: resumed.model }),
+            ...(resumed.reasoningEffort ? { reasoningEffort: resumed.reasoningEffort } : {}),
+          },
+        }
+      : {}),
+    ...(recovery
+      ? {
+          action: {
+            layer: 'design-recovery',
+            selection: recovery.profile,
+            permissionMode: cycle.profiles.design.permissionMode,
+          },
+        }
+      : {}),
+    ...(finalization ? { finalization: finalizationLayer(finalization, cycle) } : {}),
+    ...(resolution?.profile ? { integrationResolution: resolution.profile } : {}),
+    ...cycleLayers(tx, cycle),
+    ...(cycle.providerRecovery ? { serviceRetry: cycle.providerRecovery.profile } : {}),
+  });
+}
+
+/** A cycle's future agents for every purpose: its assignment, else its own profiles. */
+export function cycleAgents(tx: StorageRepositories, cycle: WorkCycle) {
+  return resolveAgents(cycleLayers(tx, cycle));
+}
+
+/**
+ * A question stop's investigation (R-C16): the operator's choice, else the cycle's effective
+ * investigation selection.
+ */
+export function investigationAgent(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+  chosen: AgentSelection | undefined,
+): EffectiveAgent {
+  return resolveAgent({
+    purpose: 'investigation',
+    ...(chosen ? { action: { layer: 'investigation', selection: chosen } } : {}),
+    ...cycleLayers(tx, cycle),
+  });
+}
+
 /** Older accepted reviews keep the selection authorized at their launch, even after another model change. */
 export function assignedReviewMatches(
   roadmap: Roadmap,
@@ -84,18 +207,18 @@ export function assignedReviewMatches(
       )
     : undefined;
   if (assignmentId && !assignment) return false;
-  const profile = assignment
-    ? selectionsForPurpose(assignment.selections, purpose)
-    : profileForPurpose(entry.profiles, purpose);
-  return matchingAgent(run, { ...profile, permissionMode: entry.profiles.review.permissionMode });
+  const authorized = resolveAgent({
+    purpose,
+    permissionMode: entry.profiles.review.permissionMode,
+    ...assignmentLayer(assignment),
+    profiles: { layer: 'saved-definition', value: entry.profiles },
+  });
+  return matchingAgent(run, launchProfile(authorized));
 }
 
-export function effectiveCycleProfiles(tx: StorageRepositories, cycle: WorkCycle) {
-  const owner = cycleOwnership(tx, cycle);
-  const assignment = owner?.roadmap.agentAssignments?.findLast((a) =>
-    a.entryIds.includes(owner.attempt.entryId),
-  );
-  const selections = assignment?.selections ?? agentSelections(cycle.profiles);
+/** A cycle's future profiles: its effective selections with its own steps' permissions. */
+export function effectiveCycleProfiles(tx: StorageRepositories, cycle: WorkCycle): CycleProfiles {
+  const selections = selectionSet(cycleAgents(tx, cycle));
   return {
     ...selections,
     design: { ...selections.design, permissionMode: cycle.profiles.design.permissionMode },

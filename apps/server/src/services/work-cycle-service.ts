@@ -2,8 +2,9 @@ import {
   type CheckDefinitionDiagnosis,
   definitionChangeReason,
 } from './repository-checks-service.js';
-import { effectiveCycleProfiles } from './agent-profile-policy.js';
-import { agentSelections, mapCapabilities, V03_VOCABULARY } from '@craftingtable/domain';
+import { cycleAgents, cycleLayers, investigationAgent } from './agent-profile-policy.js';
+import { resolveAgent, selectionSet } from './agent-resolution.js';
+import { mapCapabilities, V03_VOCABULARY } from '@craftingtable/domain';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   AuthorizeWorkCycleRemediationRequest,
@@ -22,7 +23,6 @@ import {
   type CycleInvestigation,
   type InvestigationWorktree,
   type InvestigationWorktreeChange,
-  profileForPurpose,
   stopCode,
   cycleActions,
   asAuditEventId,
@@ -337,7 +337,7 @@ export class WorkCycleService {
   }
 
   private projection(tx: StorageRepositories, c: WorkCycle): CycleProjection {
-    const nextAgentSelections = agentSelections(effectiveCycleProfiles(tx, c));
+    const nextAgentSelections = selectionSet(cycleAgents(tx, c));
     if (TERMINAL_CYCLE_STATUSES.has(c.status))
       return {
         nextAgentSelections,
@@ -636,15 +636,7 @@ export class WorkCycleService {
         );
       worktree = investigationWorktree(snapshot.value);
     }
-    const selected = profileForPurpose(
-      effectiveCycleProfiles(this.storage, cycle),
-      'investigation',
-    );
-    const profile = input.profile ?? {
-      backend: selected.backend,
-      ...(selected.model === undefined ? {} : { model: selected.model }),
-      ...(selected.reasoningEffort ? { reasoningEffort: selected.reasoningEffort } : {}),
-    };
+    const profile = investigationAgent(this.storage, cycle, input.profile).selection;
     if (!this.runs.hasBackend(profile.backend))
       throw new ExecutionRequestError(
         'unavailable',
@@ -1130,7 +1122,10 @@ export class WorkCycleService {
     const preview = this.storage.readTransaction((tx) =>
       collectDesignRecovery(tx, cycle, investigation.id),
     );
-    const design = effectiveCycleProfiles(this.storage, cycle).design;
+    const design = resolveAgent({
+      purpose: 'design',
+      ...cycleLayers(this.storage, cycle),
+    }).selection;
     if (!this.runs.hasBackend(design.backend))
       throw new ExecutionRequestError('unavailable', 'The design backend is unavailable.');
     const runId = asAgentRunId(randomUUID());
@@ -1155,11 +1150,7 @@ export class WorkCycleService {
           sourceRunId: investigation.id,
           mode: 'continue',
           automatic: true,
-          profile: {
-            backend: design.backend,
-            ...(design.model === undefined ? {} : { model: design.model }),
-            ...(design.reasoningEffort ? { reasoningEffort: design.reasoningEffort } : {}),
-          },
+          profile: design,
           instructions: recovery.instructions,
           attachments: recovery.attachments,
           snapshotDigest: preview.snapshotDigest,

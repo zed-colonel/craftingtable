@@ -39,7 +39,6 @@ import {
   asAgentRunId,
   asAuditEventId,
   asEventId,
-  finalizationProfile,
   isTerminalAgentRunStatus,
   modelSpelling,
   OUTPUT_REPAIR_LIMIT,
@@ -61,7 +60,8 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { AGENTS_ROOT_LOCK_FILE } from '../instance-lock.js';
-import { cycleAgentSelection } from './agent-profile-policy.js';
+import { cycleAgentSelection, cycleLaunchAgent } from './agent-profile-policy.js';
+import { launchProfile } from './agent-resolution.js';
 import { removeAgentTree } from './agent-tree.js';
 import { cycleOwnership } from './cycle-ownership.js';
 import { WORKTREE_CACHES_DIRECTORY } from './storage-files.js';
@@ -838,22 +838,12 @@ export class AgentRunService {
       cycle,
       cycle.parentRunId && this.storage.execution.runs.find(cycle.workspaceId, cycle.parentRunId),
     )?.run;
-    const profile =
-      (resumed
-        ? {
-            backend: resumed.backend,
-            permissionMode: resumed.permissionMode,
-            ...(resumed.model === undefined ? {} : { model: resumed.model }),
-            ...(resumed.reasoningEffort ? { reasoningEffort: resumed.reasoningEffort } : {}),
-          }
-        : undefined) ??
-      (recovery
-        ? { permissionMode: cycle.profiles.design.permissionMode, ...recovery.profile }
-        : undefined) ??
-      (finalization ? finalizationProfile(finalization, cycle) : undefined) ??
-      resolution?.profile ??
-      (selected.provenance.assignmentId ? selected.profile : cycle.providerRecovery?.profile) ??
-      selected.profile;
+    const profile = launchProfile(
+      cycleLaunchAgent(this.storage, cycle, {
+        ...(resumed ? { resumed } : {}),
+        ...(finalization ? { finalization } : {}),
+      }),
+    );
     return this.launchAuthorized(
       cycle.workspaceId,
       cycle.workItemId,

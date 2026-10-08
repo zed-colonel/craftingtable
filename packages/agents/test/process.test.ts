@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ClaudeCodeBackend } from '../src/claude-code/backend.js';
 import { CodexBackend } from '../src/codex/backend.js';
 import {
+  parseProcessGroupIdentity,
+  processGroupIdentity,
+  reapProcessGroup,
   type SupervisedProcess,
   type SupervisedProcessItem,
   spawnSupervisedProcess,
@@ -133,5 +136,51 @@ describe('stdout supervision (R-G11, AGT-16c, AGT-16e)', () => {
       { type: 'stdout-overflow', bytes: 36 },
       { type: 'stdout-line', line: 'last' },
     ]);
+  });
+});
+
+describe.runIf(process.platform === 'linux')('process group identity (R-G11, AGT-02)', () => {
+  it('is recorded only for a group this process started and leads', () => {
+    const child = spawn(script('setInterval(() => {}, 1000);'));
+    const identity = processGroupIdentity(child.pid);
+    expect(identity).toEqual({
+      pid: child.pid,
+      startTime: expect.stringMatching(/^\d+$/),
+      bootId: expect.stringMatching(/^[0-9a-f-]+$/),
+    });
+    // Not this process's child, or not a group leader: nothing a later daemon could signal.
+    expect(processGroupIdentity(1)).toBeUndefined();
+    expect(processGroupIdentity(process.pid)).toBeUndefined();
+    expect(parseProcessGroupIdentity(JSON.parse(JSON.stringify(identity)))).toEqual(identity);
+    for (const junk of [
+      null,
+      { ...identity, pid: 1 },
+      { ...identity, pid: '12' },
+      { ...identity, startTime: '1 2' },
+      { ...identity, bootId: '../x' },
+    ])
+      expect(parseProcessGroupIdentity(junk)).toBeUndefined();
+  });
+
+  it('ends a recorded group that stops on SIGTERM, and leaves one it cannot prove', async () => {
+    const child = spawn(script('setInterval(() => {}, 1000);'));
+    const identity = processGroupIdentity(child.pid);
+    if (!identity) throw new Error('no identity');
+    expect(await reapProcessGroup({ ...identity, startTime: '1' }, { graceMs: 100 })).toEqual({
+      outcome: 'other-process',
+    });
+    // A leader that started before the run it is recorded for is not the run's.
+    expect(
+      await reapProcessGroup(identity, { graceMs: 100, notStartedBefore: Date.now() + 60_000 }),
+    ).toEqual({ outcome: 'other-process' });
+    expect(
+      await reapProcessGroup(identity, { graceMs: 2000, notStartedBefore: Date.now() - 1000 }),
+    ).toEqual({
+      outcome: 'terminated',
+      signal: 'SIGTERM',
+    });
+    const items = await collect(child.items);
+    expect(items.at(-1)).toMatchObject({ type: 'exited', signal: 'SIGTERM' });
+    expect(await reapProcessGroup(identity, { graceMs: 100 })).toEqual({ outcome: 'gone' });
   });
 });

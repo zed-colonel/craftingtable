@@ -131,6 +131,8 @@ export interface ServiceOverrides {
    * instead of recovering interrupted runs, cycles and roadmaps as a restart does.
    */
   readonly restartRecovery?: false;
+  /** Test seam: how long recovery lets a surviving agent group end on SIGTERM (R-G11). */
+  readonly recoveryTerminationGraceMs?: number;
 }
 
 function privateDirectory(path: string): string {
@@ -321,7 +323,13 @@ export async function createServices(
     ? storage.transaction((tx) => tx.maintenance.takeCleanStop())
     : undefined;
   const cleanStop =
-    recovering && agentRunService.recoverInterrupted() === 0 && previousStop !== undefined;
+    recovering &&
+    (await agentRunService.recoverInterrupted(
+      overrides.recoveryTerminationGraceMs === undefined
+        ? {}
+        : { terminationGraceMs: overrides.recoveryTerminationGraceMs },
+    )) === 0 &&
+    previousStop !== undefined;
   const workCycleService = new WorkCycleService(
     storage,
     workspaceService,

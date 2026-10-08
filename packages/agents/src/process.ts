@@ -122,8 +122,35 @@ function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-/** Linux zombies no longer execute work, but still make kill(-pgid, 0) succeed. */
-function hasGroupWork(pid: number | undefined): boolean {
+/** What `/proc/<pid>/stat` says of a process: its state, parent, group and start time. */
+function procStat(
+  pid: number | string,
+): { state: string; ppid: number; pgrp: number; startTime: string } | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // The command name is in parentheses and may hold spaces; fields resume after the last one.
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    const startTime = fields[19] ?? '';
+    if (!/^\d+$/.test(startTime)) return undefined;
+    return {
+      state: fields[0] ?? '',
+      ppid: Number(fields[1]),
+      pgrp: Number(fields[2]),
+      // Field 22: clock ticks after boot. With the boot id, it names one process for good.
+      startTime,
+    };
+  } catch (error) {
+    // A process may exit between enumeration and read. Other errors fail closed.
+    if (['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Linux zombies no longer execute work, but still make kill(-pgid, 0) succeed. The leader is
+ * left out unless asked for: a session's own leader is known to have exited by then.
+ */
+function hasGroupWork(pid: number | undefined, includeLeader = false): boolean {
   if (pid === undefined) return false;
   try {
     process.kill(-pid, 0);
@@ -133,20 +160,172 @@ function hasGroupWork(pid: number | undefined): boolean {
   if (process.platform !== 'linux') return true;
   try {
     for (const entry of readdirSync('/proc')) {
-      if (!/^\d+$/.test(entry) || Number(entry) === pid) continue;
-      try {
-        const stat = readFileSync(`/proc/${entry}/stat`, 'utf8');
-        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-        if (Number(fields[2]) === pid && !['Z', 'X'].includes(fields[0] ?? '')) return true;
-      } catch (error) {
-        // A process may exit between enumeration and read. Other errors fail closed.
-        if (!['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) return true;
-      }
+      if (!/^\d+$/.test(entry) || (!includeLeader && Number(entry) === pid)) continue;
+      const stat = procStat(entry);
+      if (stat?.pgrp === pid && !['Z', 'X'].includes(stat.state)) return true;
     }
     return false;
   } catch {
     return true;
   }
+}
+
+function currentBootId(): string | undefined {
+  try {
+    return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Who an agent's process group is, recorded so a later daemon can tell it from whatever
+ * reuses its pid (R-G11, AGT-02): the group leader's pid, its start time (`/proc/<pid>/stat`
+ * field 22) and the boot it started in.
+ */
+export interface ProcessGroupIdentity {
+  readonly pid: number;
+  readonly startTime: string;
+  readonly bootId: string;
+}
+
+/**
+ * The identity of a process group this daemon started: `pid` must be its own child and lead
+ * its own group. Anything else, or a host without `/proc`, has none, so a stand-in pid can
+ * never be recorded for a later daemon to signal.
+ */
+export function processGroupIdentity(pid: number | undefined): ProcessGroupIdentity | undefined {
+  if (pid === undefined || process.platform !== 'linux') return undefined;
+  try {
+    const stat = procStat(pid);
+    const bootId = currentBootId();
+    if (!stat || !bootId || stat.ppid !== process.pid || stat.pgrp !== pid) return undefined;
+    return { pid, startTime: stat.startTime, bootId };
+  } catch {
+    return undefined;
+  }
+}
+
+/** A recorded identity read back from disk, where anything may have been written. */
+export function parseProcessGroupIdentity(value: unknown): ProcessGroupIdentity | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { pid, startTime, bootId } = value as Record<string, unknown>;
+  if (
+    typeof pid !== 'number' ||
+    !Number.isSafeInteger(pid) ||
+    pid <= 1 ||
+    typeof startTime !== 'string' ||
+    !/^\d{1,20}$/.test(startTime) ||
+    typeof bootId !== 'string' ||
+    !/^[0-9a-f-]{1,64}$/.test(bootId)
+  )
+    return undefined;
+  return { pid, startTime, bootId };
+}
+
+/** What restart recovery did with a recorded process group. */
+export type ProcessGroupReaping =
+  /** No process has the recorded pid any longer. */
+  | { readonly outcome: 'gone' }
+  /** The pid now names another process (another start time, boot or group): left alone. */
+  | { readonly outcome: 'other-process' }
+  /** Nothing here can prove whose the pid is (no `/proc`): left alone. */
+  | { readonly outcome: 'unverifiable' }
+  /** The recorded group was still running and was ended by this signal. */
+  | { readonly outcome: 'terminated'; readonly signal: 'SIGTERM' | 'SIGKILL' };
+
+const REAP_POLL_MS = 50;
+/** Linux reports start times to user space in USER_HZ ticks, 100 a second. */
+const USER_HZ = 100;
+/** Boot time is whole seconds and start times are ticks: allow for both, and clock drift. */
+const START_TIME_SLACK_MS = 3000;
+
+/** When a process started, in epoch milliseconds, from its start time and the boot time. */
+function startedAtMs(startTime: string): number | undefined {
+  try {
+    const boot = /^btime (\d+)$/m.exec(readFileSync('/proc/stat', 'utf8'))?.[1];
+    return boot === undefined
+      ? undefined
+      : Number(boot) * 1000 + (Number(startTime) * 1000) / USER_HZ;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Ends a process group an earlier daemon started (R-G11, AGT-02): SIGTERM, then SIGKILL once
+ * the grace period has passed with members still running. Only a group whose leader is still
+ * the recorded process (same boot, same start time, still leading its group) is signalled,
+ * and never this daemon's own. A group whose leader has exited cannot be proved and is left.
+ */
+export async function reapProcessGroup(
+  identity: ProcessGroupIdentity,
+  options: {
+    readonly graceMs: number;
+    /**
+     * When the group's run began, in epoch milliseconds. The record sits where the agent can
+     * write, so a leader that started before its run cannot be the run's and is left alone.
+     */
+    readonly notStartedBefore?: number;
+  },
+): Promise<ProcessGroupReaping> {
+  if (process.platform !== 'linux') return { outcome: 'unverifiable' };
+  const recorded = (): ProcessGroupReaping | undefined => {
+    const bootId = currentBootId();
+    if (!bootId) return { outcome: 'unverifiable' };
+    const stat = procStat(identity.pid);
+    if (!stat) return { outcome: 'gone' };
+    if (
+      bootId !== identity.bootId ||
+      stat.startTime !== identity.startTime ||
+      stat.pgrp !== identity.pid ||
+      identity.pid === process.pid ||
+      identity.pid === procStat(process.pid)?.pgrp
+    )
+      return { outcome: 'other-process' };
+    if (options.notStartedBefore !== undefined) {
+      const startedAt = startedAtMs(stat.startTime);
+      if (startedAt === undefined) return { outcome: 'unverifiable' };
+      if (startedAt < options.notStartedBefore - START_TIME_SLACK_MS)
+        return { outcome: 'other-process' };
+    }
+    return undefined;
+  };
+  let refused: ProcessGroupReaping | undefined;
+  try {
+    refused = recorded();
+  } catch {
+    return { outcome: 'unverifiable' };
+  }
+  if (refused) return refused;
+  const ended = async (ms: number) => {
+    for (const until = Date.now() + ms; Date.now() < until; ) {
+      if (!hasGroupWork(identity.pid, true)) return true;
+      await new Promise((resolve) => setTimeout(resolve, REAP_POLL_MS));
+    }
+    return !hasGroupWork(identity.pid, true);
+  };
+  const signal = (name: NodeJS.Signals) => {
+    try {
+      process.kill(-identity.pid, name);
+    } catch {
+      // Gone meanwhile.
+    }
+  };
+  signal('SIGTERM');
+  if (await ended(options.graceMs)) return { outcome: 'terminated', signal: 'SIGTERM' };
+  // The pid cannot have been reused while its group had members, unless the leader alone was
+  // replaced; it is checked again before the group is killed.
+  try {
+    const leader = procStat(identity.pid);
+    if (leader && leader.startTime !== identity.startTime)
+      return { outcome: 'terminated', signal: 'SIGTERM' };
+  } catch {
+    // Unreadable: the group is still the one signalled above.
+  }
+  signal('SIGKILL');
+  await ended(options.graceMs);
+  return { outcome: 'terminated', signal: 'SIGKILL' };
 }
 
 /**

@@ -227,3 +227,10 @@ export { CodexStreamNormalizer } from './codex/normalize.js';
 export { observeRustToolchain } from './local-toolchain.js';
 
 export { prepareHistoricalCargoLauncher } from './pinned-cargo.js';
+export {
+  parseProcessGroupIdentity,
+  type ProcessGroupIdentity,
+  type ProcessGroupReaping,
+  processGroupIdentity,
+  reapProcessGroup,
+} from './process.js';

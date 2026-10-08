@@ -1277,7 +1277,7 @@ describe('agent runs', () => {
     const service = state.context.services.agentRunService;
     expect(service.liveCount()).toBe(1);
     (service as unknown as { live: Map<string, unknown> }).live.clear();
-    expect(service.recoverInterrupted()).toBe(1);
+    expect(await service.recoverInterrupted()).toBe(1);
     const recovered = state.context.storage.execution.runs.find(state.workspaceId, run.id);
     expect(recovered?.status).toBe('interrupted');
     const last = state.context.storage.execution.runEvents
@@ -1285,7 +1285,7 @@ describe('agent runs', () => {
       .at(-1);
     expect(last?.kind === 'run-finished' && last.payload).toMatchObject({ status: 'interrupted' });
     expect(last?.kind === 'run-finished' && last.payload.message).toContain('restarted');
-    expect(service.recoverInterrupted()).toBe(0);
+    expect(await service.recoverInterrupted()).toBe(0);
   });
 });
 

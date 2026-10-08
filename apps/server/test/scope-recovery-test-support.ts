@@ -251,7 +251,7 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
       () => tx.execution.runs.find(ws, cycle.currentRunId)?.status === 'finished',
       'repair session finished',
     );
-    expect(state.context.services.agentRunService.recoverInterrupted()).toBe(0);
+    expect(await state.context.services.agentRunService.recoverInterrupted()).toBe(0);
     state.context.services.workCycleService.recoverInterrupted();
     state.context.services.roadmapService.recoverInterrupted();
     expect(storedRoadmap(state).status).toBe('paused');

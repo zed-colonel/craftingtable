@@ -450,7 +450,7 @@ it('phase reservations serialize competing launches and release on terminal fail
   const reopened = openDaemonStorage(state.context.storage.databasePath);
   expect(reopened.phaseScheduling.active()).toHaveLength(1);
   reopened.close();
-  state.context.services.agentRunService.recoverInterrupted();
+  await state.context.services.agentRunService.recoverInterrupted();
   expect(state.context.storage.phaseScheduling.active()).toHaveLength(0);
 });
 it('phase resources reserve all or none and release Git reservations after a failed operation', async () => {
@@ -719,7 +719,7 @@ it('phase verification capacity is separate and restart releases operation reser
   const db = openDatabase(state.context.storage.databasePath);
   expect(() => db.prepare('DELETE FROM phase_reservations').run()).toThrow('immutable');
   db.close();
-  state.context.services.agentRunService.recoverInterrupted();
+  await state.context.services.agentRunService.recoverInterrupted();
   expect(state.context.storage.phaseScheduling.active()).toHaveLength(0);
   const reopened = openDatabase(state.context.storage.databasePath);
   expect(

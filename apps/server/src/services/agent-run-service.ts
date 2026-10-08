@@ -2,12 +2,18 @@ import { decisionPreparationDocuments } from './decision-preparation-policy.js';
 import { moveRecords, unrecordedMoves } from './ref-watch.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   readdirSync,
+  openSync,
   readFileSync,
+  readSync,
   realpathSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -19,6 +25,11 @@ import {
   type AgentSession,
   type AgentSessionItem,
   type NormalizedAgentEvent,
+  parseProcessGroupIdentity,
+  type ProcessGroupIdentity,
+  type ProcessGroupReaping,
+  processGroupIdentity,
+  reapProcessGroup,
 } from '@craftingtable/agents';
 import {
   AGENT_BACKEND_LABELS,
@@ -185,6 +196,11 @@ interface LiveRun {
 }
 
 const LIVE_STATUSES: readonly AgentRunStatus[] = ['starting', 'running', 'waiting'];
+/** The run directory's record of its agent's process group (R-G11, AGT-02). */
+export const PROCESS_IDENTITY_FILE = 'process.json';
+const PROCESS_IDENTITY_MAX_BYTES = 4096;
+/** How long restart recovery lets a surviving group end on SIGTERM before SIGKILL. */
+const RECOVERY_TERMINATION_GRACE_MS = 5000;
 /** Bytes, matching the wire contract and the storage CHECK. */
 /** A parent run's findings are reproduced in the brief up to this size. */
 const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
@@ -1994,6 +2010,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
 
+        this.recordProcessIdentity(runId, runDirectory, session);
         // A restart began ending sessions while this one was launching: it is the drain's too, so
         // the restart resumes it (R-G13 increment 3 verification).
         if (this.interrupting) {
@@ -2405,8 +2422,70 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     this.cleanups.add(removing);
   }
 
-  /** Marks runs that were live when the daemon last stopped; their processes are gone. */
-  recoverInterrupted(): number {
+  /**
+   * Records who the run's agent process group is, right after launch (R-G11, AGT-02), so the
+   * next daemon can end it if this one stops without draining. Written beside the run's other
+   * files and replaced whole, never through a link; a launch never fails for want of it.
+   */
+  private recordProcessIdentity(
+    runId: AgentRunId,
+    runDirectory: string,
+    session: AgentSession,
+  ): void {
+    const identity = processGroupIdentity(session.pid);
+    if (identity === undefined) return;
+    const path = join(runDirectory, PROCESS_IDENTITY_FILE);
+    const temporary = `${path}.${randomBytes(8).toString('hex')}`;
+    try {
+      writeFileSync(temporary, `${JSON.stringify(identity)}\n`, { flag: 'wx', mode: 0o600 });
+      renameSync(temporary, path);
+    } catch (error) {
+      this.log.warn("The agent's process identity could not be recorded", {
+        runId,
+        error: String(error),
+      });
+    }
+  }
+
+  /**
+   * Ends what a live run's agent left running when the daemon stopped without draining
+   * (R-G11, AGT-02), when its recorded identity proves the group is the run's, and journals it.
+   */
+  private async reapRecordedGroup(run: AgentRun, graceMs: number): Promise<void> {
+    const directory =
+      this.storage.maintenance.directory(run.id)?.path ?? join(this.config.runsRoot, run.id);
+    const identity = readProcessIdentity(join(directory, PROCESS_IDENTITY_FILE));
+    if (identity === undefined) return;
+    let reaping: ProcessGroupReaping;
+    try {
+      reaping = await reapProcessGroup(identity, {
+        graceMs,
+        notStartedBefore: Date.parse(run.createdAt),
+      });
+    } catch (error) {
+      this.log.warn("A run's surviving process group could not be ended", {
+        runId: run.id,
+        error: String(error),
+      });
+      return;
+    }
+    if (reaping.outcome !== 'terminated') return;
+    this.appendEvent(run.workspaceId, run.id, {
+      kind: 'notice',
+      payload: {
+        category: 'other',
+        message: `The daemon stopped without ending this run's agent. On restart, CraftingTable ended its process group ${identity.pid}, still running, with ${reaping.signal}.`,
+      },
+    });
+  }
+
+  /**
+   * Marks runs that were live when the daemon last stopped. A process group one of them left
+   * running, proved the run's by its recorded identity, is ended first (R-G11, AGT-02).
+   */
+  async recoverInterrupted(
+    options: { readonly terminationGraceMs?: number } = {},
+  ): Promise<number> {
     // Their agents' temporary directories went with them (LIVE-31). One that cannot be removed
     // is logged; it never keeps the daemon from starting (LIVE-31 review).
     const root = this.config.agentTemporaryRoot;
@@ -2437,6 +2516,11 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       tx.phaseScheduling.releaseOperations(this.now().toISOString()),
     );
     const stale = this.storage.execution.runs.listLive();
+    await Promise.all(
+      stale.map((run) =>
+        this.reapRecordedGroup(run, options.terminationGraceMs ?? RECOVERY_TERMINATION_GRACE_MS),
+      ),
+    );
     for (const run of stale) {
       this.finalize(run.workspaceId, run.id, 'interrupted', {
         message: 'The daemon restarted while this run was live',
@@ -3066,6 +3150,32 @@ async function drainUntilExit(items: AsyncIterator<AgentSessionItem>): Promise<v
     // The backend stream failed; fall through to the grace period.
   }
   await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS));
+}
+
+/**
+ * A run's recorded process identity, or nothing. The run directory is the agent's to write:
+ * never read through a link, never wait on a pipe put in its place, and at most 4 KiB.
+ */
+function readProcessIdentity(path: string): ProcessGroupIdentity | undefined {
+  let descriptor: number;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return undefined;
+  }
+  try {
+    if (!fstatSync(descriptor).isFile()) return undefined;
+    const buffer = Buffer.alloc(PROCESS_IDENTITY_MAX_BYTES + 1);
+    let length = 0;
+    for (let read = -1; read !== 0 && length < buffer.length; length += read)
+      read = readSync(descriptor, buffer, length, buffer.length - length, length);
+    if (length > PROCESS_IDENTITY_MAX_BYTES) return undefined;
+    return parseProcessGroupIdentity(JSON.parse(buffer.subarray(0, length).toString('utf8')));
+  } catch {
+    return undefined;
+  } finally {
+    closeSync(descriptor);
+  }
 }
 
 function appendStatusChanged(

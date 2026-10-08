@@ -254,14 +254,18 @@ export class ClaudeCodeBackend implements AgentBackend {
             for (const event of stderr.write(item.text)) yield { type: 'event', event };
             break;
           }
-          case 'exited':
+          case 'exited': {
             for (const event of stderr.flush()) yield { type: 'event', event };
+            // A session that ends before collecting its background work: its last result is the
+            // step's turn, so the incomplete-work continuation applies to it (R-G11).
+            const last = normalizer.takeIntermediateResult();
             if (endingForQuota) {
               // The work was ended on purpose; nothing of it outlives the process group.
               yield { type: 'event', event: normalizer.endedForQuota() };
               yield { type: 'exited', exitCode: item.exitCode ?? 1, signal: item.signal };
               break;
             }
+            if (last) yield { type: 'event', event: last };
             yield {
               type: 'exited',
               exitCode: item.exitCode,
@@ -275,6 +279,7 @@ export class ClaudeCodeBackend implements AgentBackend {
                   : {}),
             };
             break;
+          }
         }
       }
     })();

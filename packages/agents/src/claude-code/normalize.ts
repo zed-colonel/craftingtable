@@ -199,6 +199,11 @@ export class ClaudeStreamNormalizer {
   private readonly backgroundTasks = new Set<string>();
   private backgroundAfterResult = false;
   private untrackedBackgroundTasks = false;
+  /**
+   * The last successful result given while tracked background tasks were pending (AGT-62): not
+   * the turn's outcome, which comes once the work is collected, unless the session ends first.
+   */
+  private intermediate: NormalizedAgentEvent | undefined;
   private readonly reportedUnknown = new Set<string>();
 
   /**
@@ -239,6 +244,17 @@ export class ClaudeStreamNormalizer {
     return (
       this.backgroundTasks.size > 0 || this.backgroundAfterResult || this.untrackedBackgroundTasks
     );
+  }
+
+  /**
+   * The intermediate result still standing when the session ends (R-G11): the step's turn, so
+   * the `background-work-incomplete` continuation applies to what the agent last reported.
+   * Taken once; nothing when the last result completed the turn.
+   */
+  takeIntermediateResult(): NormalizedAgentEvent | undefined {
+    const held = this.intermediate;
+    this.intermediate = undefined;
+    return held;
   }
 
   private sessionId: string | undefined;
@@ -513,33 +529,48 @@ export class ClaudeStreamNormalizer {
       stringOf(message.result) ||
       (isError ? `Turn ended: ${stringOf(message.subtype) || 'error'}` : '');
     const bounded = truncateUtf8(resultText, MESSAGE_TEXT_LIMIT_BYTES);
-    return [
-      {
-        kind: 'turn-completed',
-        payload: {
-          outcome: isError ? 'error' : 'success',
-          ...(isError && failure
-            ? {
-                providerFailure: {
-                  ...failure,
-                  safeToRetry:
-                    failure.safeToRetry &&
-                    (message.subtype === 'error_during_execution' || apiError) &&
-                    !this.interactiveRequest &&
-                    !denied &&
-                    this.pendingTools.size === 0 &&
-                    !pendingBackground,
-                },
-              }
-            : {}),
-          resultText: bounded.text,
-          ...(bounded.truncated ? { truncated: true } : {}),
-          ...(cost === undefined ? {} : { costUsd: cost }),
-          turns,
-          durationMs: duration,
-        },
+    const turn: NormalizedAgentEvent = {
+      kind: 'turn-completed',
+      payload: {
+        outcome: isError ? 'error' : 'success',
+        ...(isError && failure
+          ? {
+              providerFailure: {
+                ...failure,
+                safeToRetry:
+                  failure.safeToRetry &&
+                  (message.subtype === 'error_during_execution' || apiError) &&
+                  !this.interactiveRequest &&
+                  !denied &&
+                  this.pendingTools.size === 0 &&
+                  !pendingBackground,
+              },
+            }
+          : {}),
+        resultText: bounded.text,
+        ...(bounded.truncated ? { truncated: true } : {}),
+        ...(cost === undefined ? {} : { costUsd: cost }),
+        turns,
+        durationMs: duration,
       },
-    ];
+    };
+    // A success while tracked background tasks are pending is a progress report, often a
+    // task notification's (AGT-62): it is journaled as a notice and the turn goes on until the
+    // work is collected. An error, or untracked work, ends the turn as before.
+    if (!isError && this.backgroundTasks.size > 0 && !this.untrackedBackgroundTasks) {
+      this.intermediate = turn;
+      return [
+        {
+          kind: 'notice',
+          payload: {
+            category: 'task',
+            message: `Progress while background tasks run: ${firstLine(resultText || 'no result text', 300)}`,
+          },
+        },
+      ];
+    }
+    this.intermediate = undefined;
+    return [turn];
   }
 
   private normalizeRateLimit(message: Record<string, unknown>): readonly NormalizedAgentEvent[] {

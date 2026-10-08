@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
 import type { StartFinalizationRequest } from '@craftingtable/contracts';
 import {
+  type AgentRunId,
   type CycleAttentionCode,
   type Finalization,
   type FindingSeverity,
@@ -95,6 +96,11 @@ const STAGE_OF_STOP: Readonly<Record<number, string>> = {
 type Mechanism =
   /** R-C2: a format fault in the final report is repaired in the same session. */
   | 'output-repair'
+  /**
+   * R-G11 (AGT-62): a result given while background work runs is a progress notice, and the
+   * turn ends with the result that collects it.
+   */
+  | 'background-result-held'
   /** A stage review that changed the worktree becomes housekeeping remediation. */
   | 'housekeeping'
   /** R-C8 (ADR-062): a session limit with a known reset is retried after it. */
@@ -123,9 +129,16 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
     stops: [{ code: 'finalization-needs-input', answer: 'resume' }],
     why: 'A genuine question is the operator’s.',
   },
-  // R-G11 (AGT-62) changes S5 and S6: an intermediate result no longer ends the turn.
-  S5: { mechanisms: ['output-repair'], why: 'R-C2 repairs the missing Open questions section.' },
-  S6: { mechanisms: ['output-repair'], why: 'R-C2 repairs the missing Open questions section.' },
+  // R-G11 (AGT-62) changed S5 and S6 from R-C2's output repair: their reports lacked the Open
+  // questions section because they were a background task's progress, not the turn's outcome.
+  S5: {
+    mechanisms: ['background-result-held'],
+    why: 'R-G11: the result given while the check matrix ran is a progress notice; the turn ends at the collected report.',
+  },
+  S6: {
+    mechanisms: ['background-result-held'],
+    why: 'R-G11: the result given while the check matrix ran is a progress notice; the turn ends at the collected report.',
+  },
   S7: {
     mechanisms: ['housekeeping'],
     why: 'Stage completion turns the changed worktree into housekeeping remediation.',
@@ -156,6 +169,11 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
 const ORDER = [...record.stops.map((s) => `S${s.stop}`), 'promotion'].flatMap((label) =>
   label === 'S9' ? ['simplification', 'polish', label] : [label],
 );
+
+/** A remediation's report, collected. */
+const COLLECTED = 'Committed and checked.\n\n## Open questions\nnone';
+/** What a remediation said while its check matrix still ran (S5, S6). */
+const BACKGROUND_PROGRESS = 'The check matrix is still running in the background.';
 
 /** The reviewer asks about the nit policy unless its brief states what happens to nits. */
 const NIT_POLICY = /nit-severity findings[^.]*follow-up/i;
@@ -238,19 +256,29 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
   backend.repairForRequest = (request) => {
     note('output-repair');
     const review = lastReview.get(request.cwd);
-    return review
-      ? { resultText: report(review) }
-      : { resultText: 'Committed and checked.\n\n## Open questions\nnone' };
+    return review ? { resultText: report(review) } : { resultText: COLLECTED };
   };
+  /** The remediation runs whose turns ended on a background task (S5, S6), by row. */
+  const backgroundRuns = new Map<string, AgentRunId>();
   backend.replyForRequest = (request): ScriptedReply => {
     if (implementsFinalization(request)) {
       lastReview.set(request.cwd, undefined);
       const stop = situation('remediate', stageOf());
       // S5's turn ended on a background task with its work unfinished; S6's finished it.
       if (stop?.stop !== 5) for (const f of [...open.values()]) if (required(f)) fix(f);
-      return stop
-        ? { resultText: 'The check matrix is still running in the background.' }
-        : { resultText: 'Committed and checked.\n\n## Open questions\nnone' };
+      if (!stop) return { resultText: COLLECTED };
+      // As Claude Code reports it: a result while the check matrix runs, then, once its task
+      // notification arrives, the report that collects it.
+      backgroundRuns.set(current, cycle().currentRunId);
+      return {
+        resultText: COLLECTED,
+        claudeStream: [
+          { type: 'system', subtype: 'task_started', task_id: 'matrix' },
+          { type: 'result', subtype: 'success', result: BACKGROUND_PROGRESS },
+          { type: 'system', subtype: 'task_notification', task_id: 'matrix', status: 'completed' },
+          { type: 'result', subtype: 'success', result: COLLECTED },
+        ],
+      };
     }
     lastReview.set(request.cwd, request);
     const ledger = stagedLedger(request);
@@ -395,6 +423,22 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
     if (code === 'final-promotion') break;
   }
 
+  // What R-G11 left in each journal: the progress as a notice, one turn with the collected report.
+  for (const [label, runId] of backgroundRuns) {
+    const events = state.context.storage.execution.runEvents.listAfter({
+      workspaceId: state.workspaceId,
+      runId,
+      after: 0,
+      limit: 500,
+    });
+    const turns = events.flatMap((e) => (e.kind === 'turn-completed' ? [e.payload] : []));
+    if (
+      turns.length === 1 &&
+      turns[0]?.resultText === COLLECTED &&
+      events.some((e) => e.kind === 'notice' && e.payload.message.endsWith(BACKGROUND_PROGRESS))
+    )
+      note('background-result-held', label);
+  }
   expect(observed).toEqual(
     ORDER.flatMap((label) =>
       (EXPECTED[label]?.stops ?? []).map((stop) => ({ label, code: stop.code })),

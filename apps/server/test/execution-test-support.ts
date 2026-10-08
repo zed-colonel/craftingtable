@@ -11,12 +11,13 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import type {
-  AgentBackend,
-  AgentBackendDescriptor,
-  AgentLaunchRequest,
-  AgentSession,
-  AgentSessionItem,
+import {
+  type AgentBackend,
+  type AgentBackendDescriptor,
+  type AgentLaunchRequest,
+  type AgentSession,
+  type AgentSessionItem,
+  ClaudeStreamNormalizer,
 } from '@craftingtable/agents';
 import {
   agentRunDetailResponseSchema,
@@ -254,6 +255,12 @@ export interface ScriptedReply {
   /** Reported with a successful turn (R-C11). */
   readonly suspectedOutage?: import('@craftingtable/domain').ProviderFailure;
   readonly backgroundWorkPending?: boolean;
+  /**
+   * The turn as Claude Code's stream messages, normalized by the real Claude normalizer instead
+   * of the scripted tool call, messages and result (R-G11): a result before background work is
+   * collected, for one. `resultText` and the other fields are then unused.
+   */
+  readonly claudeStream?: readonly unknown[];
   readonly exitReason?: AgentExitReason;
   readonly messages?: readonly string[];
   readonly resultText: string;
@@ -284,6 +291,8 @@ export class ScriptedSession implements AgentSession {
   private delayed = false;
   private exitReason: AgentExitReason | undefined;
   private readonly exitAfterKill: Promise<void> | undefined;
+  /** Normalizes `claudeStream` replies, as the Claude adapter does. */
+  private readonly claude: ClaudeStreamNormalizer;
 
   constructor(
     request: AgentLaunchRequest,
@@ -303,6 +312,10 @@ export class ScriptedSession implements AgentSession {
           billing: 'subscription',
         },
       },
+    });
+    this.claude = new ClaudeStreamNormalizer({
+      permissionMode: request.permissionMode,
+      cwd: request.cwd,
     });
     this.delayed = request.prompt.includes('DEFER-TURNS');
     this.exitAfterKill = replies[0]?.exitAfterKill;
@@ -343,6 +356,13 @@ export class ScriptedSession implements AgentSession {
     const reply = this.replies.shift();
     this.exitReason = reply?.exitReason;
     this.backgroundWorkPending = reply?.backgroundWorkPending ?? false;
+    if (reply?.claudeStream) {
+      for (const message of reply.claudeStream)
+        for (const event of this.claude.normalizeLine(JSON.stringify(message)))
+          this.push({ type: 'event', event });
+      this.backgroundWorkPending = this.claude.hasUncollectedBackgroundWork;
+      return;
+    }
     this.push({
       type: 'event',
       event: {
@@ -454,6 +474,9 @@ export class ScriptedSession implements AgentSession {
 
   private exit(exitCode: number | null, signal: string | null): void {
     if (this.closed) return;
+    // As the Claude adapter does: a result standing when the session ends is its turn (R-G11).
+    const intermediate = this.claude.takeIntermediateResult();
+    if (intermediate) this.push({ type: 'event', event: intermediate });
     this.push({
       type: 'exited',
       exitCode,

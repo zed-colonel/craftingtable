@@ -561,6 +561,76 @@ describe('Claude background lifecycle', () => {
     expect(items.at(-1)).toMatchObject({ type: 'exited', reason: 'background-work-incomplete' });
   });
 
+  /** A fake that writes these stream messages, `pause` ms apart, then exits. */
+  function streaming(messages: readonly unknown[], pause = 20) {
+    const fake = fakeClaude();
+    writeFileSync(
+      fake.executable,
+      `#!${process.execPath}
+      const lines = ${JSON.stringify(messages.map((message) => JSON.stringify(message)))};
+      process.stdin.once('data', () => {
+        const next = () => {
+          const line = lines.shift();
+          if (line === undefined) process.exit(0);
+          else process.stdout.write(line + '\\n', () => setTimeout(next, ${pause}));
+        };
+        next();
+      });`,
+    );
+    return fake;
+  }
+  const task = (subtype: string, id: string) => ({
+    type: 'system',
+    subtype,
+    task_id: id,
+    status: 'completed',
+  });
+  const result = (text: string) => ({ type: 'result', subtype: 'success', result: text });
+
+  it('completes the turn once, at the collected result, after N task-notification results (R-G11, AGT-62)', async () => {
+    const tasks = ['a', 'b', 'c', 'd'];
+    const fake = streaming([
+      ...tasks.map((id) => task('task_started', id)),
+      result('Started four checks. Waiting.'),
+      ...tasks.flatMap((id, i) => [
+        task('task_notification', id),
+        result(i < tasks.length - 1 ? `${id} passed. Waiting.` : 'All four checks passed.'),
+      ]),
+    ]);
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'go',
+      permissionMode: 'auto',
+    });
+    const items = await collect(session.items);
+    const turns = items.flatMap((item) =>
+      item.type === 'event' && item.event.kind === 'turn-completed' ? [item.event.payload] : [],
+    );
+    expect(turns).toEqual([expect.objectContaining({ resultText: 'All four checks passed.' })]);
+    expect(items.at(-1)).toEqual({ type: 'exited', exitCode: 0, signal: null });
+  });
+
+  it('records the last result as the turn when the session exits with work uncollected (R-G11)', async () => {
+    const fake = streaming([
+      task('task_started', 'matrix'),
+      result('Started the matrix. Waiting.'),
+      result('Still waiting for the matrix.'),
+    ]);
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'go',
+      permissionMode: 'auto',
+    });
+    const items = await collect(session.items);
+    const kinds = items.map((item) => (item.type === 'event' ? item.event.kind : item.type));
+    expect(kinds.slice(-2)).toEqual(['turn-completed', 'exited']);
+    expect(items.at(-2)).toMatchObject({
+      event: { payload: { outcome: 'success', resultText: 'Still waiting for the matrix.' } },
+    });
+    expect(kinds.filter((kind) => kind === 'turn-completed')).toHaveLength(1);
+    expect(items.at(-1)).toMatchObject({ exitCode: 0, reason: 'background-work-incomplete' });
+  });
+
   it.each([true, false])(
     'detects a stopped task after the result without stderr (collected afterward: %s)',
     async (collected) => {

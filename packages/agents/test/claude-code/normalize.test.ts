@@ -595,4 +595,87 @@ describe('recorded provider failures', () => {
     expect(subject.normalizeLine(JSON.stringify({ type: 'tool_progress' }))).toHaveLength(1);
     expect(subject.normalizeLine(JSON.stringify({ type: 'tool_progress' }))).toEqual([]);
   });
+
+  describe('results while background tasks run (R-G11, AGT-62)', () => {
+    const started = (id: string) => ({ type: 'system', subtype: 'task_started', task_id: id });
+    const notified = (id: string) => ({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: id,
+      status: 'completed',
+      summary: `${id} passed`,
+    });
+    const result = (text: string, extra: Record<string, unknown> = {}) => ({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: text,
+      num_turns: 1,
+      duration_ms: 1,
+      ...extra,
+    });
+    const feed = (subject: ClaudeStreamNormalizer, messages: readonly unknown[]) =>
+      messages.flatMap((message) => subject.normalizeLine(JSON.stringify(message)));
+
+    it('journals each result before the work is collected as a progress notice, and completes the turn once', () => {
+      const subject = normalizer();
+      const events = feed(subject, [
+        started('a'),
+        started('b'),
+        started('c'),
+        result('Started three checks. Waiting.'),
+        notified('a'),
+        result('a passed. Waiting.'),
+        notified('b'),
+        result('b passed. Waiting.'),
+        notified('c'),
+        result('All three checks passed.'),
+      ]);
+      expect(events.filter((event) => event.kind === 'turn-completed')).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({ resultText: 'All three checks passed.' }),
+        }),
+      ]);
+      expect(
+        events.flatMap((event) =>
+          event.kind === 'notice' && event.payload.message.startsWith('Progress')
+            ? [event.payload]
+            : [],
+        ),
+      ).toEqual(
+        ['Started three checks. Waiting.', 'a passed. Waiting.', 'b passed. Waiting.'].map(
+          (text) => ({ category: 'task', message: `Progress while background tasks run: ${text}` }),
+        ),
+      );
+      expect(subject.hasUncollectedBackgroundWork).toBe(false);
+      expect(subject.takeIntermediateResult()).toBeUndefined();
+    });
+
+    it('keeps the last result before the work is collected for a session that ends first', () => {
+      const subject = normalizer();
+      feed(subject, [started('a'), result('First.'), result('Still waiting for a.')]);
+      expect(subject.takeIntermediateResult()).toMatchObject({
+        kind: 'turn-completed',
+        payload: { outcome: 'success', resultText: 'Still waiting for a.' },
+      });
+      expect(subject.takeIntermediateResult()).toBeUndefined();
+      expect(subject.hasUncollectedBackgroundWork).toBe(true);
+    });
+
+    it('ends the turn as before on an error result, or when a task cannot be tracked', () => {
+      const failed = normalizer();
+      expect(
+        feed(failed, [
+          started('a'),
+          result('Waiting.'),
+          result('API Error', { subtype: 'error_during_execution', is_error: true }),
+        ]).filter((event) => event.kind === 'turn-completed'),
+      ).toHaveLength(1);
+      expect(failed.takeIntermediateResult()).toBeUndefined();
+      const untracked = normalizer();
+      expect(
+        feed(untracked, [started('a'), started(''), result('Waiting.')]).map((event) => event.kind),
+      ).toEqual(['notice', 'notice', 'turn-completed']);
+    });
+  });
 });

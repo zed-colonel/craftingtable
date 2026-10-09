@@ -33,7 +33,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b preparation works live, and slices now wait for prepared decisions (operator decision 2026-09-29); done-when measured after deploy | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | done (2026-09-28, see entry) | Converge the parent/slice repair loop |
-| [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
+| [R-C6](#r-c6) | P3 | M | done (11e07b1..00548fd on `remediation/p3`, 2026-10-08; independently reviewed) | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | done (see Progress) | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
 | [R-C9](#r-c9) | P2 | S-M | done (see Progress) | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
@@ -60,7 +60,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
-| [R-F2](#r-f2) | P3 | M | partial (parts 1 to 4; 5 and 6 open) | Typed feature recognition instead of prose and magic identifiers |
+| [R-F2](#r-f2) | P3 | M | partial (parts 1 to 4 and 6; 5 open) | Typed feature recognition instead of prose and magic identifiers |
 | [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95; FMT-15 done in 432bb00, 0ef20b1) | Format ingestion bugs and test honesty |
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
@@ -72,7 +72,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G3](#r-g3) | P0 | S-M | done (8c92c57) | Scope operator guidance to the step it was given for |
 | [R-G4](#r-g4) | P2 | M-L | done (95c4a17 to 6bb668a, see review) | Daemon-owned verification receipts |
 | [R-G5](#r-g5) | P2 | M | done (7b5751a to 29d3524, see review) | Agent environment and configuration isolation |
-| [R-G6](#r-g6) | P2 | M | open | Redesign briefs around the task |
+| [R-G6](#r-g6) | P3 | M | done (c215840..6eb87a8 on `remediation/p3`, 2026-10-08; independently reviewed; G6-5's 12.2 KB median accepted by the operator) | Redesign briefs around the task |
 | [R-G7](#r-g7) | P1 | M | partial (0fc17d2; live measurement after deploy) | Stop cold-building Rust on every step |
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
 | [R-G9](#r-g9) | P2 | M | done | Authentication and authorization hardening |
@@ -87,7 +87,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
-| [R-H6](#r-h6) | P3 | M | done (fe71942, a008ddb, d67a4c8 and the review fixes after them, on `p3/rh6`; independently reviewed 2026-10-08) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
+| [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -1079,7 +1079,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C6
 
-**Reduce the evidence-acceptance ceremony** · Phase P3 · Effort M · Status: built on `p3/rc6` (commits 1 to 4, the self-review's and the independent review's fixes, 2026-10-08); awaiting the review's re-check and integration
+**Reduce the evidence-acceptance ceremony** · Phase P3 · Effort M · Status: done (11e07b1..00548fd, integrated on `remediation/p3` 2026-10-08 after the independent review and its re-checks, 0 open; `pnpm check` green at 00548fd)
 
 - **Resolves:** [HIST-07](findings/HIST-history-and-live-usage.md#hist-07-checkpoint-evidence-acceptance-is-a-self-attestation-ceremony-65-operator-actions-100-accepted), [FMT-17](findings/FMT-plan-and-roadmap-formats.md#fmt-17-stack-plan-accepted-evidence-is-bound-to-a-digest-of-the-whole-roadmap-definition)
 - **Change:** Controller-verifiable checkpoints (generated plan acceptance, daemon-owned receipts from R-G4) are recorded automatically as audit facts; only checkpoints the map marks as human-required go to the inbox, batched ahead of need. Bind STACK-PLAN-ACCEPTED to the inputs it actually covers, so unrelated roadmap saves do not invalidate it.
@@ -1134,6 +1134,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *L2:* the panels promise no more than the code. The accepted texts (`RuntimeEvidencePanel`, the cross-project status) name what carries (saves, dependency refreshes and setup, clause approvals) and what needs a review (an amendment, a new map or binding). The unsaved-settings status promises a carried acceptance only when the plan is accepted. Host scheduling: the carry stays with the saving workspace (the installation owner acts there), and the text is made exact instead: the list says "No plan review required after a capacity change" for this workspace's cross-project roadmaps and "A plan accepted there before this release may need review after a capacity change" for another workspace's, and the about text says the carry covers this workspace only (the list's summary line stays within R-E6's prose limit). Tests (web): the host list for this workspace, another workspace and a queue roadmap; the cross-project status with and without an accepted plan; the accepted text. Each fails before the change. Text only, no structure change, so no new walkthrough capture.
   - *L3:* the carry's guards are each pinned by a direct `carryPlanAcceptance` test whose change leaves the saved setup with no issue, so only the guard under test can refuse: a new binding revision with its runtime, adoption and roadmap saved on it (the binding-revision guard and `NEVER_CARRIED`, which each cover a new binding, so the test fails only with both removed); a new plan link (`NEVER_CARRIED` alone); another roadmap on the map paused (the package's validation alone); a roadmap the change stopped; and a reviewer-role save by a second, editor user, recorded as that user with their session (the review's C12). Each fails with its guard removed. The separate setup-issue check was dropped: the package's validation includes every setup issue, so it could never refuse on its own (the review's C05). The plain `configure` case is covered by OD1.
 - **Re-check (2026-10-08) and fix.** The re-check of `158767c` closed all four findings and OD1 to OD3, and found one low. *N1:* the host scheduling list dated the plans that may need review "before 2026-10-08", but those are the plans accepted before R-C6 is deployed, which can be later; it now says "before this release" (web test updated, fails before the change). Also, for the re-check's surviving mutant D03: a unit case where one consumer takes two implemented upstreams in reversed order gives the same inputs digest; it fails with the supply list unsorted.
+- **Replays after integration (2026-10-08, at 6eb87a8):** `pnpm replays` gave 31 of 56 unchanged, 21 as already expected, and 4 new differences, all from this item: the evidence-view cases of 2026-09-30b, 2026-09-30c, 2026-09-30d and 2026-10-07 each change only the `planAcceptance` record of the cross-project definition, and inside it only `roadmaps[].snapshotDigest`, which is now the saved-plan-v2 inputs digest (D3); state, issues and the definition revision are unchanged. They are recorded as expected in `scripts/replays.manifest.json`. R-G6 and R-H6 add no difference.
 
 ### R-C7
 
@@ -2276,7 +2277,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F2
 
-**Typed feature recognition instead of prose and magic identifiers** · Phase P3 · Effort M · Status: partial (parts 1 to 4 reviewed and integrated on `remediation/p3` 2026-10-07; part 6 built with R-G6 on `p3/rg6` 2026-10-08, not yet reviewed; part 5 open, with R-A6/R-E5)
+**Typed feature recognition instead of prose and magic identifiers** · Phase P3 · Effort M · Status: partial (parts 1 to 4 reviewed and integrated on `remediation/p3` 2026-10-07; part 6 built with R-G6 (c215840), reviewed and integrated 2026-10-08; part 5 open, with R-A6/R-E5)
 
 - **Resolves:** [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map), [CTRL-21](findings/CTRL-controller.md#ctrl-21-map-specific-vocabulary-is-hard-coded-in-the-controller), [AGT-55](findings/AGT-GIT-SEC-agents-git-security.md#agt-55-rust--and-project-specific-text-is-hard-coded-into-generic-brief-paths)
 - **Change:** Replace exact-English-string, role-name, resource-id and regex triggers with a typed recognition layer and explicit defaults; move role/resource/brief vocabulary into data keyed by map-declared ids; keep today's ids as defaults so the v0.3 map behaves identically.
@@ -2991,7 +2992,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G6
 
-**Redesign briefs around the task** · Phase P3 (moved from P2, operator 2026-10-02) · Effort M · Status: built on `p3/rg6` 2026-10-08 (all six decisions and R-F2 part 6); independent review 2026-10-08 (0 high, 5 medium, 8 low) fixed; G6-5 settled by the operator 2026-10-08 (median 12.2 KB accepted)
+**Redesign briefs around the task** · Phase P3 (moved from P2, operator 2026-10-02) · Effort M · Status: done (c215840..6eb87a8, integrated on `remediation/p3` 2026-10-08: all six decisions and R-F2 part 6; independent review (0 high, 5 medium, 8 low) and its re-checks closed, 0 open; G6-5 settled by the operator 2026-10-08, median 12.2 KB accepted; `pnpm check` green at 6eb87a8)
 
 - **Resolves:** [AGT-50](findings/AGT-GIT-SEC-agents-git-security.md#agt-50-briefs-are-mostly-controller-protocol-boilerplate-the-task-itself-is-a-small-fraction), [AGT-53](findings/AGT-GIT-SEC-agents-git-security.md#agt-53-the-parents-final-message-is-inlined-verbatim-duplicating-the-handoff-and-breaking-brief-structure), [AGT-54](findings/AGT-GIT-SEC-agents-git-security.md#agt-54-structured-output-instructions-are-scattered-across-6-modules-and-conflict-for-some-roles), [AGT-56](findings/AGT-GIT-SEC-agents-git-security.md#agt-56-per-run-context-artifacts-are-oversized-and-copied-on-every-run), [AGT-57](findings/AGT-GIT-SEC-agents-git-security.md#agt-57-briefs-inherit-links-into-other-runs-scratch-and-plan-paths-that-later-expire), [AGT-58](findings/AGT-GIT-SEC-agents-git-security.md#agt-58-the-scope-section-repeats-the-goal-three-times-and-dumps-internal-id-json)
 - **Change:** Goal and acceptance criteria first; controller protocol in one module with role-specific structured-output instructions that do not conflict; reference the parent run via the handoff instead of inlining its final message; stop copying oversized context artifacts per run; no links into other runs' expiring scratch; scope section states the goal once.
@@ -4048,7 +4049,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H6
 
-**Journal cleanup: registry tables and `repository-*` vocabulary** · Phase P3 · Effort M · Status: done (fe71942, a008ddb, d67a4c8 and the review fixes after them, on `p3/rh6`, 2026-10-08; independently reviewed)
+**Journal cleanup: registry tables and `repository-*` vocabulary** · Phase P3 · Effort M · Status: done (587db01..c41099c, integrated on `remediation/p3` 2026-10-08 after the independent review and its re-check, 0 open; `pnpm check` green at c41099c)
 
 - **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review. The operator confirmed P3 the same day.
 - **Resolves:** [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident) (the schema residue).

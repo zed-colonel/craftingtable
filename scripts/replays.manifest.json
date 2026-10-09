@@ -256,7 +256,14 @@
         {
           "mode": "evidence-view",
           "golden": "evidence-view-golden-4f0a7ad.json",
-          "goldenSha256": "8d1d27417c6140a19a5b62cc8c8400bf7e52da2fc8791234f1452f365c7175df"
+          "goldenSha256": "8d1d27417c6140a19a5b62cc8c8400bf7e52da2fc8791234f1452f365c7175df",
+          "expected": [
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/planAcceptance",
+              "nowSha256": "8ab0420cc9d022096be3a9921fa61be6d6c8c8483cff514d8324a35eef6d6207",
+              "reason": "R-C6 D3: the plan-acceptance view's snapshotDigest, which guards plan generation, is now the saved-plan-v2 inputs digest (canonical JSON of the named inputs D1 lists) instead of the digest of the whole roadmap definition and runtime; the roadmap's state, issues and definition revision are unchanged."
+            }
+          ]
         }
       ]
     },
@@ -289,7 +296,14 @@
         {
           "mode": "evidence-view",
           "golden": "evidence-view-golden-4f0a7ad.json",
-          "goldenSha256": "56cc402b2d401bbdefee135d0d4947ab0d99feaf9c28c1f92acc7afc23a234af"
+          "goldenSha256": "56cc402b2d401bbdefee135d0d4947ab0d99feaf9c28c1f92acc7afc23a234af",
+          "expected": [
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/planAcceptance",
+              "nowSha256": "8ab0420cc9d022096be3a9921fa61be6d6c8c8483cff514d8324a35eef6d6207",
+              "reason": "R-C6 D3: the plan-acceptance view's snapshotDigest, which guards plan generation, is now the saved-plan-v2 inputs digest (canonical JSON of the named inputs D1 lists) instead of the digest of the whole roadmap definition and runtime; the roadmap's state, issues and definition revision are unchanged."
+            }
+          ]
         }
       ]
     },
@@ -334,7 +348,14 @@
         {
           "mode": "evidence-view",
           "golden": "evidence-view-golden-45c05c2.json",
-          "goldenSha256": "925d9684ca65c209f62af8104e01cc82861cbe21da64c5de5e0cc6298847ee8f"
+          "goldenSha256": "925d9684ca65c209f62af8104e01cc82861cbe21da64c5de5e0cc6298847ee8f",
+          "expected": [
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/planAcceptance",
+              "nowSha256": "8ab0420cc9d022096be3a9921fa61be6d6c8c8483cff514d8324a35eef6d6207",
+              "reason": "R-C6 D3: the plan-acceptance view's snapshotDigest, which guards plan generation, is now the saved-plan-v2 inputs digest (canonical JSON of the named inputs D1 lists) instead of the digest of the whole roadmap definition and runtime; the roadmap's state, issues and definition revision are unchanged."
+            }
+          ]
         }
       ]
     },
@@ -578,7 +599,14 @@
         {
           "mode": "evidence-view",
           "golden": "evidence-view-golden-2d265a5.json",
-          "goldenSha256": "94c04e7a9c2970cefb4391c7d68300fe1a8901461246683e19e10752767d029c"
+          "goldenSha256": "94c04e7a9c2970cefb4391c7d68300fe1a8901461246683e19e10752767d029c",
+          "expected": [
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/planAcceptance",
+              "nowSha256": "8ab0420cc9d022096be3a9921fa61be6d6c8c8483cff514d8324a35eef6d6207",
+              "reason": "R-C6 D3: the plan-acceptance view's snapshotDigest, which guards plan generation, is now the saved-plan-v2 inputs digest (canonical JSON of the named inputs D1 lists) instead of the digest of the whole roadmap definition and runtime; the roadmap's state, issues and definition revision are unchanged."
+            }
+          ]
         },
         {
           "mode": "evidence-decode"

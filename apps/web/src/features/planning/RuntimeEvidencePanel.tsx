@@ -1,9 +1,8 @@
-import { ArchitectureDecisionPanel } from './ArchitectureDecisionPanel.js';
+import { ArchitectureDecisions } from '../../decisions/architecture/ArchitectureDecisions.js';
 import { EvidenceReview } from '../../decisions/evidence/EvidenceReview.js';
 import { SubmitEvidence } from '../../decisions/evidence/SubmitEvidence.js';
 import { PlanAcceptance } from '../../decisions/plan-acceptance/PlanAcceptance.js';
 import { SetupStepPart } from './setup-steps.js';
-import { SharedDecisionInbox } from './SharedDecisionInbox.js';
 import { EnvironmentApproval } from '../../decisions/environment/EnvironmentApproval.js';
 import { UpstreamTransitions } from '../../decisions/upstream/UpstreamTransitions.js';
 import { DependencyRefresh } from '../../decisions/refresh/DependencyRefresh.js';
@@ -269,37 +268,18 @@ export function RuntimeEvidencePanel({
       </SetupStepPart>
       <SetupStepPart step="decisions" id={`${panelId}-decisions-step`}>
         <div id={`${panelId}-decisions`}>
-          {view.decisionInbox && (
-            <SharedDecisionInbox
-              data={view.decisionInbox}
-              csrfToken={csrfToken}
-              {...(roadmapId ? { preparation: { workspaceId, roadmapId } } : {})}
-              disabled={busy || !canMutate || unsavedDependencies}
-              onChanged={(next) => {
-                adopt(next);
-                setNotice(
-                  'Shared decision updated. Design continuation remains a separate action.',
-                );
-              }}
-            />
-          )}
-          <details>
-            <summary>Advanced manual decision preparation and clause staging</summary>
-            <ArchitectureDecisionPanel
-              workspaceId={workspaceId}
-              definitionId={definitionId}
-              csrfToken={csrfToken}
-              view={view}
-              busy={busy}
-              disabled={!canMutate || unsavedDependencies}
-              onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
-              onSaved={(next) => {
-                adopt(next);
-                // The proposal is approved on its decision card, in this step (R-E2).
-                setNotice('Proposal saved. Review and approve it on its decision card.');
-              }}
-            />
-          </details>
+          <ArchitectureDecisions
+            workspaceId={workspaceId}
+            definitionId={definitionId}
+            view={view}
+            roadmapId={roadmapId}
+            csrfToken={csrfToken}
+            disabled={busy || !canMutate || unsavedDependencies}
+            onChanged={(next) => {
+              adopt(next);
+              setNotice('Shared decision updated. Design continuation remains a separate action.');
+            }}
+          />
         </div>
       </SetupStepPart>
       <SetupStepPart step="dependency">

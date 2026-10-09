@@ -15,9 +15,13 @@ vi.mock('./design-api.js', () => ({
   previewDesignRecovery: vi.fn(),
   recoverDesign: vi.fn(),
 }));
+/** The inbox's open items, as the workspace's attention read returns them. */
+let attention: { id: string; code: string; checkpointId?: string }[] = [];
+vi.mock('../../app/reads.js', () => ({ useAttention: () => ({ data: { items: attention } }) }));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  attention = [];
 });
 const cycle = {
   id: 'cycle',
@@ -186,8 +190,11 @@ it('shows accepted shared decisions after discovery without resuming or requirin
     <DesignQuestions cycle={cycle} backends={backends} csrfToken="csrf" onChanged={vi.fn()} />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
-  await screen.findByText('Accepted · full architectural decision');
-  expect(screen.getByText(/Shared decision accepted; ready for design confirmation/)).toBeTruthy();
+  await screen.findByText(/Shared decision accepted; ready for design confirmation/);
+  // An accepted decision waits on nothing: it is not listed as one the design waits on.
+  expect(
+    screen.queryByRole('region', { name: 'Shared decisions this design waits on' }),
+  ).toBeNull();
   expect(screen.queryByText('Approval pending in the original report.')).toBeNull();
   expect(recoverDesign).not.toHaveBeenCalled();
 });
@@ -211,5 +218,56 @@ it('surfaces a completed investigation without requiring evidence rediscovery', 
   );
   expect(screen.getByText('Investigation results and evidence')).toBeTruthy();
   expect(previewDesignRecovery).not.toHaveBeenCalled();
+  expect(recoverDesign).not.toHaveBeenCalled();
+});
+
+it('links each decision the design waits on to its own item, else to the shared decisions, and clarifies here (R-A6 rest, A3)', async () => {
+  const card = (checkpointId: string, title: string) => ({
+    checkpointId,
+    title,
+    requirements: [],
+    blockers: [],
+    sourceReferences: 'plan §4',
+    consumers: [],
+    records: [],
+  });
+  vi.mocked(previewDesignRecovery).mockResolvedValue({
+    ...preview,
+    decisionInbox: {
+      workspaceId: 'ws',
+      definitionId: '00000000-0000-4000-8000-000000000001',
+      bindingRevision: 4,
+      blockers: [],
+      decisions: [card('WI-ADR-012', 'Ingress policy'), card('WI-ADR-013', 'Egress policy')],
+    },
+  });
+  // The checkpoint's own item wins over a preparation of it; another decision has none.
+  attention = [
+    { id: 'prep-item', code: 'decision-preparation-questions', checkpointId: 'WI-ADR-012' },
+    { id: 'decision-item', code: 'architecture-decision', checkpointId: 'WI-ADR-012' },
+  ];
+  render(
+    <DesignQuestions
+      cycle={
+        { ...cycle, owner: { kind: 'roadmap', roadmapId: 'roadmap-1' } } as unknown as WorkCycle
+      }
+      backends={backends}
+      csrfToken="csrf"
+      onChanged={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
+  const own = await screen.findByRole('link', { name: 'Decide WI-ADR-012 in Needs you' });
+  expect(own.getAttribute('href')).toBe('/workspaces/ws/inbox/decision-item');
+  expect(
+    screen
+      .getByRole('link', { name: 'Decide WI-ADR-013 with the shared decisions' })
+      .getAttribute('href'),
+  ).toMatch(/^\/workspaces\/ws\/roadmaps\/roadmap-1\/setup/);
+  // No decision card, and nothing to approve, is embedded here.
+  expect(screen.queryByRole('button', { name: /Approve/ })).toBeNull();
+  fireEvent.click(screen.getAllByRole('button', { name: 'Request clarification' })[1]!);
+  const guidance = (await screen.findByLabelText(/guidance/i)) as HTMLTextAreaElement;
+  expect(guidance.value).toMatch(/^Clarify WI-ADR-013 for operator review\./);
   expect(recoverDesign).not.toHaveBeenCalled();
 });

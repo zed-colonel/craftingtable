@@ -4,76 +4,38 @@ import type {
   ProposeArchitectureDecision,
   RuntimeEvidenceView,
 } from '@craftingtable/contracts';
-import { SourceRunReport } from '../execution/SourceRunReport.js';
-import { Section } from '../../components/Section.js';
+import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import { ActionBar } from '../../components/ActionBar.js';
-import { About } from '../../components/About.js';
-import { EvidenceDecision } from '../../decisions/evidence/EvidenceDecision.js';
-import { PrepareDecisionBrief } from '../../decisions/preparation/PrepareDecisionBrief.js';
-import { SaveProposal } from '../../decisions/architecture/SaveProposal.js';
+import { SourceRunReport } from '../../features/execution/SourceRunReport.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
-import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
+import { EvidenceDecision } from '../evidence/EvidenceDecision.js';
+import { PrepareDecisionBrief } from '../preparation/PrepareDecisionBrief.js';
+import { SaveProposal } from './SaveProposal.js';
 
 type Card = ArchitectureDecisionInbox['decisions'][number];
 type Brief = NonNullable<Card['recommendation']>['brief'];
 type Record = Card['records'][number];
-/** The roadmap that prepares briefs for these decisions, when there is one. */
-type Preparation = { readonly workspaceId: WorkspaceId; readonly roadmapId: string };
+type Consumer = ProposeArchitectureDecision['consumers'][number];
+type Slice = NonNullable<RuntimeEvidenceView['architectureDecisions']>['slices'][number];
 
-export function SharedDecisionInbox({
-  data,
-  csrfToken,
-  disabled,
-  onChanged,
-  onClarify,
-  preparation,
-}: {
-  data: ArchitectureDecisionInbox;
-  csrfToken: string;
-  disabled: boolean;
-  onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
-  onClarify?: (guidance: string) => void;
-  preparation?: Preparation;
-}) {
-  if (!data.decisions.length) return null;
-  const accepted = (c: Card) => c.records.some((r) => settles(c, r));
+/**
+ * A decision the map declares that has no card yet (no proposal, brief or stopped slice): the
+ * same card with nothing recorded, so the operator can prepare or write it directly. The
+ * daemon lists only decisions with something to show (R-A6 rest).
+ */
+function unlisted(view: RuntimeEvidenceView, checkpointId: string): Card | undefined {
+  const checkpoint = view.architectureDecisions?.checkpoints.find((c) => c.id === checkpointId);
   return (
-    <Section
-      title="Shared architecture decisions"
-      summary={`${data.decisions.filter(accepted).length} of ${data.decisions.length} decisions have applicable approval.`}
-    >
-      <About label="About decision approval">
-        <p>
-          Full approval settles the architectural choice. Implementation, tests and parent
-          acceptance keep their own gates. A limited approval settles only the named clauses for
-          selected slices, and approving it carries an accepted saved plan forward.
-        </p>
-        <p>
-          References and source identities are collected for you. Recommendations remain proposals
-          until you explicitly approve their exact text. Approval here and on a work item creates
-          the same shared record; it never resumes a run.
-        </p>
-      </About>
-      {data.blockers.length > 0 && (
-        <p className="warning-state">Approval unavailable: {data.blockers.join(' ')}</p>
-      )}
-      <BatchApproval data={data} csrfToken={csrfToken} disabled={disabled} onChanged={onChanged} />
-      {[...data.decisions]
-        .sort((a, b) => Number(accepted(a)) - Number(accepted(b)))
-        .map((card) => (
-          <DecisionCard
-            key={`${data.definitionId}:${data.bindingRevision}:${card.checkpointId}`}
-            card={card}
-            data={data}
-            csrfToken={csrfToken}
-            disabled={disabled}
-            onChanged={onChanged}
-            onClarify={onClarify}
-            preparation={preparation}
-          />
-        ))}
-    </Section>
+    checkpoint && {
+      checkpointId,
+      title: checkpoint.title,
+      requirements: checkpoint.requirements,
+      blockers: [],
+      sourceReferences: checkpoint.sourceReferences,
+      consumers: [],
+      records: [],
+    }
   );
 }
 
@@ -82,7 +44,7 @@ export function SharedDecisionInbox({
  * cover each of them, in full or by naming it: another slice's clause approval leaves them
  * waiting (LIVE-18 review), as the daemon's rule does.
  */
-function settles(card: Card, record: Card['records'][number]): boolean {
+export function settles(card: Card, record: Card['records'][number]): boolean {
   return (
     record.applicable &&
     !record.issues.length &&
@@ -108,98 +70,47 @@ function covers(brief: Brief | undefined, slices: readonly string[]): boolean {
 }
 
 /**
- * Several saved proposals approved in one pause (R-C3b): each is reviewed on its own, one
- * rationale covers them, and each is approved through the same command as its card.
+ * One shared architecture decision (R-A6 rest, A2): its state, recommendation and source report,
+ * agent preparation, the operator's proposal (from the recommendation, with changes, limited to
+ * named slices, or written directly), and its approval through EvidenceDecision. An
+ * architecture item renders only this card; setup's decisions step lists one per decision.
  */
-function BatchApproval({
-  data,
-  csrfToken,
-  disabled,
-  onChanged,
-}: {
-  data: ArchitectureDecisionInbox;
+export function ArchitectureDecision(props: {
+  workspaceId: WorkspaceId;
+  definitionId: string;
+  view: RuntimeEvidenceView;
+  checkpointId: string;
+  /** The roadmap that prepares briefs for it, when there is one. */
+  roadmapId?: string | undefined;
   csrfToken: string;
   disabled: boolean;
   onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
 }) {
-  const [reviewed, setReviewed] = useState<ReadonlySet<string>>(new Set());
-  const [message, setMessage] = useState('');
-  const saved = data.decisions.flatMap((card) => {
-    const record = card.records.find((r) => !r.decision && !r.issues.length && r.applicable);
-    return record && !card.blockers.length ? [{ card, record }] : [];
-  });
-  if (saved.length < 2) return null;
-  const locked = disabled || !!data.blockers.length;
-  const chosen = saved.filter(({ record }) => reviewed.has(record.id));
-  return (
-    <section className="panel stack" aria-label="Approve saved decisions">
-      <h3>Approve saved decisions</h3>
-      <About label="About approving several decisions">
-        <p>
-          Approve saved proposals together while scheduling is paused. Review each exact text first;
-          one rationale is recorded with each approval.
-        </p>
-      </About>
-      {saved.map(({ card, record }) => (
-        <label key={record.id} className="field">
-          <input
-            type="checkbox"
-            disabled={locked}
-            checked={reviewed.has(record.id)}
-            onChange={(e) => {
-              const next = new Set(reviewed);
-              if (e.target.checked) next.add(record.id);
-              else next.delete(record.id);
-              setReviewed(next);
-            }}
-          />{' '}
-          {`Reviewed ${card.checkpointId} (${record.proposal.coverage === 'full' ? 'full' : 'limited'}): ${record.proposal.proposal}`}
-        </label>
-      ))}
-      <EvidenceDecision
-        workspaceId={data.workspaceId}
-        definitionId={data.definitionId}
-        csrfToken={csrfToken}
-        submissionIds={chosen.map(({ record }) => record.id)}
-        outcomes={['accepted']}
-        labels={{
-          rationale: 'Approval rationale for the batch',
-          accepted: 'Approve reviewed decisions',
-          actions: 'Batch approval',
-        }}
-        disabled={locked}
-        name={(id) => chosen.find(({ record }) => record.id === id)?.card.checkpointId ?? id}
-        onDecided={async (next, _outcome, submissionId) => {
-          const approved = chosen.find(({ record }) => record.id === submissionId);
-          await onChanged(next);
-          if (submissionId === chosen.at(-1)?.record.id) {
-            setReviewed(new Set());
-            setMessage(`Approved ${chosen.map(({ card }) => card.checkpointId).join(', ')}.`);
-          } else if (approved) setMessage(`Approved ${approved.card.checkpointId}…`);
-        }}
-      />
-      {message && <p role="status">{message}</p>}
-    </section>
-  );
+  const { view, checkpointId } = props;
+  const card =
+    view.decisionInbox?.decisions.find((c) => c.checkpointId === checkpointId) ??
+    unlisted(view, checkpointId);
+  if (!card)
+    return (
+      <p className="empty-state">
+        {checkpointId} is not a shared architecture decision of this map.
+      </p>
+    );
+  return <DecisionCard {...props} card={card} />;
 }
 
 function DecisionCard({
+  workspaceId,
+  definitionId,
+  view,
+  checkpointId,
+  roadmapId,
   card,
-  data,
   csrfToken,
   disabled,
   onChanged,
-  onClarify,
-  preparation,
-}: {
-  card: Card;
-  data: ArchitectureDecisionInbox;
-  csrfToken: string;
-  disabled: boolean;
-  onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
-  onClarify?: (guidance: string) => void;
-  preparation?: Preparation | undefined;
-}) {
+}: Parameters<typeof ArchitectureDecision>[0] & { card: Card }) {
+  const blockers = view.decisionInbox?.blockers ?? [];
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState<Record>();
@@ -212,11 +123,20 @@ function DecisionCard({
   const pending = saved ?? card.records.find((r) => !r.decision && !r.issues.length);
   const [draft, setDraft] = useState<ProposeArchitectureDecision>();
   const locked = disabled;
-  const approvalBlocked = locked || !!data.blockers.length || !!card.blockers.length;
+  const designRuns =
+    view.architectureDecisions?.designRuns.filter((r) => r.checkpointIds.includes(checkpointId)) ??
+    [];
+  const approvalBlocked = locked || !!blockers.length || !!card.blockers.length;
+  const reports = [
+    ...(recommendation && !designRuns.some((r) => r.id === recommendation.sourceRunId)
+      ? [{ id: recommendation.sourceRunId, title: 'The recommendation’s source report' }]
+      : []),
+    ...designRuns,
+  ];
   const prepare = (limited = false) => {
     setDraft({
       checkpointId: card.checkpointId,
-      bindingRevision: data.bindingRevision,
+      bindingRevision: view.bindingRevision,
       coverage: limited ? 'clauses' : (pending?.proposal.coverage ?? brief?.coverage ?? 'full'),
       proposal: pending?.proposal.proposal ?? brief?.decisionText ?? '',
       sourceReferences: card.sourceReferences,
@@ -257,7 +177,6 @@ function DecisionCard({
       setError(e instanceof Error ? e.message : 'Could not save the decision.');
     }
   };
-  const clarification = `Clarify ${card.checkpointId} for operator review. Provide a complete standalone decision brief with the proposed choice, rationale, alternatives and tradeoffs, consequences, exact source citations, and full or explicitly limited coverage. Explain what remains to implement or verify. Do not approve the decision or implement changes.`;
   // A clause approval settles the decision only for the slices it names (LIVE-22).
   const stillNeeded = fullApproval ? [] : (card.stillNeededBy ?? []);
   const named = new Set(accepted?.proposal.consumers.map((c) => c.sliceId)).size;
@@ -292,13 +211,14 @@ function DecisionCard({
       ) : null}
       {(accepted ? stillNeeded.length > 0 && !covers(brief, stillNeeded) : !brief) &&
         !pending &&
-        preparation && (
+        roadmapId && (
           <PrepareDecisionBrief
-            workspaceId={preparation.workspaceId}
-            roadmapId={preparation.roadmapId}
+            workspaceId={workspaceId}
+            roadmapId={roadmapId}
             checkpointId={card.checkpointId}
             csrfToken={csrfToken}
             disabled={disabled}
+            refreshOn={view}
           />
         )}
       {accepted && (
@@ -329,7 +249,7 @@ function DecisionCard({
           )}
           <SourceRunReport
             key={`${recommendation.sourceRunId}:${recommendation.sourceReportDigest}`}
-            workspaceId={data.workspaceId}
+            workspaceId={workspaceId}
             runId={recommendation.sourceRunId}
             label={
               recommendation.investigation
@@ -408,7 +328,7 @@ function DecisionCard({
           <Link
             route={{
               name: 'run',
-              workspaceId: data.workspaceId as WorkspaceId,
+              workspaceId,
               runId: recommendation.sourceRunId as AgentRunId,
             }}
           >
@@ -440,23 +360,17 @@ function DecisionCard({
           <button type="button" disabled={locked} onClick={() => prepare(true)}>
             Approve a limited scope
           </button>
-          {onClarify ? (
-            <button type="button" disabled={locked} onClick={() => onClarify(clarification)}>
-              Request clarification
-            </button>
-          ) : (
-            recommendation?.workItemId && (
-              <Link
-                route={{
-                  name: 'work-item',
-                  workspaceId: data.workspaceId as WorkspaceId,
-                  workItemId: recommendation.workItemId as WorkItemId,
-                  focus: `clarify-architecture-${card.checkpointId}`,
-                }}
-              >
-                Request clarification in design recovery
-              </Link>
-            )
+          {recommendation?.workItemId && (
+            <Link
+              route={{
+                name: 'work-item',
+                workspaceId,
+                workItemId: recommendation.workItemId as WorkItemId,
+                focus: `clarify-architecture-${card.checkpointId}`,
+              }}
+            >
+              Request clarification in design recovery
+            </Link>
           )}
         </ActionBar>
       )}
@@ -514,54 +428,50 @@ function DecisionCard({
             />
           </label>
           {draft.coverage === 'clauses' && (
-            <>
-              <p>Select the affected slices and when these clauses are required.</p>
-              {[...new Set(card.consumers.map((c) => c.sliceId))].map((sliceId) => {
-                const selected = draft.consumers.find((c) => c.sliceId === sliceId);
-                const phase = card.consumers.some(
-                  (c) => c.sliceId === sliceId && c.phase === 'start',
-                )
-                  ? 'start'
-                  : 'merge';
-                return (
-                  <label className="field" key={sliceId}>
-                    <span>
-                      <input
-                        type="checkbox"
-                        disabled={locked}
-                        checked={!!selected}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            consumers: e.target.checked
-                              ? [
-                                  ...draft.consumers,
-                                  { sliceId, phase, replacesFullCheckpoint: true },
-                                ]
-                              : draft.consumers.filter((c) => c.sliceId !== sliceId),
-                          })
-                        }
-                      />{' '}
-                      {sliceId} · before {phase}
-                    </span>
-                  </label>
-                );
-              })}
-              {draft.consumers
-                .filter((c) => !card.consumers.some((v) => v.sliceId === c.sliceId))
-                .map((c) => (
-                  <p key={c.sliceId}>
-                    Additional proposed consumer: {c.sliceId} · before {c.phase}. Use advanced
-                    staging on the roadmap to adjust additional consumers.
-                  </p>
-                ))}
-            </>
+            <ClauseConsumers
+              card={card}
+              slices={view.architectureDecisions?.slices ?? []}
+              consumers={draft.consumers}
+              disabled={locked}
+              onChange={(consumers) => setDraft({ ...draft, consumers })}
+            />
           )}
-          <p>Source references and the exact source run report are included automatically.</p>
+          {reports.length > 0 && (
+            <label className="field">
+              Source report
+              <select
+                value={draft.sourceRunId ?? ''}
+                disabled={locked}
+                onChange={(e) => {
+                  const { sourceRunId: _run, sourceReportDigest: _digest, ...rest } = draft;
+                  const runId = e.target.value;
+                  setDraft(
+                    !runId
+                      ? rest
+                      : runId === recommendation?.sourceRunId
+                        ? {
+                            ...rest,
+                            sourceRunId: runId,
+                            sourceReportDigest: recommendation.sourceReportDigest,
+                          }
+                        : { ...rest, sourceRunId: runId },
+                  );
+                }}
+              >
+                <option value="">None: a decision written directly</option>
+                {reports.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <p>Source references, and the source report chosen, are included automatically.</p>
           <ActionBar label="Prepare decision approval">
             <SaveProposal
-              workspaceId={data.workspaceId}
-              definitionId={data.definitionId}
+              workspaceId={workspaceId}
+              definitionId={definitionId}
               csrfToken={csrfToken}
               proposal={draft}
               label="Save decision for approval"
@@ -586,8 +496,8 @@ function DecisionCard({
           {pending.issues.length > 0 && <p role="alert">{pending.issues.join(' ')}</p>}
           <EvidenceDecision
             key={pending.id}
-            workspaceId={data.workspaceId}
-            definitionId={data.definitionId}
+            workspaceId={workspaceId}
+            definitionId={definitionId}
             csrfToken={csrfToken}
             submissionIds={[pending.id]}
             outcomes={['accepted']}
@@ -632,6 +542,123 @@ function DecisionCard({
     </section>
   );
 }
+
+/**
+ * The slices a limited approval names and the phase each needs it before: the decision's own
+ * consumers, and any other slice of the map (folded in from the roadmap's former clause-staging
+ * form, R-A6 rest).
+ */
+function ClauseConsumers({
+  card,
+  slices,
+  consumers,
+  disabled,
+  onChange,
+}: {
+  card: Card;
+  slices: readonly Slice[];
+  consumers: readonly Consumer[];
+  disabled: boolean;
+  onChange: (consumers: Consumer[]) => void;
+}) {
+  const own = [...new Set(card.consumers.map((c) => c.sliceId))];
+  const listed = [...own, ...consumers.map((c) => c.sliceId).filter((id) => !own.includes(id))];
+  const replaces = (sliceId: string) =>
+    own.includes(sliceId) ||
+    !!slices.find((s) => s.id === sliceId)?.checkpoints.includes(card.checkpointId);
+  const defaultPhase = (sliceId: string): Consumer['phase'] =>
+    card.consumers.some((c) => c.sliceId === sliceId && c.phase === 'start') ? 'start' : 'merge';
+  return (
+    <>
+      <p>Select the affected slices and when these clauses are required.</p>
+      {listed.map((sliceId) => {
+        const selected = consumers.find((c) => c.sliceId === sliceId);
+        return (
+          <div className="stack" key={sliceId}>
+            <label className="field">
+              <span>
+                <input
+                  type="checkbox"
+                  disabled={disabled}
+                  checked={!!selected}
+                  onChange={(e) =>
+                    onChange(
+                      e.target.checked
+                        ? [
+                            ...consumers,
+                            {
+                              sliceId,
+                              phase: defaultPhase(sliceId),
+                              replacesFullCheckpoint: replaces(sliceId),
+                            },
+                          ]
+                        : consumers.filter((c) => c.sliceId !== sliceId),
+                    )
+                  }
+                />{' '}
+                {sliceId}
+                {selected ? '' : ` · before ${defaultPhase(sliceId)}`}
+              </span>
+            </label>
+            {selected && (
+              <label className="field">
+                Required before ({sliceId})
+                <select
+                  value={selected.phase}
+                  disabled={disabled}
+                  onChange={(e) =>
+                    onChange(
+                      consumers.map((c) =>
+                        c.sliceId === sliceId
+                          ? { ...c, phase: e.target.value as Consumer['phase'] }
+                          : c,
+                      ),
+                    )
+                  }
+                >
+                  <option value="start">Start / design</option>
+                  <option value="merge">Integration merge</option>
+                </select>
+              </label>
+            )}
+            {selected && !own.includes(sliceId) && (
+              <p className="hint">
+                {selected.replacesFullCheckpoint
+                  ? 'Replaces this slice’s full-checkpoint requirement with the approved clauses.'
+                  : 'Adds an explicit early-clause prerequisite to this slice.'}
+              </p>
+            )}
+          </div>
+        );
+      })}
+      <label className="field">
+        Add another slice
+        <select
+          value=""
+          disabled={disabled}
+          onChange={(e) => {
+            const sliceId = e.target.value;
+            if (sliceId)
+              onChange([
+                ...consumers,
+                { sliceId, phase: 'merge', replacesFullCheckpoint: replaces(sliceId) },
+              ]);
+          }}
+        >
+          <option value="">Choose a slice</option>
+          {slices
+            .filter((s) => !listed.includes(s.id))
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.id} · {s.title}
+              </option>
+            ))}
+        </select>
+      </label>
+    </>
+  );
+}
+
 function DecisionText({ record }: { record: Record }) {
   const p = record.proposal;
   return (
@@ -668,8 +695,3 @@ function DecisionText({ record }: { record: Record }) {
     </>
   );
 }
-
-/**
- * Prepares a brief for a decision that has none yet (LIVE-18), with the roadmap's preparation
- * profile for it. The roadmap's own preparation panel chooses other agents and limits.
- */

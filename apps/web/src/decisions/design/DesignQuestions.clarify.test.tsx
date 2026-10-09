@@ -17,9 +17,7 @@ vi.mock('./design-api.js', () => ({
   previewDesignRecovery: vi.fn(),
   recoverDesign: vi.fn(),
 }));
-vi.mock('../../features/planning/SharedDecisionInbox.js', () => ({
-  SharedDecisionInbox: () => null,
-}));
+vi.mock('../../app/reads.js', () => ({ useAttention: () => ({ data: { items: [] } }) }));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -60,10 +58,10 @@ const previewFor = (checkpointId: string) =>
     snapshotDigest: 'a'.repeat(64),
     sources: [],
     notices: [],
-    decisionInbox: { decisions: [{ checkpointId }] },
+    decisionInbox: { decisions: [{ checkpointId, title: 'Decision', records: [] }] },
   }) as unknown as DesignRecoveryPreview;
 
-/** The route SharedDecisionInbox's "clarify" Link produces, after a real address round trip. */
+/** The route a decision card's "clarify" Link produces, after a real address round trip. */
 function clarifyRoute(checkpointId: string): Route {
   const built = buildPath({
     name: 'work-item',

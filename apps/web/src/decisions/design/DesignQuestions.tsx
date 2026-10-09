@@ -9,7 +9,8 @@ import { useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { previewDesignRecovery, recoverDesign } from './design-api.js';
-import { SharedDecisionInbox } from '../../features/planning/SharedDecisionInbox.js';
+import { useAttention } from '../../app/reads.js';
+import { settles } from '../architecture/ArchitectureDecision.js';
 import { BaselinePreparation } from './BaselinePreparation.js';
 import { SourceRunReport } from '../../features/execution/SourceRunReport.js';
 import { ModelField } from '../../features/execution/ModelField.js';
@@ -148,22 +149,15 @@ export function DesignQuestions({
           )}
           {preview && (
             <>
-              {preview.decisionInbox && (
-                <SharedDecisionInbox
-                  data={preview.decisionInbox}
-                  csrfToken={csrfToken}
-                  disabled={busy || stale}
-                  onChanged={async () => {
-                    onChanged();
-                    await discover();
-                  }}
-                  onClarify={(guidance) => {
-                    setMode('investigate');
-                    setInstructions(guidance);
-                    revealElement('design-recovery-guidance');
-                  }}
-                />
-              )}
+              <BlockingDecisions
+                cycle={cycle}
+                decisions={preview.decisionInbox?.decisions ?? []}
+                onClarify={(checkpointId) => {
+                  setMode('investigate');
+                  setInstructions(clarification(checkpointId));
+                  revealElement('design-recovery-guidance');
+                }}
+              />
               <BaselinePreparation
                 cycle={cycle}
                 csrfToken={csrfToken}
@@ -421,6 +415,66 @@ export function DesignQuestions({
           </button>
         </>
       )}
+    </section>
+  );
+}
+
+/** The guidance a clarification starts from: a brief for the operator, never an approval. */
+const clarification = (checkpointId: string) =>
+  `Clarify ${checkpointId} for operator review. Provide a complete standalone decision brief with the proposed choice, rationale, alternatives and tradeoffs, consequences, exact source citations, and full or explicitly limited coverage. Explain what remains to implement or verify. Do not approve the decision or implement changes.`;
+
+type DecisionCard = NonNullable<DesignRecoveryPreview['decisionInbox']>['decisions'][number];
+
+/**
+ * The shared decisions this design waits on (R-A6 rest, A3): each links to its own inbox item,
+ * where its card decides it, or to the roadmap's decisions step when no item carries it yet.
+ * Clarification starts here, as a bounded investigation's guidance.
+ */
+function BlockingDecisions({
+  cycle,
+  decisions,
+  onClarify,
+}: {
+  cycle: WorkCycle;
+  decisions: readonly DecisionCard[];
+  onClarify: (checkpointId: string) => void;
+}) {
+  const attention = useAttention(cycle.workspaceId).data?.items ?? [];
+  const blocking = decisions.filter((card) => !card.records.some((r) => settles(card, r)));
+  if (!blocking.length) return null;
+  // The decision's own item: its checkpoint's, else a preparation of it (R-A6 rest).
+  const itemFor = (checkpointId: string) =>
+    attention.find((i) => i.checkpointId === checkpointId && i.code === 'architecture-decision') ??
+    attention.find((i) => i.checkpointId === checkpointId);
+  return (
+    <section className="stack" aria-label="Shared decisions this design waits on">
+      <h4>Shared decisions this design waits on</h4>
+      <ul>
+        {blocking.map((card) => {
+          const item = itemFor(card.checkpointId);
+          return (
+            <li key={card.checkpointId}>
+              <strong>{card.checkpointId}</strong> · {card.title} ·{' '}
+              {item ? (
+                <Link route={{ name: 'inbox', workspaceId: cycle.workspaceId, itemId: item.id }}>
+                  Decide {card.checkpointId} in Needs you
+                </Link>
+              ) : (
+                <Link route={sharedDecisionsRoute(cycle)}>
+                  Decide {card.checkpointId} with the shared decisions
+                </Link>
+              )}{' '}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => onClarify(card.checkpointId)}
+              >
+                Request clarification
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

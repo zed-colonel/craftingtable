@@ -820,19 +820,19 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await runtime.getByRole('button', { name: 'Save dependency environment', exact: true }).click();
     await expect(runtime.getByText('Generation 1 · binding 1', { exact: true })).toBeVisible();
     await setupStep(page, 'Shared architecture decisions');
+    // A decision with no card yet is opened by name and written on its own card (R-A6 rest).
+    await runtime.getByText('Prepare or write another decision', { exact: true }).click();
     await runtime
-      .getByText('Advanced manual decision preparation and clause staging', { exact: true })
-      .click();
-    await runtime.getByText('Prepare a decision or stage early clauses', { exact: true }).click();
-    await runtime
-      .getByRole('combobox', { name: 'Architecture checkpoint', exact: true })
+      .getByRole('combobox', { name: 'Decision', exact: true })
       .selectOption('WI-ADR-012');
-    await runtime
-      .getByLabel('Exact decision to approve', { exact: true })
+    const adr = runtime.getByRole('region', { name: 'WI-ADR-012', exact: true });
+    await adr.getByRole('button', { name: 'Approve with changes', exact: true }).click();
+    await adr
+      .getByLabel('Decision to approve', { exact: true })
       .fill(
         'Use stable provider identities and retain ordering evidence. Verify replay and duplicate handling independently.',
       );
-    await runtime.getByRole('button', { name: 'Save proposal for review', exact: true }).click();
+    await adr.getByRole('button', { name: 'Save decision for approval', exact: true }).click();
     await expect(
       runtime.getByText('Proposal saved · awaiting your approval', { exact: true }),
     ).toBeVisible();
@@ -997,11 +997,11 @@ test('captures every page of the app on desktop and phone viewports', async ({
       heading('Cross-project roadmap'),
       async (p) => {
         await p.getByRole('button', { name: 'Prepare architecture decision', exact: true }).click();
-        await p
-          .getByRole('combobox', { name: 'Decision to prepare', exact: true })
-          .selectOption('WI-ADR-008');
+        await p.getByRole('combobox', { name: 'Decision', exact: true }).selectOption('WI-ADR-008');
+        const card = p.getByRole('region', { name: 'WI-ADR-008', exact: true });
+        await card.getByText('Preparation agent, time limit and guidance', { exact: true }).click();
         await expect(
-          p.getByRole('button', { name: 'Prepare decision brief', exact: true }),
+          card.getByRole('button', { name: 'Prepare decision brief', exact: true }),
         ).toBeEnabled();
       },
     );

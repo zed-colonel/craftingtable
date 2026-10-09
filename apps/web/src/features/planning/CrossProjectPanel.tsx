@@ -1,4 +1,4 @@
-import { DecisionPreparationPanel } from './DecisionPreparationPanel.js';
+import { StandingPreparation } from '../../decisions/preparation/PrepareDecisionBrief.js';
 import { RoadmapDelegation } from '../../decisions/delegation/RoadmapDelegation.js';
 import type {
   CrossProjectView,
@@ -333,12 +333,11 @@ export function CrossProjectPanel({
       </SetupStepPart>
       <SetupStepPart step="decisions">
         {roadmap && (
-          <DecisionPreparationPanel
+          <StandingPreparation
             roadmap={roadmap}
-            backends={backends}
             csrfToken={csrfToken}
             disabled={!canMutate || busy || dirty || staleSettings}
-            onChanged={refresh}
+            onSaved={refresh}
           />
         )}
       </SetupStepPart>

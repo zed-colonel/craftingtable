@@ -43,7 +43,7 @@ const COMMANDS: readonly Command[] = [
   {
     command: 'roadmaps/:id/decision-preparation-grant',
     route: tail('decision-preparation-grant'),
-    owner: 'decisions/preparation/PrepareDecisionBrief.tsx#SaveStandingPreparation',
+    owner: 'decisions/preparation/PrepareDecisionBrief.tsx#StandingPreparation',
   },
   {
     command: 'repositories/:id/checks/adopt',

@@ -4,7 +4,30 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { ArchitectureDecisionInbox, RuntimeEvidenceView } from '@craftingtable/contracts';
 import { asUserId, asWorkspaceId } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
-import { SharedDecisionInbox } from './SharedDecisionInbox.js';
+import { ArchitectureDecisions } from './ArchitectureDecisions.js';
+
+/** The setup step's list over one decision inbox, as the trio's tests rendered it (R-A6 rest). */
+function SharedDecisions({
+  data,
+  preparation,
+  ...rest
+}: {
+  data: ArchitectureDecisionInbox;
+  csrfToken: string;
+  disabled: boolean;
+  onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
+  preparation?: { readonly workspaceId: string; readonly roadmapId: string };
+}) {
+  return (
+    <ArchitectureDecisions
+      workspaceId={asWorkspaceId(data.workspaceId)}
+      definitionId={data.definitionId}
+      view={{ decisionInbox: data, bindingRevision: data.bindingRevision } as RuntimeEvidenceView}
+      roadmapId={preparation?.roadmapId}
+      {...rest}
+    />
+  );
+}
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
   cleanup();
@@ -90,7 +113,7 @@ it('collects references, reviews an immutable proposal, and requires explicit ap
   function Harness() {
     const [data, setData] = useState(decisionInbox);
     return (
-      <SharedDecisionInbox
+      <SharedDecisions
         data={data}
         csrfToken="csrf"
         disabled={false}
@@ -133,7 +156,6 @@ it('collects references, reviews an immutable proposal, and requires explicit ap
   });
 });
 it('offers clarification for legacy reports without guessing their complete decision', () => {
-  const onClarify = vi.fn();
   const legacy = {
     ...decisionInbox,
     decisions: [
@@ -143,24 +165,20 @@ it('offers clarification for legacy reports without guessing their complete deci
       },
     ],
   };
-  render(
-    <SharedDecisionInbox
-      data={legacy}
-      csrfToken="csrf"
-      disabled={false}
-      onChanged={vi.fn()}
-      onClarify={onClarify}
-    />,
-  );
+  render(<SharedDecisions data={legacy} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
   expect(screen.queryByRole('button', { name: 'Review recommendation' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Request clarification' }));
-  expect(onClarify).toHaveBeenCalledWith(expect.stringContaining('LOCAL-ADR-012'));
+  // Clarification is asked for in the design's own recovery, where its guidance is drafted.
+  expect(
+    screen
+      .getByRole('link', { name: 'Request clarification in design recovery' })
+      .getAttribute('href'),
+  ).toBe('/workspaces/ws/work-items/item#clarify-architecture-LOCAL-ADR-012');
   expect(request).not.toHaveBeenCalled();
 });
 it('keeps edits across refresh and failure, and requires named limited scope', async () => {
   vi.mocked(request).mockRejectedValue(new Error('Refresh the binding.'));
   const props = { data: decisionInbox, csrfToken: 'csrf', disabled: false, onChanged: vi.fn() };
-  const { rerender } = render(<SharedDecisionInbox {...props} />);
+  const { rerender } = render(<SharedDecisions {...props} />);
   fireEvent.click(screen.getByRole('button', { name: 'Approve a limited scope' }));
   fireEvent.change(screen.getByLabelText('Decision to approve'), {
     target: { value: 'Settle identifiers only.' },
@@ -175,7 +193,7 @@ it('keeps edits across refresh and failure, and requires named limited scope', a
   fireEvent.click(screen.getByRole('checkbox', { name: 'local/WI-03/domain · before merge' }));
   fireEvent.click(save);
   await screen.findByText('Refresh the binding.');
-  rerender(<SharedDecisionInbox {...props} data={{ ...decisionInbox }} />);
+  rerender(<SharedDecisions {...props} data={{ ...decisionInbox }} />);
   expect((screen.getByLabelText('Decision to approve') as HTMLTextAreaElement).value).toBe(
     'Settle identifiers only.',
   );
@@ -211,7 +229,7 @@ it('shows limited approval separately and keeps live scheduling blockers beside 
     ...withRecord(limited),
     blockers: ['Pause roadmap scheduling before approving decisions.'],
   };
-  render(<SharedDecisionInbox data={data} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
+  render(<SharedDecisions data={data} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
   expect(screen.getByText('Accepted · limited to named slices')).toBeTruthy();
   expect(screen.getByText(/Approval unavailable: Pause roadmap/)).toBeTruthy();
 });
@@ -231,7 +249,7 @@ it('keeps investigation evidence accessible when its structured recommendation i
       },
     ],
   };
-  render(<SharedDecisionInbox data={data} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
+  render(<SharedDecisions data={data} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
   expect(screen.getByText('Evidence investigation available')).toBeTruthy();
   expect(screen.getByText('Investigation results and evidence')).toBeTruthy();
   expect(screen.getByRole('status').textContent).toContain('invalid coverage');
@@ -258,7 +276,7 @@ it('approves several saved decisions in one pause, each reviewed, with one ratio
   vi.mocked(request).mockResolvedValue(view(pending));
   const onChanged = vi.fn();
   render(
-    <SharedDecisionInbox data={pending} csrfToken="csrf" disabled={false} onChanged={onChanged} />,
+    <SharedDecisions data={pending} csrfToken="csrf" disabled={false} onChanged={onChanged} />,
   );
   const batch = screen.getByRole('region', { name: 'Approve saved decisions' });
   const approve = within(batch).getByRole('button', {
@@ -300,9 +318,7 @@ it('offers no batch approval while scheduling runs (R-C3b)', () => {
       },
     ],
   };
-  render(
-    <SharedDecisionInbox data={blocked} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />,
-  );
+  render(<SharedDecisions data={blocked} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
   const batch = screen.getByRole('region', { name: 'Approve saved decisions' });
   expect(
     (within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }) as HTMLInputElement).disabled,
@@ -337,9 +353,7 @@ it('approves only the proposals ticked as reviewed, lists none with issues, and 
     .mockResolvedValueOnce(view(inbox))
     .mockRejectedValueOnce(new Error('Pause roadmap scheduling before approving.'));
   const onChanged = vi.fn();
-  render(
-    <SharedDecisionInbox data={inbox} csrfToken="csrf" disabled={false} onChanged={onChanged} />,
-  );
+  render(<SharedDecisions data={inbox} csrfToken="csrf" disabled={false} onChanged={onChanged} />);
   const batch = screen.getByRole('region', { name: 'Approve saved decisions' });
   expect(within(batch).queryByRole('checkbox', { name: /LOCAL-ADR-015/ })).toBeNull();
   fireEvent.click(within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }));
@@ -388,7 +402,7 @@ it('gives a decision a stopped slice waits on a card and a one-step brief before
     },
   );
   render(
-    <SharedDecisionInbox
+    <SharedDecisions
       data={{ ...decisionInbox, decisions: [card] }}
       csrfToken="csrf"
       disabled={false}
@@ -478,7 +492,7 @@ const stoppedCard = (records: (typeof decisionRecord)[], withRecommendation = fa
 };
 const renderStopped = (data: ArchitectureDecisionInbox) =>
   render(
-    <SharedDecisionInbox
+    <SharedDecisions
       data={data}
       csrfToken="csrf"
       disabled={false}

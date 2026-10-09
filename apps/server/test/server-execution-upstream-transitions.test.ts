@@ -239,6 +239,11 @@ itNeedsCargo(
     expect(scoped.body).toContain('builds against the current pins');
     const approved = await declare({ expectedRecordIds: [], transitions: [transition], rationale });
     expect(approved.statusCode, approved.body).toBe(200);
+    // The view carries the map's capabilities, from the daemon's own reading (R-F2 part 5).
+    expect(runtimeEvidenceViewSchema.parse(approved.json()).capabilities?.builds).toContainEqual({
+      sliceId: B,
+      mode: 'scoped-checks',
+    });
     const view = runtimeEvidenceViewSchema.parse(approved.json()).upstreamTransitions!;
     const recordId = view.records[0]!.id;
     expect(view.links).toEqual([

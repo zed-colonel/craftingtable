@@ -3,6 +3,7 @@ import { EvidenceReview } from '../../decisions/evidence/EvidenceReview.js';
 import { SubmitEvidence } from '../../decisions/evidence/SubmitEvidence.js';
 import { PlanAcceptance } from '../../decisions/plan-acceptance/PlanAcceptance.js';
 import { SetupStepPart } from './setup-steps.js';
+import { MapCapabilities } from './MapCapabilities.js';
 import { EnvironmentApproval } from '../../decisions/environment/EnvironmentApproval.js';
 import { UpstreamTransitions } from '../../decisions/upstream/UpstreamTransitions.js';
 import { DependencyRefresh } from '../../decisions/refresh/DependencyRefresh.js';
@@ -203,6 +204,13 @@ export function RuntimeEvidencePanel({
           does not start work or adopt scheduling proposals.
         </p>
       </About>
+      {view.capabilities && (
+        <SetupStepPart
+          step={['dependency', 'verification', 'plan-acceptance', 'decisions', 'evidence']}
+        >
+          <MapCapabilities capabilities={view.capabilities} />
+        </SetupStepPart>
+      )}
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {/* Outside every setup step: the draft holds decisions shown on other steps (R-A6 review). */}

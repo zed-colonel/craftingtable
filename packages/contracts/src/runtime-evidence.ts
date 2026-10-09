@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { PLAN_ACCEPTANCE_INPUTS } from '@craftingtable/domain';
+import { PLAN_ACCEPTANCE_INPUTS, type MapCapabilityGap } from '@craftingtable/domain';
+import { equivalentSchema } from './type-equivalence.js';
 import { architectureRecommendationSchema } from './design-report.js';
 import { sourceRepositoryIdSchema, userIdSchema, workspaceIdSchema } from './ids.js';
 
@@ -457,7 +458,94 @@ export const runtimeRefreshPreviewSchema = runtimeRefreshRequestSchema.extend({
 });
 export type RuntimeRefreshPreview = z.infer<typeof runtimeRefreshPreviewSchema>;
 export type ApplyRuntimeRefresh = z.infer<typeof applyRuntimeRefreshSchema>;
+/**
+ * What the controller cannot automate on a map (R-F2 part 5), as `mapCapabilities` types it:
+ * each gap names the fields or ids at fault, and a reader branches on `code`.
+ */
+export const mapCapabilityGapSchema = equivalentSchema<MapCapabilityGap>()(
+  z.discriminatedUnion('code', [
+    z.strictObject({
+      code: z.literal('plan-checkpoint-ambiguous'),
+      checkpointIds: z.array(z.string()).max(200),
+    }),
+    z.strictObject({
+      code: z.literal('plan-owner-unrecognized'),
+      checkpointId: z.string(),
+      owner: z.string(),
+    }),
+    z.strictObject({
+      code: z.literal('plan-contract-changed'),
+      checkpointId: z.string(),
+      fields: z
+        .array(
+          z.enum([
+            'requires',
+            'evidence_profile',
+            'required_evidence',
+            'pass_criteria',
+            'reviewer_roles',
+            'acceptance_coverage',
+          ]),
+        )
+        .max(10),
+    }),
+    z.strictObject({
+      code: z.literal('decision-contract-changed'),
+      checkpointId: z.string(),
+      profileId: z.string(),
+      fields: z
+        .array(
+          z.enum([
+            'evidence_profile',
+            'independence_required',
+            'required_evidence',
+            'reviewer_roles',
+            'acceptance_coverage',
+          ]),
+        )
+        .max(10),
+    }),
+    z.strictObject({ code: z.literal('security-role-undeclared') }),
+    z.strictObject({
+      code: z.literal('recovery-profile-unrecognized'),
+      checkpointIds: z.array(z.string()).max(2000),
+    }),
+    z.strictObject({ code: z.literal('resource-adapter-missing'), resourceId: z.string() }),
+    z.strictObject({
+      code: z.literal('resource-adapter-unusable'),
+      resourceId: z.string(),
+      adapter: z.enum(['development-workspace', 'native-test-host']),
+      fields: z
+        .array(
+          z.enum([
+            'resource_profile',
+            'requires_hardware_virtualization',
+            'fixture_authorization_required',
+          ]),
+        )
+        .max(10),
+    }),
+  ]),
+);
+/**
+ * A map's recognized capabilities as the daemon reads them (R-F2 part 5): its typed gaps, and
+ * each slice's build classification (ADR-053), which a reworded maturity word can move to a
+ * current-upstream build. Derived on each read, never stored.
+ */
+export const mapCapabilitiesViewSchema = z.strictObject({
+  gaps: z.array(mapCapabilityGapSchema).max(2000),
+  builds: z
+    .array(
+      z.strictObject({
+        sliceId: name,
+        mode: z.enum(['scoped-checks', 'current-upstream-build']),
+      }),
+    )
+    .max(5000),
+});
+export type MapCapabilitiesView = z.infer<typeof mapCapabilitiesViewSchema>;
 export const runtimeEvidenceViewSchema = z.strictObject({
+  capabilities: mapCapabilitiesViewSchema.optional(),
   decisionInbox: architectureDecisionInboxSchema.optional(),
   architectureDecisions: z
     .object({

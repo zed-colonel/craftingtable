@@ -5,6 +5,7 @@ import {
 import { workflowContext, workflowDelegation } from './workflow-policy.js';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
+import { mapCapabilitiesView } from './map-capabilities-view.js';
 import { worktreePlan, repositoryPolicyEvidence } from './repository-policy.js';
 import {
   type BuildReceipt,
@@ -2250,6 +2251,7 @@ export class RuntimeEvidenceService {
         });
     return {
       decisionInbox,
+      capabilities: mapCapabilitiesView(d.source),
       architectureDecisions: {
         checkpoints: architectureCheckpoints.map((c) => ({
           id: c.id,

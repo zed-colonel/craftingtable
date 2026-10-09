@@ -902,3 +902,28 @@ it('names the role the map declares for a recorded architecture decision (R-F2)'
   );
   await screen.findByText('Architecture decision recorded by operator as decision-owner.');
 });
+
+it("shows the daemon's capability gaps and build classification (R-F2 part 5)", async () => {
+  respond([
+    {
+      ...view(),
+      capabilities: {
+        gaps: [{ code: 'security-role-undeclared' }],
+        builds: [{ sliceId: 'wi/WI-01/domain', mode: 'scoped-checks' }],
+      },
+    },
+  ]);
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  await screen.findByText(
+    'No evidence profile names a security reviewer, so no roadmap can delegate a security review.',
+  );
+  screen.getByText('Builds: 1 slice with scoped checks, 0 against the current upstream pins.');
+});

@@ -18,7 +18,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   type AgentBackend,
   AgentLaunchError,
@@ -1873,7 +1873,7 @@ export class AgentRunService {
                 expiredPaths: citedRunPaths(
                   prepared.parentFinalMessage ?? '',
                   this.config.runsRoot,
-                ).filter((path) => !existsSync(path)),
+                ).filter((path) => !existsSync(resolve(path))),
                 ...(handoff === undefined ? {} : { handoff }),
               },
             }),

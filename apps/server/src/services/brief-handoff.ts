@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { AgentRunRole } from '@craftingtable/domain';
 import type { HandoffFiles } from './run-handoff.js';
 
@@ -40,21 +41,25 @@ const GATE_BYTES = 600;
 const LISTED_WARNINGS = 3;
 
 /**
- * The absolute paths a message cites under the runs root (AGT-57), in order, each once: the
- * daemon checks which still exist before the brief quotes the message.
+ * The absolute paths a message cites under the runs root (AGT-57), in order, each once and as
+ * written: the daemon checks which still exist before the brief quotes the message. A path
+ * whose `..` segments lead outside the root is not one of them.
  */
 export function citedRunPaths(text: string, runsRoot: string): string[] {
   const root = runsRoot.replace(/\/+$/, '');
   const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const paths = [...text.matchAll(new RegExp(`${escaped}(?:/[^\\s\`'"()<>\\[\\]]*)?`, 'g'))]
-    // A trailing `:line` or `:line:column` and sentence punctuation are not part of the path.
-    .map((match) =>
-      match[0]
-        .replace(/(?::\d+)+$/, '')
-        .replace(/[.,;:]+$/, '')
-        .replace(/(?::\d+)+$/, ''),
-    )
-    .filter((path) => path.length > root.length);
+    // A trailing `:line` or `:line:column`, sentence punctuation and emphasis are not part of
+    // the path.
+    .map((match) => {
+      let path = match[0];
+      for (let previous = ''; previous !== path; ) {
+        previous = path;
+        path = path.replace(/(?::\d+)+$/, '').replace(/[.,;:*_~]+$/, '');
+      }
+      return path;
+    })
+    .filter((path) => path.length > root.length && resolve(path).startsWith(`${root}/`));
   return [...new Set(paths)];
 }
 
@@ -139,8 +144,11 @@ function fenced(message: string, expired: readonly string[] | undefined): string
 function findingsDigest(parent: BriefParentRun, findings: readonly BriefFinding[]): string {
   const open = findings.filter((finding) => finding.status === 'open');
   const closed = findings.filter((finding) => finding.status !== 'open');
-  const title = (text: string) =>
-    text.length > TITLE_CHARACTERS ? `${text.slice(0, TITLE_CHARACTERS)}…` : text;
+  // A title is the reviewer's text: one line, so it never opens a section or a block (M4).
+  const title = (text: string) => {
+    const line = text.replace(/\s+/g, ' ').trim();
+    return line.length > TITLE_CHARACTERS ? `${line.slice(0, TITLE_CHARACTERS)}…` : line;
+  };
   // The files to read name the report; it holds each finding's explanation and recommendation.
   const where = parent.handoff?.reportPath ? ' (each explained in its review report)' : '';
   return markExpired(

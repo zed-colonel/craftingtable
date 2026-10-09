@@ -75,7 +75,10 @@ export function milestoneSatisfied(
   if (r.state === 'started')
     return (
       !!integrated ||
-      trees.some((t) => tx.execution.runs.listForWorktree(ws, t.id).some((r) => r.startedAt))
+      tx.execution.runs.startedIn(
+        ws,
+        trees.map((t) => t.id),
+      )
     );
   if (r.state === 'merged') return !!integrated?.mergeSha;
   return (

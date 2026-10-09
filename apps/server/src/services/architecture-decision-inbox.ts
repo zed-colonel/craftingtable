@@ -9,6 +9,7 @@ import {
   type ArchitectureDecisionInbox,
 } from '@craftingtable/contracts';
 import {
+  type AgentRun,
   type ConcurrencyDefinition,
   type ExecutionScope,
   isInvestigationRun,
@@ -55,31 +56,214 @@ export function architectureDecisionInbox(
     blockers.push('Wait for live runs on this map to finish before approving decisions.');
 
   const checkpoints = d.source.checkpoints.filter((c) => supportsArchitectureDecision(d, c.id));
-  const recommendations = new Map<
-    string,
-    NonNullable<ArchitectureDecisionInbox['decisions'][number]['recommendation']> & {
-      sources: string[];
-    }
-  >();
+  const recommendations = decisionRecommendations(tx, d, binding, checkpoints);
+  const submissions = tx.runtimeEvidence.submissions(ws, d.id);
+  const decisions = tx.runtimeEvidence.decisions(ws);
+  const slices = d.source.slices.filter(
+    (s) =>
+      !scope ||
+      s.id === scope.sourceId ||
+      (scope.kind === 'parent-acceptance' && s.work_item === scope.sourceId),
+  );
+  const relevant = new Set(
+    slices
+      .flatMap((s) => [...s.start_requires, ...s.merge_requires, ...s.verify_requires])
+      .filter((r) => r.kind === 'checkpoint')
+      .map((r) => r.id),
+  );
+  // Decisions a slice is stopped on now get a card even before any brief exists, so the stop
+  // can be answered from one place (LIVE-18).
+  const stopped = new Map<string, string[]>();
+  for (const cycle of tx.execution.cycles.listForWorkspace(ws))
+    if (
+      cycle.executionScope?.definitionId === d.id &&
+      cycle.executionScope.bindingRevision === revision &&
+      ['needs-attention', 'paused'].includes(cycle.status)
+    )
+      for (const id of unsettledDecisionsAt(tx, cycle))
+        stopped.set(id, [...(stopped.get(id) ?? []), cycle.executionScope.sourceId]);
+  const cards = checkpoints.flatMap((c) => {
+    const recommendation = recommendations.get(c.id);
+    const records = decisionRecords(submissions, decisions, c.id).map(
+      ({ submission: s, record }) => ({
+        ...record,
+        issues: architectureDecisionIssues(tx, d, s),
+        applicable:
+          !scope ||
+          (s.bindingRevision === scope.bindingRevision &&
+            (s.architectureDecision!.coverage === 'full' ||
+              s.architectureDecision!.consumers.some((consumer) =>
+                slices.some((slice) => slice.id === consumer.sliceId),
+              ))),
+      }),
+    );
+    if (
+      scope &&
+      !relevant.has(c.id) &&
+      !records.some((r) => r.proposal.coverage === 'clauses' && r.applicable) &&
+      !slices.some((s) => s.id === recommendation?.sliceId)
+    )
+      return [];
+    if (!records.length && !recommendation && !stopped.has(c.id)) return [];
+    const settlement = decisionSettlement(tx, ws, d, revision, c.id);
+    const refs = [
+      `Imported map ${d.mapId} ${d.revision}; exact plan binding ${revision}; checkpoint ${c.id}.`,
+      ...c.source_refs.map((ref) => JSON.stringify(ref)),
+      ...(recommendation?.sources ?? []),
+      ...(recommendation
+        ? [
+            `Attached source run ${recommendation.sourceRunId}; SHA-256 ${recommendation.sourceReportDigest}.`,
+          ]
+        : []),
+    ].join('\n');
+    return [
+      {
+        checkpointId: c.id,
+        title: c.title,
+        requirements: [...c.pass_criteria],
+        blockers: prerequisiteIssues(tx, d, revision, { kind: 'checkpoint', sourceId: c.id }),
+        sourceReferences: refs,
+        consumers: d.source.slices.flatMap((s) =>
+          (['start', 'merge', 'verify'] as const).flatMap((phase) =>
+            s[`${phase}_requires`].some((r) => r.kind === 'checkpoint' && r.id === c.id)
+              ? [{ sliceId: s.id, phase }]
+              : [],
+          ),
+        ),
+        ...(stopped.has(c.id) ? { stoppedSlices: [...new Set(stopped.get(c.id))] } : {}),
+        ...(settlement.settledFor.length ? { settledFor: [...settlement.settledFor] } : {}),
+        ...(settlement.stillNeededBy.length
+          ? { stillNeededBy: [...settlement.stillNeededBy] }
+          : {}),
+        ...(recommendation ? { recommendation } : {}),
+        records,
+      },
+    ];
+  });
+  return {
+    workspaceId: ws,
+    definitionId: d.id,
+    bindingRevision: revision,
+    blockers,
+    decisions: cards,
+  };
+}
+
+type Recommendation = NonNullable<ArchitectureDecisionInbox['decisions'][number]['recommendation']>;
+type DecisionRecord = Pick<
+  ArchitectureDecisionInbox['decisions'][number]['records'][number],
+  'id' | 'proposal' | 'decision'
+>;
+
+/** The part of an inbox card a roadmap's decision hold reads (R-C3b, R-D7). */
+export interface DecisionBrief {
+  readonly checkpointId: string;
+  readonly recommendation: Recommendation;
+  readonly blockers: readonly string[];
+  readonly records: readonly DecisionRecord[];
+}
+
+/**
+ * The briefs of `checkpointIds` without the rest of the inbox (R-D7): each of those shared
+ * decisions whose recommendation carries a brief, with its blockers and records. The inbox's own
+ * rules find them (`decisionRecommendations`, `decisionRecords`), so a decision hold and the
+ * inbox's cards cannot disagree; only the runs whose repository owns one of them are read.
+ */
+export function decisionBriefs(
+  source: StorageRepositories,
+  d: ConcurrencyDefinition,
+  checkpointIds: ReadonlySet<string>,
+): Map<string, DecisionBrief> {
+  const tx = mapReadSnapshot(source),
+    ws = d.workspaceId;
+  const binding = tx.imports.bindings(ws, d.id)[0];
+  const revision = binding?.revision ?? 0;
+  const checkpoints = d.source.checkpoints.filter(
+    (c) => checkpointIds.has(c.id) && supportsArchitectureDecision(d, c.id),
+  );
+  const briefs = new Map<string, DecisionBrief>();
+  if (!checkpoints.length) return briefs;
+  const recommendations = decisionRecommendations(tx, d, binding, checkpoints);
+  for (const c of checkpoints) {
+    const recommendation = recommendations.get(c.id);
+    if (!recommendation?.brief) continue;
+    briefs.set(c.id, {
+      checkpointId: c.id,
+      recommendation,
+      blockers: prerequisiteIssues(tx, d, revision, { kind: 'checkpoint', sourceId: c.id }),
+      records: decisionRecords(
+        tx.runtimeEvidence.submissions(ws, d.id),
+        tx.runtimeEvidence.decisions(ws),
+        c.id,
+      ).map(({ record }) => record),
+    });
+  }
+  return briefs;
+}
+
+/** A checkpoint's recorded architecture decision proposals, each with the operator's decision. */
+function decisionRecords(
+  submissions: ReturnType<StorageRepositories['runtimeEvidence']['submissions']>,
+  decisions: ReturnType<StorageRepositories['runtimeEvidence']['decisions']>,
+  checkpointId: string,
+) {
+  return submissions
+    .filter((s) => s.subject.sourceId === checkpointId && s.architectureDecision)
+    .map((s) => ({
+      submission: s,
+      record: {
+        id: s.id,
+        proposal: {
+          ...s.architectureDecision!,
+          consumers: s.architectureDecision!.consumers.map((c) => ({ ...c })),
+        },
+        decision: decisions.find((a) => a.submissionId === s.id),
+      } satisfies DecisionRecord,
+    }));
+}
+
+/**
+ * Each of `checkpoints`' recommendation: of the newest run per worktree on this map at its
+ * binding (or a current preparation's), finished, the newest whose report asks about it. The
+ * one rule for the inbox's cards and the decision holds (R-D7). Each checkpoint's answer depends
+ * only on the runs, so asking about fewer checkpoints gives the same answer for those; a run whose
+ * repository owns none of them is not read.
+ */
+function decisionRecommendations(
+  tx: StorageRepositories,
+  d: ConcurrencyDefinition,
+  binding: ReturnType<StorageRepositories['imports']['bindings']>[number] | undefined,
+  checkpoints: ConcurrencyDefinition['source']['checkpoints'],
+): Map<string, Recommendation> {
+  const ws = d.workspaceId,
+    revision = binding?.revision ?? 0;
+  const recommendations = new Map<string, Recommendation>();
   const cycles = tx.execution.cycles
     .listForWorkspace(ws)
     .filter((c) => c.executionScope?.definitionId === d.id);
-  // Include stopped designs even after substantial activity elsewhere pushes them off the recent list.
-  const runs = [
+  // Include stopped designs even after substantial activity elsewhere pushes them off the recent
+  // list. Runs are read as headers, in one read (R-D7): only a recommending run is decoded.
+  const pinned = [
     ...tx.roadmaps
       .list(ws)
       .flatMap((r) => r.decisionPreparations ?? [])
       .filter((p) => p.definitionId === d.id)
-      .flatMap((p) => {
-        const run = tx.execution.runs.find(ws, p.runId);
-        return run ? [run] : [];
-      }),
-    ...cycles.flatMap((c) => {
-      const r = tx.execution.runs.find(ws, c.currentRunId);
-      return r ? [r] : [];
+      .map((p) => p.runId),
+    ...cycles.map((c) => c.currentRunId),
+  ];
+  const headers = new Map(
+    tx.execution.runs.headersFor(ws, pinned).map((run) => [run.id as string, run]),
+  );
+  const runs: readonly Pick<
+    AgentRun,
+    'id' | 'worktreeId' | 'status' | 'createdAt' | 'profileSelection'
+  >[] = [
+    ...pinned.flatMap((id) => {
+      const run = headers.get(id);
+      return run ? [run] : [];
     }),
     // A stop's investigation works beside its cycle and recommends nothing (R-C16).
-    ...tx.execution.runs.listRecent(ws, 200).filter((run) => !isInvestigationRun(run)),
+    ...tx.execution.runs.listRecentHeaders(ws, 200).filter((run) => !isInvestigationRun(run)),
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const seenTrees = new Set<string>();
   for (const run of runs) {
@@ -102,6 +286,14 @@ export function architectureDecisionInbox(
     const owner = binding?.bindings.find(
       (b) => b.planVersionId === worktreePlan(tx, tree) && b.repositoryId === tree.repositoryId,
     )?.alias;
+    // Only a checkpoint its repository owns (and, for a preparation, the one it prepares) can
+    // take this run's recommendation, so a run that could recommend none is not read.
+    if (
+      !checkpoints.some(
+        (c) => c.owner === owner && (!preparation || preparation.checkpointId === c.id),
+      )
+    )
+      continue;
     const event = tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
     if (
       event?.kind !== 'turn-completed' ||
@@ -165,6 +357,7 @@ export function architectureDecisionInbox(
       );
       for (const c of candidates) {
         if (recommendations.has(c.id)) continue;
+        const workItemId = tx.execution.runs.find(ws, run.id)?.workItemId;
         recommendations.set(c.id, {
           sourceRunId: run.id,
           investigation:
@@ -174,7 +367,7 @@ export function architectureDecisionInbox(
             ),
           ...(parsed.status === 'invalid' ? { classificationIssue: parsed.reason } : {}),
           sourceReportDigest: createHash('sha256').update(report).digest('hex'),
-          ...(run.workItemId ? { workItemId: run.workItemId } : {}),
+          ...(workItemId ? { workItemId } : {}),
           ...(tree.executionScope ? { sliceId: tree.executionScope.sourceId } : {}),
           question: question.question,
           answer: question.answer,
@@ -184,99 +377,5 @@ export function architectureDecisionInbox(
       }
     }
   }
-  const submissions = tx.runtimeEvidence.submissions(ws, d.id);
-  const decisions = tx.runtimeEvidence.decisions(ws);
-  const slices = d.source.slices.filter(
-    (s) =>
-      !scope ||
-      s.id === scope.sourceId ||
-      (scope.kind === 'parent-acceptance' && s.work_item === scope.sourceId),
-  );
-  const relevant = new Set(
-    slices
-      .flatMap((s) => [...s.start_requires, ...s.merge_requires, ...s.verify_requires])
-      .filter((r) => r.kind === 'checkpoint')
-      .map((r) => r.id),
-  );
-  // Decisions a slice is stopped on now get a card even before any brief exists, so the stop
-  // can be answered from one place (LIVE-18).
-  const stopped = new Map<string, string[]>();
-  for (const cycle of tx.execution.cycles.listForWorkspace(ws))
-    if (
-      cycle.executionScope?.definitionId === d.id &&
-      cycle.executionScope.bindingRevision === revision &&
-      ['needs-attention', 'paused'].includes(cycle.status)
-    )
-      for (const id of unsettledDecisionsAt(tx, cycle))
-        stopped.set(id, [...(stopped.get(id) ?? []), cycle.executionScope.sourceId]);
-  const cards = checkpoints.flatMap((c) => {
-    const recommendation = recommendations.get(c.id);
-    const records = submissions
-      .filter((s) => s.subject.sourceId === c.id && s.architectureDecision)
-      .map((s) => ({
-        id: s.id,
-        proposal: {
-          ...s.architectureDecision!,
-          consumers: s.architectureDecision!.consumers.map((c) => ({ ...c })),
-        },
-        decision: decisions.find((a) => a.submissionId === s.id),
-        issues: architectureDecisionIssues(tx, d, s),
-        applicable:
-          !scope ||
-          (s.bindingRevision === scope.bindingRevision &&
-            (s.architectureDecision!.coverage === 'full' ||
-              s.architectureDecision!.consumers.some((consumer) =>
-                slices.some((slice) => slice.id === consumer.sliceId),
-              ))),
-      }));
-    if (
-      scope &&
-      !relevant.has(c.id) &&
-      !records.some((r) => r.proposal.coverage === 'clauses' && r.applicable) &&
-      !slices.some((s) => s.id === recommendation?.sliceId)
-    )
-      return [];
-    if (!records.length && !recommendation && !stopped.has(c.id)) return [];
-    const settlement = decisionSettlement(tx, ws, d, revision, c.id);
-    const refs = [
-      `Imported map ${d.mapId} ${d.revision}; exact plan binding ${revision}; checkpoint ${c.id}.`,
-      ...c.source_refs.map((ref) => JSON.stringify(ref)),
-      ...(recommendation?.sources ?? []),
-      ...(recommendation
-        ? [
-            `Attached source run ${recommendation.sourceRunId}; SHA-256 ${recommendation.sourceReportDigest}.`,
-          ]
-        : []),
-    ].join('\n');
-    return [
-      {
-        checkpointId: c.id,
-        title: c.title,
-        requirements: [...c.pass_criteria],
-        blockers: prerequisiteIssues(tx, d, revision, { kind: 'checkpoint', sourceId: c.id }),
-        sourceReferences: refs,
-        consumers: d.source.slices.flatMap((s) =>
-          (['start', 'merge', 'verify'] as const).flatMap((phase) =>
-            s[`${phase}_requires`].some((r) => r.kind === 'checkpoint' && r.id === c.id)
-              ? [{ sliceId: s.id, phase }]
-              : [],
-          ),
-        ),
-        ...(stopped.has(c.id) ? { stoppedSlices: [...new Set(stopped.get(c.id))] } : {}),
-        ...(settlement.settledFor.length ? { settledFor: [...settlement.settledFor] } : {}),
-        ...(settlement.stillNeededBy.length
-          ? { stillNeededBy: [...settlement.stillNeededBy] }
-          : {}),
-        ...(recommendation ? { recommendation } : {}),
-        records,
-      },
-    ];
-  });
-  return {
-    workspaceId: ws,
-    definitionId: d.id,
-    bindingRevision: revision,
-    blockers,
-    decisions: cards,
-  };
+  return recommendations;
 }

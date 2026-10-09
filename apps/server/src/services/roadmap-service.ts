@@ -125,7 +125,7 @@ import {
   unsettledSliceDecisions,
   workflowContext,
 } from './workflow-policy.js';
-import { architectureDecisionInbox } from './architecture-decision-inbox.js';
+import { type DecisionBrief, decisionBriefs } from './architecture-decision-inbox.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
@@ -154,7 +154,9 @@ const TARGET_MOVED_RETRIES = 3;
 /** A definition's shared-decision inbox as the R-C3b hold reads it, and when it was built. */
 interface HoldInbox {
   readonly generation: number;
-  readonly inbox: import('@craftingtable/contracts').ArchitectureDecisionInbox;
+  /** The checkpoints read: the merge decisions of the roadmaps' slices not yet started (R-D7). */
+  readonly checkpoints: ReadonlySet<string>;
+  readonly briefs: ReadonlyMap<string, DecisionBrief>;
   /** Each decision record's source run, to tie a rejection to the brief it answered. */
   readonly sources: ReadonlyMap<string, string | undefined>;
 }
@@ -3608,13 +3610,33 @@ export class RoadmapService {
         if (tx !== this.storage) this.viewInboxes.set(tx as object, inboxes);
       }
       // Rebuilt whenever workflow state changed since, within a pass too (R-C3b review): a brief
-      // that finished or a decision settled meanwhile is seen at once.
+      // that finished or a decision settled meanwhile is seen at once. Only the briefs of the
+      // decisions this roadmap's slices not yet started need are read, not the whole inbox (R-D7).
       const generation = this.notifier.workflowGeneration;
       let cached = inboxes.get(definition.id);
-      if (!cached || cached.generation !== generation) {
+      if (
+        !cached ||
+        cached.generation !== generation ||
+        [...merge].some((id) => !cached!.checkpoints.has(id))
+      ) {
+        const checkpoints = new Set([
+          ...(cached?.generation === generation ? cached.checkpoints : []),
+          ...merge,
+          ...roadmap.definition.entries.flatMap((e) =>
+            e.executionScope?.kind === 'slice' &&
+            e.executionScope.definitionId === definition.id &&
+            !roadmap.attempts.some((a) => a.entryId === e.id)
+              ? (definition.source.slices
+                  .find((s) => s.id === e.executionScope!.sourceId)
+                  ?.merge_requires.filter((r) => r.kind === 'checkpoint')
+                  .map((r) => r.id) ?? [])
+              : [],
+          ),
+        ]);
         cached = {
           generation,
-          inbox: architectureDecisionInbox(tx, definition),
+          checkpoints,
+          briefs: decisionBriefs(tx, definition, checkpoints),
           sources: new Map(
             tx.runtimeEvidence
               .submissions(roadmap.workspaceId, definition.id)
@@ -3623,9 +3645,9 @@ export class RoadmapService {
         };
         inboxes.set(definition.id, cached);
       }
-      const { inbox, sources } = cached;
-      const ready = inbox.decisions.filter((d) => {
-        const brief = d.recommendation?.brief;
+      const { briefs, sources } = cached;
+      const ready = [...briefs.values()].filter((d) => {
+        const brief = d.recommendation.brief;
         if (!merge.has(d.checkpointId) || !brief || d.blockers.length) return false;
         if (brief.coverage !== 'full' && !brief.consumers.some((c) => c.sliceId === slice.id))
           return false;
@@ -3634,7 +3656,7 @@ export class RoadmapService {
         return !d.records.some(
           (r) =>
             r.decision?.outcome === 'rejected' &&
-            sources.get(r.id) === d.recommendation!.sourceRunId &&
+            sources.get(r.id) === d.recommendation.sourceRunId &&
             (r.proposal.coverage === 'full' ||
               r.proposal.consumers.some((c) => c.sliceId === slice.id)),
         );

@@ -468,6 +468,39 @@ class SqliteWorktreeRepository implements WorktreeRepository {
  * (its newest run, its runs in order) leave it out, so no rule that adopts or resumes the
  * newest run ever sees it. `liveForWorktree` includes it: it still holds the worktree.
  */
+const HEADER_COLUMNS = `id, workspace_id, worktree_id, repository_id, role, status, created_at,
+                  finished_at, review_branch_context_json, profile_selection_json`;
+type AgentRunHeaderRow = Pick<
+  AgentRunRow,
+  | 'id'
+  | 'workspace_id'
+  | 'worktree_id'
+  | 'repository_id'
+  | 'role'
+  | 'status'
+  | 'created_at'
+  | 'finished_at'
+  | 'review_branch_context_json'
+  | 'profile_selection_json'
+>;
+function mapAgentRunHeader(row: AgentRunHeaderRow): AgentRunHeader {
+  return {
+    id: row.id as AgentRun['id'],
+    workspaceId: row.workspace_id as AgentRun['workspaceId'],
+    worktreeId: row.worktree_id as AgentRun['worktreeId'],
+    repositoryId: row.repository_id as AgentRun['repositoryId'],
+    role: row.role,
+    status: row.status,
+    createdAt: row.created_at,
+    ...(row.finished_at === null ? {} : { finishedAt: row.finished_at }),
+    ...(row.review_branch_context_json === null
+      ? {}
+      : { reviewBranchContext: JSON.parse(row.review_branch_context_json) }),
+    ...(row.profile_selection_json === null
+      ? {}
+      : { profileSelection: JSON.parse(row.profile_selection_json) }),
+  };
+}
 const LINEAGE = `
              AND (profile_selection_json IS NULL
                   OR json_extract(profile_selection_json, '$.investigationId') IS NULL)`;
@@ -602,6 +635,20 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     return row?.id as AgentRun['id'] | undefined;
   }
 
+  startedIn(workspaceId: WorkspaceId, worktreeIds: readonly WorktreeId[]): boolean {
+    if (!worktreeIds.length) return false;
+    return (
+      this.database
+        .prepare(
+          `SELECT 1 FROM agent_runs
+           WHERE workspace_id = ? AND worktree_id IN (${worktreeIds.map(() => '?').join(', ')})
+             AND started_at IS NOT NULL${LINEAGE}
+           LIMIT 1`,
+        )
+        .get(workspaceId, ...worktreeIds) !== undefined
+    );
+  }
+
   listLive(): readonly AgentRun[] {
     return (
       this.database
@@ -618,39 +665,32 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     return (
       this.database
         .prepare(
-          `SELECT id, workspace_id, worktree_id, repository_id, role, status, created_at,
-                  finished_at, review_branch_context_json
+          `SELECT ${HEADER_COLUMNS}
            FROM agent_runs
            WHERE workspace_id = ?
            ORDER BY CASE WHEN status IN ('starting', 'running', 'waiting') THEN 0 ELSE 1 END,
                     created_at DESC, rowid DESC
            LIMIT ?`,
         )
-        .all(workspaceId, limit) as Pick<
-        AgentRunRow,
-        | 'id'
-        | 'workspace_id'
-        | 'worktree_id'
-        | 'repository_id'
-        | 'role'
-        | 'status'
-        | 'created_at'
-        | 'finished_at'
-        | 'review_branch_context_json'
-      >[]
-    ).map((row) => ({
-      id: row.id as AgentRun['id'],
-      workspaceId: row.workspace_id as AgentRun['workspaceId'],
-      worktreeId: row.worktree_id as AgentRun['worktreeId'],
-      repositoryId: row.repository_id as AgentRun['repositoryId'],
-      role: row.role,
-      status: row.status,
-      createdAt: row.created_at,
-      ...(row.finished_at === null ? {} : { finishedAt: row.finished_at }),
-      ...(row.review_branch_context_json === null
-        ? {}
-        : { reviewBranchContext: JSON.parse(row.review_branch_context_json) }),
-    }));
+        .all(workspaceId, limit) as AgentRunHeaderRow[]
+    ).map(mapAgentRunHeader);
+  }
+
+  headersFor(
+    workspaceId: WorkspaceId,
+    runIds: readonly AgentRun['id'][],
+  ): readonly AgentRunHeader[] {
+    const ids = [...new Set(runIds)];
+    if (!ids.length) return [];
+    return (
+      this.database
+        .prepare(
+          `SELECT ${HEADER_COLUMNS}
+           FROM agent_runs
+           WHERE workspace_id = ? AND id IN (${ids.map(() => '?').join(', ')})`,
+        )
+        .all(workspaceId, ...ids) as AgentRunHeaderRow[]
+    ).map(mapAgentRunHeader);
   }
 
   listRecent(workspaceId: WorkspaceId, limit: number): readonly AgentRun[] {

@@ -509,6 +509,72 @@ describe('worktree lineage reads (R-C16)', () => {
     expect(runs.latestIdForWorktree(f.workspaceId, f.trees[1])).toBe(recovery);
     expect(ids(runs.listForWorktree(f.workspaceId, f.trees[1]))).toEqual([recovery, f.liveRun]);
   });
+
+  it('says in one read whether a lineage run started in any of some worktrees (R-D7)', async () => {
+    const f = await fixture();
+    const runs = f.context.storage.execution.runs;
+    const investigationId = randomUUID();
+    const started = (id: string, tree: 0 | 1, investigation: boolean) => {
+      const runId = asAgentRunId(id);
+      runs.insert({
+        id: runId,
+        workspaceId: f.workspaceId,
+        worktreeId: f.trees[tree],
+        repositoryId: f.repositoryId,
+        projectId: f.projectId,
+        workItemId: f.items[tree],
+        backend: 'claude-code',
+        role: 'design',
+        permissionMode: 'auto',
+        ...(investigation
+          ? { profileSelection: { purpose: 'investigation' as const, investigationId } }
+          : {}),
+        brief: 'Started',
+        createdAt: '2026-09-20T11:00:00.000Z',
+        createdByUserId: f.user.id,
+      });
+      runs.transition({
+        workspaceId: f.workspaceId,
+        runId,
+        expectedStatuses: ['starting'],
+        toStatus: 'running',
+        startedAt: '2026-09-20T11:00:01.000Z',
+        occurredAt: '2026-09-20T11:00:01.000Z',
+      });
+    };
+    const perTree = (tree: 0 | 1) =>
+      runs.listForWorktree(f.workspaceId, f.trees[tree]).some((r) => r.startedAt);
+    // The fixture's runs never reported a start.
+    expect(runs.startedIn(f.workspaceId, [...f.trees])).toBe(false);
+    expect(runs.startedIn(f.workspaceId, [])).toBe(false);
+    // A stop's investigation that started is not the worktree's lineage, as its run list says.
+    started('run-investigation-started', 1, true);
+    expect(runs.startedIn(f.workspaceId, [f.trees[1]])).toBe(perTree(1));
+    expect(perTree(1)).toBe(false);
+    // A lineage run that started is, in whichever of the worktrees it is.
+    started('run-design-started', 1, false);
+    expect(runs.startedIn(f.workspaceId, [f.trees[0], f.trees[1]])).toBe(true);
+    expect(runs.startedIn(f.workspaceId, [f.trees[0]])).toBe(perTree(0));
+    expect(runs.startedIn(f.workspaceId, [f.trees[1]])).toBe(perTree(1));
+    // The run headers carry what tells an investigation apart (R-D7's decision brief scan).
+    expect(
+      runs.listRecentHeaders(f.workspaceId, 10).find((r) => r.id === 'run-investigation-started')
+        ?.profileSelection,
+    ).toEqual({ purpose: 'investigation', investigationId });
+    // Chosen runs' headers come in one read, as the recent list gives them; unknown ids are left out.
+    const recent = runs.listRecentHeaders(f.workspaceId, 10);
+    const chosen = runs.headersFor(f.workspaceId, [
+      f.finishedRun,
+      asAgentRunId('run-investigation-started'),
+      f.finishedRun,
+      asAgentRunId('no-such-run'),
+    ]);
+    expect(chosen.map((r) => r.id).toSorted()).toEqual(
+      [f.finishedRun, 'run-investigation-started'].toSorted(),
+    );
+    for (const header of chosen) expect(header).toEqual(recent.find((r) => r.id === header.id));
+    expect(runs.headersFor(f.workspaceId, [])).toEqual([]);
+  });
 });
 
 describe('run list reads (PERF-12)', () => {

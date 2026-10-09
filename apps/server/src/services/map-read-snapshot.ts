@@ -52,7 +52,7 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
         'listForWorkspace',
         'activeForWorktree',
       ]),
-      runs: memo(source.execution.runs, ['find', 'listForWorktree']),
+      runs: memo(source.execution.runs, ['find', 'listForWorktree', 'startedIn']),
       runEvents: memo(source.execution.runEvents, ['latestOfKind']),
       branchSettings: memo(source.execution.branchSettings, ['find', 'policy']),
       sourceRepositories: memo(source.execution.sourceRepositories, ['find']),

@@ -12,8 +12,12 @@ import {
   waitFor,
   waitUntil,
 } from './execution-test-support.js';
-import { architectureDecisionInbox } from '../src/services/architecture-decision-inbox.js';
+import {
+  architectureDecisionInbox,
+  decisionBriefs,
+} from '../src/services/architecture-decision-inbox.js';
 import { RepositoryMutationBusyError } from '../src/services/branch-service.js';
+import { milestoneSatisfied } from '../src/services/cross-project-service.js';
 
 /**
  * R-C3b: shared architecture decisions are prepared ahead of the slices that need them, while
@@ -21,6 +25,20 @@ import { RepositoryMutationBusyError } from '../src/services/branch-service.js';
  */
 
 afterEach(cleanupExecutionFixtures);
+
+/** How often the whole shared-decision inbox is built (R-D7: a decision hold no longer does). */
+const inboxBuilds = vi.hoisted(() => ({ count: 0 }));
+vi.mock('../src/services/architecture-decision-inbox.js', async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import('../src/services/architecture-decision-inbox.js')>();
+  return {
+    ...original,
+    architectureDecisionInbox: (...args: Parameters<typeof original.architectureDecisionInbox>) => {
+      inboxBuilds.count += 1;
+      return original.architectureDecisionInbox(...args);
+    },
+  };
+});
 
 const DECISIONS = ['LOCAL-ADR-01', 'LOCAL-ADR-02'] as const;
 
@@ -923,6 +941,66 @@ it('keeps holding when the rejected proposal from this brief was limited to anot
   await f.state.context.services.roadmapService.tick();
   await f.state.context.services.roadmapService.tick();
   expect(startedSlices(fixture)).toEqual([]);
+});
+
+it('the narrow brief lookup reads each brief, its blockers and records as the inbox does (R-D7)', async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { ws, tx } = fixture;
+  const p = await prepared1(fixture);
+  await proposeAndAccept(fixture, 'LOCAL-ADR-01', 'rejected');
+  const definition = tx.imports.definition(ws, p.definitionId)!;
+  const cards = architectureDecisionInbox(tx, definition).decisions;
+  const briefs = decisionBriefs(tx, definition, new Set(DECISIONS));
+  // Only LOCAL-ADR-01 has a brief; LOCAL-ADR-02 was never prepared.
+  expect([...briefs.keys()]).toEqual(['LOCAL-ADR-01']);
+  const card = cards.find((c) => c.checkpointId === 'LOCAL-ADR-01')!;
+  expect(card.records).toHaveLength(1);
+  expect(briefs.get('LOCAL-ADR-01')).toEqual({
+    checkpointId: 'LOCAL-ADR-01',
+    recommendation: card.recommendation,
+    blockers: card.blockers,
+    records: card.records.map(({ id, proposal, decision }) => ({ id, proposal, decision })),
+  });
+  // Asking for less reads less, and the same for what it asks.
+  expect(decisionBriefs(tx, definition, new Set(['LOCAL-ADR-02'])).size).toBe(0);
+  expect(decisionBriefs(tx, definition, new Set(['LOCAL-ADR-01'])).get('LOCAL-ADR-01')).toEqual(
+    briefs.get('LOCAL-ADR-01'),
+  );
+});
+
+it('a roadmap page read answers its decision holds without building the decision inbox (R-D7)', async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { f, ws, saved } = fixture;
+  await prepared1(fixture);
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  await f.state.context.services.roadmapService.tick();
+  expect(startedSlices(fixture)).toEqual([]);
+  inboxBuilds.count = 0;
+  const response = await f.state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${ws}/roadmaps/${saved.id}/view`,
+    headers: { cookie: f.state.cookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  // The held slice still shows the hold, read from the brief alone.
+  expect(response.body).toContain('LOCAL-ADR-01 has a prepared brief awaiting your approval');
+  expect(inboxBuilds.count).toBe(0);
+});
+
+it('asks once whether a slice started, not once per worktree (R-D7)', async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { f, ws, tx } = fixture;
+  await startsFirstSlice(fixture);
+  const [first, second] = f.scopes;
+  const definition = tx.imports.definition(ws, first!.definitionId)!;
+  const started = (sourceId: string) =>
+    milestoneSatisfied(tx, ws, definition, 1, { kind: 'slice', id: sourceId, state: 'started' });
+  await waitFor(() => started(first!.sourceId), 'the first slice reports a started run');
+  const perTree = vi.spyOn(tx.execution.runs, 'listForWorktree');
+  expect(started(first!.sourceId)).toBe(true);
+  expect(started(second!.sourceId)).toBe(false);
+  expect(perTree).not.toHaveBeenCalled();
 });
 
 it('a decision approved for some slices says which it is settled for and which still need it (LIVE-22)', async () => {

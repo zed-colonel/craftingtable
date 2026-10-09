@@ -38,6 +38,7 @@ export type AgentRunHeader = Pick<
   | 'createdAt'
   | 'finishedAt'
   | 'reviewBranchContext'
+  | 'profileSelection'
 >;
 export interface CreateSourceRepositoryInput {
   readonly id: SourceRepositoryId;
@@ -199,12 +200,22 @@ export interface AgentRunRepository {
    * it (R-A6).
    */
   latestIdForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): AgentRun['id'] | undefined;
+  /**
+   * Whether any run in these worktrees has started, as `listForWorktree` filters them, in one
+   * read instead of one per worktree (R-D7).
+   */
+  startedIn(workspaceId: WorkspaceId, worktreeIds: readonly WorktreeId[]): boolean;
   /** Runs in a non-terminal status across every workspace; used at startup. */
   listLive(): readonly AgentRun[];
   /** Live runs first, then the most recent finished ones, for the workspace overview. */
   listRecent(workspaceId: WorkspaceId, limit: number): readonly AgentRun[];
   /** `listRecent` without each run's brief and summary, for views that list runs (R-H4). */
   listRecentHeaders(workspaceId: WorkspaceId, limit: number): readonly AgentRunHeader[];
+  /** These runs' headers, in one read and in no order; an unknown id is left out (R-D7). */
+  headersFor(
+    workspaceId: WorkspaceId,
+    runIds: readonly AgentRun['id'][],
+  ): readonly AgentRunHeader[];
   countLive(workspaceId: WorkspaceId): number;
   /** When each run that overlaps [from, to) was active; `endedAt` is absent while live (R-C1). */
   activityBetween(

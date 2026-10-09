@@ -62,6 +62,8 @@ function fixture() {
       runs: {
         find: () => ({ id: 'design', worktreeId: 'tree', role: 'design' }),
         listRecent: () => [],
+        listRecentHeaders: () => [],
+        headersFor: () => [],
         listLive: () => [],
       },
       runEvents: {

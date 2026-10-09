@@ -128,7 +128,7 @@ export function buildBoard(input: {
     for (const r of requirements[i]!) visit(r);
     order.push(i);
   };
-  nodes.forEach((_, i) => visit(i));
+  for (let i = 0; i < nodes.length; i++) visit(i);
 
   // Root blockers: walking down from the requirements, each unmet node's unmet requirements,
   // replaced by their own roots when they have unmet requirements of their own.

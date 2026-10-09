@@ -3915,8 +3915,10 @@ export class RoadmapService {
     // all read this one (R-E3b).
     let map: CrossProjectView | undefined;
     const selection = roadmap.definition.crossProject;
-    const mapState = () =>
-      selection ? (map ??= crossProjectState(tx, roadmap.workspaceId, selection)) : undefined;
+    const mapState = () => {
+      if (selection && !map) map = crossProjectState(tx, roadmap.workspaceId, selection);
+      return map;
+    };
     const needsOf = (progress: RoadmapView['progress']) => {
       const source =
         selection && tx.imports.definition(roadmap.workspaceId, selection.definitionId)?.source;

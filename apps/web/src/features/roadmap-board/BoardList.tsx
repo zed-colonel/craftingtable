@@ -5,6 +5,8 @@ import { type BoardLinks, SelectionContent } from './SelectionPanel.js';
 
 /** Gates listed before "show all". */
 const GATES_SHOWN = 8;
+/** A group longer than this starts closed. */
+const LIST_SHOWN = 10;
 
 /**
  * The board on a phone (R-E3b): the grouped status list, whose rows and gates select in place,
@@ -67,36 +69,56 @@ export function BoardList({
       {groups.map(([title, actors, count]) => {
         const rows = model.status.entries.filter((row) => actors.includes(row.actor));
         if (rows.length === 0) return null;
+        const list = (
+          <ul className="board-rows">
+            {rows.map((row) => {
+              const at = nodeOfEntry(model, row.entryId);
+              const key = at === undefined ? undefined : model.graph.nodes[at]!.key;
+              return (
+                <li key={row.entryId}>
+                  <button
+                    type="button"
+                    className="board-row"
+                    aria-expanded={at !== undefined && at === index}
+                    disabled={key === undefined}
+                    onClick={() => key && toggle(key)}
+                  >
+                    <span>
+                      <code>{row.sourceId}</code>
+                      {row.scope === 'item' ? '' : ` · ${row.scope}`}
+                    </span>
+                    <span className="board-state">{ENTRY_STATE_LABELS[row.state]}</span>
+                    {row.waitsOn && <span className="board-row-wait">{row.waitsOn.reason}</span>}
+                  </button>
+                  {detail(at)}
+                </li>
+              );
+            })}
+          </ul>
+        );
+        // A long wait list opens on request, as the status list's did, or when it holds the
+        // selection.
+        const holds = rows.some((row) => {
+          const at = nodeOfEntry(model, row.entryId);
+          return at !== undefined && at === index;
+        });
         return (
           <section key={title} aria-label={title} className="board-group">
-            <h3>
-              {title} ({count})
-            </h3>
-            <ul className="board-rows">
-              {rows.map((row) => {
-                const at = nodeOfEntry(model, row.entryId);
-                const key = at === undefined ? undefined : model.graph.nodes[at]!.key;
-                return (
-                  <li key={row.entryId}>
-                    <button
-                      type="button"
-                      className="board-row"
-                      aria-expanded={at !== undefined && at === index}
-                      disabled={key === undefined}
-                      onClick={() => key && toggle(key)}
-                    >
-                      <span>
-                        <code>{row.sourceId}</code>
-                        {row.scope === 'item' ? '' : ` · ${row.scope}`}
-                      </span>
-                      <span className="board-state">{ENTRY_STATE_LABELS[row.state]}</span>
-                      {row.waitsOn && <span className="board-row-wait">{row.waitsOn.reason}</span>}
-                    </button>
-                    {detail(at)}
-                  </li>
-                );
-              })}
-            </ul>
+            {rows.length > LIST_SHOWN ? (
+              <details open={holds}>
+                <summary className="board-group-title">
+                  {title} ({count})
+                </summary>
+                {list}
+              </details>
+            ) : (
+              <>
+                <h3 className="board-group-title">
+                  {title} ({count})
+                </h3>
+                {list}
+              </>
+            )}
           </section>
         );
       })}

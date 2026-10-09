@@ -72,3 +72,15 @@ it("opens a gate's slices under the gate", () => {
   // The row groups below show no second copy.
   expect(screen.getAllByRole('region', { name: 'Unblocks' })).toHaveLength(1);
 });
+
+it('starts a group of more than ten rows closed, unless it holds the selection', () => {
+  const many = Array.from({ length: 11 }, (_, i) => ({
+    ...MODEL.status.entries[1]!,
+    entryId: `00000000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`,
+  }));
+  const model = { ...MODEL, status: { ...MODEL.status, entries: many } };
+  render(<BoardList model={model} selected={undefined} onSelect={vi.fn()} links={links} />);
+  const waiting = screen.getByRole('region', { name: 'Waiting' });
+  expect(waiting.querySelector('details')?.open).toBe(false);
+  expect(waiting.querySelector('summary')?.textContent).toBe('Waiting (2)');
+});

@@ -1063,6 +1063,37 @@ it('a held slice’s next actor on its work item is the status list’s, with th
   });
 });
 
+it('a slice’s next actor reads only its own worktrees’ cycles (R-E4 re-check)', async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { f, ws, tx } = fixture;
+  await startsFirstSlice(fixture);
+  const [first, second] = f.scopes;
+  // The first slice's cycle, while it is live.
+  const live = () =>
+    tx.execution.cycles
+      .listForWorkspace(ws)
+      .find(
+        (c) =>
+          c.executionScope?.sourceId === first!.sourceId &&
+          !['stopped', 'completed'].includes(c.status),
+      );
+  await waitFor(() => live() !== undefined, 'the first slice has a live cycle');
+  const cycle = live()!;
+  const response = await f.state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${ws}/work-items/${cycle.workItemId}/view`,
+    headers: { cookie: f.state.cookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const choices: { scope: { sourceId: string }; next?: { cycleId?: string } }[] =
+    response.json().scopes.choices;
+  const own = choices.find((c) => c.scope.sourceId === first!.sourceId)!;
+  const other = choices.find((c) => c.scope.sourceId === second!.sourceId)!;
+  expect(own.next?.cycleId).toBe(cycle.id);
+  // Another slice of the same work item is not moved by that cycle.
+  expect(other.next?.cycleId).toBeUndefined();
+});
+
 it('asks once whether a slice started, not once per worktree (R-D7)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const { f, ws, tx } = fixture;

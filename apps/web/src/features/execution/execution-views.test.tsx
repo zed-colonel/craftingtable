@@ -1885,6 +1885,22 @@ describe('delegation on the work item page (R-E4)', () => {
     expect(screen.getByRole('alert').textContent).toBe('Start refused.');
   });
 
+  it('names a hand-off in the run history only to someone who can make it (R-E4 re-check)', () => {
+    const review = {
+      ...run({ id: 'run-r' as AgentRunSummary['id'], status: 'finished', role: 'review' }),
+      turnCount: 1,
+    };
+    const summary = (overrides: Partial<Parameters<typeof DelegationPanel>[0]>) => {
+      render(<DelegationPanel {...panelProps({ runs: [review], ...overrides })} />);
+      const text = screen.getByRole('region', { name: 'Runs' }).textContent;
+      cleanup();
+      return text;
+    };
+    expect(summary({})).toContain('hand-off offered: Remediate');
+    expect(summary({ canMutate: false })).not.toContain('hand-off');
+    expect(summary({ itemCompleted: true })).not.toContain('hand-off');
+  });
+
   it('says once that there is no worktree yet', () => {
     render(<DelegationPanel {...panelProps({ worktrees: [] })} />);
     expect(screen.queryByRole('heading', { name: 'Worktrees (0)' })).toBeNull();

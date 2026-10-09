@@ -7,11 +7,13 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
+  itNeedsCargo,
   parallelFixture,
   roadmapControl,
   roadmapId,
   saveRoadmapRequest,
   supervisedMapFixture,
+  waitFor,
 } from './execution-test-support.js';
 
 /**
@@ -240,3 +242,42 @@ it("counts the feed's slices from one map evaluation per write, the page read's 
   expect(mapEvaluations.count).toBe(2);
   expect(feed.items.find((i) => i.code === 'restart-resume')?.blocks).toBe(2);
 });
+
+itNeedsCargo(
+  "links a row held on the operator's setup to the setup item that lists it (R-E3b, R-A6 handoff e)",
+  async () => {
+    // No reviewer responsibilities delegated: once slice a merges, its verification waits on the
+    // operator's reviewer assignment alone.
+    const f = await supervisedMapFixture(true);
+    const { defaults } = f.input.configuration;
+    f.service.save(f.auth, f.state.workspaceId, {
+      ...f.input,
+      configuration: { ...f.input.configuration, defaults: { ...defaults, reviewerRoles: [] } },
+    });
+    await adoptSupervisedMap(f);
+    await roadmapControl(f.state, 'start');
+    const roadmaps = f.state.context.services.roadmapService;
+    const storage = f.state.context.storage;
+    const ws = f.state.workspaceId;
+    await roadmaps.tick();
+    await waitFor(
+      () =>
+        storage.execution.worktrees
+          .listForWorkItem(ws, f.state.workItemId)
+          .some((t) => t.executionScope?.sourceId === 'local/AQ-01/a' && !!t.mergedAt),
+      'slice a merged',
+    );
+    await roadmaps.tick();
+    roadmaps.syncAttention(true);
+    const page = roadmapPageSchema.parse(await read(f, `/roadmaps/${roadmapId}/view`));
+    const row = page.status.entries.find((e) => e.scope === 'slice-verification')!;
+    const setup = storage.attention.open(ws).find((i) => i.code === 'verification-setup')!;
+    expect(row).toMatchObject({
+      actor: 'operator',
+      waitsOn: { source: 'progress', blockers: ['reviewer-assignment'] },
+    });
+    expect(setup.members).toEqual([row.entryId]);
+    expect(row.waitsOn?.attentionItemId).toBe(setup.id);
+  },
+  120_000,
+);

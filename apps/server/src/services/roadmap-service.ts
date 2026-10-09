@@ -137,6 +137,7 @@ import {
   buildBoard,
   type ItemSubject,
   itemNodeKeys,
+  itemSubjectOf,
   mapGraph,
   type NodeEvaluation,
   sequenceGraph,
@@ -1311,24 +1312,16 @@ export class RoadmapService {
     item: AttentionItem,
     checkpointId: string | undefined,
   ): ItemSubject | undefined {
-    const { refs } = item;
-    const cycle = refs.cycleId
-      ? tx.execution.cycles.find(roadmap.workspaceId, refs.cycleId)
+    const cycle = item.refs.cycleId
+      ? tx.execution.cycles.find(roadmap.workspaceId, item.refs.cycleId)
       : undefined;
-    const owner = cycle?.owner?.roadmapId === roadmap.id ? cycle.owner : undefined;
-    if (refs.roadmapId !== roadmap.id && !owner)
-      // A work item's own item, when this map binds it and nothing else owns the stop.
-      return !refs.roadmapId &&
-        !cycle &&
-        refs.workItemId &&
-        graph.nodes.some((n) => n.workItemId === refs.workItemId)
-        ? { workItemId: refs.workItemId }
-        : undefined;
-    if (checkpointId) return { checkpointId };
-    if (refs.entryId) return { entryIds: [refs.entryId] };
-    if (owner) return { entryIds: [owner.entryId] };
-    if (item.members?.length) return { entryIds: item.members };
-    return { roadmap: true };
+    return itemSubjectOf({
+      item,
+      roadmapId: roadmap.id,
+      checkpointId,
+      cycle: cycle && { ...(cycle.owner ? { owner: cycle.owner } : {}) },
+      bindsWorkItem: (id) => graph.nodes.some((n) => n.workItemId === id),
+    });
   }
 
   /** A roadmap's dependency structure at one revision (R-E3b); revisions never change. */

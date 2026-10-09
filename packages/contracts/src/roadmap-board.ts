@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { workItemIdSchema } from './ids.js';
 
+/** The longest text the map format allows (`concurrency-schema.ts`), so any valid map is served. */
+const MAP_TEXT = 16000;
+
 /** A position in a roadmap graph's `nodes`: the board and graph refer to nodes by index. */
 const nodeIndex = z.number().int().nonnegative();
 
@@ -19,14 +22,16 @@ export const roadmapGraphSchema = z
     revision: z.number().int().positive(),
     model: z.enum(['map', 'sequence']),
     /** The board's lanes: a map's repositories, or a sequence's projects. */
-    lanes: z.array(z.strictObject({ key: z.string().max(200), label: z.string().max(400) })),
+    lanes: z.array(
+      z.strictObject({ key: z.string().max(MAP_TEXT), label: z.string().max(MAP_TEXT) }),
+    ),
     nodes: z.array(
       z.strictObject({
-        key: z.string().max(600),
+        key: z.string().max(MAP_TEXT + 100),
         kind: z.enum(['work_item', 'slice', 'checkpoint']),
-        sourceId: z.string().max(400),
+        sourceId: z.string().max(MAP_TEXT),
         state: z.enum(['accepted', 'started', 'merged', 'verified', 'passed', 'completed']),
-        title: z.string().max(2000),
+        title: z.string().max(MAP_TEXT),
         /** The node's lane; checkpoints have none. */
         lane: nodeIndex.optional(),
         /** A slice's work item. */
@@ -38,7 +43,7 @@ export const roadmapGraphSchema = z
         /** A work item's id; a slice's is its parent's. */
         workItemId: workItemIdSchema.optional(),
         /** A checkpoint's kind, as the map names it (`architecture_decision`, `contract`, …). */
-        checkpointKind: z.string().max(100).optional(),
+        checkpointKind: z.string().max(MAP_TEXT).optional(),
       }),
     ),
   })

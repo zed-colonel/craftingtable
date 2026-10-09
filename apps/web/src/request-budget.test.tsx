@@ -623,6 +623,8 @@ it('reads nothing when the board selects (R-E3b)', async () => {
     expect.arrayContaining(['roadmap-view', 'roadmap-definition', 'roadmap-graph']),
   );
   const before = requests.length;
+  // Selecting replaces the history entry: Back leaves the board, not the last selection.
+  const entries = window.history.length;
   act(() => card.click());
   expect(window.location.search).toBe('?select=work_item%3Awi%2FWI-01%3Aaccepted');
   act(() => screen.getByRole('button', { name: 'wi/WI-01/impl merged: not met' }).click());
@@ -634,6 +636,7 @@ it('reads nothing when the board selects (R-E3b)', async () => {
       .click(),
   );
   expect(window.location.search).toBe('?select=slice%3Awi%2FWI-01%2Fimpl%3Astarted');
+  expect(window.history.length).toBe(entries);
   // The graph view selects the same way.
   act(() => screen.getByRole('link', { name: 'Graph' }).click());
   const graph = await screen.findByRole('region', { name: 'Neighbourhood graph' });

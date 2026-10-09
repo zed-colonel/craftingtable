@@ -154,7 +154,10 @@ function moveBetweenCards(event: KeyboardEvent<HTMLButtonElement>) {
       : 0;
   if (step === 0) return;
   const board = event.currentTarget.closest('[data-board]');
-  const cards = [...(board?.querySelectorAll<HTMLButtonElement>('[data-board-card]') ?? [])];
+  // Cards in a closed "done" disclosure cannot take focus (R-E3b review L2).
+  const cards = [...(board?.querySelectorAll<HTMLButtonElement>('[data-board-card]') ?? [])].filter(
+    (card) => !card.closest('details:not([open])'),
+  );
   const next = cards[cards.indexOf(event.currentTarget) + step];
   if (!next) return;
   event.preventDefault();

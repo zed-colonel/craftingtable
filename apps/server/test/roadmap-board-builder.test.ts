@@ -1,10 +1,15 @@
-import { roadmapBoardSchema, roadmapGraphSchema } from '@craftingtable/contracts';
+import {
+  type RoadmapGraph,
+  roadmapBoardSchema,
+  roadmapGraphSchema,
+} from '@craftingtable/contracts';
 import { asWorkItemId, type RoadmapEntry, type RoadmapStatusList } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { slicesHeldBy, slicesWaitingOn } from '../src/services/decision-demand.js';
 import {
   buildBoard,
   itemNodeKeys,
+  itemSubjectOf,
   mapGraph,
   sequenceGraph,
   sequenceKey,
@@ -337,4 +342,187 @@ it('names the nodes an inbox item is about and counts the slices it holds (R-E3b
       ['slice:local/AQ-01/b:verified'],
     ),
   ).toBe(0);
+});
+
+it('counts only unfinished, selected slices, ranks gates, and attributes runs and cards by the daemon (R-E3b review M3)', () => {
+  const node = (
+    sourceId: string,
+    kind: 'checkpoint' | 'work_item' | 'slice',
+    extra: Partial<RoadmapGraph['nodes'][number]> = {},
+  ) => {
+    const state =
+      extra.state ?? (kind === 'checkpoint' ? 'passed' : kind === 'slice' ? 'started' : 'accepted');
+    return {
+      key: `${kind}:${sourceId}:${state}`,
+      kind,
+      sourceId,
+      state,
+      title: sourceId,
+      requires: [] as number[],
+      included: true,
+      ...extra,
+    };
+  };
+  const g: RoadmapGraph = {
+    roadmapId,
+    revision: 1,
+    model: 'map',
+    lanes: [{ key: 'l', label: 'L' }],
+    nodes: [
+      node('G1', 'checkpoint'), // 0
+      node('G2', 'checkpoint'), // 1
+      node('GX', 'checkpoint', { included: false }), // 2: not selected
+      node('W1', 'work_item', { lane: 0 }), // 3
+      node('s1', 'slice', { lane: 0, parent: 3, requires: [0] }), // 4
+      node('s1', 'slice', { lane: 0, parent: 3, requires: [4], state: 'merged' }), // 5
+      node('s2', 'slice', { lane: 0, parent: 3, requires: [1, 0] }), // 6: G1 covered by a decision
+      node('s3', 'slice', { lane: 0, parent: 3, requires: [1], included: false }), // 7: not selected
+      node('s4', 'slice', { lane: 0, parent: 3, requires: [1] }), // 8: finished
+      node('W2', 'work_item', { lane: 0 }), // 9
+      node('s5', 'slice', { lane: 0, parent: 9, requires: [2] }), // 10
+      node('s6', 'slice', { lane: 0, parent: 9, requires: [0] }), // 11
+    ],
+  };
+  const met = new Set([8]);
+  const state = (key: string) => {
+    const i = g.nodes.findIndex((n) => n.key === key);
+    // As evaluated: s2's requirement on G1 is covered, so it needs G2 alone.
+    const requires = i === 6 ? [1] : g.nodes[i]!.requires;
+    return { satisfied: met.has(i), requirements: requires.map((r) => g.nodes[r]!.key) };
+  };
+  const scope = (sourceId: string) =>
+    ({ kind: 'slice', sourceId }) as unknown as RoadmapEntry['executionScope'];
+  const entries = [
+    { id: entryId(1), workItem: 'w2', executionScope: scope('s6') },
+    { id: entryId(2), workItem: 'w1', executionScope: scope('s1') },
+    { id: entryId(3), workItem: 'w2', executionScope: scope('s5') },
+  ].map((e) => ({ ...e, workItemId: asWorkItemId(e.workItem) }));
+  const row = (id: string, actor: 'controller' | 'agent', runId: string) => ({
+    entryId: id,
+    sourceId: id,
+    scope: 'slice' as const,
+    title: id,
+    workItemId: workItem,
+    state: 'running' as const,
+    actor,
+    waitsOn: { source: 'progress' as const, reason: 'r', runId },
+  });
+  const board = buildBoard({
+    graph: g,
+    state,
+    status: {
+      roadmapId,
+      name: 'x',
+      status: 'running',
+      reason: '',
+      completed: 0,
+      // s1's run has stopped (the controller acts); s6's agent is at work.
+      entries: [row(entryId(2), 'controller', 'old-run'), row(entryId(1), 'agent', 'live-run')],
+    },
+    entries,
+    checkpointItems: new Map(),
+  });
+  // Requirements as evaluated: s2 waits on G2 only.
+  expect(board.nodes[6]).toMatchObject({ unmet: [1], roots: [1] });
+  // G2 unblocks s2 alone: s3 is not selected and s4 is finished. G1 unblocks s1 and s6.
+  expect(board.nodes[1]?.unblocks).toEqual([6]);
+  expect(board.nodes[0]?.unblocks).toEqual([4, 11]);
+  // GX holds s5 but is not selected: no gate. The rest rank most slices first.
+  expect(board.gates.map((x) => [g.nodes[x.node]!.sourceId, x.slices])).toEqual([
+    ['G1', 2],
+    ['G2', 1],
+  ]);
+  // A run is named only while an agent is at work on the node.
+  expect(board.nodes[4]?.runId).toBeUndefined();
+  expect(board.nodes[11]?.runId).toBe('live-run');
+  // W1 has a met slice and unmet ones: open. Cards stand by their first entry: W2's comes first.
+  expect(board.lanes[0]).toMatchObject({ cards: [{ node: 9 }, { node: 3 }], done: [] });
+});
+
+it("finds an item's subject from its typed references alone (R-E3b review M4)", () => {
+  const subject = (
+    refs: { roadmapId?: string; entryId?: string; cycleId?: string; workItemId?: string },
+    extra: {
+      members?: string[];
+      checkpointId?: string;
+      owner?: { roadmapId: string; entryId: string };
+      cycle?: boolean;
+    } = {},
+  ) =>
+    itemSubjectOf({
+      item: { refs, ...(extra.members ? { members: extra.members } : {}) },
+      roadmapId: 'r',
+      checkpointId: extra.checkpointId,
+      cycle:
+        extra.cycle || extra.owner ? { ...(extra.owner ? { owner: extra.owner } : {}) } : undefined,
+      bindsWorkItem: (id) => id === 'bound',
+    });
+  expect(subject({ roadmapId: 'r' }, { checkpointId: 'ADR-1' })).toEqual({ checkpointId: 'ADR-1' });
+  expect(subject({ roadmapId: 'r', entryId: 'e1' })).toEqual({ entryIds: ['e1'] });
+  // A cycle's stop is its owning entry's, though the item names no roadmap.
+  expect(
+    subject({ cycleId: 'c', workItemId: 'bound' }, { owner: { roadmapId: 'r', entryId: 'e2' } }),
+  ).toEqual({ entryIds: ['e2'] });
+  expect(subject({ roadmapId: 'r' }, { members: ['e3', 'e4'] })).toEqual({
+    entryIds: ['e3', 'e4'],
+  });
+  expect(subject({ roadmapId: 'r' })).toEqual({ roadmap: true });
+  expect(subject({ workItemId: 'bound' })).toEqual({ workItemId: 'bound' });
+  // Not on this roadmap: another roadmap's, another roadmap's cycle, a work item the map does not
+  // bind, or a work item whose cycle nobody here owns.
+  expect(subject({ roadmapId: 'other', entryId: 'e1' })).toBeUndefined();
+  expect(
+    subject({ cycleId: 'c' }, { owner: { roadmapId: 'other', entryId: 'e2' } }),
+  ).toBeUndefined();
+  expect(subject({ workItemId: 'unbound' })).toBeUndefined();
+  expect(subject({ cycleId: 'c', workItemId: 'bound' }, { cycle: true })).toBeUndefined();
+});
+
+it('holds only selected slices, for an item and for the whole roadmap (R-E3b review M4)', () => {
+  // Target-only: slice b's milestones are not selected.
+  const s = source();
+  const g = mapGraph({
+    roadmapId,
+    revision: 1,
+    source: s,
+    bindings,
+    targetId: s.planning_targets[0]!.id,
+    selection: 'target-only',
+  });
+  const unselected = g.nodes.filter((n) => !n.included && n.kind === 'slice');
+  expect(unselected.length).toBeGreaterThan(0);
+  const keys = itemNodeKeys(g, [], { roadmap: true });
+  expect(keys.every((k) => g.nodes.find((n) => n.key === k)!.included)).toBe(true);
+  const nodes = g.nodes.map((n) => ({
+    key: n.key,
+    kind: n.kind,
+    sourceId: n.sourceId,
+    included: n.included,
+    satisfied: false,
+    requirements: n.requires.map((r) => g.nodes[r]!.key),
+  }));
+  const selectedSlices = new Set(
+    g.nodes.filter((n) => n.kind === 'slice' && n.included).map((n) => n.sourceId),
+  );
+  expect(slicesHeldBy(nodes, keys)).toBe(selectedSlices.size);
+  expect(
+    slicesHeldBy(
+      nodes,
+      unselected.map((n) => n.key),
+    ),
+  ).toBe(0);
+});
+
+it('serves any title and id the map format allows (R-E3b review L1)', () => {
+  const s = source();
+  const long = 'T'.repeat(16000);
+  const g = mapGraph({
+    roadmapId,
+    revision: 1,
+    source: { ...s, work_items: s.work_items.map((w) => ({ ...w, title: long })) },
+    bindings,
+    targetId: s.planning_targets[0]!.id,
+    selection: 'prioritize-full',
+  });
+  expect(roadmapGraphSchema.parse(g).nodes.some((n) => n.title === long)).toBe(true);
 });

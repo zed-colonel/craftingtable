@@ -130,7 +130,10 @@ it('moves between cards with the arrow keys and into the panel on a selection', 
   expect(document.activeElement).toBe(
     screen.getByRole('heading', { name: /wi\/WI-01 World interface core/ }),
   );
-  // The done card in the next lane is a card too.
+  // A done card in a closed disclosure is skipped; once open, it is a card like any other.
+  title.focus();
+  fireEvent.keyDown(title, { key: 'ArrowDown' });
+  expect(document.activeElement).toBe(title);
   fireEvent.click(screen.getByText('✓ 1 done'));
   title.focus();
   fireEvent.keyDown(title, { key: 'ArrowDown' });

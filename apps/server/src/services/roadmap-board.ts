@@ -165,6 +165,44 @@ export type ItemSubject =
   | { readonly workItemId: string }
   | { readonly roadmap: true };
 
+/**
+ * What an inbox item is about on one map roadmap, from its typed references (R-E3b decision 8);
+ * none when it is not on it. A cycle's stop is its owning entry's; an item for the roadmap is its
+ * checkpoint's, its entry's, its members', or else the whole roadmap's; an item about a work item
+ * alone is that work item's, when the map binds it.
+ */
+export function itemSubjectOf(input: {
+  readonly item: {
+    readonly refs: {
+      readonly roadmapId?: string;
+      readonly entryId?: string;
+      readonly cycleId?: string;
+      readonly workItemId?: string;
+    };
+    readonly members?: readonly string[];
+  };
+  readonly roadmapId: string;
+  readonly checkpointId: string | undefined;
+  /** The item's cycle, when it names one the daemon has, and the entry that owns it. */
+  readonly cycle:
+    | { readonly owner?: { readonly roadmapId: string; readonly entryId: string } }
+    | undefined;
+  readonly bindsWorkItem: (workItemId: string) => boolean;
+}): ItemSubject | undefined {
+  const { item, cycle } = input;
+  const { refs } = item;
+  const owner = cycle?.owner?.roadmapId === input.roadmapId ? cycle.owner : undefined;
+  if (refs.roadmapId !== input.roadmapId && !owner)
+    return !refs.roadmapId && !cycle && refs.workItemId && input.bindsWorkItem(refs.workItemId)
+      ? { workItemId: refs.workItemId }
+      : undefined;
+  if (input.checkpointId) return { checkpointId: input.checkpointId };
+  if (refs.entryId) return { entryIds: [refs.entryId] };
+  if (owner) return { entryIds: [owner.entryId] };
+  if (item.members?.length) return { entryIds: item.members };
+  return { roadmap: true };
+}
+
 /** The graph nodes an item is about, whose slices and dependents it holds. */
 export function itemNodeKeys(
   graph: RoadmapGraph,

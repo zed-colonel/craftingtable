@@ -1191,8 +1191,8 @@ it('reports a planted import of a kind’s commands from outside its directory',
 });
 
 /**
- * The modules a directory's modules reach that send a request: they call `request` or `fetch`,
- * or pass one on. The walk follows every relative import, re-export and `import()`, so a module
+ * The modules a directory's modules reach that can send a request: they call `request` or
+ * `fetch`, pass one on, or import the API client at all. The walk follows every relative import, re-export and `import()`, so a module
  * the directory reaches only through others still counts.
  */
 export function sendersReachedFrom(all: ReadonlyMap<string, Module>, directory: string): string[] {
@@ -1212,8 +1212,19 @@ export function sendersReachedFrom(all: ReadonlyMap<string, Module>, directory: 
       if (next) queue.push(next);
     }
   }
+  // A module that imports the API client at all could send through it, however it names it.
+  const client = (from: string) => /(^|\/)api-client$/.test(from);
   return [...seen]
-    .filter((path) => all.get(path)!.calls.length > 0 || all.get(path)!.escapes.length > 0)
+    .filter((path) => {
+      const module = all.get(path)!;
+      return (
+        module.calls.length > 0 ||
+        module.escapes.length > 0 ||
+        module.imports.some((i) => client(i.from)) ||
+        module.reExports.some((r) => client(r.from)) ||
+        module.dynamicImports.some((i) => client(i.from))
+      );
+    })
     .sort();
 }
 
@@ -1244,4 +1255,17 @@ it('reports a planted board module that reaches a request through another module
     ),
   );
   expect(sendersReachedFrom(planted, 'features/roadmap-board/')).toEqual(['lib/planted-api.ts']);
+  // Reached through `import()`, and a module that only hands `request` on (R-E3b review X01, X03).
+  const lazy = analyseAll(
+    new Map(
+      Object.entries({
+        'features/roadmap-board/Lazy.tsx':
+          "export function Lazy() { return import('../../lib/planted-handoff.js'); }",
+        'lib/planted-handoff.ts':
+          "import { request } from './api-client.js';\nexport const send = request;",
+        'lib/api-client.ts': 'export async function request() {}',
+      }).map(([path, source]) => [join(src, path), source]),
+    ),
+  );
+  expect(sendersReachedFrom(lazy, 'features/roadmap-board/')).toEqual(['lib/planted-handoff.ts']);
 });

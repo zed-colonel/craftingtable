@@ -27,6 +27,7 @@ import type {
   DecisionPreparationGrantRequest,
   ScopeRecoveryPolicyRequest,
   ScopeRepairRequest,
+  CrossProjectView,
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
@@ -1001,13 +1002,15 @@ export class RoadmapService {
   statusOf(
     roadmap: Roadmap,
     snapshot: StorageRepositories = mapReadSnapshot(this.storage),
+    operator = this.withOperatorNeeds(snapshot, roadmap),
     progress: readonly import('@craftingtable/domain').RoadmapEntryProgress[] = this.view(
       roadmap,
       snapshot,
+      operator,
     ).progress,
   ): RoadmapStatusList {
     const ws = roadmap.workspaceId;
-    const needs = this.withOperatorNeeds(snapshot, roadmap).needs(progress);
+    const needs = operator.needs(progress);
     const items = this.storage.attention.open(ws);
     const attention = effectiveRoadmapAttention(roadmap);
     const entries: RoadmapStatusEntry[] = [];
@@ -1153,19 +1156,20 @@ export class RoadmapService {
   /**
    * A roadmap page's region (R-D5, PERF-06/14): the roadmap's view without its definition, the
    * revision to read that by, and its status list, in one transaction over one map snapshot. The
-   * status list reads the view's progress instead of evaluating the map again.
+   * status list reads the view's progress, and both read one evaluation of the map (R-E3b).
    */
   page(context: AuthContext, workspaceId: WorkspaceId, id: string) {
     this.workspaces.requireAuthorized(context, workspaceId);
     return this.storage.readTransaction((tx) => {
       const snapshot = mapReadSnapshot(tx);
       const roadmap = this.find(workspaceId, id);
-      const view = this.view(roadmap, snapshot);
+      const operator = this.withOperatorNeeds(snapshot, roadmap);
+      const view = this.view(roadmap, snapshot, operator);
       const { definition, ...withoutDefinition } = view.roadmap;
       return {
         view: { ...view, roadmap: withoutDefinition },
         definitionRevision: definition.revision,
-        status: this.statusOf(roadmap, snapshot, view.progress),
+        status: this.statusOf(roadmap, snapshot, operator, view.progress),
       };
     });
   }
@@ -3670,7 +3674,11 @@ export class RoadmapService {
       return false;
     }
   }
-  private view(roadmap: Roadmap, snapshot = mapReadSnapshot(this.storage)): RoadmapView {
+  private view(
+    roadmap: Roadmap,
+    snapshot = mapReadSnapshot(this.storage),
+    operator = this.withOperatorNeeds(snapshot, roadmap),
+  ): RoadmapView {
     const capacity = (key: string) => ({
       limit: snapshot.phaseScheduling.capacity(key),
       inUse: snapshot.phaseScheduling.active().filter((r) => r.resourceKey === key).length,
@@ -3681,7 +3689,7 @@ export class RoadmapService {
         development: capacity('local-development'),
         verification: capacity('local-verification'),
       },
-      progress: this.withOperatorNeeds(snapshot, roadmap).progress(
+      progress: operator.progress(
         roadmap.definition.entries
           .map((entry): import('@craftingtable/domain').RoadmapEntryProgress => {
             if (this.complete(roadmap, entry, snapshot))
@@ -3821,13 +3829,18 @@ export class RoadmapService {
    */
   private withOperatorNeeds(tx: StorageRepositories, roadmap: Roadmap) {
     let needs: ReturnType<typeof operatorNeeds> | undefined;
+    // The map's evaluation, once per read: the view, the status list and the attention items
+    // all read this one (R-E3b).
+    let map: CrossProjectView | undefined;
+    const selection = roadmap.definition.crossProject;
+    const mapState = () =>
+      selection ? (map ??= crossProjectState(tx, roadmap.workspaceId, selection)) : undefined;
     const needsOf = (progress: RoadmapView['progress']) => {
-      const selection = roadmap.definition.crossProject;
       const source =
         selection && tx.imports.definition(roadmap.workspaceId, selection.definitionId)?.source;
       if (!selection || !source) return undefined;
       needs ??= operatorNeeds(
-        crossProjectState(tx, roadmap.workspaceId, selection).nodes,
+        mapState()!.nodes,
         new Set(
           source.slices.flatMap((slice) =>
             slice.merge_requires.flatMap((r) => (r.kind === 'checkpoint' ? [r.id] : [])),
@@ -3839,6 +3852,7 @@ export class RoadmapService {
       return needs;
     };
     return {
+      mapState,
       needs: (progress: RoadmapView['progress']) => needsOf(progress),
       progress: (progress: RoadmapView['progress']): RoadmapView['progress'] => {
         const found = needsOf(progress);
@@ -3935,7 +3949,8 @@ export class RoadmapService {
           only.map((b) => b.message),
         );
     }
-    const entryProgress = this.view(roadmap, tx).progress;
+    const operator = this.withOperatorNeeds(tx, roadmap);
+    const entryProgress = this.view(roadmap, tx, operator).progress;
     for (const progress of entryProgress) {
       const entry = roadmap.definition.entries.find((e) => e.id === progress.entryId);
       if (!entry || setup.has(entry.id) || !progress.blockers?.length) continue;
@@ -3959,9 +3974,9 @@ export class RoadmapService {
       // Each checkpoint ready for the operator's acceptance is its own item, named by its kind
       // and counting the unfinished selected slices that wait on it (R-A5, R-C3b).
       const selection = roadmap.definition.crossProject;
-      const nodes = crossProjectState(tx, workspaceId, selection).nodes;
+      const nodes = operator.mapState()!.nodes;
       const source = tx.imports.definition(workspaceId, selection.definitionId)?.source;
-      const needed = this.withOperatorNeeds(tx, roadmap).needs(entryProgress)?.all ?? new Set();
+      const needed = operator.needs(entryProgress)?.all ?? new Set();
       for (const node of nodes) {
         if (
           !node.included ||

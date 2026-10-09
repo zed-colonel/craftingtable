@@ -8,7 +8,7 @@ import { controlRoadmap, loadRoadmaps } from '../../lib/roadmap-api.js';
 import { roadmapPageOf } from './roadmap-api-testing.js';
 import { entryStatusLabel } from './roadmap-entry-status.js';
 import { RoadmapEntryRow } from './RoadmapEntryRow.js';
-import { RoadmapPage } from './RoadmapsPage.js';
+import { RoadmapPage } from './RoadmapBoardPage.js';
 
 // Each entry row names its status once, so the label's calls count the rows rendered.
 vi.mock('./roadmap-entry-status.js', async (original) => {

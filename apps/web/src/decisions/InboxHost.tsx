@@ -14,7 +14,7 @@ import {
   ScopeControls,
   useWorkItem,
 } from '../features/execution/WorkItemControls.js';
-import { RoadmapPage } from '../features/planning/RoadmapsPage.js';
+import { RoadmapPage } from '../features/planning/RoadmapBoardPage.js';
 import { StoragePanel } from '../features/workspace/StoragePanel.js';
 import { AcknowledgeMoves } from './acknowledge/AcknowledgeMoves.js';
 import { queryKeys } from '../lib/event-invalidations.js';

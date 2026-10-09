@@ -21,7 +21,7 @@ const RoadmapsPage = lazy(() =>
   import('../features/planning/RoadmapsPage.js').then((m) => ({ default: m.RoadmapsPage })),
 );
 const RoadmapPage = lazy(() =>
-  import('../features/planning/RoadmapsPage.js').then((m) => ({ default: m.RoadmapPage })),
+  import('../features/planning/RoadmapBoardPage.js').then((m) => ({ default: m.RoadmapPage })),
 );
 const ImportRoute = lazy(() =>
   import('./pages/ImportRoute.js').then((m) => ({ default: m.ImportRoute })),

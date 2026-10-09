@@ -2138,7 +2138,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E3
 
-**Roadmap board: progress and dependencies at a glance** · Phase P2 (a) / P3 (b) · Effort S-M then L · Status: R-E3a done (2026-09-27); R-E3b open
+**Roadmap board: progress and dependencies at a glance** · Phase P2 (a) / P3 (b) · Effort S-M then L · Status: R-E3a done (2026-09-27); R-E3b in progress (2026-10-09)
 
 - **Split 2026-09-27.** [LIVE-08](findings/LIVE-live-run-2026-09-25.md#live-08-the-operator-cannot-see-what-is-supposed-to-run-and-what-blocks-it) showed the operator cannot run the live roadmap without this view. The operator paused delivery work to finish P2, and asked for this visibility first.
 - **R-E3a (P2, S-M): the roadmap status list.**
@@ -2200,6 +2200,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Done when** (on a snapshot no older than `replay/2026-10-01e`, at `/roadmaps/:id`): (a) every open entry is reachable with one selection, and its panel shows the status list's `waitsOn` verbatim and its root blockers as in-page links; (b) the Gates strip lists every unsatisfied, included checkpoint that slices wait on, with N equal to `slicesWaitingOn`, and selecting one lists those slices; (c) selecting makes no request; (d) the page read takes at most 300 ms of server time and the board adds at most 20 KB on the wire; (e) the board's files post no command.
 
 - **Added 2026-10-09 (operator agreed, from R-A6's walkthrough attempt):** with the walkthrough's cross-project roadmap started, its two first slices (WI-01/implementation, EXO-01/domain, held on upstream-pin evidence) showed under "Needs you (2)" on the board's status list while Needs you listed no item for them. The board and the inbox must agree on what needs the operator; R-E3b's board reads the same items, so it resolves the mismatch (an item for those holds, or the status list stops calling them the operator's).
+
+- **R-E3b build (2026-10-09), in the design's commit order.**
+  1. *The roadmap's own page moved (no behaviour change).* `RoadmapPage` (board, setup, history, and the inbox's embedded roadmap) and its region hook moved from `RoadmapsPage.tsx` to `RoadmapBoardPage.tsx`; the roadmap editor, which both pages open, moved to `RoadmapEditor.tsx`, and the status labels to `roadmap-labels.ts`. `RoadmapsPage.tsx` keeps the list and the imported maps (1,462 lines before; 190 after). *Routine call:* the component keeps its name, so the route table, the inbox host and the tests only change their import.
 
 ### R-E4
 

@@ -15,7 +15,8 @@ import {
 import { ConcurrencyImports } from './ConcurrencyImports.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { AmendmentDecision } from '../../decisions/amendment/AmendmentDecision.js';
-import { RoadmapPage, RoadmapsPage } from './RoadmapsPage.js';
+import { RoadmapPage } from './RoadmapBoardPage.js';
+import { RoadmapsPage } from './RoadmapsPage.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { SHOW_PART_EVENT } from '../../lib/reveal-element.js';
 

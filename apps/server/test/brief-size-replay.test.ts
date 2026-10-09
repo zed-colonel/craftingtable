@@ -159,3 +159,21 @@ it("rebuilds a checkpoint review's workflow rules with its checkpoint's whole id
   expect(after).toContain('Required claims: ["Claim one."]. Required cases: ["C-1"].');
   expect(after).toContain('Add checkpoint:{id:"AQ-11.CP-2",passed:boolean');
 });
+
+it('keeps the build environment of a stored brief without step rules (R-G6 review L1)', () => {
+  const storage = {
+    execution: { worktrees: { find: () => undefined } },
+  } as unknown as CraftingTableStorage;
+  const start = stored.indexOf('\n## Step rules');
+  const end = stored.indexOf('\n\nPinned dependency environment:');
+  const after = rebuildBrief(storage, {
+    id: 'r1',
+    workspace_id: 'w1',
+    role: 'review',
+    brief: stored.slice(0, start) + stored.slice(end),
+    worktree_id: 't1',
+    work_item_id: 'i1',
+    parent_run_id: null,
+  });
+  expect(after).toContain('Pinned dependency environment: dependencies/manifest.json');
+});

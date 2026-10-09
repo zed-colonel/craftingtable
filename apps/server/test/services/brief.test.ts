@@ -463,7 +463,7 @@ describe('composeBrief skeleton: the task first (R-G6, AGT-50, AGT-58)', () => {
 
   it('gives paths in the run directory relative to it, once it is named', () => {
     const brief = full({ runDirectory: '/runs/r1' });
-    expect(brief).toContain('Your run directory is `/runs/r1`; paths below');
+    expect(brief).toContain('Your run directory is `/runs/r1`. CraftingTable’s files below');
     expect(brief).toContain('TMPDIR, TMP, and TEMP point to `/runs/r1/scratch`');
     expect(brief).toContain('read-only in `plan/`');
     expect(brief).toContain(
@@ -935,7 +935,7 @@ describe('composeBrief: code review fixes (R-G6)', () => {
         },
       }),
     );
-    expect(brief).toContain('required before merge/acceptance');
+    expect(brief).toContain('required before merge or acceptance');
   });
 
   it("gives a remediation the review's exit gate when it was not met, even with no open finding", () => {
@@ -975,7 +975,7 @@ describe('composeBrief: code review fixes (R-G6)', () => {
       briefInput({ runDirectory: '/runs/r1', temporaryDirectory: '/runs/r1/scratch' }),
     );
     expect(brief).toContain('TMPDIR, TMP, and TEMP point to `/runs/r1/scratch`');
-    expect(brief).toContain('are inside it, never in the worktree');
+    expect(brief).toContain('every other relative path is in the worktree');
   });
 });
 
@@ -1202,5 +1202,78 @@ describe("composeBrief: the parent digest's bounds (R-G6 review M4, L5, L6)", ()
         '/runs',
       ),
     ).toEqual(['/runs/x/v.md', '/runs/x/w.md', '/runs/a/../b/c.md']);
+  });
+});
+
+describe('composeBrief: environment wording and owners (R-G6 review L2, L3, L4, L8)', () => {
+  const pinned = (mode: string, adoptedChecks: boolean) =>
+    composeBrief(
+      briefInput({
+        runDirectory: '/runs/r1',
+        temporaryDirectory: '/runs/r1/scratch',
+        cargo: true,
+        environment: {
+          pinned: {
+            manifestPath: '/runs/r1/dependencies/manifest.json',
+            binDirectory: '/runs/r1/dependencies/bin',
+            verification: { mode, reason: 'Integration scope.' },
+            dependencies: [],
+            adoptedChecks,
+            declaredChecks: '',
+            kata: false,
+          },
+        },
+      }),
+    );
+
+  it('says which build receipt is required, and that no other log replaces it (L2)', () => {
+    expect(pinned('current-upstream-build', false)).toContain(
+      'A successful Cargo build/test with the current exact pins is required before merge or acceptance; other ct-check and ct-act logs never replace it.',
+    );
+    expect(pinned('current-upstream-build', true)).toContain(
+      'is required before merge or acceptance, with the adopted checks below;',
+    );
+  });
+
+  it("keeps LIVE-26's clause that receipts do not depend on CARGO_TARGET_DIR (L3)", () => {
+    expect(pinned('scoped-checks', false)).toContain(
+      'whatever CARGO_TARGET_DIR says; that is expected, and receipts do not depend on it.',
+    );
+  });
+
+  it('names which relative paths are in the run directory, and the launchers on PATH (L8)', () => {
+    const brief = pinned('scoped-checks', false);
+    expect(brief).toContain(
+      'CraftingTable’s files below (under plan/, handoff/, dependencies/ and scratch/) are named relative to it; every other relative path is in the worktree.',
+    );
+    expect(brief).toContain(
+      'Use the controller Cargo launcher dependencies/bin/cargo for Cargo checks; it, ct-check, ct-act and ct-native are on PATH.',
+    );
+  });
+
+  it("names each required slice a parent review's findings can go to (L4, LIVE-27)", () => {
+    const brief = composeBrief(
+      briefInput({
+        role: 'review',
+        executionScope: {
+          identity: {
+            kind: 'parent-acceptance',
+            definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+            bindingRevision: 1,
+            sourceId: 'wi/WI-1',
+          },
+          title: 'Parent',
+          scope: 'The gate.',
+          excludes: [],
+          requirements: ['The gate.'],
+          cases: [],
+          owningSlices: [
+            { id: 'wi/WI-1/domain', scope: 'Domain.', excludes: [] },
+            { id: 'wi/WI-1/api', scope: 'API.', excludes: ['Clients.'] },
+          ],
+        },
+      }),
+    );
+    expect(brief).toContain('- wi/WI-1/domain: Domain.\n- wi/WI-1/api: API. Excludes: Clients.');
   });
 });

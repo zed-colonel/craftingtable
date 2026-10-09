@@ -333,7 +333,7 @@ function whereSection(input: BriefInput): string {
     );
   if (input.runDirectory)
     paragraphs.push(
-      `Your run directory is \`${input.runDirectory}\`; paths below that do not begin with / are inside it, never in the worktree.`,
+      `Your run directory is \`${input.runDirectory}\`. CraftingTable’s files below (under plan/, handoff/, dependencies/ and scratch/) are named relative to it; every other relative path is in the worktree.`,
     );
   if (input.temporaryDirectory)
     paragraphs.push(
@@ -545,10 +545,10 @@ function environmentSection(
           : []),
         `Verification policy: ${pinned.verification.mode}. ${pinned.verification.reason}`,
         upstreamSources(pinned.dependencies),
-        `Use the controller Cargo launcher ${at(bin)}/cargo for Cargo checks (also supplied on PATH); builds and checks run without network, so run cargo fetch first when dependencies must be downloaded. Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses, and the launcher's other Cargo commands use the manifest's (the run’s scratch/target), whatever CARGO_TARGET_DIR says; that is expected, and receipts do not depend on it. Do not edit the manifest or override the build directory (--target-dir or CARGO_TARGET_DIR) for them.`,
+        `Use the controller Cargo launcher ${at(bin)}/cargo for Cargo checks; it, ct-check, ct-act and ct-native are on PATH. Builds and checks run without network, so run cargo fetch first when dependencies must be downloaded. Builds and checks CraftingTable runs for you (the Cargo launcher's builds, ct-check, ct-act, ct-native) use a build directory CraftingTable chooses, and the launcher's other Cargo commands use the manifest's (the run’s scratch/target), whatever CARGO_TARGET_DIR says; that is expected, and receipts do not depend on it. Do not edit the manifest or override the build directory (--target-dir or CARGO_TARGET_DIR) for them.`,
         scoped
           ? `${pinned.adoptedChecks ? 'The adopted checks below are required on the exact clean reviewed commit' : 'A successful ct-check or supplied Cargo check on the exact clean reviewed commit is required'}, with independent evidence for EVERY scope obligation.`
-          : `That build/test receipt is required before merge/acceptance${pinned.adoptedChecks ? ', with the adopted checks below' : ''}; other ct-check and ct-act logs never replace it.`,
+          : `A successful Cargo build/test with the current exact pins is required before merge or acceptance${pinned.adoptedChecks ? ', with the adopted checks below' : ''}; other ct-check and ct-act logs never replace it.`,
         `${pinned.declaredChecks}Local CI: ${pinned.localCiImage ? `configured with image ${pinned.localCiImage}.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'}`,
       ]
         .filter(Boolean)

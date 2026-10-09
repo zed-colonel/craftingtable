@@ -236,7 +236,9 @@ itNeedsCargo(
       join(f.state.context.config.execution.runsRoot, run, 'plan', 'craftingtable-rules.md'),
       'utf8',
     );
-    expect(rules).toContain('Finding IDs start with a letter or digit');
+    expect(rules).toContain('never appending earlier reports');
+    // What the report parser enforces stays in the brief (operator decision 2026-10-08).
+    expect(prompt).toContain('A finding id starts with a letter or digit');
     expect(rules).toContain('Do not override supplied sources');
     expect(rules).not.toMatch(/kata/i);
     expect(prompt).not.toContain('Earlier reports describing rejection');

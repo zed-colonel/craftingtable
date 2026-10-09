@@ -223,6 +223,8 @@ it("gives a run its scope's accepted evidence as an index, each artifact's body 
   await waitFor(() => path !== undefined, "a scoped run's brief");
   const written = readFileSync(path!, 'utf8');
   expect(written).not.toContain('"content"');
+  // The scope definition's identifiers live here, not in the brief (AGT-58; R-G6 review L4).
+  expect(JSON.parse(written).definition).toMatchObject({ definitionId: id, bindingRevision: 1 });
   const full = storage.runtimeEvidence.submission(ws, id, plan)!;
   const indexed = JSON.parse(written).acceptedExternalEvidence.find(
     (s: { id: string }) => s.id === plan,
@@ -259,4 +261,21 @@ it('previews a runtime refresh over accepted plan evidence with a staged decisio
     generation: current.generation + 1,
   });
   expect(impact.evidence.some((e) => e.id === plan)).toBe(true);
+});
+
+it('keeps every evidence body inside its submission directory, whatever the artifact is named (R-G6 review L4)', () => {
+  const { bodies, ledger } = scopeEvidenceIndex({
+    acceptedExternalEvidence: [
+      {
+        id: 'submission-1',
+        artifacts: [{ name: 'a/../../../../x', content: 'body', digest: 'd' }],
+      },
+    ],
+  } as unknown as Parameters<typeof scopeEvidenceIndex>[0]);
+  const file = ledger.acceptedExternalEvidence[0]!.artifacts[0]!.file;
+  expect(file).toMatch(/^scope-evidence\/submission-1\/[^/]+$/);
+  expect(join('/runs/r1/plan', file).startsWith('/runs/r1/plan/scope-evidence/submission-1/')).toBe(
+    true,
+  );
+  expect(bodies).toEqual([{ file, content: 'body' }]);
 });

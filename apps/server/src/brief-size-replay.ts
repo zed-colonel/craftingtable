@@ -478,11 +478,19 @@ function rebuildInput(storage: CraftingTableStorage, row: RunRow): BriefInput {
   }
 
   // The words composed at launch: the step rules, the operator's, the recovery sections.
+  // A brief with none of those sections still has its trailer after the work item's fields;
+  // the trailer was appended last, so a parent message quoting its words does not count (L1).
+  const fields = Math.max(0, stored.indexOf('\n## Source definition'));
+  const trailers = TRAILERS.map((t) => stored.lastIndexOf(t)).filter((i) => i >= fields);
   const later = stored.slice(
-    Math.min(...LATER_HEADINGS.map((h) => stored.indexOf(h)).filter((i) => i >= 0), stored.length),
+    Math.min(
+      ...LATER_HEADINGS.map((h) => stored.indexOf(h)).filter((i) => i >= 0),
+      ...trailers,
+      stored.length,
+    ),
   );
   const trailerAt = Math.min(
-    ...TRAILERS.map((t) => later.indexOf(t)).filter((i) => i >= 0),
+    ...TRAILERS.map((t) => later.lastIndexOf(t)).filter((i) => i >= 0),
     later.length,
   );
   const sections = later.slice(0, trailerAt);
@@ -525,6 +533,9 @@ function rebuildInput(storage: CraftingTableStorage, row: RunRow): BriefInput {
       ? trailer.slice(0, historicalAt < 0 ? undefined : historicalAt).trim()
       : undefined;
   const historical = historicalAt < 0 ? undefined : parseHistorical(trailer.slice(historicalAt));
+  // Never measure a brief whose environment was lost: say so, and leave it out (L1).
+  if (!pinned && stored.includes('\nPinned dependency environment: '))
+    throw new Error('its pinned environment was not parsed');
   const roleText = between(stored, '\n## Your role\n\n', ['\n## ']) ?? '';
 
   const input: BriefInput = {

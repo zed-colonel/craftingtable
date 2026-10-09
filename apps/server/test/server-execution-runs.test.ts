@@ -1693,6 +1693,26 @@ describe('complete review handoffs', () => {
     expect(manifest.warnings.join(' ')).toContain('No structured findings report');
   });
 
+  it("marks only the parent's cited run paths that no longer exist (R-G6 review L4, AGT-57)", async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const runsRoot = state.context.config.execution.runsRoot;
+    mkdirSync(join(runsRoot, 'cited'), { recursive: true });
+    const live = join(runsRoot, 'cited', 'summary.md');
+    writeFileSync(live, 'kept');
+    const gone = join(runsRoot, 'cited', 'gone.md');
+    state.backend.repliesForNextRun = [{ resultText: `Logs: **${live}** and ${gone}:12.` }];
+    const implement = await runToFinish(state, worktree.id, { role: 'implement' });
+    const review = await runToFinish(state, worktree.id, {
+      role: 'review',
+      parentRunId: implement,
+    });
+    const brief = (await runDetail(state, review)).brief;
+    expect(brief).toContain(`**${live}**`);
+    expect(brief).not.toContain(`[expired: ${live}]`);
+    expect(brief).toContain(`[expired: ${gone}]:12`);
+  });
+
   it('preserves operator corrections, prior turns, and the review report through remediation', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());

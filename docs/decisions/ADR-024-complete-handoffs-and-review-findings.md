@@ -66,14 +66,16 @@ outlived the files (AGT-57). The handoff files already held every word.
 
 The brief now carries a digest and points to the files. For a review parent with a valid
 report, the digest lists its open findings by ID, severity and title (at most 40, titles
-bounded) and its closed findings by ID and status, naming the review report; the brief's
+bounded), its closed findings by ID and status, and an unmet exit gate's evidence (at most
+600 bytes), naming the review report; the brief's
 files to read name the final message and the manifest. Any other parent, and a review
 without a valid report (whose issues the brief names), is quoted: at most 1,200 bytes of its
-opening, without CraftingTable's
-structured blocks, its headings turned into bold text and every line quoted. An accepted
+opening, without CraftingTable's structured blocks, its `#` headings turned into bold
+text and every line quoted (a setext or indented heading stays as written, but quoted, so
+no line is a heading of the brief); a finding title is collapsed to one line. An accepted
 design proposal stays whole, because the implement run treats it as the plan, inside a
 fence longer than any it contains. Paths the message cites under the runs root that no
 longer exist at launch are marked `[expired: <path>]`. Repeated handoff warnings are
 collapsed and at most three listed; the manifest keeps them all, with how to read the
-handoff (a `reading` field). Nothing persisted changes: the handoff files, findings
-snapshots and cursors are as before.
+handoff (a `reading` field, the manifest's one addition). No database record changes, and
+the handoff files, findings snapshots and cursors are otherwise as before.

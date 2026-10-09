@@ -153,3 +153,9 @@ it('in setup, opens the review in the evidence list instead', () => {
   expect(screen.queryByRole('button', { name: 'Accept evidence' })).toBeNull();
   expect(request).not.toHaveBeenCalled();
 });
+
+it('in its item, reviews nothing once the plan is accepted, though its submission is listed (re-check R2)', () => {
+  render(<PlanAcceptance {...props} view={view('accepted')} inline onChanged={vi.fn()} />);
+  expect(screen.queryByRole('button', { name: 'Accept evidence' })).toBeNull();
+  expect(request).not.toHaveBeenCalled();
+});

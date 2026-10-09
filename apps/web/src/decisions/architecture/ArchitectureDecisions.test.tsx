@@ -805,3 +805,24 @@ it('offers a fresh preparation of a decision that already has a brief, only when
   const prepare = await within(card).findByRole('button', { name: 'Prepare decision brief' });
   await waitFor(() => expect((prepare as HTMLButtonElement).disabled).toBe(false));
 });
+
+it('posts the source references as edited, refuses empty ones, and shows a chosen run’s report (re-check R2)', async () => {
+  vi.mocked(request).mockResolvedValue(authoringView());
+  renderList();
+  const card = screen.getByRole('region', { name: 'LOCAL-ADR-012' });
+  fireEvent.click(within(card).getByRole('button', { name: 'Approve with changes' }));
+  // Another design run, chosen as the source report, can be read before it is attached.
+  expect(within(card).queryByText('Another report.')).toBeNull();
+  fireEvent.change(within(card).getByLabelText('Source report'), { target: { value: reportRun } });
+  within(card).getByText('Another report.');
+  const references = within(card).getByLabelText(
+    'Source clauses and affected schemas or protocols',
+  );
+  const save = within(card).getByRole('button', { name: 'Save decision for approval' });
+  fireEvent.change(references, { target: { value: '   ' } });
+  expect((save as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(references, { target: { value: 'plan §4 only' } });
+  fireEvent.click(save);
+  await waitFor(() => expect(proposals()).toHaveLength(1));
+  expect(proposals()[0].sourceReferences).toBe('plan §4 only');
+});

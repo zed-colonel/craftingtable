@@ -269,6 +269,10 @@ interface Module {
   readonly imports: readonly { local: string; imported: string; from: string }[];
   /** Re-exports: `export { a as b } from './x'`, and `export * from './x'` as `*`. */
   readonly reExports: readonly { imported: string; exportedAs: string; from: string }[];
+  /** Relative `import('./x')` expressions, by where they sit (the lazy routes, for one). */
+  readonly dynamicImports: readonly { readonly from: string; readonly at: number }[];
+  /** Top-level `const`s whose value folds to a text, by name (R-A6 re-check R1). */
+  readonly constants: ReadonlyMap<string, string>;
   /**
    * Every text an expression builds, outside a JSX attribute's own text: a string or template
    * literal, a `+` concatenation or an array `join`, a non-constant part read as `*`.
@@ -340,9 +344,18 @@ function declarationsOf(body: readonly Node[]): Declaration[] {
 /** A module's path without its extension, as an import names it. */
 const unextended = (path: string) => path.replace(/\.(tsx?|js)$/, '');
 
-/** The text an expression builds, a non-constant part read as `*`; none when it builds none. */
-function fold(node: Node): string | undefined {
+/** A name's text when it is a constant the module can see; none otherwise. */
+type Resolve = (name: string) => string | undefined;
+
+/**
+ * The text an expression builds, a non-constant part read as `*`; none when it builds none. A
+ * name bound to a constant text (in the module, or imported) reads as that text.
+ */
+function fold(node: Node, resolve: Resolve = () => undefined): string | undefined {
+  const f = (n: Node) => fold(n, resolve);
   switch (node.type) {
+    case 'Identifier':
+      return resolve(node.name as string);
     case 'Literal':
       return typeof node.value === 'string' ? node.value : undefined;
     case 'TemplateLiteral': {
@@ -352,14 +365,14 @@ function fold(node: Node): string | undefined {
         .map((q, i) => {
           const cooked = (q.value as { cooked: string | null }).cooked ?? '';
           const part = expressions[i];
-          return part === undefined ? cooked : cooked + (fold(part) ?? '*');
+          return part === undefined ? cooked : cooked + (f(part) ?? '*');
         })
         .join('');
     }
     case 'BinaryExpression': {
       if (node.operator !== '+') return undefined;
-      const left = fold(node.left as Node);
-      const right = fold(node.right as Node);
+      const left = f(node.left as Node);
+      const right = f(node.right as Node);
       return left === undefined && right === undefined ? undefined : (left ?? '*') + (right ?? '*');
     }
     case 'CallExpression': {
@@ -371,24 +384,31 @@ function fold(node: Node): string | undefined {
         (callee.object as Node).type !== 'ArrayExpression'
       )
         return undefined;
-      const by = separator === undefined ? ',' : fold(separator);
+      const by = separator === undefined ? ',' : f(separator);
       if (by === undefined) return undefined;
       return ((callee.object as Node).elements as Node[])
-        .map((e) => (isNode(e) ? (fold(e) ?? '*') : '*'))
+        .map((e) => (isNode(e) ? (f(e) ?? '*') : '*'))
         .join(by);
     }
     case 'TSAsExpression':
     case 'TSSatisfiesExpression':
     case 'TSNonNullExpression':
     case 'ParenthesizedExpression':
-      return fold(node.expression as Node);
+      return f(node.expression as Node);
     default:
       return undefined;
   }
 }
 const FOLDED = new Set(['Literal', 'TemplateLiteral', 'BinaryExpression', 'CallExpression']);
 
-export function analyse(absolute: string, source = readFileSync(absolute, 'utf8')): Module {
+/** An imported constant's text: the exporting module's, when it is known. */
+type External = (from: string, name: string) => string | undefined;
+
+export function analyse(
+  absolute: string,
+  source = readFileSync(absolute, 'utf8'),
+  external: External = () => undefined,
+): Module {
   const { program } = parseSync(absolute, source) as unknown as { program: Node };
   const body = program.body as Node[];
   const declarations = declarationsOf(body);
@@ -423,16 +443,50 @@ export function analyse(absolute: string, source = readFileSync(absolute, 'utf8'
       from: relativeTo(from),
     }));
   });
+  // Constants: top-level `const` texts, local ones first, then the module's imports'.
+  const constants = new Map<string, string>();
+  const imported = new Map(imports.map((i) => [i.local, i] as const));
+  const resolve: Resolve = (name) => {
+    const local = constants.get(name);
+    if (local !== undefined) return local;
+    const i = imported.get(name);
+    return i && i.imported !== '*' ? external(i.from, i.imported) : undefined;
+  };
+  const declarators = body.flatMap((statement) => {
+    const inner =
+      statement.type === 'ExportNamedDeclaration'
+        ? (statement.declaration as Node | null)
+        : statement;
+    return inner?.type === 'VariableDeclaration' && inner.kind === 'const'
+      ? (inner.declarations as Node[])
+      : [];
+  });
+  // Resolve in passes, so a constant may name one declared after it.
+  for (let pass = 0; pass < 3; pass++)
+    for (const d of declarators) {
+      const name = nameOf(d.id);
+      const text = d.init ? fold(d.init as Node, resolve) : undefined;
+      if (name && text !== undefined) constants.set(name, text);
+    }
   const texts: { text: string; at: number }[] = [];
+  const dynamicImports: { from: string; at: number }[] = [];
   const walk = (node: Node): void => {
     // An attribute's own text (an id, a class) is not a URL; a handler inside one may hold one.
     if (node.type === 'JSXAttribute' && (node.value as Node | null)?.type === 'Literal') return;
-    if (FOLDED.has(node.type)) {
-      const text = fold(node);
+    if (node.type === 'ImportExpression') {
+      const from = fold(node.source as Node, resolve);
+      if (from?.startsWith('.')) dynamicImports.push({ from: relativeTo(from), at: node.start });
+    }
+    if (FOLDED.has(node.type) || node.type === 'Identifier') {
+      const text = fold(node, resolve);
       if (text !== undefined) texts.push({ text, at: node.start });
     }
     for (const [key, value] of Object.entries(node)) {
       if (key === 'parent') continue;
+      // A declared name, a property's key and a member's name are not references.
+      if (key === 'id' && node.type === 'VariableDeclarator') continue;
+      if (key === 'key' && node.type === 'Property' && !node.computed) continue;
+      if (key === 'property' && node.type === 'MemberExpression' && !node.computed) continue;
       for (const child of Array.isArray(value) ? value : [value]) if (isNode(child)) walk(child);
     }
   };
@@ -444,6 +498,8 @@ export function analyse(absolute: string, source = readFileSync(absolute, 'utf8'
     declarations,
     imports,
     reExports,
+    dynamicImports,
+    constants,
     texts,
     urls,
   };
@@ -497,11 +553,21 @@ export function posters(
   const local = module.declarations.filter(
     (d) => d !== declaration && mentions(module, d, declaration.name),
   );
-  const imported = declaration.exportedAs.flatMap((name) =>
-    importersOf(modules, module.path, name).flatMap(({ module: other, local: alias }) =>
+  const imported = declaration.exportedAs.flatMap((name) => [
+    ...importersOf(modules, module.path, name).flatMap(({ module: other, local: alias }) =>
       other.declarations.filter((d) => mentions(other, d, alias)).map((d) => [other, d] as const),
     ),
-  );
+    // A declaration that imports the module at run time and names the export (lazy routes).
+    ...[...modules.values()].flatMap((other) =>
+      other.dynamicImports
+        .filter((i) => i.from === unextended(module.path))
+        .flatMap((i) =>
+          other.declarations
+            .filter((d) => d.start <= i.at && i.at < d.end && mentions(other, d, name))
+            .map((d) => [other, d] as const),
+        ),
+    ),
+  ]);
   return [
     ...local.flatMap((d) => posters(modules, module, d, seen)),
     ...imported.flatMap(([other, d]) => posters(modules, other, d, seen)),
@@ -545,12 +611,26 @@ export function unnamedTails(
   );
 }
 
-const modules = new Map(
-  files(src).map((path) => {
-    const module = analyse(path);
-    return [module.path, module] as const;
-  }),
-);
+/**
+ * The tree's modules, read twice: the first reading finds each module's constants, the second
+ * resolves the constants a module imports from another (R-A6 re-check R1).
+ */
+export function analyseAll(sourcesByPath: ReadonlyMap<string, string>): Map<string, Module> {
+  const first = new Map(
+    [...sourcesByPath].map(([path, source]) => {
+      const module = analyse(path, source);
+      return [unextended(module.path), module] as const;
+    }),
+  );
+  const external: External = (from, name) => first.get(from)?.constants.get(name);
+  return new Map(
+    [...sourcesByPath].map(([path, source]) => {
+      const module = analyse(path, source, external);
+      return [module.path, module] as const;
+    }),
+  );
+}
+const modules = analyseAll(new Map(files(src).map((path) => [path, readFileSync(path, 'utf8')])));
 
 describe('each decision command is posted from exactly one component', () => {
   it.each(COMMANDS)('$command is posted only by $owner', ({ route, owner }) => {
@@ -614,12 +694,7 @@ function names(all: ReadonlyMap<string, Module>, poster: string, action: string)
  */
 describe('the poster detector', () => {
   const plant = (files: Record<string, string>) =>
-    new Map(
-      Object.entries(files).map(([path, source]) => {
-        const module = analyse(join(src, path), source);
-        return [module.path, module] as const;
-      }),
-    );
+    analyseAll(new Map(Object.entries(files).map(([path, source]) => [join(src, path), source])));
   it('finds a component that posts a command, and one that posts it through a helper', () => {
     const planted = plant({
       'decisions/evidence/Own.tsx':
@@ -717,6 +792,34 @@ describe('the poster detector', () => {
           "export function A() { return request([base, 'runtime', 'decide'].join('/')); }",
       },
     ],
+    [
+      'a URL prefix held in a constant, completed in a template',
+      {
+        'features/A.tsx': [
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+          'const r = `/api/${id}/runtime/`;',
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+          'export function A() { return request(`${r}decide`); }',
+        ].join('\n'),
+      },
+    ],
+    [
+      'an imported URL prefix, completed by concatenation',
+      {
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+        'lib/base.ts': 'export const r = `/api/${id}/runtime/`;',
+        'features/A.tsx':
+          "import { r } from '../lib/base.js';\nexport function A() { return request(r + 'decide'); }",
+      },
+    ],
+    [
+      'a helper reached through a dynamic import',
+      {
+        'lib/commands.ts': `export const decideIt = (id: string) => ${helper};`,
+        'features/A.tsx':
+          "export async function A() { const m = await import('../lib/commands.js'); return m.decideIt('a'); }",
+      },
+    ],
   ] as const)('finds a poster through %s', (_name, files) => {
     expect(postersOf(plant(files), /\/decide$/)).toEqual(['features/A.tsx#A']);
   });
@@ -739,6 +842,12 @@ describe('the poster detector', () => {
     });
     expect(names(planted, 'decisions/cycle/X.tsx#Buttons', 'review-again')).toBe(true);
     expect(names(planted, 'decisions/cycle/X.tsx#Other', 'review-again')).toBe(false);
+    // An action held in a module constant is named where the component uses it.
+    const held = plant({
+      'decisions/cycle/Y.tsx':
+        "const RA = 'review-again';\nexport function Buttons() { return control({ action: RA }); }",
+    });
+    expect(names(held, 'decisions/cycle/Y.tsx#Buttons', 'review-again')).toBe(true);
   });
 });
 

@@ -123,3 +123,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-09-ra6-rest-after | `c9d983b` | 2026-10-09 | 68 (1 phone only) | 1× |
 | 2026-10-09-re3b-before | `341b803` | 2026-10-09 | 68 (1 phone only) | 1× |
 | 2026-10-09-re3b-after | `13a9e29` | 2026-10-09 | 70 (1 phone only) | 1× |
+| 2026-10-09-re4-before | `f7a1bfb` | 2026-10-09 | 70 (1 phone only) | 1× |

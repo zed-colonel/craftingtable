@@ -117,7 +117,7 @@ function reviewFormat(context: OutputContext): BlockFormat {
       '```craftingtable-review',
       JSON.stringify(example),
       '```',
-      'Severities: blocking, major, minor, nit; statuses: open, resolved, withdrawn, and a resolved or withdrawn finding needs a disposition (evidence or a reason). location is optional. A finding id starts with a letter or digit and holds only letters, digits, periods, underscores or hyphens, at most 64. Texts stay under 20,000 characters, titles under 500. complete is true only once the review is consolidated; mergeable needs exitGate.met true and no open blocking or major finding.',
+      'Severities: blocking, major, minor, nit; statuses: open, resolved, withdrawn (resolved or withdrawn needs a disposition: evidence or a reason); location optional; a finding id is a letter or digit, then letters, digits, periods, underscores or hyphens, at most 64; texts under 20,000 characters, titles under 500; complete true only once consolidated; mergeable only with exitGate.met true and no open blocking or major finding.',
       ...(stage
         ? [
             `finalization: this stage's stageId and fullChecks as shown; checks: every configured requiredChecks name exactly, at least one, each with status passed, failed or not-run and its evidence; obligations: entries {id, status: met, gap or change-requested (with proposedRequirement), evidence}, adding source, requirement and workItemSourceId only for a new obligation. A met exitGate needs every reported check passed and obligation met.`,

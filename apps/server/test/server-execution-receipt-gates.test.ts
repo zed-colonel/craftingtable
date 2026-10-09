@@ -238,7 +238,7 @@ itNeedsCargo(
     );
     expect(rules).toContain('never appending earlier reports');
     // What the report parser enforces stays in the brief (operator decision 2026-10-08).
-    expect(prompt).toContain('A finding id starts with a letter or digit');
+    expect(prompt).toContain('a finding id is a letter or digit, then letters');
     expect(rules).toContain('Do not override supplied sources');
     expect(rules).not.toMatch(/kata/i);
     expect(prompt).not.toContain('Earlier reports describing rejection');

@@ -69,7 +69,7 @@ report, the digest lists its open findings by ID, severity and title (at most 40
 bounded), its closed findings by ID and status, and an unmet exit gate's evidence (at most
 600 bytes), naming the review report; the brief's
 files to read name the final message and the manifest. Any other parent, and a review
-without a valid report (whose issues the brief names), is quoted: at most 1,200 bytes of its
+without a valid report (whose issues the brief names), is quoted: about 600 bytes of its
 opening, without CraftingTable's structured blocks, its `#` headings turned into bold
 text and every line quoted (a setext or indented heading stays as written, but quoted, so
 no line is a heading of the brief); a finding title is collapsed to one line. An accepted

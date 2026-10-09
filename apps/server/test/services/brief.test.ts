@@ -620,7 +620,14 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
     expect(section).not.toContain('craftingtable-workflow');
     expect(section).not.toContain('The last line.');
     expect(section).toContain('`/runs/r2/handoff/0000-final.md`');
-    expect(Buffer.byteLength(section)).toBeLessThan(2600);
+    // About 600 bytes of the opening are quoted (operator decision 2026-10-08); the handoff has it all.
+    const quoted = section
+      .split('\n')
+      .filter((line) => line.startsWith('>'))
+      .map((line) => line.replace(/^> ?/, ''))
+      .join('\n');
+    expect(Buffer.byteLength(quoted)).toBeLessThanOrEqual(610);
+    expect(Buffer.byteLength(quoted)).toBeGreaterThan(300);
     expect(unfenced(brief)).not.toContain('## Open questions');
   });
 
@@ -727,7 +734,8 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
  * (`controller:replay --brief-sizes`): a slice with its obligations and cases, its parent's
  * fields, a 27-document plan bundle, the pinned environment with an adopted check, the workflow
  * contract, a handoff and the step rules every cycle run gets. A review after an implementation
- * is over 12 KB (R-G6 review M5); its typical size is its budget until the operator decides.
+ * is just over 12 KB (R-G6 review M5); the operator accepted the measured sizes, and its
+ * typical size is its budget.
  */
 describe('composeBrief size per role (R-G6, G6-5)', () => {
   const run = '/mnt/workhorse/craftingtable/runs/0e2b5a4c-7d1f-4c55-9a8e-3f6b1d2c9e70';
@@ -890,9 +898,9 @@ describe('composeBrief size per role (R-G6, G6-5)', () => {
     {
       name: 'review after an implementation',
       input: () => typical('review', implementation),
-      // G6-5's 12 KB is not met for this shape (R-G6 review M5): its typical size is the
-      // budget until the operator decides; the register has the measurement.
-      limit: 12_900,
+      // Over 12 KB even with a 600-byte quoted summary (12,134 bytes); the operator accepted
+      // the measured sizes (2026-10-08), so its typical size is its budget.
+      limit: 12_200,
     },
     {
       name: 'review after a review',

@@ -31,7 +31,7 @@ export interface BriefFinding {
 }
 
 /** How much of a parent's message a digest quotes. */
-const SUMMARY_BYTES = 1200;
+const SUMMARY_BYTES = 600;
 /** How many open findings a digest lists, and how long a title it keeps. */
 const LISTED_FINDINGS = 40;
 const TITLE_CHARACTERS = 200;

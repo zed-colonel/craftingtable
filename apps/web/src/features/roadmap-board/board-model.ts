@@ -50,13 +50,25 @@ export function indexOfKey(model: BoardModel, key: string | undefined): number |
   return index < 0 ? undefined : index;
 }
 
-/** The status list's open rows for a node's entries, in roadmap order. */
+/**
+ * The status list's open rows for a node's entries, in roadmap order. A work item's are its
+ * card's: its own and its selected slices', as the card shows them.
+ */
 export function rowsOf(model: BoardModel, index: number): StatusRow[] {
   const rows = new Map(model.status.entries.map((row) => [row.entryId, row]));
-  return (model.board.nodes[index]?.entries ?? []).flatMap((position) => {
-    const row = rows.get(model.entryIds[position] ?? '');
-    return row ? [row] : [];
-  });
+  const nodes = [
+    index,
+    ...(nodeAt(model, index).kind === 'work_item'
+      ? model.graph.nodes.flatMap((n, i) => (n.parent === index && n.included ? [i] : []))
+      : []),
+  ];
+  const positions = [...new Set(nodes.flatMap((i) => model.board.nodes[i]?.entries ?? []))];
+  return positions
+    .sort((a, b) => a - b)
+    .flatMap((position) => {
+      const row = rows.get(model.entryIds[position] ?? '');
+      return row ? [row] : [];
+    });
 }
 
 /** A card's selected milestones and its slices', grouped by slice for drawing. */

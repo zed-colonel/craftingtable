@@ -212,3 +212,16 @@ it("draws a sequential roadmap's work items as cards with no slices (R-E3b 7)", 
   const roots = screen.getByRole('region', { name: 'Root blockers' });
   expect(within(roots).getAllByRole('button', { name: /AQ-01/ }).length).toBeGreaterThan(0);
 });
+
+it("shows a card's every open entry when the card is selected, its slices' included", () => {
+  board('work_item:wi/WI-01:accepted');
+  const waiting = within(screen.getByRole('complementary', { name: 'Selection' })).getByRole(
+    'region',
+    { name: 'Waiting on' },
+  );
+  // The slice's wait (with its inbox item), its verification's and the parent's, in roadmap order.
+  const text = waiting.textContent ?? '';
+  expect(text.indexOf('ADR-1 has a prepared brief')).toBeLessThan(text.indexOf('verify ·'));
+  expect(text.indexOf('verify ·')).toBeLessThan(text.indexOf('accept ·'));
+  expect(within(waiting).getAllByRole('link', { name: 'Open in Needs you' })).toHaveLength(1);
+});

@@ -64,7 +64,7 @@ export class FinalizationService {
       .filter((f) => f.planVersionId === planVersionId)
       .map((f) => this.view(f));
     // An offered promotion says whether it moves the operator's checkout (R-G10 D3).
-    const holds = checkedOutBranches(this.git);
+    const { holds } = checkedOutBranches(this.git);
     return Promise.all(
       views.map(async (view) => {
         if (!view.actions.includes('merge')) return view;

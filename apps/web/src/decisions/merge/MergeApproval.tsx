@@ -90,10 +90,9 @@ export function MergeApproval({
   if (!gate?.mergeable) return null;
   const adopting = gate.reason === 'check-adoption';
   const listId = `branches-${worktree.id}`;
-  /** The daemon's fact is about the recorded target, not one typed by hand (R-G10 D3). */
+  /** The target held now, recorded or typed, is the branch the operator's checkout holds. */
   const updatesCheckout =
-    gate.targetCheckedOut === true &&
-    target.trim() === (worktree.integrationBranch ?? worktree.baseBranch);
+    gate.checkedOutBranch !== undefined && target.trim() === gate.checkedOutBranch;
   if (!open)
     return (
       <>

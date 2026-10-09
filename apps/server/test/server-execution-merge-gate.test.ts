@@ -23,7 +23,7 @@ import {
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
-import { mergeGateFor, recordedMergeTarget } from '../src/services/execution-service.js';
+import { mergeGateFor } from '../src/services/execution-service.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -899,13 +899,13 @@ it('records completion before cleanup, exposes retry, and preserves edits added 
   ).toBeUndefined();
 });
 
-it("says whether a merge would move the operator's checkout: the target checked out in the primary checkout (R-G10 D3)", async () => {
+it("names the branch the primary checkout holds, so the merge approval can say when it moves the operator's checkout (R-G10 D3; operator 2026-10-09)", async () => {
   const state = await ready();
   const repositoryPath = fixtureRepository();
   const { worktree } = await registerAndWorktree(state, repositoryPath);
   await admit(state);
   // A closed gate states no fact: there is nothing to approve yet.
-  expect(await mergeGate(state, worktree.id)).not.toHaveProperty('targetCheckedOut');
+  expect(await mergeGate(state, worktree.id)).not.toHaveProperty('checkedOutBranch');
   writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
   git(['add', '--all'], worktree.path);
   git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
@@ -915,24 +915,17 @@ it("says whether a merge would move the operator's checkout: the target checked 
   expect(await mergeGate(state, worktree.id)).toMatchObject({
     mergeable: true,
     reason: 'ready',
-    targetCheckedOut: true,
+    checkedOutBranch: 'main',
   });
   git(['switch', '--quiet', '-c', 'elsewhere'], repositoryPath);
   expect(await mergeGate(state, worktree.id)).toMatchObject({
     mergeable: true,
-    targetCheckedOut: false,
+    checkedOutBranch: 'elsewhere',
   });
   // A gate closed after its review, by a target that moved, states no fact (review L4, C53).
   git(['switch', '--quiet', 'main'], repositoryPath);
   commitFile(repositoryPath, 'moved.txt', 'moved\n');
   const closed = await mergeGate(state, worktree.id);
   expect(closed).toMatchObject({ mergeable: false, reason: 'branch-review-required' });
-  expect(closed).not.toHaveProperty('targetCheckedOut');
-});
-
-it('takes the recorded target from the integration branch, else the base (R-G10 D3, review L4)', () => {
-  expect(recordedMergeTarget({ integrationBranch: 'wi-fabric-2', baseBranch: 'main' })).toBe(
-    'wi-fabric-2',
-  );
-  expect(recordedMergeTarget({ baseBranch: 'main' })).toBe('main');
+  expect(closed).not.toHaveProperty('checkedOutBranch');
 });

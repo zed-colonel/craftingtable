@@ -387,24 +387,38 @@ it('shows tabs, trailing spaces and spacing in commands, says when only whitespa
 it("says a merge updates the operator's checkout only when the daemon reports its target checked out there (R-G10 D3)", () => {
   respond(undefined);
   const sentence = /Merging updates your checkout: wi-fabric-2 is checked out in the repository/;
-  const form = renderPanel(vi.fn(), { mergeable: true, reason: 'ready', targetCheckedOut: true });
+  const form = renderPanel(vi.fn(), {
+    mergeable: true,
+    reason: 'ready',
+    checkedOutBranch: 'wi-fabric-2',
+  });
   expect(within(form).getByText(sentence)).toBeDefined();
   cleanup();
-  const other = renderPanel(vi.fn(), { mergeable: true, reason: 'ready', targetCheckedOut: false });
+  const other = renderPanel(vi.fn(), {
+    mergeable: true,
+    reason: 'ready',
+    checkedOutBranch: 'main',
+  });
   expect(within(other).queryByText(sentence)).toBeNull();
   cleanup();
   // No fact (Git could not say): no sentence.
   const unknown = renderPanel(vi.fn(), { mergeable: true, reason: 'ready' });
   expect(within(unknown).queryByText(sentence)).toBeNull();
   cleanup();
-  // The fact is about the recorded target: a target typed by hand gets no sentence.
   const manual = { ...worktree, integrationBranch: undefined } as unknown as WorktreeSummary;
   const typed = renderPanel(
     vi.fn(),
-    { mergeable: true, reason: 'ready', targetCheckedOut: true },
+    { mergeable: true, reason: 'ready', checkedOutBranch: 'aq-cont-1' },
     manual,
   );
-  expect(within(typed).getByText(sentence)).toBeDefined();
+  // A target typed by hand is compared with the checked-out branch too (operator 2026-10-09).
+  expect(within(typed).queryByText(/Merging updates your checkout/)).toBeNull();
   fireEvent.change(within(typed).getByLabelText('Merge into'), { target: { value: 'aq-cont-1' } });
+  expect(
+    within(typed).getByText(
+      /Merging updates your checkout: aq-cont-1 is checked out in the repository/,
+    ),
+  ).toBeDefined();
+  fireEvent.change(within(typed).getByLabelText('Merge into'), { target: { value: 'other' } });
   expect(within(typed).queryByText(/Merging updates your checkout/)).toBeNull();
 });

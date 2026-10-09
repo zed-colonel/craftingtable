@@ -95,17 +95,12 @@ export type MergeGateReason =
   /** Mergeable by a person who approves the check definitions it adopts (R-G13). */
   | 'check-adoption';
 
-/** The target a worktree merges into unless the operator types another (MergeApproval). */
-export const recordedMergeTarget = (
-  worktree: Pick<Worktree, 'integrationBranch' | 'baseBranch'>,
-): string => worktree.integrationBranch ?? worktree.baseBranch;
-
 export interface MergeGate {
   readonly mergeable: boolean;
   readonly reason: MergeGateReason;
   readonly reviewRunId?: AgentRunId;
-  /** On an open gate: its target is the primary checkout's branch (R-G10 D3); from Git. */
-  readonly targetCheckedOut?: boolean;
+  /** On an open gate: the primary checkout's branch (R-G10 D3); from Git, never stored. */
+  readonly checkedOutBranch?: string;
 }
 
 /**
@@ -755,7 +750,7 @@ export class ExecutionService {
    */
   async confirmGates(read: WorkItemExecution): Promise<WorkItemExecution> {
     const mergeGates = { ...read.mergeGates };
-    const holds = checkedOutBranches(this.git);
+    const checkout = checkedOutBranches(this.git);
     for (const worktree of read.worktrees) {
       const gate = mergeGates[worktree.id];
       if (!gate?.mergeable || gate.reason === 'merge-recovery-required') continue;
@@ -772,9 +767,8 @@ export class ExecutionService {
         worktree.workspaceId,
         worktree.repositoryId,
       )?.rootPath;
-      const held =
-        root === undefined ? undefined : await holds(root, recordedMergeTarget(worktree));
-      if (held !== undefined) mergeGates[worktree.id] = { ...gate, targetCheckedOut: held };
+      const branch = root === undefined ? undefined : await checkout.branch(root);
+      if (branch) mergeGates[worktree.id] = { ...gate, checkedOutBranch: branch };
     }
     return { ...read, mergeGates };
   }

@@ -293,11 +293,13 @@ export const mergeGateSchema = z.strictObject({
   ]),
   reviewRunId: agentRunIdSchema.optional(),
   /**
-   * On a mergeable gate: whether the worktree's recorded target is checked out in the
-   * repository's primary checkout, so the merge moves the operator's files (R-G10 D3). Read
-   * from Git on each request, never stored.
+   * On a mergeable gate: the branch the repository's primary checkout, the operator's own
+   * working copy, has checked out, so the merge approval can say when the target it holds is
+   * that branch and the merge moves the operator's files (R-G10 D3; a typed target too,
+   * operator 2026-10-09). Read from Git on each request, never stored; absent when Git cannot
+   * say or nothing is checked out.
    */
-  targetCheckedOut: z.boolean().optional(),
+  checkedOutBranch: z.string().min(1).max(255).optional(),
 });
 
 export const mergeWorktreeResponseSchema = z.strictObject({

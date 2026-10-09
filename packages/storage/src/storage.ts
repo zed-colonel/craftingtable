@@ -88,6 +88,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   private readonly definitions = new DefinitionCache();
   private observer: WriteObserver | undefined;
   private depth = 0;
+  private committed = 0;
   /** Every write passes the contract guard, then the observer sees it. */
   private readonly guard: RecordGuard;
 
@@ -125,6 +126,10 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     this.observer = observer;
   }
 
+  get commits(): number {
+    return this.committed;
+  }
+
   transaction<T>(operation: (tx: StorageRepositories) => T): T {
     // A nested call runs as a savepoint of the outer transaction, which owns the commit.
     const outermost = this.depth === 0;
@@ -140,6 +145,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
         })
         .immediate();
       this.definitions.commit();
+      if (outermost) this.committed += 1;
       if (outermost) this.observer?.ended(true);
       return result;
     } catch (error) {

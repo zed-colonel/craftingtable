@@ -277,6 +277,11 @@ export interface CraftingTableStorage extends StorageRepositories {
   observeWrites(observer: WriteObserver): void;
   transaction<T>(operation: (tx: StorageRepositories) => T): T;
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T;
+  /**
+   * How many write transactions this process has committed. A read keyed on it may be reused
+   * until the next commit (R-E3b).
+   */
+  readonly commits: number;
   backup(destination: string): Promise<void>;
   /** Every stored record, read as the repositories read it (R-H3, `pnpm db:verify`). */
   scanRecords(

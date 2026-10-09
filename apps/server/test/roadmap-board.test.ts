@@ -219,3 +219,24 @@ it("counts what a map roadmap's items unblock in slices, as its checkpoints do (
   expect(entries).toBeGreaterThan(2);
   expect(resume.blocks).toBe(2);
 });
+
+it("counts the feed's slices from one map evaluation per write, the page read's when it came first (R-E3b 8)", async () => {
+  const f = await decisionRoadmap();
+  f.state.context.services.roadmapService.recoverInterrupted();
+  mapEvaluations.count = 0;
+  await read(f, `/roadmaps/${roadmapId}/view`);
+  expect(mapEvaluations.count).toBe(1);
+  // The feed reuses the page read's evaluation: nothing was written since.
+  await read(f, '/attention');
+  await read(f, '/attention');
+  expect(mapEvaluations.count).toBe(1);
+  // A write makes it evaluate again, once.
+  f.state.context.storage.transaction((tx) => {
+    const roadmap = tx.roadmaps.find(f.state.workspaceId, roadmapId)!;
+    tx.roadmaps.save({ ...roadmap, version: roadmap.version + 1 }, roadmap.version);
+  });
+  const feed = attentionFeedSchema.parse(await read(f, '/attention'));
+  await read(f, '/attention');
+  expect(mapEvaluations.count).toBe(2);
+  expect(feed.items.find((i) => i.code === 'restart-resume')?.blocks).toBe(2);
+});

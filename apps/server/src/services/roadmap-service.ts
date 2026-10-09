@@ -1176,6 +1176,8 @@ export class RoadmapService {
       const view = this.view(roadmap, snapshot, operator);
       const { definition, ...withoutDefinition } = view.roadmap;
       const status = this.statusOf(roadmap, snapshot, operator, view.progress);
+      const map = operator.mapState();
+      if (map) this.rememberMap(roadmap, map);
       const board = this.board(snapshot, roadmap, operator, status, view.progress);
       return {
         view: { ...view, roadmap: withoutDefinition },
@@ -1266,7 +1268,7 @@ export class RoadmapService {
         if (counts.has(item.id)) continue;
         const subject = this.itemSubject(tx, roadmap, graph, item, checkpointId);
         if (!subject) continue;
-        nodes ??= crossProjectState(tx, workspaceId, selection).nodes;
+        nodes ??= this.mapForRead(tx, roadmap).nodes;
         counts.set(
           item.id,
           slicesHeldBy(nodes, itemNodeKeys(graph, roadmap.definition.entries, subject)),
@@ -1274,6 +1276,31 @@ export class RoadmapService {
       }
     }
     return counts;
+  }
+
+  /**
+   * Map evaluations reads have made, by roadmap, with the commit count they read at (R-E3b): the
+   * feed counts its items' slices from the page read's evaluation, or its own, until a write.
+   * Reads only: a write path evaluates the map itself.
+   */
+  private readonly readMaps = new Map<
+    string,
+    { readonly commits: number; readonly revision: number; readonly view: CrossProjectView }
+  >();
+  private rememberMap(roadmap: Roadmap, view: CrossProjectView): void {
+    this.readMaps.set(roadmap.id, {
+      commits: this.storage.commits,
+      revision: roadmap.definition.revision,
+      view,
+    });
+  }
+  private mapForRead(tx: StorageRepositories, roadmap: Roadmap): CrossProjectView {
+    const known = this.readMaps.get(roadmap.id);
+    if (known?.commits === this.storage.commits && known.revision === roadmap.definition.revision)
+      return known.view;
+    const view = crossProjectState(tx, roadmap.workspaceId, roadmap.definition.crossProject!);
+    this.rememberMap(roadmap, view);
+    return view;
   }
 
   /** What an item is about on this map roadmap, from its typed references; none if not on it. */

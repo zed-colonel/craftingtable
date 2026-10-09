@@ -185,50 +185,35 @@ const SHARED: readonly {
 
 /** Last segments several routes share, and the whole routes a URL ending in one may name. */
 /**
- * The URLs (and `/`-holding texts) whose last segment is built at run time, each read here, so a
- * new one fails the test until it is classified (R-A6 review M2). None posts a decision command.
+ * The requests whose URL's last segment is built at run time, each read here, so a new one fails
+ * the test until it is classified (R-A6 review M2, second re-check R3). None posts a decision.
  */
 const DYNAMIC_TAILS: readonly string[] = [
-  // Address prefixes that a command or read spells its own route after.
-  'decisions/amendment/AmendmentDecision.tsx: /api/workspaces/*/roadmaps/*',
-  'decisions/cycle/investigation-api.ts: /api/workspaces/*/cycles/*',
-  'decisions/design/design-api.ts: /api/workspaces/*/cycles/*',
-  'decisions/preparation/PrepareDecisionBrief.tsx: /api/workspaces/*/roadmaps/*',
-  'lib/branch-api.ts: /api/workspaces/*/worktrees/*',
-  'lib/package-import-api.ts: /api/workspaces/*',
-  'lib/planning-api.ts: /api/workspaces/*/projects/*',
   // Reads of one record by id.
-  'decisions/checkpoint/CheckpointPreparation.tsx: */checkpoint-recovery/*',
+  'decisions/checkpoint/CheckpointPreparation.tsx: /api/workspaces/*/concurrency-definitions/*/runtime/checkpoint-recovery/*',
   'decisions/evidence/EvidenceReview.tsx: */submissions/*',
-  'features/execution/RunPage.tsx: /api/workspaces/*/runs/*/tool-results/*',
   'lib/execution-api.ts: /api/workspaces/*/runs/*',
-  'lib/package-import-api.ts: */concurrency-definitions/*',
-  'lib/package-import-api.ts: */import-archives/*',
+  'lib/package-import-api.ts: /api/workspaces/*/concurrency-definitions/*',
   'lib/planning-api.ts: /api/workspaces/*/plan-artifacts/*',
+  'lib/planning-api.ts: /api/workspaces/*/projects/*',
   'lib/planning-api.ts: /api/workspaces/*/projects/*/plan-versions/*',
-  'lib/roadmap-api.ts: */*/definitions/*',
+  'lib/roadmap-api.ts: /api/workspaces/*/roadmaps/*/definitions/*',
   // A roadmap's save, by id: configuration.
-  'lib/roadmap-api.ts: */*',
-  // Typed unions of manual controls: a worktree's retarget or update, storage's scan, clean, backup.
-  'lib/branch-api.ts: */*',
-  'lib/storage-api.ts: */*',
-  // Not URLs: React keys and counts such as `3/4`.
-  'features/execution/HistoricalEvidencePanel.tsx: */*',
-  'features/planning/RoadmapsPage.tsx: */*',
-  'features/planning/RoadmapsPage.tsx: */*',
-  'features/planning/RoadmapsPage.tsx: */*',
-  'features/workspace/HostSchedulingPanel.tsx: */*',
-  'features/workspace/RoadmapCapacityPanel.tsx: */*',
-  // The browser's own routes (lib/route.ts builds pages' paths, not API URLs).
-  'lib/route.ts: */agenda/*',
-  'lib/route.ts: */inbox/*',
-  'lib/route.ts: */projects/*',
-  'lib/route.ts: */projects/*/plans/*',
-  'lib/route.ts: */roadmaps/maps/*',
-  'lib/route.ts: */runs/*',
-  'lib/route.ts: */work-items/*',
-  'lib/route.ts: /*',
-  'lib/route.ts: /workspaces/*',
+  'lib/roadmap-api.ts: /api/workspaces/*/roadmaps/*',
+  // Typed unions of manual controls: a worktree's retarget or update; storage's scan, clean, backup.
+  'lib/branch-api.ts: /api/workspaces/*/worktrees/*/*',
+  'lib/storage-api.ts: /api/workspaces/*/storage/*',
+];
+
+/**
+ * The requests whose URL the detector cannot read (R-A6 second re-check R3): only the
+ * transports, which send the URL their callers built and every caller of which is read above.
+ */
+const OPAQUE_REQUESTS: readonly string[] = [
+  // `request`'s own `fetch(url)`.
+  'lib/api-client.ts: <not a text>',
+  // The plan-archive upload's `fetch(url)`, given its URL by its callers.
+  'lib/package-import-api.ts: <not a text>',
 ];
 
 const AMBIGUOUS: readonly { readonly segment: string; readonly routes: readonly RegExp[] }[] = [
@@ -273,6 +258,13 @@ interface Module {
   readonly dynamicImports: readonly { readonly from: string; readonly at: number }[];
   /** Top-level `const`s whose value folds to a text, by name (R-A6 re-check R1). */
   readonly constants: ReadonlyMap<string, string>;
+  /** Top-level arrow helpers whose body folds to a text, by name. */
+  readonly helpers: ReadonlyMap<string, string>;
+  /**
+   * Each `request(…)` or `fetch(…)` call's first argument as it folds (undefined when nothing
+   * does), by where the call sits (R-A6 second re-check R3).
+   */
+  readonly calls: readonly { readonly url: string | undefined; readonly at: number }[];
   /**
    * Every text an expression builds, outside a JSX attribute's own text: a string or template
    * literal, a `+` concatenation or an array `join`, a non-constant part read as `*`.
@@ -344,8 +336,11 @@ function declarationsOf(body: readonly Node[]): Declaration[] {
 /** A module's path without its extension, as an import names it. */
 const unextended = (path: string) => path.replace(/\.(tsx?|js)$/, '');
 
-/** A name's text when it is a constant the module can see; none otherwise. */
-type Resolve = (name: string) => string | undefined;
+/**
+ * A name's text when it is a constant the module can see; none otherwise. With `call`, the text
+ * a helper `(…) => \`…\`` returns, its parameters read as `*` (R-A6 second re-check R3).
+ */
+type Resolve = (name: string, call?: boolean) => string | undefined;
 
 /**
  * The text an expression builds, a non-constant part read as `*`; none when it builds none. A
@@ -377,6 +372,7 @@ function fold(node: Node, resolve: Resolve = () => undefined): string | undefine
     }
     case 'CallExpression': {
       const callee = node.callee as Node;
+      if (callee.type === 'Identifier') return resolve(callee.name as string, true);
       const separator = (node.arguments as Node[])[0];
       if (
         callee.type !== 'MemberExpression' ||
@@ -390,6 +386,18 @@ function fold(node: Node, resolve: Resolve = () => undefined): string | undefine
         .map((e) => (isNode(e) ? (f(e) ?? '*') : '*'))
         .join(by);
     }
+    case 'ConditionalExpression': {
+      // `id ? url(id) : undefined` builds one text; two different ones build none here (each
+      // branch is read on its own where it matters, a request's URL).
+      const absent = (n: Node) =>
+        (n.type === 'Identifier' && n.name === 'undefined') ||
+        (n.type === 'Literal' && n.value === null);
+      const [yes, no] = [node.consequent as Node, node.alternate as Node];
+      if (absent(no)) return f(yes);
+      if (absent(yes)) return f(no);
+      const [a, b] = [f(yes), f(no)];
+      return a === b ? a : undefined;
+    }
     case 'TSAsExpression':
     case 'TSSatisfiesExpression':
     case 'TSNonNullExpression':
@@ -401,8 +409,8 @@ function fold(node: Node, resolve: Resolve = () => undefined): string | undefine
 }
 const FOLDED = new Set(['Literal', 'TemplateLiteral', 'BinaryExpression', 'CallExpression']);
 
-/** An imported constant's text: the exporting module's, when it is known. */
-type External = (from: string, name: string) => string | undefined;
+/** An imported constant's text, or a helper's (`call`): the exporting module's, when known. */
+type External = (from: string, name: string, call?: boolean) => string | undefined;
 
 export function analyse(
   absolute: string,
@@ -445,32 +453,92 @@ export function analyse(
   });
   // Constants: top-level `const` texts, local ones first, then the module's imports'.
   const constants = new Map<string, string>();
+  const helpers = new Map<string, string>();
   const imported = new Map(imports.map((i) => [i.local, i] as const));
-  const resolve: Resolve = (name) => {
-    const local = constants.get(name);
+  const resolve: Resolve = (name, call = false) => {
+    const local = (call ? helpers : constants).get(name);
     if (local !== undefined) return local;
     const i = imported.get(name);
-    return i && i.imported !== '*' ? external(i.from, i.imported) : undefined;
+    return i && i.imported !== '*' ? external(i.from, i.imported, call) : undefined;
   };
-  const declarators = body.flatMap((statement) => {
-    const inner =
-      statement.type === 'ExportNamedDeclaration'
-        ? (statement.declaration as Node | null)
-        : statement;
-    return inner?.type === 'VariableDeclaration' && inner.kind === 'const'
-      ? (inner.declarations as Node[])
-      : [];
-  });
+  // Every `const` of the module, in any scope, whose name it declares once (as the scope check's
+  // rule 7 resolves names): a function's own `const base = …` resolves too (second re-check R3).
+  const declarators: Node[] = [];
+  const counts = new Map<string, number>();
+  const gather = (node: Node): void => {
+    if (node.type === 'VariableDeclaration')
+      for (const d of node.declarations as Node[]) {
+        const name = nameOf(d.id);
+        if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+        if (node.kind === 'const') declarators.push(d);
+      }
+    else if (
+      (node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') &&
+      nameOf(node.id)
+    )
+      counts.set(nameOf(node.id)!, (counts.get(nameOf(node.id)!) ?? 0) + 1);
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'parent') continue;
+      for (const child of Array.isArray(value) ? value : [value]) if (isNode(child)) gather(child);
+    }
+  };
+  gather(program);
+  // A parameter or a second declaration makes a name ambiguous: it is left unresolved.
+  const params = new Set<string>();
+  const collectParams = (node: Node): void => {
+    if (FUNCTIONS.has(node.type) || node.type === 'ArrowFunctionExpression')
+      for (const param of (node.params as Node[] | undefined) ?? []) {
+        const name = nameOf(param);
+        if (name) params.add(name);
+      }
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'parent') continue;
+      for (const child of Array.isArray(value) ? value : [value])
+        if (isNode(child)) collectParams(child);
+    }
+  };
+  collectParams(program);
+  const unique = (d: Node) => {
+    const name = nameOf(d.id);
+    return !!name && counts.get(name) === 1 && !params.has(name);
+  };
   // Resolve in passes, so a constant may name one declared after it.
   for (let pass = 0; pass < 3; pass++)
-    for (const d of declarators) {
+    for (const d of declarators.filter(unique)) {
       const name = nameOf(d.id);
-      const text = d.init ? fold(d.init as Node, resolve) : undefined;
-      if (name && text !== undefined) constants.set(name, text);
+      const init = d.init as Node | null;
+      if (!name || !init) continue;
+      // A helper whose body is an expression: what it returns, its parameters unknown.
+      if (
+        init.type === 'ArrowFunctionExpression' &&
+        (init.body as Node).type !== 'BlockStatement'
+      ) {
+        const text = fold(init.body as Node, resolve);
+        if (text !== undefined) helpers.set(name, text);
+        continue;
+      }
+      const text = fold(init, resolve);
+      if (text !== undefined) constants.set(name, text);
     }
   const texts: { text: string; at: number }[] = [];
   const dynamicImports: { from: string; at: number }[] = [];
+  const calls: { url: string | undefined; at: number }[] = [];
   const walk = (node: Node): void => {
+    if (node.type === 'CallExpression') {
+      const callee = node.callee as Node;
+      const name = callee.type === 'MemberExpression' ? nameOf(callee.property) : nameOf(callee);
+      const first = (node.arguments as Node[])[0];
+      // A module's own function named `fetch` (the query store's) is not the browser's.
+      const own = callee.type === 'Identifier' && name === 'fetch' && counts.has('fetch');
+      // A conditional URL is each of its branches.
+      const branches = (n: Node): Node[] =>
+        n.type === 'ConditionalExpression'
+          ? [...branches(n.consequent as Node), ...branches(n.alternate as Node)]
+          : [n];
+      if ((name === 'request' || name === 'fetch') && first && !own)
+        for (const branch of branches(first))
+          calls.push({ url: fold(branch, resolve), at: node.start });
+    }
     // An attribute's own text (an id, a class) is not a URL; a handler inside one may hold one.
     if (node.type === 'JSXAttribute' && (node.value as Node | null)?.type === 'Literal') return;
     if (node.type === 'ImportExpression') {
@@ -500,6 +568,8 @@ export function analyse(
     reExports,
     dynamicImports,
     constants,
+    helpers,
+    calls,
     texts,
     urls,
   };
@@ -557,13 +627,14 @@ export function posters(
     ...importersOf(modules, module.path, name).flatMap(({ module: other, local: alias }) =>
       other.declarations.filter((d) => mentions(other, d, alias)).map((d) => [other, d] as const),
     ),
-    // A declaration that imports the module at run time and names the export (lazy routes).
+    // A declaration that imports the module at run time reaches every export of it (the lazy
+    // routes; a helper that returns the module, R-A6 second re-check R3).
     ...[...modules.values()].flatMap((other) =>
       other.dynamicImports
         .filter((i) => i.from === unextended(module.path))
         .flatMap((i) =>
           other.declarations
-            .filter((d) => d.start <= i.at && i.at < d.end && mentions(other, d, name))
+            .filter((d) => d.start <= i.at && i.at < d.end)
             .map((d) => [other, d] as const),
         ),
     ),
@@ -588,12 +659,24 @@ export function postersOf(modules: ReadonlyMap<string, Module>, route: RegExp): 
   return [...found].sort();
 }
 
-/** URLs whose last segment no text names: any command could be posted through them. */
+/** Requests whose URL's last segment is built at run time: any command could be posted so. */
 export function dynamicTails(all: ReadonlyMap<string, Module>): string[] {
   return [...all.values()].flatMap((module) =>
-    module.urls
-      .filter((url) => url.text.endsWith('/*'))
-      .map((url) => `${module.path}: ${url.text}`),
+    module.calls
+      .filter((call) => call.url?.endsWith('/*'))
+      .map((call) => `${module.path}: ${call.url}`),
+  );
+}
+
+/**
+ * Requests whose URL the detector cannot read as a path: it folds to nothing, or to a text with
+ * no `/` (`*decide`, a prefix it could not resolve). Any of them could post any command.
+ */
+export function opaqueRequests(all: ReadonlyMap<string, Module>): string[] {
+  return [...all.values()].flatMap((module) =>
+    module.calls
+      .filter((call) => call.url === undefined || !call.url.includes('/'))
+      .map((call) => `${module.path}: ${call.url ?? '<not a text>'}`),
   );
 }
 
@@ -622,7 +705,8 @@ export function analyseAll(sourcesByPath: ReadonlyMap<string, string>): Map<stri
       return [unextended(module.path), module] as const;
     }),
   );
-  const external: External = (from, name) => first.get(from)?.constants.get(name);
+  const external: External = (from, name, call) =>
+    (call ? first.get(from)?.helpers : first.get(from)?.constants)?.get(name);
   return new Map(
     [...sourcesByPath].map(([path, source]) => {
       const module = analyse(path, source, external);
@@ -671,6 +755,14 @@ describe('each decision command is posted from exactly one component', () => {
    */
   it('lists every URL whose last segment is dynamic', () => {
     expect(dynamicTails(modules).sort()).toEqual([...DYNAMIC_TAILS].sort());
+  });
+
+  /**
+   * The rules above read URLs; a request whose URL is not readable at all fails closed: each is
+   * listed here, so a new one must be classified (R-A6 second re-check R3).
+   */
+  it('lists every request whose URL it cannot read', () => {
+    expect(opaqueRequests(modules).sort()).toEqual([...OPAQUE_REQUESTS].sort());
   });
 });
 
@@ -820,6 +912,28 @@ describe('the poster detector', () => {
           "export async function A() { const m = await import('../lib/commands.js'); return m.decideIt('a'); }",
       },
     ],
+    [
+      'a URL prefix held in a function-local constant',
+      {
+        'features/A.tsx': [
+          'export function A() {',
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+          '  const r = `/api/${id}/runtime/`;',
+          "  return request(r + 'decide');",
+          '}',
+        ].join('\n'),
+      },
+    ],
+    [
+      'a helper that returns a dynamically imported module',
+      {
+        'lib/commands.ts': `export const decideIt = (id: string) => ${helper};`,
+        'features/A.tsx': [
+          "const lazy = () => import('../lib/commands.js');",
+          "export async function A() { return (await lazy()).decideIt('a'); }",
+        ].join('\n'),
+      },
+    ],
   ] as const)('finds a poster through %s', (_name, files) => {
     expect(postersOf(plant(files), /\/decide$/)).toEqual(['features/A.tsx#A']);
   });
@@ -834,6 +948,18 @@ describe('the poster detector', () => {
     expect(dynamicTails(planted)).toEqual(['lib/commands.ts: /api/w/*/*']);
     expect(unnamedTails(planted, 'adopt', [/\/checks\/adopt$/])).toEqual(['lib/adopt.ts: */adopt']);
     expect(unnamedTails(planted, 'adopt', [/\/adopt$/])).toEqual([]);
+  });
+  it('lists a request whose URL it cannot read: a prefix through a barrel or a namespace member', () => {
+    const planted = plant({
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+      'lib/base.ts': 'export const r = `/api/${id}/runtime/`;',
+      'lib/barrel.ts': "export { r } from './base.js';",
+      'features/A.tsx':
+        "import { r } from '../lib/barrel.js';\nexport function A() { return request(r + 'decide'); }",
+      'features/B.tsx':
+        "import * as b from '../lib/base.js';\nexport function B() { return request(b.r + 'decide'); }",
+    });
+    expect(opaqueRequests(planted)).toEqual(['features/A.tsx: *decide', 'features/B.tsx: *decide']);
   });
   it('names an action built from pieces inside a component', () => {
     const planted = plant({

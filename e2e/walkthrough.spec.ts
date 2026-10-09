@@ -972,6 +972,7 @@ test('captures every page of the app on desktop and phone viewports', async ({
     ).toBeVisible();
     // The new roadmap opens on its setup page (R-E2).
     await page.reload();
+    const crossProjectSetup = page.url();
     await expect(
       page.getByRole('button', { name: 'Change future delegation', exact: true }),
     ).toBeVisible();
@@ -1130,6 +1131,35 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await navigate(page, 'Workspaces');
     await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
     await walk.capture('workspaces', 'Workspaces', heading('Workspaces'));
+
+    // ---- A shared architecture decision decided in its own item (R-A6 rest, A2) -----------
+    // Last, so that the preparation run changes no scene above. A preparation whose report
+    // ends without a conclusion asks the operator; its item renders that decision's card alone.
+    await page.goto(crossProjectSetup);
+    await page.getByRole('button', { name: 'Prepare architecture decision', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Decision', exact: true }).selectOption('WI-ADR-008');
+    await sendCommand(
+      page,
+      page
+        .getByRole('region', { name: 'WI-ADR-008', exact: true })
+        .getByRole('button', { name: 'Prepare decision brief', exact: true }),
+    );
+    await navigate(page, 'Needs you');
+    const decisionItem = page
+      .getByRole('region', { name: 'Open items' })
+      .getByRole('link', { name: 'Decision preparation questions', exact: true });
+    await expect(decisionItem).toBeVisible({ timeout: 60_000 });
+    await decisionItem.click();
+    await expect(
+      page
+        .getByRole('region', { name: 'Decision' })
+        .getByRole('region', { name: 'WI-ADR-008', exact: true }),
+    ).toBeVisible();
+    await walk.capture(
+      'inbox-architecture-decision',
+      'Needs you · one shared architecture decision, alone',
+      region('Decision'),
+    );
 
     walk.writeIndex(label, commit);
   } finally {

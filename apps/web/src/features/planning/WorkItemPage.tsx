@@ -22,13 +22,10 @@ type Dependency = WorkItemDetailResponse['dependents'][number];
 function DependencyLinks({
   workspaceId,
   entries,
-  empty,
 }: {
   workspaceId: WorkspaceId;
   entries: readonly Dependency[];
-  empty: string;
 }) {
-  if (entries.length === 0) return <span className="hint">{empty}</span>;
   return (
     <ul className="dependency-links">
       {entries.map((entry) => (
@@ -82,6 +79,13 @@ export function WorkItemPage({
   canMutate: boolean;
 }) {
   const item = detail.workItem;
+  const dependencyRows = (
+    [
+      ['Requires', detail.requiredPredecessors],
+      ['Recommended', detail.recommendedPredecessors],
+      ['Unblocks', detail.dependents],
+    ] as const
+  ).filter(([, entries]) => entries.length > 0);
   const blocked = item.blockerSourceIds.length > 0;
   const stateLabel =
     item.status === 'admitted' && inProgress ? 'In progress' : readinessLabel(item.readiness);
@@ -222,38 +226,27 @@ export function WorkItemPage({
                 ]),
           ]}
         />
-        <div className="two-column">
-          <div className="stack">
-            <h4>Exit gate</h4>
-            <p>{item.exitGate}</p>
-          </div>
+        <p>
+          <strong>Exit gate.</strong> {item.exitGate}
+        </p>
+        {/* Only the dependency rows that have entries; the section's summary says when none
+            block (R-E4). */}
+        {dependencyRows.length === 0 ? (
+          <p className="hint">No predecessors or dependents.</p>
+        ) : (
           <dl className="dependency-facts">
-            <dt>Requires ({detail.requiredPredecessors.length})</dt>
-            <dd>
-              <DependencyLinks
-                workspaceId={workspaceId}
-                entries={detail.requiredPredecessors}
-                empty="None."
-              />
-            </dd>
-            <dt>Recommended ({detail.recommendedPredecessors.length})</dt>
-            <dd>
-              <DependencyLinks
-                workspaceId={workspaceId}
-                entries={detail.recommendedPredecessors}
-                empty="None. Recommendations never block admission."
-              />
-            </dd>
-            <dt>Unblocks ({detail.dependents.length})</dt>
-            <dd>
-              <DependencyLinks
-                workspaceId={workspaceId}
-                entries={detail.dependents}
-                empty="None."
-              />
-            </dd>
+            {dependencyRows.map(([label, entries]) => (
+              <Fragment key={label}>
+                <dt>
+                  {label} ({entries.length})
+                </dt>
+                <dd>
+                  <DependencyLinks workspaceId={workspaceId} entries={entries} />
+                </dd>
+              </Fragment>
+            ))}
           </dl>
-        </div>
+        )}
       </Section>
     </>
   );

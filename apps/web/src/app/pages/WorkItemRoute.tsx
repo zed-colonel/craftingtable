@@ -91,7 +91,9 @@ export function WorkItemRoute({
                   label: 'Delegation',
                   count: execution.worktrees.filter((t) => t.status === 'active').length,
                 },
-                { id: 'runs', label: 'Runs', count: execution.runs.length },
+                ...(execution.runs.length > 0
+                  ? [{ id: 'runs', label: 'Runs', count: execution.runs.length }]
+                  : []),
               ]
             : []),
           ...(diffShown ? [{ id: 'diff', label: 'Diff' }] : []),
@@ -128,7 +130,9 @@ export function WorkItemRoute({
         repositories={item.repositories}
         onChanged={item.refresh}
         collapsible
-        defaultOpen={!inProgress && detail.workItem.status !== 'completed'}
+        // Open while making a worktree here is the next step; a map work item's slices make their
+        // own, so its branch settings are reference from the start (R-E4).
+        defaultOpen={!inProgress && detail.workItem.status !== 'completed' && slices.length === 0}
         {...(canMutate &&
         detail.workItem.status !== 'completed' &&
         !execution?.worktrees.some((t) => t.executionScope)

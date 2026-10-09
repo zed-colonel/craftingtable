@@ -341,6 +341,18 @@ describe('work item page as a drill-down (R-E4)', () => {
     );
   });
 
+  it('lists only the dependency rows that have entries', () => {
+    renderPage(workItemDetail());
+    expect(screen.getByText('No predecessors or dependents.')).toBeDefined();
+    cleanup();
+    renderPage(
+      workItemDetail({ dependents: [{ ...dependency('AQ-04'), kind: 'required' }] } as never),
+    );
+    expect(screen.getByText('Unblocks (1)')).toBeDefined();
+    expect(screen.queryByText(/Requires/)).toBeNull();
+    expect(screen.queryByText(/Recommended/)).toBeNull();
+  });
+
   it('opens with the slice strip, above the page’s sections', () => {
     renderPage(workItemDetail(), { strip: <section aria-label="Slices">strip</section> });
     const strip = screen.getByRole('region', { name: 'Slices' });

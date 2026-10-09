@@ -1859,3 +1859,17 @@ describe('reviews on a completed item', () => {
     expect(screen.queryByRole('button', { name: 'Launch a run…' })).toBeNull();
   });
 });
+
+describe('delegation on the work item page (R-E4)', () => {
+  it('has no run history until there is a run, and opens the launch form while there is none', () => {
+    render(<DelegationPanel {...panelProps()} />);
+    expect(screen.queryByRole('region', { name: 'Runs' })).toBeNull();
+    expect(screen.getByRole('form', { name: 'Launch an agent' })).toBeDefined();
+  });
+
+  it('says once that there is no worktree yet', () => {
+    render(<DelegationPanel {...panelProps({ worktrees: [] })} />);
+    expect(screen.queryByRole('heading', { name: 'Worktrees (0)' })).toBeNull();
+    expect(screen.getAllByText(/No worktree yet/).length).toBeGreaterThan(0);
+  });
+});

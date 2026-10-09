@@ -277,7 +277,10 @@ export function DelegationPanel({
                 onMerged={onMerged}
               />
             ))}
-        <h4>Worktrees ({activeWorktrees.length})</h4>
+        {/* With no worktree at all, the summary and the line below say so once (R-E4). */}
+        {(activeWorktrees.length > 0 || mergedWorktrees.length > 0) && (
+          <h4>Worktrees ({activeWorktrees.length})</h4>
+        )}
         {activeWorktrees.length === 0 ? (
           <p className="empty-state">
             {mergedWorktrees.length > 0
@@ -591,22 +594,16 @@ export function DelegationPanel({
           </form>
         )}
       </Section>
-      {/* Run history is reference: closed until asked for, reached from the page's navigation (R-E4). */}
-      <Section
-        id="runs"
-        title="Runs"
-        count={runs.length}
-        collapsible
-        defaultOpen={false}
-        summary={
-          latest === undefined
-            ? 'No agent runs yet.'
-            : `Latest: ${RUN_ROLE_LABELS[latest.role]} · ${RUN_STATUS_LABELS[latest.status]}.`
-        }
-      >
-        {runs.length === 0 ? (
-          <p className="empty-state">No agent runs yet.</p>
-        ) : (
+      {/* Run history is reference: closed until asked for, and absent until there is a run (R-E4). */}
+      {latest !== undefined && (
+        <Section
+          id="runs"
+          title="Runs"
+          count={runs.length}
+          collapsible
+          defaultOpen={false}
+          summary={`Latest: ${RUN_ROLE_LABELS[latest.role]} · ${RUN_STATUS_LABELS[latest.status]}.`}
+        >
           <div className="table-scroll">
             <table className="data-table data-table-wide">
               <caption className="visually-hidden">Agent runs</caption>
@@ -669,7 +666,9 @@ export function DelegationPanel({
                           <span
                             className="status-badge"
                             style={
-                              { '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties
+                              {
+                                '--badge-accent': RUN_STATUS_ACCENTS[run.status],
+                              } as CSSProperties
                             }
                           >
                             {RUN_STATUS_LABELS[run.status]}
@@ -682,7 +681,9 @@ export function DelegationPanel({
                             <span
                               className="status-badge"
                               style={
-                                { '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties
+                                {
+                                  '--badge-accent': VERDICT_ACCENTS[run.verdict],
+                                } as CSSProperties
                               }
                             >
                               {VERDICT_LABELS[run.verdict]}
@@ -752,8 +753,8 @@ export function DelegationPanel({
               </tbody>
             </table>
           </div>
-        )}
-      </Section>
+        </Section>
+      )}
     </>
   );
 }

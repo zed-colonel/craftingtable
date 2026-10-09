@@ -96,3 +96,26 @@ it('keeps what needs the operator open however long it is', () => {
   expect(you.querySelector('details')).toBeNull();
   expect(within(you).getAllByRole('button')).toHaveLength(11);
 });
+
+it('opens a node no row or gate holds above the list (R-E3b review M1)', () => {
+  // The met plan checkpoint: no open entry opens on it and it is no gate.
+  const onSelect = vi.fn();
+  render(
+    <BoardList model={MODEL} selected="checkpoint:PLAN:passed" onSelect={onSelect} links={links} />,
+  );
+  const selection = screen.getByRole('region', { name: 'Selection' });
+  expect(within(selection).getByRole('heading').textContent).toContain('Plan accepted');
+  fireEvent.click(within(selection).getByRole('button', { name: 'Clear selection' }));
+  expect(onSelect).toHaveBeenLastCalledWith(undefined);
+  cleanup();
+  // A row's own node opens under the row, not above.
+  render(
+    <BoardList
+      model={MODEL}
+      selected="slice:wi/WI-01/impl:started"
+      onSelect={vi.fn()}
+      links={links}
+    />,
+  );
+  expect(screen.queryByRole('region', { name: 'Selection' })).toBeNull();
+});

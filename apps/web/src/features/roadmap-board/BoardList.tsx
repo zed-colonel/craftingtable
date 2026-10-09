@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { ENTRY_STATE_LABELS } from '../planning/roadmap-labels.js';
 import { type BoardModel, indexOfKey, nodeOfEntry, type StatusRow } from './board-model.js';
 import { BoardNotice, BoardSummary, GateButton } from './RoadmapBoard.js';
@@ -39,6 +40,18 @@ export function BoardList({
         />
       </div>
     ) : null;
+  // A node no row or gate opens on (one listed as unblocked or required, say) opens here, above
+  // the list, and comes into view (R-E3b review M1).
+  const held =
+    index !== undefined &&
+    (model.board.gates.some((g) => g.node === index) ||
+      model.status.entries.some((row) => nodeOfEntry(model, row.entryId) === index));
+  const loose = index !== undefined && !held;
+  const looseRef = useRef<HTMLElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each new loose selection comes into view, not only the first.
+  useEffect(() => {
+    if (loose) looseRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [loose, index]);
   const groups: readonly [string, StatusRow['actor'][], number][] = [
     ['Needs you', ['operator'], summary.needsYou],
     ['Agents at work', ['agent'], summary.agentsAtWork],
@@ -54,6 +67,20 @@ export function BoardList({
     <div className="roadmap-board board-list">
       <BoardSummary model={model} />
       <BoardNotice model={model} selected={selected} index={index} />
+      {loose && (
+        <section aria-label="Selection" className="board-inline" ref={looseRef}>
+          <SelectionContent
+            model={model}
+            index={index}
+            links={links}
+            onSelect={onSelect}
+            headingLevel={4}
+          />
+          <button type="button" className="secondary-button" onClick={() => onSelect(undefined)}>
+            Clear selection
+          </button>
+        </section>
+      )}
       {model.board.gates.length > 0 && (
         <section aria-label="Gates" className="board-gates">
           <h3>Gates ({model.board.gates.length})</h3>

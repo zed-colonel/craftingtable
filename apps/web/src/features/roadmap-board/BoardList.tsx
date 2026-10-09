@@ -5,7 +5,7 @@ import { type BoardLinks, SelectionContent } from './SelectionPanel.js';
 
 /** Gates listed before "show all". */
 const GATES_SHOWN = 8;
-/** A group longer than this starts closed. */
+/** The waiting group longer than this starts closed. */
 const LIST_SHOWN = 10;
 
 /**
@@ -96,15 +96,15 @@ export function BoardList({
             })}
           </ul>
         );
-        // A long wait list opens on request, as the status list's did, or when it holds the
-        // selection.
+        // A long list of waits on others opens on request, as the status list's did, or when it
+        // holds the selection; what needs the operator and agents at work are always open.
         const holds = rows.some((row) => {
           const at = nodeOfEntry(model, row.entryId);
           return at !== undefined && at === index;
         });
         return (
           <section key={title} aria-label={title} className="board-group">
-            {rows.length > LIST_SHOWN ? (
+            {actors.includes('controller') && rows.length > LIST_SHOWN ? (
               <details open={holds}>
                 <summary className="board-group-title">
                   {title} ({count})

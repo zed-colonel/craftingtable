@@ -84,3 +84,15 @@ it('starts a group of more than ten rows closed, unless it holds the selection',
   expect(waiting.querySelector('details')?.open).toBe(false);
   expect(waiting.querySelector('summary')?.textContent).toBe('Waiting (2)');
 });
+
+it('keeps what needs the operator open however long it is', () => {
+  const many = Array.from({ length: 11 }, (_, i) => ({
+    ...MODEL.status.entries[0]!,
+    entryId: `00000000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`,
+  }));
+  const model = { ...MODEL, status: { ...MODEL.status, entries: many } };
+  render(<BoardList model={model} selected={undefined} onSelect={vi.fn()} links={links} />);
+  const you = screen.getByRole('region', { name: 'Needs you' });
+  expect(you.querySelector('details')).toBeNull();
+  expect(within(you).getAllByRole('button')).toHaveLength(11);
+});

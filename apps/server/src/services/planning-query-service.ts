@@ -127,6 +127,42 @@ export class PlanningQueryService {
     return detail;
   }
 
+  /**
+   * A plan version's dependency structure (R-E4): its work items in plan order and its required
+   * predecessors as edges between their indices. A version never changes, so the browser reads it
+   * once per version, as a roadmap's graph is read once per revision (R-E3b).
+   */
+  planVersionGraph(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    planVersionId: PlanVersionId,
+    requestId?: string,
+  ) {
+    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
+    return this.storage.readTransaction((tx) => {
+      if (tx.planning.versions.find(workspaceId, planVersionId) === undefined)
+        throw new NotFoundError();
+      const items = tx.planning.workItems.listForVersion(workspaceId, planVersionId);
+      const index = new Map(items.map((item, i) => [item.id as string, i]));
+      return {
+        planVersionId,
+        nodes: items.map((item) => ({
+          workItemId: item.id,
+          sourceId: item.sourceId,
+          title: item.title,
+        })),
+        edges: tx.planning.dependencies
+          .listForVersion(workspaceId, planVersionId)
+          .filter((d) => d.kind === 'required')
+          .flatMap((d) => {
+            const from = index.get(d.predecessorWorkItemId);
+            const to = index.get(d.successorWorkItemId);
+            return from === undefined || to === undefined ? [] : [[from, to] as [number, number]];
+          }),
+      };
+    });
+  }
+
   workItemDetail(
     context: AuthContext,
     workspaceId: WorkspaceId,

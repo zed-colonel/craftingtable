@@ -2,7 +2,7 @@ import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { ENTRY_STATE_LABELS } from '../planning/roadmap-labels.js';
 import { type BoardModel, cardOf, indexOfKey, nodeAt } from './board-model.js';
 import { type GraphGroup, neighbourhood } from './graph-neighbourhood.js';
-import { layeredLayout } from './layered-layout.js';
+import { edgePath, layeredLayout } from './layered-layout.js';
 import { BoardNotice, BoardSummary, GatesStrip } from './RoadmapBoard.js';
 import { ACTOR_LABELS, type BoardLinks, SelectionContent } from './SelectionPanel.js';
 
@@ -38,15 +38,7 @@ function describe(model: BoardModel, group: GraphGroup): { line: string; tone: T
 }
 
 /** A smooth path through an edge's points, left to right. */
-function pathOf(points: readonly { x: number; y: number }[]): string {
-  let d = `M ${points[0]!.x + PAD} ${points[0]!.y + PAD}`;
-  for (let i = 1; i < points.length; i++) {
-    const [a, b] = [points[i - 1]!, points[i]!];
-    const dx = (b.x - a.x) / 2;
-    d += ` C ${a.x + dx + PAD} ${a.y + PAD}, ${b.x - dx + PAD} ${b.y + PAD}, ${b.x + PAD} ${b.y + PAD}`;
-  }
-  return d;
-}
+const pathOf = (points: readonly { x: number; y: number }[]) => edgePath(points, PAD);
 
 /** Shortens a title to what a node holds. */
 const short = (text: string, length: number) =>

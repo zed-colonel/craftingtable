@@ -306,7 +306,36 @@ vi.mock('./lib/roadmap-api.js', async (original) => {
 vi.mock('./lib/planning-api.js', async (original) => ({
   ...(await original<typeof import('./lib/planning-api.js')>()),
   loadWorkspaceWorkItems: count('agenda', async () => ({ filter: 'all', items: [] })),
+  loadPlanVersion: count('plan-version', async () => PLAN_VERSION),
+  loadPlanVersionGraph: count('plan-version-graph', async () => ({
+    planVersionId: 'plan',
+    nodes: [
+      { workItemId: ITEM, sourceId: 'AQ-01', title: 'Alpha work item' },
+      { workItemId: 'item-2', sourceId: 'AQ-02', title: 'Beta work item' },
+    ],
+    edges: [[0, 1]],
+  })),
 }));
+/** A plan version with two work items, the second requiring the first (R-E4). */
+const PLAN_VERSION = {
+  version: {
+    id: 'plan',
+    projectId: 'project-a',
+    versionNumber: 1,
+    document: 'plan.md',
+    isActive: true,
+    contentDigest: 'a'.repeat(64),
+    digestAlgorithm: 'sha256',
+    digestFormatVersion: 1,
+    sourceProfile: 'exo-work-breakdown-v1',
+    itemCount: 2,
+    requiredDependencyCount: 1,
+    createdAt: '2026-10-01T00:00:00.000Z',
+  },
+  workItems: [],
+  artifacts: [],
+  diagnostics: [],
+};
 
 const { App } = await import('./App.js');
 
@@ -650,4 +679,27 @@ it('reads nothing when the board selects (R-E3b)', async () => {
     await vi.advanceTimersByTimeAsync(5_000);
   });
   expect(requests.slice(before)).toEqual([]);
+});
+
+/**
+ * R-E4: a plan version's dependency graph is read once per version. The page reads its detail and
+ * its graph; no event reads the graph again, since a version never changes.
+ */
+it('reads a plan version’s graph once, and no event reads it again (R-E4)', async () => {
+  for (const kind of KINDS) {
+    window.history.replaceState(null, '', '/workspaces/ws-a/projects/project-a/plans/plan');
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Dependency graph' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    const before = requests.length;
+    const onEvent = vi.mocked(useWorkspaceEventStream).mock.lastCall![2].onEvent;
+    act(() => onEvent(eventOf(kind, true)));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(requests.slice(before), kind).not.toContain('plan-version-graph');
+    cleanup();
+  }
 });

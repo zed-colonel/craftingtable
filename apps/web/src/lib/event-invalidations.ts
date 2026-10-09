@@ -25,6 +25,9 @@ export const queryKeys = {
   /** A roadmap's graph at one revision (R-E3b): it never changes, so no event reads it again. */
   roadmapGraph: (workspaceId: string, roadmapId: string, revision: string) =>
     ['roadmap-graph', workspaceId, roadmapId, revision] as const,
+  /** A plan version's dependency graph (R-E4): a version never changes, so no event reads it again. */
+  planVersionGraph: (workspaceId: string, planVersionId: string) =>
+    ['plan-version-graph', workspaceId, planVersionId] as const,
   /** A map's dependency environment and evidence view. */
   runtime: (workspaceId: string, definitionId: string) =>
     ['runtime', workspaceId, definitionId] as const,

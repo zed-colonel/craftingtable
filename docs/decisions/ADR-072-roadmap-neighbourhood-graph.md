@@ -32,8 +32,17 @@ A roadmap's board gets a second view, the neighbourhood graph (`?view=graph`, de
   left and dotted. The transitive reduction keeps every edge inside a loop and reduces only
   between loops. A neighbourhood that still cannot be laid out shows a message, never an error
   page.
-- **Where not.** No graph on a phone (the grouped list stands in), and none on a plan version's
-  page: the plan-level graph waits for R-E4.
+- **Where not.** No graph on a phone (the grouped list stands in). A plan version's page has the
+  plan-level graph since R-E4 (below).
+
+## Amendment (R-E4, 2026-10-09): the plan-level graph
+
+A plan version's page draws its whole dependency graph with the same layout module: every work
+item, its required predecessors as edges, transitively reduced. The structure is served once per
+version (`GET …/plan-versions/:id/graph`, index-encoded), as a roadmap's graph is served once per
+revision, and each node's state comes from the version's detail, in words. A node opens its work
+item. Past 60 work items it says so instead of drawing, and the table stands in; as here, there is
+no graph on a phone.
 
 ## Consequences
 

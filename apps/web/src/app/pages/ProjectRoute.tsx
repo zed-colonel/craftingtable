@@ -5,13 +5,14 @@ import { decisionsFor } from '../../decisions/registry.js';
 import { FinalizationPanel } from '../../features/execution/FinalizationPanel.js';
 import { PlanBranchPanel } from '../../features/execution/PlanBranchPanel.js';
 import { PlanVersionPage } from '../../features/planning/PlanVersionPage.js';
+import { useWide } from '../../features/roadmap-board/use-wide.js';
 import { ProjectPage } from '../../features/planning/ProjectPage.js';
 import { SourceText } from '../../features/planning/SourceText.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { loadArtifactText } from '../../lib/planning-api.js';
 import { useQueryStore } from '../../lib/query-store.js';
 import { RefreshFailed } from '../RefreshFailed.js';
-import { usePlanVersion, useProject } from '../reads.js';
+import { usePlanVersion, usePlanVersionGraph, useProject } from '../reads.js';
 import { useAlive, useGo, useSession, useWorkspaceScope } from '../session.js';
 
 /** A plan's source artifact, opened from its project or plan version page. */
@@ -91,6 +92,9 @@ export function PlanVersionRoute({
   const go = useGo();
   const artifact = useArtifact();
   const query = usePlanVersion(workspaceId, projectId, planVersionId);
+  // The graph is drawn at the board's width only; a phone reads nothing for it (R-E4).
+  const wide = useWide();
+  const graph = usePlanVersionGraph(workspaceId, wide ? planVersionId : undefined);
   const detail = query.data;
   const failed = <RefreshFailed failed={query.error !== undefined} />;
   if (detail?.version.id !== planVersionId) return failed;
@@ -100,6 +104,7 @@ export function PlanVersionRoute({
       <PlanVersionPage
         workspaceId={workspaceId}
         detail={detail}
+        {...(wide && graph.data ? { graph: graph.data } : {})}
         branchSettings={
           <>
             <PlanBranchPanel

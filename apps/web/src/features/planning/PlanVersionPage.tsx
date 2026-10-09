@@ -1,4 +1,4 @@
-import type { PlanVersionDetailResponse } from '@craftingtable/contracts';
+import type { PlanVersionDetailResponse, PlanVersionGraph } from '@craftingtable/contracts';
 import type { PlanArtifactId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import type { ReactNode } from 'react';
 import { PageHeader } from '../../components/PageHeader.js';
@@ -7,6 +7,7 @@ import { archiveDownloadPath } from '../../lib/package-import-api.js';
 import { formatBytes, shortDigest } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
 import { PlanCompletion } from './PlanCompletion.js';
+import { PlanGraph } from './PlanGraph.js';
 import { WorkItemTable } from './WorkItemTable.js';
 
 /** An immutable, content-addressed plan version. */
@@ -14,10 +15,13 @@ export function PlanVersionPage({
   detail,
   workspaceId,
   branchSettings,
+  graph,
   onOpenWorkItem,
   onViewArtifact,
 }: {
   branchSettings?: ReactNode;
+  /** Its dependency graph, read once per version (R-E4); absent on a phone, where the table stands in. */
+  graph?: PlanVersionGraph;
   workspaceId?: WorkspaceId;
   detail: PlanVersionDetailResponse;
   onOpenWorkItem: (workItemId: WorkItemId) => void;
@@ -37,6 +41,16 @@ export function PlanVersionPage({
       <Section title={`Work items (${detail.workItems.length})`} label="Work items">
         <WorkItemTable items={detail.workItems} onOpen={onOpenWorkItem} />
       </Section>
+
+      {graph?.planVersionId === detail.version.id && (
+        <Section
+          id="dependency-graph"
+          title="Dependency graph"
+          summary="Each work item right of the predecessors it requires; select one to open it."
+        >
+          <PlanGraph graph={graph} items={detail.workItems} onOpen={onOpenWorkItem} />
+        </Section>
+      )}
 
       <Section title="Source artifacts" count={detail.artifacts.length}>
         <ul className="artifact-list">

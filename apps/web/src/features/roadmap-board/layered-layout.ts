@@ -227,3 +227,14 @@ export function layeredLayout<T>(
     crossings: fewest,
   };
 }
+
+/** A smooth SVG path through an edge's points, offset by `pad` (the graphs' margin). */
+export function edgePath(points: readonly { x: number; y: number }[], pad: number): string {
+  let d = `M ${points[0]!.x + pad} ${points[0]!.y + pad}`;
+  for (let i = 1; i < points.length; i++) {
+    const [a, b] = [points[i - 1]!, points[i]!];
+    const dx = (b.x - a.x) / 2;
+    d += ` C ${a.x + dx + pad} ${a.y + pad}, ${b.x - dx + pad} ${b.y + pad}, ${b.x + pad} ${b.y + pad}`;
+  }
+  return d;
+}

@@ -5,6 +5,7 @@ import {
   completeWorkItemResponseSchema,
   planImportResponseSchema,
   planVersionDetailResponseSchema,
+  planVersionGraphSchema,
   projectDetailResponseSchema,
   workItemDetailResponseSchema,
   workspaceSnapshotResponseSchema,
@@ -286,6 +287,50 @@ describe('planning queries over HTTP', () => {
     expect(detail.version.sourceProfile).toBe('exo-work-breakdown-v1');
     expect(detail.version.digestFormatVersion).toBe(1);
     expect(detail.workItems).toHaveLength(14);
+  });
+
+  it('serves a plan version’s dependency graph by version, its required edges by index (R-E4)', async () => {
+    const ready = await importedWorkspace();
+    const base = `/api/workspaces/${ready.workspaceId}`;
+    const get = (url: string) =>
+      ready.context.app.inject({ method: 'GET', url, headers: { cookie: ready.session.cookie } });
+    const graph = planVersionGraphSchema.parse(
+      (await get(`${base}/plan-versions/${ready.imported.planVersionId}/graph`)).json(),
+    );
+    const detail = planVersionDetailResponseSchema.parse(
+      (
+        await get(
+          `${base}/projects/${ready.imported.projectId}/plan-versions/${ready.imported.planVersionId}`,
+        )
+      ).json(),
+    );
+    // Every work item once, in the plan's order, and every required dependency as an edge.
+    expect(graph.planVersionId).toBe(ready.imported.planVersionId);
+    expect(graph.nodes.map((n) => n.sourceId)).toEqual(detail.workItems.map((w) => w.sourceId));
+    expect(graph.edges).toHaveLength(detail.version.requiredDependencyCount);
+    expect(graph.edges).toHaveLength(24);
+    // An edge runs from the predecessor to the item that requires it, as each item's detail says.
+    for (const node of graph.nodes) {
+      const item = workItemDetailResponseSchema.parse(
+        (await get(`${base}/work-items/${node.workItemId}`)).json(),
+      );
+      const into = graph.edges
+        .filter(([, to]) => graph.nodes[to]!.workItemId === node.workItemId)
+        .map(([from]) => graph.nodes[from]!.sourceId);
+      expect(into.toSorted()).toEqual(item.requiredPredecessors.map((p) => p.sourceId).toSorted());
+    }
+    // Unknown and foreign versions are not found.
+    expect(
+      (await get(`${base}/plan-versions/00000000-0000-4000-8000-000000000000/graph`)).statusCode,
+    ).toBe(404);
+    const foreign = foreignWorkspace(ready.context);
+    expect(
+      (
+        await get(
+          `/api/workspaces/${foreign.workspaceId}/plan-versions/${ready.imported.planVersionId}/graph`,
+        )
+      ).statusCode,
+    ).toBe(404);
   });
 
   it('serves raw source bytes with safe headers (CT03-A40)', async () => {

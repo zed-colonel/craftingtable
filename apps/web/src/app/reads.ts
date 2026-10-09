@@ -21,7 +21,12 @@ import {
   loadWorkItemView,
   loadWorkspaceRuns,
 } from '../lib/execution-api.js';
-import { loadPlanVersion, loadProject, loadWorkspaceWorkItems } from '../lib/planning-api.js';
+import {
+  loadPlanVersion,
+  loadPlanVersionGraph,
+  loadProject,
+  loadWorkspaceWorkItems,
+} from '../lib/planning-api.js';
 import { type QueryKey, type QueryStore, useQuery } from '../lib/query-store.js';
 import type { AgendaFilter } from '../lib/route.js';
 import { loadWorkCycles } from '../lib/work-cycle-api.js';
@@ -74,6 +79,21 @@ export const usePlanVersion = (
 ) =>
   useQuery(queryKeys.planVersion(workspaceId, projectId, planVersionId), () =>
     loadPlanVersion(workspaceId, projectId, planVersionId),
+  );
+
+/**
+ * A plan version's dependency graph (R-E4), read once per version and never again; `undefined`
+ * (a phone, where it is not drawn) reads nothing.
+ */
+export const usePlanVersionGraph = (
+  workspaceId: WorkspaceId,
+  planVersionId: PlanVersionId | undefined,
+) =>
+  useQuery(
+    planVersionId === undefined
+      ? undefined
+      : queryKeys.planVersionGraph(workspaceId, planVersionId),
+    () => loadPlanVersionGraph(workspaceId, planVersionId as PlanVersionId),
   );
 
 /** A run page's region in one read (R-D5). */

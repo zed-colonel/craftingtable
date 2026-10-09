@@ -176,6 +176,28 @@ export const workItemDependencySummarySchema = z.strictObject({
   kind: z.enum(['required', 'recommended']),
 });
 
+/**
+ * A plan version's dependency structure (R-E4): its work items in plan order, and each required
+ * predecessor as an edge `[predecessor, successor]` between their indices. A plan version never
+ * changes, so this is read once per version; the items' states come from the version's detail.
+ */
+export const planVersionGraphSchema = z.strictObject({
+  planVersionId: planVersionIdSchema,
+  nodes: z
+    .array(
+      z.strictObject({
+        workItemId: workItemIdSchema,
+        sourceId: z.string().min(1).max(64),
+        title: z.string().min(1).max(300),
+      }),
+    )
+    .max(2000),
+  edges: z
+    .array(z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]))
+    .max(20000),
+});
+export type PlanVersionGraph = z.infer<typeof planVersionGraphSchema>;
+
 export const planVersionDetailResponseSchema = z.strictObject({
   version: planVersionSummarySchema.extend({
     sourceProfile: z.literal('exo-work-breakdown-v1'),

@@ -69,6 +69,7 @@ const EXPECTED_ROUTES = [
   'GET /api/workspaces/:workspaceId/roadmaps/:roadmapId/view',
   'GET /api/workspaces/:workspaceId/roadmaps/:roadmapId/definitions/:revision',
   'GET /api/workspaces/:workspaceId/roadmaps/:roadmapId/graph/:revision',
+  'GET /api/workspaces/:workspaceId/plan-versions/:planVersionId/graph',
   'GET /api/workspaces/:workspaceId/roadmaps/:roadmapId/status',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/control',

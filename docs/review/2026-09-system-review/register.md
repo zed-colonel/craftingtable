@@ -56,7 +56,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E1](#r-e1) | P2 | M | done (a07dbfe, 4102517) | Real routes and one Link component |
 | [R-E2](#r-e2) | P2 | M | done (3feb310; increment 2 with R-A6 2026-09-30, accepted as built by operator decision the same day) | Split the Roadmaps mega-page |
 | [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | done (R-E3a 2026-09-27; R-E3b 2026-10-09, 341b803..3d5c2e4, independently reviewed) | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
-| [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
+| [R-E4](#r-e4) | P3 | M | in progress (2026-10-09) | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | partial (R-E5a done; R-E5b open) | Consolidate settings and agent selection |
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
@@ -2269,7 +2269,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E4
 
-**Work-item and run pages become drill-downs** · Phase P3 · Effort M · Status: open
+**Work-item and run pages become drill-downs** · Phase P3 · Effort M · Status: in progress (2026-10-09; built in the commits named under "Built", recorded when done)
 
 - **Resolves:** [UI-18](findings/UI-information-architecture.md#ui-18-the-work-item-page-stacks-up-to-about-a-dozen-conditional-panels-in-one-automated-cycle-section-slice-gates-sit-at-the-bottom), [UI-08](findings/UI-information-architecture.md#ui-08-dead-ends-blockers-that-tell-the-operator-to-go-elsewhere-without-a-link-generic-landing-pages-and-deep-links-that-silently-do-nothing)
 - **Change:** Header, attention banner (link to inbox), slice strip, tabs (Cycle, Runs, Branches and worktrees, Gates, Diff); predecessors, dependents and blockers are links; SectionNav includes slices; recovery forms live in the inbox (R-A6).

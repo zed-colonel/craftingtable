@@ -7,6 +7,7 @@ import {
   planImportAttemptListResponseSchema,
   planImportResponseSchema,
   planVersionDetailResponseSchema,
+  planVersionGraphSchema,
   planVersionIdSchema,
   projectDetailResponseSchema,
   projectIdSchema,
@@ -226,6 +227,25 @@ export function registerPlanningRoutes(
             planVersionId.data,
             request.id,
           ),
+        ),
+      );
+    },
+  );
+
+  // A plan version's dependency structure, which never changes (R-E4).
+  app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
+    '/api/workspaces/:workspaceId/plan-versions/:planVersionId/graph',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const planVersionId = planVersionIdSchema.safeParse(request.params.planVersionId);
+      if (!workspaceId.success || !planVersionId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      return noStore(reply).send(
+        planVersionGraphSchema.parse(
+          queryService.planVersionGraph(context, workspaceId.data, planVersionId.data, request.id),
         ),
       );
     },

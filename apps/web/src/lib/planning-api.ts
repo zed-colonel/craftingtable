@@ -6,11 +6,13 @@ import {
   type PlanImportAttemptListResponse,
   type PlanImportResponse,
   type PlanVersionDetailResponse,
+  type PlanVersionGraph,
   type ProjectDetailResponse,
   type ProjectListResponse,
   planImportAttemptListResponseSchema,
   planImportResponseSchema,
   planVersionDetailResponseSchema,
+  planVersionGraphSchema,
   projectDetailResponseSchema,
   projectListResponseSchema,
   removeFromAgendaResponseSchema,
@@ -53,6 +55,17 @@ export function loadPlanVersion(
   return request(
     `/api/workspaces/${encode(workspaceId)}/projects/${encode(projectId)}/plan-versions/${encode(planVersionId)}`,
     planVersionDetailResponseSchema,
+  );
+}
+
+/** A plan version's dependency structure, which never changes (R-E4). */
+export function loadPlanVersionGraph(
+  workspaceId: WorkspaceId,
+  planVersionId: PlanVersionId,
+): Promise<PlanVersionGraph> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/plan-versions/${encode(planVersionId)}/graph`,
+    planVersionGraphSchema,
   );
 }
 

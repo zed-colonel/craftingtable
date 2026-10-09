@@ -82,6 +82,12 @@ export function FinalPromotion({
             <code>{reviewed.targetSha}</code>. This requires your explicit approval and renewed
             review if either commit changes.
           </p>
+          {view.targetCheckedOut === true && (
+            <p className="hint">
+              Promotion updates your checkout: {f.targetBranch} is checked out in the repository's
+              primary checkout, so its files move to the promoted commit.
+            </p>
+          )}
           {!view.mergeRecoveryPending && (
             <label className="checkbox-field">
               <input

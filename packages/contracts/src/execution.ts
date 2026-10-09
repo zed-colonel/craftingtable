@@ -292,6 +292,12 @@ export const mergeGateSchema = z.strictObject({
     'check-adoption',
   ]),
   reviewRunId: agentRunIdSchema.optional(),
+  /**
+   * On a mergeable gate: whether the worktree's recorded target is checked out in the
+   * repository's primary checkout, so the merge moves the operator's files (R-G10 D3). Read
+   * from Git on each request, never stored.
+   */
+  targetCheckedOut: z.boolean().optional(),
 });
 
 export const mergeWorktreeResponseSchema = z.strictObject({

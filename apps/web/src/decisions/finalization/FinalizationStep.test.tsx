@@ -218,3 +218,35 @@ it("offers the current review's proposal only when the daemon does", () => {
   );
   expect(options()).not.toContain('approve-plan-change');
 });
+
+it("says a promotion updates the operator's checkout only when the daemon reports its destination checked out there (R-G10 D3)", () => {
+  const promotion = (targetCheckedOut?: boolean) =>
+    view(['merge'], {
+      cycle: { ...view([]).cycle!, status: 'awaiting-merge', version: 39 },
+      ...(targetCheckedOut === undefined ? {} : { targetCheckedOut }),
+    });
+  const sentence = /Promotion updates your checkout: main is checked out in the repository/;
+  const { rerender } = render(
+    <FinalPromotion
+      workspaceId={asWorkspaceId('ws')}
+      view={promotion(true)}
+      csrfToken="csrf"
+      disabled={false}
+      onDone={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Review final merge approval' }));
+  expect(screen.getByText(sentence)).toBeDefined();
+  for (const fact of [false, undefined]) {
+    rerender(
+      <FinalPromotion
+        workspaceId={asWorkspaceId('ws')}
+        view={promotion(fact)}
+        csrfToken="csrf"
+        disabled={false}
+        onDone={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(sentence)).toBeNull();
+  }
+});

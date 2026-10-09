@@ -898,3 +898,28 @@ it('records completion before cleanup, exposes retry, and preserves edits added 
     state.context.storage.execution.merges.latest(state.workspaceId, worktree.id)?.cleanupError,
   ).toBeUndefined();
 });
+
+it("says whether a merge would move the operator's checkout: the target checked out in the primary checkout (R-G10 D3)", async () => {
+  const state = await ready();
+  const repositoryPath = fixtureRepository();
+  const { worktree } = await registerAndWorktree(state, repositoryPath);
+  await admit(state);
+  // A closed gate states no fact: there is nothing to approve yet.
+  expect(await mergeGate(state, worktree.id)).not.toHaveProperty('targetCheckedOut');
+  writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+  git(['add', '--all'], worktree.path);
+  git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
+  await runToFinish(state, worktree.id, { role: 'implement' });
+  await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+  // The fixture's checkout is on main, the worktree's target.
+  expect(await mergeGate(state, worktree.id)).toMatchObject({
+    mergeable: true,
+    reason: 'ready',
+    targetCheckedOut: true,
+  });
+  git(['switch', '--quiet', '-c', 'elsewhere'], repositoryPath);
+  expect(await mergeGate(state, worktree.id)).toMatchObject({
+    mergeable: true,
+    targetCheckedOut: false,
+  });
+});

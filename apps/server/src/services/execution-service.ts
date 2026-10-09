@@ -77,6 +77,7 @@ import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
+import { primaryCheckoutHolds } from './checkout-fact.js';
 
 export type MergeGateReason =
   | 'ready'
@@ -98,6 +99,8 @@ export interface MergeGate {
   readonly mergeable: boolean;
   readonly reason: MergeGateReason;
   readonly reviewRunId?: AgentRunId;
+  /** On an open gate: its target is the primary checkout's branch (R-G10 D3); from Git. */
+  readonly targetCheckedOut?: boolean;
 }
 
 /**
@@ -741,7 +744,10 @@ export class ExecutionService {
     return { worktrees, runs, mergeGates };
   }
 
-  /** Closes each mergeable gate whose reviewed branches have moved since the review (Git). */
+  /**
+   * Closes each mergeable gate whose reviewed branches have moved since the review (Git), and
+   * says on each that stays open whether its target is the primary checkout's (R-G10 D3).
+   */
   async confirmGates(read: WorkItemExecution): Promise<WorkItemExecution> {
     const mergeGates = { ...read.mergeGates };
     for (const worktree of read.worktrees) {
@@ -754,7 +760,21 @@ export class ExecutionService {
         );
       } catch {
         mergeGates[worktree.id] = { ...gate, mergeable: false, reason: 'branch-review-required' };
+        continue;
       }
+      const root = this.storage.execution.sourceRepositories.find(
+        worktree.workspaceId,
+        worktree.repositoryId,
+      )?.rootPath;
+      const held =
+        root === undefined
+          ? undefined
+          : await primaryCheckoutHolds(
+              this.git,
+              root,
+              worktree.integrationBranch ?? worktree.baseBranch,
+            );
+      if (held !== undefined) mergeGates[worktree.id] = { ...gate, targetCheckedOut: held };
     }
     return { ...read, mergeGates };
   }

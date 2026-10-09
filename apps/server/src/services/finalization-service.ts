@@ -23,6 +23,7 @@ import type { ExecutionService } from './execution-service.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
+import { primaryCheckoutHolds } from './checkout-fact.js';
 
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -56,12 +57,27 @@ export class FinalizationService {
           : this.storage.execution.cycles.find(workspaceId as never, finalization.cycleId),
     };
   }
-  list(context: AuthContext, workspaceId: WorkspaceId, planVersionId: PlanVersionId) {
+  async list(context: AuthContext, workspaceId: WorkspaceId, planVersionId: PlanVersionId) {
     this.workspaces.requireAuthorized(context, workspaceId);
-    return this.storage.execution.finalizations
+    const views = this.storage.execution.finalizations
       .list(workspaceId)
       .filter((f) => f.planVersionId === planVersionId)
       .map((f) => this.view(f));
+    // An offered promotion says whether it moves the operator's checkout (R-G10 D3).
+    return Promise.all(
+      views.map(async (view) => {
+        if (!view.actions.includes('merge')) return view;
+        const root = this.storage.execution.sourceRepositories.find(
+          workspaceId,
+          view.finalization.repositoryId,
+        )?.rootPath;
+        const held =
+          root === undefined
+            ? undefined
+            : await primaryCheckoutHolds(this.git, root, view.finalization.targetBranch);
+        return held === undefined ? view : { ...view, targetCheckedOut: held };
+      }),
+    );
   }
   async start(
     context: AuthContext,

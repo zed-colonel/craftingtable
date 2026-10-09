@@ -90,6 +90,10 @@ export function MergeApproval({
   if (!gate?.mergeable) return null;
   const adopting = gate.reason === 'check-adoption';
   const listId = `branches-${worktree.id}`;
+  /** The daemon's fact is about the recorded target, not one typed by hand (R-G10 D3). */
+  const updatesCheckout =
+    gate.targetCheckedOut === true &&
+    target.trim() === (worktree.integrationBranch ?? worktree.baseBranch);
   if (!open)
     return (
       <>
@@ -140,6 +144,12 @@ export function MergeApproval({
       <p className="merge-destination">
         Merge <code>{worktree.branchName}</code> into <code>{target}</code>.
       </p>
+      {updatesCheckout && (
+        <p className="hint">
+          Merging updates your checkout: {target} is checked out in the repository's primary
+          checkout, so its files move to the merge.
+        </p>
+      )}
       <label className="field">
         Merge into
         <input

@@ -383,3 +383,24 @@ it('shows tabs, trailing spaces and spacing in commands, says when only whitespa
     expect(code.className).toContain('exact-text');
   expect(review.textContent).toContain('defs/b⟦U+0435⟧d.sh holds U+0435');
 });
+
+it("says a merge updates the operator's checkout only when the daemon reports its target checked out there (R-G10 D3)", () => {
+  respond(undefined);
+  const sentence = /Merging updates your checkout: wi-fabric-2 is checked out in the repository/;
+  const form = renderPanel(vi.fn(), { mergeable: true, reason: 'ready', targetCheckedOut: true });
+  expect(within(form).getByText(sentence)).toBeDefined();
+  cleanup();
+  const other = renderPanel(vi.fn(), { mergeable: true, reason: 'ready', targetCheckedOut: false });
+  expect(within(other).queryByText(sentence)).toBeNull();
+  cleanup();
+  // The fact is about the recorded target: a target typed by hand gets no sentence.
+  const manual = { ...worktree, integrationBranch: undefined } as unknown as WorktreeSummary;
+  const typed = renderPanel(
+    vi.fn(),
+    { mergeable: true, reason: 'ready', targetCheckedOut: true },
+    manual,
+  );
+  expect(within(typed).getByText(sentence)).toBeDefined();
+  fireEvent.change(within(typed).getByLabelText('Merge into'), { target: { value: 'aq-cont-1' } });
+  expect(within(typed).queryByText(/Merging updates your checkout/)).toBeNull();
+});

@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
-import { createWorktreeResponseSchema } from '@craftingtable/contracts';
+import {
+  createWorktreeResponseSchema,
+  finalizationsResponseSchema,
+} from '@craftingtable/contracts';
 import { FINALIZATION_STAGE_KINDS } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { openDatabase } from '@craftingtable/storage';
@@ -132,6 +135,23 @@ it('completes all five stages with no findings and promotes only the exact revie
     FINALIZATION_STAGE_KINDS.map(() => 'completed'),
   );
   expect(cycle.finalizationProgress?.obligations.every((o) => o.status === 'met')).toBe(true);
+  // The offered promotion says whether it moves the operator's checkout (R-G10 D3): the
+  // fixture's primary checkout is on the destination, until it switches away.
+  const listed = async () => {
+    const response = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/plans/${value.planVersionId}/finalizations`,
+      headers: { cookie: state.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    return finalizationsResponseSchema
+      .parse(response.json())
+      .finalizations.find((f) => f.finalization.id === value.id)!;
+  };
+  expect(await listed()).toMatchObject({ actions: ['merge'], targetCheckedOut: true });
+  git(['switch', '--quiet', '-c', 'elsewhere'], root);
+  expect((await listed()).targetCheckedOut).toBe(false);
+  git(['switch', '--quiet', value.targetBranch], root);
   const review = present(
     present(state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId))
       .reviewBranchContext,

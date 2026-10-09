@@ -25,7 +25,7 @@ export function registerFinalizationRoutes(
         return sendApiError(reply, 404, 'not-found', 'Plan not found');
       return noStore(reply).send(
         finalizationsResponseSchema.parse({
-          finalizations: service.list(context, workspace.data, plan.data),
+          finalizations: await service.list(context, workspace.data, plan.data),
         }),
       );
     },

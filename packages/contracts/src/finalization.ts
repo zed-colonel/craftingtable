@@ -140,6 +140,11 @@ export const finalizationViewSchema = z.strictObject({
   mergeRecoveryPending: z.boolean(),
   /** The decisions the finalization offers now, as the daemon decides them (R-A6 2b). */
   actions: z.array(z.enum(FINALIZATION_DECISIONS)).default([]),
+  /**
+   * While the promotion is offered: whether its destination is checked out in the repository's
+   * primary checkout, so promoting moves the operator's files (R-G10 D3). Read from Git.
+   */
+  targetCheckedOut: z.boolean().optional(),
   checkpointFindings: z.array(reviewFindingSchema).default([]),
   canAuthorizeRemediation: z.boolean().default(false),
   /**

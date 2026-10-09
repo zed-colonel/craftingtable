@@ -1014,6 +1014,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
 
 | Item | Notes |
 |---|---|
+| R-D7 (added 2026-10-09) | Decision holds without building the whole decision inbox: 102 ms of the 263 ms roadmap page read, measured while closing R-E3b. Small; before or beside R-E4. |
 | R-E3b | The roadmap board and graph: the answer to pain point 2. It can start once R-E2 and R-D5 exist. It builds on R-E3a's status list from P2 (split 2026-09-27). |
 | R-A6 | Consolidate decision components and delete the per-page recovery panels. |
 | R-E4, R-E5 | Work-item page as drill-down; consolidated settings. |
@@ -1047,7 +1048,7 @@ cleanup items the decisions only, is recorded in its register entry as "decided 
 2. **After R-F2's core:** R-C6. **After R-G13 increment 4 and R-G14:** R-G6, carrying R-F2 part 6.
    **After R-H4 and R-G13 increment 4:** R-H6 (migration 0040).
 3. **The UI chain, one at a time:** R-A6's rest (carrying R-F2 part 5, and R-G10's D3 after R-G10's
-   part D), then R-E3b, then R-E4, then R-E5b.
+   part D), then R-E3b, then R-E4, then R-E5b. R-D7 (added 2026-10-09) goes before or beside R-E4.
 4. **Last:** R-H5.
 
 ### P4: Controller kernel and decomposition (3+ weeks, behind the harness)
@@ -1056,7 +1057,8 @@ R-B4 (pure decision core, stop record and step history), R-B5 (event-driven kern
 (scoped consistency instead of whole-roadmap pause), R-B7 (service decomposition), R-F1 full
 (compiled map model and one evaluator), R-F5 (backward-compatible format additions: explicit
 operator decision points, typed capabilities, relaxed cardinalities; format ADR, v0.3 keeps
-working), R-D6 (only if measurements still call for it).
+working), R-D6 (only if measurements still call for it; 2026-10-09: the cold Needs you feed read
+after a write, 117 ms, is that measured need, with R-F1's lighter evaluator beside it).
 
 Exit criteria:
 - `reconcile` is a thin shell.

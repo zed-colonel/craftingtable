@@ -50,11 +50,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-D3](#r-d3) | P0 | S | partial (67e2e9b) | Instrument read cost and event-loop delay |
 | [R-D4](#r-d4) | P2 | M-L | open | Keyed query store and App.tsx split |
 | [R-D5](#r-d5) | P2 | M-L | done | Server view models, compression and git-fact caching |
-| [R-D6](#r-d6) | P4 | L | open | Shared projections keyed by write generation (only if still needed) |
+| [R-D6](#r-d6) | P4 | L | open (measured need recorded 2026-10-09) | Shared projections keyed by write generation (only if still needed) |
+| [R-D7](#r-d7) | P3 | S | open | Decision holds without the whole decision inbox (added 2026-10-09) |
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
 | [R-E1](#r-e1) | P2 | M | done (a07dbfe, 4102517) | Real routes and one Link component |
 | [R-E2](#r-e2) | P2 | M | done (3feb310; increment 2 with R-A6 2026-09-30, accepted as built by operator decision the same day) | Split the Roadmaps mega-page |
-| [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a done (2026-09-27); R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
+| [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | done (R-E3a 2026-09-27; R-E3b 2026-10-09, 341b803..3d5c2e4, independently reviewed) | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | partial (R-E5a done; R-E5b open) | Consolidate settings and agent selection |
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
@@ -2061,6 +2062,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [PERF-07](findings/PERF-browser-and-read-performance.md#perf-07-browser-refetch-storms-run-on-the-controllers-event-loop-ui-load-slows-automation-and-vice-versa), [PERF-08](findings/PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview)
 - **Change:** Compute map-derived progress once per write generation and share it between workers and readers; SSE deltas only if revalidation latency is still visible (needs an ADR-003 change).
 - **Done when:** Measured need from R-D3 before starting.
+- **Measured need (2026-10-09, operator agreed to place it here).** R-E3b's decision 8 makes the Needs you feed count each map-roadmap item's slices, which needs the map's evaluation. Profiled on a copy of the 2026-10-09 07:06 UTC live snapshot through the real daemon's routes (30 reads, each after a write, so cold): the feed read takes 117 ms median (5 ms before R-E3b), 97% of it `crossProjectState` (122 ms: 57 ms deciding which milestones are met, about 60 ms of per-node phase blockers, status text and cycle lookups the feed does not use). R-E3b caches the evaluation by storage commit count, so only the first read after a write pays, but while agents work, writes are frequent. The scheduler pass already evaluates the map after writes; computing it once per write and sharing it with the feed, the board and the status list is this item's change, and removes the cold read in the common case. With R-F1's lighter evaluator (see R-F1) the cost of that one evaluation also falls.
+
+### R-D7
+
+**Decision holds without the whole decision inbox** · Phase P3 · Effort S · Status: open (added 2026-10-09, operator agreed)
+
+- **Found by:** profiling R-E3b's page read (`GET …/roadmaps/:id/view`) on a copy of the 2026-10-09 07:06 UTC live snapshot through the real daemon's routes, 30 reads each after a write. The read takes 263 ms of CPU, against a 300 ms budget (R-E3b done-when (d)): the decision holds 102 ms (39%), the map evaluation 69 ms, phase blockers recomputed per entry in `view()` 46 ms, per-entry completion 19 ms, serialisation and lookups 12 ms, the status list 7 ms, the board builder 6 ms.
+- **Cause:** `RoadmapService.decisionHold` (R-C3b) answers one narrow question per slice not yet started: has a checkpoint in its merge requirements a prepared brief that would settle it once approved and has not been rejected? To answer it, it builds the whole shared-decision inbox (`architectureDecisionInbox`: every decision of the map with its records, recommendations and briefs, the setup page's card model) once per read, then discards it. The scheduler pass caches it per workflow generation, so the pass pays less often; every page read pays in full.
+- **Change:** answer the question with a narrow lookup (the briefs and their records for the checkpoints the unstarted slices need), sharing one rule with the inbox so the two cannot drift; and remove the N+1 in `milestoneSatisfied` (`listForWorktree` per worktree, about 10 ms of a cold map evaluation). Behaviour unchanged.
+- **Done when:** the page read on the live roadmap is measured well under the 300 ms budget (roughly 150 ms expected), the R-C3b decision-hold tests pass unchanged, and `pnpm replays` reports no new difference (the scheduler uses the same code).
+- **Placement:** after R-E3b, before or beside R-E4 (program.md P3).
 
 ## Workstream E — Progress view and navigation (pain points 2 and 1)
 
@@ -2245,6 +2257,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Walkthroughs.** `2026-10-09-re3b-before` at `341b803` (68 scenes) and `2026-10-09-re3b-after` at `13a9e29` (70: the new `roadmap-board-running`, a running map roadmap on its board with EXO-01 selected and its pin hold linked to Needs you, and `roadmap-graph`, EXO-01's neighbourhood, 40 of 62 nodes at two hops; on a phone both show the grouped list). The AQ roadmap's running scene changed too: a roadmap without a map now has the board (step 7).
 - **Gate and replays at `4255659`.** `pnpm check` alone (gate worktree, `CRAFTINGTABLE_TEST_DATA_ROOT` and `TMPDIR` set): green in 494 s, 3,021 unit tests (3 skipped), 23 e2e, the walkthrough rehearsal (with the new running scenes) and the scope check. `pnpm replays`: 31 of 56 comparisons unchanged, 25 differ only as already expected, 0 failed; R-E3b changes no recorded decision.
 - **Left for the operator.** (1) M2's residue: an entry held on one of the operator's stops (pending amendment, superseded or changed binding, inactive plan, unavailable repository, unadopted decision) is the operator's on the status list and the board, but its row links no item; the stop's own item (the amendment's, or the roadmap's) carries it. Should such a row link that roadmap-level item (for instance an `amendment-pending` row to the amendment item, by code), or is the unlinked row fine? **Answered by the operator 2026-10-09: the unlinked row is fine; the stop's own item carries the link, which is the right place semantically. Nothing to build.** (2) A feed read right after a write costs about 135 ms on the live map once (the map evaluation decision 8 needs), against 5 ms before R-E3b; later reads reuse it. (3) The page read's margin is thin: 273.3 ms here, 286.4 ms in the reviewer's run, against the 300 ms budget. Cheaper reads of the per-entry view are R-D work, not done here.
+  - *Placed (operator 2026-10-09, after profiling both reads):* (2) goes to P4, R-D6 (one map evaluation per write, shared with readers) with R-F1's lighter evaluator; (3) is mostly not R-E3b's (the board builder is 6 ms of 263): its largest part, the decision holds building the whole decision inbox (102 ms), is the new P3 item R-D7, before or beside R-E4. The profiles are in R-D6, R-D7 and R-F1.
 
 ### R-E4
 
@@ -2365,6 +2378,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The single evaluator this item plans would remove this whole class of drift.
   - Gate at fb42dc5, on an idle machine during the Codex outage: `pnpm check` is green (186 test files, 1,427 unit, 20 e2e, scope check). The earlier failures in scope-recovery and supervised-maps were waitFor timeouts under the live daemon's load.
 
+- **Measured (2026-10-09, operator agreed to place it here).** Profiling R-E3b's reads on a copy of the 2026-10-09 07:06 UTC live snapshot: a cold `crossProjectState` takes 122 ms, about half of it per-node phase blockers (`scopePhaseBlockers` 48 ms), status text and cycle lookups that the board, the feed and the operator's needs do not read; the other half is deciding which milestones are met (`milestoneSatisfied` 57 ms, mostly evidence and scope-receipt checks). The single evaluator this item plans should separate satisfaction and requirements from per-node blockers, so a reader that needs only "is it met" (R-E3b's board, the feed's slice counts) pays about half. R-D6 then shares that one evaluation between the scheduler and the readers.
 ### R-F2
 
 **Typed feature recognition instead of prose and magic identifiers** · Phase P3 · Effort M · Status: done (parts 1 to 4 reviewed and integrated on `remediation/p3` 2026-10-07; part 6 built with R-G6 (c215840), reviewed and integrated 2026-10-08; part 5 built with R-A6's rest, 2026-10-09, see its progress below)

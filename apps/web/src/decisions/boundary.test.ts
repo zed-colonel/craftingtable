@@ -266,6 +266,11 @@ interface Module {
    */
   readonly calls: readonly { readonly url: string | undefined; readonly at: number }[];
   /**
+   * References to `request` or `fetch` that are not calls (passed on, stored, wrapped): any
+   * could post any command unseen (R-A6 third re-check R4).
+   */
+  readonly escapes: readonly { readonly name: string; readonly at: number }[];
+  /**
    * Every text an expression builds, outside a JSX attribute's own text: a string or template
    * literal, a `+` concatenation or an array `join`, a non-constant part read as `*`.
    */
@@ -523,22 +528,61 @@ export function analyse(
   const texts: { text: string; at: number }[] = [];
   const dynamicImports: { from: string; at: number }[] = [];
   const calls: { url: string | undefined; at: number }[] = [];
+  const escapes: { name: string; at: number }[] = [];
+  // The names a request goes out through, by binding, not by spelling (third re-check R4): the
+  // browser's `fetch` (unless the module declares its own), `request` unless it is imported
+  // under another binding, any import of `request` under any alias, and any `const` alias.
+  const senders = new Set<string>([
+    ...(counts.has('fetch') ? [] : ['fetch']),
+    // `request` declared here (api-client), or not bound at all: unknown, so it counts.
+    ...(!imported.has('request') ? ['request'] : []),
+    ...imports.filter((i) => i.imported === 'request').map((i) => i.local),
+  ]);
+  for (let pass = 0; pass < 3; pass++)
+    for (const d of declarators) {
+      const init = d.init as Node | null;
+      const name = nameOf(d.id);
+      if (name && init?.type === 'Identifier' && senders.has(init.name as string))
+        senders.add(name);
+    }
+  /** Identifiers of senders seen in a position that sends, or that only names an alias. */
+  const handled = new WeakSet<object>();
+  // A URL is matched up to its query or fragment, which the daemon's routes ignore.
+  const path = (url: string | undefined) => url?.split(/[?#]/)[0];
   const walk = (node: Node): void => {
+    if (node.type === 'ImportDeclaration') return;
+    if (node.type === 'VariableDeclarator' && (node.init as Node | null)?.type === 'Identifier')
+      handled.add(node.init as Node);
     if (node.type === 'CallExpression') {
       const callee = node.callee as Node;
-      const name = callee.type === 'MemberExpression' ? nameOf(callee.property) : nameOf(callee);
-      const first = (node.arguments as Node[])[0];
-      // A module's own function named `fetch` (the query store's) is not the browser's.
-      const own = callee.type === 'Identifier' && name === 'fetch' && counts.has('fetch');
+      const args = node.arguments as Node[];
+      // `send(url)`, or `send.call(self, url)` and `send.apply(self, [url])`.
+      const direct = callee.type === 'Identifier' && senders.has(callee.name as string);
+      const object = callee.type === 'MemberExpression' ? (callee.object as Node) : undefined;
+      const via =
+        object?.type === 'Identifier' && senders.has(object.name as string)
+          ? nameOf(callee.property)
+          : undefined;
+      const first = direct
+        ? args[0]
+        : via === 'call'
+          ? args[1]
+          : via === 'apply'
+            ? ((args[1] as Node | undefined)?.elements as Node[] | undefined)?.[0]
+            : undefined;
+      if (direct) handled.add(callee);
+      if (via === 'call' || via === 'apply') handled.add(object!);
       // A conditional URL is each of its branches.
       const branches = (n: Node): Node[] =>
         n.type === 'ConditionalExpression'
           ? [...branches(n.consequent as Node), ...branches(n.alternate as Node)]
           : [n];
-      if ((name === 'request' || name === 'fetch') && first && !own)
-        for (const branch of branches(first))
-          calls.push({ url: fold(branch, resolve), at: node.start });
+      if (direct || via === 'call' || via === 'apply')
+        for (const branch of first ? branches(first) : [])
+          calls.push({ url: path(fold(branch, resolve)), at: node.start });
     }
+    if (node.type === 'Identifier' && senders.has(node.name as string) && !handled.has(node))
+      escapes.push({ name: node.name as string, at: node.start });
     // An attribute's own text (an id, a class) is not a URL; a handler inside one may hold one.
     if (node.type === 'JSXAttribute' && (node.value as Node | null)?.type === 'Literal') return;
     if (node.type === 'ImportExpression') {
@@ -546,13 +590,14 @@ export function analyse(
       if (from?.startsWith('.')) dynamicImports.push({ from: relativeTo(from), at: node.start });
     }
     if (FOLDED.has(node.type) || node.type === 'Identifier') {
-      const text = fold(node, resolve);
+      const text = path(fold(node, resolve));
       if (text !== undefined) texts.push({ text, at: node.start });
     }
     for (const [key, value] of Object.entries(node)) {
       if (key === 'parent') continue;
       // A declared name, a property's key and a member's name are not references.
-      if (key === 'id' && node.type === 'VariableDeclarator') continue;
+      if (key === 'id' && (node.type === 'VariableDeclarator' || FUNCTIONS.has(node.type)))
+        continue;
       if (key === 'key' && node.type === 'Property' && !node.computed) continue;
       if (key === 'property' && node.type === 'MemberExpression' && !node.computed) continue;
       for (const child of Array.isArray(value) ? value : [value]) if (isNode(child)) walk(child);
@@ -570,6 +615,7 @@ export function analyse(
     constants,
     helpers,
     calls,
+    escapes,
     texts,
     urls,
   };
@@ -680,6 +726,13 @@ export function opaqueRequests(all: ReadonlyMap<string, Module>): string[] {
   );
 }
 
+/** References to a sender that do not send: each is a way to post unseen. */
+export function senderEscapes(all: ReadonlyMap<string, Module>): string[] {
+  return [...all.values()].flatMap((module) =>
+    module.escapes.map((use) => `${module.path}: ${use.name}`),
+  );
+}
+
 /** URLs ending in a shared segment that name none of its whole routes. */
 export function unnamedTails(
   all: ReadonlyMap<string, Module>,
@@ -763,6 +816,11 @@ describe('each decision command is posted from exactly one component', () => {
    */
   it('lists every request whose URL it cannot read', () => {
     expect(opaqueRequests(modules).sort()).toEqual([...OPAQUE_REQUESTS].sort());
+  });
+
+  /** `request` and `fetch` are only ever called: never passed on, stored or wrapped. */
+  it('finds no other use of request or fetch', () => {
+    expect(senderEscapes(modules)).toEqual([]);
   });
 });
 
@@ -960,6 +1018,71 @@ describe('the poster detector', () => {
         "import * as b from '../lib/base.js';\nexport function B() { return request(b.r + 'decide'); }",
     });
     expect(opaqueRequests(planted)).toEqual(['features/A.tsx: *decide', 'features/B.tsx: *decide']);
+  });
+  // The third re-check's probes (R4) and its self-test gaps (O3, O5, O6, O9).
+  const ns = "import * as b from '../lib/base.js';\n";
+  const base = {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+    'lib/base.ts': 'export const r = `/api/${id}/runtime/`;',
+  };
+  it.each([
+    [
+      'an aliased import of request (Q1)',
+      `${ns}import { request as send } from '../lib/api-client.js';\nexport function A() { return send(b.r + 'decide'); }`,
+    ],
+    [
+      'a const alias of request (Q2)',
+      `${ns}const send = request;\nexport function A() { return send(b.r + 'decide'); }`,
+    ],
+    [
+      'request.call (Q4)',
+      `${ns}export function A() { return request.call(null, b.r + 'decide'); }`,
+    ],
+    ['request.apply', `${ns}export function A() { return request.apply(null, [b.r + 'decide']); }`],
+    [
+      'the second branch of a conditional URL (O3)',
+      `${ns}export function A() { return request(c ? \`/api/\${id}/x\` : b.r + 'decide'); }`,
+    ],
+    [
+      'a prefix a parameter shadows (O6)',
+      "const r = '/api/x/runtime/';\nexport function A(r: string) { return request(r + 'decide'); }",
+    ],
+    [
+      'a prefix declared twice (O5)',
+      "function one() { const r = '/api/x/runtime/'; return r; }\nexport function A() { const r = String(one()); return request(r + 'decide'); }",
+    ],
+  ])('lists %s as a request it cannot read', (_name, source) => {
+    expect(opaqueRequests(plant({ ...base, 'features/A.tsx': source }))).toEqual([
+      'features/A.tsx: *decide',
+    ]);
+  });
+  it.each([
+    [
+      'a query string (Q3)',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+      'export function A() { return request(`/api/${id}/runtime/decide?via=a`); }',
+    ],
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+    ['a fragment (Q5)', 'export function A() { return request(`/api/${id}/runtime/decide#a`); }'],
+    [
+      'an imported URL helper (O9)',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+      "import { url } from '../lib/urls.js';\nexport function A() { return request(`${url(id)}/decide`); }",
+    ],
+  ])('finds a poster whose URL carries %s', (_name, source) => {
+    const planted = plant({
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+      'lib/urls.ts': 'export const url = (id: string) => `/api/${id}/runtime`;',
+      'features/A.tsx': source,
+    });
+    expect(postersOf(planted, /\/decide$/)).toEqual(['features/A.tsx#A']);
+  });
+  it('lists request passed on or stored instead of called', () => {
+    const planted = plant({
+      'features/A.tsx':
+        "import { request } from '../lib/api-client.js';\nconst senders = [request];\nexport function A() { return useIt(request); }",
+    });
+    expect(senderEscapes(planted)).toEqual(['features/A.tsx: request', 'features/A.tsx: request']);
   });
   it('names an action built from pieces inside a component', () => {
     const planted = plant({

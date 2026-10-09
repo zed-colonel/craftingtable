@@ -83,3 +83,26 @@ it('keeps reviewers and environments on the verification step, and raises nothin
     }),
   ).toBeUndefined();
 });
+
+it("leaves the operator's stops to their own items (R-E3b review M2)", () => {
+  expect(
+    operatorSetupItem({
+      roadmapId: 'r',
+      name: 'Map',
+      setupPath,
+      entries: [
+        {
+          entry: entry('e1', 'wi/WI-01/domain'),
+          blockers: [{ kind: 'authorization', code: 'amendment-pending', message: 'Decide it.' }],
+        },
+        {
+          entry: entry('e2', 'wi/WI-02/domain'),
+          blockers: [
+            pin('aq'),
+            { kind: 'authorization', code: 'binding-superseded', message: 'Rebind.' },
+          ],
+        },
+      ],
+    }),
+  ).toBeUndefined();
+});

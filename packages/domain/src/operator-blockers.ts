@@ -16,3 +16,23 @@ export function operatorOwnsAll(blockers: readonly PhaseBlocker[] | undefined): 
     )
   );
 }
+
+/**
+ * Whether these blockers are all operator setup, which the roadmap's setup item lists (R-E3b
+ * review M2): the setup the controller waits for (environments, unsupported resources, dependency
+ * environments, upstream pins, external qualification) and reviewer assignments, none waiting on
+ * a checkpoint. The operator's stops (amendments, bindings, plan, repository, adoption) have
+ * items of their own and are not setup.
+ */
+export function operatorSetupOnly(blockers: readonly PhaseBlocker[] | undefined): boolean {
+  return (
+    !!blockers?.length &&
+    blockers.every((b) => {
+      const code = phaseBlockerCode(b);
+      const { owner, waits } = PHASE_BLOCKERS[code];
+      return (
+        owner === 'operator' && (waits || code === 'reviewer-assignment') && !b.refs?.checkpointId
+      );
+    })
+  );
+}

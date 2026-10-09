@@ -1,5 +1,5 @@
 import {
-  operatorOwnsAll,
+  operatorSetupOnly,
   type PhaseBlocker,
   type PhaseBlockerCode,
   phaseBlockerCode,
@@ -15,9 +15,10 @@ const DEPENDENCY_SETUP: ReadonlySet<PhaseBlockerCode> = new Set([
 ]);
 
 /**
- * A roadmap's setup item (R-A4, R-E3b): every entry that only the operator can move, by setup or
- * a stop of its own (`operatorOwnsAll`, the rule the status list uses), one line per blocker. It
- * opens the dependency step when any of them is a dependency environment's, else verification.
+ * A roadmap's setup item (R-A4, R-E3b): every entry held only on the operator's setup
+ * (`operatorSetupOnly`: environments, resources, dependency environments, upstream pins,
+ * qualification, reviewers), one line per blocker. It opens the dependency step when any of them
+ * is a dependency environment's, else verification. The operator's stops have their own items.
  */
 export function operatorSetupItem(input: {
   readonly roadmapId: string;
@@ -29,7 +30,7 @@ export function operatorSetupItem(input: {
   /** The roadmap's setup path to a section of its dependency and evidence panel. */
   readonly setupPath: (section: string) => string;
 }): ProjectedItem | undefined {
-  const held = input.entries.filter(({ blockers }) => operatorOwnsAll(blockers));
+  const held = input.entries.filter(({ blockers }) => operatorSetupOnly(blockers));
   if (!held.length) return undefined;
   const members = [...new Set(held.map(({ entry }) => entry.id))].sort();
   const lines = [

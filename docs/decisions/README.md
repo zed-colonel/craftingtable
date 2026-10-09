@@ -61,3 +61,4 @@ concerns stay deferred rather than being designed prematurely.
 - [ADR-069: Map-declared upstream pin transitions](ADR-069-upstream-pin-transitions.md)
 - [ADR-070: Attention items, a delivery log and push gates](ADR-070-attention-items.md)
 - [ADR-071: Slice verification stays a separate gate](ADR-071-slice-verification-stays-a-separate-gate.md)
+- [ADR-072: A roadmap's neighbourhood graph](ADR-072-roadmap-neighbourhood-graph.md)

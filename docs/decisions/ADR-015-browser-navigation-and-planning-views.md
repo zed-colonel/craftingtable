@@ -120,6 +120,9 @@ cannot establish.
 
 ### No graph canvas
 
+*Superseded by [ADR-072](ADR-072-roadmap-neighbourhood-graph.md) (2026-10-09): a roadmap's board
+draws the selection's neighbourhood as a graph.*
+
 Dependencies are shown as tables and summaries. CT-03 §5.14 forbids an
 interactive graph canvas, and for a 14-node graph a table with predecessor and
 blocker columns carries the same information at a fraction of the complexity.

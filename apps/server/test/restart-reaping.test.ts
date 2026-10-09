@@ -448,7 +448,8 @@ it('leaves alone a leaderless group with a member older than the run (R-G11, ope
     process.execPath,
     [
       '-e',
-      "const m = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); console.log(m.pid); setInterval(() => {}, 1000)",
+      // The pid as plain text: under FORCE_COLOR, console.log colours a number (ANSI codes).
+      "const m = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); process.stdout.write(String(m.pid) + '\\n'); setInterval(() => {}, 1000)",
     ],
     { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
   );

@@ -191,10 +191,12 @@ it('decides a checkpoint item with its own card, else at the step that settles i
       }),
     ),
   ).toEqual([setup('decisions'), { kind: 'run' }]);
-  // Its blockers may be reviewer assignments too, which the code does not tell apart.
+  // Its blockers may be reviewer assignments or dependency pins too (R-E3b), which the code does
+  // not tell apart.
   expect(checkpoint('verification-setup')).toEqual([
     { kind: 'environment-approval' },
     setup('reviewers'),
+    setup('dependency'),
   ]);
 });
 

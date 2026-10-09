@@ -1,0 +1,18 @@
+import { PHASE_BLOCKERS } from './attention.js';
+import { phaseBlockerCode } from './attention-legacy.js';
+import type { PhaseBlocker } from './phase-scheduling.js';
+
+/**
+ * Whether only the operator can move work these blockers hold, by setup or a stop of their own
+ * (R-C14, R-E3b): every blocker is the operator's and none waits on a checkpoint, whose own item
+ * carries it. The status list calls such an entry the operator's, and the roadmap's setup item
+ * lists it, by this one rule, so the two agree.
+ */
+export function operatorOwnsAll(blockers: readonly PhaseBlocker[] | undefined): boolean {
+  return (
+    !!blockers?.length &&
+    blockers.every(
+      (b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator' && !b.refs?.checkpointId,
+    )
+  );
+}

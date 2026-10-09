@@ -103,10 +103,11 @@ const SHARED_DECISION: AttentionItemCode = 'shared-decision-required';
 /**
  * A setup item whose blockers are of several kinds the item's code does not tell apart:
  * `verification-setup` names reviewer assignments as well as environment approvals and
- * unsupported resources, so the reviewers step comes beside the approval (R-A6 2b review).
+ * unsupported resources, so the reviewers step comes beside the approval (R-A6 2b review), and
+ * since R-E3b dependency environments and upstream pins, so their step comes too.
  */
 const BESIDE: Partial<Record<AttentionItemCode, readonly Decision[]>> = {
-  'verification-setup': [setup('reviewers')],
+  'verification-setup': [setup('reviewers'), setup('dependency')],
   // The preparation run whose report asked them.
   'decision-preparation-questions': [{ kind: 'run' }],
 };

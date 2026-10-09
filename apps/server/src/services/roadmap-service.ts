@@ -54,7 +54,7 @@ import {
   effectiveHoldAttention,
   PHASE_BLOCKERS,
   phaseBlockerCode,
-  SETUP_BLOCKER_CODES,
+  operatorOwnsAll,
   resumeRedirect,
   sameExecutionScope,
   type WorkCycle,
@@ -132,6 +132,7 @@ import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
 import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 import { checkpointSubjectKey } from './checkpoint-subject.js';
+import { operatorSetupItem } from './operator-setup-item.js';
 import {
   buildBoard,
   type ItemSubject,
@@ -358,13 +359,7 @@ function operatorActsNext(
   progress: Pick<RoadmapView['progress'][number], 'entryId' | 'blockers'>,
   needs: { readonly byEntry: ReadonlyMap<string, readonly string[]> } | undefined,
 ): boolean {
-  if (needs?.byEntry.has(progress.entryId)) return true;
-  return (
-    !!progress.blockers?.length &&
-    progress.blockers.every(
-      (b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator' && !b.refs?.checkpointId,
-    )
-  );
+  return !!needs?.byEntry.has(progress.entryId) || operatorOwnsAll(progress.blockers);
 }
 
 export class RoadmapService {
@@ -1136,19 +1131,21 @@ export class RoadmapService {
       } else {
         // The operator acts next when every blocker is theirs, as the inbox decides (LIVE-10);
         // a blocker-free stop or pause is the operator's by its state.
+        const operatorActs = state.blockers?.length
+          ? operatorActsNext(state, needs)
+          : ['needs-attention', 'paused'].includes(state.status);
+        // The roadmap's setup item lists the entries held on the operator's setup (R-E3b).
+        const setup =
+          operatorActs &&
+          items.find((i) => i.refs.roadmapId === roadmap.id && i.members?.includes(entry.id));
         entries.push({
           ...base,
-          actor: (
-            state.blockers?.length
-              ? operatorActsNext(state, needs)
-              : ['needs-attention', 'paused'].includes(state.status)
-          )
-            ? 'operator'
-            : 'controller',
+          actor: operatorActs ? 'operator' : 'controller',
           waitsOn: {
             source: 'progress',
             code: state.status,
             reason: state.reason,
+            ...(setup ? { attentionItemId: setup.id } : {}),
             ...(own ? { cycleId: own.id } : {}),
             ...blockers,
           },
@@ -4113,54 +4110,24 @@ export class RoadmapService {
       roadmapPath(ws, roadmap.id, 'setup', `runtime-evidence-roadmap-${roadmap.id}${section}`);
     const name = roadmap.definition.name;
     const items: ProjectedItem[] = [];
-    // Entries whose only blockers are setup the operator does outside the work item:
-    // reviewer roles and verification environments (what the roadmap page listed as setup).
-    const setup = new Map<string, string[]>();
-    const add = (entry: RoadmapEntry, messages: readonly string[]) =>
-      setup.set(entry.id, [
-        ...(setup.get(entry.id) ?? []),
-        ...messages.map(
-          (message) => `${entry.executionScope?.sourceId ?? entry.sourceId}: ${message}`,
-        ),
-      ]);
-    for (const entry of roadmap.definition.entries) {
-      if (entry.executionScope?.kind !== 'slice-verification') continue;
-      if (roadmap.attempts.some((a) => a.entryId === entry.id)) continue;
-      const blockers = scopePhaseBlockers(
-        tx,
-        workspaceId,
-        entry.workItemId,
-        entry.executionScope,
-        'verify',
-      );
-      const only = blockers.filter((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b)));
-      if (only.length && only.length === blockers.length)
-        add(
-          entry,
-          only.map((b) => b.message),
-        );
-    }
+    // Entries only the operator can move by setup or a stop of their own (R-E3b): a slice
+    // verification not yet started, by its verify gate; the rest by their computed progress.
     const operator = this.withOperatorNeeds(tx, roadmap);
     const entryProgress = this.view(roadmap, tx, operator).progress;
-    for (const progress of entryProgress) {
-      const entry = roadmap.definition.entries.find((e) => e.id === progress.entryId);
-      if (!entry || setup.has(entry.id) || !progress.blockers?.length) continue;
-      if (progress.blockers.every((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b))))
-        add(entry, [...new Set(progress.blockers.map((b) => b.message))]);
-    }
-    const environmentEntries = [...setup.keys()].sort();
-    const environmentLines = [...setup.values()].flat();
-    if (environmentLines.length)
-      items.push({
-        subjectKey: `roadmap:${roadmap.id}:environments`,
-        code: 'verification-setup',
-        kind: 'attention',
-        title: `${name} · Setup needed: reviewers or verification environments`,
-        message: environmentLines.sort().join('\n'),
-        path: setupPath('-native'),
-        refs: { roadmapId: roadmap.id },
-        members: environmentEntries,
-      });
+    const setup = operatorSetupItem({
+      roadmapId: roadmap.id,
+      name,
+      setupPath,
+      entries: roadmap.definition.entries.map((entry) => ({
+        entry,
+        blockers:
+          entry.executionScope?.kind === 'slice-verification' &&
+          !roadmap.attempts.some((a) => a.entryId === entry.id)
+            ? scopePhaseBlockers(tx, workspaceId, entry.workItemId, entry.executionScope, 'verify')
+            : entryProgress.find((p) => p.entryId === entry.id)?.blockers,
+      })),
+    });
+    if (setup) items.push(setup);
     if (roadmap.definition.crossProject) {
       // Each checkpoint ready for the operator's acceptance is its own item, named by its kind
       // and counting the unfinished selected slices that wait on it (R-A5, R-C3b).

@@ -33,6 +33,7 @@ export * from './agent-profiles.js';
 export * from './agent-models.js';
 export * from './attention.js';
 export * from './attention-legacy.js';
+export * from './operator-blockers.js';
 export * from './attention-item.js';
 export * from './operator-wait.js';
 export * from './cycle-actions.js';

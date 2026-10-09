@@ -58,33 +58,12 @@ function useRoadmap(workspaceId: WorkspaceId, roadmapId: string) {
   return { roadmap, error };
 }
 
-/**
- * A setup-time decision's data, loaded by the decision itself (R-A6 increment 2b, operator
- * decision 2026-10-01): the roadmap, its map's dependency environment view, and where a saved
- * decision's new view goes. The same kind renders in its setup step with the step's view.
- */
-export function RoadmapRuntime({
-  workspaceId,
-  roadmapId,
-  children,
-}: {
-  workspaceId: WorkspaceId;
-  roadmapId: string;
-  children: (runtime: {
-    readonly roadmap: Roadmap;
-    readonly base: string;
-    readonly view: RuntimeEvidenceView;
-    readonly onSaved: (view: RuntimeEvidenceView) => void;
-  }) => ReactNode;
-}) {
-  const { roadmap, error: roadmapError } = useRoadmap(workspaceId, roadmapId);
-  const scope = roadmap ? runtimeScope(roadmap) : undefined;
-  const base = scope ? runtimeBase(workspaceId, scope.definitionId) : undefined;
-  // The map's environment, shared with its setup step and re-read on its events (R-D4).
+/** A map's dependency environment view, shared with its setup step and re-read on its events. */
+function useMapRuntime(workspaceId: WorkspaceId, definitionId: string | undefined) {
   const store = useQueryStore();
-  const key = scope ? queryKeys.runtime(workspaceId, scope.definitionId) : undefined;
+  const base = definitionId ? runtimeBase(workspaceId, definitionId) : undefined;
+  const key = definitionId ? queryKeys.runtime(workspaceId, definitionId) : undefined;
   const runtime = useQuery(key, () => request(base!, runtimeEvidenceViewSchema));
-  const view = runtime.data;
   const error =
     runtime.error === undefined
       ? ''
@@ -94,6 +73,64 @@ export function RoadmapRuntime({
   const setView = (next: RuntimeEvidenceView) => {
     if (key) store.set(key, next);
   };
+  return { base, view: runtime.data, error, setView };
+}
+
+/**
+ * A decision's map data when the item names a map but no roadmap (R-A6 rest): a shared-decision
+ * stop of a cycle that no roadmap owns.
+ */
+export function MapRuntime({
+  workspaceId,
+  definitionId,
+  children,
+}: {
+  workspaceId: WorkspaceId;
+  definitionId: string;
+  children: (runtime: {
+    readonly definitionId: string;
+    readonly base: string;
+    readonly view: RuntimeEvidenceView;
+    readonly onSaved: (view: RuntimeEvidenceView) => void;
+  }) => ReactNode;
+}) {
+  const { base, view, error, setView } = useMapRuntime(workspaceId, definitionId);
+  if (error)
+    return (
+      <p role="alert" className="error-state">
+        {error}
+      </p>
+    );
+  if (!base || !view) return <p role="status">Loading dependency environment…</p>;
+  return <>{children({ definitionId, base, view, onSaved: setView })}</>;
+}
+
+/**
+ * A setup-time decision's data, loaded by the decision itself (R-A6 increment 2b, operator
+ * decision 2026-10-01): the roadmap, its map's dependency environment view, and where a saved
+ * decision's new view goes. The same kind renders in its setup step with the step's view.
+ */
+export function RoadmapRuntime({
+  workspaceId,
+  roadmapId,
+  setupFor = 'to change its pins or environments by hand.',
+  children,
+}: {
+  workspaceId: WorkspaceId;
+  roadmapId: string;
+  /** What the link to the roadmap's setup is for. */
+  setupFor?: string;
+  children: (runtime: {
+    readonly roadmap: Roadmap;
+    readonly definitionId: string;
+    readonly base: string;
+    readonly view: RuntimeEvidenceView;
+    readonly onSaved: (view: RuntimeEvidenceView) => void;
+  }) => ReactNode;
+}) {
+  const { roadmap, error: roadmapError } = useRoadmap(workspaceId, roadmapId);
+  const scope = roadmap ? runtimeScope(roadmap) : undefined;
+  const { base, view, error, setView } = useMapRuntime(workspaceId, scope?.definitionId);
   const failed = roadmapError || error;
   if (roadmap === null) return <p className="empty-state">This roadmap no longer exists.</p>;
   // The roadmap's setup is always linked: where the item cannot decide, the setup can.
@@ -102,7 +139,7 @@ export function RoadmapRuntime({
       <Link route={{ name: 'roadmap', workspaceId, roadmapId, tab: 'setup' }}>
         Open the roadmap's setup
       </Link>{' '}
-      to change its pins or environments by hand.
+      {setupFor}
     </p>
   );
   return (
@@ -115,10 +152,10 @@ export function RoadmapRuntime({
         <p className="empty-state">
           This roadmap has no single map, so it has no dependency environment to decide here.
         </p>
-      ) : !roadmap || !base || !view ? (
+      ) : !roadmap || !scope || !base || !view ? (
         <p role="status">Loading dependency environment…</p>
       ) : (
-        children({ roadmap, base, view, onSaved: setView })
+        children({ roadmap, definitionId: scope.definitionId, base, view, onSaved: setView })
       )}
       {setupLink}
     </>

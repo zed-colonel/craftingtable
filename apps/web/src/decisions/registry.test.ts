@@ -79,17 +79,18 @@ it('decides a roadmap decision in its setup step, beside the cycle that waits on
     cycle,
     held,
   ]);
+  // A shared-decision stop shows the cards of the decisions it waits on, not the whole step
+  // (R-A6 rest, A2), inside a roadmap or outside one, beside the continuation.
   expect(decisionsFor(item({ code: 'shared-decision-required' }))).toEqual([
-    setup('decisions'),
+    { kind: 'architecture' },
     cycle,
     held,
   ]);
-  // Outside a roadmap the cycle's own controls decide it.
   expect(
     decisionsFor(
       item({ code: 'shared-decision-required', refs: { ...cycleRefs, roadmapId: undefined } }),
     ),
-  ).toEqual([cycle]);
+  ).toEqual([{ kind: 'architecture' }, cycle]);
 });
 
 it("decides a roadmap's held entry on the roadmap, not the cycle it names", () => {
@@ -149,14 +150,37 @@ it('offers a split through the amendment form when automatic recovery stopped co
   ).toEqual([{ kind: 'amendment' }]);
 });
 
-it('opens a checkpoint item at the step that settles it (R-C14, LIVE-11)', () => {
-  const checkpoint = (code: AttentionItemView['code']) =>
+it('decides a checkpoint item with its own card, else at the step that settles it (R-A6 rest, A2; LIVE-11)', () => {
+  const checkpoint = (code: AttentionItemView['code'], checkpointId?: string) =>
     decisionsFor(
-      item({ subjectKey: 'roadmap:r:checkpoint:LOCAL-TARGET', code, refs: { roadmapId: 'r' } }),
+      item({
+        subjectKey: 'roadmap:r:checkpoint:LOCAL-TARGET',
+        code,
+        refs: { roadmapId: 'r' },
+        ...(checkpointId ? { checkpointId } : {}),
+      }),
     );
+  expect(checkpoint('checkpoint-evidence', 'LOCAL-TARGET')).toEqual([
+    { kind: 'checkpoint-evidence' },
+  ]);
+  expect(checkpoint('architecture-decision', 'LOCAL-TARGET')).toEqual([{ kind: 'architecture' }]);
+  // A plan's acceptance is the roadmap's own, named or not.
+  expect(checkpoint('plan-acceptance', 'LOCAL-TARGET')).toEqual([{ kind: 'plan-acceptance' }]);
+  expect(checkpoint('plan-acceptance')).toEqual([{ kind: 'plan-acceptance' }]);
+  // An item the daemon names no checkpoint for opens the step, as before.
   expect(checkpoint('checkpoint-evidence')).toEqual([setup('evidence')]);
-  expect(checkpoint('plan-acceptance')).toEqual([setup('plan-acceptance')]);
   expect(checkpoint('architecture-decision')).toEqual([setup('decisions')]);
+  // A preparation's questions are decided on the decision it prepares, beside its run.
+  expect(
+    decisionsFor(
+      item({
+        subjectKey: 'run:x',
+        code: 'decision-preparation-questions',
+        refs: { roadmapId: 'r', runId: 'x', workItemId: 'w', worktreeId: 't' },
+        checkpointId: 'LOCAL-ADR-01',
+      }),
+    ),
+  ).toEqual([{ kind: 'architecture' }, { kind: 'run' }]);
   // Its blockers may be reviewer assignments too, which the code does not tell apart.
   expect(checkpoint('verification-setup')).toEqual([
     { kind: 'environment-approval' },

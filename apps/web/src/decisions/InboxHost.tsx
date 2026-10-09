@@ -1,4 +1,4 @@
-import type { AttentionItemView } from '@craftingtable/contracts';
+import type { AttentionItemView, RuntimeEvidenceView } from '@craftingtable/contracts';
 import type {
   AgentRunId,
   PlanVersionId,
@@ -23,15 +23,18 @@ import { Link } from '../lib/navigation.js';
 import { loadRepositories } from '../lib/execution-api.js';
 import { useQuery, useQueryStore } from '../lib/query-store.js';
 import { AmendmentDecision } from './amendment/AmendmentDecision.js';
+import { ArchitectureDecision } from './architecture/ArchitectureDecision.js';
 import { CheckAdoption } from './checks/CheckAdoption.js';
 import { CheckpointPreparation } from './checkpoint/CheckpointPreparation.js';
 import { CycleDecision } from './cycle/CycleDecision.js';
 import { EnvironmentApproval } from './environment/EnvironmentApproval.js';
+import { CheckpointEvidence } from './evidence/CheckpointEvidence.js';
 import { FinalizationDecision } from './finalization/FinalizationDecision.js';
 import { MergeApproval } from './merge/MergeApproval.js';
+import { PlanAcceptance } from './plan-acceptance/PlanAcceptance.js';
 import { DependencyRefresh } from './refresh/DependencyRefresh.js';
 import { type Decision, decisionsFor, type RoadmapItemPart } from './registry.js';
-import { RoadmapAmendments, RoadmapRuntime } from './roadmap-runtime.js';
+import { MapRuntime, RoadmapAmendments, RoadmapRuntime } from './roadmap-runtime.js';
 import { UpstreamTransitions } from './upstream/UpstreamTransitions.js';
 
 /** Where a roadmap part opens: the held entry, or the step's own form (LIVE-11). */
@@ -269,6 +272,106 @@ export function InboxHost({
           </RoadmapRuntime>
         );
       }
+      case 'architecture': {
+        // The item's own decision, or each one a shared-decision stop waits on (R-A6 rest, A2).
+        const view = work.cycles?.find((v) => v.cycle.id === cycleId);
+        const checkpoints =
+          item.checkpointId !== undefined
+            ? [item.checkpointId]
+            : (view?.projection.unsettledDecisions ?? []);
+        const owner = roadmapId ?? view?.cycle.owner?.roadmapId;
+        const cards = (runtime: {
+          definitionId: string;
+          view: RuntimeEvidenceView;
+          onSaved: (next: RuntimeEvidenceView) => void;
+        }) =>
+          checkpoints.length ? (
+            checkpoints.map((checkpointId) => (
+              <ArchitectureDecision
+                key={`${item.id}:${checkpointId}`}
+                workspaceId={workspaceId}
+                definitionId={runtime.definitionId}
+                view={runtime.view}
+                checkpointId={checkpointId}
+                roadmapId={owner}
+                csrfToken={csrfToken}
+                disabled={!canMutate}
+                onChanged={runtime.onSaved}
+              />
+            ))
+          ) : (
+            <p className="empty-state">No shared decision is unsettled now.</p>
+          );
+        // A cycle's stop names its own map; a roadmap's item, the roadmap's.
+        const definitionId = view?.cycle.executionScope?.definitionId;
+        if (definitionId !== undefined)
+          return (
+            <MapRuntime
+              key={`architecture-${item.id}`}
+              workspaceId={workspaceId}
+              definitionId={definitionId}
+            >
+              {cards}
+            </MapRuntime>
+          );
+        if (cycleId !== undefined && !view) return work.cyclesFailed ? undefined : loading;
+        return owner !== undefined ? (
+          <RoadmapRuntime
+            key={`architecture-${item.id}`}
+            workspaceId={workspaceId}
+            roadmapId={owner}
+            setupFor="for its other shared decisions."
+          >
+            {cards}
+          </RoadmapRuntime>
+        ) : undefined;
+      }
+      case 'checkpoint-evidence':
+        return roadmapId !== undefined && item.checkpointId !== undefined ? (
+          <RoadmapRuntime
+            key={`checkpoint-${item.id}`}
+            workspaceId={workspaceId}
+            roadmapId={roadmapId}
+            setupFor="for its other evidence."
+          >
+            {({ definitionId, base, view, onSaved }) => (
+              <CheckpointEvidence
+                workspaceId={workspaceId}
+                definitionId={definitionId}
+                base={base}
+                view={view}
+                checkpointId={item.checkpointId!}
+                csrfToken={csrfToken}
+                canMutate={canMutate}
+                onChanged={onSaved}
+              />
+            )}
+          </RoadmapRuntime>
+        ) : undefined;
+      case 'plan-acceptance':
+        return roadmapId !== undefined ? (
+          <RoadmapRuntime
+            key={`plan-${item.id}`}
+            workspaceId={workspaceId}
+            roadmapId={roadmapId}
+            setupFor="to change the saved plan."
+          >
+            {({ definitionId, base, view, onSaved }) => (
+              <PlanAcceptance
+                workspaceId={workspaceId}
+                definitionId={definitionId}
+                base={base}
+                view={view}
+                roadmapId={roadmapId}
+                csrfToken={csrfToken}
+                disabled={!canMutate}
+                panelId={`inbox-${item.id}`}
+                inline
+                onChanged={onSaved}
+              />
+            )}
+          </RoadmapRuntime>
+        ) : undefined;
       case 'amendment':
         return roadmapId !== undefined ? (
           <RoadmapAmendments

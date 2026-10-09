@@ -47,12 +47,22 @@ export type Decision =
   | { readonly kind: 'dependency-refresh' }
   /** A cross-project roadmap's map amendment: a split, a re-selection, or its decision. */
   | { readonly kind: 'amendment' }
+  /**
+   * A shared architecture decision's own card (R-A6 rest, A2): the item's checkpoint, or each
+   * decision a shared-decision stop waits on.
+   */
+  | { readonly kind: 'architecture' }
+  /** A map checkpoint's evidence, alone: its submissions and a submission for it. */
+  | { readonly kind: 'checkpoint-evidence' }
+  /** The roadmap's saved plan acceptance, reviewed in place. */
+  | { readonly kind: 'plan-acceptance' }
   | { readonly kind: 'run' }
   | { readonly kind: 'storage' }
   | { readonly kind: 'acknowledge' }
   | { readonly kind: 'roadmap'; readonly part: RoadmapItemPart };
 
 const CYCLE: Decision = { kind: 'cycle' };
+const ARCHITECTURE: Decision = { kind: 'architecture' };
 const setup = (step: SetupStep): Decision => ({ kind: 'roadmap', part: { kind: 'setup', step } });
 
 /**
@@ -75,13 +85,20 @@ const ROADMAP: Partial<Record<AttentionItemCode, (item: AttentionItemView) => De
   'upstream-pin-moved': () => ({ kind: 'dependency-refresh' }),
   'upstream-transition-undeclared': () => ({ kind: 'upstream-transitions' }),
   'verification-setup': () => ({ kind: 'environment-approval' }),
-  'checkpoint-evidence': () => setup('evidence'),
-  'plan-acceptance': () => setup('plan-acceptance'),
-  'architecture-decision': () => setup('decisions'),
-  // The decisions a shared-decision stop waits on (LIVE-18).
-  'shared-decision-required': () => setup('decisions'),
-  'decision-preparation-questions': () => setup('decisions'),
+  // A checkpoint item renders only its own decision (R-A6 rest, A2). An item the daemon names
+  // no checkpoint for opens the step that settles it, as before.
+  'checkpoint-evidence': (i) =>
+    i.checkpointId === undefined ? setup('evidence') : { kind: 'checkpoint-evidence' },
+  'plan-acceptance': () => ({ kind: 'plan-acceptance' }),
+  'architecture-decision': (i) =>
+    i.checkpointId === undefined ? setup('decisions') : ARCHITECTURE,
+  // A preparation's questions are decided on the decision it prepares (beside its run, below).
+  'decision-preparation-questions': (i) =>
+    i.checkpointId === undefined ? setup('decisions') : ARCHITECTURE,
 };
+
+/** The decisions a shared-decision stop waits on, each its own card (LIVE-18, R-A6 rest). */
+const SHARED_DECISION: AttentionItemCode = 'shared-decision-required';
 
 /**
  * A setup item whose blockers are of several kinds the item's code does not tell apart:
@@ -90,6 +107,8 @@ const ROADMAP: Partial<Record<AttentionItemCode, (item: AttentionItemView) => De
  */
 const BESIDE: Partial<Record<AttentionItemCode, readonly Decision[]>> = {
   'verification-setup': [setup('reviewers')],
+  // The preparation run whose report asked them.
+  'decision-preparation-questions': [{ kind: 'run' }],
 };
 
 /** A roadmap's own stop whose way on also needs its controls: a resume, or the held entry. */
@@ -162,6 +181,10 @@ export function decisionsFor(item: AttentionItemView): readonly Decision[] {
       ...(roadmap ? (BESIDE[code] ?? []) : []),
       ...(roadmap && WITH_CONTROLS.has(code) ? [controls(item)] : []),
     ];
+  // A cycle stopped for shared decisions shows each one's card, then continues once they are
+  // made, inside a roadmap or outside one.
+  if (code === SHARED_DECISION && subject(item) === 'cycle')
+    return [ARCHITECTURE, ...(workItemId === undefined ? [] : [CYCLE]), ...held];
   // A cycle stopped for a roadmap decision continues once it is made.
   if (roadmap)
     return [

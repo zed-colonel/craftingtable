@@ -262,6 +262,11 @@
               "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/planAcceptance",
               "nowSha256": "8ab0420cc9d022096be3a9921fa61be6d6c8c8483cff514d8324a35eef6d6207",
               "reason": "R-C6 D3: the plan-acceptance view's snapshotDigest, which guards plan generation, is now the saved-plan-v2 inputs digest (canonical JSON of the named inputs D1 lists) instead of the digest of the whole roadmap definition and runtime; the roadmap's state, issues and definition revision are unchanged."
+            },
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/capabilities",
+              "nowSha256": "52185faa1a21de4660956e745fcbce6d9c7ddca1bdf7939d5be3ed197cae6e18",
+              "reason": "R-F2 part 5 (with R-A6's rest): the runtime view gains capabilities, the map's typed capability gaps and each slice's build classification, derived on each read; nothing else in the view changes."
             }
           ]
         }
@@ -302,6 +307,11 @@
               "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/planAcceptance",
               "nowSha256": "8ab0420cc9d022096be3a9921fa61be6d6c8c8483cff514d8324a35eef6d6207",
               "reason": "R-C6 D3: the plan-acceptance view's snapshotDigest, which guards plan generation, is now the saved-plan-v2 inputs digest (canonical JSON of the named inputs D1 lists) instead of the digest of the whole roadmap definition and runtime; the roadmap's state, issues and definition revision are unchanged."
+            },
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/capabilities",
+              "nowSha256": "52185faa1a21de4660956e745fcbce6d9c7ddca1bdf7939d5be3ed197cae6e18",
+              "reason": "R-F2 part 5 (with R-A6's rest): the runtime view gains capabilities, the map's typed capability gaps and each slice's build classification, derived on each read; nothing else in the view changes."
             }
           ]
         }
@@ -354,6 +364,11 @@
               "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/planAcceptance",
               "nowSha256": "8ab0420cc9d022096be3a9921fa61be6d6c8c8483cff514d8324a35eef6d6207",
               "reason": "R-C6 D3: the plan-acceptance view's snapshotDigest, which guards plan generation, is now the saved-plan-v2 inputs digest (canonical JSON of the named inputs D1 lists) instead of the digest of the whole roadmap definition and runtime; the roadmap's state, issues and definition revision are unchanged."
+            },
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/capabilities",
+              "nowSha256": "52185faa1a21de4660956e745fcbce6d9c7ddca1bdf7939d5be3ed197cae6e18",
+              "reason": "R-F2 part 5 (with R-A6's rest): the runtime view gains capabilities, the map's typed capability gaps and each slice's build classification, derived on each read; nothing else in the view changes."
             }
           ]
         }
@@ -605,6 +620,11 @@
               "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/planAcceptance",
               "nowSha256": "8ab0420cc9d022096be3a9921fa61be6d6c8c8483cff514d8324a35eef6d6207",
               "reason": "R-C6 D3: the plan-acceptance view's snapshotDigest, which guards plan generation, is now the saved-plan-v2 inputs digest (canonical JSON of the named inputs D1 lists) instead of the digest of the whole roadmap definition and runtime; the roadmap's state, issues and definition revision are unchanged."
+            },
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/capabilities",
+              "nowSha256": "52185faa1a21de4660956e745fcbce6d9c7ddca1bdf7939d5be3ed197cae6e18",
+              "reason": "R-F2 part 5 (with R-A6's rest): the runtime view gains capabilities, the map's typed capability gaps and each slice's build classification, derived on each read; nothing else in the view changes."
             }
           ]
         },

@@ -207,6 +207,7 @@ const DYNAMIC_TAILS: readonly string[] = [
   'lib/planning-api.ts: /api/workspaces/*/projects/*',
   'lib/planning-api.ts: /api/workspaces/*/projects/*/plan-versions/*',
   'lib/roadmap-api.ts: /api/workspaces/*/roadmaps/*/definitions/*',
+  'lib/roadmap-api.ts: /api/workspaces/*/roadmaps/*/graph/*',
   // A roadmap's save, by id: configuration.
   'lib/roadmap-api.ts: /api/workspaces/*/roadmaps/*',
   // Typed unions of manual controls: a worktree's retarget or update; storage's scan, clean, backup.
@@ -1187,4 +1188,60 @@ it('reports a planted import of a kind’s commands from outside its directory',
       "import { recoverDesign } from './design-api.js';",
     ),
   ).toEqual([]);
+});
+
+/**
+ * The modules a directory's modules reach that send a request: they call `request` or `fetch`,
+ * or pass one on. The walk follows every relative import, re-export and `import()`, so a module
+ * the directory reaches only through others still counts.
+ */
+export function sendersReachedFrom(all: ReadonlyMap<string, Module>, directory: string): string[] {
+  const byPath = new Map([...all.values()].map((m) => [unextended(m.path), m]));
+  const queue = [...all.values()].filter((m) => m.path.startsWith(directory));
+  const seen = new Set<string>();
+  while (queue.length) {
+    const module = queue.pop()!;
+    if (seen.has(module.path)) continue;
+    seen.add(module.path);
+    for (const from of [
+      ...module.imports.map((i) => i.from),
+      ...module.reExports.map((r) => r.from),
+      ...module.dynamicImports.map((i) => i.from),
+    ]) {
+      const next = byPath.get(from) ?? byPath.get(`${from}/index`);
+      if (next) queue.push(next);
+    }
+  }
+  return [...seen]
+    .filter((path) => all.get(path)!.calls.length > 0 || all.get(path)!.escapes.length > 0)
+    .sort();
+}
+
+/**
+ * R-E3b's done-when (e): the roadmap board and its graph post no command. They live in
+ * `features/roadmap-board/` and are handed the daemon's reads by the roadmap page, so nothing
+ * they import, however indirectly, sends a request: a structural boundary, not a list of routes.
+ */
+it("the roadmap board's modules reach no request (R-E3b)", () => {
+  expect([...modules.keys()].filter((p) => p.startsWith('features/roadmap-board/'))).not.toEqual(
+    [],
+  );
+  expect(sendersReachedFrom(modules, 'features/roadmap-board/')).toEqual([]);
+});
+
+/** The reach check itself: a board module two imports away from a sender is reported. */
+it('reports a planted board module that reaches a request through another module', () => {
+  const planted = analyseAll(
+    new Map(
+      Object.entries({
+        'features/roadmap-board/Planted.tsx':
+          "import { helper } from '../../lib/planted-helper.js';\nexport function Planted() { return helper(); }",
+        'lib/planted-helper.ts': "export { post as helper } from './planted-api.js';",
+        'lib/planted-api.ts':
+          "import { request } from './api-client.js';\nexport const post = () => request('/api/x/decide', {});",
+        'lib/api-client.ts': 'export async function request() {}',
+      }).map(([path, source]) => [join(src, path), source]),
+    ),
+  );
+  expect(sendersReachedFrom(planted, 'features/roadmap-board/')).toEqual(['lib/planted-api.ts']);
 });

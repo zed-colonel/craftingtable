@@ -1,4 +1,5 @@
 import {
+  roadmapGraphSchema,
   type SaveRoadmapRequest,
   type ScopeRecoveryPolicyRequest,
   roadmapDefinitionSchema,
@@ -42,6 +43,9 @@ export const loadRoadmapDefinition = (workspaceId: WorkspaceId, id: string, revi
     `${base(workspaceId)}/${encodeURIComponent(id)}/definitions/${revision}`,
     roadmapDefinitionSchema,
   );
+/** A roadmap's graph at one revision, which never changes (R-E3b). */
+export const loadRoadmapGraph = (workspaceId: WorkspaceId, id: string, revision: number) =>
+  request(`${base(workspaceId)}/${encodeURIComponent(id)}/graph/${revision}`, roadmapGraphSchema);
 export const loadRoadmapStatus = (roadmap: Pick<Roadmap, 'workspaceId' | 'id'>) =>
   request(`${base(roadmap.workspaceId)}/${roadmap.id}/status`, roadmapStatusListSchema);
 export const loadRoadmapHistory = (roadmap: Roadmap) =>

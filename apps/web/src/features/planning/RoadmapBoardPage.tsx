@@ -34,6 +34,7 @@ import {
 import {
   controlRoadmap,
   loadRoadmapDefinition,
+  loadRoadmapGraph,
   loadRoadmapHistory,
   loadRoadmapPage,
 } from '../../lib/roadmap-api.js';
@@ -45,10 +46,14 @@ import { RoadmapStatusList } from './RoadmapStatusList.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
 import { Link, useNavigation } from '../../lib/navigation.js';
-import type { Route, RoadmapTab } from '../../lib/route.js';
+import type { BoardView, Route, RoadmapTab } from '../../lib/route.js';
 import type { RoadmapItemPart } from '../../decisions/registry.js';
 import { ROADMAP_STATUS_LABELS as labels, roadmapStatusLabel } from './roadmap-labels.js';
 import { type Draft, draftOf, RoadmapEditor } from './RoadmapEditor.js';
+import type { BoardModel } from '../roadmap-board/board-model.js';
+import { RoadmapBoard } from '../roadmap-board/RoadmapBoard.js';
+import { BoardViewSwitch } from '../roadmap-board/BoardViewSwitch.js';
+import { useWide } from '../roadmap-board/use-wide.js';
 
 /** The first item per entry, by `entryId`. */
 function firstByEntry<T extends { readonly entryId: string }>(items: readonly T[]) {
@@ -73,6 +78,27 @@ function useRoadmapPage(workspaceId: WorkspaceId, roadmapId: string) {
       : queryKeys.roadmapDefinition(workspaceId, roadmapId, String(revision)),
     () => loadRoadmapDefinition(workspaceId, roadmapId, revision as number),
   );
+  // The board's graph, by the board's revision, read once per revision (R-E3b).
+  const boardRevision = page.data?.board?.revision;
+  const graph = useQuery(
+    boardRevision === undefined
+      ? undefined
+      : queryKeys.roadmapGraph(workspaceId, roadmapId, String(boardRevision)),
+    () => loadRoadmapGraph(workspaceId, roadmapId, boardRevision as number),
+  );
+  const model = useMemo<BoardModel | undefined>(() => {
+    const board = page.data?.board;
+    return board &&
+      graph.data?.revision === board.revision &&
+      definition.data?.revision === board.revision
+      ? {
+          graph: graph.data,
+          board,
+          status: page.data!.status,
+          entryIds: definition.data.entries.map((entry) => entry.id),
+        }
+      : undefined;
+  }, [page.data, graph.data, definition.data]);
   const composed = useMemo<RoadmapView | undefined>(
     () =>
       page.data && definition.data?.revision === page.data.definitionRevision
@@ -128,7 +154,8 @@ function useRoadmapPage(workspaceId: WorkspaceId, roadmapId: string) {
   return {
     view,
     status: page.data?.status,
-    statusError: page.error,
+    statusError: page.error ?? graph.error,
+    board: model,
     loaded: view !== undefined || page.status === 'error',
     error,
     setError,
@@ -158,6 +185,8 @@ export function RoadmapPage({
   onOpenAttention,
   focus,
   part,
+  view: boardView,
+  select,
 }: {
   workspaceId: WorkspaceId;
   roadmapId: string;
@@ -175,12 +204,24 @@ export function RoadmapPage({
    * 2a), instead of the whole roadmap.
    */
   part?: RoadmapItemPart;
+  /** The board's view, when the route names one; else the width's default (R-E3b). */
+  view?: BoardView;
+  /** The board's selected node (`?select=`). */
+  select?: string;
 }) {
   const navigation = useNavigation();
-  const { view, status, statusError, loaded, error, setError, apply } = useRoadmapPage(
-    workspaceId,
-    roadmapId,
-  );
+  const {
+    view,
+    status,
+    statusError,
+    board: boardModel,
+    loaded,
+    error,
+    setError,
+    apply,
+  } = useRoadmapPage(workspaceId, roadmapId);
+  const wide = useWide();
+  const shown: BoardView = boardView ?? (wide ? 'board' : 'list');
   const [draft, setDraft] = useState<Draft>();
   const cancel = useCallback(() => setDraft(undefined), []);
   const [busy, setBusy] = useState(false);
@@ -302,6 +343,22 @@ export function RoadmapPage({
     ...(element === undefined ? {} : { focus: element }),
   });
   const runtimePanelId = `runtime-evidence-roadmap-${roadmap.id}`;
+  // Selecting changes only the address: it replaces the history entry and reads nothing (R-E3b).
+  const selectNode = (key: string | undefined) =>
+    navigation?.navigate(
+      {
+        ...tabRoute('board'),
+        ...(boardView ? { view: boardView } : {}),
+        ...(key === undefined ? {} : { select: key }),
+      },
+      { replace: true },
+    );
+  const boardLinks = {
+    workspaceId,
+    roadmapId: roadmap.id,
+    onOpenWorkItem,
+    ...(onOpenAttention ? { onOpenAttention } : {}),
+  };
   // A single-project roadmap whose slices all come from one map revision.
   const mapScope = crossProject ? undefined : runtimeScope(roadmap);
 
@@ -526,12 +583,33 @@ export function RoadmapPage({
         />
       )}
       {!embedded && !['draft', 'completed'].includes(roadmap.status) && (
-        <RoadmapStatusList
-          roadmap={roadmap}
-          page={{ status, error: statusError }}
-          onOpenWorkItem={onOpenWorkItem}
-          {...(onOpenAttention ? { onOpenAttention } : {})}
-        />
+        <>
+          {boardModel && (
+            <BoardViewSwitch
+              shown={shown}
+              route={(next) => ({
+                ...tabRoute('board'),
+                view: next,
+                ...(select ? { select } : {}),
+              })}
+            />
+          )}
+          {boardModel && shown === 'board' ? (
+            <RoadmapBoard
+              model={boardModel}
+              selected={select}
+              onSelect={selectNode}
+              links={boardLinks}
+            />
+          ) : (
+            <RoadmapStatusList
+              roadmap={roadmap}
+              page={{ status, error: statusError }}
+              onOpenWorkItem={onOpenWorkItem}
+              {...(onOpenAttention ? { onOpenAttention } : {})}
+            />
+          )}
+        </>
       )}
       <details open={!crossProject}>
         <summary>

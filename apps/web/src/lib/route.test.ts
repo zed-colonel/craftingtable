@@ -43,6 +43,16 @@ const ROUTES: readonly Route[] = [
     tab: 'setup',
     focus: 'map-reviewers-roadmap-roadmap-1',
   },
+  // The board's view and selection (R-E3b).
+  {
+    name: 'roadmap',
+    workspaceId: WORKSPACE,
+    roadmapId: 'roadmap-1',
+    tab: 'board',
+    view: 'graph',
+    select: 'slice:wi/WI-01/implementation:merged',
+  },
+  { name: 'roadmap', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', tab: 'board', view: 'list' },
   { name: 'roadmap-map', workspaceId: WORKSPACE, definitionId: 'definition-1' },
   {
     name: 'roadmap-map',
@@ -193,6 +203,32 @@ describe('roadmap pages (R-E2)', () => {
     expect(buildPath({ name: 'roadmap-map', workspaceId: WORKSPACE, definitionId: 'd-1' })).toBe(
       '/workspaces/workspace-1/roadmaps/maps/d-1',
     );
+  });
+
+  it("carries the board's view and selection in the query (R-E3b)", () => {
+    expect(
+      buildPath({
+        name: 'roadmap',
+        workspaceId: WORKSPACE,
+        roadmapId: 'r-1',
+        tab: 'board',
+        view: 'board',
+        select: 'checkpoint:EXO ADR/1:passed',
+      }),
+    ).toBe(
+      '/workspaces/workspace-1/roadmaps/r-1?view=board&select=checkpoint%3AEXO%20ADR%2F1%3Apassed',
+    );
+    // An unknown view is the width's default; the setup and history pages have no selection.
+    expect(parseRoute('/workspaces/workspace-1/roadmaps/r-1', '?view=map&select=x')).toEqual({
+      name: 'roadmap',
+      workspaceId: WORKSPACE,
+      roadmapId: 'r-1',
+      tab: 'board',
+      select: 'x',
+    });
+    expect(
+      parseRoute('/workspaces/workspace-1/roadmaps/r-1/setup', '?view=graph&select=x'),
+    ).toEqual({ name: 'roadmap', workspaceId: WORKSPACE, roadmapId: 'r-1', tab: 'setup' });
   });
 
   it('degrades an unknown roadmap tab to the board and a bare maps path to the list', () => {

@@ -49,7 +49,8 @@ export function WorkspaceShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const main = useRef<HTMLElement>(null);
-  const path = buildPath(route);
+  // A board's selection is not a new destination (R-E3b).
+  const path = buildPath(route.name === 'roadmap' ? { ...route, select: '' } : route);
 
   // A new destination (including browser Back) starts with its content in view.
   // Workspace event refreshes keep the current scroll position and menu state.

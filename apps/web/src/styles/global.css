@@ -2594,3 +2594,285 @@ button:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------------------------------------ */
+/* Roadmap board (R-E3b): lanes of cards, the Gates strip, the selection.    */
+/* ------------------------------------------------------------------------ */
+
+.board-views {
+  display: flex;
+  gap: var(--space-1);
+  margin-block: var(--space-2);
+}
+.board-view {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+.board-view-current {
+  border-color: var(--color-accent);
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+}
+
+.roadmap-board {
+  display: grid;
+  gap: var(--space-3);
+}
+.board-gates h3,
+.board-lane h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+}
+.board-gate-list,
+.board-node-list,
+.board-entries,
+.board-slices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.board-gate-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.board-more {
+  margin-block: var(--space-2);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.board-gate {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.board-gate-inbox {
+  border-color: var(--color-attention);
+}
+.board-gate[aria-pressed="true"],
+.board-chip[aria-pressed="true"],
+.board-card-title[aria-pressed="true"] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.board-gate-count {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.board-flag {
+  color: var(--color-attention);
+  font-size: var(--text-xs);
+}
+
+.board-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+  gap: var(--space-4);
+  align-items: start;
+}
+.board-lanes {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.board-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-2);
+}
+.board-card {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-3);
+  background: var(--color-surface);
+  padding: var(--space-2) var(--space-3);
+}
+.board-card-selected {
+  border-color: var(--color-accent);
+}
+.board-card-title {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.board-card-state {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.board-state {
+  font-size: var(--text-xs);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-1);
+  padding: 0 var(--space-1);
+  color: var(--color-text-secondary);
+}
+.board-actor-operator {
+  border-color: var(--color-attention);
+  color: var(--color-attention);
+}
+.board-actor-agent {
+  border-color: var(--color-active);
+  color: var(--color-active);
+}
+.board-live {
+  font-size: var(--text-xs);
+  color: var(--color-active);
+}
+.board-live::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: var(--space-1);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.board-card-wait {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-slices {
+  display: grid;
+  gap: var(--space-1);
+}
+.board-slice {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.board-slice-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  min-width: 6rem;
+}
+.board-chip {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.board-chip-met {
+  border-color: var(--color-done);
+  background: var(--color-done-soft);
+  color: var(--color-done);
+}
+
+.board-panel {
+  position: sticky;
+  top: var(--space-3);
+  max-height: calc(100vh - 2 * var(--space-3));
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-3);
+  background: var(--color-surface-raised);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+.board-panel-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  overflow-wrap: anywhere;
+}
+.board-panel-part h5 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+.board-entries {
+  display: grid;
+  gap: var(--space-2);
+}
+.board-entry {
+  display: grid;
+  gap: var(--space-1);
+}
+.board-entry-state {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.board-wait {
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.board-node-link {
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.board-node-link:hover {
+  text-decoration: underline;
+}
+.inline-links {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1200px) {
+  .board-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .board-panel {
+    position: static;
+    max-height: none;
+  }
+}
+
+/* Touch: every board control is at least 44 px (ui-principles). */
+@media (pointer: coarse), (max-width: 900px) {
+  .board-gate,
+  .board-chip,
+  .board-card-title,
+  .board-node-link,
+  .board-view {
+    min-height: 44px;
+  }
+}

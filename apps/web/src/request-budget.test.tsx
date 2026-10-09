@@ -3,7 +3,7 @@ import {
   type WorkspaceEventEnvelope,
   workspaceEventEnvelopeSchema,
 } from '@craftingtable/contracts';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
 
@@ -255,11 +255,54 @@ vi.mock('./lib/execution-api.js', async (original) => ({
     profiles: [],
   })),
 }));
-vi.mock('./lib/roadmap-api.js', async (original) => ({
-  ...(await original<typeof import('./lib/roadmap-api.js')>()),
-  loadRoadmaps: count('roadmaps', async () => ({ roadmaps: [] })),
-  loadRoadmapSummaries: count('roadmap-summaries', async () => ({ roadmaps: [] })),
-}));
+vi.mock('./lib/roadmap-api.js', async (original) => {
+  const board = await import('./features/roadmap-board/board-testing.js');
+  const profile = { backend: 'codex', permissionMode: 'auto' };
+  const roadmap = {
+    id: board.ROADMAP_ID,
+    workspaceId: WS,
+    status: 'running',
+    version: 3,
+    reason: 'Scheduling.',
+    attempts: [],
+  };
+  const definition = {
+    name: 'Cross-project roadmap',
+    revision: 2,
+    scheduling: { mode: 'parallel', maxInFlight: 2, maxPerRepository: 2 },
+    crossProject: {
+      definitionId: 'def-1',
+      bindingRevision: 4,
+      targetId: 'TARGET',
+      selection: 'target-only',
+    },
+    entries: board.ENTRY_IDS.map((id) => ({
+      id,
+      workItemId: 'wi-01',
+      sourceId: 'wi/WI-01/impl',
+      title: 'World interface core',
+      executionScope: { kind: 'slice', sourceId: 'wi/WI-01/impl' },
+      integrationBranch: 'wi-fabric',
+      planVersionId: 'plan',
+      profiles: { design: profile, implement: profile, review: profile, remediate: profile },
+      policy: { maxNits: 3, maxRemediationRounds: 3, maxRunMinutes: 60 },
+      instructions: '',
+    })),
+  };
+  return {
+    ...(await original<typeof import('./lib/roadmap-api.js')>()),
+    loadRoadmaps: count('roadmaps', async () => ({ roadmaps: [] })),
+    loadRoadmapSummaries: count('roadmap-summaries', async () => ({ roadmaps: [] })),
+    loadRoadmapPage: count('roadmap-view', async () => ({
+      view: { roadmap, progress: [] },
+      definitionRevision: 2,
+      status: board.STATUS,
+      board: board.BOARD,
+    })),
+    loadRoadmapDefinition: count('roadmap-definition', async () => definition),
+    loadRoadmapGraph: count('roadmap-graph', async () => board.GRAPH),
+  };
+});
 vi.mock('./lib/planning-api.js', async (original) => ({
   ...(await original<typeof import('./lib/planning-api.js')>()),
   loadWorkspaceWorkItems: count('agenda', async () => ({ filter: 'all', items: [] })),
@@ -561,4 +604,38 @@ it('loads a run page with its view and its first page of events (R-D5)', async (
     await vi.advanceTimersByTimeAsync(5_000);
   });
   expect(requests.slice(before).sort()).toEqual(['run-events', 'run-view']);
+});
+
+/**
+ * R-E3b's done-when (c): selecting on the board makes no request. The board's page reads its
+ * region, its definition and its graph; selecting a card, a slice, a gate and a root blocker
+ * then changes only the address.
+ */
+it('reads nothing when the board selects (R-E3b)', async () => {
+  const { ROADMAP_ID } = await import('./features/roadmap-board/board-testing.js');
+  window.history.replaceState(null, '', `/workspaces/ws-a/roadmaps/${ROADMAP_ID}`);
+  render(<App />);
+  const card = await screen.findByRole('button', { name: /wi\/WI-01 World interface core/ });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  expect(requests).toEqual(
+    expect.arrayContaining(['roadmap-view', 'roadmap-definition', 'roadmap-graph']),
+  );
+  const before = requests.length;
+  act(() => card.click());
+  expect(window.location.search).toBe('?select=work_item%3Awi%2FWI-01%3Aaccepted');
+  act(() => screen.getByRole('button', { name: 'wi/WI-01/impl merged: not met' }).click());
+  act(() => screen.getByRole('button', { name: /ADR-1.*unblocks 1/ }).click());
+  const panel = screen.getByRole('complementary', { name: 'Selection' });
+  act(() =>
+    within(panel)
+      .getAllByRole('button', { name: /wi\/WI-01\/impl/ })[0]!
+      .click(),
+  );
+  expect(window.location.search).toBe('?select=slice%3Awi%2FWI-01%2Fimpl%3Astarted');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  expect(requests.slice(before)).toEqual([]);
 });

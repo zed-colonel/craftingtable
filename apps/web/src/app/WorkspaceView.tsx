@@ -146,6 +146,8 @@ export function WorkspaceView({
               workspaceId={workspaceId}
               roadmapId={route.roadmapId}
               tab={route.tab}
+              {...(route.view ? { view: route.view } : {})}
+              {...(route.select ? { select: route.select } : {})}
               csrfToken={csrfToken}
               canMutate={canMutate}
               onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}

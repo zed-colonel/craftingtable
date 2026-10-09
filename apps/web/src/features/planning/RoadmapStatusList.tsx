@@ -3,31 +3,19 @@ import {
   asAgentRunId,
   type Roadmap,
   type RoadmapActor,
-  type RoadmapEntryProgress,
   type WorkItemId,
 } from '@craftingtable/domain';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery } from '../../lib/query-store.js';
 import { loadRoadmapStatus } from '../../lib/roadmap-api.js';
 import { Link } from '../../lib/navigation.js';
+import { ENTRY_STATE_LABELS as STATE_LABELS } from './roadmap-labels.js';
 
 /**
  * A roadmap's status list (R-E3a): every open entry, its state, what it waits on and who
  * acts next, grouped by who acts. Read-only: the decisions stay in the inbox. Everything
  * shown is what the daemon recorded; the browser derives nothing.
  */
-
-const STATE_LABELS: Readonly<Record<RoadmapEntryProgress['status'], string>> = {
-  queued: 'Queued',
-  'dependency-blocked': 'Waiting on prerequisites',
-  'capacity-blocked': 'Waiting for capacity',
-  'exclusion-blocked': 'Waiting for exclusion group',
-  paused: 'Paused',
-  running: 'Running',
-  'awaiting-merge': 'Awaiting merge',
-  'needs-attention': 'Needs attention',
-  completed: 'Completed',
-};
 
 const GROUPS: readonly {
   readonly actor: Exclude<RoadmapActor, 'none'>;

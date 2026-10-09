@@ -27,6 +27,9 @@ export type AgendaFilter = (typeof AGENDA_FILTERS)[number];
 /** One roadmap's pages (R-E2): its board and controls, its setup checklist, its history. */
 export const ROADMAP_TABS = ['board', 'setup', 'history'] as const;
 export type RoadmapTab = (typeof ROADMAP_TABS)[number];
+/** How a roadmap's board shows (R-E3b): lanes, the neighbourhood graph, or the grouped list. */
+export const BOARD_VIEWS = ['board', 'graph', 'list'] as const;
+export type BoardView = (typeof BOARD_VIEWS)[number];
 
 /**
  * Which of a roadmap's pages holds an element. Links stored before the Roadmaps page was split
@@ -61,13 +64,18 @@ export type Route =
    * the page mounts (R-E1): a deep link does not depend on a panel reading the address itself.
    */
   | { readonly name: 'roadmaps'; readonly workspaceId: WorkspaceId; readonly focus?: string }
-  /** `/roadmaps/:id[/setup|/history]`: one roadmap's board, setup or history (R-E2). */
+  /**
+   * `/roadmaps/:id[/setup|/history]`: one roadmap's board, setup or history (R-E2). The board
+   * takes `?view=` (else its width's default) and `?select=<node key>` (R-E3b).
+   */
   | {
       readonly name: 'roadmap';
       readonly workspaceId: WorkspaceId;
       readonly roadmapId: string;
       readonly tab: RoadmapTab;
       readonly focus?: string;
+      readonly view?: BoardView;
+      readonly select?: string;
     }
   /** `/roadmaps/maps/:definitionId`: one imported concurrency map, before a roadmap uses it. */
   | {
@@ -130,7 +138,8 @@ export function parseRoute(pathname: string, search = '', hash = ''): Route {
   const route = parsePath(pathname);
   const focus = decode(hash.startsWith('#') ? hash.slice(1) : hash);
   // URLSearchParams has already decoded the value; decoding again would lose a `%`.
-  const roadmapId = new URLSearchParams(search).get('roadmap') || undefined;
+  const query = new URLSearchParams(search);
+  const roadmapId = query.get('roadmap') || undefined;
   switch (route.name) {
     case 'roadmaps': {
       if (roadmapId === undefined) return { ...route, ...(focus === undefined ? {} : { focus }) };
@@ -147,7 +156,18 @@ export function parseRoute(pathname: string, search = '', hash = ''): Route {
         ...(moved === undefined ? {} : { focus: moved }),
       };
     }
-    case 'roadmap':
+    case 'roadmap': {
+      const view = query.get('view');
+      const select = query.get('select') || undefined;
+      return {
+        ...route,
+        ...(focus === undefined ? {} : { focus }),
+        ...(route.tab === 'board' && (BOARD_VIEWS as readonly (string | null)[]).includes(view)
+          ? { view: view as BoardView }
+          : {}),
+        ...(route.tab === 'board' && select !== undefined ? { select } : {}),
+      };
+    }
     case 'roadmap-map':
       return { ...route, ...(focus === undefined ? {} : { focus }) };
     case 'settings':
@@ -267,14 +287,25 @@ function parsePath(pathname: string): Route {
 
 export function buildPath(route: Route): string {
   const path = buildPathname(route);
-  // Only Settings takes a roadmap in the query; a roadmap's own pages carry it in the path.
-  const roadmap =
-    route.name === 'settings' && route.roadmapId !== undefined
-      ? `?roadmap=${encodeURIComponent(route.roadmapId)}`
-      : '';
+  // Settings takes a roadmap in the query; a roadmap's own pages carry it in the path, and the
+  // board its view and selection (R-E3b).
+  const parameters: [string, string | undefined][] =
+    route.name === 'settings'
+      ? [['roadmap', route.roadmapId]]
+      : route.name === 'roadmap' && route.tab === 'board'
+        ? [
+            ['view', route.view],
+            ['select', route.select],
+          ]
+        : [];
+  const query = parameters
+    .flatMap(([name, value]) =>
+      value === undefined ? [] : [`${name}=${encodeURIComponent(value)}`],
+    )
+    .join('&');
   const focus =
     'focus' in route && route.focus !== undefined ? `#${encodeURIComponent(route.focus)}` : '';
-  return `${path}${roadmap}${focus}`;
+  return `${path}${query ? `?${query}` : ''}${focus}`;
 }
 
 function buildPathname(route: Route): string {

@@ -9,7 +9,8 @@ import { buildPath, parseRoute, type Route } from './route.js';
  */
 export interface Navigation {
   readonly route: Route;
-  navigate(next: Route): void;
+  /** `replace` swaps the history entry instead of adding one (a board's selection, R-E3b). */
+  navigate(next: Route, options?: { readonly replace?: boolean }): void;
 }
 
 const NavigationContext = createContext<Navigation | undefined>(undefined);

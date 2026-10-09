@@ -22,6 +22,9 @@ export const queryKeys = {
   /** One revision of a roadmap's definition: it never changes, so no event reads it again. */
   roadmapDefinition: (workspaceId: string, roadmapId: string, revision: string) =>
     ['roadmap-definition', workspaceId, roadmapId, revision] as const,
+  /** A roadmap's graph at one revision (R-E3b): it never changes, so no event reads it again. */
+  roadmapGraph: (workspaceId: string, roadmapId: string, revision: string) =>
+    ['roadmap-graph', workspaceId, roadmapId, revision] as const,
   /** A map's dependency environment and evidence view. */
   runtime: (workspaceId: string, definitionId: string) =>
     ['runtime', workspaceId, definitionId] as const,

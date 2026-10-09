@@ -1,4 +1,8 @@
-import { roadmapGraphSchema, roadmapPageSchema } from '@craftingtable/contracts';
+import {
+  attentionFeedSchema,
+  roadmapGraphSchema,
+  roadmapPageSchema,
+} from '@craftingtable/contracts';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   adoptSupervisedMap,
@@ -200,4 +204,18 @@ it("draws a sequential roadmap's work items by project, edges from their depende
   expect(board.nodes[first]).toMatchObject({ satisfied: false, runId: running.waitsOn!.runId });
   expect(board.nodes[second]).toMatchObject({ unmet: [first], roots: [first] });
   expect(board.summary).toMatchObject({ agentsAtWork: 1, waiting: 2 });
+});
+
+it("counts what a map roadmap's items unblock in slices, as its checkpoints do (R-E3b 8)", async () => {
+  const f = await decisionRoadmap();
+  // A restart leaves the roadmap waiting on the operator's Resume: the whole roadmap waits.
+  f.state.context.services.roadmapService.recoverInterrupted();
+  const feed = attentionFeedSchema.parse(await read(f, '/attention'));
+  const resume = feed.items.find((i) => i.code === 'restart-resume')!;
+  expect(resume).toBeDefined();
+  // Slices a and b are unfinished and selected; the roadmap's entries number more.
+  const entries = f.state.context.storage.roadmaps.find(f.state.workspaceId, roadmapId)!.definition
+    .entries.length;
+  expect(entries).toBeGreaterThan(2);
+  expect(resume.blocks).toBe(2);
 });

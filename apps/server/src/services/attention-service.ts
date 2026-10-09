@@ -31,6 +31,12 @@ export class AttentionService {
     private readonly workspaces: WorkspaceService,
     private readonly projection: { flush(): void },
     private readonly now: () => Date = () => new Date(),
+    /** How many slices each item on a map roadmap holds (R-E3b decision 8). */
+    private readonly mapSlices?: (
+      tx: StorageRepositories,
+      workspaceId: WorkspaceId,
+      items: readonly { readonly item: AttentionItem; readonly checkpointId?: string }[],
+    ) => ReadonlyMap<string, number>,
   ) {}
 
   /**
@@ -81,17 +87,29 @@ export class AttentionService {
     this.projection.flush();
     return this.storage.readTransaction((tx) => {
       const installation = tx.maintenance.ownsInstallation(context.user.id);
-      const items = tx.attention
+      const open = tx.attention
         .open(workspaceId)
         .filter((item) => installation || !INSTALLATION_ATTENTION_CODES.has(item.code))
-        .map((item) => view(item, this.blocks(tx, item), checkpointOf(tx, item)));
+        .map((item) => ({ item, checkpointId: checkpointOf(tx, item) }));
+      // On a map roadmap every item counts the slices it holds, so the ranking has one unit.
+      const slices = this.mapSlices?.(
+        tx,
+        workspaceId,
+        open.filter(({ item }) => item.blocks === undefined),
+      );
+      const items = open.map(({ item, checkpointId }) =>
+        view(item, slices?.get(item.id) ?? this.blocks(tx, item), checkpointId),
+      );
       return {
         items: items.sort((a, b) => b.blocks - a.blocks || a.openedAt.localeCompare(b.openedAt)),
       };
     });
   }
 
-  /** How much work waits on an item: dependent plan items, roadmap entries or milestones. */
+  /**
+   * How much work waits on an item off a map roadmap: dependent plan items or roadmap entries;
+   * a checkpoint item carries its slices (R-C3b).
+   */
   private blocks(tx: StorageRepositories, item: AttentionItem): number {
     if (item.blocks !== undefined) return item.blocks;
     const { workItemId, roadmapId } = item.refs;

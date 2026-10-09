@@ -1,8 +1,14 @@
 import { roadmapBoardSchema, roadmapGraphSchema } from '@craftingtable/contracts';
 import { asWorkItemId, type RoadmapEntry, type RoadmapStatusList } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
-import { slicesWaitingOn } from '../src/services/decision-demand.js';
-import { buildBoard, mapGraph, sequenceGraph, sequenceKey } from '../src/services/roadmap-board.js';
+import { slicesHeldBy, slicesWaitingOn } from '../src/services/decision-demand.js';
+import {
+  buildBoard,
+  itemNodeKeys,
+  mapGraph,
+  sequenceGraph,
+  sequenceKey,
+} from '../src/services/roadmap-board.js';
 import { localScopeSource } from './map-test-support.js';
 
 /**
@@ -273,4 +279,62 @@ it("draws a sequential roadmap's work items by project, with their required pred
     { lane: 0, cards: [{ node: 1, gates: 0 }], done: [0] },
     { lane: 1, cards: [], done: [] },
   ]);
+});
+
+it('names the nodes an inbox item is about and counts the slices it holds (R-E3b 8)', () => {
+  const g = graph();
+  const entries = [
+    {
+      id: entryId(1),
+      workItemId: workItem,
+      executionScope: { kind: 'slice', sourceId: 'local/AQ-01/a' },
+    },
+    {
+      id: entryId(2),
+      workItemId: workItem,
+      executionScope: { kind: 'slice-verification', sourceId: 'local/AQ-01/b' },
+    },
+  ] as unknown as RoadmapEntry[];
+  expect(itemNodeKeys(g, entries, { entryIds: [entryId(1)] })).toEqual([
+    'slice:local/AQ-01/a:started',
+    'slice:local/AQ-01/a:merged',
+  ]);
+  expect(itemNodeKeys(g, entries, { entryIds: [entryId(2)] })).toEqual([
+    'slice:local/AQ-01/b:verified',
+  ]);
+  expect(itemNodeKeys(g, entries, { checkpointId: 'LOCAL-ADR-01' })).toEqual([
+    'checkpoint:LOCAL-ADR-01:passed',
+  ]);
+  expect([...itemNodeKeys(g, entries, { workItemId: workItem })].sort()).toEqual(
+    [
+      'work_item:local/AQ-01:accepted',
+      ...['a', 'b'].flatMap((s) =>
+        ['started', 'merged', 'verified'].map((m) => `slice:local/AQ-01/${s}:${m}`),
+      ),
+    ].sort(),
+  );
+  expect(itemNodeKeys(g, entries, { roadmap: true })).toHaveLength(6);
+
+  // Nothing met: the decision holds both slices, as slicesWaitingOn counts; slice b's own
+  // verification holds b alone; slice a's start holds a and b, which starts after a merges.
+  const nodes = g.nodes.map((n) => ({
+    key: n.key,
+    kind: n.kind,
+    sourceId: n.sourceId,
+    included: n.included,
+    satisfied: n.kind === 'checkpoint' && n.sourceId !== 'LOCAL-ADR-01',
+    requirements: n.requires.map((r) => g.nodes[r]!.key),
+  }));
+  const adr = 'checkpoint:LOCAL-ADR-01:passed';
+  expect(slicesHeldBy(nodes, [adr])).toBe(slicesWaitingOn(nodes, adr));
+  expect(slicesHeldBy(nodes, [adr])).toBe(2);
+  expect(slicesHeldBy(nodes, ['slice:local/AQ-01/b:verified'])).toBe(1);
+  expect(slicesHeldBy(nodes, ['slice:local/AQ-01/a:started'])).toBe(2);
+  // A met slice holds nothing of its own.
+  expect(
+    slicesHeldBy(
+      nodes.map((n) => (n.sourceId === 'local/AQ-01/b' ? { ...n, satisfied: true } : n)),
+      ['slice:local/AQ-01/b:verified'],
+    ),
+  ).toBe(0);
 });

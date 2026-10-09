@@ -37,6 +37,7 @@ import {
   asEventId,
   asWorktreeId,
   type AgentRunId,
+  type AttentionItem,
   DEFAULT_ROADMAP_SCHEDULING,
   type Roadmap,
   type RoadmapAttempt,
@@ -73,7 +74,7 @@ import {
 } from './agent-profile-policy.js';
 import { selectionSet } from './agent-resolution.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
-import { neededDecisions, slicesWaitingOn } from './decision-demand.js';
+import { neededDecisions, slicesHeldBy, slicesWaitingOn } from './decision-demand.js';
 import { decisionSettlement, settlementLines } from './decision-settlement.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
@@ -131,7 +132,14 @@ import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
 import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 import { checkpointSubjectKey } from './checkpoint-subject.js';
-import { buildBoard, mapGraph, type NodeEvaluation, sequenceGraph } from './roadmap-board.js';
+import {
+  buildBoard,
+  type ItemSubject,
+  itemNodeKeys,
+  mapGraph,
+  type NodeEvaluation,
+  sequenceGraph,
+} from './roadmap-board.js';
 
 class SupersededRoadmapOperation extends Error {}
 /**
@@ -1238,6 +1246,65 @@ export class RoadmapService {
         }),
       ),
     });
+  }
+
+  /**
+   * How many slices each open item on a map roadmap holds (R-E3b decision 8), so the inbox ranks
+   * them in one unit: one map evaluation per roadmap that has such an item. Items on no map
+   * roadmap are left out and keep their own count.
+   */
+  mapItemSlices(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    items: readonly { readonly item: AttentionItem; readonly checkpointId?: string }[],
+  ): ReadonlyMap<string, number> {
+    const counts = new Map<string, number>();
+    for (const roadmap of tx.roadmaps.list(workspaceId)) {
+      const selection = roadmap.definition.crossProject;
+      if (!selection || ended(roadmap)) continue;
+      const graph = this.graphAt(tx, workspaceId, roadmap.id, roadmap.definition);
+      if (!graph) continue;
+      let nodes: CrossProjectView['nodes'] | undefined;
+      for (const { item, checkpointId } of items) {
+        if (counts.has(item.id)) continue;
+        const subject = this.itemSubject(tx, roadmap, graph, item, checkpointId);
+        if (!subject) continue;
+        nodes ??= crossProjectState(tx, workspaceId, selection).nodes;
+        counts.set(
+          item.id,
+          slicesHeldBy(nodes, itemNodeKeys(graph, roadmap.definition.entries, subject)),
+        );
+      }
+    }
+    return counts;
+  }
+
+  /** What an item is about on this map roadmap, from its typed references; none if not on it. */
+  private itemSubject(
+    tx: StorageRepositories,
+    roadmap: Roadmap,
+    graph: RoadmapGraph,
+    item: AttentionItem,
+    checkpointId: string | undefined,
+  ): ItemSubject | undefined {
+    const { refs } = item;
+    const cycle = refs.cycleId
+      ? tx.execution.cycles.find(roadmap.workspaceId, refs.cycleId)
+      : undefined;
+    const owner = cycle?.owner?.roadmapId === roadmap.id ? cycle.owner : undefined;
+    if (refs.roadmapId !== roadmap.id && !owner)
+      // A work item's own item, when this map binds it and nothing else owns the stop.
+      return !refs.roadmapId &&
+        !cycle &&
+        refs.workItemId &&
+        graph.nodes.some((n) => n.workItemId === refs.workItemId)
+        ? { workItemId: refs.workItemId }
+        : undefined;
+    if (checkpointId) return { checkpointId };
+    if (refs.entryId) return { entryIds: [refs.entryId] };
+    if (owner) return { entryIds: [owner.entryId] };
+    if (item.members?.length) return { entryIds: item.members };
+    return { roadmap: true };
   }
 
   /** A roadmap's dependency structure at one revision (R-E3b); revisions never change. */

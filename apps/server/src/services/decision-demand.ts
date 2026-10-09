@@ -36,6 +36,31 @@ export function slicesWaitingOn(nodes: readonly DemandNode[], key: string): numb
 }
 
 /**
+ * The distinct unfinished, selected slices an item holds (R-E3b decision 8): any among its own
+ * milestones, and every one that waits on them, directly or through other milestones. For a
+ * checkpoint it is `slicesWaitingOn`; for a slice's own stop the slice itself counts too.
+ */
+export function slicesHeldBy(nodes: readonly DemandNode[], keys: readonly string[]): number {
+  const dependents = new Map<string, string[]>();
+  for (const node of nodes)
+    for (const requirement of node.requirements)
+      dependents.set(requirement, [...(dependents.get(requirement) ?? []), node.key]);
+  const seen = new Set<string>();
+  const queue = [...keys];
+  while (queue.length) {
+    const next = queue.pop()!;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    queue.push(...(dependents.get(next) ?? []));
+  }
+  return new Set(
+    nodes
+      .filter((n) => seen.has(n.key) && n.kind === 'slice' && n.included && !n.satisfied)
+      .map((n) => n.sourceId),
+  ).size;
+}
+
+/**
  * The shared architecture decisions the selection still needs: supported, selected and not yet
  * accepted, each with the slices waiting on it, those that unblock the most slices first.
  */

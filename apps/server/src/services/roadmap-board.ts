@@ -154,6 +154,40 @@ function entryNodeKeys(
     .map((n) => n.key);
 }
 
+/**
+ * What an inbox item is about on a map roadmap's graph (R-E3b decision 8): a checkpoint, some of
+ * the roadmap's entries (an entry's hold, a cycle's stop, the setup an item's members need), a
+ * work item, or the whole roadmap.
+ */
+export type ItemSubject =
+  | { readonly checkpointId: string }
+  | { readonly entryIds: readonly string[] }
+  | { readonly workItemId: string }
+  | { readonly roadmap: true };
+
+/** The graph nodes an item is about, whose slices and dependents it holds. */
+export function itemNodeKeys(
+  graph: RoadmapGraph,
+  entries: readonly Pick<RoadmapEntry, 'id' | 'workItemId' | 'executionScope'>[],
+  subject: ItemSubject,
+): readonly string[] {
+  if ('checkpointId' in subject)
+    return [milestoneKey({ kind: 'checkpoint', id: subject.checkpointId, state: 'passed' })];
+  if ('entryIds' in subject)
+    return entries
+      .filter((e) => subject.entryIds.includes(e.id))
+      .flatMap((e) => entryNodeKeys(e, graph));
+  if ('workItemId' in subject) {
+    const own = graph.nodes.findIndex(
+      (n) => n.kind === 'work_item' && n.workItemId === subject.workItemId,
+    );
+    return own < 0
+      ? []
+      : graph.nodes.flatMap((n, i) => (i === own || n.parent === own ? [n.key] : []));
+  }
+  return graph.nodes.filter((n) => n.kind === 'slice' && n.included).map((n) => n.key);
+}
+
 const MILESTONE_ORDER = ['started', 'merged', 'verified'];
 
 export function buildBoard(input: {

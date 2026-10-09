@@ -85,7 +85,7 @@ structural UI work.
 - **Roadmaps** (`/roadmaps`) lists the roadmaps, active first and finished ones in a closed
   Finished roadmaps section, and imports concurrency maps. Each roadmap has three pages under its header,
   reached from a `Roadmap pages` tab row (R-E2): its board (`/roadmaps/:id`: status, controls,
-  entries), its setup (`/setup`: an ordered checklist, then the supervision and dependency
+  the board of lanes, gates and selection, and the entries), its setup (`/setup`: an ordered checklist, then the supervision and dependency
   panels) and its history (`/history`: amendments and saved revisions). An imported map has its
   own page (`/roadmaps/maps/:id`), which offers the supervisor only until a roadmap supervises its
   current binding revision; after that the map is rendered on that roadmap's setup alone.
@@ -197,6 +197,37 @@ A bare "Ready", "Blocked", "Approved", or "Verified" never appears.
 - Respect reduced-motion preferences.
 
 ## Roadmaps
+
+### The board
+
+A roadmap's board tab (`/roadmaps/:id`) answers "what is this waiting on, and what does it
+unblock" on one page (R-E3b). It draws only the daemon's board read and the roadmap's graph,
+read once per revision; it posts nothing, and selecting reads nothing.
+
+- **Status strip:** Needs you, Agents at work, Waiting, Done, with the daemon's counts.
+- **Gates strip:** the unsatisfied, selected checkpoints that slices wait on, most slices
+  unblocked first, each "unblocks N" and flagged "In Needs you" when an item is open.
+- **Lanes:** one per map repository (a project for a roadmap without a map). A card is a work
+  item: its source id and title, its first open entry's state with who acts, one line of that
+  entry's wait, a chip per selected slice milestone (labelled met or not), "N gates", and
+  "Agent at work" with a pulse while a run is live. Done cards collapse into "✓ N done".
+  Checkpoints are never cards.
+- **Selection panel:** for the selected card, chip, gate or node: each open entry's wait exactly
+  as the status list gives it, the root blockers (selectable in place), the direct unmet
+  requirements in a disclosure, the slices it unblocks, and links (the inbox item, the run, the
+  setup step a checkpoint is settled in, chosen by its kind, and the work item). Never a
+  decision control: those stay in Needs you.
+- **The route holds the view and the selection:** `?view=board|graph|list` (else the board at
+  900 px and wider, the list below) and `?select=<node key>`. Selecting replaces the history
+  entry and does not scroll a phone to the top. Arrow keys move between cards; a selection moves
+  focus into the panel.
+- **Graph view (ADR-072):** the selection's neighbourhood at work-item level, two hops each way,
+  transitively reduced, with Expand and a node cap; nodes say their state in words. Desktop only.
+- **Phone:** the open entries grouped by who acts, the gates as a list, and the selection opening
+  in place under what was selected. No graph.
+
+On a map roadmap every Needs you item's "unblocks N" counts slices (the unfinished, selected
+slices it holds, its own and those waiting on it), so the inbox ranks map work in one unit.
 
 Keep sequential execution the default. Parallel mode shows its in-flight and per-repository
 limits with a link to Settings, plus a bounded integration-refresh allowance. Label order as priority, show each

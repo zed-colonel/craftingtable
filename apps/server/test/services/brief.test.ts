@@ -15,7 +15,10 @@ import {
   RUN_RECORDS,
 } from '../../src/services/brief.js';
 import type { Finalization, ReviewBranchContext, WorkCycle } from '@craftingtable/domain';
-import { finalizationHasNoQuestions } from '../../src/services/finalization-policy.js';
+import {
+  finalizationHasNoQuestions,
+  finalizationStageOutput,
+} from '../../src/services/finalization-policy.js';
 import { assessStageReport } from '../../src/services/finalization-stage-policy.js';
 import { assessReviewReport } from '../../src/services/review-report.js';
 import { STEP_RULES } from '../../src/services/step-rules.js';
@@ -1311,5 +1314,33 @@ describe('composeBrief: environment wording and owners (R-G6 review L2, L3, L4, 
       }),
     );
     expect(brief).toContain('- wi/WI-1/domain: Domain.\n- wi/WI-1/api: API. Excludes: Clients.');
+  });
+});
+
+describe("a staged finalization review's stage object (R-G6 re-check R2)", () => {
+  const value = {
+    stages: [
+      { id: 'correctness', kind: 'correctness', requiredChecks: ['unit'] },
+      { id: 'final', kind: 'final-review', requiredChecks: [] },
+    ],
+  } as unknown as Finalization;
+  const at = (stageIndex: number) =>
+    ({ finalizationProgress: { stageIndex, obligations: [] } }) as unknown as WorkCycle;
+
+  it('asks a final review for the full checks, and the brief-built report passes the stage gate', () => {
+    expect(finalizationStageOutput(value, at(0))).toEqual({ id: 'correctness', fullChecks: false });
+    const stage = finalizationStageOutput(value, at(1))!;
+    expect(stage).toEqual({ id: 'final', fullChecks: true });
+    const brief = composeBrief(briefInput({ role: 'review', finalizationStage: stage }));
+    const report = JSON.parse(fenced(brief, 'craftingtable-review')[0]!);
+    report.findings[0].category = 'correctness';
+    report.finalization.checks[0].name = 'unit';
+    const message = `\`\`\`craftingtable-review\n${JSON.stringify(report)}\n\`\`\`\nVERDICT: changes-requested`;
+    expect(
+      assessStageReport(value, at(1), assessReviewReport(message), {
+        headSha: 'a',
+        targetSha: 'b',
+      } as ReviewBranchContext),
+    ).toMatchObject({ status: 'complete' });
   });
 });

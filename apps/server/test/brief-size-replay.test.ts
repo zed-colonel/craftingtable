@@ -177,3 +177,26 @@ it('keeps the build environment of a stored brief without step rules (R-G6 revie
   });
   expect(after).toContain('Pinned dependency environment: dependencies/manifest.json');
 });
+
+it('leaves out, with its reason, a stored brief whose pinned environment it cannot parse (R-G6 re-check R2)', () => {
+  const storage = {
+    execution: { worktrees: { find: () => undefined } },
+  } as unknown as CraftingTableStorage;
+  // The trailer joined to the operator's section by one newline instead of a blank line.
+  const damaged = stored.replace(
+    '\n\n\nPinned dependency environment: ',
+    '\nPinned dependency environment: ',
+  );
+  expect(damaged).not.toBe(stored);
+  expect(() =>
+    rebuildBrief(storage, {
+      id: 'r1',
+      workspace_id: 'w1',
+      role: 'review',
+      brief: damaged,
+      worktree_id: 't1',
+      work_item_id: 'i1',
+      parent_run_id: null,
+    }),
+  ).toThrow('its pinned environment was not parsed');
+});

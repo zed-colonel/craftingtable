@@ -6,6 +6,7 @@ import {
   type RoadmapEntry,
   type RoadmapStatusList,
   targetClosure,
+  type WorkItemId,
 } from '@craftingtable/domain';
 
 /**
@@ -67,6 +68,64 @@ export function mapGraph(input: {
   };
 }
 
+/**
+ * A sequential roadmap's work items at one revision (R-E3b): one node per work item its entries
+ * name, in roadmap order, each requiring its required predecessors (`work_item_dependencies`); a
+ * predecessor the roadmap does not include is drawn too, as not selected. Lanes are projects.
+ */
+export function sequenceGraph(input: {
+  readonly roadmapId: string;
+  readonly revision: number;
+  readonly entries: readonly Pick<RoadmapEntry, 'workItemId'>[];
+  readonly workItem: (
+    id: WorkItemId,
+  ) =>
+    | { readonly sourceId: string; readonly title: string; readonly projectId: string }
+    | undefined;
+  /** A work item's required predecessors. */
+  readonly predecessors: (id: WorkItemId) => readonly WorkItemId[];
+  readonly projectName: (id: string) => string | undefined;
+}): RoadmapGraph {
+  const included = [...new Set(input.entries.map((e) => e.workItemId))];
+  const outside = [
+    ...new Set(
+      included.flatMap((id) => input.predecessors(id)).filter((id) => !included.includes(id)),
+    ),
+  ];
+  const ids = [...included, ...outside].filter((id) => input.workItem(id) !== undefined);
+  const index = new Map(ids.map((id, i) => [id, i]));
+  const lanes: { key: string; label: string }[] = [];
+  const laneOf = (projectId: string) => {
+    const at = lanes.findIndex((l) => l.key === projectId);
+    if (at >= 0) return at;
+    lanes.push({ key: projectId, label: input.projectName(projectId) ?? projectId });
+    return lanes.length - 1;
+  };
+  return {
+    roadmapId: input.roadmapId,
+    revision: input.revision,
+    model: 'sequence',
+    nodes: ids.map((id) => {
+      const item = input.workItem(id)!;
+      return {
+        key: sequenceKey(id),
+        kind: 'work_item' as const,
+        sourceId: item.sourceId,
+        state: 'completed' as const,
+        title: item.title,
+        lane: laneOf(item.projectId),
+        requires: input.predecessors(id).flatMap((p) => index.get(p) ?? []),
+        included: included.includes(id),
+        workItemId: id,
+      };
+    }),
+    lanes,
+  };
+}
+
+/** A sequential roadmap's node key for a work item. */
+export const sequenceKey = (workItemId: string) => `work_item:${workItemId}:completed`;
+
 /** What the daemon evaluated for one node: whether it is met, and what it requires now. */
 export interface NodeEvaluation {
   readonly satisfied: boolean;
@@ -80,6 +139,8 @@ function entryNodeKeys(
   graph: RoadmapGraph,
 ): readonly string[] {
   const scope = entry.executionScope;
+  // A sequential roadmap works on whole work items, scoped or not.
+  if (graph.model === 'sequence') return [sequenceKey(entry.workItemId)];
   if (scope?.kind === 'slice')
     return (['started', 'merged'] as const).map((state) =>
       milestoneKey({ kind: 'slice', id: scope.sourceId, state }),

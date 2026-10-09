@@ -2,7 +2,7 @@ import { roadmapBoardSchema, roadmapGraphSchema } from '@craftingtable/contracts
 import { asWorkItemId, type RoadmapEntry, type RoadmapStatusList } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { slicesWaitingOn } from '../src/services/decision-demand.js';
-import { buildBoard, mapGraph } from '../src/services/roadmap-board.js';
+import { buildBoard, mapGraph, sequenceGraph, sequenceKey } from '../src/services/roadmap-board.js';
 import { localScopeSource } from './map-test-support.js';
 
 /**
@@ -211,4 +211,66 @@ it('reads requirements as evaluated (a decision covering a slice drops its edge)
   expect(board.nodes[adr]?.unblocks).toBeUndefined();
   expect(board.gates).toEqual([]);
   expect(board.lanes).toEqual([{ lane: 0, cards: [], done: [indexOf(g, parentKey)] }]);
+});
+
+it("draws a sequential roadmap's work items by project, with their required predecessors (R-E3b 7)", () => {
+  const items: Record<string, { sourceId: string; title: string; projectId: string }> = {
+    a: { sourceId: 'AQ-01', title: 'First', projectId: 'aq' },
+    b: { sourceId: 'AQ-02', title: 'Second', projectId: 'aq' },
+    x: { sourceId: 'WI-01', title: 'Outside', projectId: 'wi' },
+  };
+  const predecessors: Record<string, string[]> = { b: ['a', 'x'] };
+  const g = roadmapGraphSchema.parse(
+    sequenceGraph({
+      roadmapId,
+      revision: 1,
+      entries: [{ workItemId: asWorkItemId('a') }, { workItemId: asWorkItemId('b') }],
+      workItem: (id) => items[id],
+      predecessors: (id) => (predecessors[id] ?? []).map(asWorkItemId),
+      projectName: (id) => ({ aq: 'ActionQueue', wi: 'WorldInterface' })[id],
+    }),
+  );
+  expect(g.model).toBe('sequence');
+  expect(g.lanes).toEqual([
+    { key: 'aq', label: 'ActionQueue' },
+    { key: 'wi', label: 'WorldInterface' },
+  ]);
+  expect(g.nodes.map((n) => [n.sourceId, n.included, n.requires])).toEqual([
+    ['AQ-01', true, []],
+    ['AQ-02', true, [0, 2]],
+    ['WI-01', false, []],
+  ]);
+  // The board places each entry on its work item; the outside predecessor is a root, not a card.
+  const status: RoadmapStatusList = {
+    roadmapId,
+    name: 'AQ',
+    status: 'running',
+    reason: '',
+    completed: 1,
+    entries: [],
+  };
+  const board = buildBoard({
+    graph: g,
+    state: (key) => ({
+      satisfied: key === sequenceKey('a'),
+      requirements: g.nodes.find((n) => n.key === key)!.requires.map((r) => g.nodes[r]!.key),
+    }),
+    status,
+    entries: [
+      { id: entryId(1), workItemId: asWorkItemId('a') },
+      {
+        id: entryId(2),
+        workItemId: asWorkItemId('b'),
+        executionScope: { kind: 'slice', sourceId: 'AQ-02/a' } as RoadmapEntry['executionScope'],
+      },
+    ],
+    checkpointItems: new Map(),
+  });
+  expect(board.nodes.map((n) => n.entries)).toEqual([[0], [1], undefined]);
+  expect(board.nodes[1]).toMatchObject({ unmet: [2], roots: [2] });
+  expect(board.gates).toEqual([]);
+  expect(board.lanes).toEqual([
+    { lane: 0, cards: [{ node: 1, gates: 0 }], done: [0] },
+    { lane: 1, cards: [], done: [] },
+  ]);
 });

@@ -147,3 +147,68 @@ it('says so when the route selects a node the board does not have', () => {
     "slice:gone:merged is not on this roadmap's board.",
   );
 });
+
+it("draws a sequential roadmap's work items as cards with no slices (R-E3b 7)", () => {
+  const sequence = {
+    ...MODEL,
+    graph: {
+      ...MODEL.graph,
+      model: 'sequence' as const,
+      lanes: [{ key: 'project-1', label: 'ActionQueue' }],
+      nodes: [
+        {
+          key: 'work_item:item-1:completed',
+          kind: 'work_item' as const,
+          sourceId: 'AQ-01',
+          state: 'completed' as const,
+          title: 'First',
+          lane: 0,
+          requires: [],
+          included: true,
+        },
+        {
+          key: 'work_item:item-2:completed',
+          kind: 'work_item' as const,
+          sourceId: 'AQ-02',
+          state: 'completed' as const,
+          title: 'Second',
+          lane: 0,
+          requires: [0],
+          included: true,
+        },
+      ],
+    },
+    board: {
+      ...MODEL.board,
+      nodes: [
+        { satisfied: false, entries: [0] },
+        { satisfied: false, entries: [2], unmet: [0], roots: [0] },
+      ],
+      gates: [],
+      lanes: [
+        {
+          lane: 0,
+          cards: [
+            { node: 0, gates: 0 },
+            { node: 1, gates: 0 },
+          ],
+          done: [],
+        },
+      ],
+    },
+  };
+  render(
+    <RoadmapBoard
+      model={sequence}
+      selected="work_item:item-2:completed"
+      onSelect={vi.fn()}
+      links={links}
+    />,
+  );
+  const lane = screen.getByRole('region', { name: 'Lane project-1' });
+  expect(within(lane).getAllByRole('article')).toHaveLength(2);
+  expect(lane.querySelector('.board-slices')).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Gates' })).toBeNull();
+  const roots = screen.getByRole('region', { name: 'Root blockers' });
+  expect(within(roots).getAllByRole('button', { name: /AQ-01/ }).length).toBeGreaterThan(0);
+});

@@ -131,7 +131,7 @@ import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
 import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 import { checkpointSubjectKey } from './checkpoint-subject.js';
-import { buildBoard, mapGraph } from './roadmap-board.js';
+import { buildBoard, mapGraph, type NodeEvaluation, sequenceGraph } from './roadmap-board.js';
 
 class SupersededRoadmapOperation extends Error {}
 /**
@@ -1171,7 +1171,7 @@ export class RoadmapService {
       const view = this.view(roadmap, snapshot, operator);
       const { definition, ...withoutDefinition } = view.roadmap;
       const status = this.statusOf(roadmap, snapshot, operator, view.progress);
-      const board = this.board(snapshot, roadmap, operator, status);
+      const board = this.board(snapshot, roadmap, operator, status, view.progress);
       return {
         view: { ...view, roadmap: withoutDefinition },
         definitionRevision: definition.revision,
@@ -1190,17 +1190,42 @@ export class RoadmapService {
     roadmap: Roadmap,
     operator: ReturnType<RoadmapService['withOperatorNeeds']>,
     status: RoadmapStatusList,
+    progress: RoadmapView['progress'],
   ): RoadmapBoard | undefined {
     const graph = this.graphAt(tx, roadmap.workspaceId, roadmap.id, roadmap.definition);
-    const map = operator.mapState();
-    if (!graph || !map) return undefined;
-    const evaluated = new Map(map.nodes.map((n) => [n.key, n]));
+    if (!graph) return undefined;
+    let state: (key: string) => NodeEvaluation | undefined;
+    if (graph.model === 'map') {
+      const map = operator.mapState();
+      if (!map) return undefined;
+      const evaluated = new Map(map.nodes.map((n) => [n.key, n]));
+      state = (key) => evaluated.get(key);
+    } else {
+      // A work item is met when the daemon completed every entry on it, or, outside the
+      // roadmap, the work item itself.
+      const completed = new Set(
+        progress.filter((p) => p.status === 'completed').map((p) => p.entryId),
+      );
+      const byKey = new Map(graph.nodes.map((n) => [n.key, n]));
+      state = (key) => {
+        const node = byKey.get(key);
+        if (!node?.workItemId) return undefined;
+        const entries = roadmap.definition.entries.filter((e) => e.workItemId === node.workItemId);
+        return {
+          satisfied: entries.length
+            ? entries.every((e) => completed.has(e.id))
+            : tx.planning.workItems.find(roadmap.workspaceId, node.workItemId)?.status ===
+              'completed',
+          requirements: node.requires.map((r) => graph.nodes[r]!.key),
+        };
+      };
+    }
     const items = new Map(
       this.storage.attention.open(roadmap.workspaceId).map((item) => [item.subjectKey, item.id]),
     );
     return buildBoard({
       graph,
-      state: (key) => evaluated.get(key),
+      state,
       status,
       entries: roadmap.definition.entries,
       checkpointItems: new Map(
@@ -1238,18 +1263,33 @@ export class RoadmapService {
     if (cached) return cached;
     const selection = definition.crossProject;
     const map = selection && tx.imports.definition(workspaceId, selection.definitionId);
-    if (!selection || !map) return undefined;
-    const graph = mapGraph({
-      roadmapId,
-      revision: definition.revision,
-      source: map.source,
-      bindings:
-        tx.imports
-          .bindings(workspaceId, map.id)
-          .find((b) => b.revision === selection.bindingRevision)?.bindings ?? [],
-      targetId: selection.targetId,
-      selection: selection.selection,
-    });
+    if (selection && !map) return undefined;
+    const graph = !selection
+      ? sequenceGraph({
+          roadmapId,
+          revision: definition.revision,
+          entries: definition.entries,
+          workItem: (id) => tx.planning.workItems.find(workspaceId, id),
+          predecessors: (id) =>
+            tx.planning.dependencies
+              .listPredecessors(workspaceId, id)
+              .filter((p) => p.kind === 'required')
+              .map((p) => p.workItemId),
+          projectName: (id) =>
+            tx.planning.projects.find(workspaceId, id as import('@craftingtable/domain').ProjectId)
+              ?.name,
+        })
+      : mapGraph({
+          roadmapId,
+          revision: definition.revision,
+          source: map!.source,
+          bindings:
+            tx.imports
+              .bindings(workspaceId, map!.id)
+              .find((b) => b.revision === selection.bindingRevision)?.bindings ?? [],
+          targetId: selection.targetId,
+          selection: selection.selection,
+        });
     // A few roadmaps' current revisions; an old one is rebuilt if it is ever read again.
     if (this.graphs.size >= 32) this.graphs.delete(this.graphs.keys().next().value!);
     this.graphs.set(key, graph);

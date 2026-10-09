@@ -3,8 +3,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
+  parallelFixture,
   roadmapControl,
   roadmapId,
+  saveRoadmapRequest,
   supervisedMapFixture,
 } from './execution-test-support.js';
 
@@ -152,4 +154,50 @@ it('answers 404 for a revision the roadmap does not have', async () => {
     headers: { cookie: f.state.cookie },
   });
   expect(response.statusCode).toBe(404);
+});
+
+it("draws a sequential roadmap's work items by project, edges from their dependencies (R-E3b 7)", async () => {
+  const { state, input } = await parallelFixture();
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await state.context.services.roadmapService.tick();
+  await state.context.services.workCycleService.tick();
+  const get = async (path: string) => {
+    const response = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}${path}`,
+      headers: { cookie: state.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json();
+  };
+  const page = roadmapPageSchema.parse(await get(`/roadmaps/${roadmapId}/view`));
+  const board = page.board!;
+  const graph = roadmapGraphSchema.parse(
+    await get(`/roadmaps/${roadmapId}/graph/${board.revision}`),
+  );
+  expect(graph.model).toBe('sequence');
+  expect(graph.nodes.map((n) => n.sourceId)).toEqual(['AQ-01', 'AQ-02', 'AQ-03']);
+  // AQ-02 and AQ-03 require AQ-01, as the plan's dependencies say.
+  const [first, second, third] = [0, 1, 2];
+  expect(graph.nodes[second]!.requires).toEqual([first]);
+  expect(graph.nodes[third]!.requires).toEqual([first]);
+  expect(graph.lanes).toHaveLength(1);
+  // Every open entry is on its work item's card; AQ-01's run is on its node.
+  const definition = state.context.storage.roadmaps.definition(
+    state.workspaceId,
+    roadmapId,
+    board.revision,
+  )!;
+  const cards = new Set(board.lanes.flatMap((lane) => lane.cards.map((c) => c.node)));
+  for (const row of page.status.entries) {
+    const at = board.nodes.findIndex((n) =>
+      (n.entries ?? []).some((p) => definition.entries[p]!.id === row.entryId),
+    );
+    expect(cards.has(at), row.sourceId).toBe(true);
+  }
+  const running = page.status.entries.find((row) => row.actor === 'agent')!;
+  expect(board.nodes[first]).toMatchObject({ satisfied: false, runId: running.waitsOn!.runId });
+  expect(board.nodes[second]).toMatchObject({ unmet: [first], roots: [first] });
+  expect(board.summary).toMatchObject({ agentsAtWork: 1, waiting: 2 });
 });

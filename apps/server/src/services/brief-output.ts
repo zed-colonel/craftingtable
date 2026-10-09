@@ -119,6 +119,7 @@ export function workflowFormat(workflow: WorkflowOutput): BlockFormat {
         securityReview: { required: false, sources: [] },
       }),
       '```',
+      'questions entries: {question, destination: "shared-decision" or "work-item", checkpointId?}; resolved entries: {question, answer, sources: at least one}; required: true needs its sources.',
       ...(workflow.checkpointId
         ? [
             `Add checkpoint:{id:${JSON.stringify(workflow.checkpointId)},passed:boolean,requirements:[{requirement:"exact required text",evidence:"observations and immutable references"}],caseIds:["actually verified case IDs"]} to the workflow block.`,
@@ -126,7 +127,7 @@ export function workflowFormat(workflow: WorkflowOutput): BlockFormat {
         : []),
     ].join('\n'),
     rules: [
-      'craftingtable-workflow: questions entries are {question, destination:"shared-decision"|"work-item", checkpointId?:"exact ADR ID"}; mapped ADR questions go to shared-decision with their checkpointId, local implementation choices, contradictions and unsupported controller actions to work-item. resolved entries are {question, answer, sources:["exact plan section or accepted evidence ID"]}. A required security review sets required:true and cites the source policy.',
+      'craftingtable-workflow: a mapped ADR question goes to shared-decision with its exact checkpointId; local implementation choices, contradictions and unsupported controller actions go to work-item. A resolved entry cites the exact plan section or accepted evidence ID. A required security review cites the source policy.',
     ],
   };
 }

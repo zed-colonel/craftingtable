@@ -79,6 +79,23 @@ function reviewFormat(context: OutputContext): BlockFormat {
         ...(scope?.owningSlices?.length ? { owningSlice: scope.owningSlices[0]!.id } : {}),
       },
     ],
+    // A staged finalization review's stage object, with this stage's id (R-G6 review M1).
+    ...(stage
+      ? {
+          finalization: {
+            stageId: stage.id,
+            fullChecks: stage.fullChecks,
+            checks: [
+              {
+                name: 'Exact configured check name',
+                status: 'passed',
+                evidence: 'Command and result',
+              },
+            ],
+            obligations: [],
+          },
+        }
+      : {}),
     ...(scope
       ? {
           scopeEvidence: {
@@ -100,7 +117,12 @@ function reviewFormat(context: OutputContext): BlockFormat {
       '```craftingtable-review',
       JSON.stringify(example),
       '```',
-      'Severities: blocking, major, minor, nit; statuses: open, resolved, withdrawn.',
+      'Severities: blocking, major, minor, nit; statuses: open, resolved, withdrawn, and a resolved or withdrawn finding needs a disposition (evidence or a reason). location is optional. A finding id starts with a letter or digit and holds only letters, digits, periods, underscores or hyphens, at most 64. Texts stay under 20,000 characters, titles under 500. complete is true only once the review is consolidated; mergeable needs exitGate.met true and no open blocking or major finding.',
+      ...(stage
+        ? [
+            `finalization: this stage's stageId and fullChecks as shown; checks: every configured requiredChecks name exactly, at least one, each with status passed, failed or not-run and its evidence; obligations: entries {id, status: met, gap or change-requested (with proposedRequirement), evidence}, adding source, requirement and workItemSourceId only for a new obligation. A met exitGate needs every reported check passed and obligation met.`,
+          ]
+        : []),
       scope
         ? 'scopeEvidence is a top-level field beside verdict, never inside exitGate or its evidence text: this exact scope identity, a requirements entry per evidence obligation you verified, with the obligation’s text copied exactly as its requirement, and caseIds for the cases you checked.'
         : 'Omit scopeEvidence: this run has no controller-owned scope.',
@@ -120,12 +142,7 @@ function reviewFormat(context: OutputContext): BlockFormat {
       context.planFinalization
         ? FINALIZATION_FINDINGS_INSTRUCTIONS
         : 'Findings continuity: reconcile ALL findings raised in this run and its handoff lineage, operator corrections included. Keep their IDs, never omit or recycle one, and keep resolved and withdrawn findings with their dispositions. Verify a fix before marking its finding resolved; never silently drop a disagreement.',
-      'craftingtable-review: a resolved or withdrawn finding needs a disposition with evidence or a reason; location is optional and findings may be empty. Finding IDs start with a letter or digit and hold only letters, digits, periods, underscores or hyphens, at most 64 (F-001, AQ-11.F-009; never slashes). exitGate.evidence and each explanation, recommendation and disposition stay under 20,000 characters, titles under 500: keep exitGate.evidence a concise summary of current checks and conformance that cites detailed evidence, never appending earlier reports. Set complete to true only once the whole review is consolidated. A mergeable report needs exitGate.met=true and no open blocking or major finding.',
-      ...(stage
-        ? [
-            `Add a finalization object to the report: {"stageId":${JSON.stringify(stage.id)},"fullChecks":${stage.fullChecks},"checks":[{"name":"exact configured check name or repository check","status":"passed|failed|not-run","evidence":"concise command/result and log location"}],"obligations":[{"id":"stable obligation ID from ledger or new plan obligation","source":"exact adopted source citation","requirement":"exact adopted requirement","workItemSourceId":"only if present in ledger","status":"met|gap|change-requested","evidence":"implementation location and verification evidence"}]}, with actual values. Report every configured requiredChecks name exactly and at least one relevant verification check; a met exitGate needs every reported check passed and obligation met.`,
-          ]
-        : []),
+      'craftingtable-review: findings may be empty. Finding IDs look like F-001 or AQ-11.F-009, never with slashes. Keep exitGate.evidence a concise summary of current checks and conformance that cites detailed evidence, never appending earlier reports.',
     ],
   };
 }

@@ -50,13 +50,17 @@ function designFormat(architectureDecisions: boolean): BlockFormat {
       '```craftingtable-design',
       '{"version":1,"items":[{"kind":"resolved","question":"Question considered","answer":"Plan-backed answer","sources":["exact source file, section or accepted decision ID"]}]}',
       '```',
-      'Use an empty items array if there are no questions. Every other question is an operator-decision (approval needed), a planning-conflict (a contradictory or missing scheduling or plan rule) or a dependency (a known mapped predecessor must finish); never invent predecessor rules.',
-    ].join('\n'),
-    rules: [
-      'craftingtable-design: a dependency item carries dependency:{kind:"work_item",id:"mapped parent ID",state:"accepted"} or {kind:"slice",id:"mapped slice ID",state:"merged"|"verified"}. A resolved item needs its answer and citations; others still give question, answer and sources (which may be empty).',
+      'Use an empty items array if there are no questions. Every other question is an operator-decision (approval needed), a planning-conflict (a contradictory or missing scheduling or plan rule) or a dependency (a known mapped predecessor must finish), each with question, answer and sources (which may be empty); a resolved item needs its answer and sources. Only a dependency item carries dependency: {"kind":"work_item","id":"mapped parent ID","state":"accepted"} or {"kind":"slice","id":"mapped slice ID","state":"merged"|"verified"}; never invent predecessor rules.',
       ...(architectureDecisions
         ? [
-            'An architecture checkpoint approval is an operator-decision; for one about a mapped architecture checkpoint also supply decision:{checkpointId:"exact mapped ADR ID",decisionText:"Complete standalone decision proposed for approval",why:"Why this fits the operator goals",alternatives:[{option:"Alternative",tradeoff:"Practical tradeoff"}],consequences:"Behavior, limitations and what remains to implement or verify",coverage:"full",consumers:[],retainedObligations:""}, one checkpoint per item. Write for an operator who has not read the sources: exact citations in the item sources, and a decisionText that stands alone (never "as described above"). Full approval settles the architectural decision, not implementation or tests: its consumers are empty, and retainedObligations may name separately required implementation, verification and release work, never open architectural choices. Propose coverage:"clauses" only for an intentional partial decision, with consumers:[{sliceId:"exact mapped ID",phase:"start"|"merge",replacesFullCheckpoint:true|false}] and explicit retainedObligations, keeping a later full-checkpoint consumer. These are recommendations; the operator approves through CraftingTable.',
+            'An operator-decision about a mapped architecture checkpoint, with sources, also carries decision: {"checkpointId":"exact mapped ADR ID","decisionText":"standalone decision","why":"…","alternatives":[{"option":"…","tradeoff":"…"}] (one to six),"consequences":"…","coverage":"full" (consumers empty) or "clauses" (named consumers and retainedObligations),"consumers":[{"sliceId":"exact mapped ID","phase":"start"|"merge","replacesFullCheckpoint":true|false}],"retainedObligations":"…"}, one checkpoint per item.',
+          ]
+        : []),
+    ].join('\n'),
+    rules: [
+      ...(architectureDecisions
+        ? [
+            'craftingtable-design decisions: an architecture checkpoint approval is an operator-decision. Write for an operator who has not read the sources: exact citations in the item sources, and a decisionText that stands alone (never "as described above"). Full approval settles the architectural decision, not implementation or tests; its retainedObligations may name separately required implementation, verification and release work, never open architectural choices. Propose coverage "clauses" only for an intentional partial decision, keeping a later full-checkpoint consumer. These are recommendations; the operator approves through CraftingTable.',
           ]
         : []),
     ],

@@ -1,7 +1,9 @@
 import {
+  designReportSchema,
   parseDesignReport,
   parseWorkflowReport,
   reviewReportSchema,
+  workflowReportSchema,
 } from '@craftingtable/contracts';
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,7 +13,9 @@ import {
   composeBrief,
   RUN_RECORDS,
 } from '../../src/services/brief.js';
+import type { Finalization, ReviewBranchContext, WorkCycle } from '@craftingtable/domain';
 import { finalizationHasNoQuestions } from '../../src/services/finalization-policy.js';
+import { assessStageReport } from '../../src/services/finalization-stage-policy.js';
 import { assessReviewReport } from '../../src/services/review-report.js';
 import { STEP_RULES } from '../../src/services/step-rules.js';
 import { workflowRules } from '../../src/services/workflow-policy.js';
@@ -195,12 +199,8 @@ describe('composeBrief output contracts, one module per role (R-G6, AGT-54)', ()
     // A message built in that order from the brief's own examples is accepted.
     const report = JSON.parse(fenced(brief, 'craftingtable-review')[0]!);
     report.scopeEvidence.requirements = [{ requirement: 'Build the domain.', evidence: 'ok' }];
-    report.finalization = {
-      stageId: 'correctness',
-      fullChecks: false,
-      checks: [{ name: 'tests', status: 'passed', evidence: 'pnpm test' }],
-      obligations: [],
-    };
+    // The stage object comes from the brief's example too (R-G6 review M1).
+    report.findings[0].category = 'correctness';
     const message = [
       'Conclusion.',
       `\`\`\`craftingtable-workflow\n${fenced(brief, 'craftingtable-workflow')[0]}\n\`\`\``,
@@ -208,7 +208,19 @@ describe('composeBrief output contracts, one module per role (R-G6, AGT-54)', ()
       `## Review report\n\n\`\`\`craftingtable-review\n${JSON.stringify(report)}\n\`\`\``,
       'VERDICT: changes-requested',
     ].join('\n\n');
-    expect(assessReviewReport(message)).toMatchObject({ status: 'complete' });
+    const assessment = assessReviewReport(message);
+    expect(assessment).toMatchObject({ status: 'complete' });
+    // The staged finalization gate accepts it for this stage.
+    expect(
+      assessStageReport(
+        {
+          stages: [{ id: 'correctness', kind: 'correctness', requiredChecks: [] }],
+        } as unknown as Finalization,
+        { finalizationProgress: { stageIndex: 0, obligations: [] } } as unknown as WorkCycle,
+        assessment,
+        { headSha: 'a', targetSha: 'b' } as ReviewBranchContext,
+      ),
+    ).toMatchObject({ status: 'complete' });
     expect(parseWorkflowReport(message).status).toBe('complete');
     expect(finalizationHasNoQuestions(message)).toBe(true);
   });
@@ -236,11 +248,13 @@ describe('composeBrief output contracts, one module per role (R-G6, AGT-54)', ()
         `\`\`\`craftingtable-design\n${fenced(brief, 'craftingtable-design')[0]}\n\`\`\``,
       ).status,
     ).toBe('complete');
-    expect(brief).toContain('decision:{checkpointId:');
+    expect(brief).toContain('decision: {"checkpointId":');
   });
 
   it("gives a design the decision proposal's shape only where the map has architecture checkpoints", () => {
-    expect(composeBrief(briefInput({ role: 'design' }))).not.toContain('decision:{checkpointId:');
+    expect(composeBrief(briefInput({ role: 'design' }))).not.toContain(
+      'decision: {"checkpointId":',
+    );
   });
 
   it('tells an implementation nothing of review reports or verdicts', () => {
@@ -484,7 +498,7 @@ describe('composeBrief skeleton: the task first (R-G6, AGT-50, AGT-58)', () => {
     expect(inline).toContain(`## Rules\n\n${rules}`);
     expect(brief).not.toContain('## Rules');
     for (const rule of [
-      'Finding IDs start with a letter or digit',
+      'never appending earlier reports',
       'Technical review and permission to merge are separate',
       'Do not override supplied sources',
       'CRAFTINGTABLE_DEPENDENCY_MANIFEST',
@@ -961,5 +975,156 @@ describe('composeBrief: code review fixes (R-G6)', () => {
     );
     expect(brief).toContain('TMPDIR, TMP, and TEMP point to `/runs/r1/scratch`');
     expect(brief).toContain('are inside it, never in the worktree');
+  });
+});
+
+/**
+ * The operator's condition on the rules file (2026-10-08): nothing a parser, gate or controller
+ * check depends on lives only there. Every field name and enumerated value of the reports a
+ * role ends with, read from the parsers' own schemas, appears in the brief itself, with the
+ * rules in their file (R-G6 review M1 to M3).
+ */
+describe('composeBrief: what the parsers require is in the brief, not only the rules file', () => {
+  type Def = { type: string; [key: string]: unknown };
+  const def = (schema: unknown) => (schema as { _zod: { def: Def } })._zod.def;
+  /** Every object key and enumerated value a schema accepts, recursively. */
+  const vocabulary = (schema: unknown, words = new Set<string>()): Set<string> => {
+    const d = def(schema);
+    switch (d.type) {
+      case 'object':
+        for (const [key, value] of Object.entries(d.shape as Record<string, unknown>)) {
+          words.add(key);
+          vocabulary(value, words);
+        }
+        break;
+      case 'optional':
+      case 'nullable':
+        vocabulary(d.innerType, words);
+        break;
+      case 'array':
+        vocabulary(d.element, words);
+        break;
+      case 'union':
+        for (const option of d.options as unknown[]) vocabulary(option, words);
+        break;
+      case 'enum':
+        for (const value of Object.values(d.entries as Record<string, string>)) words.add(value);
+        break;
+      case 'literal':
+        for (const value of d.values as unknown[]) if (typeof value === 'string') words.add(value);
+        break;
+      case 'pipe':
+        vocabulary(d.in, words);
+        break;
+    }
+    return words;
+  };
+  const missing = (brief: string, words: Set<string>, besides: readonly string[]) =>
+    [...words].filter(
+      (word) =>
+        !besides.includes(word) &&
+        !new RegExp(`(^|[^A-Za-z0-9_-])${word}($|[^A-Za-z0-9_-])`).test(brief),
+    );
+  const scope = {
+    identity: {
+      kind: 'slice',
+      definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+      bindingRevision: 1,
+      sourceId: 'wi/WI-1/domain',
+    },
+    title: 'Domain',
+    scope: 'Build the domain.',
+    excludes: [],
+    requirements: ['Build the domain.'],
+    cases: ['C-1'],
+    owningSlices: [{ id: 'wi/WI-1/domain', scope: 'Build the domain.', excludes: [] }],
+  } as const;
+  const withRules = (overrides: Partial<BriefInput>) =>
+    composeBrief(
+      briefInput({
+        runDirectory: '/runs/r1',
+        rulesPath: '/runs/r1/plan/craftingtable-rules.md',
+        ...overrides,
+      }),
+    );
+
+  it('gives a review every field and value of the review, finalization and workflow reports', () => {
+    const brief = withRules({
+      role: 'review',
+      executionScope: {
+        ...scope,
+        identity: { ...scope.identity, kind: 'parent-acceptance', sourceId: 'wi/WI-1' },
+      },
+      workflow: { checkpointId: 'WI-AQ-G2' },
+      finalizationStage: { id: 'correctness', fullChecks: false },
+    });
+    expect(brief).not.toContain('## Rules');
+    expect(
+      missing(brief, vocabulary(reviewReportSchema), [
+        // The finalization stage's step rules (finalizationInstructions) give these three.
+        'category',
+        'proposedRequirement',
+        'reusedFromRunId',
+        // The scope identity's own fields, copied from the example as they are.
+        'definitionId',
+        'bindingRevision',
+        'sourceId',
+        'kind',
+        'slice-verification',
+        'parent-acceptance',
+        'slice',
+        // Finding categories, given by the finalization step rules.
+        'correctness',
+        'conformance',
+        'simplification',
+        'polish',
+      ]),
+    ).toEqual([]);
+    expect(missing(brief, vocabulary(workflowReportSchema), [])).toEqual([]);
+    // The stage's own id and whether it runs the full checks.
+    expect(brief).toContain('"stageId":"correctness","fullChecks":false');
+  });
+
+  it('gives a design every field and value of the design report and its decision', () => {
+    const brief = withRules({ role: 'design', workflow: {}, architectureDecisions: true });
+    expect(missing(brief, vocabulary(designReportSchema), [])).toEqual([]);
+    expect(
+      missing(brief, vocabulary(workflowReportSchema), [
+        'checkpoint',
+        'id',
+        'passed',
+        'requirements',
+        'requirement',
+        'evidence',
+        'caseIds',
+      ]),
+    ).toEqual([]);
+  });
+
+  it('gives an implementation every field and value of the workflow report', () => {
+    const brief = withRules({ role: 'implement', workflow: {} });
+    expect(
+      missing(brief, vocabulary(workflowReportSchema), [
+        // A checkpoint attestation is only a separate checkpoint review's.
+        'checkpoint',
+        'id',
+        'passed',
+        'requirements',
+        'requirement',
+        'evidence',
+        'caseIds',
+      ]),
+    ).toEqual([]);
+  });
+
+  it("puts a finalization review's stage object in the brief's own report example", () => {
+    const brief = withRules({
+      role: 'review',
+      finalizationStage: { id: 'final-review', fullChecks: true },
+    });
+    const report = JSON.parse(fenced(brief, 'craftingtable-review')[0]!);
+    expect(report.finalization).toMatchObject({ stageId: 'final-review', fullChecks: true });
+    // The example, with its stage, is a valid report.
+    expect(reviewReportSchema.safeParse(report).success).toBe(true);
   });
 });

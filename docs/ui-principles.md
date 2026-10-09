@@ -173,6 +173,35 @@ reports API-equivalent figures even when it is billed to a subscription.
 
 A bare "Ready", "Blocked", "Approved", or "Verified" never appears.
 
+## Work item page
+
+A work item's page (`/work-items/:id`) is a drill-down (R-E4): one page, reached in parts from its
+`SectionNav`, that answers "where is this, what does it wait on, and who acts" before it shows any
+form.
+
+- **Slice strip.** Under the header, a work item with slices lists each one (and its parent
+  acceptance): the board's milestone chips (started, merged, verified, or accepted; met in words),
+  who acts on its next phase (Needs you, Waiting on automation, Waiting on other work, Agent at
+  work, Done, grouped by the rule its requirements use) and the first thing that phase waits on.
+  Each slice links to its place in the Slices section. It posts nothing.
+- **Overview.** The item's facts, its exit gate, and its required and recommended predecessors and
+  the items it unblocks as links to their pages, each with its state in words. A dependency-blocked
+  item names its blockers as links.
+- **Order.** Overview, branches, automation, slices, delegation, runs, diff. A slice shows its
+  next phase's requirements; its other phases sit in a closed "Other phases" disclosure.
+- **Reference starts closed.** Branch settings once work has started, and the run history (a
+  `Runs` section whose summary names the latest run). The launch form opens from "Launch a run…",
+  except while the item has no run and no automation: then it is the next step and starts open.
+- **Decisions stay in Needs you.** A stop with an inbox item links to it ("Open the decision"); the
+  decision renders in place only when no item carries the stop, with the same component (E4-2).
+  Manual merge is such a decision: it sits on its worktree under Delegation.
+- **Phone.** The strip's rows wrap (name, chips, who acts, then the wait), its links are 44 px tall,
+  and the sections stack as everywhere else.
+
+A plan version's page draws its dependency graph under the work item table on screens 900 px and
+wider (ADR-072, amended for R-E4): every work item right of what it requires, its state in words,
+each node opening its work item. On a phone the table stands in.
+
 ## Run page
 
 - The event feed is its own scroll pane. It follows new events only while the
@@ -188,6 +217,8 @@ A bare "Ready", "Blocked", "Approved", or "Verified" never appears.
   phones. Separate findings visibly and let long locations wrap.
 - Merge confirmation shows the complete source and target branches as wrapping
   text, alongside the explicit Merge and Cancel controls.
+- While the run's cycle is stopped at design, "Resolve design questions" links to the inbox item
+  that carries the stop, or to the work item when no item does (R-E4).
 
 ## Accessibility
 

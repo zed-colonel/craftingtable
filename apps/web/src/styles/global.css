@@ -1129,7 +1129,6 @@ button:disabled {
 
 .risk-list,
 .diagnostic-list,
-.dependency-list,
 .artifact-list,
 .missing-list {
   list-style: none;
@@ -2877,10 +2876,74 @@ button:disabled {
   }
 }
 
+/* A work item's slices at a glance (R-E4): one row per slice, the board's chips. */
+.slice-strip {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  padding: var(--space-2) var(--space-3);
+}
+.slice-strip-row {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-2);
+  row-gap: 2px;
+  align-items: center;
+  min-width: 0;
+}
+.slice-strip-name {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  min-width: 9rem;
+}
+.slice-strip-wait {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-chip-static {
+  cursor: default;
+}
+.board-actor-done {
+  border-color: var(--color-done);
+  color: var(--color-done);
+}
+
+/* A work item's predecessors and dependents, as links (R-E4). */
+.dependency-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.dependency-facts dt {
+  color: var(--color-text-secondary);
+}
+.dependency-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+.dependency-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+
 /* Touch: every board control is at least 44 px (ui-principles). */
 @media (pointer: coarse), (max-width: 900px) {
   .board-gate,
-  .board-chip,
+  .board-chip:not(.board-chip-static),
+  .slice-strip-name,
   .board-card-title,
   .board-node-link,
   .board-view {

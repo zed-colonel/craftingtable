@@ -231,7 +231,10 @@ export function DelegationPanel({
     setInstructions('');
   };
 
-  const launchVisible = launchableWorktrees.length > 0 && (launchOpen ?? !automationActive);
+  // The launch form opens from "Launch a run…" (a form opens from a named action), except while
+  // the item has no run yet and no automation: then the first run is the next step (R-E4).
+  const launchVisible =
+    launchableWorktrees.length > 0 && (launchOpen ?? (!automationActive && runs.length === 0));
   // Counts only: the merge gate is named once, on the worktree itself.
   const summary =
     activeWorktrees.length === 0
@@ -243,497 +246,514 @@ export function DelegationPanel({
         } run${runs.length === 1 ? '' : 's'}${
           liveRuns.length > 0 ? ` · ${liveRuns.length} live` : ''
         }.`;
+  const latest = runs[0];
   return (
-    <Section id="delegation" title="Delegation" summary={summary}>
-      <About label="About delegation">
-        <p>
-          Create a worktree on a fresh branch, launch an implement run, then a review run. A
-          mergeable review opens the Merge action, which lands the branch in its integration target
-          and completes the item.
-        </p>
-      </About>
-      {error !== undefined && (
-        <p className="error-state" role="alert">
-          {error}
-        </p>
-      )}
-
-      {workspaceId &&
-        canMutate &&
-        mergedWorktrees
-          .filter((tree) => tree.mergeCleanupError)
-          .map((tree) => (
-            <MergeApproval
-              key={tree.id}
-              workspaceId={workspaceId}
-              worktree={tree}
-              csrfToken={csrfToken}
-              disabled={busy}
-              onMerged={onMerged}
-            />
-          ))}
-      <h4>Worktrees ({activeWorktrees.length})</h4>
-      {activeWorktrees.length === 0 ? (
-        <p className="empty-state">
-          {mergedWorktrees.length > 0
-            ? `No active worktree. Merged: ${mergedWorktrees
-                .map((worktree) => `${worktree.branchName} → ${shortSha(worktree.mergeSha ?? '')}`)
-                .join(', ')}.`
-            : hideCreateWorktree
-              ? 'No worktree yet. Create one under Repository & branches.'
-              : 'No worktree yet.'}
-        </p>
-      ) : (
-        <ul className="worktree-list">
-          {activeWorktrees.map((worktree) => {
-            const gate = mergeGates[worktree.id];
-            const hasLiveRun = liveRuns.some((run) => run.worktreeId === worktree.id);
-            return (
-              <li key={worktree.id} className="worktree-item">
-                <div>
-                  <span className="mono worktree-branch">{worktree.branchName}</span>
-                  <StatusStrip
-                    compact
-                    facts={[
-                      ...(worktree.executionScope
-                        ? [
-                            {
-                              label: 'Scope',
-                              value: `${worktree.executionScope.sourceId} · ${worktree.executionScope.kind.replaceAll('-', ' ')}`,
-                            },
-                          ]
-                        : []),
-                      {
-                        label: 'From',
-                        value: `${worktree.baseBranch} @ ${shortSha(worktree.baseSha)}`,
-                        mono: true,
-                      },
-                      { label: 'Path', value: worktree.path, mono: true },
-                    ]}
-                  />
-                  {renderBranchControls?.(worktree)}
-                  {gate !== undefined && (
-                    <div className="worktree-gate">
-                      <span
-                        className="status-badge"
-                        style={
-                          {
-                            '--badge-accent': gate.mergeable
-                              ? 'var(--color-ready)'
-                              : gate.reason === 'changes-requested'
-                                ? 'var(--color-attention)'
-                                : 'var(--color-text-muted)',
-                          } as CSSProperties
-                        }
-                      >
-                        {MERGE_GATE_LABELS[gate.reason]}
-                      </span>
-                      {gate.reviewRunId !== undefined && (
-                        <button
-                          type="button"
-                          className="text-button"
-                          onClick={() => gate.reviewRunId && onOpenRun(gate.reviewRunId)}
-                        >
-                          open review
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {gate?.mergeable === true &&
-                    canMutate &&
-                    workspaceId &&
-                    (decisionItemFor?.(worktree.id) ? (
-                      <p className="attention-banner" role="status">
-                        This merge is decided in Needs you.{' '}
-                        <Link
-                          route={{
-                            name: 'inbox',
-                            workspaceId,
-                            itemId: decisionItemFor(worktree.id)!,
-                          }}
-                        >
-                          Open the decision
-                        </Link>
-                      </p>
-                    ) : (
-                      <MergeApproval
-                        workspaceId={workspaceId}
-                        worktree={worktree}
-                        gate={gate}
-                        csrfToken={csrfToken}
-                        disabled={busy}
-                        onMerged={onMerged}
-                      />
-                    ))}
-                </div>
-                <div className="inline-actions">
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => onOpenDiff(worktree.id)}
-                  >
-                    View diff
-                  </button>
-                  <button
-                    type="button"
-                    className="text-button danger"
-                    onClick={() => onRemoveWorktree(worktree.id)}
-                    disabled={!canMutate || busy || hasLiveRun}
-                  >
-                    Remove
-                  </button>
-                </div>
-                {removalRefused?.worktreeId === worktree.id && canMutate && (
-                  <WorktreeChangesRefusal
-                    refused={removalRefused}
-                    busy={busy || hasLiveRun}
-                    onDiscard={() => onRemoveWorktree(worktree.id, { discardChanges: true })}
-                    onKeep={() => onKeepWorktree?.()}
-                  />
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {canMutate &&
-        !itemCompleted &&
-        !hideCreateWorktree &&
-        !worktrees.some((t) => t.executionScope) && (
-          <form
-            className="inline-form"
-            onSubmit={createWorktree}
-            style={{ marginTop: 'var(--space-3)' }}
-          >
-            <label className="field">
-              Repository
-              <select
-                value={selectedRepository}
-                onChange={(event) => setRepositoryId(event.target.value)}
-                disabled={busy || activeRepositories.length === 0}
-              >
-                {activeRepositories.map((repository) => (
-                  <option key={repository.id} value={repository.id}>
-                    {repository.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="submit"
-              className="secondary-button"
-              disabled={busy || activeRepositories.length === 0}
-            >
-              Create worktree
-            </button>
-            {activeRepositories.length === 0 && (
-              <p className="hint">Register a repository first.</p>
-            )}
-          </form>
+    <>
+      <Section id="delegation" title="Delegation" summary={summary}>
+        <About label="About delegation">
+          <p>
+            Create a worktree on a fresh branch, launch an implement run, then a review run. A
+            mergeable review opens the Merge action, which lands the branch in its integration
+            target and completes the item.
+          </p>
+        </About>
+        {error !== undefined && (
+          <p className="error-state" role="alert">
+            {error}
+          </p>
         )}
 
-      {canMutate && !launchVisible && launchableWorktrees.length > 0 && (
-        <div className="inline-actions">
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={busy || launchableWorktrees.length === 0}
-            onClick={() => setLaunchOpen(true)}
-          >
-            Launch a run…
-          </button>
-          {automationActive && (
-            <span className="hint">
-              An automated cycle owns this worktree; pause it before launching by hand.
-            </span>
-          )}
-        </div>
-      )}
-      {canMutate && launchVisible && (
-        <form className="stack-form" onSubmit={launch} aria-label="Launch an agent">
-          <h4>Launch an agent</h4>
-          {availableBackends.length === 0 && (
-            <p className="warning-state" role="note">
-              No agent backend was found on the workstation, so runs cannot start. See the
-              Repositories page for the tool status.
-            </p>
-          )}
-          <div className="form-row">
-            <label className="field">
-              Worktree
-              <select
-                value={selectedWorktree}
-                onChange={(event) => {
-                  setWorktreeId(event.target.value);
-                  const scope = launchableWorktrees.find(
-                    (t) => t.id === event.target.value,
-                  )?.executionScope;
-                  if (scope && scope.kind !== 'slice') applyRole('review');
-                }}
-                disabled={busy || launchableWorktrees.length === 0}
-              >
-                {launchableWorktrees.map((worktree) => (
-                  <option key={worktree.id} value={worktree.id}>
-                    {worktree.branchName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {backends.length > 1 && (
+        {workspaceId &&
+          canMutate &&
+          mergedWorktrees
+            .filter((tree) => tree.mergeCleanupError)
+            .map((tree) => (
+              <MergeApproval
+                key={tree.id}
+                workspaceId={workspaceId}
+                worktree={tree}
+                csrfToken={csrfToken}
+                disabled={busy}
+                onMerged={onMerged}
+              />
+            ))}
+        <h4>Worktrees ({activeWorktrees.length})</h4>
+        {activeWorktrees.length === 0 ? (
+          <p className="empty-state">
+            {mergedWorktrees.length > 0
+              ? `No active worktree. Merged: ${mergedWorktrees
+                  .map(
+                    (worktree) => `${worktree.branchName} → ${shortSha(worktree.mergeSha ?? '')}`,
+                  )
+                  .join(', ')}.`
+              : hideCreateWorktree
+                ? 'No worktree yet. Create one under Repository & branches.'
+                : 'No worktree yet.'}
+          </p>
+        ) : (
+          <ul className="worktree-list">
+            {activeWorktrees.map((worktree) => {
+              const gate = mergeGates[worktree.id];
+              const hasLiveRun = liveRuns.some((run) => run.worktreeId === worktree.id);
+              return (
+                <li key={worktree.id} className="worktree-item">
+                  <div>
+                    <span className="mono worktree-branch">{worktree.branchName}</span>
+                    <StatusStrip
+                      compact
+                      facts={[
+                        ...(worktree.executionScope
+                          ? [
+                              {
+                                label: 'Scope',
+                                value: `${worktree.executionScope.sourceId} · ${worktree.executionScope.kind.replaceAll('-', ' ')}`,
+                              },
+                            ]
+                          : []),
+                        {
+                          label: 'From',
+                          value: `${worktree.baseBranch} @ ${shortSha(worktree.baseSha)}`,
+                          mono: true,
+                        },
+                        { label: 'Path', value: worktree.path, mono: true },
+                      ]}
+                    />
+                    {renderBranchControls?.(worktree)}
+                    {gate !== undefined && (
+                      <div className="worktree-gate">
+                        <span
+                          className="status-badge"
+                          style={
+                            {
+                              '--badge-accent': gate.mergeable
+                                ? 'var(--color-ready)'
+                                : gate.reason === 'changes-requested'
+                                  ? 'var(--color-attention)'
+                                  : 'var(--color-text-muted)',
+                            } as CSSProperties
+                          }
+                        >
+                          {MERGE_GATE_LABELS[gate.reason]}
+                        </span>
+                        {gate.reviewRunId !== undefined && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            onClick={() => gate.reviewRunId && onOpenRun(gate.reviewRunId)}
+                          >
+                            open review
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {gate?.mergeable === true &&
+                      canMutate &&
+                      workspaceId &&
+                      (decisionItemFor?.(worktree.id) ? (
+                        <p className="attention-banner" role="status">
+                          This merge is decided in Needs you.{' '}
+                          <Link
+                            route={{
+                              name: 'inbox',
+                              workspaceId,
+                              itemId: decisionItemFor(worktree.id)!,
+                            }}
+                          >
+                            Open the decision
+                          </Link>
+                        </p>
+                      ) : (
+                        <MergeApproval
+                          workspaceId={workspaceId}
+                          worktree={worktree}
+                          gate={gate}
+                          csrfToken={csrfToken}
+                          disabled={busy}
+                          onMerged={onMerged}
+                        />
+                      ))}
+                  </div>
+                  <div className="inline-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => onOpenDiff(worktree.id)}
+                    >
+                      View diff
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button danger"
+                      onClick={() => onRemoveWorktree(worktree.id)}
+                      disabled={!canMutate || busy || hasLiveRun}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  {removalRefused?.worktreeId === worktree.id && canMutate && (
+                    <WorktreeChangesRefusal
+                      refused={removalRefused}
+                      busy={busy || hasLiveRun}
+                      onDiscard={() => onRemoveWorktree(worktree.id, { discardChanges: true })}
+                      onKeep={() => onKeepWorktree?.()}
+                    />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {canMutate &&
+          !itemCompleted &&
+          !hideCreateWorktree &&
+          !worktrees.some((t) => t.executionScope) && (
+            <form
+              className="inline-form"
+              onSubmit={createWorktree}
+              style={{ marginTop: 'var(--space-3)' }}
+            >
               <label className="field">
-                Agent
+                Repository
                 <select
-                  value={selectedBackend?.kind ?? ''}
-                  onChange={(event) => {
-                    setBackendKind(event.target.value as AgentBackendKind);
-                    setModel('');
-                    setReasoningEffort(undefined);
-                  }}
-                  disabled={busy}
+                  value={selectedRepository}
+                  onChange={(event) => setRepositoryId(event.target.value)}
+                  disabled={busy || activeRepositories.length === 0}
                 >
-                  {backends.map((backend) => (
-                    <option key={backend.kind} value={backend.kind} disabled={!backend.available}>
-                      {backend.label}
-                      {backend.available ? '' : ' (not found)'}
+                  {activeRepositories.map((repository) => (
+                    <option key={repository.id} value={repository.id}>
+                      {repository.displayName}
                     </option>
                   ))}
                 </select>
               </label>
-            )}
-            <label className="field">
-              Role
-              <select
-                value={effectiveRole}
-                onChange={(event) => applyRole(event.target.value as AgentRunRole)}
-                disabled={busy || reviewOnly}
+              <button
+                type="submit"
+                className="secondary-button"
+                disabled={busy || activeRepositories.length === 0}
               >
-                {AGENT_RUN_ROLES.map((candidate) => (
+                Create worktree
+              </button>
+              {activeRepositories.length === 0 && (
+                <p className="hint">Register a repository first.</p>
+              )}
+            </form>
+          )}
+
+        {canMutate && !launchVisible && launchableWorktrees.length > 0 && (
+          <div className="inline-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy || launchableWorktrees.length === 0}
+              onClick={() => setLaunchOpen(true)}
+            >
+              Launch a run…
+            </button>
+            {automationActive && (
+              <span className="hint">
+                An automated cycle owns this worktree; pause it before launching by hand.
+              </span>
+            )}
+          </div>
+        )}
+        {canMutate && launchVisible && (
+          <form className="stack-form" onSubmit={launch} aria-label="Launch an agent">
+            <h4>Launch an agent</h4>
+            {availableBackends.length === 0 && (
+              <p className="warning-state" role="note">
+                No agent backend was found on the workstation, so runs cannot start. See the
+                Repositories page for the tool status.
+              </p>
+            )}
+            <div className="form-row">
+              <label className="field">
+                Worktree
+                <select
+                  value={selectedWorktree}
+                  onChange={(event) => {
+                    setWorktreeId(event.target.value);
+                    const scope = launchableWorktrees.find(
+                      (t) => t.id === event.target.value,
+                    )?.executionScope;
+                    if (scope && scope.kind !== 'slice') applyRole('review');
+                  }}
+                  disabled={busy || launchableWorktrees.length === 0}
+                >
+                  {launchableWorktrees.map((worktree) => (
+                    <option key={worktree.id} value={worktree.id}>
+                      {worktree.branchName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {backends.length > 1 && (
+                <label className="field">
+                  Agent
+                  <select
+                    value={selectedBackend?.kind ?? ''}
+                    onChange={(event) => {
+                      setBackendKind(event.target.value as AgentBackendKind);
+                      setModel('');
+                      setReasoningEffort(undefined);
+                    }}
+                    disabled={busy}
+                  >
+                    {backends.map((backend) => (
+                      <option key={backend.kind} value={backend.kind} disabled={!backend.available}>
+                        {backend.label}
+                        {backend.available ? '' : ' (not found)'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="field">
+                Role
+                <select
+                  value={effectiveRole}
+                  onChange={(event) => applyRole(event.target.value as AgentRunRole)}
+                  disabled={busy || reviewOnly}
+                >
+                  {AGENT_RUN_ROLES.map((candidate) => (
+                    <option key={candidate} value={candidate}>
+                      {RUN_ROLE_LABELS[candidate]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <ModelField
+                key={`${selectedBackend?.kind}:${role}`}
+                models={models}
+                catalog={selectedBackend?.catalog}
+                value={model}
+                onChange={setModel}
+                disabled={busy}
+              />
+              {selectedBackend && (
+                <ReasoningEffortField
+                  backend={selectedBackend.kind}
+                  value={reasoningEffort}
+                  onChange={setReasoningEffort}
+                  disabled={busy}
+                />
+              )}
+            </div>
+            <p className="hint">{RUN_ROLE_DESCRIPTIONS[role]}</p>
+            <label className="field">
+              Permissions
+              <select
+                value={permissionMode}
+                onChange={(event) => setPermissionMode(event.target.value as AgentPermissionMode)}
+                disabled={busy}
+              >
+                {AGENT_PERMISSION_MODES.map((candidate) => (
                   <option key={candidate} value={candidate}>
-                    {RUN_ROLE_LABELS[candidate]}
+                    {PERMISSION_MODE_LABELS[candidate]}
                   </option>
                 ))}
               </select>
             </label>
-            <ModelField
-              key={`${selectedBackend?.kind}:${role}`}
-              models={models}
-              catalog={selectedBackend?.catalog}
-              value={model}
-              onChange={setModel}
-              disabled={busy}
-            />
-            {selectedBackend && (
-              <ReasoningEffortField
-                backend={selectedBackend.kind}
-                value={reasoningEffort}
-                onChange={setReasoningEffort}
+            {selectedBackend?.kind === 'codex' && (
+              <p className="hint">
+                On Codex, Auto and Edit-only both run commands in its sandbox, reaching only the
+                configured outside sources, and nothing may ask to leave it.
+              </p>
+            )}
+            <label className="field">
+              Instructions for this run (optional)
+              <textarea
+                value={instructions}
+                onChange={(event) => setInstructions(event.target.value)}
+                rows={3}
                 disabled={busy}
+                maxLength={20000}
               />
-            )}
-          </div>
-          <p className="hint">{RUN_ROLE_DESCRIPTIONS[role]}</p>
-          <label className="field">
-            Permissions
-            <select
-              value={permissionMode}
-              onChange={(event) => setPermissionMode(event.target.value as AgentPermissionMode)}
-              disabled={busy}
-            >
-              {AGENT_PERMISSION_MODES.map((candidate) => (
-                <option key={candidate} value={candidate}>
-                  {PERMISSION_MODE_LABELS[candidate]}
-                </option>
-              ))}
-            </select>
-          </label>
-          {selectedBackend?.kind === 'codex' && (
-            <p className="hint">
-              On Codex, Auto and Edit-only both run commands in its sandbox, reaching only the
-              configured outside sources, and nothing may ask to leave it.
-            </p>
-          )}
-          <label className="field">
-            Instructions for this run (optional)
-            <textarea
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
-              rows={3}
-              disabled={busy}
-              maxLength={20000}
-            />
-          </label>
-          <div>
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={busy || activeWorktrees.length === 0 || !backendAvailable}
-            >
-              {busy ? 'Working…' : `Launch ${RUN_ROLE_LABELS[effectiveRole].toLowerCase()} run`}
-            </button>
-            {launchOpen === true && (
+            </label>
+            <div>
               <button
-                type="button"
-                className="ghost-button"
-                disabled={busy}
-                onClick={() => setLaunchOpen(false)}
+                type="submit"
+                className="primary-button"
+                disabled={busy || activeWorktrees.length === 0 || !backendAvailable}
               >
-                Close
+                {busy ? 'Working…' : `Launch ${RUN_ROLE_LABELS[effectiveRole].toLowerCase()} run`}
               </button>
-            )}
-          </div>
-        </form>
-      )}
-
-      <h4>Runs ({runs.length})</h4>
-      {runs.length === 0 ? (
-        <p className="empty-state">No agent runs yet.</p>
-      ) : (
-        <div className="table-scroll">
-          <table className="data-table data-table-wide">
-            <caption className="visually-hidden">Agent runs</caption>
-            <thead>
-              <tr>
-                <th scope="col">Started</th>
-                <th scope="col">Role</th>
-                <th scope="col">Status</th>
-                <th scope="col">Verdict</th>
-                <th scope="col">Model</th>
-                <th scope="col">Turns</th>
-                <th scope="col">Cost</th>
-                <th scope="col">Outcome</th>
-                <th scope="col">
-                  <span className="visually-hidden">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((run) => {
-                const parent =
-                  run.parentRunId === undefined ? undefined : runById.get(run.parentRunId);
-                const target = handoffTarget(run);
-                const handoffDefault =
-                  target === undefined
-                    ? undefined
-                    : handoffDefaults(target.role, roleProfiles, run, runs);
-                const handoffHint =
-                  run.role === 'review' && handoffDefault !== undefined
-                    ? previousImplementerHint(runs, run.worktreeId, handoffDefault)
-                    : undefined;
-                return (
-                  <Fragment key={run.id}>
-                    <tr>
-                      <td>
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => onOpenRun(run.id)}
-                        >
-                          {new Date(run.createdAt).toLocaleString()}
-                        </button>
-                      </td>
-                      <td>
-                        {RUN_ROLE_LABELS[run.role]}
-                        {parent !== undefined && (
-                          <div className="hint">
-                            after{' '}
-                            <button
-                              type="button"
-                              className="link-button"
-                              onClick={() => onOpenRun(parent.id)}
-                            >
-                              {RUN_ROLE_LABELS[parent.role].toLowerCase()}
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <span
-                          className="status-badge"
-                          style={
-                            { '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties
-                          }
-                        >
-                          {RUN_STATUS_LABELS[run.status]}
-                        </span>
-                      </td>
-                      <td>
-                        {run.verdict === undefined ? (
-                          <span className="hint">—</span>
-                        ) : (
+              {launchOpen === true && (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={busy}
+                  onClick={() => setLaunchOpen(false)}
+                >
+                  Close
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+      </Section>
+      {/* Run history is reference: closed until asked for, reached from the page's navigation (R-E4). */}
+      <Section
+        id="runs"
+        title="Runs"
+        count={runs.length}
+        collapsible
+        defaultOpen={false}
+        summary={
+          latest === undefined
+            ? 'No agent runs yet.'
+            : `Latest: ${RUN_ROLE_LABELS[latest.role]} · ${RUN_STATUS_LABELS[latest.status]}.`
+        }
+      >
+        {runs.length === 0 ? (
+          <p className="empty-state">No agent runs yet.</p>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table data-table-wide">
+              <caption className="visually-hidden">Agent runs</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Started</th>
+                  <th scope="col">Role</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Verdict</th>
+                  <th scope="col">Model</th>
+                  <th scope="col">Turns</th>
+                  <th scope="col">Cost</th>
+                  <th scope="col">Outcome</th>
+                  <th scope="col">
+                    <span className="visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((run) => {
+                  const parent =
+                    run.parentRunId === undefined ? undefined : runById.get(run.parentRunId);
+                  const target = handoffTarget(run);
+                  const handoffDefault =
+                    target === undefined
+                      ? undefined
+                      : handoffDefaults(target.role, roleProfiles, run, runs);
+                  const handoffHint =
+                    run.role === 'review' && handoffDefault !== undefined
+                      ? previousImplementerHint(runs, run.worktreeId, handoffDefault)
+                      : undefined;
+                  return (
+                    <Fragment key={run.id}>
+                      <tr>
+                        <td>
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => onOpenRun(run.id)}
+                          >
+                            {new Date(run.createdAt).toLocaleString()}
+                          </button>
+                        </td>
+                        <td>
+                          {RUN_ROLE_LABELS[run.role]}
+                          {parent !== undefined && (
+                            <div className="hint">
+                              after{' '}
+                              <button
+                                type="button"
+                                className="link-button"
+                                onClick={() => onOpenRun(parent.id)}
+                              >
+                                {RUN_ROLE_LABELS[parent.role].toLowerCase()}
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                        <td>
                           <span
                             className="status-badge"
                             style={
-                              { '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties
+                              { '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties
                             }
                           >
-                            {VERDICT_LABELS[run.verdict]}
+                            {RUN_STATUS_LABELS[run.status]}
                           </span>
+                        </td>
+                        <td>
+                          {run.verdict === undefined ? (
+                            <span className="hint">—</span>
+                          ) : (
+                            <span
+                              className="status-badge"
+                              style={
+                                { '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties
+                              }
+                            >
+                              {VERDICT_LABELS[run.verdict]}
+                            </span>
+                          )}
+                        </td>
+                        <td className="mono">
+                          {backends.length > 1 ? `${AGENT_BACKEND_LABELS[run.backend]} · ` : ''}
+                          {run.resolvedModel ?? run.model ?? 'default'}
+                        </td>
+                        <td className="numeric">{run.turnCount}</td>
+                        <td className="numeric">{formatCost(run.costUsd, run.billing)}</td>
+                        <td>
+                          <OutcomeCell text={run.outcomeSummary} />
+                        </td>
+                        <td>
+                          {target !== undefined && canMutate && !itemCompleted && (
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => setHandoffOpen(run.id)}
+                              disabled={busy || availableBackends.length === 0}
+                              title={target.title}
+                            >
+                              {target.button}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {handoffOpen === run.id &&
+                        target !== undefined &&
+                        handoffDefault !== undefined && (
+                          <tr className="handoff-row">
+                            <td colSpan={9}>
+                              <HandoffForm
+                                label={target.label}
+                                backends={backends}
+                                defaults={handoffDefault}
+                                {...(handoffHint === undefined ? {} : { hint: handoffHint })}
+                                placeholder={target.placeholder}
+                                busy={busy}
+                                onLaunch={(choice) => {
+                                  onLaunch({
+                                    backend: choice.backend,
+                                    worktreeId: run.worktreeId,
+                                    role: target.role,
+                                    permissionMode: choice.permissionMode,
+                                    ...(choice.model === undefined ? {} : { model: choice.model }),
+                                    ...(choice.reasoningEffort
+                                      ? { reasoningEffort: choice.reasoningEffort }
+                                      : {}),
+                                    ...(choice.instructions === undefined
+                                      ? {}
+                                      : { instructions: choice.instructions }),
+                                    parentRunId: run.id,
+                                  });
+                                  setHandoffOpen(undefined);
+                                }}
+                                onCancel={() => setHandoffOpen(undefined)}
+                              />
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="mono">
-                        {backends.length > 1 ? `${AGENT_BACKEND_LABELS[run.backend]} · ` : ''}
-                        {run.resolvedModel ?? run.model ?? 'default'}
-                      </td>
-                      <td className="numeric">{run.turnCount}</td>
-                      <td className="numeric">{formatCost(run.costUsd, run.billing)}</td>
-                      <td>
-                        <OutcomeCell text={run.outcomeSummary} />
-                      </td>
-                      <td>
-                        {target !== undefined && canMutate && !itemCompleted && (
-                          <button
-                            type="button"
-                            className="text-button"
-                            onClick={() => setHandoffOpen(run.id)}
-                            disabled={busy || availableBackends.length === 0}
-                            title={target.title}
-                          >
-                            {target.button}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {handoffOpen === run.id &&
-                      target !== undefined &&
-                      handoffDefault !== undefined && (
-                        <tr className="handoff-row">
-                          <td colSpan={9}>
-                            <HandoffForm
-                              label={target.label}
-                              backends={backends}
-                              defaults={handoffDefault}
-                              {...(handoffHint === undefined ? {} : { hint: handoffHint })}
-                              placeholder={target.placeholder}
-                              busy={busy}
-                              onLaunch={(choice) => {
-                                onLaunch({
-                                  backend: choice.backend,
-                                  worktreeId: run.worktreeId,
-                                  role: target.role,
-                                  permissionMode: choice.permissionMode,
-                                  ...(choice.model === undefined ? {} : { model: choice.model }),
-                                  ...(choice.reasoningEffort
-                                    ? { reasoningEffort: choice.reasoningEffort }
-                                    : {}),
-                                  ...(choice.instructions === undefined
-                                    ? {}
-                                    : { instructions: choice.instructions }),
-                                  parentRunId: run.id,
-                                });
-                                setHandoffOpen(undefined);
-                              }}
-                              onCancel={() => setHandoffOpen(undefined)}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Section>
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+    </>
   );
 }

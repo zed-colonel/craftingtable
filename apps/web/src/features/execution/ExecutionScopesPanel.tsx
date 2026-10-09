@@ -25,6 +25,14 @@ import { AuthorizeEarlyDevelopment } from '../../decisions/early-development/Aut
 import { RecordScopeEvidence } from '../../decisions/scope-evidence/RecordScopeEvidence.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
+import { nextPhaseOf, sliceAnchor } from '../planning/SliceStrip.js';
+
+const PHASE_TITLES = {
+  start: 'Start development',
+  merge: 'Merge into integration',
+  verify: 'Verify merged slice',
+  accept: 'Accept parent',
+} as const;
 
 export function ExecutionScopesPanel({
   workspaceId,
@@ -139,13 +147,55 @@ export function ExecutionScopesPanel({
                     executionScopeKey({ ...choice.scope, kind: 'slice-verification' }),
               )
             : undefined;
+        const next = nextPhaseOf(choice);
+        const phaseBlock = (p: ExecutionScopeChoice['phases'][number]) => (
+          <div key={p.phase}>
+            <h4>{p.phase === next ? `Next: ${PHASE_TITLES[p.phase]}` : PHASE_TITLES[p.phase]}</h4>
+            <Reasons
+              reasons={p.blockers.map((b) => {
+                const destination = blockerDestination(phaseBlockerCode(b), workspaceId, {
+                  definitionId: choice.scope.definitionId,
+                  roadmapId: cycles.find(
+                    (c) =>
+                      c.executionScope?.definitionId === choice.scope.definitionId &&
+                      c.owner?.roadmapId !== undefined,
+                  )?.owner?.roadmapId,
+                });
+                return {
+                  kind: b.kind,
+                  text: b.message,
+                  owner: PHASE_BLOCKERS[phaseBlockerCode(b)].owner,
+                  ...(destination ? { destination } : {}),
+                };
+              })}
+              satisfied="Phase requirements satisfied; current review and branch checks still apply."
+            />
+            {p.resources.map((r) => (
+              <p key={r.key} className="hint">
+                <code>{r.key}</code>: {r.capacity} admission slot(s).
+              </p>
+            ))}
+            {p.reservations
+              .filter((r) => r.phase === p.phase)
+              .map((r) => (
+                <p key={r.id}>
+                  <code>{r.resourceKey}</code> reserved since{' '}
+                  {new Date(r.acquiredAt).toLocaleString()} (capacity {r.capacity}).
+                </p>
+              ))}
+          </div>
+        );
         const verificationCycle =
           verificationTree &&
           cycles.find(
             (entry) => entry.worktreeId === verificationTree.id && entry.status !== 'stopped',
           );
         return (
-          <article className="import-binding" key={executionScopeKey(choice.scope)}>
+          <article
+            className="import-binding"
+            key={executionScopeKey(choice.scope)}
+            id={sliceAnchor(choice.scope)}
+          >
             <h3>
               {choice.scope.sourceId} · {choice.title}
             </h3>
@@ -174,55 +224,17 @@ export function ExecutionScopesPanel({
                 </ul>
               </details>
             )}
-            <details open={choice.phases.some((p) => p.blockers.length > 0)}>
-              <summary>Transition requirements and reservations</summary>
-              {choice.phases.map((p) => (
-                <div key={p.phase}>
-                  <h4>
-                    {
-                      {
-                        start: 'Start development',
-                        merge: 'Merge into integration',
-                        verify: 'Verify merged slice',
-                        accept: 'Accept parent',
-                      }[p.phase]
-                    }
-                  </h4>
-                  <Reasons
-                    reasons={p.blockers.map((b) => {
-                      const destination = blockerDestination(phaseBlockerCode(b), workspaceId, {
-                        definitionId: choice.scope.definitionId,
-                        roadmapId: cycles.find(
-                          (c) =>
-                            c.executionScope?.definitionId === choice.scope.definitionId &&
-                            c.owner?.roadmapId !== undefined,
-                        )?.owner?.roadmapId,
-                      });
-                      return {
-                        kind: b.kind,
-                        text: b.message,
-                        owner: PHASE_BLOCKERS[phaseBlockerCode(b)].owner,
-                        ...(destination ? { destination } : {}),
-                      };
-                    })}
-                    satisfied="Phase requirements satisfied; current review and branch checks still apply."
-                  />
-                  {p.resources.map((r) => (
-                    <p key={r.key} className="hint">
-                      <code>{r.key}</code>: {r.capacity} admission slot(s).
-                    </p>
-                  ))}
-                  {p.reservations
-                    .filter((r) => r.phase === p.phase)
-                    .map((r) => (
-                      <p key={r.id}>
-                        <code>{r.resourceKey}</code> reserved since{' '}
-                        {new Date(r.acquiredAt).toLocaleString()} (capacity {r.capacity}).
-                      </p>
-                    ))}
-                </div>
-              ))}
-            </details>
+            {choice.phases.filter((p) => p.phase === next).map(phaseBlock)}
+            {choice.phases.some((p) => p.phase !== next) && (
+              <details>
+                <summary>
+                  {next === undefined
+                    ? 'Transition requirements and reservations'
+                    : `Other phases (${choice.phases.filter((p) => p.phase !== next).length})`}
+                </summary>
+                {choice.phases.filter((p) => p.phase !== next).map(phaseBlock)}
+              </details>
+            )}
             {existing &&
               choice.scope.kind === 'slice' &&
               choice.phases.some(

@@ -1,3 +1,4 @@
+import { MilestoneChip } from '../../components/MilestoneChip.js';
 import { type KeyboardEvent, useEffect, useRef } from 'react';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { ENTRY_STATE_LABELS } from '../planning/roadmap-labels.js';
@@ -118,7 +119,7 @@ export function GatesStrip({
 }
 
 /** A milestone chip: selectable, labelled with its state and whether it is met. */
-function MilestoneChip({
+function BoardMilestoneChip({
   model,
   index,
   selected,
@@ -132,16 +133,13 @@ function MilestoneChip({
   const node = nodeAt(model, index);
   const met = model.board.nodes[index]?.satisfied === true;
   return (
-    <button
-      type="button"
-      className={`board-chip${met ? ' board-chip-met' : ''}`}
-      aria-pressed={selected}
-      aria-label={`${node.sourceId} ${node.state}: ${met ? 'met' : 'not met'}`}
-      onClick={() => onSelect(node.key)}
-    >
-      {met ? '✓ ' : ''}
-      {node.state}
-    </button>
+    <MilestoneChip
+      state={node.state}
+      met={met}
+      label={`${node.sourceId} ${node.state}: ${met ? 'met' : 'not met'}`}
+      pressed={selected}
+      onSelect={() => onSelect(node.key)}
+    />
   );
 }
 
@@ -210,7 +208,7 @@ export function BoardCard({
               </span>
               <span className="board-slice-chips">
                 {slice.milestones.map((i) => (
-                  <MilestoneChip
+                  <BoardMilestoneChip
                     key={i}
                     model={model}
                     index={i}

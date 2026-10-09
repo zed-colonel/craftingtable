@@ -351,9 +351,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  // A slice shows its next phase; the others open on request (R-E4).
   await expect(
-    scopes.getByRole('heading', { name: 'Start development', exact: true }).first(),
+    scopes.getByRole('heading', { name: 'Next: Start development', exact: true }).first(),
   ).toBeVisible();
+  await scopes.getByText('Other phases (2)', { exact: true }).first().click();
   await expect(
     scopes.getByRole('heading', { name: 'Merge into integration', exact: true }).first(),
   ).toBeVisible();

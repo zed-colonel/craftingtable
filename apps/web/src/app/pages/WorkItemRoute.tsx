@@ -8,6 +8,7 @@ import {
   ScopeControls,
   useWorkItem,
 } from '../../features/execution/WorkItemControls.js';
+import { SliceStrip } from '../../features/planning/SliceStrip.js';
 import { WorkItemPage } from '../../features/planning/WorkItemPage.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { createWorktree } from '../../lib/execution-api.js';
@@ -18,7 +19,10 @@ import { useCommands } from '../commands.js';
 import { RefreshFailed } from '../RefreshFailed.js';
 import { useGo, useSession, useWorkspaceScope } from '../session.js';
 
-/** One work item: its plan entry, branches, automation, delegation and execution slices. */
+/**
+ * One work item (R-E4): its slices at a glance, then its plan entry, branches, automation,
+ * execution slices, delegation and runs, reached from the on-page navigation.
+ */
 export function WorkItemRoute({
   workItemId,
   attention,
@@ -54,6 +58,7 @@ export function WorkItemRoute({
   const diffShown =
     diff !== undefined && execution?.worktrees.some((worktree) => worktree.id === diff.worktree.id);
   const version = detail.agendaRemoval?.expectedVersion;
+  const slices = item.scopes?.choices ?? [];
   return (
     <div className="page">
       <RefreshFailed failed={item.refreshFailed} />
@@ -63,15 +68,30 @@ export function WorkItemRoute({
         </p>
       )}
       <WorkItemPage
+        workspaceId={workspaceId}
+        strip={
+          <SliceStrip
+            workspaceId={workspaceId}
+            workItemId={workItemId}
+            choices={slices}
+            cycles={item.cycles ?? []}
+          />
+        }
         detail={detail}
         inProgress={inProgress}
         sections={[
           { id: 'overview', label: 'Overview' },
           { id: 'branches', label: 'Branches' },
+          ...(execution !== undefined ? [{ id: 'automation', label: 'Automation' }] : []),
+          ...(slices.length > 0 ? [{ id: 'slices', label: 'Slices', count: slices.length }] : []),
           ...(execution !== undefined
             ? [
-                { id: 'automation', label: 'Automation' },
-                { id: 'delegation', label: 'Delegation', count: execution.runs.length },
+                {
+                  id: 'delegation',
+                  label: 'Delegation',
+                  count: execution.worktrees.filter((t) => t.status === 'active').length,
+                },
+                { id: 'runs', label: 'Runs', count: execution.runs.length },
               ]
             : []),
           ...(diffShown ? [{ id: 'diff', label: 'Diff' }] : []),
@@ -130,8 +150,8 @@ export function WorkItemRoute({
         }
       />
       <CycleControls item={item} attention={attention} />
-      <DelegationControls item={item} attention={attention} workspaceCycles={cycles} />
       <ScopeControls item={item} attention={attention} />
+      <DelegationControls item={item} attention={attention} workspaceCycles={cycles} />
       {diffShown && (
         <div id="diff">
           <DiffView diff={diff} onClose={() => item.setDiff(undefined)} />

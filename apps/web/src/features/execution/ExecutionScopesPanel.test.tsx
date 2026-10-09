@@ -239,3 +239,58 @@ it('reads the slices again once a scope verification is recorded (review L4, C64
     vi.unstubAllGlobals();
   }
 });
+
+it('shows a slice’s next phase, keeps its other phases closed, and is the strip’s anchor (R-E4)', () => {
+  const blocker = (message: string) => ({ kind: 'dependency', code: 'slice-requirement', message });
+  render(
+    <ExecutionScopesPanel
+      workspaceId={'ws' as WorkspaceId}
+      workItemId={'wi' as WorkItemId}
+      csrfToken="csrf"
+      canMutate
+      itemStatus="admitted"
+      onChanged={onChanged}
+      worktrees={[]}
+      scopes={{
+        choices: [
+          {
+            scope,
+            title: 'Implementation',
+            description: 'Slice',
+            status: 'started',
+            excludes: [],
+            blockers: [],
+            repositoryId: 'repo',
+            phases: [
+              { phase: 'start', blockers: [], resources: [], reservations: [] },
+              {
+                phase: 'merge',
+                blockers: [blocker('Merge the contract first.')],
+                resources: [],
+                reservations: [],
+              },
+              {
+                phase: 'verify',
+                blockers: [blocker('Merge this slice first.')],
+                resources: [],
+                reservations: [],
+              },
+            ],
+          } as unknown as ExecutionScopeChoice,
+        ],
+      }}
+    />,
+  );
+  const article = screen
+    .getByRole('heading', { name: /wi\/WI-01\/implementation/ })
+    .closest('article')!;
+  expect(article.id).toBe('slice-slice-wi/WI-01/implementation');
+  // Started, so merging is next: its requirements show; starting and verifying sit in a closed
+  // disclosure.
+  const next = screen.getByRole('heading', { name: 'Next: Merge into integration' });
+  expect(next.closest('details')).toBeNull();
+  expect(screen.getByText('Merge the contract first.').closest('details')).toBeNull();
+  const later = screen.getByText('Merge this slice first.').closest('details')!;
+  expect(later.open).toBe(false);
+  expect(later.querySelector('summary')?.textContent).toBe('Other phases (2)');
+});

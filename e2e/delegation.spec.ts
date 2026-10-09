@@ -114,9 +114,13 @@ test('registers a repository, delegates a work item, follows the run, and reads 
 
     // Back on the work item the run is recorded as finished, and it survives a reload.
     await page.getByRole('button', { name: 'Work item' }).click();
-    await expect(page.getByRole('table', { name: 'Agent runs' })).toContainText('Finished');
+    // Run history is a closed section whose summary names the latest run (R-E4).
+    const runs = page.getByRole('region', { name: 'Runs', exact: true });
+    await expect(runs).toContainText('Latest: Implement · Finished.');
     await page.reload();
-    await expect(page.getByRole('table', { name: 'Agent runs' })).toContainText('Finished');
+    await expect(runs).toContainText('Latest: Implement · Finished.');
+    await runs.locator('summary.section-head').click();
+    await expect(runs.getByRole('table', { name: 'Agent runs' })).toContainText('Finished');
 
     // No merge without a review.
     await expect(page.getByText('Needs a review run')).toBeVisible();
@@ -136,10 +140,16 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await page.getByRole('button', { name: 'Work item' }).click();
     await expect(page.getByText('Reviewed and mergeable')).toBeVisible();
 
-    // A review with a verdict can be handed straight to a remediation run.
+    // A review with a verdict can be handed straight to a remediation run, from the run history.
+    await page
+      .getByRole('region', { name: 'Runs', exact: true })
+      .locator('summary.section-head')
+      .click();
     await expect(page.getByRole('button', { name: 'Remediate' })).toBeVisible();
 
     // Cross-agent review and remediation: findings return to the Claude implementer.
+    // With runs on the item, the launch form opens from its named action (R-E4).
+    await page.getByRole('button', { name: 'Launch a run…' }).click();
     await launchForm.getByRole('combobox', { name: /^Agent/ }).selectOption('codex');
     await launchForm.getByLabel('Role').selectOption('review');
     await launchForm.getByLabel(/Instructions for this run/).fill('VERDICT-CHANGES');
@@ -172,6 +182,8 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByText('Awaiting your input').first()).toBeVisible();
     await page.getByRole('button', { name: 'End session' }).click();
     await page.getByRole('button', { name: 'Work item' }).click();
+    // With runs on the item, the launch form opens from its named action (R-E4).
+    await page.getByRole('button', { name: 'Launch a run…' }).click();
     await launchForm.getByRole('combobox', { name: /^Agent/ }).selectOption('codex');
     await launchForm.getByLabel('Role').selectOption('review');
     await page.getByRole('button', { name: /Launch review run/ }).click();
@@ -249,6 +261,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await page.getByRole('link', { name: 'Dashboard' }).click();
     await page.getByRole('button', { name: 'ActionQueue', exact: true }).click();
     await page.getByRole('button', { name: 'AQ-02', exact: true }).click();
+    await page.getByRole('button', { name: 'Launch a run…' }).click();
     await expect(launchForm.getByRole('combobox', { name: /^Agent/ })).toHaveValue('codex');
     await expect(launchForm.getByLabel('Permissions')).toHaveValue('edit-only');
     await launchForm.getByLabel('Role').selectOption('review');

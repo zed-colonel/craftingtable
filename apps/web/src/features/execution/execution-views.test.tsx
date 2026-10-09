@@ -287,6 +287,9 @@ describe('DelegationPanel', () => {
     expect(within(table).getByText('Finished')).toBeDefined();
     expect(within(table).getAllByText('$1.25').length).toBe(2);
 
+    // With runs already there, the form opens from its named action (R-E4).
+    expect(screen.queryByRole('form', { name: 'Launch an agent' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Launch a run…' }));
     const form = screen.getByRole('form', { name: 'Launch an agent' });
     fireEvent.change(within(form).getByLabelText('Role'), { target: { value: 'review' } });
     fireEvent.change(within(form).getByLabelText('Permissions'), {
@@ -413,6 +416,7 @@ describe('DelegationPanel', () => {
     expect((screen.getByRole('button', { name: 'Remove' }) as HTMLButtonElement).disabled).toBe(
       true,
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Launch a run…' }));
     expect(
       (screen.getByRole('button', { name: /Launch implement run/ }) as HTMLButtonElement).disabled,
     ).toBe(true);

@@ -1,4 +1,5 @@
 import type { WorkItemDetailResponse, WorkItemSummary } from '@craftingtable/contracts';
+import { asWorkspaceId } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StatusCards } from '../../components/StatusCards.js';
@@ -85,10 +86,21 @@ function workItemDetail(overrides: Partial<WorkItemDetailResponse> = {}): WorkIt
 
 function renderPage(
   detail: WorkItemDetailResponse,
-  options: { canMutate?: boolean; inProgress?: boolean; onAdmit?: () => void } = {},
+  options: {
+    canMutate?: boolean;
+    inProgress?: boolean;
+    onAdmit?: () => void;
+    strip?: React.ReactNode;
+  } = {},
 ) {
   return render(
     <WorkItemPage
+      workspaceId={asWorkspaceId('workspace-1')}
+      {...(options.strip === undefined ? {} : { strip: options.strip })}
+      sections={[
+        { id: 'overview', label: 'Overview' },
+        { id: 'slices', label: 'Slices' },
+      ]}
       detail={detail}
       inProgress={options.inProgress ?? false}
       onAdmit={options.onAdmit ?? vi.fn()}
@@ -220,7 +232,7 @@ describe('work item page', () => {
       } as never),
       { onAdmit },
     );
-    expect(screen.getByText(/dependency-blocked by AQ-13/)).toBeDefined();
+    expect(screen.getByRole('note').textContent).toMatch(/dependency-blocked by AQ-13/);
     expect(screen.getByText(/not .run this now./)).toBeDefined();
     // A blocked item is still admittable through explicit action.
     const button = screen.getByRole('button', { name: 'Admit into agenda' });
@@ -273,6 +285,67 @@ describe('work item page', () => {
     expect(screen.getAllByText('Completed').length).toBeGreaterThan(0);
     expect(screen.getByText(/merged as abcdef0123/)).toBeDefined();
     expect(screen.queryByRole('button', { name: 'Mark complete' })).toBeNull();
+  });
+});
+
+describe('work item page as a drill-down (R-E4)', () => {
+  const dependency = (sourceId: string, status: 'proposed' | 'completed' = 'proposed') => ({
+    workItemId: `item-${sourceId}`,
+    sourceId,
+    title: `${sourceId} title`,
+    status,
+    risk: 'medium' as const,
+  });
+  const href = (sourceId: string) => `/workspaces/workspace-1/work-items/item-${sourceId}`;
+
+  it('links its predecessors, recommendations and dependents to their pages', () => {
+    renderPage(
+      workItemDetail({
+        requiredPredecessors: [{ ...dependency('AQ-01', 'completed'), kind: 'required' }],
+        recommendedPredecessors: [{ ...dependency('AQ-02'), kind: 'recommended' }],
+        dependents: [
+          { ...dependency('AQ-04'), kind: 'required' },
+          { ...dependency('AQ-05'), kind: 'required' },
+        ],
+      } as never),
+    );
+    for (const sourceId of ['AQ-01', 'AQ-02', 'AQ-04', 'AQ-05'])
+      expect(screen.getByRole('link', { name: new RegExp(sourceId) }).getAttribute('href')).toBe(
+        href(sourceId),
+      );
+    // A predecessor says its state in words.
+    expect(screen.getByRole('link', { name: /AQ-01/ }).closest('li')?.textContent).toContain(
+      'Completed',
+    );
+  });
+
+  it('names the predecessors that block it as links', () => {
+    renderPage(
+      workItemDetail({
+        workItem: {
+          ...item({
+            sourceId: 'AQ-14',
+            readiness: 'dependency-blocked',
+            blockerSourceIds: ['AQ-13'],
+            requiredPredecessorCount: 1,
+          }),
+          projectId: 'project-1',
+          planVersionId: 'version-1',
+        },
+        requiredPredecessors: [{ ...dependency('AQ-13'), kind: 'required' }],
+      } as never),
+    );
+    const note = screen.getByRole('note');
+    expect(within(note).getByRole('link', { name: 'AQ-13' }).getAttribute('href')).toBe(
+      href('AQ-13'),
+    );
+  });
+
+  it('opens with the slice strip, above the page’s sections', () => {
+    renderPage(workItemDetail(), { strip: <section aria-label="Slices">strip</section> });
+    const strip = screen.getByRole('region', { name: 'Slices' });
+    const nav = screen.getByRole('navigation', { name: 'On this page' });
+    expect(strip.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

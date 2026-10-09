@@ -1,10 +1,12 @@
 import type { WorkItemDetailResponse } from '@craftingtable/contracts';
-import type { CSSProperties } from 'react';
+import type { WorkspaceId } from '@craftingtable/domain';
+import { type CSSProperties, Fragment, type ReactNode } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
 import { PageHeader } from '../../components/PageHeader.js';
 import { Section } from '../../components/Section.js';
 import { type SectionNavItem, SectionNav } from '../../components/SectionNav.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
+import { Link } from '../../lib/navigation.js';
 import {
   blockerSummary,
   READINESS_ACCENTS,
@@ -14,13 +16,45 @@ import {
   STATUS_LABELS,
 } from '../../lib/planning-labels.js';
 
+type Dependency = WorkItemDetailResponse['dependents'][number];
+
+/** Work items as links to their pages, each with its state in words (R-E4). */
+function DependencyLinks({
+  workspaceId,
+  entries,
+  empty,
+}: {
+  workspaceId: WorkspaceId;
+  entries: readonly Dependency[];
+  empty: string;
+}) {
+  if (entries.length === 0) return <span className="hint">{empty}</span>;
+  return (
+    <ul className="dependency-links">
+      {entries.map((entry) => (
+        <li key={entry.workItemId}>
+          <Link
+            route={{ name: 'work-item', workspaceId, workItemId: entry.workItemId }}
+            title={entry.title}
+          >
+            <span className="mono">{entry.sourceId}</span>
+          </Link>{' '}
+          <span className="hint">{STATUS_LABELS[entry.status]}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
- * The head of a work item page: identity, state, the lifecycle actions, and
- * the overview section. The delegation, automation, slice, branch, and diff
- * sections follow it, composed by the app, and `sections` names them for the
- * on-page navigation.
+ * The head of a work item page (R-E4): identity, state, the lifecycle actions, the slice strip,
+ * the on-page navigation and the overview, whose predecessors and dependents are links. The
+ * automation, slice, delegation, run, branch and diff sections follow it, composed by the app,
+ * and `sections` names them for the on-page navigation.
  */
 export function WorkItemPage({
+  workspaceId,
+  strip,
   detail,
   inProgress,
   sections = [],
@@ -32,6 +66,9 @@ export function WorkItemPage({
   error,
   canMutate,
 }: {
+  workspaceId: WorkspaceId;
+  /** The item's slices at a glance, above its sections (R-E4); absent without slices. */
+  strip?: ReactNode;
   detail: WorkItemDetailResponse;
   /** Derived by the app from live worktrees and runs. */
   inProgress: boolean;
@@ -128,15 +165,34 @@ export function WorkItemPage({
       )}
       {item.status === 'proposed' && blocked && (
         <p className="warning-state" role="note">
-          This item is dependency-blocked by {item.blockerSourceIds.join(', ')}. You may still admit
-          it: admission means “I accept this into the agenda”, not “run this now”. The blockers stay
-          visible afterwards.
+          This item is dependency-blocked by{' '}
+          {item.blockerSourceIds.map((sourceId, index) => {
+            const blocker = detail.requiredPredecessors.find((p) => p.sourceId === sourceId);
+            return (
+              <Fragment key={sourceId}>
+                {index > 0 && ', '}
+                {blocker ? (
+                  <Link
+                    route={{ name: 'work-item', workspaceId, workItemId: blocker.workItemId }}
+                    title={blocker.title}
+                  >
+                    {sourceId}
+                  </Link>
+                ) : (
+                  sourceId
+                )}
+              </Fragment>
+            );
+          })}
+          . You may still admit it: admission means “I accept this into the agenda”, not “run this
+          now”. The blockers stay visible afterwards.
         </p>
       )}
       {!canMutate && item.status !== 'completed' && (
         <p className="hint">Your workspace role does not permit changing work items.</p>
       )}
 
+      {strip}
       <SectionNav items={sections} />
 
       <Section id="overview" title="Overview" summary={blockerSummary(item)}>
@@ -171,37 +227,32 @@ export function WorkItemPage({
             <h4>Exit gate</h4>
             <p>{item.exitGate}</p>
           </div>
-          <div className="stack">
-            <h4>Required predecessors ({detail.requiredPredecessors.length})</h4>
-            {detail.requiredPredecessors.length === 0 ? (
-              <p className="hint">None.</p>
-            ) : (
-              <ul className="dependency-list">
-                {detail.requiredPredecessors.map((entry) => (
-                  <li key={entry.workItemId}>
-                    <strong className="mono">{entry.sourceId}</strong> {entry.title}{' '}
-                    <span className="hint">({STATUS_LABELS[entry.status]})</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <h4>Recommended ({detail.recommendedPredecessors.length})</h4>
-            {detail.recommendedPredecessors.length === 0 ? (
-              <p className="hint">None. Recommendations never block admission.</p>
-            ) : (
-              <ul className="dependency-list">
-                {detail.recommendedPredecessors.map((entry) => (
-                  <li key={entry.workItemId}>
-                    <strong className="mono">{entry.sourceId}</strong> {entry.title}
-                  </li>
-                ))}
-              </ul>
-            )}
-            <h4>Dependents ({detail.dependents.length})</h4>
-            <p className="hint">
-              {detail.dependents.map((entry) => entry.sourceId).join(', ') || 'None'}
-            </p>
-          </div>
+          <dl className="dependency-facts">
+            <dt>Requires ({detail.requiredPredecessors.length})</dt>
+            <dd>
+              <DependencyLinks
+                workspaceId={workspaceId}
+                entries={detail.requiredPredecessors}
+                empty="None."
+              />
+            </dd>
+            <dt>Recommended ({detail.recommendedPredecessors.length})</dt>
+            <dd>
+              <DependencyLinks
+                workspaceId={workspaceId}
+                entries={detail.recommendedPredecessors}
+                empty="None. Recommendations never block admission."
+              />
+            </dd>
+            <dt>Unblocks ({detail.dependents.length})</dt>
+            <dd>
+              <DependencyLinks
+                workspaceId={workspaceId}
+                entries={detail.dependents}
+                empty="None."
+              />
+            </dd>
+          </dl>
         </div>
       </Section>
     </>

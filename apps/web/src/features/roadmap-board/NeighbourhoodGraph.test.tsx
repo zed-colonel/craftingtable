@@ -113,3 +113,48 @@ it('says a selection outside the roadmap has no neighbourhood, and resets Expand
     "outside this roadmap's selected work",
   );
 });
+
+it('starts every new selection at two hops again after Expand (R-E3b review L3)', () => {
+  // A chain of checkpoints e0 → e5: from e0, two hops reach e2, Expand reaches e3.
+  const chain = {
+    ...MODEL,
+    graph: {
+      ...MODEL.graph,
+      nodes: Array.from({ length: 6 }, (_, i) => ({
+        key: `checkpoint:e${i}:passed`,
+        kind: 'checkpoint' as const,
+        sourceId: `e${i}`,
+        state: 'passed' as const,
+        title: `e${i}`,
+        requires: i === 0 ? [] : [i - 1],
+        included: true,
+      })),
+    },
+    board: {
+      ...MODEL.board,
+      nodes: Array.from({ length: 6 }, () => ({ satisfied: false })),
+      gates: [],
+    },
+  };
+  const view = render(
+    <NeighbourhoodGraph
+      model={chain}
+      selected="checkpoint:e0:passed"
+      onSelect={vi.fn()}
+      links={links}
+    />,
+  );
+  const area = () => screen.getByRole('region', { name: 'Neighbourhood graph' });
+  expect(area().textContent).toContain('2 hops each way · 3 nodes');
+  fireEvent.click(within(area()).getByRole('button', { name: 'Expand' }));
+  expect(area().textContent).toContain('3 hops each way · 4 nodes');
+  view.rerender(
+    <NeighbourhoodGraph
+      model={chain}
+      selected="checkpoint:e5:passed"
+      onSelect={vi.fn()}
+      links={links}
+    />,
+  );
+  expect(area().textContent).toContain('2 hops each way · 3 nodes');
+});

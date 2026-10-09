@@ -129,24 +129,43 @@ describe('cycles (R-E3b review H1)', () => {
 
 describe('ordering and placement', () => {
   it('keeps the order with the fewest crossings, not the last sweep', () => {
-    // A layout that sweeps once more than it needs gives the same crossings it found best.
-    const nodes = ['a', 'b', 'c', 'd', 'e', 'f'];
-    const edges = [
-      ['a', 'e'],
-      ['b', 'd'],
-      ['c', 'f'],
-      ['a', 'd'],
-      ['c', 'd'],
-    ] as const;
-    const once = layeredLayout(nodes, edges, { ...options, sweeps: 1 });
-    const many = layeredLayout(nodes, edges, { ...options, sweeps: 8 });
-    expect(many.crossings).toBeLessThanOrEqual(once.crossings);
-    // Every recorded count is the count of the order placed.
-    const y = (n: string) => many.nodes.get(n)!.y;
-    let crossings = 0;
-    for (const [a1, b1] of edges)
-      for (const [a2, b2] of edges) if ((y(a1) - y(a2)) * (y(b1) - y(b2)) < 0) crossings += 1;
-    expect(crossings / 2).toBe(many.crossings);
+    // Seeded random layered graphs: one more sweep never ends with more crossings, since the best
+    // order so far is kept, and the count reported is the order placed.
+    let seed = 7;
+    const random = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    let worsened = 0;
+    for (let graph = 0; graph < 300; graph++) {
+      const layers = [0, 1, 2, 3].map((l) =>
+        Array.from({ length: 2 + Math.floor(random() * 4) }, (_, i) => `${l}-${i}`),
+      );
+      const edges: [string, string][] = [];
+      for (let l = 0; l < 3; l++)
+        for (const to of layers[l + 1]!) {
+          // Every node past the first layer has a requirement in the layer before, so the layers
+          // are the longest paths and every edge spans one layer (no dummy slots to count).
+          const from = layers[l]!.filter(() => random() < 0.35);
+          if (!from.length) from.push(layers[l]![Math.floor(random() * layers[l]!.length)]!);
+          for (const f of from) edges.push([f, to]);
+        }
+      const nodes = layers.flat();
+      let previous = Number.POSITIVE_INFINITY;
+      for (let sweeps = 0; sweeps <= 6; sweeps++) {
+        const layout = layeredLayout(nodes, edges, { ...options, sweeps });
+        if (layout.crossings > previous) worsened += 1;
+        previous = layout.crossings;
+        const y = (n: string) => layout.nodes.get(n)!.y;
+        const layer = (n: string) => layout.nodes.get(n)!.layer;
+        let placed = 0;
+        for (const [a1, b1] of edges)
+          for (const [a2, b2] of edges)
+            if (layer(a1) === layer(a2) && (y(a1) - y(a2)) * (y(b1) - y(b2)) < 0) placed += 1;
+        expect(placed / 2).toBe(layout.crossings);
+      }
+    }
+    expect(worsened).toBe(0);
   });
 
   it('centres a shorter layer on the tallest', () => {

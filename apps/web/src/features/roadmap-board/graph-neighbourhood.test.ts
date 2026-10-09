@@ -56,6 +56,24 @@ describe('transitive reduction', () => {
     ]);
   });
 
+  it('drops an edge implied through two or more nodes', () => {
+    expect(
+      transitiveReduction(
+        ['a', 'b', 'c', 'd'],
+        [
+          ['a', 'b'],
+          ['b', 'c'],
+          ['c', 'd'],
+          ['a', 'd'],
+        ],
+      ),
+    ).toEqual([
+      ['a', 'b'],
+      ['b', 'c'],
+      ['c', 'd'],
+    ]);
+  });
+
   it('keeps parallel paths of length one', () => {
     const edges = [
       ['a', 'c'],

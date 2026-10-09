@@ -11,7 +11,6 @@ import type { ProjectedItem } from './attention-projector.js';
 const DEPENDENCY_SETUP: ReadonlySet<PhaseBlockerCode> = new Set([
   'dependency-environment-missing',
   'upstream-pin-missing',
-  'runtime-definition-unavailable',
 ]);
 
 /**

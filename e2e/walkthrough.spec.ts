@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { type Browser, devices, type Locator, type Page } from '@playwright/test';
 import {
   adoptRepositoryChecks,
+  openRoadmap,
   E2E_USERNAME,
   expect,
   git,
@@ -1159,6 +1160,89 @@ test('captures every page of the app on desktop and phone viewports', async ({
       'inbox-architecture-decision',
       'Needs you · one shared architecture decision, alone',
       region('Decision'),
+    );
+
+    // ---- The cross-project roadmap running, on its board (R-E3b) ---------------------------
+    // Last as well: starting it stops the AQ roadmap, since a workspace delegates to one roadmap
+    // at a time. Adopt the map, move aq's pin to its current commit, accept the saved plan,
+    // stop AQ and start; the board then shows the map's first slices and what they wait on.
+    await page.goto(crossProjectSetup);
+    await setupStep(page, 'Plan and repository bindings');
+    await page.getByText(/^Scheduling proposals ·/).click();
+    await page
+      .getByRole('checkbox', {
+        name: 'I approve all listed scheduling proposals for these exact bindings.',
+      })
+      .check();
+    await page.getByLabel('Adoption rationale').fill('Reviewed the walkthrough map.');
+    await sendCommand(
+      page,
+      page.getByRole('button', { name: 'Adopt scheduling proposals', exact: true }),
+    );
+    await setupStep(page, 'Dependency environment');
+    const pins = page.getByRole('region', { name: 'Dependency pin refresh', exact: true });
+    await pins.getByRole('button', { name: 'Preview dependency refresh' }).click();
+    await pins.getByLabel('Dependency refresh rationale').fill('Move aq to its current commit.');
+    await pins
+      .getByRole('checkbox', {
+        name: 'I reviewed the new pins, retained evidence, and required fresh reviews.',
+      })
+      .check();
+    await sendCommand(
+      page,
+      pins.getByRole('button', { name: 'Apply reviewed dependency refresh', exact: true }),
+    );
+    await setupStep(page, 'Plan acceptance');
+    await sendCommand(
+      page,
+      page.getByRole('button', { name: 'Generate plan-acceptance evidence', exact: true }),
+    );
+    // Generating opens the saved plan's review in place.
+    const attest = page.getByRole('checkbox', { name: /^I reviewed the saved plan/ });
+    const review = page.locator('[id*="-submission-"]').filter({ has: attest });
+    await attest.check();
+    await review.getByLabel('Review decision rationale').fill('Reviewed the saved plan.');
+    await sendCommand(page, review.getByRole('button', { name: 'Accept evidence', exact: true }));
+    await navigate(page, 'Roadmaps');
+    await openRoadmap(page, 'AQ sequential');
+    await sendCommand(page, page.getByRole('button', { name: 'Stop roadmap', exact: true }));
+    await page.goto(crossProjectSetup.replace(/\/setup$/, ''));
+    await sendCommand(page, page.getByRole('button', { name: 'Start roadmap', exact: true }));
+    const board = page.getByRole('region', { name: 'Lane exo', exact: true });
+    await expect(board).toBeVisible();
+    // Its first slices wait on exact upstream pins, which only the operator sets: the roadmap's
+    // setup item carries them, so Needs you agrees with the board (R-A6 handoff e).
+    await expect(
+      page
+        .getByRole('region', { name: 'Needs you on this roadmap', exact: true })
+        .getByRole('link', { name: 'Verification setup', exact: true }),
+    ).toBeVisible({ timeout: 60_000 });
+    await board.getByRole('button', { name: /^exo\/EXO-01 / }).click();
+    const panel = page.getByRole('complementary', { name: 'Selection', exact: true });
+    await expect(panel.getByRole('region', { name: 'Waiting on', exact: true })).toBeVisible();
+    await expect(panel.getByRole('link', { name: 'Open in Needs you', exact: true })).toBeVisible();
+    const selected = page.url();
+    await walk.capture(
+      'roadmap-board-running',
+      'Roadmap · a running map roadmap on its board, one card selected',
+      heading('Cross-project roadmap'),
+      async (p) => {
+        if (p.url() !== selected) await p.goto(selected);
+        await expect(p.getByText('exo/EXO-01').first()).toBeVisible();
+      },
+    );
+    await page
+      .getByRole('navigation', { name: 'Board views', exact: true })
+      .getByRole('link', { name: 'Graph', exact: true })
+      .click();
+    await expect(
+      page.getByRole('region', { name: 'Neighbourhood graph', exact: true }),
+    ).toBeVisible();
+    // A phone has no graph: the same address shows the grouped list there.
+    await walk.capture(
+      'roadmap-graph',
+      'Roadmap · the neighbourhood graph of a selection',
+      heading('Cross-project roadmap'),
     );
 
     walk.writeIndex(label, commit);

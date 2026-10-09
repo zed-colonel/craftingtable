@@ -82,6 +82,7 @@ function OutcomeCell({ text }: { text: string | undefined }) {
  */
 export function DelegationPanel({
   hideCreateWorktree,
+  omitWhenEmpty = false,
   automationActive = false,
   renderBranchControls,
   repositories,
@@ -107,6 +108,11 @@ export function DelegationPanel({
   profiles,
 }: {
   hideCreateWorktree?: boolean;
+  /**
+   * Render nothing while there is no worktree and no run: a map work item's slices make their
+   * own worktrees, so an empty Delegation section has nothing to offer there (R-E4).
+   */
+  omitWhenEmpty?: boolean;
   /** An automated cycle owns the worktree; the manual launch form starts closed. */
   automationActive?: boolean;
   renderBranchControls?: (worktree: WorktreeSummary) => ReactNode;
@@ -247,6 +253,7 @@ export function DelegationPanel({
           liveRuns.length > 0 ? ` · ${liveRuns.length} live` : ''
         }.`;
   const latest = runs[0];
+  if (omitWhenEmpty && worktrees.length === 0 && runs.length === 0) return null;
   return (
     <>
       <Section id="delegation" title="Delegation" summary={summary}>
@@ -279,7 +286,8 @@ export function DelegationPanel({
             ))}
         {/* With no worktree at all, the summary and the line below say so once (R-E4). */}
         {(activeWorktrees.length > 0 || mergedWorktrees.length > 0) && (
-          <h4>Worktrees ({activeWorktrees.length})</h4>
+          // The summary above counts them; the heading names the list for assistive technology.
+          <h4 className="visually-hidden">Worktrees ({activeWorktrees.length})</h4>
         )}
         {activeWorktrees.length === 0 ? (
           <p className="empty-state">

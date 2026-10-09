@@ -294,3 +294,45 @@ it('shows a slice’s next phase, keeps its other phases closed, and is the stri
   expect(later.open).toBe(false);
   expect(later.querySelector('summary')?.textContent).toBe('Other phases (2)');
 });
+
+it('points at the acceptance worktree only once there is one (R-E4)', () => {
+  const acceptance = { ...scope, kind: 'parent-acceptance' as const, sourceId: 'wi/WI-01' };
+  const panel = (worktrees: WorktreeSummary[]) =>
+    render(
+      <ExecutionScopesPanel
+        workspaceId={'ws' as WorkspaceId}
+        workItemId={'wi' as WorkItemId}
+        csrfToken="csrf"
+        canMutate
+        itemStatus="admitted"
+        onChanged={onChanged}
+        worktrees={worktrees}
+        scopes={{
+          choices: [
+            {
+              scope: acceptance,
+              title: 'Parent',
+              description: 'Parent',
+              status: 'not-started',
+              excludes: [],
+              blockers: [],
+              repositoryId: 'repo',
+              phases: [{ phase: 'accept', blockers: [], resources: [], reservations: [] }],
+            } as unknown as ExecutionScopeChoice,
+          ],
+        }}
+      />,
+    );
+  panel([]);
+  expect(screen.queryByText(/acceptance worktree below/)).toBeNull();
+  cleanup();
+  panel([
+    {
+      id: 'acceptance-tree',
+      status: 'active',
+      branchName: 'ct/acceptance',
+      executionScope: acceptance,
+    } as WorktreeSummary,
+  ]);
+  expect(screen.getByText(/acceptance worktree below/)).toBeDefined();
+});

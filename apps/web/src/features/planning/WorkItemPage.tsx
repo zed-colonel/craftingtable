@@ -154,14 +154,16 @@ export function WorkItemPage({
         }
         actions={
           lifecycleActions === undefined ? undefined : (
-            <ActionBar label="Work item lifecycle">{lifecycleActions}</ActionBar>
+            <div className="stack">
+              <ActionBar label="Work item lifecycle">{lifecycleActions}</ActionBar>
+              {/* Why removal is not offered, beside the action it explains (R-E4). */}
+              {item.status === 'admitted' && detail.agendaRemoval?.reason && (
+                <p className="hint">{detail.agendaRemoval.reason}</p>
+              )}
+            </div>
           )
         }
       />
-
-      {item.status === 'admitted' && detail.agendaRemoval?.reason && (
-        <p className="hint">{detail.agendaRemoval.reason}</p>
-      )}
       {error !== undefined && (
         <p className="error-state" role="alert">
           {error}

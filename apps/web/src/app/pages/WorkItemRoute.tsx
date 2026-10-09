@@ -84,7 +84,8 @@ export function WorkItemRoute({
           { id: 'branches', label: 'Branches' },
           ...(execution !== undefined ? [{ id: 'automation', label: 'Automation' }] : []),
           ...(slices.length > 0 ? [{ id: 'slices', label: 'Slices', count: slices.length }] : []),
-          ...(execution !== undefined
+          ...(execution !== undefined &&
+          (slices.length === 0 || execution.worktrees.length > 0 || execution.runs.length > 0)
             ? [
                 {
                   id: 'delegation',

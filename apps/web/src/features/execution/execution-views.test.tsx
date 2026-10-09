@@ -1867,6 +1867,16 @@ describe('delegation on the work item page (R-E4)', () => {
     expect(screen.getByRole('form', { name: 'Launch an agent' })).toBeDefined();
   });
 
+  it('leaves out an empty delegation on a map work item, whose slices make their worktrees', () => {
+    const { container } = render(
+      <DelegationPanel {...panelProps({ worktrees: [], omitWhenEmpty: true })} />,
+    );
+    expect(container.textContent).toBe('');
+    cleanup();
+    render(<DelegationPanel {...panelProps({ omitWhenEmpty: true })} />);
+    expect(screen.getByRole('region', { name: 'Delegation' })).toBeDefined();
+  });
+
   it('says once that there is no worktree yet', () => {
     render(<DelegationPanel {...panelProps({ worktrees: [] })} />);
     expect(screen.queryByRole('heading', { name: 'Worktrees (0)' })).toBeNull();

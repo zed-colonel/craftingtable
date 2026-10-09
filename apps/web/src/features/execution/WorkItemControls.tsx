@@ -201,6 +201,7 @@ export function DelegationControls({
     <DelegationPanel
       repositories={item.repositories}
       hideCreateWorktree
+      omitWhenEmpty={(item.scopes?.choices.length ?? 0) > 0}
       automationActive={workspaceCycles.some(
         (cycle) =>
           cycle.workItemId === workItemId && !['stopped', 'completed'].includes(cycle.status),

@@ -211,7 +211,8 @@ export function ExecutionScopesPanel({
                     accepted: 'Parent accepted',
                   }[choice.status]
                 }
-              </strong>
+              </strong>{' '}
+              <span className="hint">· map binding revision {choice.scope.bindingRevision}</span>
             </p>
             <p>{choice.description}</p>
             {choice.excludes.length > 0 && (
@@ -286,7 +287,6 @@ export function ExecutionScopesPanel({
                 onAuthorized={onChanged}
               />
             )}
-            <p className="hint">Map binding revision {choice.scope.bindingRevision}.</p>
             {existing && onOpenCycle && (choice.scope.kind === 'slice' || cycle) ? (
               <div className="stack">
                 {cycle && <p role="status">{reviewWait(cycle.id) ?? cycle.reason}</p>}
@@ -414,7 +414,8 @@ export function ExecutionScopesPanel({
                   />
                 </p>
               ))}
-            {choice.scope.kind === 'parent-acceptance' && (
+            {/* It points at the acceptance worktree, so only once there is one (R-E4). */}
+            {choice.scope.kind === 'parent-acceptance' && existing && (
               <p className="hint">
                 Launch a review run in the acceptance worktree below. After acceptance, remove its
                 unused review worktree before plan finalization.

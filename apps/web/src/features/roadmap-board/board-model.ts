@@ -120,3 +120,17 @@ export function nodeLabel(node: RoadmapGraphNode): string {
     ? `${KIND_LABELS.checkpoint} · ${node.checkpointKind.replaceAll('_', ' ')}`
     : `${KIND_LABELS[node.kind]} · ${STATE_LABELS[node.state]}`;
 }
+
+const MILESTONES: readonly string[] = ['started', 'merged', 'verified'];
+
+/**
+ * The node a status-list row opens on: of the nodes its entry works toward, the first not yet
+ * met (a slice's start before its merge), else its last.
+ */
+export function nodeOfEntry(model: BoardModel, entryId: string): number | undefined {
+  const position = model.entryIds.indexOf(entryId);
+  const nodes = model.board.nodes.flatMap((n, i) => (n.entries?.includes(position) ? [i] : []));
+  const order = (i: number) => MILESTONES.indexOf(nodeAt(model, i).state);
+  const sorted = [...nodes].sort((a, b) => order(a) - order(b));
+  return sorted.find((i) => !model.board.nodes[i]!.satisfied) ?? sorted.at(-1);
+}

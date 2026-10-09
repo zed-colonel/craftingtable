@@ -51,6 +51,7 @@ import type { RoadmapItemPart } from '../../decisions/registry.js';
 import { ROADMAP_STATUS_LABELS as labels, roadmapStatusLabel } from './roadmap-labels.js';
 import { type Draft, draftOf, RoadmapEditor } from './RoadmapEditor.js';
 import type { BoardModel } from '../roadmap-board/board-model.js';
+import { BoardList } from '../roadmap-board/BoardList.js';
 import { RoadmapBoard } from '../roadmap-board/RoadmapBoard.js';
 import { BoardViewSwitch } from '../roadmap-board/BoardViewSwitch.js';
 import { useWide } from '../roadmap-board/use-wide.js';
@@ -596,6 +597,13 @@ export function RoadmapPage({
           )}
           {boardModel && shown === 'board' ? (
             <RoadmapBoard
+              model={boardModel}
+              selected={select}
+              onSelect={selectNode}
+              links={boardLinks}
+            />
+          ) : boardModel ? (
+            <BoardList
               model={boardModel}
               selected={select}
               onSelect={selectNode}

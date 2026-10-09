@@ -2876,3 +2876,53 @@ button:disabled {
     min-height: 44px;
   }
 }
+
+/* The board on a phone (R-E3b): the grouped list, the selection opening in place. */
+.board-gate-rows,
+.board-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.board-gate-rows .board-gate {
+  width: 100%;
+}
+.board-group h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+}
+.board-row {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  cursor: pointer;
+}
+.board-row[aria-expanded="true"] {
+  border-color: var(--color-accent);
+}
+.board-row-wait {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.board-inline {
+  display: grid;
+  gap: var(--space-2);
+  border-left: 2px solid var(--color-accent);
+  margin: var(--space-1) 0 var(--space-2) var(--space-2);
+  padding-left: var(--space-3);
+}
+@media (pointer: coarse), (max-width: 900px) {
+  .board-row {
+    min-height: 44px;
+  }
+}

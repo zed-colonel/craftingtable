@@ -33,6 +33,33 @@ export function BoardSummary({ model }: { model: BoardModel }) {
   );
 }
 
+/** What the board says about itself: a roadmap not running, a selection it does not have. */
+export function BoardNotice({
+  model,
+  selected,
+  index,
+}: {
+  model: BoardModel;
+  selected: string | undefined;
+  index: number | undefined;
+}) {
+  const { status } = model.status;
+  return (
+    <>
+      {status !== 'running' && (
+        <p role="status" className="warning-state">
+          {`The roadmap is ${status === 'needs-attention' ? 'stopped for you' : status}, so nothing starts until it runs. The waits shown are from its last pass.`}
+        </p>
+      )}
+      {index === undefined && selected !== undefined && (
+        <p role="status" className="warning-state">
+          {`${selected} is not on this roadmap's board.`}
+        </p>
+      )}
+    </>
+  );
+}
+
 /** One gate: its checkpoint, the slices it unblocks, and whether Needs you holds it. */
 export function GateButton({
   model,
@@ -232,11 +259,7 @@ export function RoadmapBoard({
   return (
     <div className="roadmap-board" data-board>
       <BoardSummary model={model} />
-      {index === undefined && selected !== undefined && (
-        <p role="status" className="warning-state">
-          {`${selected} is not on this roadmap's board.`}
-        </p>
-      )}
+      <BoardNotice model={model} selected={selected} index={index} />
       <GatesStrip model={model} selected={index} onSelect={select} />
       <div className="board-body">
         <div className="board-lanes">

@@ -338,7 +338,7 @@ export function HostSchedulingPanel({
                       ? 'No cross-project plan review required'
                       : r.workspaceId === workspaceId
                         ? 'No plan review required after a capacity change'
-                        : 'A plan accepted there before 2026-10-08 may need review after a capacity change'}
+                        : 'A plan accepted there before this release may need review after a capacity change'}
                   </li>
                 ))}
               </ul>

@@ -280,6 +280,20 @@ describe('plan-acceptance inputs (R-C6 D1)', () => {
     expect(planInputsDigest(inputs(change))).not.toBe(planInputsDigest(inputs()));
   });
 
+  it('reads a consumer that takes two implemented upstreams in any order the same', () => {
+    const twoUpstreams = (upstreams: string[]) =>
+      inputs((f) => {
+        f.map.sourceArchives.push({ alias: 'aq2', revision: 'r1', role: 'implemented_upstream' });
+        f.runtime.consumers[0]!.upstreams = upstreams;
+      });
+    expect(planInputsDigest(twoUpstreams(['aq2', 'aq']))).toBe(
+      planInputsDigest(twoUpstreams(['aq', 'aq2'])),
+    );
+    expect(twoUpstreams(['aq2', 'aq']).upstreamPins).toMatchObject({
+      supply: expect.arrayContaining([{ consumer: 'wi', upstreams: ['aq', 'aq2'] }]),
+    });
+  });
+
   it('keys an entry without an execution scope by its id and work item', () => {
     const unscoped = (workItemId: string) =>
       inputs((f) => {

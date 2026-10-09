@@ -156,7 +156,7 @@ it('says which roadmaps a capacity change leaves without a plan review', async (
     'Here · paused · No plan review required after a capacity change',
   );
   expect(await item('Elsewhere')).toBe(
-    'Elsewhere · paused · A plan accepted there before 2026-10-08 may need review after a capacity change',
+    'Elsewhere · paused · A plan accepted there before this release may need review after a capacity change',
   );
   expect(await item('Queue')).toBe('Queue · paused · No cross-project plan review required');
 });

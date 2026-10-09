@@ -33,6 +33,8 @@ import {
   VERDICT_ACCENTS,
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
+import { Link } from '../../lib/navigation.js';
+import type { Route } from '../../lib/route.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { DiffView } from './DiffView.js';
 import { HandoffForm } from './HandoffForm.js';
@@ -156,6 +158,7 @@ export function RunPage({
   profiles,
   runs,
   onHandoff,
+  resolveDesign,
   onResolveDesign,
   providerRecovery,
 }: {
@@ -170,6 +173,9 @@ export function RunPage({
   onSend: (text: string) => void;
   onEnd: () => void;
   onCancel: () => void;
+  /** Where the stopped design cycle's questions are answered (R-E4): its inbox item, else the work item. */
+  resolveDesign?: Route;
+  /** Runs before following `resolveDesign`. */
   onResolveDesign?: () => void;
   onOpenWorkItem: () => void;
   onLoadDiff: () => void;
@@ -340,10 +346,16 @@ export function RunPage({
         }
         actions={
           <ActionBar label="Run controls">
-            {onResolveDesign && (
-              <button type="button" className="primary-button" onClick={onResolveDesign}>
-                Resolve design questions on work item
-              </button>
+            {resolveDesign && (
+              <Link
+                className="primary-button"
+                route={resolveDesign}
+                {...(onResolveDesign ? { onClick: () => onResolveDesign() } : {})}
+              >
+                {resolveDesign.name === 'inbox'
+                  ? 'Resolve design questions in Needs you'
+                  : 'Resolve design questions on work item'}
+              </Link>
             )}
             {onHandoff !== undefined && target !== undefined && (
               <button

@@ -1,5 +1,9 @@
-import type { RunEventEnvelope, WorktreeDiffResponse } from '@craftingtable/contracts';
-import type { AgentRunId, WorkCycle, WorkItemId } from '@craftingtable/domain';
+import type {
+  AttentionItemView,
+  RunEventEnvelope,
+  WorktreeDiffResponse,
+} from '@craftingtable/contracts';
+import type { AgentRunId, WorkCycle, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ProviderRetry } from '../../decisions/cycle/CycleDecisions.js';
 import type { LaunchInput } from '../../features/execution/DelegationPanel.js';
@@ -15,6 +19,7 @@ import {
   startRun,
 } from '../../lib/execution-api.js';
 import { useQueryStore } from '../../lib/query-store.js';
+import type { Route } from '../../lib/route.js';
 import { useRunEventStream } from '../../lib/use-run-event-stream.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { useCommands } from '../commands.js';
@@ -26,10 +31,43 @@ import { useAlive, useCycleFocus, useGo, useSession, useWorkspaceScope } from '.
 const RUN_EVENT_PAGE_LIMIT = 20;
 
 /**
+ * Where a run's "Resolve design questions" goes (R-E4): while its worktree's cycle is stopped at
+ * design, the inbox item that carries that cycle (by its subject key), else the work item, where
+ * the same decision renders in place (E4-2). Nothing while the cycle is not stopped there.
+ */
+export function designQuestionsRoute(
+  workspaceId: WorkspaceId,
+  run: { readonly worktreeId: string; readonly workItemId?: WorkItemId | undefined },
+  cycles: readonly WorkCycle[],
+  attention: readonly AttentionItemView[],
+): Route | undefined {
+  const cycle = cycles.find(
+    (c) =>
+      c.worktreeId === run.worktreeId &&
+      c.step === 'design' &&
+      ['paused', 'needs-attention'].includes(c.status),
+  );
+  if (!cycle || run.workItemId === undefined) return undefined;
+  const item = attention.find((entry) => entry.subjectKey === `cycle:${cycle.id}`);
+  return item
+    ? { name: 'inbox', workspaceId, itemId: item.id }
+    : { name: 'work-item', workspaceId, workItemId: run.workItemId };
+}
+
+/**
  * One run, followed live: its committed events are loaded once, then the tail streams from the
  * last committed sequence. Leaving the page drops both.
  */
-export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonly WorkCycle[] }) {
+export function RunRoute({
+  runId,
+  cycles,
+  attention,
+}: {
+  runId: AgentRunId;
+  cycles: readonly WorkCycle[];
+  /** The workspace's open items: a stopped design cycle's link opens its own (R-E4). */
+  attention: readonly AttentionItemView[];
+}) {
   const { workspaceId, canMutate } = useWorkspaceScope();
   const { csrfToken, expire } = useSession();
   const store = useQueryStore();
@@ -111,6 +149,12 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
   );
   const failed = <RefreshFailed failed={runQuery.error !== undefined} />;
   if (run === undefined) return failed;
+  const resolveDesign = designQuestionsRoute(
+    workspaceId,
+    { worktreeId: run.worktree.id, workItemId: run.run.workItemId as WorkItemId | undefined },
+    cycles,
+    attention,
+  );
   const launch = (input: LaunchInput): void => {
     if (workItemId === undefined) return;
     commands.run(async () => {
@@ -181,20 +225,11 @@ export function RunRoute({ runId, cycles }: { runId: AgentRunId; cycles: readonl
         onLoadDiff={loadDiff}
         onCloseDiff={() => setDiff(undefined)}
         {...(view === undefined ? {} : { backends: view.backends, profiles: view.profiles })}
-        {...(canMutate &&
-        run.run.workItemId &&
-        cycles.some(
-          (cycle) =>
-            cycle.worktreeId === run.worktree.id &&
-            cycle.step === 'design' &&
-            ['paused', 'needs-attention'].includes(cycle.status),
-        )
+        {...(canMutate && resolveDesign
           ? {
-              onResolveDesign: () => {
-                focus.focus(run.worktree.id);
-                if (run.run.workItemId)
-                  go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId });
-              },
+              resolveDesign,
+              // On the work item, the page opens on this worktree's cycle.
+              onResolveDesign: () => focus.focus(run.worktree.id),
             }
           : {})}
         {...(view === undefined ? {} : { runs: view.runs })}

@@ -206,7 +206,7 @@ export function WorkspaceView({
           )}
           {route.name === 'repositories' && <RepositoriesRoute />}
           {route.name === 'run' && (
-            <RunRoute key={route.runId} runId={route.runId} cycles={cycles} />
+            <RunRoute key={route.runId} runId={route.runId} cycles={cycles} attention={attention} />
           )}
         </Suspense>
       </PageBoundary>

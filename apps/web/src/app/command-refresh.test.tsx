@@ -213,7 +213,7 @@ it("refreshes a run, its work item and the cycles after a run command and the ru
       answer = resolve;
     }) as never,
   );
-  inApp(<RunRoute runId={'run-1' as AgentRunId} cycles={[]} />);
+  inApp(<RunRoute runId={'run-1' as AgentRunId} cycles={[]} attention={[]} />);
   await waitFor(() => expect(stream.handlers?.size).toBe(1));
   await act(async () => {
     answer({

@@ -28,6 +28,8 @@ import type {
   ScopeRecoveryPolicyRequest,
   ScopeRepairRequest,
   CrossProjectView,
+  RoadmapBoard,
+  RoadmapGraph,
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
@@ -38,6 +40,7 @@ import {
   DEFAULT_ROADMAP_SCHEDULING,
   type Roadmap,
   type RoadmapAttempt,
+  type RoadmapDefinition,
   type RoadmapEntry,
   type RoadmapStatusEntry,
   type RoadmapStatusList,
@@ -128,6 +131,7 @@ import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
 import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 import { checkpointSubjectKey } from './checkpoint-subject.js';
+import { buildBoard, mapGraph } from './roadmap-board.js';
 
 class SupersededRoadmapOperation extends Error {}
 /**
@@ -1166,12 +1170,90 @@ export class RoadmapService {
       const operator = this.withOperatorNeeds(snapshot, roadmap);
       const view = this.view(roadmap, snapshot, operator);
       const { definition, ...withoutDefinition } = view.roadmap;
+      const status = this.statusOf(roadmap, snapshot, operator, view.progress);
+      const board = this.board(snapshot, roadmap, operator, status);
       return {
         view: { ...view, roadmap: withoutDefinition },
         definitionRevision: definition.revision,
-        status: this.statusOf(roadmap, snapshot, operator, view.progress),
+        status,
+        ...(board ? { board } : {}),
       };
     });
+  }
+
+  /**
+   * The roadmap's board (R-E3b) from the read's one evaluation of the map: each milestone's
+   * state, entries, run and open item, its roots and the slices it unblocks, and the gates.
+   */
+  private board(
+    tx: StorageRepositories,
+    roadmap: Roadmap,
+    operator: ReturnType<RoadmapService['withOperatorNeeds']>,
+    status: RoadmapStatusList,
+  ): RoadmapBoard | undefined {
+    const graph = this.graphAt(tx, roadmap.workspaceId, roadmap.id, roadmap.definition);
+    const map = operator.mapState();
+    if (!graph || !map) return undefined;
+    const evaluated = new Map(map.nodes.map((n) => [n.key, n]));
+    const items = new Map(
+      this.storage.attention.open(roadmap.workspaceId).map((item) => [item.subjectKey, item.id]),
+    );
+    return buildBoard({
+      graph,
+      state: (key) => evaluated.get(key),
+      status,
+      entries: roadmap.definition.entries,
+      checkpointItems: new Map(
+        graph.nodes.flatMap((n) => {
+          const id =
+            n.kind === 'checkpoint'
+              ? items.get(checkpointSubjectKey(roadmap.id, n.sourceId))
+              : undefined;
+          return id ? [[n.sourceId, id] as const] : [];
+        }),
+      ),
+    });
+  }
+
+  /** A roadmap's dependency structure at one revision (R-E3b); revisions never change. */
+  graph(context: AuthContext, workspaceId: WorkspaceId, id: string, revision: number) {
+    this.workspaces.requireAuthorized(context, workspaceId);
+    this.find(workspaceId, id);
+    const definition = this.storage.roadmaps.definition(workspaceId, id, revision);
+    const graph = definition && this.graphAt(this.storage, workspaceId, id, definition);
+    if (!graph) throw new NotFoundError();
+    return graph;
+  }
+
+  /** Graphs by roadmap and revision, built once each: a revision never changes. */
+  private readonly graphs = new Map<string, RoadmapGraph>();
+  private graphAt(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    roadmapId: string,
+    definition: RoadmapDefinition,
+  ): RoadmapGraph | undefined {
+    const key = `${workspaceId}:${roadmapId}:${definition.revision}`;
+    const cached = this.graphs.get(key);
+    if (cached) return cached;
+    const selection = definition.crossProject;
+    const map = selection && tx.imports.definition(workspaceId, selection.definitionId);
+    if (!selection || !map) return undefined;
+    const graph = mapGraph({
+      roadmapId,
+      revision: definition.revision,
+      source: map.source,
+      bindings:
+        tx.imports
+          .bindings(workspaceId, map.id)
+          .find((b) => b.revision === selection.bindingRevision)?.bindings ?? [],
+      targetId: selection.targetId,
+      selection: selection.selection,
+    });
+    // A few roadmaps' current revisions; an old one is rebuilt if it is ever read again.
+    if (this.graphs.size >= 32) this.graphs.delete(this.graphs.keys().next().value!);
+    this.graphs.set(key, graph);
+    return graph;
   }
 
   /** One revision of a roadmap's definition; revisions never change (R-B3, R-D5). */

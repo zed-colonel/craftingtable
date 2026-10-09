@@ -26,6 +26,7 @@ import {
   worktreeIdSchema,
 } from './ids.js';
 import { completionPolicySchema, cycleProfilesSchema } from './work-cycle.js';
+import { roadmapBoardSchema } from './roadmap-board.js';
 export const roadmapAutomationSchema = z.strictObject({
   integrationMerge: z.enum(['manual', 'automatic']),
   integrationConflicts: z.enum(['manual', 'automatic']),
@@ -363,6 +364,8 @@ export const roadmapPageSchema = z.strictObject({
   view: roadmapViewSchema.extend({ roadmap: roadmapSchema.omit({ definition: true }) }),
   definitionRevision: z.number().int().positive(),
   status: roadmapStatusListSchema,
+  /** The board (R-E3b): its graph is read by `board.revision` (`…/graph/:revision`). */
+  board: roadmapBoardSchema.optional(),
 });
 /** The roadmaps list page's rows: no definition, no per-entry progress (R-D5, PERF-06). */
 export const roadmapSummariesSchema = z.strictObject({

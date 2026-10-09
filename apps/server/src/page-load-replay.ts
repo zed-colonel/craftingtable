@@ -125,7 +125,8 @@ async function regionReads(ws: string, get: Get): Promise<PageRead[]> {
     ({ roadmap }) => !['draft', 'completed'].includes(roadmap.status),
   );
   return [
-    // The list page's light rows, then each open roadmap's page: its region and its definition.
+    // The list page's light rows, then each open roadmap's page: its region, its definition and
+    // its graph.
     { name: 'roadmap-summaries', url: `${base}/roadmaps/summaries` },
     ...active.flatMap(({ roadmap }) => [
       {
@@ -135,6 +136,11 @@ async function regionReads(ws: string, get: Get): Promise<PageRead[]> {
       {
         name: `roadmap-definition ${roadmap.definition.name}`,
         url: `${base}/roadmaps/${roadmap.id}/definitions/${roadmap.definition.revision}`,
+      },
+      // The board's graph, read once per revision like the definition (R-E3b).
+      {
+        name: `roadmap-graph ${roadmap.definition.name}`,
+        url: `${base}/roadmaps/${roadmap.id}/graph/${roadmap.definition.revision}`,
       },
     ]),
     ...(definitions.definitions ?? []).map((d) => ({

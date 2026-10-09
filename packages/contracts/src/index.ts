@@ -20,6 +20,7 @@ export * from './repository-checks.js';
 export * from './repository-policy.js';
 export * from './review.js';
 export * from './roadmap.js';
+export * from './roadmap-board.js';
 export * from './runtime-evidence.js';
 export * from './snapshot.js';
 export * from './storage-policy.js';

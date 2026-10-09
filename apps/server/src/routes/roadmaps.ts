@@ -7,6 +7,7 @@ import {
   roadmapAgentsSchema,
   roadmapCapacitiesSchema,
   roadmapDefinitionSchema,
+  roadmapGraphSchema,
   roadmapHistoryResponseSchema,
   roadmapIdSchema,
   roadmapPageSchema,
@@ -215,6 +216,22 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
         roadmapDefinitionSchema.parse(
           roadmaps.definition(context, workspace.data, id.data, revision.data),
         ),
+      );
+    },
+  );
+  // A roadmap's dependency structure at one revision, which never changes (R-E3b).
+  app.get<{ Params: { workspaceId: string; roadmapId: string; revision: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/graph/:revision',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      const revision = roadmapRevisionParamSchema.safeParse(request.params.revision);
+      if (!workspace.success || !id.success || !revision.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        roadmapGraphSchema.parse(roadmaps.graph(context, workspace.data, id.data, revision.data)),
       );
     },
   );

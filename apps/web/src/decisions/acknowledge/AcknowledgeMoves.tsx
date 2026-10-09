@@ -6,6 +6,8 @@ import { request } from '../../lib/api-client.js';
 /**
  * Acknowledges the protected ref moves an inbox item shows (R-G5 follow-up). It sends exactly
  * the moves the item listed, so a move that arrived meanwhile stays open; it changes no ref.
+ * The only poster of `protected-ref-moves/acknowledge`, which resolves the operator's stop
+ * (R-A6 rest, A1).
  */
 export function AcknowledgeMoves({
   workspaceId,

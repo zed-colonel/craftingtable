@@ -1,5 +1,5 @@
 import { DecisionPreparationPanel } from './DecisionPreparationPanel.js';
-import { RoadmapDelegationPanel } from './RoadmapDelegationPanel.js';
+import { RoadmapDelegation } from '../../decisions/delegation/RoadmapDelegation.js';
 import type {
   CrossProjectView,
   ExecutionStatusResponse,
@@ -21,11 +21,8 @@ import { ActionBar } from '../../components/ActionBar.js';
 import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
-import {
-  adoptCrossProject,
-  previewCrossProject,
-  saveCrossProject,
-} from '../../lib/cross-project-api.js';
+import { MapAdoption } from '../../decisions/adoption/MapAdoption.js';
+import { previewCrossProject, saveCrossProject } from '../../lib/cross-project-api.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
@@ -99,9 +96,7 @@ export function CrossProjectPanel({
   const [refreshLimit, setRefreshLimit] = useState(
     roadmap?.definition.scheduling?.maxIntegrationRefreshes ?? 3,
   );
-  const [rationale, setRationale] = useState(''),
-    [approved, setApproved] = useState(false),
-    [focus, setFocus] = useState('');
+  const [focus, setFocus] = useState('');
   const [overrideLevel, setOverrideLevel] = useState<'project' | 'activity' | 'individual'>(
       'project',
     ),
@@ -199,19 +194,10 @@ export function CrossProjectPanel({
       setBusy(false);
     }
   };
-  const adopt = () =>
+  /** After MapAdoption's command: the saved plan changed, and the preview is read again. */
+  const adopted = () =>
     command(async () => {
-      await adoptCrossProject(
-        workspaceId,
-        definitionId,
-        bindingRevision,
-        view?.decisions.map((d) => d.id) ?? [],
-        rationale,
-        csrfToken,
-      );
       savedPlanChanged();
-      setApproved(false);
-      setRationale('');
       setNotice(
         'Scheduling proposals adopted. Record independently reviewed checkpoint evidence separately.',
       );
@@ -335,7 +321,7 @@ export function CrossProjectPanel({
       {notice && <p role="status">{notice}</p>}
       <SetupStepPart step="reviewers">
         {roadmap && view && (
-          <RoadmapDelegationPanel
+          <RoadmapDelegation
             roadmap={roadmap}
             view={view}
             backends={backends}
@@ -660,33 +646,15 @@ export function CrossProjectPanel({
               {canMutate &&
                 (view.decisions.some((d) => !d.adopted) ||
                   !view.adoptions.some((a) => a.bindingRevision === bindingRevision)) && (
-                  <>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={approved}
-                        disabled={busy}
-                        onChange={(e) => setApproved(e.target.checked)}
-                      />
-                      I approve all listed scheduling proposals for these exact bindings.
-                    </label>
-                    <label className="field">
-                      Adoption rationale
-                      <textarea
-                        value={rationale}
-                        onChange={(e) => setRationale(e.target.value)}
-                        maxLength={8000}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={busy || !approved || !rationale.trim()}
-                      onClick={() => void adopt()}
-                    >
-                      Adopt scheduling proposals
-                    </button>
-                  </>
+                  <MapAdoption
+                    workspaceId={workspaceId}
+                    definitionId={definitionId}
+                    bindingRevision={bindingRevision}
+                    decisionIds={view.decisions.map((d) => d.id)}
+                    csrfToken={csrfToken}
+                    disabled={busy}
+                    onAdopted={adopted}
+                  />
                 )}
               {view.adoptions.map((a) => (
                 <p key={a.id}>

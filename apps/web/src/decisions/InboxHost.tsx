@@ -16,7 +16,7 @@ import {
 } from '../features/execution/WorkItemControls.js';
 import { RoadmapPage } from '../features/planning/RoadmapsPage.js';
 import { StoragePanel } from '../features/workspace/StoragePanel.js';
-import { AcknowledgeMoves } from '../features/inbox/AcknowledgeMoves.js';
+import { AcknowledgeMoves } from './acknowledge/AcknowledgeMoves.js';
 import { queryKeys } from '../lib/event-invalidations.js';
 import { MERGE_GATE_LABELS } from '../lib/execution-labels.js';
 import { Link } from '../lib/navigation.js';
@@ -28,7 +28,7 @@ import { CheckpointPreparation } from './checkpoint/CheckpointPreparation.js';
 import { CycleDecision } from './cycle/CycleDecision.js';
 import { EnvironmentApproval } from './environment/EnvironmentApproval.js';
 import { FinalizationDecision } from './finalization/FinalizationDecision.js';
-import { MergeApproval, RetryMergeCleanup } from './merge/MergeApproval.js';
+import { MergeApproval } from './merge/MergeApproval.js';
 import { DependencyRefresh } from './refresh/DependencyRefresh.js';
 import { type Decision, decisionsFor, type RoadmapItemPart } from './registry.js';
 import { RoadmapAmendments, RoadmapRuntime } from './roadmap-runtime.js';
@@ -123,12 +123,12 @@ export function InboxHost({
         const gate = worktree && work.execution?.mergeGates[worktree.id];
         if (!worktree) return loading;
         return worktree.mergeCleanupError ? (
-          <RetryMergeCleanup
+          <MergeApproval
             workspaceId={workspaceId}
             worktree={worktree}
             csrfToken={csrfToken}
             disabled={!canMutate}
-            onDone={work.merged}
+            onMerged={work.merged}
           />
         ) : (
           <>

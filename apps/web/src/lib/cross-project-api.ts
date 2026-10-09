@@ -1,5 +1,4 @@
 import {
-  adoptMapResponseSchema,
   crossProjectViewSchema,
   roadmapViewSchema,
   type SaveCrossProjectRequest,
@@ -26,18 +25,4 @@ export const saveCrossProject = (ws: WorkspaceId, input: SaveCrossProjectRequest
     `${base(ws, input.configuration.definitionId)}/roadmap`,
     roadmapViewSchema,
     post(csrf, input),
-  );
-
-export const adoptCrossProject = (
-  ws: WorkspaceId,
-  id: string,
-  bindingRevision: number,
-  decisionIds: readonly string[],
-  rationale: string,
-  csrf: string,
-) =>
-  request(
-    `${base(ws, id)}/adopt`,
-    adoptMapResponseSchema,
-    post(csrf, { bindingRevision, decisionIds, rationale }),
   );

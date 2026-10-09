@@ -43,7 +43,9 @@ vi.mock('../decisions/checks/CheckAdoption.js', () => ({ CheckAdoption: capture(
 vi.mock('../decisions/finalization/FinalizationDecision.js', () => ({
   FinalizationDecision: capture('finalization'),
 }));
-vi.mock('../features/inbox/AcknowledgeMoves.js', () => ({ AcknowledgeMoves: capture('moves') }));
+vi.mock('../decisions/acknowledge/AcknowledgeMoves.js', () => ({
+  AcknowledgeMoves: capture('moves'),
+}));
 vi.mock('../features/planning/WorkItemPage.js', () => ({ WorkItemPage: capture('workItem') }));
 vi.mock('../features/execution/PlanBranchPanel.js', () => ({ PlanBranchPanel: () => null }));
 vi.mock('../features/execution/WorkItemControls.js', async (original) => ({

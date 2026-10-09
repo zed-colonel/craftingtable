@@ -59,7 +59,7 @@ export const controlRoadmap = (
   entryId?: string,
 ) =>
   request(
-    `${base(roadmap.workspaceId)}/${roadmap.id}/control`,
+    `/api/workspaces/${encodeURIComponent(roadmap.workspaceId)}/roadmaps/${encodeURIComponent(roadmap.id)}/control`,
     roadmapViewSchema,
     mutation(csrfToken, {
       action,

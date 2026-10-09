@@ -3,7 +3,7 @@ import type { AgentRunSummary, MergeGate, WorktreeSummary } from '@craftingtable
 import { asWorkspaceId } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
-import { MergeApproval, RetryMergeCleanup } from './MergeApproval.js';
+import { MergeApproval } from './MergeApproval.js';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn(), ApiError: class extends Error {} }));
 afterEach(() => {
@@ -147,18 +147,19 @@ it('merges into a chosen target only when the daemon reports the gate open (R-A6
   ]);
 });
 
-it('retries a failed cleanup with the same command', async () => {
+it('retries a failed cleanup with the same command, from the same component', async () => {
   respond(undefined);
   const onDone = vi.fn();
   render(
-    <RetryMergeCleanup
+    <MergeApproval
       workspaceId={asWorkspaceId('ws-1')}
       worktree={{ ...worktree, mergeCleanupError: 'busy' } as WorktreeSummary}
       csrfToken="csrf"
       disabled={false}
-      onDone={onDone}
+      onMerged={onDone}
     />,
   );
+  expect(screen.queryByRole('button', { name: 'Merge…' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Retry worktree cleanup' }));
   await waitFor(() => expect(onDone).toHaveBeenCalledWith('wt-1'));
   expect(posted()[0]!.body).toEqual({ targetBranch: 'wi-fabric-2' });

@@ -38,7 +38,9 @@ function mergeWorktree(
 /**
  * A slice's merge approval (R-A6 increment 2a): the target, and for a `check-adoption` gate
  * the check definitions the merge adopts (R-G13 increment 5). It renders in the merge's inbox
- * item, and on the work item page when no item carries the merge.
+ * item, and on the work item page when no item carries the merge. A merge whose worktree
+ * cleanup failed offers the retry instead, through the same command: the worktree's state
+ * chooses the variant, so the command has one poster (R-A6 rest).
  */
 export function MergeApproval({
   workspaceId,
@@ -50,7 +52,8 @@ export function MergeApproval({
 }: {
   workspaceId: WorkspaceId;
   worktree: WorktreeSummary;
-  gate: MergeGate;
+  /** The merge gate; not needed to retry a merged worktree's cleanup. */
+  gate?: MergeGate | undefined;
   csrfToken: string;
   disabled: boolean;
   onMerged: (worktreeId: WorktreeId) => void;
@@ -63,9 +66,6 @@ export function MergeApproval({
   /** The check definitions a `check-adoption` merge adopts: their digest, and why (R-G13). */
   const [proposal, setProposal] = useState<{ digest: string; declarationId: string }>();
   const [adoptionRationale, setAdoptionRationale] = useState('');
-  if (!gate.mergeable) return null;
-  const adopting = gate.reason === 'check-adoption';
-  const listId = `branches-${worktree.id}`;
   const merge = (input: MergeWorktreeRequest) => {
     setBusy(true);
     setError(undefined);
@@ -78,6 +78,18 @@ export function MergeApproval({
       .finally(() => setBusy(false));
   };
   const locked = disabled || busy;
+  if (worktree.mergeCleanupError)
+    return (
+      <CleanupFailure
+        worktree={worktree}
+        error={error}
+        disabled={locked}
+        onRetry={() => merge({ targetBranch: worktree.integrationBranch ?? worktree.baseBranch })}
+      />
+    );
+  if (!gate?.mergeable) return null;
+  const adopting = gate.reason === 'check-adoption';
+  const listId = `branches-${worktree.id}`;
   if (!open)
     return (
       <>
@@ -183,22 +195,18 @@ export function MergeApproval({
   );
 }
 
-/** A merge that succeeded but whose worktree cleanup failed: the same command retries it. */
-export function RetryMergeCleanup({
-  workspaceId,
+/** A merge that succeeded but whose worktree cleanup failed; MergeApproval retries it. */
+function CleanupFailure({
   worktree,
-  csrfToken,
+  error,
   disabled,
-  onDone,
+  onRetry,
 }: {
-  workspaceId: WorkspaceId;
   worktree: WorktreeSummary;
-  csrfToken: string;
+  error: string | undefined;
   disabled: boolean;
-  onDone: (worktreeId: WorktreeId) => void;
+  onRetry: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
   return (
     <div className="error-state" role="status">
       <p>
@@ -206,24 +214,7 @@ export function RetryMergeCleanup({
         {worktree.mergeCleanupError}
       </p>
       {error && <p role="alert">{error}</p>}
-      <button
-        type="button"
-        className="secondary-button"
-        disabled={disabled || busy}
-        onClick={() => {
-          setBusy(true);
-          setError(undefined);
-          void mergeWorktree(
-            workspaceId,
-            worktree.id as WorktreeId,
-            { targetBranch: worktree.integrationBranch ?? worktree.baseBranch },
-            csrfToken,
-          )
-            .then(() => onDone(worktree.id as WorktreeId))
-            .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-            .finally(() => setBusy(false));
-        }}
-      >
+      <button type="button" className="secondary-button" disabled={disabled} onClick={onRetry}>
         Retry worktree cleanup
       </button>
     </div>

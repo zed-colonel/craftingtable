@@ -3,18 +3,18 @@ import { afterEach, it, expect, vi } from 'vitest';
 import { asWorkItemId, asWorkspaceId, type Roadmap } from '@craftingtable/domain';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { testQueryStore } from '../../lib/query-store-testing.js';
-import {
-  previewCrossProject,
-  saveCrossProject,
-  adoptCrossProject,
-} from '../../lib/cross-project-api.js';
+import { previewCrossProject, saveCrossProject } from '../../lib/cross-project-api.js';
+import { request } from '../../lib/api-client.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { phaseLabel } from './DependencyRequirements.js';
 vi.mock('../../lib/cross-project-api.js', () => ({
   previewCrossProject: vi.fn(),
   saveCrossProject: vi.fn(),
-  adoptCrossProject: vi.fn(),
 }));
+// Map adoption is MapAdoption's own command (R-A6 rest, A1).
+vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
+const adoptions = () =>
+  vi.mocked(request).mock.calls.filter(([url]) => String(url).endsWith('/supervision/adopt'));
 vi.mock('../../lib/execution-api.js', () => ({
   loadExecutionStatus: vi.fn(),
   loadRunProfiles: vi.fn(),
@@ -154,7 +154,7 @@ it('requires explicit target choice and adoption rationale, with a trace to the 
   expect(previewCrossProject).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
   await screen.findByText('2 selected milestones');
-  expect(adoptCrossProject).not.toHaveBeenCalled();
+  expect(adoptions()).toEqual([]);
   expect(saveCrossProject).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('Focused dependency view'), {
     target: { value: 'checkpoint:WI-PROOF:passed' },
@@ -171,18 +171,17 @@ it('requires explicit target choice and adoption rationale, with a trace to the 
   fireEvent.change(screen.getByLabelText('Adoption rationale'), {
     target: { value: 'Reviewed preserved obligations.' },
   });
-  vi.mocked(adoptCrossProject).mockResolvedValue({ adopted: true });
+  vi.mocked(request).mockResolvedValue({ adopted: true });
   fireEvent.click(adopt);
-  await waitFor(() =>
-    expect(adoptCrossProject).toHaveBeenCalledWith(
-      ws,
-      id,
-      1,
-      ['D1'],
-      'Reviewed preserved obligations.',
-      'csrf',
-    ),
-  );
+  await waitFor(() => expect(adoptions()).toHaveLength(1));
+  const [url, , init] = adoptions()[0]!;
+  expect(url).toBe(`/api/workspaces/${ws}/concurrency-definitions/${id}/supervision/adopt`);
+  expect(JSON.parse(String(init!.body))).toEqual({
+    bindingRevision: 1,
+    decisionIds: ['D1'],
+    rationale: 'Reviewed preserved obligations.',
+  });
+  expect((init!.headers as Record<string, string>)['x-craftingtable-csrf']).toBe('csrf');
   expect(saveCrossProject).not.toHaveBeenCalled();
 });
 it('saves a draft with manual parent acceptance and inherited profiles; creation never starts work', async () => {
@@ -202,7 +201,7 @@ it('saves a draft with manual parent acceptance and inherited profiles; creation
   expect(sent.configuration.defaults.profiles.review.backend).toBe('codex');
   expect(sent.configuration.defaults.automation.integrationMerge).toBe('manual');
   expect(sent.expectedVersion).toBe(0);
-  expect(adoptCrossProject).not.toHaveBeenCalled();
+  expect(adoptions()).toEqual([]);
 });
 
 function savedRoadmap() {
@@ -343,7 +342,7 @@ it("reads the map's environment again after adopting, and re-offers the controls
   fireEvent.change(screen.getByLabelText('Adoption rationale'), {
     target: { value: 'Reviewed preserved obligations.' },
   });
-  vi.mocked(adoptCrossProject).mockResolvedValue({ adopted: true });
+  vi.mocked(request).mockResolvedValue({ adopted: true });
   // The preview read after the command answers only when told.
   let answer: () => void = () => undefined;
   const previewed = vi.mocked(previewCrossProject).getMockImplementation()!;
@@ -355,7 +354,7 @@ it("reads the map's environment again after adopting, and re-offers the controls
   );
   const before = environment.mock.calls.length;
   fireEvent.click(adopt);
-  await waitFor(() => expect(adoptCrossProject).toHaveBeenCalled());
+  await waitFor(() => expect(adoptions()).toHaveLength(1));
   await waitFor(() => expect(environment.mock.calls.length).toBe(before + 1));
   // Busy until the preview is read again: no second adoption from a stale list.
   expect(

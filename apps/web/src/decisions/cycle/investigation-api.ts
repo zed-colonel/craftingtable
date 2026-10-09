@@ -8,8 +8,9 @@ import { request } from '../../lib/api-client.js';
  * `…/investigation/acknowledge-change` (the worktree changed while it ran).
  */
 const encode = encodeURIComponent;
-const cycleUrl = (cycle: WorkCycle, path: string) =>
-  `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/${path}`;
+/** A cycle's address; each command spells its own route after it, so the route reads whole. */
+const cycleUrl = (cycle: WorkCycle) =>
+  `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}`;
 const mutation = (csrfToken: string, body: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'x-craftingtable-csrf': csrfToken },
@@ -22,7 +23,7 @@ export function startInvestigation(
   csrfToken: string,
 ) {
   return request(
-    cycleUrl(cycle, 'investigation'),
+    `${cycleUrl(cycle)}/investigation`,
     workCycleResponseSchema,
     mutation(csrfToken, { expectedVersion: cycle.version, ...input }),
   );
@@ -30,7 +31,7 @@ export function startInvestigation(
 
 export function endInvestigation(cycle: WorkCycle, csrfToken: string) {
   return request(
-    cycleUrl(cycle, 'investigation/end'),
+    `${cycleUrl(cycle)}/investigation/end`,
     workCycleResponseSchema,
     mutation(csrfToken, { expectedVersion: cycle.version }),
   );
@@ -39,7 +40,7 @@ export function endInvestigation(cycle: WorkCycle, csrfToken: string) {
 /** The operator has seen that the worktree changed while the investigation ran (R-C16). */
 export function acknowledgeWorktreeChange(cycle: WorkCycle, csrfToken: string) {
   return request(
-    cycleUrl(cycle, 'investigation/acknowledge-change'),
+    `${cycleUrl(cycle)}/investigation/acknowledge-change`,
     workCycleResponseSchema,
     mutation(csrfToken, { expectedVersion: cycle.version }),
   );

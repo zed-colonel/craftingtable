@@ -119,3 +119,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-08-outside-sources-after | `0f1f013` | 2026-10-08 | 67 (1 phone only) | 1× |
 | 2026-10-08-rc6-before | `9029635` | 2026-10-08 | 67 (1 phone only) | 1× |
 | 2026-10-08-rc6-after | `51ec7d6` | 2026-10-08 | 67 (1 phone only) | 1× |
+| 2026-10-09-ra6-rest-before | `4f1f9c4` | 2026-10-09 | 67 (1 phone only) | 1× |

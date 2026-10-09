@@ -14,8 +14,9 @@ import { request } from '../../lib/api-client.js';
  * (the historical baseline a design step's evidence is read against).
  */
 const encode = encodeURIComponent;
-const cycleUrl = (cycle: WorkCycle, path: string) =>
-  `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/${path}`;
+/** A cycle's address; each command spells its own route after it, so the route reads whole. */
+const cycleUrl = (cycle: WorkCycle) =>
+  `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}`;
 const mutation = (csrfToken: string, body: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'x-craftingtable-csrf': csrfToken },
@@ -23,17 +24,17 @@ const mutation = (csrfToken: string, body: unknown): RequestInit => ({
 });
 
 export function previewDesignRecovery(cycle: WorkCycle) {
-  return request(cycleUrl(cycle, 'design-recovery'), designRecoveryPreviewSchema);
+  return request(`${cycleUrl(cycle)}/design-recovery`, designRecoveryPreviewSchema);
 }
 export function recoverDesign(cycle: WorkCycle, input: RecoverDesignRequest, csrfToken: string) {
   return request(
-    cycleUrl(cycle, 'design-recovery'),
+    `${cycleUrl(cycle)}/design-recovery`,
     workCycleResponseSchema,
     mutation(csrfToken, input),
   );
 }
 export function previewBaseline(cycle: WorkCycle) {
-  return request(cycleUrl(cycle, 'baseline-preparation'), baselinePreviewSchema);
+  return request(`${cycleUrl(cycle)}/baseline-preparation`, baselinePreviewSchema);
 }
 export function prepareBaseline(
   cycle: WorkCycle,
@@ -41,7 +42,7 @@ export function prepareBaseline(
   csrfToken: string,
 ) {
   return request(
-    cycleUrl(cycle, 'baseline-preparation'),
+    `${cycleUrl(cycle)}/baseline-preparation`,
     workCycleResponseSchema,
     mutation(csrfToken, input),
   );

@@ -12,10 +12,14 @@ import {
   type RoadmapAutomation,
 } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
-import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
-import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
+import { RoadmapAutomationFields } from '../../features/planning/RoadmapAutomationFields.js';
+import { ReviewerResponsibilities } from '../../features/planning/ReviewerResponsibilities.js';
 
-export function RoadmapDelegationPanel({
+/**
+ * The operator's grant of future delegation for selected roadmap entries (R-A6 rest, A1): the
+ * only poster of `roadmaps/:id/delegation`. A reviewer-assignment stop is resolved here.
+ */
+export function RoadmapDelegation({
   roadmap,
   view,
   backends,

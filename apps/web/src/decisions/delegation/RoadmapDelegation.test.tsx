@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Roadmap } from '@craftingtable/domain';
 import type { CrossProjectView } from '@craftingtable/contracts';
-import { RoadmapDelegationPanel } from './RoadmapDelegationPanel.js';
+import { RoadmapDelegation } from './RoadmapDelegation.js';
 import { request } from '../../lib/api-client.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -34,7 +34,7 @@ it('requires an explicit entry selection and confirmed grant, including already-
   const changed = vi.fn();
   vi.mocked(request).mockResolvedValue({ roadmap });
   render(
-    <RoadmapDelegationPanel
+    <RoadmapDelegation
       roadmap={roadmap}
       view={view}
       backends={[]}

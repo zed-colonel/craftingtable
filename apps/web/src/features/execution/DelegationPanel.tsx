@@ -34,7 +34,7 @@ import {
   VERDICT_ACCENTS,
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
-import { MergeApproval, RetryMergeCleanup } from '../../decisions/merge/MergeApproval.js';
+import { MergeApproval } from '../../decisions/merge/MergeApproval.js';
 import { Link } from '../../lib/navigation.js';
 import { HandoffForm } from './HandoffForm.js';
 import {
@@ -263,13 +263,13 @@ export function DelegationPanel({
         mergedWorktrees
           .filter((tree) => tree.mergeCleanupError)
           .map((tree) => (
-            <RetryMergeCleanup
+            <MergeApproval
               key={tree.id}
               workspaceId={workspaceId}
               worktree={tree}
               csrfToken={csrfToken}
               disabled={busy}
-              onDone={onMerged}
+              onMerged={onMerged}
             />
           ))}
       <h4>Worktrees ({activeWorktrees.length})</h4>

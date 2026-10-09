@@ -21,7 +21,8 @@ import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
 import { CheckpointPreparation } from '../../decisions/checkpoint/CheckpointPreparation.js';
 import { createWorktree } from '../../lib/execution-api.js';
-import { authorizeScopeScheduling, recordScopeEvidence } from '../../lib/execution-scope-api.js';
+import { AuthorizeEarlyDevelopment } from '../../decisions/early-development/AuthorizeEarlyDevelopment.js';
+import { RecordScopeEvidence } from '../../decisions/scope-evidence/RecordScopeEvidence.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 
@@ -264,17 +265,14 @@ export function ExecutionScopesPanel({
               </p>
             )}
             {choice.canAuthorizeEarlyDevelopment && !choice.earlyDevelopmentAuthorized && (
-              <button
-                type="button"
+              <AuthorizeEarlyDevelopment
+                workspaceId={workspaceId}
+                workItemId={workItemId}
+                scope={choice.scope}
+                csrfToken={csrfToken}
                 disabled={busy || !canMutate}
-                onClick={() =>
-                  void command(() =>
-                    authorizeScopeScheduling(workspaceId, workItemId, choice.scope, csrfToken),
-                  )
-                }
-              >
-                Authorize this slice’s early-development rule
-              </button>
+                onAuthorized={onChanged}
+              />
             )}
             <p className="hint">Map binding revision {choice.scope.bindingRevision}.</p>
             {existing && onOpenCycle && (choice.scope.kind === 'slice' || cycle) ? (
@@ -385,8 +383,11 @@ export function ExecutionScopesPanel({
                         Open review cycle
                       </button>
                     )}
-                  <button
-                    type="button"
+                  <RecordScopeEvidence
+                    workspaceId={workspaceId}
+                    worktree={tree}
+                    parentAcceptance={choice.scope.kind === 'parent-acceptance'}
+                    csrfToken={csrfToken}
                     disabled={
                       busy ||
                       !canMutate ||
@@ -397,16 +398,8 @@ export function ExecutionScopesPanel({
                           (choice.scope.kind === 'parent-acceptance' ? 'accept' : 'verify'),
                       )?.blockers.length
                     }
-                    onClick={() =>
-                      void command(() =>
-                        recordScopeEvidence(workspaceId, tree.id, tree.version, csrfToken),
-                      )
-                    }
-                  >
-                    {choice.scope.kind === 'parent-acceptance'
-                      ? 'Accept parent after review'
-                      : 'Record slice verification'}
-                  </button>
+                    onRecorded={onChanged}
+                  />
                 </p>
               ))}
             {choice.scope.kind === 'parent-acceptance' && (

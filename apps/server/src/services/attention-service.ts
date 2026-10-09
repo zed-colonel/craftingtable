@@ -9,6 +9,8 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
+import { checkpointOfSubject } from './checkpoint-subject.js';
+import { decisionPreparationForRun } from './decision-preparation-policy.js';
 import { ExecutionRequestError } from './errors.js';
 import type { WorkspaceService } from './workspace-service.js';
 
@@ -82,7 +84,7 @@ export class AttentionService {
       const items = tx.attention
         .open(workspaceId)
         .filter((item) => installation || !INSTALLATION_ATTENTION_CODES.has(item.code))
-        .map((item) => view(item, this.blocks(tx, item)));
+        .map((item) => view(item, this.blocks(tx, item), checkpointOf(tx, item)));
       return {
         items: items.sort((a, b) => b.blocks - a.blocks || a.openedAt.localeCompare(b.openedAt)),
       };
@@ -122,7 +124,17 @@ export class AttentionService {
   }
 }
 
-function view(item: AttentionItem, blocks: number): AttentionItemView {
+/**
+ * The map checkpoint an item decides (R-A6 rest): a roadmap's checkpoint item names it in its
+ * subject, and a decision preparation's questions are about the checkpoint it prepares.
+ */
+function checkpointOf(tx: StorageRepositories, item: AttentionItem): string | undefined {
+  if (item.code === 'decision-preparation-questions' && item.refs.runId !== undefined)
+    return decisionPreparationForRun(tx, item.workspaceId, item.refs.runId)?.checkpointId;
+  return checkpointOfSubject(item.subjectKey, item.refs.roadmapId);
+}
+
+function view(item: AttentionItem, blocks: number, checkpointId?: string): AttentionItemView {
   return {
     id: item.id,
     subjectKey: item.subjectKey,
@@ -133,6 +145,7 @@ function view(item: AttentionItem, blocks: number): AttentionItemView {
     path: item.path,
     inboxPath: inboxPath(item.workspaceId, item.id),
     refs: item.refs,
+    ...(checkpointId ? { checkpointId } : {}),
     ...(item.members ? { members: [...item.members] } : {}),
     ...(item.actions ? { actions: [...item.actions] } : {}),
     blocks,

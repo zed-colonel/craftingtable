@@ -105,6 +105,16 @@ const COMMANDS: readonly Command[] = [
     route: tail('prepare-checkpoint'),
     owner: 'decisions/checkpoint/CheckpointPreparation.tsx#CheckpointPreparation',
   },
+  {
+    command: 'runtime/generate-plan (plan-acceptance evidence for review)',
+    route: tail('generate-plan'),
+    owner: 'decisions/plan-acceptance/PlanAcceptance.tsx#PlanAcceptance',
+  },
+  {
+    command: 'runtime/submit (checkpoint or qualification evidence for review)',
+    route: tail('submit'),
+    owner: 'decisions/evidence/SubmitEvidence.tsx#SubmitEvidence',
+  },
   // Commands that resolve an operator-owned stop outside R-A6's table (A1, 2026-10-06).
   {
     command: 'concurrency-definitions/:id/supervision/adopt (scheduling proposals)',

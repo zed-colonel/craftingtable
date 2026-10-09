@@ -1566,6 +1566,17 @@ describe('durable attention items (R-A4)', () => {
         refs: { roadmapId: roadmap.id, runId },
       },
     ]);
+    // The inbox names the decision the preparation prepares, so its item renders that
+    // decision's own card (R-A6 rest); the stored item is unchanged.
+    const response = await f.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${f.workspaceId}/attention`,
+      headers: { cookie: f.headers.cookie },
+    });
+    expect(attentionFeedSchema.parse(response.json()).items).toMatchObject([
+      { subjectKey: `run:${runId}`, checkpointId: 'AQ-ADR-003' },
+    ]);
+    expect(openItems(f)[0]).not.toHaveProperty('checkpointId');
     // Once the decision is accepted in full, its preparation's questions need nobody
     // (LIVE-09). Accepting it is an evidence decision, which re-derives the preparation.
     decide(f, preparation);
@@ -1669,8 +1680,11 @@ describe('durable attention items (R-A4)', () => {
       'scheduler-error',
       'storage-pressure',
     ]);
-    for (const item of items)
+    for (const item of items) {
       expect(item.inboxPath).toBe(`/workspaces/${f.workspaceId}/inbox/${item.id}`);
+      // Only a map checkpoint's item, or a decision preparation's, names a checkpoint.
+      expect(item.checkpointId).toBeUndefined();
+    }
     // Sorted by work waiting on the item: a successor of AQ-05 now waits on its merge.
     f.context.storage.transaction((tx) => {
       tx.planning.workItems.insertMany([

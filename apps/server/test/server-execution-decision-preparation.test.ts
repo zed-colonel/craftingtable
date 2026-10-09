@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
+import { attentionFeedSchema } from '@craftingtable/contracts';
 import type { ConcurrencySource } from '@craftingtable/domain';
 import {
   adoptSupervisedMap,
@@ -433,6 +434,22 @@ it('a decision item unblocks the slices that wait on it, counted as slices (R-C3
   // Both slices wait on LOCAL-ADR-01 at start; only the first on LOCAL-ADR-02.
   expect(blocks('LOCAL-ADR-01')).toBe(2);
   expect(blocks('LOCAL-ADR-02')).toBe(1);
+  // The inbox names each item's checkpoint, so the item renders its own decision (R-A6 rest).
+  const feed = await f.state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${ws}/attention`,
+    headers: mutationHeaders(f.state),
+  });
+  expect(feed.statusCode, feed.body).toBe(200);
+  const checkpoints = attentionFeedSchema
+    .parse(feed.json())
+    .items.filter((i) => i.subjectKey.startsWith(`roadmap:${saved.id}:checkpoint:`))
+    .map((i) => [i.code, i.checkpointId])
+    .sort();
+  expect(checkpoints).toEqual([
+    ['architecture-decision', 'LOCAL-ADR-01'],
+    ['architecture-decision', 'LOCAL-ADR-02'],
+  ]);
 });
 
 /** Grants standing preparation with a bound of one and starts the roadmap. */

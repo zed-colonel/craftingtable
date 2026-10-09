@@ -122,6 +122,11 @@ export const attentionItemViewSchema = z.strictObject({
   /** The item's page in the inbox; notifications link here. */
   inboxPath: z.string(),
   refs: attentionItemRefsSchema,
+  /**
+   * The map checkpoint the item decides: a roadmap's checkpoint item, or a decision
+   * preparation's questions. Derived when the feed is read, never stored (R-A6 rest).
+   */
+  checkpointId: z.string().min(1).max(200).optional(),
   members: z.array(z.string()).optional(),
   actions: z.array(attentionItemActionSchema).optional(),
   /** Work waiting on this item: dependent plan items, roadmap entries or map milestones. */

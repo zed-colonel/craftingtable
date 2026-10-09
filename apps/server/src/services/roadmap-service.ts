@@ -126,6 +126,7 @@ import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
 import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
+import { checkpointSubjectKey } from './checkpoint-subject.js';
 
 class SupersededRoadmapOperation extends Error {}
 /**
@@ -1052,7 +1053,7 @@ export class RoadmapService {
       // A checkpoint the operator is asked to settle for this entry (R-C14).
       const checkpointItem = needs?.byEntry
         .get(entry.id)
-        ?.map((id) => items.find((i) => i.subjectKey === `roadmap:${roadmap.id}:checkpoint:${id}`))
+        ?.map((id) => items.find((i) => i.subjectKey === checkpointSubjectKey(roadmap.id, id)))
         .find((i) => i !== undefined);
       const found = item ?? (hold?.status !== 'paused' ? checkpointItem : undefined);
       if (found) {
@@ -3978,7 +3979,7 @@ export class RoadmapService {
               ? ('plan-acceptance' as const)
               : ('checkpoint-evidence' as const);
         items.push({
-          subjectKey: `roadmap:${roadmap.id}:checkpoint:${node.sourceId}`,
+          subjectKey: checkpointSubjectKey(roadmap.id, node.sourceId),
           code,
           kind: 'attention',
           title: `${name} · ${node.sourceId} · ${

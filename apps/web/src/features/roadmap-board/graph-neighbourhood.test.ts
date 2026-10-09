@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MODEL } from './board-testing.js';
+import { loopModel, MODEL } from './board-testing.js';
 import { groupsOf, neighbourhood, transitiveReduction } from './graph-neighbourhood.js';
 
 /** R-E3b, ADR-072: the neighbourhood graph's structure, traversed for drawing only. */
@@ -62,5 +62,67 @@ describe('transitive reduction', () => {
       ['b', 'c'],
     ] as const;
     expect(transitiveReduction(['a', 'b', 'c'], edges)).toEqual(edges);
+  });
+});
+
+describe('cycles at work-item level (R-E3b review H1)', () => {
+  it('draws a work item and a decision that require each other, with both edges', () => {
+    const near = neighbourhood(loopModel(), 3, 2, 40)!;
+    expect(near.groups.map((g) => g.node).sort()).toEqual([0, 1]);
+    expect([...near.edges].sort()).toEqual([
+      [0, 1],
+      [1, 0],
+    ]);
+  });
+
+  it('keeps every edge inside a cycle and reduces only between components', () => {
+    // a and b require each other; both lead to c, and a also leads to c through d.
+    const edges = [
+      ['a', 'b'],
+      ['b', 'a'],
+      ['a', 'c'],
+      ['b', 'c'],
+      ['a', 'd'],
+      ['d', 'c'],
+    ] as const;
+    // Both a → c and b → c are implied: the pair reaches c through d.
+    expect(transitiveReduction(['a', 'b', 'c', 'd'], edges)).toEqual([
+      ['a', 'b'],
+      ['b', 'a'],
+      ['a', 'd'],
+      ['d', 'c'],
+    ]);
+    // Without d, the pair's own edges to c both stay.
+    expect(
+      transitiveReduction(['a', 'b', 'c'], edges.slice(0, 4)).map(([f, t]) => `${f}${t}`),
+    ).toEqual(['ab', 'ba', 'ac', 'bc']);
+  });
+});
+
+describe('hops and the cap', () => {
+  // A chain e0 → e1 → … → e5 of checkpoints, each its own group.
+  const chain = {
+    ...MODEL,
+    graph: {
+      ...MODEL.graph,
+      nodes: Array.from({ length: 6 }, (_, i) => ({
+        key: `checkpoint:e${i}:passed`,
+        kind: 'checkpoint' as const,
+        sourceId: `e${i}`,
+        state: 'passed' as const,
+        title: `e${i}`,
+        requires: i === 0 ? [] : [i - 1],
+        included: true,
+      })),
+    },
+    board: { ...MODEL.board, nodes: Array.from({ length: 6 }, () => ({ satisfied: false })) },
+  };
+  it('reaches a node exactly the hops away and no further', () => {
+    expect(neighbourhood(chain, 2, 2, 40)!.groups.map((g) => g.node)).toEqual([2, 1, 3, 0, 4]);
+    expect(neighbourhood(chain, 2, 3, 40)!.groups.map((g) => g.node)).toContain(5);
+  });
+  it('keeps the nearest under the cap, not the lowest-numbered', () => {
+    // From e5 the nearest are e5, e4, e3; e0 is numbered lowest but is furthest.
+    expect(neighbourhood(chain, 5, 5, 3)!.groups.map((g) => g.node)).toEqual([5, 4, 3]);
   });
 });

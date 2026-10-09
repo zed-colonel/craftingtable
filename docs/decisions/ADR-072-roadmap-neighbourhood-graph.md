@@ -25,6 +25,13 @@ A roadmap's board gets a second view, the neighbourhood graph (`?view=graph`, de
   is no pan, zoom or drag. The layout is a layered layout (longest-path layers, dummy nodes for
   long edges, barycentre ordering) in a small TypeScript module of the board,
   `layered-layout.ts`, with no new dependency.
+- **Cycles.** The map is acyclic, but folded to work items it is not: a checkpoint can need one
+  slice of a work item while another slice of it needs the checkpoint (on the live map about a
+  third of the selections meet such a loop within two hops). The layout turns each back edge of a
+  depth-first walk around to place the nodes, and draws that edge the right way, from right to
+  left and dotted. The transitive reduction keeps every edge inside a loop and reduces only
+  between loops. A neighbourhood that still cannot be laid out shows a message, never an error
+  page.
 - **Where not.** No graph on a phone (the grouped list stands in), and none on a plan version's
   page: the plan-level graph waits for R-E4.
 

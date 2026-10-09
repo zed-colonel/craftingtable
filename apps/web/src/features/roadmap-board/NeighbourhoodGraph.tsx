@@ -69,25 +69,30 @@ export function NeighbourhoodGraph({
   links: BoardLinks;
 }) {
   const index = indexOfKey(model, selected);
-  const [hops, setHops] = useState(HOPS);
-  const near = useMemo(
-    () => (index === undefined ? undefined : neighbourhood(model, index, hops, NODE_CAP)),
-    [model, index, hops],
-  );
-  const wider = useMemo(
-    () => (index === undefined ? undefined : neighbourhood(model, index, hops + 1, NODE_CAP)),
-    [model, index, hops],
-  );
-  const layout = useMemo(
-    () =>
-      near &&
-      layeredLayout(
-        near.groups.map((g) => g.node),
-        near.edges,
-        SIZE,
-      ),
-    [near],
-  );
+  // A new selection starts at the first hops again.
+  const [expanded, setHops] = useState({ index, hops: HOPS });
+  const hops = expanded.index === index ? expanded.hops : HOPS;
+  // Drawing never takes the page down: a graph it cannot lay out says so instead (R-E3b review).
+  const drawn = useMemo(() => {
+    if (index === undefined) return { near: undefined, wider: undefined, layout: undefined };
+    try {
+      const near = neighbourhood(model, index, hops, NODE_CAP);
+      return {
+        near,
+        wider: neighbourhood(model, index, hops + 1, NODE_CAP),
+        layout:
+          near &&
+          layeredLayout(
+            near.groups.map((g) => g.node),
+            near.edges,
+            SIZE,
+          ),
+      };
+    } catch {
+      return { near: undefined, wider: undefined, layout: undefined, failed: true };
+    }
+  }, [model, index, hops]);
+  const { near, wider, layout } = drawn;
   const heading = useRef<HTMLHeadingElement>(null);
   // The selection's node is brought into the middle of the scroll area.
   const scroller = useRef<HTMLDivElement>(null);
@@ -121,7 +126,17 @@ export function NeighbourhoodGraph({
       <GatesStrip model={model} selected={index} onSelect={select} />
       <div className="board-body">
         <section aria-label="Neighbourhood graph" className="board-graph">
-          {!near || !layout ? (
+          {'failed' in drawn ? (
+            <p role="alert" className="error-state">
+              This neighbourhood could not be drawn. The selection panel still says what it waits
+              on.
+            </p>
+          ) : index !== undefined && !near ? (
+            <p className="empty-state">
+              The selection is outside this roadmap's selected work, so it has no neighbourhood
+              here.
+            </p>
+          ) : !near || !layout ? (
             <p className="empty-state">
               Select a gate above, or a card on the board, to draw what it requires and unblocks.
             </p>
@@ -140,12 +155,16 @@ export function NeighbourhoodGraph({
                     (wider.reached === near.reached && near.reached === near.groups.length) ||
                     near.groups.length >= NODE_CAP
                   }
-                  onClick={() => setHops(hops + 1)}
+                  onClick={() => setHops({ index, hops: hops + 1 })}
                 >
                   Expand
                 </button>
                 {hops > HOPS && (
-                  <button type="button" className="secondary-button" onClick={() => setHops(HOPS)}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setHops({ index, hops: HOPS })}
+                  >
                     Back to {HOPS} hops
                   </button>
                 )}
@@ -179,7 +198,7 @@ export function NeighbourhoodGraph({
                       <path
                         key={`${edge.from}>${edge.to}`}
                         d={pathOf(edge.points)}
-                        className={`board-edge${met ? ' board-edge-met' : ''}`}
+                        className={`board-edge${met ? ' board-edge-met' : ''}${edge.back ? ' board-edge-back' : ''}`}
                         markerEnd="url(#board-arrow)"
                       />
                     );

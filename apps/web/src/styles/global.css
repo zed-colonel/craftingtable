@@ -3021,3 +3021,7 @@ button:disabled {
   stroke: var(--color-accent);
   stroke-width: 2;
 }
+/* A back edge of a cycle the folding to work items made: drawn right to left, and dotted. */
+.board-edge-back {
+  stroke-dasharray: 2 3;
+}

@@ -1,8 +1,10 @@
 /**
- * A layered layout for a small directed acyclic graph (R-E3b, ADR-072), left to right: what is
- * required stands left of what requires it. Pure, and with no dependency:
+ * A layered layout for a small directed graph (R-E3b, ADR-072), left to right: what is required
+ * stands left of what requires it. Pure, and with no dependency:
  *
- * 1. layers by longest path from the sources, so every edge points rightwards;
+ * 0. a cycle (work items folded from their slices can require each other) is broken by turning
+ *    each back edge of a depth-first walk around for layout; it is drawn the right way, backwards;
+ * 1. layers by longest path from the sources, so every other edge points rightwards;
  * 2. a dummy node on every layer a long edge crosses, so edges route between nodes, not over them;
  * 3. order within each layer by the barycentre of the neighbours in the layer before (then after),
  *    a few sweeps each way, keeping the order with the fewest crossings;
@@ -30,8 +32,13 @@ export interface PlacedNode {
 export interface PlacedEdge<T> {
   readonly from: T;
   readonly to: T;
-  /** From the source's right edge to the target's left edge, through the edge's dummy nodes. */
+  /**
+   * From the source's right edge to the target's left edge, through the edge's dummy nodes; for a
+   * back edge, from the source's left edge back to the target's right edge.
+   */
   readonly points: readonly { readonly x: number; readonly y: number }[];
+  /** A back edge of a cycle, drawn right to left. */
+  readonly back: boolean;
 }
 
 export interface Layout<T> {
@@ -68,6 +75,34 @@ export function layersOf<T>(
   return layer;
 }
 
+/**
+ * The edges a depth-first walk (in node order) meets going back to a node still on its path:
+ * turning them around leaves the graph acyclic.
+ */
+export function backEdges<T>(
+  nodes: readonly T[],
+  edges: readonly (readonly [T, T])[],
+): Set<number> {
+  const out = new Map<T, number[]>(nodes.map((n) => [n, []]));
+  edges.forEach(([from], e) => {
+    out.get(from)?.push(e);
+  });
+  const back = new Set<number>();
+  const state = new Map<T, 'open' | 'done'>();
+  const walk = (node: T) => {
+    state.set(node, 'open');
+    for (const e of out.get(node) ?? []) {
+      const to = edges[e]![1];
+      const seen = state.get(to);
+      if (seen === 'open') back.add(e);
+      else if (seen === undefined) walk(to);
+    }
+    state.set(node, 'done');
+  };
+  for (const node of nodes) if (!state.has(node)) walk(node);
+  return back;
+}
+
 /** Crossings between two adjacent layers' orders, for the edges between them. */
 function crossingsBetween(edges: readonly (readonly [number, number])[]): number {
   let count = 0;
@@ -82,9 +117,15 @@ function crossingsBetween(edges: readonly (readonly [number, number])[]): number
 
 export function layeredLayout<T>(
   nodes: readonly T[],
-  edges: readonly (readonly [T, T])[],
+  given: readonly (readonly [T, T])[],
   options: LayoutOptions,
 ): Layout<T> {
+  // Self-loops say nothing to draw; back edges are laid out turned around.
+  const all = given.filter(([from, to]) => from !== to);
+  const back = backEdges(nodes, all);
+  const edges = all.map(([from, to], e) =>
+    back.has(e) ? ([to, from] as const) : ([from, to] as const),
+  );
   const layerOf = layersOf(nodes, edges);
   const depth = Math.max(-1, ...layerOf.values()) + 1;
   // Each layer's slots, in input order to start with; an edge's chain of slots.
@@ -166,14 +207,17 @@ export function layeredLayout<T>(
   );
   const middle = options.nodeHeight / 2;
   const placedEdges = chains.map((chain, e) => {
-    const [from, to] = edges[e]!;
+    const [from, to] = all[e]!;
     const points = chain.map((slot, i) => {
       const at = placed.get(slot)!;
       return 'node' in slot
         ? { x: at.x + (i === 0 ? options.nodeWidth : 0), y: at.y + middle }
         : { x: at.x + options.nodeWidth / 2, y: at.y + middle };
     });
-    return { from, to, points };
+    // A back edge was laid out turned around: draw it from its source, right to left.
+    return back.has(e)
+      ? { from, to, points: [...points].reverse(), back: true }
+      : { from, to, points, back: false };
   });
   return {
     nodes: placedNodes,

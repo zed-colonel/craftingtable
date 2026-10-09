@@ -1,7 +1,7 @@
 import { asWorkspaceId } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { MODEL, ROADMAP_ID } from './board-testing.js';
+import { loopModel, MODEL, ROADMAP_ID } from './board-testing.js';
 import { NeighbourhoodGraph } from './NeighbourhoodGraph.js';
 
 /**
@@ -75,5 +75,41 @@ it('shows the selection in the panel beside the graph', () => {
   const panel = screen.getByRole('complementary', { name: 'Selection' });
   expect(within(panel).getByRole('region', { name: 'Unblocks' }).textContent).toContain(
     'Unblocks 1 slices',
+  );
+});
+
+it('draws a loop the folding to work items makes, the back edge dotted, without failing (R-E3b review H1)', () => {
+  render(
+    <NeighbourhoodGraph
+      model={loopModel()}
+      selected="slice:wi/WI-01/impl:merged"
+      onSelect={vi.fn()}
+      links={links}
+    />,
+  );
+  const area = screen.getByRole('region', { name: 'Neighbourhood graph' });
+  expect(area.querySelectorAll('path.board-edge')).toHaveLength(2);
+  expect(area.querySelectorAll('path.board-edge-back')).toHaveLength(1);
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('says a selection outside the roadmap has no neighbourhood, and resets Expand per selection', () => {
+  const outside = {
+    ...MODEL,
+    graph: {
+      ...MODEL.graph,
+      nodes: MODEL.graph.nodes.map((n, i) => (i === 5 ? { ...n, included: false } : n)),
+    },
+  };
+  render(
+    <NeighbourhoodGraph
+      model={outside}
+      selected="work_item:exo/EXO-01:accepted"
+      onSelect={vi.fn()}
+      links={links}
+    />,
+  );
+  expect(screen.getByRole('region', { name: 'Neighbourhood graph' }).textContent).toContain(
+    "outside this roadmap's selected work",
   );
 });

@@ -151,3 +151,18 @@ export const MODEL: BoardModel = {
   status: STATUS,
   entryIds: ENTRY_IDS,
 };
+
+/**
+ * The model with a loop at work-item level, as the live map has (R-E3b review H1): ADR-1 needs
+ * WI-01's slice merged, and the slice's start needs ADR-1. Folded to work items, WI-01 and ADR-1
+ * require each other.
+ */
+export function loopModel(): BoardModel {
+  return {
+    ...MODEL,
+    graph: {
+      ...GRAPH,
+      nodes: GRAPH.nodes.map((n, i) => (i === 0 ? { ...n, requires: [3] } : n)),
+    },
+  };
+}

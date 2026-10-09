@@ -104,29 +104,73 @@ export function neighbourhood(
 }
 
 /**
- * The edges of a directed acyclic graph that no longer path implies: an edge from a to b goes
- * when b is reachable from a through another node.
+ * The edges no longer path implies. Folding slices into work items can make cycles, so this works
+ * on the graph's strongly connected components: an edge inside a component stays, and an edge
+ * between components goes when another component it leads to reaches the target's.
  */
 export function transitiveReduction<T>(
   nodes: readonly T[],
   edges: readonly (readonly [T, T])[],
 ): (readonly [T, T])[] {
-  const next = new Map<T, T[]>(nodes.map((n) => [n, []]));
-  for (const [from, to] of edges) next.get(from)?.push(to);
-  const reach = new Map<T, Set<T>>();
-  const reachable = (from: T): Set<T> => {
+  const component = components(nodes, edges);
+  const next = new Map<number, Set<number>>();
+  for (const [from, to] of edges) {
+    const [a, b] = [component.get(from)!, component.get(to)!];
+    if (a === b) continue;
+    next.set(a, (next.get(a) ?? new Set()).add(b));
+  }
+  // The condensation is acyclic, so reachability is a plain memoised walk.
+  const reach = new Map<number, Set<number>>();
+  const reachable = (from: number): Set<number> => {
     const known = reach.get(from);
     if (known) return known;
-    const found = new Set<T>();
-    reach.set(from, found);
+    const found = new Set<number>();
     for (const to of next.get(from) ?? []) {
       found.add(to);
       for (const further of reachable(to)) found.add(further);
     }
+    reach.set(from, found);
     return found;
   };
-  return edges.filter(
-    ([from, to]) =>
-      !(next.get(from) ?? []).some((middle) => middle !== to && reachable(middle).has(to)),
-  );
+  return edges.filter(([from, to]) => {
+    const [a, b] = [component.get(from)!, component.get(to)!];
+    return a === b || ![...(next.get(a) ?? [])].some((m) => m !== b && reachable(m).has(b));
+  });
+}
+
+/** Each node's strongly connected component (Tarjan), numbered from 0. */
+function components<T>(nodes: readonly T[], edges: readonly (readonly [T, T])[]): Map<T, number> {
+  const out = new Map<T, T[]>(nodes.map((n) => [n, []]));
+  for (const [from, to] of edges) out.get(from)?.push(to);
+  const index = new Map<T, number>();
+  const low = new Map<T, number>();
+  const stack: T[] = [];
+  const onStack = new Set<T>();
+  const component = new Map<T, number>();
+  let counter = 0;
+  let count = 0;
+  const visit = (node: T) => {
+    index.set(node, counter);
+    low.set(node, counter);
+    counter += 1;
+    stack.push(node);
+    onStack.add(node);
+    for (const to of out.get(node) ?? []) {
+      if (!index.has(to)) {
+        visit(to);
+        low.set(node, Math.min(low.get(node)!, low.get(to)!));
+      } else if (onStack.has(to)) low.set(node, Math.min(low.get(node)!, index.get(to)!));
+    }
+    if (low.get(node) === index.get(node)) {
+      let member: T;
+      do {
+        member = stack.pop()!;
+        onStack.delete(member);
+        component.set(member, count);
+      } while (member !== node);
+      count += 1;
+    }
+  };
+  for (const node of nodes) if (!index.has(node)) visit(node);
+  return component;
 }

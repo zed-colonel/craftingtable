@@ -178,11 +178,59 @@ const SHARED: readonly {
       'approve-plan-change': 'decisions/finalization/FinalizationStep.tsx#FinalizationStep',
       'remediate-findings': 'decisions/finalization/FinalizationStep.tsx#FinalizationStep',
       'authorize-remediation': 'decisions/finalization/FinalizationStep.tsx#FinalizationStep',
+      resume: 'decisions/finalization/FinalizationStep.tsx#FinalizationStep',
     },
   },
 ];
 
 /** Last segments several routes share, and the whole routes a URL ending in one may name. */
+/**
+ * The URLs (and `/`-holding texts) whose last segment is built at run time, each read here, so a
+ * new one fails the test until it is classified (R-A6 review M2). None posts a decision command.
+ */
+const DYNAMIC_TAILS: readonly string[] = [
+  // Address prefixes that a command or read spells its own route after.
+  'decisions/amendment/AmendmentDecision.tsx: /api/workspaces/*/roadmaps/*',
+  'decisions/cycle/investigation-api.ts: /api/workspaces/*/cycles/*',
+  'decisions/design/design-api.ts: /api/workspaces/*/cycles/*',
+  'decisions/preparation/PrepareDecisionBrief.tsx: /api/workspaces/*/roadmaps/*',
+  'lib/branch-api.ts: /api/workspaces/*/worktrees/*',
+  'lib/package-import-api.ts: /api/workspaces/*',
+  'lib/planning-api.ts: /api/workspaces/*/projects/*',
+  // Reads of one record by id.
+  'decisions/checkpoint/CheckpointPreparation.tsx: */checkpoint-recovery/*',
+  'decisions/evidence/EvidenceReview.tsx: */submissions/*',
+  'features/execution/RunPage.tsx: /api/workspaces/*/runs/*/tool-results/*',
+  'lib/execution-api.ts: /api/workspaces/*/runs/*',
+  'lib/package-import-api.ts: */concurrency-definitions/*',
+  'lib/package-import-api.ts: */import-archives/*',
+  'lib/planning-api.ts: /api/workspaces/*/plan-artifacts/*',
+  'lib/planning-api.ts: /api/workspaces/*/projects/*/plan-versions/*',
+  'lib/roadmap-api.ts: */*/definitions/*',
+  // A roadmap's save, by id: configuration.
+  'lib/roadmap-api.ts: */*',
+  // Typed unions of manual controls: a worktree's retarget or update, storage's scan, clean, backup.
+  'lib/branch-api.ts: */*',
+  'lib/storage-api.ts: */*',
+  // Not URLs: React keys and counts such as `3/4`.
+  'features/execution/HistoricalEvidencePanel.tsx: */*',
+  'features/planning/RoadmapsPage.tsx: */*',
+  'features/planning/RoadmapsPage.tsx: */*',
+  'features/planning/RoadmapsPage.tsx: */*',
+  'features/workspace/HostSchedulingPanel.tsx: */*',
+  'features/workspace/RoadmapCapacityPanel.tsx: */*',
+  // The browser's own routes (lib/route.ts builds pages' paths, not API URLs).
+  'lib/route.ts: */agenda/*',
+  'lib/route.ts: */inbox/*',
+  'lib/route.ts: */projects/*',
+  'lib/route.ts: */projects/*/plans/*',
+  'lib/route.ts: */roadmaps/maps/*',
+  'lib/route.ts: */runs/*',
+  'lib/route.ts: */work-items/*',
+  'lib/route.ts: /*',
+  'lib/route.ts: /workspaces/*',
+];
+
 const AMBIGUOUS: readonly { readonly segment: string; readonly routes: readonly RegExp[] }[] = [
   {
     segment: 'control',
@@ -206,22 +254,39 @@ interface Declaration {
   readonly name: string;
   readonly start: number;
   readonly end: number;
-  readonly exported: boolean;
+  /** The names another module imports it by: its own, an export list's alias, or `default`. */
+  readonly exportedAs: readonly string[];
 }
 interface Module {
   /** Relative to `src`, with `/` separators. */
   readonly path: string;
   readonly source: string;
   readonly declarations: readonly Declaration[];
-  /** Relative imports: the local name, the name it was exported as, its module unextended. */
+  /**
+   * Relative imports: the local name, the name it was exported as (`*` for a namespace), and
+   * the module, unextended.
+   */
   readonly imports: readonly { local: string; imported: string; from: string }[];
-  /** Every URL or path text, outside JSX attributes, by where it starts. */
+  /** Re-exports: `export { a as b } from './x'`, and `export * from './x'` as `*`. */
+  readonly reExports: readonly { imported: string; exportedAs: string; from: string }[];
+  /**
+   * Every text an expression builds, outside a JSX attribute's own text: a string or template
+   * literal, a `+` concatenation or an array `join`, a non-constant part read as `*`.
+   */
+  readonly texts: readonly { readonly text: string; readonly at: number }[];
+  /** The texts holding a `/`: URLs and paths. */
   readonly urls: readonly { readonly text: string; readonly at: number }[];
 }
 
 const isNode = (value: unknown): value is Node =>
   typeof value === 'object' && value !== null && typeof (value as Node).type === 'string';
 const posix = (path: string) => path.split(sep).join('/');
+const nameOf = (node: unknown) =>
+  isNode(node) && typeof node.name === 'string'
+    ? node.name
+    : isNode(node) && typeof node.value === 'string'
+      ? node.value
+      : undefined;
 
 function files(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -231,71 +296,189 @@ function files(directory: string): string[] {
   });
 }
 
-/** The names a top-level statement declares, and whether it exports them. */
-function declared(statement: Node): Declaration[] {
-  const exported = statement.type === 'ExportNamedDeclaration';
-  const inner =
-    exported || statement.type === 'ExportDefaultDeclaration'
-      ? (statement.declaration as Node | null)
-      : statement;
-  if (!inner) return [];
-  const span = { start: statement.start, end: statement.end };
-  const id = (inner.id as Node | null | undefined)?.name;
-  if (inner.type === 'FunctionDeclaration' || inner.type === 'ClassDeclaration')
-    return [{ name: typeof id === 'string' ? id : 'default', exported, ...span }];
-  if (inner.type === 'VariableDeclaration')
-    return (inner.declarations as Node[]).flatMap((d) => {
-      const name = (d.id as Node).name;
-      return typeof name === 'string' ? [{ name, exported, ...span }] : [];
-    });
-  return [];
+const FUNCTIONS = new Set([
+  'FunctionDeclaration',
+  'ClassDeclaration',
+  'FunctionExpression',
+  'ArrowFunctionExpression',
+  'ClassExpression',
+]);
+
+/** A module's top-level declarations, each with the names it is exported as. */
+function declarationsOf(body: readonly Node[]): Declaration[] {
+  const found: { name: string; start: number; end: number; exportedAs: string[] }[] = [];
+  const later: { local: string; exportedAs: string }[] = [];
+  for (const statement of body) {
+    const named = statement.type === 'ExportNamedDeclaration';
+    const isDefault = statement.type === 'ExportDefaultDeclaration';
+    const inner = named || isDefault ? (statement.declaration as Node | null) : statement;
+    if (!inner) continue;
+    const span = { start: statement.start, end: statement.end };
+    if (isDefault && inner.type === 'Identifier') {
+      later.push({ local: inner.name as string, exportedAs: 'default' });
+      continue;
+    }
+    if (FUNCTIONS.has(inner.type)) {
+      const name = nameOf(inner.id) ?? 'default';
+      found.push({ name, ...span, exportedAs: isDefault ? ['default'] : named ? [name] : [] });
+    } else if (inner.type === 'VariableDeclaration')
+      for (const d of inner.declarations as Node[]) {
+        const name = nameOf(d.id);
+        if (name) found.push({ name, ...span, exportedAs: named ? [name] : [] });
+      }
+  }
+  // An export list without a source names local declarations: `export { h, g as default }`.
+  for (const statement of body)
+    if (statement.type === 'ExportNamedDeclaration' && !statement.declaration && !statement.source)
+      for (const spec of statement.specifiers as Node[])
+        later.push({ local: nameOf(spec.local) ?? '', exportedAs: nameOf(spec.exported) ?? '' });
+  for (const { local, exportedAs } of later)
+    for (const d of found) if (d.name === local) d.exportedAs.push(exportedAs);
+  return found;
 }
 
 /** A module's path without its extension, as an import names it. */
 const unextended = (path: string) => path.replace(/\.(tsx?|js)$/, '');
 
+/** The text an expression builds, a non-constant part read as `*`; none when it builds none. */
+function fold(node: Node): string | undefined {
+  switch (node.type) {
+    case 'Literal':
+      return typeof node.value === 'string' ? node.value : undefined;
+    case 'TemplateLiteral': {
+      const quasis = node.quasis as Node[];
+      const expressions = node.expressions as Node[];
+      return quasis
+        .map((q, i) => {
+          const cooked = (q.value as { cooked: string | null }).cooked ?? '';
+          const part = expressions[i];
+          return part === undefined ? cooked : cooked + (fold(part) ?? '*');
+        })
+        .join('');
+    }
+    case 'BinaryExpression': {
+      if (node.operator !== '+') return undefined;
+      const left = fold(node.left as Node);
+      const right = fold(node.right as Node);
+      return left === undefined && right === undefined ? undefined : (left ?? '*') + (right ?? '*');
+    }
+    case 'CallExpression': {
+      const callee = node.callee as Node;
+      const separator = (node.arguments as Node[])[0];
+      if (
+        callee.type !== 'MemberExpression' ||
+        nameOf(callee.property) !== 'join' ||
+        (callee.object as Node).type !== 'ArrayExpression'
+      )
+        return undefined;
+      const by = separator === undefined ? ',' : fold(separator);
+      if (by === undefined) return undefined;
+      return ((callee.object as Node).elements as Node[])
+        .map((e) => (isNode(e) ? (fold(e) ?? '*') : '*'))
+        .join(by);
+    }
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSNonNullExpression':
+    case 'ParenthesizedExpression':
+      return fold(node.expression as Node);
+    default:
+      return undefined;
+  }
+}
+const FOLDED = new Set(['Literal', 'TemplateLiteral', 'BinaryExpression', 'CallExpression']);
+
 export function analyse(absolute: string, source = readFileSync(absolute, 'utf8')): Module {
   const { program } = parseSync(absolute, source) as unknown as { program: Node };
   const body = program.body as Node[];
-  const declarations = body.flatMap(declared);
+  const declarations = declarationsOf(body);
+  const relativeTo = (from: string) =>
+    unextended(posix(relative(src, join(dirname(absolute), from))));
   const imports = body.flatMap((statement) => {
     const from = (statement.source as Node | undefined)?.value;
     if (statement.type !== 'ImportDeclaration' || typeof from !== 'string' || !from.startsWith('.'))
       return [];
     return (statement.specifiers as Node[]).map((s) => ({
-      local: (s.local as Node).name as string,
-      imported: s.type === 'ImportSpecifier' ? ((s.imported as Node).name as string) : 'default',
-      from: unextended(posix(relative(src, join(dirname(absolute), from)))),
+      local: nameOf(s.local) ?? '',
+      imported:
+        s.type === 'ImportSpecifier'
+          ? (nameOf(s.imported) ?? '')
+          : s.type === 'ImportNamespaceSpecifier'
+            ? '*'
+            : 'default',
+      from: relativeTo(from),
     }));
   });
-  const urls: { text: string; at: number }[] = [];
+  const reExports = body.flatMap((statement) => {
+    const from = (statement.source as Node | undefined)?.value;
+    if (typeof from !== 'string' || !from.startsWith('.')) return [];
+    if (statement.type === 'ExportAllDeclaration')
+      return [
+        { imported: '*', exportedAs: nameOf(statement.exported) ?? '*', from: relativeTo(from) },
+      ];
+    if (statement.type !== 'ExportNamedDeclaration') return [];
+    return (statement.specifiers as Node[]).map((spec) => ({
+      imported: nameOf(spec.local) ?? '',
+      exportedAs: nameOf(spec.exported) ?? '',
+      from: relativeTo(from),
+    }));
+  });
+  const texts: { text: string; at: number }[] = [];
   const walk = (node: Node): void => {
     // An attribute's own text (an id, a class) is not a URL; a handler inside one may hold one.
     if (node.type === 'JSXAttribute' && (node.value as Node | null)?.type === 'Literal') return;
-    if (node.type === 'Literal' && typeof node.value === 'string' && node.value.includes('/'))
-      urls.push({ text: node.value, at: node.start });
-    if (
-      node.type === 'TemplateLiteral' &&
-      (node.quasis as Node[]).some((q) => String((q.value as { raw: string }).raw).includes('/'))
-    )
-      urls.push({
-        text: (node.quasis as Node[])
-          .map((q) => (q.value as { cooked: string | null }).cooked ?? '')
-          .join('*'),
-        at: node.start,
-      });
+    if (FOLDED.has(node.type)) {
+      const text = fold(node);
+      if (text !== undefined) texts.push({ text, at: node.start });
+    }
     for (const [key, value] of Object.entries(node)) {
       if (key === 'parent') continue;
       for (const child of Array.isArray(value) ? value : [value]) if (isNode(child)) walk(child);
     }
   };
   walk(program);
-  return { path: posix(relative(src, absolute)), source, declarations, imports, urls };
+  const urls = texts.filter((t) => t.text.includes('/'));
+  return {
+    path: posix(relative(src, absolute)),
+    source,
+    declarations,
+    imports,
+    reExports,
+    texts,
+    urls,
+  };
 }
 
 const component = (name: string) => /^[A-Z]/.test(name);
 const mentions = (module: Module, d: Declaration, name: string) =>
-  new RegExp(`\\b${name}\\b`).test(module.source.slice(d.start, d.end));
+  new RegExp(`(^|[^\\w$])${name.replace(/\$/g, '\\$')}($|[^\\w$])`).test(
+    module.source.slice(d.start, d.end),
+  );
+
+/**
+ * The modules that reach a module's export by a local name: by importing it (by name, by
+ * `default`, or as a namespace, whose every use counts), or through a module that re-exports it.
+ */
+function importersOf(
+  modules: ReadonlyMap<string, Module>,
+  path: string,
+  name: string,
+  seen = new Set<string>(),
+): { module: Module; local: string }[] {
+  const key = `${path}#${name}`;
+  if (seen.has(key)) return [];
+  seen.add(key);
+  return [...modules.values()].flatMap((other) => [
+    ...other.imports
+      .filter((i) => i.from === unextended(path) && (i.imported === name || i.imported === '*'))
+      .map((i) => ({ module: other, local: i.local })),
+    ...other.reExports
+      .filter((r) => r.from === unextended(path) && (r.imported === name || r.imported === '*'))
+      .flatMap((r) =>
+        importersOf(modules, other.path, r.imported === '*' ? name : r.exportedAs, seen),
+      ),
+  ]);
+}
 
 /**
  * The components a top-level declaration posts through: itself, when it is one; else every
@@ -314,17 +497,11 @@ export function posters(
   const local = module.declarations.filter(
     (d) => d !== declaration && mentions(module, d, declaration.name),
   );
-  const imported = declaration.exported
-    ? [...modules.values()].flatMap((other) =>
-        other.imports
-          .filter((i) => i.from === unextended(module.path) && i.imported === declaration.name)
-          .flatMap((i) =>
-            other.declarations
-              .filter((d) => mentions(other, d, i.local))
-              .map((d) => [other, d] as const),
-          ),
-      )
-    : [];
+  const imported = declaration.exportedAs.flatMap((name) =>
+    importersOf(modules, module.path, name).flatMap(({ module: other, local: alias }) =>
+      other.declarations.filter((d) => mentions(other, d, alias)).map((d) => [other, d] as const),
+    ),
+  );
   return [
     ...local.flatMap((d) => posters(modules, module, d, seen)),
     ...imported.flatMap(([other, d]) => posters(modules, other, d, seen)),
@@ -343,6 +520,29 @@ export function postersOf(modules: ReadonlyMap<string, Module>, route: RegExp): 
         found.add(poster);
     }
   return [...found].sort();
+}
+
+/** URLs whose last segment no text names: any command could be posted through them. */
+export function dynamicTails(all: ReadonlyMap<string, Module>): string[] {
+  return [...all.values()].flatMap((module) =>
+    module.urls
+      .filter((url) => url.text.endsWith('/*'))
+      .map((url) => `${module.path}: ${url.text}`),
+  );
+}
+
+/** URLs ending in a shared segment that name none of its whole routes. */
+export function unnamedTails(
+  all: ReadonlyMap<string, Module>,
+  segment: string,
+  routes: readonly RegExp[],
+): string[] {
+  return [...all.values()].flatMap((module) =>
+    module.urls
+      .filter((url) => url.text.endsWith(`/${segment}`))
+      .filter((url) => !routes.some((route) => route.test(url.text)))
+      .map((url) => `${module.path}: ${url.text}`),
+  );
 }
 
 const modules = new Map(
@@ -381,18 +581,20 @@ describe('each decision command is posted from exactly one component', () => {
   it.each(AMBIGUOUS)(
     'every URL ending in /$segment names its whole route',
     ({ segment, routes }) => {
-      const unnamed = [...modules.values()].flatMap((module) =>
-        module.urls
-          .filter((url) => url.text.endsWith(`/${segment}`))
-          .filter((url) => !routes.some((route) => route.test(url.text)))
-          .map((url) => `${module.path}: ${url.text}`),
-      );
-      expect(unnamed).toEqual([]);
+      expect(unnamedTails(modules, segment, routes)).toEqual([]);
     },
   );
+
+  /**
+   * A URL whose last segment is built at run time could post any command (`${tree}/${action}`):
+   * each one is listed here, with what it reads or posts, so a new one is seen (R-A6 review M2).
+   */
+  it('lists every URL whose last segment is dynamic', () => {
+    expect(dynamicTails(modules).sort()).toEqual([...DYNAMIC_TAILS].sort());
+  });
 });
 
-/** Whether a component's own source names an action as a string literal. */
+/** Whether a component's own source builds an action's name as a text (R-A6 review M2). */
 function names(all: ReadonlyMap<string, Module>, poster: string, action: string): boolean {
   const [path, name] = poster.split('#') as [string, string];
   const module = all.get(path);
@@ -400,8 +602,8 @@ function names(all: ReadonlyMap<string, Module>, poster: string, action: string)
   return (
     !!module &&
     !!declaration &&
-    new RegExp(`['"\`]${action}['"\`]`).test(
-      module.source.slice(declaration.start, declaration.end),
+    module.texts.some(
+      (t) => t.text === action && declaration.start <= t.at && t.at < declaration.end,
     )
   );
 }
@@ -449,6 +651,94 @@ describe('the poster detector', () => {
       ].join('\n'),
     });
     expect(postersOf(planted, /\/decide$/)).toEqual(['features/A.tsx#A', 'features/B.tsx#B']);
+  });
+  // The review's probes (R-A6 review M2): each second poster below was missed before.
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+  const helper = 'request(`/api/${id}/runtime/decide`)';
+  const user = (from: string, call = 'decideIt') =>
+    `import { ${call} } from '${from}';\nexport function A() { return ${call}('a'); }`;
+  it.each([
+    [
+      'a default export imported by default',
+      {
+        'lib/commands.ts': `export default function decideIt(id: string) { return ${helper}; }`,
+        'features/A.tsx':
+          "import decideIt from '../lib/commands.js';\nexport function A() { return decideIt('a'); }",
+      },
+    ],
+    [
+      'an export list',
+      {
+        'lib/commands.ts': `const decideIt = (id: string) => ${helper};\nexport { decideIt };`,
+        'features/A.tsx': user('../lib/commands.js'),
+      },
+    ],
+    [
+      'a barrel that re-exports it',
+      {
+        'lib/commands.ts': `export const decideIt = (id: string) => ${helper};`,
+        'lib/barrel.ts': "export { decideIt } from './commands.js';",
+        'features/A.tsx': user('../lib/barrel.js'),
+      },
+    ],
+    [
+      'a barrel that re-exports everything',
+      {
+        'lib/commands.ts': `export const decideIt = (id: string) => ${helper};`,
+        'lib/barrel.ts': "export * from './commands.js';",
+        'features/A.tsx': user('../lib/barrel.js'),
+      },
+    ],
+    [
+      'a namespace import',
+      {
+        'lib/commands.ts': `export const decideIt = (id: string) => ${helper};`,
+        'features/A.tsx':
+          "import * as api from '../lib/commands.js';\nexport function A() { return api.decideIt('a'); }",
+      },
+    ],
+    [
+      'a concatenated URL',
+      {
+        'features/A.tsx': "export function A() { return request(base + '/runtime/' + 'decide'); }",
+      },
+    ],
+    [
+      'the command name as a substitution',
+      {
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+        'features/A.tsx': "export function A() { return request(`${base}/runtime/${'decide'}`); }",
+      },
+    ],
+    [
+      'a joined URL',
+      {
+        'features/A.tsx':
+          "export function A() { return request([base, 'runtime', 'decide'].join('/')); }",
+      },
+    ],
+  ] as const)('finds a poster through %s', (_name, files) => {
+    expect(postersOf(plant(files), /\/decide$/)).toEqual(['features/A.tsx#A']);
+  });
+  it('lists a URL whose last segment is dynamic, and an unnamed shared segment', () => {
+    const planted = plant({
+      'lib/commands.ts':
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+        'export const act = (id: string, a: string) => request(`/api/w/${id}/${a}`);',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+      'lib/adopt.ts': 'export const adopt = () => request(`${base}/adopt`);',
+    });
+    expect(dynamicTails(planted)).toEqual(['lib/commands.ts: /api/w/*/*']);
+    expect(unnamedTails(planted, 'adopt', [/\/checks\/adopt$/])).toEqual(['lib/adopt.ts: */adopt']);
+    expect(unnamedTails(planted, 'adopt', [/\/adopt$/])).toEqual([]);
+  });
+  it('names an action built from pieces inside a component', () => {
+    const planted = plant({
+      'decisions/cycle/X.tsx':
+        "export function Buttons() { return control({ action: ('review' + '-again') as 'stop' }); }\nexport function Other() { return control({ action: 'stop' }); }",
+    });
+    expect(names(planted, 'decisions/cycle/X.tsx#Buttons', 'review-again')).toBe(true);
+    expect(names(planted, 'decisions/cycle/X.tsx#Other', 'review-again')).toBe(false);
   });
 });
 

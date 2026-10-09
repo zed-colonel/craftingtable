@@ -23,7 +23,7 @@ import type { ExecutionService } from './execution-service.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
-import { primaryCheckoutHolds } from './checkout-fact.js';
+import { checkedOutBranches } from './checkout-fact.js';
 
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -64,6 +64,7 @@ export class FinalizationService {
       .filter((f) => f.planVersionId === planVersionId)
       .map((f) => this.view(f));
     // An offered promotion says whether it moves the operator's checkout (R-G10 D3).
+    const holds = checkedOutBranches(this.git);
     return Promise.all(
       views.map(async (view) => {
         if (!view.actions.includes('merge')) return view;
@@ -72,9 +73,7 @@ export class FinalizationService {
           view.finalization.repositoryId,
         )?.rootPath;
         const held =
-          root === undefined
-            ? undefined
-            : await primaryCheckoutHolds(this.git, root, view.finalization.targetBranch);
+          root === undefined ? undefined : await holds(root, view.finalization.targetBranch);
         return held === undefined ? view : { ...view, targetCheckedOut: held };
       }),
     );

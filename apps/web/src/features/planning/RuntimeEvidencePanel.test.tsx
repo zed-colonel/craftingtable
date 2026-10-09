@@ -728,6 +728,11 @@ it('leaves shared decisions open while roadmap settings are unsaved (UI-17, R-E2
   const buttons = [...card.querySelectorAll('button')].filter((b) => b.closest('details') === null);
   expect(buttons.length).toBeGreaterThan(0);
   expect(buttons.every((b) => !b.hasAttribute('disabled'))).toBe(true);
+  // An unsaved dependency draft does hold them: decisions bind to the saved environment
+  // (UI-17; review L4, C65).
+  fireEvent.change(screen.getByLabelText('Environment name'), { target: { value: 'renamed' } });
+  const held = [...card.querySelectorAll('button')].filter((b) => b.closest('details') === null);
+  expect(held.every((b) => b.hasAttribute('disabled'))).toBe(true);
   expect(
     screen
       .getByRole('button', { name: 'Generate plan-acceptance evidence' })

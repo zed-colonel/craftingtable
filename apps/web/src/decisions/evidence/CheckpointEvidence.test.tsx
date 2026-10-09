@@ -13,8 +13,9 @@ afterEach(() => {
 
 const definitionId = '12345678-1234-4234-8234-123456789abc';
 const base = `/api/workspaces/ws/concurrency-definitions/${definitionId}/runtime`;
-const submission = (id: string, sourceId: string) => ({
+const submission = (id: string, sourceId: string, createdAt = '2026-10-08T00:00:00Z') => ({
   id,
+  createdAt,
   subject: { kind: 'checkpoint', sourceId },
   environmentId: 'local',
   executedAt: '2026-10-08T00:00:00Z',
@@ -42,6 +43,7 @@ const view = {
   upstreamHistory: [],
   subjects: [subject('QUALIFIED'), subject('OTHER')],
   submissions: [
+    { submission: submission('older', 'QUALIFIED', '2026-10-07T00:00:00Z'), issues: [] },
     { submission: submission('mine', 'QUALIFIED'), issues: [] },
     { submission: submission('theirs', 'OTHER'), issues: [] },
   ],
@@ -69,7 +71,9 @@ it("renders only its checkpoint's requirements and submissions, opened for revie
   expect(screen.queryByText('OTHER requirement')).toBeNull();
   expect(screen.queryByText('theirs-log')).toBeNull();
   await screen.findByText('Passed.');
+  // Only the newest undecided one is read at once; the older waits to be opened (review L7).
   expect(vi.mocked(request).mock.calls.map(([url]) => url)).toEqual([`${base}/submissions/mine`]);
+  expect(screen.getByText('older-log')).toBeDefined();
 });
 
 it('submits evidence for its own checkpoint, its template already chosen', async () => {

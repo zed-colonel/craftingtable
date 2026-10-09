@@ -181,6 +181,16 @@ it('decides a checkpoint item with its own card, else at the step that settles i
       }),
     ),
   ).toEqual([{ kind: 'architecture' }, { kind: 'run' }]);
+  // One the daemon names no checkpoint for opens the decisions step, beside its run.
+  expect(
+    decisionsFor(
+      item({
+        subjectKey: 'run:x',
+        code: 'decision-preparation-questions',
+        refs: { roadmapId: 'r', runId: 'x', workItemId: 'w', worktreeId: 't' },
+      }),
+    ),
+  ).toEqual([setup('decisions'), { kind: 'run' }]);
   // Its blockers may be reviewer assignments too, which the code does not tell apart.
   expect(checkpoint('verification-setup')).toEqual([
     { kind: 'environment-approval' },

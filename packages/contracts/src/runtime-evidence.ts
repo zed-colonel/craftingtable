@@ -466,7 +466,7 @@ export const mapCapabilityGapSchema = equivalentSchema<MapCapabilityGap>()(
   z.discriminatedUnion('code', [
     z.strictObject({
       code: z.literal('plan-checkpoint-ambiguous'),
-      checkpointIds: z.array(z.string()).max(200),
+      checkpointIds: z.array(z.string()).max(2000),
     }),
     z.strictObject({
       code: z.literal('plan-owner-unrecognized'),
@@ -533,15 +533,16 @@ export const mapCapabilityGapSchema = equivalentSchema<MapCapabilityGap>()(
  * current-upstream build. Derived on each read, never stored.
  */
 export const mapCapabilitiesViewSchema = z.strictObject({
-  gaps: z.array(mapCapabilityGapSchema).max(2000),
+  // Sized from the map's own bounds: 2,000 checkpoints, resources and slices, 16,000-character ids.
+  gaps: z.array(mapCapabilityGapSchema).max(10000),
   builds: z
     .array(
       z.strictObject({
-        sliceId: name,
+        sliceId: z.string().min(1).max(16000),
         mode: z.enum(['scoped-checks', 'current-upstream-build']),
       }),
     )
-    .max(5000),
+    .max(2000),
 });
 export type MapCapabilitiesView = z.infer<typeof mapCapabilitiesViewSchema>;
 export const runtimeEvidenceViewSchema = z.strictObject({

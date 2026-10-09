@@ -171,7 +171,7 @@ export function DesignQuestions({
                   <Link route={sharedDecisionsRoute(cycle)}>
                     View all shared decisions on the roadmap
                   </Link>{' '}
-                  . Decisions approved here are shared with the same applicable downstream work.
+                  . A shared decision, once approved, applies to the same downstream work.
                 </p>
               )}
               {preview.classificationIssue && <p role="alert">{preview.classificationIssue}</p>}
@@ -442,10 +442,13 @@ function BlockingDecisions({
   const attention = useAttention(cycle.workspaceId).data?.items ?? [];
   const blocking = decisions.filter((card) => !card.records.some((r) => settles(card, r)));
   if (!blocking.length) return null;
-  // The decision's own item: its checkpoint's, else a preparation of it (R-A6 rest).
+  // The decision's own item: its checkpoint's, else a preparation of it (R-A6 rest), on the
+  // roadmap that owns the cycle, since two roadmaps' maps may share an id (review L5).
+  const owner = cycle.owner?.roadmapId;
+  const mine = attention.filter((i) => owner === undefined || i.refs.roadmapId === owner);
   const itemFor = (checkpointId: string) =>
-    attention.find((i) => i.checkpointId === checkpointId && i.code === 'architecture-decision') ??
-    attention.find((i) => i.checkpointId === checkpointId);
+    mine.find((i) => i.checkpointId === checkpointId && i.code === 'architecture-decision') ??
+    mine.find((i) => i.checkpointId === checkpointId);
   return (
     <section className="stack" aria-label="Shared decisions this design waits on">
       <h4>Shared decisions this design waits on</h4>

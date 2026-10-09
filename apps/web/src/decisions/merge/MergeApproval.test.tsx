@@ -393,6 +393,10 @@ it("says a merge updates the operator's checkout only when the daemon reports it
   const other = renderPanel(vi.fn(), { mergeable: true, reason: 'ready', targetCheckedOut: false });
   expect(within(other).queryByText(sentence)).toBeNull();
   cleanup();
+  // No fact (Git could not say): no sentence.
+  const unknown = renderPanel(vi.fn(), { mergeable: true, reason: 'ready' });
+  expect(within(unknown).queryByText(sentence)).toBeNull();
+  cleanup();
   // The fact is about the recorded target: a target typed by hand gets no sentence.
   const manual = { ...worktree, integrationBranch: undefined } as unknown as WorktreeSummary;
   const typed = renderPanel(

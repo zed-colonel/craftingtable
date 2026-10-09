@@ -92,7 +92,7 @@ export function PlanAcceptance({
         Evidence comes from the saved roadmap and dependency setup, not unsaved edits. Generation
         records facts; your separate review and acceptance approve the plan.
       </p>
-      {!planAcceptance.roadmaps.length && (
+      {!inline && !planAcceptance.roadmaps.length && (
         <p>Save a cross-project roadmap first using Create cross-project roadmap above.</p>
       )}
       {planAcceptance.roadmaps

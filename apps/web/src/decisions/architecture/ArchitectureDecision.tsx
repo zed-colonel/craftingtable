@@ -85,6 +85,11 @@ export function ArchitectureDecision(props: {
   csrfToken: string;
   disabled: boolean;
   onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
+  /**
+   * Rendered alone, in an inbox item: it says itself what holds approval, which setup's step
+   * says once above its cards (R-A6 review M1).
+   */
+  alone?: boolean;
 }) {
   const { view, checkpointId } = props;
   const card =
@@ -109,12 +114,14 @@ function DecisionCard({
   csrfToken,
   disabled,
   onChanged,
+  alone = false,
 }: Parameters<typeof ArchitectureDecision>[0] & { card: Card }) {
   const blockers = view.decisionInbox?.blockers ?? [];
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState<Record>();
   const [reviewing, setReviewing] = useState(false);
+  const [prepareAgain, setPrepareAgain] = useState(false);
   const recommendation = card.recommendation;
   const brief = recommendation?.brief;
   const current = card.records.filter((r) => settles(card, r));
@@ -180,6 +187,9 @@ function DecisionCard({
   // A clause approval settles the decision only for the slices it names (LIVE-22).
   const stillNeeded = fullApproval ? [] : (card.stillNeededBy ?? []);
   const named = new Set(accepted?.proposal.consumers.map((c) => c.sliceId)).size;
+  /** No brief that would settle it for the slices that need it, and nothing saved to review. */
+  const offerBrief =
+    (accepted ? stillNeeded.length > 0 && !covers(brief, stillNeeded) : !brief) && !pending;
   const status = accepted
     ? accepted.proposal.coverage === 'full'
       ? 'Accepted · full architectural decision'
@@ -209,18 +219,32 @@ function DecisionCard({
           <p role="status">Still needed by: {stillNeeded.join(', ')}.</p>
         </>
       ) : null}
-      {(accepted ? stillNeeded.length > 0 && !covers(brief, stillNeeded) : !brief) &&
-        !pending &&
-        roadmapId && (
-          <PrepareDecisionBrief
-            workspaceId={workspaceId}
-            roadmapId={roadmapId}
-            checkpointId={card.checkpointId}
-            csrfToken={csrfToken}
-            disabled={disabled}
-            refreshOn={view}
-          />
-        )}
+      {offerBrief && roadmapId && (
+        <PrepareDecisionBrief
+          workspaceId={workspaceId}
+          roadmapId={roadmapId}
+          checkpointId={card.checkpointId}
+          csrfToken={csrfToken}
+          disabled={disabled}
+          refreshOn={view}
+        />
+      )}
+      {/* A brief or proposal exists: a fresh preparation may replace a weak one (R-A6 review M4). */}
+      {!offerBrief && !fullApproval && roadmapId && (
+        <details onToggle={(e) => setPrepareAgain(e.currentTarget.open)}>
+          <summary>Prepare another brief</summary>
+          {prepareAgain && (
+            <PrepareDecisionBrief
+              workspaceId={workspaceId}
+              roadmapId={roadmapId}
+              checkpointId={card.checkpointId}
+              csrfToken={csrfToken}
+              disabled={disabled}
+              refreshOn={view}
+            />
+          )}
+        </details>
+      )}
       {accepted && (
         <>
           <p>
@@ -299,6 +323,9 @@ function DecisionCard({
             </>
           )}
         </>
+      )}
+      {alone && blockers.length > 0 && (
+        <p className="warning-state">Approval unavailable: {blockers.join(' ')}</p>
       )}
       {card.blockers.length > 0 && (
         <p className="warning-state">
@@ -467,7 +494,32 @@ function DecisionCard({
               </select>
             </label>
           )}
+          {draft.sourceRunId &&
+            draft.sourceRunId !== recommendation?.sourceRunId &&
+            designRuns
+              .filter((r) => r.id === draft.sourceRunId)
+              .map((r) => (
+                <details key={r.id}>
+                  <summary>The chosen source report</summary>
+                  <pre className="run-event-body">{r.report}</pre>
+                </details>
+              ))}
           <p>Source references, and the source report chosen, are included automatically.</p>
+          {/* Collected for you; editable to trim or correct them (R-A6 review L2). */}
+          <details>
+            <summary>Source references</summary>
+            <label className="field">
+              Source clauses and affected schemas or protocols
+              <textarea
+                required
+                rows={6}
+                maxLength={65536}
+                value={draft.sourceReferences}
+                disabled={locked}
+                onChange={(e) => setDraft({ ...draft, sourceReferences: e.target.value })}
+              />
+            </label>
+          </details>
           <ActionBar label="Prepare decision approval">
             <SaveProposal
               workspaceId={workspaceId}
@@ -478,6 +530,7 @@ function DecisionCard({
               disabled={
                 locked ||
                 !draft.proposal.trim() ||
+                !draft.sourceReferences.trim() ||
                 (draft.coverage === 'clauses' &&
                   (!draft.consumers.length || !draft.retainedObligations.trim()))
               }

@@ -77,7 +77,7 @@ import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
-import { primaryCheckoutHolds } from './checkout-fact.js';
+import { checkedOutBranches } from './checkout-fact.js';
 
 export type MergeGateReason =
   | 'ready'
@@ -94,6 +94,11 @@ export type MergeGateReason =
   | 'scope-review-only'
   /** Mergeable by a person who approves the check definitions it adopts (R-G13). */
   | 'check-adoption';
+
+/** The target a worktree merges into unless the operator types another (MergeApproval). */
+export const recordedMergeTarget = (
+  worktree: Pick<Worktree, 'integrationBranch' | 'baseBranch'>,
+): string => worktree.integrationBranch ?? worktree.baseBranch;
 
 export interface MergeGate {
   readonly mergeable: boolean;
@@ -750,6 +755,7 @@ export class ExecutionService {
    */
   async confirmGates(read: WorkItemExecution): Promise<WorkItemExecution> {
     const mergeGates = { ...read.mergeGates };
+    const holds = checkedOutBranches(this.git);
     for (const worktree of read.worktrees) {
       const gate = mergeGates[worktree.id];
       if (!gate?.mergeable || gate.reason === 'merge-recovery-required') continue;
@@ -767,13 +773,7 @@ export class ExecutionService {
         worktree.repositoryId,
       )?.rootPath;
       const held =
-        root === undefined
-          ? undefined
-          : await primaryCheckoutHolds(
-              this.git,
-              root,
-              worktree.integrationBranch ?? worktree.baseBranch,
-            );
+        root === undefined ? undefined : await holds(root, recordedMergeTarget(worktree));
       if (held !== undefined) mergeGates[worktree.id] = { ...gate, targetCheckedOut: held };
     }
     return { ...read, mergeGates };

@@ -218,3 +218,24 @@ it("shows a scope's cycle by the projection's review wait, not its stored reason
   expect(await screen.findByText('Waiting for prerequisite work.')).toBeTruthy();
   expect(screen.queryByText('The stored reason.')).toBeNull();
 });
+
+it('reads the slices again once a scope verification is recorded (review L4, C64)', async () => {
+  const fetch = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ recorded: true, workItemCompleted: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  try {
+    view([tree]);
+    fireEvent.click(screen.getByRole('button', { name: 'Record slice verification' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(String((fetch.mock.calls[0] as unknown[])[0])).toBe(
+      '/api/workspaces/ws/worktrees/verification-tree/scope-evidence',
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

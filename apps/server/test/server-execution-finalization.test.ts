@@ -188,6 +188,17 @@ it('stops finalization for genuine questions and never converts exhausted remedi
   );
   expect(backend.launches).toHaveLength(1);
   expect(finalizationCycle(state, value).reason).toContain('question');
+  // No promotion is offered, so the list reads no checkout fact (R-G10 D3, review L4).
+  const listed = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}/plans/${value.planVersionId}/finalizations`,
+    headers: { cookie: state.cookie },
+  });
+  expect(
+    finalizationsResponseSchema
+      .parse(listed.json())
+      .finalizations.find((f) => f.finalization.id === value.id),
+  ).not.toHaveProperty('targetCheckedOut');
   backend.replyForRequest = reviews(() => [defect]);
   const resumed = await finalizationCommand(state, value, 'resume', {
     instructions: 'Keep the public API unchanged; identify required fixes within the plan.',

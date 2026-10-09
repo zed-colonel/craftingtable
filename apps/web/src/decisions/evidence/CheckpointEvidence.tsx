@@ -38,6 +38,10 @@ export function CheckpointEvidence({
     (s) =>
       s.submission.subject.kind === 'checkpoint' && s.submission.subject.sourceId === checkpointId,
   );
+  // Only the newest submission awaiting review opens at once; the rest read on request (R-H4).
+  const newestUndecided = submissions
+    .filter((s) => !s.decision)
+    .sort((a, b) => b.submission.createdAt.localeCompare(a.submission.createdAt))[0]?.submission.id;
   return (
     <section className="panel stack" aria-label={`${checkpointId} evidence`}>
       <h3>{checkpointId} · checkpoint evidence</h3>
@@ -69,7 +73,7 @@ export function CheckpointEvidence({
           entry={entry}
           csrfToken={csrfToken}
           disabled={!canMutate}
-          initiallyOpen={!entry.decision}
+          initiallyOpen={entry.submission.id === newestUndecided}
           onDecided={(next, message) => {
             onChanged(next);
             setNotice(message);

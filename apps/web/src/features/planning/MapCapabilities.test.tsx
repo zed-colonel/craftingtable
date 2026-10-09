@@ -10,6 +10,12 @@ it('lists each typed gap in plain words, and every slice’s build classificatio
       capabilities={{
         gaps: [
           { code: 'resource-adapter-missing', resourceId: 'kata-host' },
+          {
+            code: 'resource-adapter-unusable',
+            resourceId: 'native-host',
+            adapter: 'native-test-host',
+            fields: ['requires_hardware_virtualization'],
+          },
           { code: 'plan-contract-changed', checkpointId: 'PLAN-OK', fields: ['pass_criteria'] },
           {
             code: 'decision-contract-changed',
@@ -31,10 +37,11 @@ it('lists each typed gap in plain words, and every slice’s build classificatio
     .map((li) => li.textContent);
   expect(gaps).toEqual([
     'No daemon adapter runs kata-host: work that needs it waits for evidence submitted by hand.',
+    'native-host asks for what its native-test-host adapter cannot provide (requires_hardware_virtualization).',
     "PLAN-OK's contract differs from the attested one (pass_criteria): plan evidence is submitted and reviewed by hand.",
     'WI-ADR-012 is reviewed under decision-review, which differs (reviewer_roles): it is not prepared or decided as a shared decision.',
   ]);
-  screen.getByText('What CraftingTable cannot automate here (3) · build classification');
+  screen.getByText('What CraftingTable cannot automate here (4) · build classification');
   screen.getByText('Builds: 2 slices with scoped checks, 1 against the current upstream pins.');
   expect(
     within(screen.getByRole('list', { name: 'Build classification' })).getAllByRole('listitem')[1]

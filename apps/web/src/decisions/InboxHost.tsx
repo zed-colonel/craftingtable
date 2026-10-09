@@ -297,6 +297,7 @@ export function InboxHost({
                 csrfToken={csrfToken}
                 disabled={!canMutate}
                 onChanged={runtime.onSaved}
+                alone
               />
             ))
           ) : (

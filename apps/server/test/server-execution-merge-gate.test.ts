@@ -23,7 +23,7 @@ import {
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
-import { mergeGateFor } from '../src/services/execution-service.js';
+import { mergeGateFor, recordedMergeTarget } from '../src/services/execution-service.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -922,4 +922,17 @@ it("says whether a merge would move the operator's checkout: the target checked 
     mergeable: true,
     targetCheckedOut: false,
   });
+  // A gate closed after its review, by a target that moved, states no fact (review L4, C53).
+  git(['switch', '--quiet', 'main'], repositoryPath);
+  commitFile(repositoryPath, 'moved.txt', 'moved\n');
+  const closed = await mergeGate(state, worktree.id);
+  expect(closed).toMatchObject({ mergeable: false, reason: 'branch-review-required' });
+  expect(closed).not.toHaveProperty('targetCheckedOut');
+});
+
+it('takes the recorded target from the integration branch, else the base (R-G10 D3, review L4)', () => {
+  expect(recordedMergeTarget({ integrationBranch: 'wi-fabric-2', baseBranch: 'main' })).toBe(
+    'wi-fabric-2',
+  );
+  expect(recordedMergeTarget({ baseBranch: 'main' })).toBe('main');
 });

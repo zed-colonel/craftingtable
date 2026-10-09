@@ -16,7 +16,12 @@ vi.mock('./design-api.js', () => ({
   recoverDesign: vi.fn(),
 }));
 /** The inbox's open items, as the workspace's attention read returns them. */
-let attention: { id: string; code: string; checkpointId?: string }[] = [];
+let attention: {
+  id: string;
+  code: string;
+  checkpointId?: string;
+  refs?: { roadmapId?: string };
+}[] = [];
 vi.mock('../../app/reads.js', () => ({ useAttention: () => ({ data: { items: attention } }) }));
 afterEach(() => {
   cleanup();
@@ -242,9 +247,26 @@ it('links each decision the design waits on to its own item, else to the shared 
     },
   });
   // The checkpoint's own item wins over a preparation of it; another decision has none.
+  // Another roadmap's item for a decision of the same id is not this design's (review L5).
   attention = [
-    { id: 'prep-item', code: 'decision-preparation-questions', checkpointId: 'WI-ADR-012' },
-    { id: 'decision-item', code: 'architecture-decision', checkpointId: 'WI-ADR-012' },
+    {
+      id: 'other-roadmap',
+      code: 'architecture-decision',
+      checkpointId: 'WI-ADR-013',
+      refs: { roadmapId: 'roadmap-2' },
+    },
+    {
+      id: 'prep-item',
+      code: 'decision-preparation-questions',
+      checkpointId: 'WI-ADR-012',
+      refs: { roadmapId: 'roadmap-1' },
+    },
+    {
+      id: 'decision-item',
+      code: 'architecture-decision',
+      checkpointId: 'WI-ADR-012',
+      refs: { roadmapId: 'roadmap-1' },
+    },
   ];
   render(
     <DesignQuestions

@@ -32,11 +32,13 @@ it('adopts only with confirmation and a rationale, for the exact binding (R-A6 r
   );
   const adopt = screen.getByRole('button', { name: 'Adopt scheduling proposals' });
   expect((adopt as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(screen.getByLabelText(/I approve all listed/));
-  expect((adopt as HTMLButtonElement).disabled).toBe(true);
+  // A rationale alone does not adopt: the confirmation is the operator's (review L4).
   fireEvent.change(screen.getByLabelText('Adoption rationale'), {
     target: { value: 'Reviewed the proposals.' },
   });
+  expect((adopt as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText(/I approve all listed/));
+  expect((adopt as HTMLButtonElement).disabled).toBe(false);
   fireEvent.click(adopt);
   expect((await screen.findByRole('alert')).textContent).toBe('Binding moved.');
   expect(adopted).not.toHaveBeenCalled();

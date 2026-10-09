@@ -128,7 +128,12 @@ it('collects references, reviews an immutable proposal, and requires explicit ap
   expect((screen.getByLabelText('Decision to approve') as HTMLTextAreaElement).value).toBe(
     'Use stable provider identities.',
   );
-  expect(screen.queryByRole('textbox', { name: /source/i })).toBeNull();
+  // Source references are collected for the operator, editable only inside a closed disclosure.
+  const references = screen.getByRole('textbox', {
+    name: 'Source clauses and affected schemas or protocols',
+  }) as HTMLTextAreaElement;
+  expect(references.value).toBe(decisionInbox.decisions[0]!.sourceReferences);
+  expect(references.closest('details')?.open).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Save decision for approval' }));
   const approve = (await screen.findByRole('button', {
     name: 'Approve decision',
@@ -629,4 +634,174 @@ it('offers a new brief when the only brief was limited to the slices already set
   expect(within(region).getByText('Accepted · full architectural decision')).toBeTruthy();
   expect(within(region).queryByText(/Still needed by/)).toBeNull();
   expect(within(region).queryByRole('button', { name: 'Prepare decision brief' })).toBeNull();
+});
+
+// ---- Authoring folded in from the deleted advanced form (R-A6 review M5) ------------------
+const reportRun = '00000000-0000-4000-8000-000000000009';
+/** A view whose map declares a second decision no card lists yet, and slices beyond its own. */
+const authoringView = (inbox = decisionInbox) =>
+  ({
+    decisionInbox: inbox,
+    bindingRevision: inbox.bindingRevision,
+    architectureDecisions: {
+      checkpoints: [
+        {
+          id: 'LOCAL-ADR-012',
+          title: 'Provider identity policy',
+          requirements: [],
+          sourceReferences: 'Exact bound plan §4; source design digest retained.',
+        },
+        {
+          id: 'LOCAL-ADR-099',
+          title: 'Unlisted transport',
+          requirements: ['Choose a transport'],
+          sourceReferences: '{"id":"LOCAL-ADR-099"}',
+        },
+      ],
+      slices: [
+        { id: 'local/WI-03/domain', title: 'Domain', checkpoints: ['LOCAL-ADR-012'] },
+        { id: 'local/WI-04/domain', title: 'Holds it', checkpoints: ['LOCAL-ADR-012'] },
+        { id: 'local/WI-05/domain', title: 'Does not', checkpoints: [] },
+      ],
+      designRuns: [
+        {
+          id: reportRun,
+          checkpointIds: ['LOCAL-ADR-012'],
+          title: 'Design run',
+          report: 'Another report.',
+        },
+      ],
+    },
+  }) as unknown as RuntimeEvidenceView;
+const proposals = () =>
+  vi
+    .mocked(request)
+    .mock.calls.filter(([path]) => String(path).endsWith('/propose-decision'))
+    .map(([, , init]) => JSON.parse(String(init?.body)));
+function renderList(view = authoringView()) {
+  return render(
+    <ArchitectureDecisions
+      workspaceId={asWorkspaceId('ws')}
+      definitionId={decisionInbox.definitionId}
+      view={view}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={vi.fn()}
+    />,
+  );
+}
+
+it('opens an unlisted decision by name and writes it on its own card, with its references', async () => {
+  vi.mocked(request).mockResolvedValue(authoringView());
+  renderList();
+  const picker = screen.getByRole('combobox', { name: 'Decision' });
+  // Only decisions without a card are offered.
+  expect([...(picker as HTMLSelectElement).options].map((o) => o.value)).toEqual([
+    '',
+    'LOCAL-ADR-099',
+  ]);
+  expect(screen.queryByRole('region', { name: 'LOCAL-ADR-099' })).toBeNull();
+  fireEvent.change(picker, { target: { value: 'LOCAL-ADR-099' } });
+  const card = screen.getByRole('region', { name: 'LOCAL-ADR-099' });
+  within(card).getByText('Needs your decision');
+  fireEvent.click(within(card).getByRole('button', { name: 'Approve with changes' }));
+  fireEvent.change(within(card).getByLabelText('Decision to approve'), {
+    target: { value: 'Use a queue.' },
+  });
+  fireEvent.click(within(card).getByRole('button', { name: 'Save decision for approval' }));
+  await waitFor(() => expect(proposals()).toHaveLength(1));
+  expect(proposals()[0]).toMatchObject({
+    checkpointId: 'LOCAL-ADR-099',
+    coverage: 'full',
+    proposal: 'Use a queue.',
+    sourceReferences: '{"id":"LOCAL-ADR-099"}',
+  });
+  expect(proposals()[0]).not.toHaveProperty('sourceRunId');
+});
+
+it('stages clauses for any slice of the map, at the phase chosen, replacing a full requirement only where the slice holds it', async () => {
+  vi.mocked(request).mockResolvedValue(authoringView());
+  renderList();
+  const card = screen.getByRole('region', { name: 'LOCAL-ADR-012' });
+  fireEvent.click(within(card).getByRole('button', { name: 'Approve a limited scope' }));
+  fireEvent.change(within(card).getByLabelText('Decision to approve'), {
+    target: { value: 'Settle identifiers only.' },
+  });
+  fireEvent.change(within(card).getByLabelText('Full obligations retained for later work'), {
+    target: { value: 'The full policy stays required.' },
+  });
+  const add = within(card).getByRole('combobox', { name: 'Add another slice' });
+  // The decision's own consumers are listed already; the others can be added.
+  expect([...(add as HTMLSelectElement).options].map((o) => o.value)).toEqual([
+    '',
+    'local/WI-04/domain',
+    'local/WI-05/domain',
+  ]);
+  fireEvent.change(add, { target: { value: 'local/WI-04/domain' } });
+  fireEvent.change(add, { target: { value: 'local/WI-05/domain' } });
+  fireEvent.change(within(card).getByLabelText('Required before (local/WI-05/domain)'), {
+    target: { value: 'start' },
+  });
+  fireEvent.click(within(card).getByRole('button', { name: 'Save decision for approval' }));
+  await waitFor(() => expect(proposals()).toHaveLength(1));
+  expect(proposals()[0].consumers).toEqual([
+    { sliceId: 'local/WI-04/domain', phase: 'merge', replacesFullCheckpoint: true },
+    { sliceId: 'local/WI-05/domain', phase: 'start', replacesFullCheckpoint: false },
+  ]);
+});
+
+it("attaches the source report chosen: the recommendation's with its digest, another run's without one, or none", async () => {
+  vi.mocked(request).mockResolvedValue(authoringView());
+  renderList();
+  const card = screen.getByRole('region', { name: 'LOCAL-ADR-012' });
+  const save = async (value: string) => {
+    const before = proposals().length;
+    fireEvent.click(within(card).getByRole('button', { name: 'Approve with changes' }));
+    fireEvent.change(within(card).getByLabelText('Source report'), { target: { value } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Save decision for approval' }));
+    await waitFor(() => expect(proposals()).toHaveLength(before + 1));
+    // The mock's view records nothing, so the editor stays: close it for the next choice.
+    fireEvent.click(within(card).getByRole('button', { name: 'Cancel' }));
+  };
+  const recommendation = decisionInbox.decisions[0]!.recommendation!;
+  await save(recommendation.sourceRunId);
+  await save(reportRun);
+  await save('');
+  expect(proposals().map((p) => [p.sourceRunId, p.sourceReportDigest])).toEqual([
+    [recommendation.sourceRunId, recommendation.sourceReportDigest],
+    [reportRun, undefined],
+    [undefined, undefined],
+  ]);
+});
+
+it('offers a fresh preparation of a decision that already has a brief, only when asked (R-A6 review M4)', async () => {
+  vi.mocked(request).mockImplementation(async (path: string) =>
+    String(path).endsWith('/decision-preparations')
+      ? {
+          version: 3,
+          status: 'paused',
+          decisions: [{ id: 'LOCAL-ADR-012', title: 'Policy', profile: { backend: 'codex' } }],
+        }
+      : { backends: [] },
+  );
+  render(
+    <ArchitectureDecisions
+      workspaceId={asWorkspaceId('ws')}
+      definitionId={decisionInbox.definitionId}
+      view={authoringView()}
+      roadmapId="roadmap-1"
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={vi.fn()}
+    />,
+  );
+  const card = screen.getByRole('region', { name: 'LOCAL-ADR-012' });
+  // The card has a brief, so preparation waits behind a disclosure, and reads nothing yet.
+  expect(within(card).queryByRole('button', { name: 'Prepare decision brief' })).toBeNull();
+  expect(request).not.toHaveBeenCalled();
+  const again = within(card).getByText('Prepare another brief').closest('details')!;
+  again.open = true;
+  fireEvent(again, new Event('toggle'));
+  const prepare = await within(card).findByRole('button', { name: 'Prepare decision brief' });
+  await waitFor(() => expect((prepare as HTMLButtonElement).disabled).toBe(false));
 });

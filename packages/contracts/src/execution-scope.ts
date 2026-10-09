@@ -64,6 +64,18 @@ export const executionScopeChoiceSchema = z.strictObject({
     }),
   ),
   status: z.enum(['not-started', 'prepared', 'started', 'merged', 'verified', 'accepted']),
+  /**
+   * Who acts next on the scope and on what, decided by the daemon by the roadmap status list's
+   * rule (R-E4 review M1); absent once the scope is done.
+   */
+  next: z
+    .strictObject({
+      actor: z.enum(['operator', 'agent', 'controller']),
+      reason: z.string(),
+      attentionItemId: z.string().min(1).optional(),
+      cycleId: z.string().min(1).optional(),
+    })
+    .optional(),
   worktreeIds: z.array(z.uuid()),
 });
 export const executionScopeChoicesSchema = z.strictObject({

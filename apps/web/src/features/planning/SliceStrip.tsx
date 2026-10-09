@@ -1,27 +1,15 @@
 import type { ExecutionScopeChoice } from '@craftingtable/contracts';
-import {
-  type CycleView,
-  type ExecutionScope,
-  PHASE_BLOCKERS,
-  phaseBlockerCode,
-  type WorkItemId,
-  type WorkspaceId,
-} from '@craftingtable/domain';
+import type { ExecutionScope, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import { MilestoneChip } from '../../components/MilestoneChip.js';
-import {
-  type Reason,
-  RESOLVER_LABELS,
-  RESOLVER_ORDER,
-  resolverOf,
-} from '../../components/Reasons.js';
 import { Link } from '../../lib/navigation.js';
+import { ACTOR_LABELS } from '../roadmap-board/SelectionPanel.js';
 
 /**
  * The work item's slices at a glance, at the top of its page (R-E4): per slice, the board's
- * milestone chips (R-E3b), who acts on its next phase and the first thing that phase waits on,
- * linking to the slice's requirements and controls below. Everything shown is the daemon's: the
- * slice's status and its phases' typed blockers, grouped by the rule the requirements use
- * (`Reasons`). It posts nothing.
+ * milestone chips (R-E3b), who acts next and on what, linking to the slice's requirements and
+ * controls below and to the inbox item when the operator has one. Everything shown is the
+ * daemon's: the slice's status, and its `next` actor and wait, decided by the roadmap status
+ * list's rule (R-E4 review M1), named in the board's words. It posts nothing.
  */
 
 type Milestone = 'started' | 'merged' | 'verified' | 'accepted';
@@ -71,62 +59,23 @@ function sliceName(scope: ExecutionScope): string {
     : (scope.sourceId.split('/').at(-1) ?? scope.sourceId);
 }
 
-/** Who acts next on a slice, and the first thing its next phase waits on. */
-function headline(
-  choice: ExecutionScopeChoice,
-  cycles: readonly CycleView[],
-): {
-  readonly actor: 'operator' | 'agent' | 'controller' | 'done';
-  readonly label: string;
-  readonly wait?: string;
-} {
-  const next = nextPhaseOf(choice);
-  if (next === undefined) return { actor: 'done', label: 'Done' };
-  if (
-    cycles.some(
-      (view) =>
-        choice.worktreeIds.includes(view.cycle.worktreeId) && view.cycle.status === 'running',
-    )
-  )
-    return { actor: 'agent', label: 'Agent at work' };
-  const reasons: Reason[] = (choice.phases.find((p) => p.phase === next)?.blockers ?? []).map(
-    (b) => ({
-      kind: b.kind,
-      text: b.message,
-      owner: PHASE_BLOCKERS[phaseBlockerCode(b)].owner,
-    }),
-  );
-  for (const resolver of RESOLVER_ORDER) {
-    const first = reasons.find((reason) => resolverOf(reason) === resolver);
-    if (first)
-      return {
-        actor: resolver === 'you' ? 'operator' : 'controller',
-        label: RESOLVER_LABELS[resolver],
-        wait: first.text,
-      };
-  }
-  return { actor: 'controller', label: 'Nothing waiting' };
-}
-
 export function SliceStrip({
   workspaceId,
   workItemId,
   choices,
-  cycles,
 }: {
   workspaceId: WorkspaceId;
   workItemId: WorkItemId;
   /** The item's slices and parent acceptance, read with its page region (R-D5). */
   choices: readonly ExecutionScopeChoice[];
-  /** The item's cycles, to name an agent at work on a slice. */
-  cycles: readonly CycleView[];
 }) {
   if (choices.length === 0) return null;
   return (
     <section aria-label="Slices" className="slice-strip">
       <ul className="board-slices">
         {choices.map((choice) => {
-          const head = headline(choice, cycles);
+          const next = choice.next;
+          const actor = next?.actor ?? 'done';
           return (
             <li key={`${choice.scope.kind}:${choice.scope.sourceId}`} className="slice-strip-row">
               <Link
@@ -150,8 +99,18 @@ export function SliceStrip({
                   />
                 ))}
               </span>
-              <span className={`board-state board-actor-${head.actor}`}>{head.label}</span>
-              {head.wait !== undefined && <span className="slice-strip-wait">{head.wait}</span>}
+              <span className={`board-state board-actor-${actor}`}>
+                {next ? ACTOR_LABELS[next.actor] : 'Done'}
+              </span>
+              {next && <span className="slice-strip-wait">{next.reason}</span>}
+              {next?.attentionItemId && (
+                <Link
+                  className="slice-strip-item"
+                  route={{ name: 'inbox', workspaceId, itemId: next.attentionItemId }}
+                >
+                  Open in Needs you
+                </Link>
+              )}
             </li>
           );
         })}

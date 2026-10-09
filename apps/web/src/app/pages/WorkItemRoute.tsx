@@ -69,14 +69,7 @@ export function WorkItemRoute({
       )}
       <WorkItemPage
         workspaceId={workspaceId}
-        strip={
-          <SliceStrip
-            workspaceId={workspaceId}
-            workItemId={workItemId}
-            choices={slices}
-            cycles={item.cycles ?? []}
-          />
-        }
+        strip={<SliceStrip workspaceId={workspaceId} workItemId={workItemId} choices={slices} />}
         detail={detail}
         inProgress={inProgress}
         sections={[

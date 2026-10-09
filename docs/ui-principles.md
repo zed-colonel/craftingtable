@@ -181,17 +181,20 @@ form.
 
 - **Slice strip.** Under the header, a work item with slices lists each one (and its parent
   acceptance): the board's milestone chips (started, merged, verified, or accepted; met in words),
-  who acts on its next phase (Needs you, Waiting on automation, Waiting on other work, Agent at
-  work, Done, grouped by the rule its requirements use) and the first thing that phase waits on.
-  Each slice links to its place in the Slices section. It posts nothing.
+  who acts next in the board's words (Needs you, Agent at work, Waiting, Done) and on what, as the
+  daemon decides it by the roadmap status list's rule, with "Open in Needs you" when an inbox item
+  carries it. Each slice links to its place in the Slices section. It posts nothing.
 - **Overview.** The item's facts, its exit gate, and its required and recommended predecessors and
   the items it unblocks as links to their pages, each with its state in words. A dependency-blocked
   item names its blockers as links.
 - **Order.** Overview, branches, automation, slices, delegation, runs, diff. A slice shows its
   next phase's requirements; its other phases sit in a closed "Other phases" disclosure.
-- **Reference starts closed.** Branch settings once work has started, and the run history (a
-  `Runs` section whose summary names the latest run). The launch form opens from "Launch a run…",
-  except while the item has no run and no automation: then it is the next step and starts open.
+- **Reference starts closed.** Branch settings once work has started (on a work item with
+  slices, from the start), and the run history (a `Runs` section, present once there is a run,
+  whose summary names the latest run and the hand-off it offers). The launch form opens from
+  "Launch a run…", except while the item has no run and no automation: then it is the next step
+  and starts open. A map work item's Delegation section appears once it has a worktree, a run or a
+  command error to show.
 - **Decisions stay in Needs you.** A stop with an inbox item links to it ("Open the decision"); the
   decision renders in place only when no item carries the stop, with the same component (E4-2).
   Manual merge is such a decision: it sits on its worktree under Delegation.

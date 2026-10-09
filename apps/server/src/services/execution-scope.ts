@@ -21,6 +21,7 @@ import {
   type Worktree,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import { scopeNext } from './scope-next.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import {
   prerequisiteEvaluation,
@@ -534,6 +535,9 @@ export function scopeChoices(
   const result = [];
   const trees = tx.execution.worktrees.listForWorkItem(workspaceId, workItemId);
   const receipts = tx.scopeReceipts.list(workspaceId, workItemId);
+  // Who acts next on each scope reads the open items and the item's cycles once (R-E4 review M1).
+  const items = tx.attention.open(workspaceId);
+  const cycles = tx.execution.cycles.listForWorkspace(workspaceId);
   for (const d of tx.imports.definitions(workspaceId)) {
     const revisions = tx.imports.bindings(workspaceId, d.id);
     const ownedRevision = trees.find(
@@ -568,6 +572,45 @@ export function scopeChoices(
             sameExecutionScope(r.scope, scope) &&
             (scope.kind === 'parent-acceptance' || r.integrationSha === merged?.mergeSha),
         );
+      const phases = (
+        scope.kind === 'slice' ? (['start', 'merge', 'verify'] as const) : (['accept'] as const)
+      ).map((phase) => ({
+        phase,
+        blockers: scopePhaseBlockers(tx, workspaceId, workItemId, scope, phase),
+        resources: phaseResources(tx, resolveScope(tx, workspaceId, workItemId, scope), phase)
+          .resources,
+        reservations: tx.phaseScheduling
+          .active()
+          .filter(
+            (c) =>
+              c.workspaceId === workspaceId &&
+              trees.some(
+                (t) => t.id === c.worktreeId && t.executionScope?.sourceId === scope.sourceId,
+              ),
+          ),
+      }));
+      const status = (
+        verified
+          ? scope.kind === 'slice'
+            ? 'verified'
+            : 'accepted'
+          : owned.some((t) => t.mergedAt)
+            ? 'merged'
+            : owned.some((t) => tx.execution.runs.listForWorktree(workspaceId, t.id).length > 0)
+              ? 'started'
+              : owned.some((t) => t.status === 'active')
+                ? 'prepared'
+                : 'not-started'
+      ) as Parameters<typeof scopeNext>[0]['status'];
+      const next = scopeNext({
+        kind: scope.kind === 'slice' ? 'slice' : 'parent-acceptance',
+        status,
+        phases,
+        cycles: cycles
+          .filter((c) => owned.some((t) => t.id === c.worktreeId))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        items,
+      });
       result.push({
         scope,
         ...(rBindingRepository(b.bindings, workItemId)
@@ -579,24 +622,7 @@ export function scopeChoices(
           'early_start_exception' in node &&
           node.early_start_exception &&
           !node.decision_refs.length,
-        phases: (scope.kind === 'slice'
-          ? (['start', 'merge', 'verify'] as const)
-          : (['accept'] as const)
-        ).map((phase) => ({
-          phase,
-          blockers: scopePhaseBlockers(tx, workspaceId, workItemId, scope, phase),
-          resources: phaseResources(tx, resolveScope(tx, workspaceId, workItemId, scope), phase)
-            .resources,
-          reservations: tx.phaseScheduling
-            .active()
-            .filter(
-              (c) =>
-                c.workspaceId === workspaceId &&
-                trees.some(
-                  (t) => t.id === c.worktreeId && t.executionScope?.sourceId === scope.sourceId,
-                ),
-            ),
-        })),
+        phases,
         title: node.title,
         description: 'scope' in node ? node.scope : parent.source_exit_gate,
         excludes: 'excludes' in node ? [...node.excludes] : [],
@@ -607,17 +633,8 @@ export function scopeChoices(
           scope,
           scope.kind === 'slice' ? 'start' : 'accept',
         ),
-        status: verified
-          ? scope.kind === 'slice'
-            ? 'verified'
-            : 'accepted'
-          : owned.some((t) => t.mergedAt)
-            ? 'merged'
-            : owned.some((t) => tx.execution.runs.listForWorktree(workspaceId, t.id).length > 0)
-              ? 'started'
-              : owned.some((t) => t.status === 'active')
-                ? 'prepared'
-                : 'not-started',
+        status,
+        ...(next ? { next } : {}),
         worktreeIds: owned.map((t) => t.id),
       });
     }

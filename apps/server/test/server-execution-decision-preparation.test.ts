@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { attentionFeedSchema } from '@craftingtable/contracts';
-import type { ConcurrencySource } from '@craftingtable/domain';
+import { asAgentRunId, asWorktreeId, type ConcurrencySource } from '@craftingtable/domain';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
@@ -968,6 +968,47 @@ it('the narrow brief lookup reads each brief, its blockers and records as the in
   );
 });
 
+it('the narrow lookup keeps a brief past the recent runs and past a newer investigation (R-D7 review)', async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { ws, tx } = fixture;
+  const p = await prepared1(fixture);
+  const definition = tx.imports.definition(ws, p.definitionId)!;
+  const ask = () => decisionBriefs(tx, definition, new Set(['LOCAL-ADR-01'])).get('LOCAL-ADR-01');
+  // The recommendation names the work item its run worked on (a preparation's run has none).
+  const run = tx.execution.runs.find(ws, p.runId)!;
+  expect(ask()?.recommendation.workItemId).toBe(run.workItemId);
+  // A preparation's run is read even when it is no longer among the recent runs.
+  const recent = vi.spyOn(tx.execution.runs, 'listRecentHeaders').mockReturnValue([]);
+  expect(ask()?.recommendation.sourceRunId).toBe(p.runId);
+  recent.mockRestore();
+  // A stop's investigation, newer on the same worktree, recommends nothing and hides nothing.
+  const investigation = asAgentRunId(randomUUID());
+  tx.execution.runs.insert({
+    id: investigation,
+    workspaceId: ws,
+    worktreeId: run.worktreeId,
+    repositoryId: run.repositoryId,
+    projectId: run.projectId,
+    ...(run.workItemId ? { workItemId: run.workItemId } : {}),
+    ...(run.planVersionId ? { planVersionId: run.planVersionId } : {}),
+    backend: run.backend,
+    role: 'design',
+    permissionMode: run.permissionMode,
+    profileSelection: { purpose: 'investigation', investigationId: randomUUID() },
+    brief: 'Investigate',
+    createdAt: new Date(Date.parse(run.createdAt) + 60_000).toISOString(),
+    createdByUserId: run.createdByUserId,
+  });
+  tx.execution.runs.transition({
+    workspaceId: ws,
+    runId: investigation,
+    expectedStatuses: ['starting'],
+    toStatus: 'finished',
+    occurredAt: new Date(Date.parse(run.createdAt) + 120_000).toISOString(),
+  });
+  expect(ask()?.recommendation.sourceRunId).toBe(p.runId);
+});
+
 it('a roadmap page read answers its decision holds without building the decision inbox (R-D7)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const { f, ws, saved } = fixture;
@@ -988,6 +1029,40 @@ it('a roadmap page read answers its decision holds without building the decision
   expect(inboxBuilds.count).toBe(0);
 });
 
+it('a held slice’s next actor on its work item is the status list’s, with the same item (R-E4 review M1)', async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { f, ws, saved } = fixture;
+  await prepared1(fixture);
+  await roadmapControl(f.state, 'start');
+  const roadmaps = f.state.context.services.roadmapService;
+  await roadmaps.tick();
+  await roadmaps.tick();
+  roadmaps.syncAttention(true);
+  const first = storedRoadmap(f.state).definition.entries.find(
+    (e) => e.executionScope?.kind === 'slice',
+  )!;
+  const status = roadmaps
+    .statusList(f.auth, ws, saved.id)
+    .entries.find((e) => e.entryId === first.id)!;
+  expect(status.actor).toBe('operator');
+  const response = await f.state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${ws}/work-items/${first.workItemId}/view`,
+    headers: { cookie: f.state.cookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const choice = response
+    .json()
+    .scopes.choices.find(
+      (c: { scope: { kind: string; sourceId: string } }) =>
+        c.scope.kind === 'slice' && c.scope.sourceId === first.executionScope!.sourceId,
+    );
+  expect(choice.next).toMatchObject({
+    actor: 'operator',
+    attentionItemId: status.waitsOn!.attentionItemId,
+  });
+});
+
 it('asks once whether a slice started, not once per worktree (R-D7)', async () => {
   const fixture = await decisionFixture(withMergeDecision);
   const { f, ws, tx } = fixture;
@@ -997,6 +1072,29 @@ it('asks once whether a slice started, not once per worktree (R-D7)', async () =
   const started = (sourceId: string) =>
     milestoneSatisfied(tx, ws, definition, 1, { kind: 'slice', id: sourceId, state: 'started' });
   await waitFor(() => started(first!.sourceId), 'the first slice reports a started run');
+  // A newer worktree for the same slice, with no run: "started" still sees the older one's.
+  const tree = tx.execution.worktrees
+    .listActive()
+    .find(
+      (t) =>
+        t.workspaceId === ws &&
+        t.executionScope?.kind === 'slice' &&
+        t.executionScope.sourceId === first!.sourceId,
+    )!;
+  tx.execution.worktrees.insert({
+    id: asWorktreeId(randomUUID()),
+    workspaceId: ws,
+    repositoryId: tree.repositoryId,
+    projectId: tree.projectId,
+    ...(tree.workItemId ? { workItemId: tree.workItemId } : {}),
+    branchName: `${tree.branchName}-again`,
+    baseSha: tree.baseSha,
+    baseBranch: tree.baseBranch,
+    path: `${tree.path}-again`,
+    createdAt: new Date(Date.parse(tree.createdAt) + 60_000).toISOString(),
+    createdByUserId: tree.createdByUserId,
+    executionScope: tree.executionScope!,
+  });
   const perTree = vi.spyOn(tx.execution.runs, 'listForWorktree');
   expect(started(first!.sourceId)).toBe(true);
   expect(started(second!.sourceId)).toBe(false);

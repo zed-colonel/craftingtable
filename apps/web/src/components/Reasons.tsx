@@ -31,7 +31,7 @@ export interface Reason {
   readonly destination?: { readonly label: string; readonly href: string };
 }
 
-export type Resolver = 'you' | 'automation' | 'other-work';
+type Resolver = 'you' | 'automation' | 'other-work';
 
 const RESOLVER: Readonly<Record<ReasonKind, Resolver>> = {
   authorization: 'you',
@@ -45,7 +45,7 @@ const RESOLVER: Readonly<Record<ReasonKind, Resolver>> = {
   exclusion: 'other-work',
 };
 
-export const RESOLVER_LABELS: Readonly<Record<Resolver, string>> = {
+const RESOLVER_LABELS: Readonly<Record<Resolver, string>> = {
   you: 'Needs you',
   automation: 'Waiting on automation',
   'other-work': 'Waiting on other work',
@@ -63,11 +63,9 @@ export const REASON_KIND_LABELS: Readonly<Record<ReasonKind, string>> = {
   exclusion: 'Exclusion',
 };
 
-/** The groups in the order they are shown: what needs the operator first. */
-export const RESOLVER_ORDER: readonly Resolver[] = ['you', 'automation', 'other-work'];
+const ORDER: readonly Resolver[] = ['you', 'automation', 'other-work'];
 
-/** Who resolves a reason: the one rule the groups, and a slice strip's headline (R-E4), use. */
-export function resolverOf(reason: Reason): Resolver {
+function resolverOf(reason: Reason): Resolver {
   return reason.owner === 'operator' ? 'you' : RESOLVER[reason.kind];
 }
 
@@ -87,7 +85,7 @@ export function Reasons({
       reasons.findIndex((other) => other.kind === reason.kind && other.text === reason.text) ===
       index,
   );
-  const groups = RESOLVER_ORDER.map((resolver) => ({
+  const groups = ORDER.map((resolver) => ({
     resolver,
     entries: unique.filter((reason) => resolverOf(reason) === resolver),
   })).filter((group) => group.entries.length > 0);

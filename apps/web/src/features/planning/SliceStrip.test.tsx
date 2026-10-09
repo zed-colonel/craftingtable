@@ -1,12 +1,12 @@
 import type { ExecutionScopeChoice } from '@craftingtable/contracts';
-import { asWorkItemId, asWorkspaceId, type CycleView } from '@craftingtable/domain';
+import { asWorkItemId, asWorkspaceId } from '@craftingtable/domain';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import { SliceStrip, sliceAnchor } from './SliceStrip.js';
 
 /**
  * R-E4: the work item page opens with a strip of its slices, each with the board's milestone
- * chips (R-E3b), who acts next and the first thing it waits on, linking to the slice below.
+ * chips (R-E3b) and the daemon's next actor and wait (review M1), linking to the slice below.
  */
 
 afterEach(cleanup);
@@ -18,8 +18,7 @@ function choice(
   sourceId: string,
   kind: 'slice' | 'parent-acceptance',
   status: ExecutionScopeChoice['status'],
-  phases: ExecutionScopeChoice['phases'] = [],
-  worktreeIds: string[] = [],
+  next?: ExecutionScopeChoice['next'],
 ): ExecutionScopeChoice {
   return {
     scope: { kind, definitionId: 'map-1', bindingRevision: 1, sourceId },
@@ -30,33 +29,22 @@ function choice(
     earlyDevelopment: false,
     earlyDevelopmentAuthorized: false,
     canAuthorizeEarlyDevelopment: false,
-    phases,
+    phases: [],
     status,
-    worktreeIds,
+    ...(next ? { next } : {}),
+    worktreeIds: [],
   } as ExecutionScopeChoice;
 }
 
-const phase = (
-  name: 'start' | 'merge' | 'verify' | 'accept',
-  blockers: { kind: string; code: string; message: string }[],
-) => ({ phase: name, blockers, reservations: [], resources: [] }) as never;
-
-function strip(choices: ExecutionScopeChoice[], cycles: CycleView[] = []) {
-  render(
-    <SliceStrip
-      workspaceId={workspaceId}
-      workItemId={workItemId}
-      choices={choices}
-      cycles={cycles}
-    />,
-  );
+function strip(choices: ExecutionScopeChoice[]) {
+  render(<SliceStrip workspaceId={workspaceId} workItemId={workItemId} choices={choices} />);
   return screen.getByRole('region', { name: 'Slices' });
 }
 
 it('draws each slice with its milestones met or not, from the daemon’s status', () => {
   const region = strip([
-    choice('wi/WI-01/implementation', 'slice', 'merged'),
-    choice('wi/WI-01', 'parent-acceptance', 'not-started'),
+    choice('wi/WI-01/implementation', 'slice', 'merged', { actor: 'controller', reason: 'x' }),
+    choice('wi/WI-01', 'parent-acceptance', 'not-started', { actor: 'controller', reason: 'y' }),
   ]);
   const rows = within(region).getAllByRole('listitem');
   expect(rows).toHaveLength(2);
@@ -69,56 +57,38 @@ it('draws each slice with its milestones met or not, from the daemon’s status'
   expect(parent.getByText('accepted').textContent).toContain('(not met)');
 });
 
-it('says who acts on the next phase, with its first wait, as the slice’s requirements group it', () => {
+it('says who acts next and on what, as the daemon decided it, in the board’s words', () => {
   const region = strip([
-    // Not started: its start phase waits on the operator (an operator-owned code) and other work.
-    choice('wi/WI-01/implementation', 'slice', 'not-started', [
-      phase('start', [
-        { kind: 'dependency', code: 'predecessor-not-accepted', message: 'Start WI-00 first.' },
-        { kind: 'evidence', code: 'upstream-pin-missing', message: 'wi must use an exact pin.' },
-      ]),
-      phase('merge', [{ kind: 'review', code: 'reviewer-assignment', message: 'A later phase.' }]),
-    ]),
-    // Started: its merge phase waits only on other work.
-    choice('wi/WI-01/contract', 'slice', 'started', [
-      phase('start', []),
-      phase('merge', [
-        { kind: 'dependency', code: 'slice-requirement', message: 'Merge WI-00 first.' },
-      ]),
-    ]),
-    choice('wi/WI-01/docs', 'slice', 'verified'),
+    choice('wi/WI-01/implementation', 'slice', 'not-started', {
+      actor: 'operator',
+      reason: 'Approve LOCAL-ADR-01.',
+      attentionItemId: 'item-7',
+    }),
+    choice('wi/WI-01/contract', 'slice', 'started', {
+      actor: 'agent',
+      reason: 'Implementing.',
+      cycleId: 'cycle-1',
+    }),
+    choice('wi/WI-01/docs', 'slice', 'merged', { actor: 'controller', reason: 'Verify next.' }),
+    choice('wi/WI-01/old', 'slice', 'verified'),
   ]);
-  const [first, second, third] = within(region).getAllByRole('listitem');
-  expect(within(first!).getByText('Needs you')).toBeDefined();
-  expect(within(first!).getByText('wi must use an exact pin.')).toBeDefined();
-  expect(within(first!).queryByText('A later phase.')).toBeNull();
-  expect(within(second!).getByText('Waiting on other work')).toBeDefined();
-  expect(within(second!).getByText('Merge WI-00 first.')).toBeDefined();
-  expect(within(third!).getByText('Done')).toBeDefined();
-});
-
-it('names an agent at work while a cycle runs on the slice’s worktree', () => {
-  const region = strip(
-    [
-      choice(
-        'wi/WI-01/implementation',
-        'slice',
-        'started',
-        [
-          phase('merge', [
-            { kind: 'review', code: 'reviewer-assignment', message: 'Needs a review.' },
-          ]),
-        ],
-        ['tree-1'],
-      ),
-    ],
-    [{ cycle: { id: 'cycle-1', worktreeId: 'tree-1', status: 'running' } } as never],
+  const [held, working, waiting, done] = within(region).getAllByRole('listitem');
+  expect(within(held!).getByText('Needs you')).toBeDefined();
+  expect(within(held!).getByText('Approve LOCAL-ADR-01.')).toBeDefined();
+  expect(within(held!).getByRole('link', { name: 'Open in Needs you' }).getAttribute('href')).toBe(
+    '/workspaces/workspace-1/inbox/item-7',
   );
-  expect(within(region).getByText('Agent at work')).toBeDefined();
+  expect(within(working!).getByText('Agent at work')).toBeDefined();
+  expect(within(working!).queryByRole('link', { name: 'Open in Needs you' })).toBeNull();
+  expect(within(waiting!).getByText('Waiting')).toBeDefined();
+  expect(within(waiting!).getByText('Verify next.')).toBeDefined();
+  expect(within(done!).getByText('Done')).toBeDefined();
 });
 
 it('links each slice to its place on the page, and posts nothing', () => {
-  const region = strip([choice('wi/WI-01/implementation', 'slice', 'not-started')]);
+  const region = strip([
+    choice('wi/WI-01/implementation', 'slice', 'not-started', { actor: 'controller', reason: 'z' }),
+  ]);
   const link = within(region).getByRole('link', { name: /implementation/ });
   expect(link.getAttribute('href')).toBe(
     `/workspaces/workspace-1/work-items/item-1#${encodeURIComponent(
@@ -129,6 +99,13 @@ it('links each slice to its place on the page, and posts nothing', () => {
 });
 
 it('draws nothing for a work item without slices', () => {
-  render(<SliceStrip workspaceId={workspaceId} workItemId={workItemId} choices={[]} cycles={[]} />);
+  render(<SliceStrip workspaceId={workspaceId} workItemId={workItemId} choices={[]} />);
   expect(screen.queryByRole('region', { name: 'Slices' })).toBeNull();
+});
+
+it('counts a prepared worktree as not started yet', () => {
+  const region = strip([
+    choice('wi/WI-01/implementation', 'slice', 'prepared', { actor: 'controller', reason: 'r' }),
+  ]);
+  expect(within(region).getByText('started').textContent).toContain('(not met)');
 });

@@ -95,3 +95,17 @@ it('takes the view from the route over the width', async () => {
     'Transport contract',
   );
 });
+
+it('draws the graph on a wide screen and never on a phone, where the list stands in', async () => {
+  width(true);
+  render(<RoadmapPage {...common} view="graph" select="checkpoint:ADR-1:passed" />);
+  expect(await screen.findByRole('region', { name: 'Neighbourhood graph' })).toBeTruthy();
+  cleanup();
+  resetFallbackQueryStore();
+  width(false);
+  render(<RoadmapPage {...common} view="graph" />);
+  expect(await screen.findByRole('region', { name: 'Needs you' })).toBeTruthy();
+  expect(screen.queryByRole('region', { name: 'Neighbourhood graph' })).toBeNull();
+  const views = screen.getByRole('navigation', { name: 'Board views' });
+  expect([...views.querySelectorAll('a')].map((a) => a.textContent)).toEqual(['Board', 'List']);
+});

@@ -634,6 +634,15 @@ it('reads nothing when the board selects (R-E3b)', async () => {
       .click(),
   );
   expect(window.location.search).toBe('?select=slice%3Awi%2FWI-01%2Fimpl%3Astarted');
+  // The graph view selects the same way.
+  act(() => screen.getByRole('link', { name: 'Graph' }).click());
+  const graph = await screen.findByRole('region', { name: 'Neighbourhood graph' });
+  act(() =>
+    within(graph)
+      .getByRole('button', { name: /^ADR-1 / })
+      .dispatchEvent(new MouseEvent('click', { bubbles: true })),
+  );
+  expect(window.location.search).toBe('?view=graph&select=checkpoint%3AADR-1%3Apassed');
   await act(async () => {
     await vi.advanceTimersByTimeAsync(5_000);
   });

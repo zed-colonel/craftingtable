@@ -2768,22 +2768,31 @@ button:disabled {
 }
 .board-slice {
   display: flex;
-  gap: var(--space-1);
-  align-items: center;
   flex-wrap: wrap;
+  column-gap: var(--space-2);
+  row-gap: 2px;
+  align-items: center;
 }
 .board-slice-name {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-text-muted);
-  min-width: 6rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-slice-chips {
+  display: inline-flex;
+  gap: 2px;
 }
 .board-chip {
   border: 1px solid var(--color-border-strong);
   border-radius: 999px;
   background: transparent;
   color: var(--color-text-secondary);
-  padding: 0 var(--space-2);
+  padding: 0 6px;
   font-size: var(--text-xs);
   cursor: pointer;
 }
@@ -2925,4 +2934,79 @@ button:disabled {
   .board-row {
     min-height: 44px;
   }
+}
+
+/* The neighbourhood graph (R-E3b, ADR-072). Colour follows the label each node also states. */
+.board-graph {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.board-graph-controls {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.board-graph-scroll {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-3);
+  background: var(--color-surface-sunken);
+}
+.board-edge {
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 1.5;
+}
+.board-edge-met {
+  stroke: var(--color-border-strong);
+  stroke-dasharray: 4 3;
+}
+.board-arrow {
+  fill: var(--color-text-muted);
+}
+.board-graph-node {
+  cursor: pointer;
+}
+.board-graph-node:focus {
+  outline: none;
+}
+.board-graph-node rect {
+  fill: var(--color-surface);
+  stroke: var(--color-border-strong);
+  stroke-width: 1;
+}
+.board-graph-node text {
+  fill: var(--color-text-secondary);
+  font-size: 12px;
+}
+.board-graph-centre rect {
+  fill: var(--color-surface-raised);
+}
+.board-tone-done rect {
+  fill: var(--color-done-soft);
+}
+.board-tone-operator rect {
+  stroke: var(--color-attention);
+}
+.board-tone-agent rect {
+  stroke: var(--color-active);
+}
+.board-graph-node .board-graph-id {
+  fill: var(--color-text);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.board-tone-operator .board-graph-state {
+  fill: var(--color-attention);
+}
+.board-tone-agent .board-graph-state {
+  fill: var(--color-active);
+}
+.board-graph-chosen rect,
+.board-graph-node:focus-visible rect {
+  stroke: var(--color-accent);
+  stroke-width: 2;
 }

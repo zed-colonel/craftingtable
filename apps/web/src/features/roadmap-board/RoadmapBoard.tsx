@@ -87,7 +87,7 @@ export function GateButton({
   );
 }
 
-function GatesStrip({
+export function GatesStrip({
   model,
   selected,
   onSelect,
@@ -205,15 +205,17 @@ export function BoardCard({
               <span className="board-slice-name" title={slice.title}>
                 {slice.sourceId.split('/').at(-1)}
               </span>
-              {slice.milestones.map((i) => (
-                <MilestoneChip
-                  key={i}
-                  model={model}
-                  index={i}
-                  selected={selected === i}
-                  onSelect={onSelect}
-                />
-              ))}
+              <span className="board-slice-chips">
+                {slice.milestones.map((i) => (
+                  <MilestoneChip
+                    key={i}
+                    model={model}
+                    index={i}
+                    selected={selected === i}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </span>
             </li>
           ))}
         </ul>

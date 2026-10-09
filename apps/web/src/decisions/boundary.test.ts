@@ -9,12 +9,21 @@ import { describe, expect, it } from 'vitest';
  * A decision command is R-A6's table plus every command that resolves an operator-owned stop
  * (operator decision 2026-10-06, A1). Configuration and manual controls are not on the list.
  *
- * The test reads every module's syntax tree. A command is found by its route at the end of a URL:
- * a string or template literal holding a `/` (a substitution reads as `*`), outside the text of a
- * JSX attribute. The top-level declaration holding the URL is its poster; a helper
- * that is not a component posts through every component that references it, in its own module
- * or, when exported, in a module that imports it. Each command must resolve to its one owner,
- * a component in `decisions/<kind>/`.
+ * The test reads every module's syntax tree and folds the texts it builds: string and template
+ * literals, concatenations, joins, constants (in any scope, or imported) and calls to URL helpers,
+ * a part it cannot read standing as `*`. A command is found by its route at the end of a URL, up
+ * to its query; the top-level declaration holding the URL is its poster, and a helper that is not
+ * a component posts through every component that reaches it (in its module, through imports,
+ * aliases, re-exports, namespaces and dynamic `import()`). Each command must resolve to its one
+ * owner, a component in `decisions/<kind>/`. Requests are recognised by binding: a request whose
+ * URL cannot be read, or whose last segment is built at run time, must be listed and classified,
+ * and `request` or `fetch` may only be called, never passed on.
+ *
+ * It guards against an accidental second poster, not a deliberate one (R-A6 review and its
+ * re-checks): `request` re-exported under another name, `XMLHttpRequest`, `eval`, computed
+ * members and code outside `src` are known limits of a static check. The daemon's own checks
+ * (CSRF, expected versions, and `cycleActions` and `finalizationActions` refusing what they do
+ * not offer) and code review stand behind it.
  */
 type Command = {
   readonly command: string;
@@ -469,6 +478,8 @@ export function analyse(
   // Every `const` of the module, in any scope, whose name it declares once (as the scope check's
   // rule 7 resolves names): a function's own `const base = …` resolves too (second re-check R3).
   const declarators: Node[] = [];
+  /** Every declarator, `let` and `var` too: any of them can alias a sender. */
+  const allDeclarators: Node[] = [];
   const counts = new Map<string, number>();
   const gather = (node: Node): void => {
     if (node.type === 'VariableDeclaration')
@@ -476,6 +487,7 @@ export function analyse(
         const name = nameOf(d.id);
         if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
         if (node.kind === 'const') declarators.push(d);
+        allDeclarators.push(d);
       }
     else if (
       (node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') &&
@@ -539,12 +551,26 @@ export function analyse(
     ...imports.filter((i) => i.imported === 'request').map((i) => i.local),
   ]);
   for (let pass = 0; pass < 3; pass++)
-    for (const d of declarators) {
+    for (const d of allDeclarators) {
       const init = d.init as Node | null;
       const name = nameOf(d.id);
       if (name && init?.type === 'Identifier' && senders.has(init.name as string))
         senders.add(name);
     }
+  // `api.request` on a namespace import of the API client, and `window.fetch` and its kin
+  // (fourth re-check R5): senders reached through a member.
+  const clients = new Set(
+    imports
+      .filter((i) => i.imported === '*' && /(^|\/)api-client$/.test(i.from))
+      .map((i) => i.local),
+  );
+  const GLOBALS = new Set(['window', 'globalThis', 'self']);
+  const memberSender = (n: Node) =>
+    n.type === 'MemberExpression' &&
+    !n.computed &&
+    (n.object as Node).type === 'Identifier' &&
+    ((clients.has((n.object as Node).name as string) && nameOf(n.property) === 'request') ||
+      (GLOBALS.has((n.object as Node).name as string) && nameOf(n.property) === 'fetch'));
   /** Identifiers of senders seen in a position that sends, or that only names an alias. */
   const handled = new WeakSet<object>();
   // A URL is matched up to its query or fragment, which the daemon's routes ignore.
@@ -557,7 +583,9 @@ export function analyse(
       const callee = node.callee as Node;
       const args = node.arguments as Node[];
       // `send(url)`, or `send.call(self, url)` and `send.apply(self, [url])`.
-      const direct = callee.type === 'Identifier' && senders.has(callee.name as string);
+      const direct =
+        (callee.type === 'Identifier' && senders.has(callee.name as string)) ||
+        memberSender(callee);
       const object = callee.type === 'MemberExpression' ? (callee.object as Node) : undefined;
       const via =
         object?.type === 'Identifier' && senders.has(object.name as string)
@@ -583,6 +611,10 @@ export function analyse(
     }
     if (node.type === 'Identifier' && senders.has(node.name as string) && !handled.has(node))
       escapes.push({ name: node.name as string, at: node.start });
+    if (memberSender(node) && !handled.has(node)) {
+      escapes.push({ name: nameOf(node.property) ?? '', at: node.start });
+      return;
+    }
     // An attribute's own text (an id, a class) is not a URL; a handler inside one may hold one.
     if (node.type === 'JSXAttribute' && (node.value as Node | null)?.type === 'Literal') return;
     if (node.type === 'ImportExpression') {
@@ -1040,6 +1072,16 @@ describe('the poster detector', () => {
     ],
     ['request.apply', `${ns}export function A() { return request.apply(null, [b.r + 'decide']); }`],
     [
+      "a namespace import's api.request (S1)",
+      `${ns}import * as api from '../lib/api-client.js';\nexport function A() { return api.request(b.r + 'decide'); }`,
+    ],
+    ['window.fetch (S3)', `${ns}export function A() { return window.fetch(b.r + 'decide'); }`],
+    ['globalThis.fetch', `${ns}export function A() { return globalThis.fetch(b.r + 'decide'); }`],
+    [
+      'a let alias of request (S8)',
+      `${ns}let send = request;\nexport function A() { return send(b.r + 'decide'); }`,
+    ],
+    [
       'the second branch of a conditional URL (O3)',
       `${ns}export function A() { return request(c ? \`/api/\${id}/x\` : b.r + 'decide'); }`,
     ],
@@ -1083,6 +1125,12 @@ describe('the poster detector', () => {
         "import { request } from '../lib/api-client.js';\nconst senders = [request];\nexport function A() { return useIt(request); }",
     });
     expect(senderEscapes(planted)).toEqual(['features/A.tsx: request', 'features/A.tsx: request']);
+    // A member sender passed on is listed too.
+    const member = plant({
+      'features/A.tsx':
+        "import * as api from '../lib/api-client.js';\nexport function A() { return useIt(api.request, window.fetch); }",
+    });
+    expect(senderEscapes(member)).toEqual(['features/A.tsx: request', 'features/A.tsx: fetch']);
   });
   it('names an action built from pieces inside a component', () => {
     const planted = plant({

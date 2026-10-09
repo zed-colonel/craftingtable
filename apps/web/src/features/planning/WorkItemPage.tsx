@@ -22,9 +22,12 @@ type Dependency = WorkItemDetailResponse['dependents'][number];
 function DependencyLinks({
   workspaceId,
   entries,
+  titled,
 }: {
   workspaceId: WorkspaceId;
   entries: readonly Dependency[];
+  /** Show each title too: predecessors are few and say what this waits on (review L2). */
+  titled: boolean;
 }) {
   return (
     <ul className="dependency-links">
@@ -35,6 +38,7 @@ function DependencyLinks({
             title={entry.title}
           >
             <span className="mono">{entry.sourceId}</span>
+            {titled && ` ${entry.title}`}
           </Link>{' '}
           <span className="hint">{STATUS_LABELS[entry.status]}</span>
         </li>
@@ -243,7 +247,11 @@ export function WorkItemPage({
                   {label} ({entries.length})
                 </dt>
                 <dd>
-                  <DependencyLinks workspaceId={workspaceId} entries={entries} />
+                  <DependencyLinks
+                    workspaceId={workspaceId}
+                    entries={entries}
+                    titled={label !== 'Unblocks'}
+                  />
                 </dd>
               </Fragment>
             ))}

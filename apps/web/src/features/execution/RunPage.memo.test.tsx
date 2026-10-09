@@ -101,3 +101,37 @@ it('expands and collapses tool output already shown', () => {
   fireEvent.click(screen.getByLabelText('Expand tool output'));
   expect(container.querySelector('.run-event-details')).not.toBeNull();
 });
+
+// R-E4 (review L3): the design-questions link says where it leads.
+it('links design questions to their inbox item, or to the work item when none carries them', () => {
+  const link = (route: never) => {
+    render(
+      <RunPage
+        detail={detail}
+        events={[]}
+        connection="open"
+        canMutate
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+        resolveDesign={route}
+      />,
+    );
+    const found = screen.getByRole('link', { name: /Resolve design questions/ });
+    const result = [found.textContent, found.getAttribute('href')];
+    cleanup();
+    return result;
+  };
+  expect(link({ name: 'inbox', workspaceId: 'ws-1', itemId: 'item-9' } as never)).toEqual([
+    'Resolve design questions in Needs you',
+    '/workspaces/ws-1/inbox/item-9',
+  ]);
+  expect(link({ name: 'work-item', workspaceId: 'ws-1', workItemId: 'item-1' } as never)).toEqual([
+    'Resolve design questions on work item',
+    '/workspaces/ws-1/work-items/item-1',
+  ]);
+});

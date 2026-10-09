@@ -703,3 +703,20 @@ it('reads a plan version’s graph once, and no event reads it again (R-E4)', as
     cleanup();
   }
 });
+
+/** R-E4 (review L3): on a phone the plan graph is not drawn, so it is not read either. */
+it('reads no plan graph on a phone', async () => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  );
+  window.history.replaceState(null, '', '/workspaces/ws-a/projects/project-a/plans/plan');
+  render(<App />);
+  await screen.findByRole('heading', { name: 'Plan version 1' });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  expect(requests).toContain('plan-version');
+  expect(requests).not.toContain('plan-version-graph');
+  expect(screen.queryByRole('region', { name: 'Dependency graph' })).toBeNull();
+});

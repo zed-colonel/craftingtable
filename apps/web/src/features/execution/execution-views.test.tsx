@@ -1875,6 +1875,14 @@ describe('delegation on the work item page (R-E4)', () => {
     cleanup();
     render(<DelegationPanel {...panelProps({ omitWhenEmpty: true })} />);
     expect(screen.getByRole('region', { name: 'Delegation' })).toBeDefined();
+    cleanup();
+    // The page's commands report into this section, so an error keeps it (review M2).
+    render(
+      <DelegationPanel
+        {...panelProps({ worktrees: [], omitWhenEmpty: true, error: 'Start refused.' })}
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toBe('Start refused.');
   });
 
   it('says once that there is no worktree yet', () => {

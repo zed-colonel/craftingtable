@@ -109,8 +109,9 @@ export function DelegationPanel({
 }: {
   hideCreateWorktree?: boolean;
   /**
-   * Render nothing while there is no worktree and no run: a map work item's slices make their
-   * own worktrees, so an empty Delegation section has nothing to offer there (R-E4).
+   * Render nothing while there is no worktree, no run and no command error: a map work item's
+   * slices make their own worktrees, so an empty Delegation section has nothing to offer there
+   * (R-E4); the page's command errors show here, so an error keeps it (review M2).
    */
   omitWhenEmpty?: boolean;
   /** An automated cycle owns the worktree; the manual launch form starts closed. */
@@ -253,7 +254,16 @@ export function DelegationPanel({
           liveRuns.length > 0 ? ` · ${liveRuns.length} live` : ''
         }.`;
   const latest = runs[0];
-  if (omitWhenEmpty && worktrees.length === 0 && runs.length === 0) return null;
+  // A hand-off the latest run offers is a next step, so the closed history names it (review L1).
+  const latestHandoff = latest && canMutate && !itemCompleted ? handoffTarget(latest) : undefined;
+  const runsSummary =
+    latest &&
+    `Latest: ${RUN_ROLE_LABELS[latest.role]} · ${RUN_STATUS_LABELS[latest.status]}${
+      latestHandoff ? ` · hand-off offered: ${latestHandoff.button}` : ''
+    }.`;
+  // The work item's commands report their errors here, so a set error keeps the section (review M2).
+  if (omitWhenEmpty && worktrees.length === 0 && runs.length === 0 && error === undefined)
+    return null;
   return (
     <>
       <Section id="delegation" title="Delegation" summary={summary}>
@@ -610,7 +620,7 @@ export function DelegationPanel({
           count={runs.length}
           collapsible
           defaultOpen={false}
-          summary={`Latest: ${RUN_ROLE_LABELS[latest.role]} · ${RUN_STATUS_LABELS[latest.status]}.`}
+          summary={runsSummary}
         >
           <div className="table-scroll">
             <table className="data-table data-table-wide">

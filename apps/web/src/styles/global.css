@@ -1647,6 +1647,15 @@ button:disabled {
     min-width: 44px;
   }
 
+  /* A link that does a button's job, and the work item's dependency links (R-E4 review L2). */
+  a.primary-button,
+  a.secondary-button,
+  .dependency-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
   details > summary {
     min-height: 44px;
     padding-block: var(--space-2);
@@ -2898,6 +2907,11 @@ button:disabled {
   font-size: var(--text-sm);
   min-width: 9rem;
 }
+.slice-strip-item {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-sm);
+}
 .slice-strip-wait {
   flex: 1 1 16rem;
   min-width: 0;
@@ -2944,6 +2958,7 @@ button:disabled {
   .board-gate,
   .board-chip:not(.board-chip-static),
   .slice-strip-name,
+  .slice-strip-item,
   .board-card-title,
   .board-node-link,
   .board-view {

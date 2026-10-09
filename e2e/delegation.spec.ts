@@ -116,9 +116,9 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await page.getByRole('button', { name: 'Work item' }).click();
     // Run history is a closed section whose summary names the latest run (R-E4).
     const runs = page.getByRole('region', { name: 'Runs', exact: true });
-    await expect(runs).toContainText('Latest: Implement · Finished.');
+    await expect(runs).toContainText('Latest: Implement · Finished · hand-off offered: Review.');
     await page.reload();
-    await expect(runs).toContainText('Latest: Implement · Finished.');
+    await expect(runs).toContainText('Latest: Implement · Finished · hand-off offered: Review.');
     await runs.locator('summary.section-head').click();
     await expect(runs.getByRole('table', { name: 'Agent runs' })).toContainText('Finished');
 

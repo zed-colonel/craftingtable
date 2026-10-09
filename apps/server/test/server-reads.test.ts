@@ -18,6 +18,7 @@ import {
   asUserId,
   asWorkItemId,
   asWorkspaceMembershipId,
+  asWorkspaceId,
   asWorktreeId,
   DEFAULT_COMPLETION_POLICY,
   type WorkCycle,
@@ -574,6 +575,8 @@ describe('worktree lineage reads (R-C16)', () => {
     );
     for (const header of chosen) expect(header).toEqual(recent.find((r) => r.id === header.id));
     expect(runs.headersFor(f.workspaceId, [])).toEqual([]);
+    // Only the asked workspace's runs, whatever ids are asked for.
+    expect(runs.headersFor(asWorkspaceId('another-workspace'), [f.finishedRun])).toEqual([]);
   });
 });
 

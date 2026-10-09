@@ -463,11 +463,7 @@ class SqliteWorktreeRepository implements WorktreeRepository {
   }
 }
 
-/**
- * A question stop's investigation works beside its cycle (R-C16): the worktree's lineage reads
- * (its newest run, its runs in order) leave it out, so no rule that adopts or resumes the
- * newest run ever sees it. `liveForWorktree` includes it: it still holds the worktree.
- */
+/** The columns a run's header reads: no brief or summary (R-H4), its profile selection (R-D7). */
 const HEADER_COLUMNS = `id, workspace_id, worktree_id, repository_id, role, status, created_at,
                   finished_at, review_branch_context_json, profile_selection_json`;
 type AgentRunHeaderRow = Pick<
@@ -501,6 +497,11 @@ function mapAgentRunHeader(row: AgentRunHeaderRow): AgentRunHeader {
       : { profileSelection: JSON.parse(row.profile_selection_json) }),
   };
 }
+/**
+ * A question stop's investigation works beside its cycle (R-C16): the worktree's lineage reads
+ * (its newest run, its runs in order) leave it out, so no rule that adopts or resumes the
+ * newest run ever sees it. `liveForWorktree` includes it: it still holds the worktree.
+ */
 const LINEAGE = `
              AND (profile_selection_json IS NULL
                   OR json_extract(profile_selection_json, '$.investigationId') IS NULL)`;

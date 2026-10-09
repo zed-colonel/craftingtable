@@ -2,6 +2,7 @@ import type { PlanVersionGraph, WorkItemSummary } from '@craftingtable/contracts
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PLAN_GRAPH_CAP, PlanGraph } from './PlanGraph.js';
+import { PlanVersionPage } from './PlanVersionPage.js';
 
 /**
  * R-E4: a plan version's dependency graph, deferred from R-E3b. The structure is read once per
@@ -86,4 +87,40 @@ it('draws a plan whose dependencies loop, rather than failing the page', () => {
     />,
   );
   expect(screen.getAllByRole('button')).toHaveLength(2);
+});
+
+it('draws a graph on its own version’s page only (review L3)', () => {
+  const detail = {
+    version: {
+      id: 'version-1',
+      versionNumber: 1,
+      document: 'plan.md',
+      isActive: true,
+      contentDigest: 'a'.repeat(64),
+      digestAlgorithm: 'sha256',
+      digestFormatVersion: 1,
+      sourceProfile: 'p',
+      itemCount: 1,
+      requiredDependencyCount: 0,
+      createdAt: '2026-10-01T00:00:00.000Z',
+    },
+    workItems: [],
+    artifacts: [],
+    diagnostics: [],
+  } as never;
+  const shown = (planVersionId: string) => {
+    render(
+      <PlanVersionPage
+        detail={detail}
+        graph={{ ...graph(['AQ-01'], []), planVersionId } as PlanVersionGraph}
+        onOpenWorkItem={vi.fn()}
+        onViewArtifact={vi.fn()}
+      />,
+    );
+    const found = screen.queryByRole('region', { name: 'Dependency graph' }) !== null;
+    cleanup();
+    return found;
+  };
+  expect(shown('version-1')).toBe(true);
+  expect(shown('version-2')).toBe(false);
 });

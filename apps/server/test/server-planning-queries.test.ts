@@ -14,6 +14,7 @@ import {
 import {
   asAgentRunId,
   asSessionId,
+  asWorkItemDependencyId,
   asSourceRepositoryId,
   asUserId,
   asWorkspaceId,
@@ -319,6 +320,25 @@ describe('planning queries over HTTP', () => {
         .map(([from]) => graph.nodes[from]!.sourceId);
       expect(into.toSorted()).toEqual(item.requiredPredecessors.map((p) => p.sourceId).toSorted());
     }
+    // A recommended dependency is not an edge: recommendations never block.
+    const [first, last] = [graph.nodes[0]!, graph.nodes.at(-1)!];
+    ready.context.storage.transaction((tx) =>
+      tx.planning.dependencies.insertMany([
+        {
+          id: asWorkItemDependencyId(randomUUID()),
+          workspaceId: ready.workspaceId,
+          planVersionId: ready.imported.planVersionId,
+          predecessorWorkItemId: first.workItemId,
+          successorWorkItemId: last.workItemId,
+          kind: 'recommended',
+          ordinal: 99,
+        },
+      ]),
+    );
+    const again = planVersionGraphSchema.parse(
+      (await get(`${base}/plan-versions/${ready.imported.planVersionId}/graph`)).json(),
+    );
+    expect(again.edges).toEqual(graph.edges);
     // Unknown and foreign versions are not found.
     expect(
       (await get(`${base}/plan-versions/00000000-0000-4000-8000-000000000000/graph`)).statusCode,

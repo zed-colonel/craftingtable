@@ -24,6 +24,7 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   work = {};
+  roadmapStatus = 'paused';
 });
 
 const ws = asWorkspaceId('ws');
@@ -143,6 +144,7 @@ const awaitingPlan = {
     ],
   },
 };
+let roadmapStatus = 'paused';
 function serve(view: unknown = runtime) {
   vi.mocked(request).mockImplementation(async (url) => {
     const path = String(url);
@@ -159,7 +161,7 @@ function serve(view: unknown = runtime) {
             roadmap: {
               id: 'r',
               workspaceId: 'ws',
-              status: 'paused',
+              status: roadmapStatus,
               version: 1,
               definition: { crossProject: { definitionId, bindingRevision: 1 }, entries: [] },
             },
@@ -349,4 +351,38 @@ it("says in the item what holds a decision's approval (review M1)", async () => 
   within(card).getByText(
     'Approval unavailable: Pause roadmap scheduling before approving decisions.',
   );
+});
+
+it("offers the roadmap's Pause beside a decision its running scheduling holds (operator 2026-10-09)", async () => {
+  roadmapStatus = 'running';
+  serve();
+  host({
+    code: 'architecture-decision',
+    subjectKey: 'roadmap:r:checkpoint:LOCAL-ADR-02',
+    refs: { roadmapId: 'r' },
+    checkpointId: 'LOCAL-ADR-02',
+  });
+  const pause = await screen.findByRole('button', { name: 'Pause roadmap' });
+  fireEvent.click(pause);
+  await waitFor(() =>
+    expect(
+      vi.mocked(request).mock.calls.filter(([url]) => String(url).endsWith('/roadmaps/r/control')),
+    ).toHaveLength(1),
+  );
+  const [, , init] = vi
+    .mocked(request)
+    .mock.calls.find(([url]) => String(url).endsWith('/roadmaps/r/control'))!;
+  expect(JSON.parse(String(init?.body))).toMatchObject({ action: 'pause' });
+});
+
+it('offers no Pause while the roadmap is paused', async () => {
+  serve();
+  host({
+    code: 'architecture-decision',
+    subjectKey: 'roadmap:r:checkpoint:LOCAL-ADR-02',
+    refs: { roadmapId: 'r' },
+    checkpointId: 'LOCAL-ADR-02',
+  });
+  await screen.findByRole('region', { name: 'LOCAL-ADR-02' });
+  expect(screen.queryByRole('button', { name: 'Pause roadmap' })).toBeNull();
 });

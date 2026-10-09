@@ -1,11 +1,12 @@
 import { runtimeEvidenceViewSchema, type RuntimeEvidenceView } from '@craftingtable/contracts';
 import type { Roadmap, WorkspaceId } from '@craftingtable/domain';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
+import { ActionBar } from '../components/ActionBar.js';
 import { request } from '../lib/api-client.js';
 import { Link } from '../lib/navigation.js';
 import { queryKeys } from '../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../lib/query-store.js';
-import { loadRoadmaps } from '../lib/roadmap-api.js';
+import { controlRoadmap, loadRoadmaps } from '../lib/roadmap-api.js';
 
 /**
  * The map revision and binding whose dependency environment a roadmap uses: a cross-project
@@ -184,4 +185,62 @@ export function RoadmapAmendments({
   if (!roadmap.definition.crossProject)
     return <p className="empty-state">Only a cross-project roadmap's map can be amended.</p>;
   return <>{children(roadmap)}</>;
+}
+
+/**
+ * The roadmap's own Pause, beside a decision its running scheduling holds (operator decision
+ * 2026-10-09, after R-A6's review M1): approving a shared decision needs scheduling paused.
+ * Shown from the roadmap's typed status, never from the decision's blocker text. A manual
+ * control: pausing approves nothing, and Resume stays the operator's.
+ */
+export function PauseForDecision({
+  workspaceId,
+  roadmapId,
+  csrfToken,
+  canMutate,
+}: {
+  workspaceId: WorkspaceId;
+  roadmapId: string;
+  csrfToken: string;
+  canMutate: boolean;
+}) {
+  const { roadmap } = useRoadmap(workspaceId, roadmapId);
+  const store = useQueryStore();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const running = roadmap?.status === 'running' ? roadmap : undefined;
+  if (!running) return null;
+  const pause = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await controlRoadmap(running, 'pause', csrfToken);
+      store.refreshNow([queryKeys.roadmaps(workspaceId), queryKeys.attention(workspaceId)]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not pause the roadmap.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <ActionBar label="Pause for this decision">
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={!canMutate || busy}
+        onClick={() => void pause()}
+      >
+        Pause roadmap
+      </button>
+      <span className="hint">
+        Approval waits while {running.definition.name} runs. Running steps finish; Resume stays
+        yours.
+      </span>
+      {error && (
+        <span role="alert" className="error-state">
+          {error}
+        </span>
+      )}
+    </ActionBar>
+  );
 }

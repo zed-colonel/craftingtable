@@ -130,3 +130,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-11-re5b-after | `0b78151` | 2026-10-11 | 72 (1 phone only) | 1× |
 | 2026-10-11-re5b-final | `f2d0c9e` | 2026-10-11 | 72 (1 phone only) | 1× |
 | 2026-10-11-rh5-before | `7061e78` | 2026-10-11 | 72 (1 phone only) | 1× |
+| 2026-10-11-rh5-after | `daf4c3a` | 2026-10-11 | 72 (1 phone only) | 1× |

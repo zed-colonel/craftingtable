@@ -1614,7 +1614,7 @@ it('applies model-only roadmap choices without expiring accepted saved-plan evid
   expect(current.definition).toEqual(saved.definition);
   expect(current.attempts).toEqual(saved.attempts);
   expect(current.status).toBe('draft');
-  expect(result.roadmaps[0]!.entries[0]!.selections.remediate.model).toBe('new-remediate-model');
+  expect(result.entries[0]!.selections.remediate.model).toBe('new-remediate-model');
   expect(acceptedEvidence(context.storage, ws, id, 1, evidence.subject)?.id).toBe(evidence.id);
   expect((await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!.snapshotDigest).toBe(
     ready.snapshotDigest,

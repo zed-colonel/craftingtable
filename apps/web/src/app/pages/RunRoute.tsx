@@ -224,7 +224,12 @@ export function RunRoute({
         }
         onLoadDiff={loadDiff}
         onCloseDiff={() => setDiff(undefined)}
-        {...(view === undefined ? {} : { backends: view.backends, profiles: view.profiles })}
+        {...(view === undefined
+          ? {}
+          : {
+              backends: view.backends,
+              ...(view.handoffs === undefined ? {} : { handoffs: view.handoffs }),
+            })}
         {...(canMutate && resolveDesign
           ? {
               resolveDesign,

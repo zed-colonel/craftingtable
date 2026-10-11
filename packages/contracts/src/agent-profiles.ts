@@ -48,6 +48,7 @@ export const agentSelectionSourceSchema = z.strictObject({
   assignmentId: z.string().min(1).max(200).optional(),
   delegationId: z.string().min(1).max(200).optional(),
   stageIndex: z.number().int().nonnegative().optional(),
+  runId: z.string().min(1).max(200).optional(),
 });
 const agentResolutionSchema = z.strictObject({
   // Reported as held: a saved workspace default's model was never trimmed (`agentRunProfileSchema`).
@@ -76,6 +77,17 @@ export const effectiveAgentsSchema = equivalentSchema<
     >,
   ),
 );
+/**
+ * A run's hand-off as the daemon offers it (R-E5b): the role the next run takes, and the agent the
+ * hand-off form starts from, with its source. The run's role decides the target: a design hands
+ * to implementation, an implementation to review, a review to remediation (an implement run).
+ */
+export const runHandoffSchema = z.strictObject({
+  role: z.enum(['implement', 'review']),
+  agent: effectiveAgentSchema,
+});
+/** Each listed run's hand-off, by run id. */
+export const runHandoffsSchema = z.record(z.string().min(1).max(200), runHandoffSchema);
 export const profileSelectionSchema = z.strictObject({
   purpose: z.enum(AGENT_PROFILE_PURPOSES),
   assignmentId: z.uuid().optional(),

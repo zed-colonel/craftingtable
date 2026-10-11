@@ -105,6 +105,28 @@ describe('workspace defaults, the lowest layer of a new choice', () => {
   });
 });
 
+describe('a hand-off’s continued run (R-E5b)', () => {
+  const continued = { runId: 'run-1', profile: profile('continued', 'auto') };
+  it('beats the daemon default, with its own permissions', () => {
+    expect(resolveAgent({ purpose: 'review', workspace: workspace(), continued })).toEqual({
+      selection: codex('continued'),
+      source: { layer: 'continued-run', runId: 'run-1' },
+      permissionMode: 'auto',
+      inherited: { selection: { backend: 'claude-code' }, source: { layer: 'daemon-default' } },
+    });
+  });
+  it('loses to a saved workspace default for the purpose or the one it inherits', () => {
+    expect(
+      resolveAgent({ purpose: 'remediate', workspace: workspace(saved('implement')), continued })
+        .source,
+    ).toEqual({ layer: 'workspace-default', slot: 'implement' });
+    expect(
+      resolveAgent({ purpose: 'remediate', workspace: workspace(saved('implement')), continued })
+        .inherited?.source,
+    ).toEqual({ layer: 'continued-run', runId: 'run-1' });
+  });
+});
+
 describe('a cycle’s or a saved entry’s profiles', () => {
   it('a step: its own profile with the step’s permissions', () => {
     expect(

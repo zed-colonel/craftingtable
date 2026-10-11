@@ -105,6 +105,10 @@ export function useWorkItem(workItemId: WorkItemId | undefined) {
     repositories: data?.repositories ?? [],
     backends: data?.backends ?? [],
     profiles: data?.profiles,
+    /** Each purpose's workspace default, with its source (R-E5a). */
+    agents: data?.agents,
+    /** Each run's hand-off default (R-E5b). */
+    handoffs: data?.handoffs,
     refresh,
     commands,
     diff,
@@ -249,7 +253,8 @@ export function DelegationControls({
           if (alive()) go({ name: 'run', workspaceId, runId: response.run.id });
         })
       }
-      {...(item.profiles === undefined ? {} : { profiles: item.profiles })}
+      {...(item.agents === undefined ? {} : { agents: item.agents })}
+      {...(item.handoffs === undefined ? {} : { handoffs: item.handoffs })}
       onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
       onOpenDiff={item.loadDiff}
     />

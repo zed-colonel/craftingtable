@@ -1,6 +1,7 @@
 import type {
   AgentRunSummary,
   ExecutionStatusResponse,
+  WorkItemView,
   MergeGate,
   SourceRepositorySummary,
   WorktreeSummary,
@@ -37,13 +38,12 @@ import {
 import { MergeApproval } from '../../decisions/merge/MergeApproval.js';
 import { Link } from '../../lib/navigation.js';
 import { HandoffForm } from './HandoffForm.js';
+import { EffectiveAgentText } from './EffectiveAgentText.js';
 import {
-  handoffDefaults,
+  handoffChoice,
   handoffTarget,
   type LaunchInput,
-  type ProfileEntry,
   previousImplementerHint,
-  profileChoice,
 } from './handoff.js';
 import { ModelField } from './ModelField.js';
 import { ReasoningEffortField } from './ReasoningEffortField.js';
@@ -105,7 +105,8 @@ export function DelegationPanel({
   onLaunch,
   onOpenRun,
   onOpenDiff,
-  profiles,
+  agents,
+  handoffs,
 }: {
   hideCreateWorktree?: boolean;
   /**
@@ -144,10 +145,21 @@ export function DelegationPanel({
   onLaunch: (input: LaunchInput) => void;
   onOpenRun: (runId: AgentRunId) => void;
   onOpenDiff: (worktreeId: WorktreeId) => void;
-  /** Per-role defaults the form and every handoff start from; absent until loaded. */
-  profiles?: readonly ProfileEntry[];
+  /** Each purpose's workspace default, the launch form's start, as the daemon reports it (R-E5b). */
+  agents?: WorkItemView['agents'];
+  /** Each run's hand-off default, as the daemon reports it (R-E5b). */
+  handoffs?: WorkItemView['handoffs'];
 }) {
-  const roleProfiles = profiles ?? [];
+  /**
+   * A role's default, as the launch form starts from it. The daemon's own default is no saved
+   * preference, so it never replaces what the operator already chose (by its typed layer).
+   */
+  const roleChoice = (role: AgentRunRole) => {
+    const agent = agents?.[role];
+    return agent === undefined || agent.source.layer === 'daemon-default'
+      ? undefined
+      : handoffChoice(agent);
+  };
   // A completed item still takes independent reviews in its verification and acceptance
   // worktrees (fresh evidence after a decision or dependency change); the daemon permits only
   // review runs there. Implementation on a completed item stays closed.
@@ -156,7 +168,7 @@ export function DelegationPanel({
     (!itemCompleted || (!!t.executionScope && t.executionScope.kind !== 'slice'));
   const initialScope = worktrees.find(launchable)?.executionScope;
   const initialRole = initialScope && initialScope.kind !== 'slice' ? 'review' : 'implement';
-  const initialChoice = profileChoice(initialRole, roleProfiles);
+  const initialChoice = roleChoice(initialRole);
   const availableBackends = backends.filter((backend) => backend.available);
   const [backendKind, setBackendKind] = useState<AgentBackendKind | ''>(
     initialChoice?.backend ?? '',
@@ -188,7 +200,7 @@ export function DelegationPanel({
   /** Changing the role applies that role's profile; the operator can still edit after. */
   const applyRole = (next: AgentRunRole): void => {
     setRole(next);
-    const choice = profileChoice(next, roleProfiles);
+    const choice = roleChoice(next);
     if (choice !== undefined) {
       setBackendKind(choice.backend);
       setModel(choice.model ?? '');
@@ -542,6 +554,12 @@ export function DelegationPanel({
                   ))}
                 </select>
               </label>
+              {agents?.[effectiveRole] && (
+                <p className="hint">
+                  Default for this role:{' '}
+                  <EffectiveAgentText agent={agents[effectiveRole]} purpose={effectiveRole} />
+                </p>
+              )}
               <ModelField
                 key={`${selectedBackend?.kind}:${role}`}
                 models={models}
@@ -645,10 +663,9 @@ export function DelegationPanel({
                   const parent =
                     run.parentRunId === undefined ? undefined : runById.get(run.parentRunId);
                   const target = handoffTarget(run);
+                  const handoffAgent = target === undefined ? undefined : handoffs?.[run.id]?.agent;
                   const handoffDefault =
-                    target === undefined
-                      ? undefined
-                      : handoffDefaults(target.role, roleProfiles, run, runs);
+                    handoffAgent === undefined ? undefined : handoffChoice(handoffAgent);
                   const handoffHint =
                     run.role === 'review' && handoffDefault !== undefined
                       ? previousImplementerHint(runs, run.worktreeId, handoffDefault)
@@ -740,6 +757,9 @@ export function DelegationPanel({
                                 label={target.label}
                                 backends={backends}
                                 defaults={handoffDefault}
+                                {...(handoffAgent === undefined
+                                  ? {}
+                                  : { defaultAgent: handoffAgent })}
                                 {...(handoffHint === undefined ? {} : { hint: handoffHint })}
                                 placeholder={target.placeholder}
                                 busy={busy}

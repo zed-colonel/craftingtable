@@ -3,6 +3,7 @@ import {
   finalizationsResponseSchema,
   roadmapAgentsSchema,
   runProfilesResponseSchema,
+  runViewSchema,
   workCyclesResponseSchema,
   workItemViewSchema,
 } from '@craftingtable/contracts';
@@ -15,12 +16,15 @@ import {
   cycleProfiles,
   entryIds,
   finalizationFixture,
+  fixtureRepository,
   mutationHeaders,
   type Ready,
   ready,
+  registerAndWorktree,
   roadmapFixture,
   roadmapId,
   roadmapInput,
+  runToFinish,
   saveRoadmapRequest,
   startCycle,
   storedRoadmap,
@@ -101,6 +105,128 @@ describe('workspace defaults (run-profiles and the page reads)', () => {
     expect(listed.profiles.find((p) => p.role === 'design')?.model).toBe(' spaced ');
     expect(listed.agents?.design.selection.model).toBe(' spaced ');
     workItemViewSchema.parse(await get(state, `/work-items/${state.workItemId}/view`));
+  });
+});
+
+describe('hand-off defaults (the run and work-item reads)', () => {
+  /**
+   * R-E5b: a hand-off form's default is the daemon's, per run and target role: the saved
+   * workspace default for the role it hands to, else the run it continues (for remediation, the
+   * worktree's latest finished implementer), with the permissions it would launch with. A
+   * continued run's model is the one it asked for, else the one its backend reported.
+   */
+  it('takes the run it continues when no default is saved, and the latest implementer for remediation', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const design = await runToFinish(state, worktree.id, {
+      role: 'design',
+      backend: 'claude-code',
+      permissionMode: 'auto',
+      reasoningEffort: 'low',
+    });
+    const implement = await runToFinish(state, worktree.id, {
+      role: 'implement',
+      backend: 'claude-code',
+      permissionMode: 'edit-only',
+      reasoningEffort: 'high',
+    });
+    const review = await runToFinish(state, worktree.id, {
+      role: 'review',
+      backend: 'claude-code',
+      permissionMode: 'edit-only',
+      reasoningEffort: 'medium',
+    });
+    const page = workItemViewSchema.parse(await get(state, `/work-items/${state.workItemId}/view`));
+    const daemon = { selection: claude(), source: { layer: 'daemon-default' } };
+    expect(page.handoffs?.[design]).toEqual({
+      role: 'implement',
+      agent: {
+        selection: { ...claude('scripted-model'), reasoningEffort: 'low' },
+        source: { layer: 'continued-run', runId: design },
+        permissionMode: 'auto',
+        inherited: daemon,
+      },
+    });
+    expect(page.handoffs?.[implement]).toEqual({
+      role: 'review',
+      agent: {
+        selection: { ...claude('scripted-model'), reasoningEffort: 'high' },
+        source: { layer: 'continued-run', runId: implement },
+        permissionMode: 'auto',
+        inherited: daemon,
+      },
+    });
+    // Remediation goes back to the implementer, not the reviewer that found the problems.
+    expect(page.handoffs?.[review]).toEqual({
+      role: 'implement',
+      agent: {
+        selection: { ...claude('scripted-model'), reasoningEffort: 'high' },
+        source: { layer: 'continued-run', runId: implement },
+        permissionMode: 'auto',
+        inherited: daemon,
+      },
+    });
+    const run = runViewSchema.parse(await get(state, `/runs/${review}/view`));
+    expect(run.handoffs).toEqual(page.handoffs);
+  });
+  it('takes the saved default for the role it hands to: remediation first, then implementation', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const review = await runToFinish(state, worktree.id, {
+      role: 'review',
+      backend: 'claude-code',
+      permissionMode: 'edit-only',
+    });
+    const design = await runToFinish(state, worktree.id, {
+      role: 'design',
+      backend: 'claude-code',
+      permissionMode: 'auto',
+    });
+    const saved = await post(state, '/run-profiles', {
+      profiles: [
+        {
+          role: 'implement',
+          backend: 'claude-code',
+          model: 'scripted-model',
+          permissionMode: 'edit-only',
+        },
+      ],
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const page = workItemViewSchema.parse(await get(state, `/work-items/${state.workItemId}/view`));
+    const implementDefault = {
+      selection: claude('scripted-model'),
+      source: { layer: 'workspace-default', slot: 'implement' },
+      permissionMode: 'edit-only',
+    };
+    expect(page.handoffs?.[design]?.agent).toMatchObject(implementDefault);
+    expect(page.handoffs?.[review]?.agent).toMatchObject(implementDefault);
+    const remediation = await post(state, '/run-profiles', {
+      profiles: [
+        {
+          role: 'implement',
+          backend: 'claude-code',
+          model: 'scripted-model',
+          permissionMode: 'edit-only',
+        },
+        {
+          role: 'remediate',
+          backend: 'claude-code',
+          permissionMode: 'auto',
+          reasoningEffort: 'xhigh',
+        },
+      ],
+    });
+    expect(remediation.statusCode, remediation.body).toBe(200);
+    const again = workItemViewSchema.parse(
+      await get(state, `/work-items/${state.workItemId}/view`),
+    );
+    expect(again.handoffs?.[review]?.agent).toMatchObject({
+      selection: { ...claude(), reasoningEffort: 'xhigh' },
+      source: { layer: 'workspace-default', slot: 'remediate' },
+      permissionMode: 'auto',
+    });
+    expect(again.handoffs?.[design]?.agent).toMatchObject(implementDefault);
   });
 });
 

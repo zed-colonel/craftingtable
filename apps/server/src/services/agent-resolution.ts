@@ -69,6 +69,11 @@ export type AgentContext = {
    * definition's automation. It applies to `conflict` only.
    */
   readonly delegation?: { readonly id?: string; readonly profile: AgentProfile };
+  /**
+   * The run a hand-off continues (R-E5b): below the workspace's saved defaults, above the
+   * daemon's, so a hand-off follows that run when no default is saved.
+   */
+  readonly continued?: { readonly runId: string; readonly profile: AgentProfile };
   /** The workspace's saved defaults, and the daemon's default for a role none covers. */
   readonly workspace?: {
     readonly profiles: readonly WorkspaceAgentProfile[];
@@ -120,7 +125,8 @@ function candidate(
  * 8. the cycle's or entry's own profile for the purpose, then 9. a delegated resolution's
  *    profile (conflict only), then 10. the profile the purpose inherits from those profiles;
  * 11. the workspace's saved default for the purpose or the nearest it inherits from;
- * 12. the daemon's default.
+ * 12. a hand-off's continued run;
+ * 13. the daemon's default.
  */
 function candidates(context: AgentContext): readonly Candidate[] {
   const { purpose, permissionMode: step } = context;
@@ -208,12 +214,23 @@ function candidates(context: AgentContext): readonly Candidate[] {
   }
   for (const slot of chain.slice(1)) fromProfiles(slot);
   if (context.workspace) {
-    const { profiles: saved, fallback } = context.workspace;
+    const { profiles: saved } = context.workspace;
     for (const slot of chain) {
       const profile = saved.find((p) => p.role === slot);
       if (profile)
         list.push(candidate(profile, { layer: 'workspace-default', slot }, profile.permissionMode));
     }
+  }
+  if (context.continued)
+    list.push(
+      candidate(
+        context.continued.profile,
+        { layer: 'continued-run', runId: context.continued.runId },
+        context.continued.profile.permissionMode,
+      ),
+    );
+  if (context.workspace) {
+    const { fallback } = context.workspace;
     list.push(candidate(fallback, { layer: 'daemon-default' }, fallback.permissionMode));
   }
   return list;

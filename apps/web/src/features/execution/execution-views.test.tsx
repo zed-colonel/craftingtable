@@ -5,10 +5,12 @@ import type {
   ExecutionStatusResponse,
   RunEventEnvelope,
   SourceRepositorySummary,
+  WorkItemView,
   WorktreeDiffResponse,
   WorktreeSummary,
 } from '@craftingtable/contracts';
 import {
+  AGENT_PROFILE_PURPOSES,
   agentSelections,
   CYCLE_STEPS,
   type CycleProfiles,
@@ -16,6 +18,7 @@ import {
   type CycleView,
   cycleActions,
   DEFAULT_COMPLETION_POLICY,
+  type EffectiveAgent,
   type WorkCycle,
   type WorkspaceId,
 } from '@craftingtable/domain';
@@ -25,7 +28,7 @@ import { ApiError } from '../../lib/api-client.js';
 import { CyclePanel } from './CyclePanel.js';
 import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
-import { handoffDefaults, handoffTarget } from './handoff.js';
+import { handoffTarget } from './handoff.js';
 import { RepositoriesPage } from './RepositoriesPage.js';
 import { outcomeProse, RunOutcome } from './RunOutcome.js';
 import { RunPage } from './RunPage.js';
@@ -792,6 +795,44 @@ const profiles: readonly AgentRunProfileEntry[] = [
   { role: 'review', backend: 'claude-code', model: 'opus', permissionMode: 'auto', stored: true },
 ];
 
+/** Each purpose's workspace default as the daemon reports it: `profiles` with their sources. */
+const effective = (slot: AgentRunProfileEntry['role']): EffectiveAgent => {
+  const profile = profiles.find((p) => p.role === slot);
+  return profile?.stored
+    ? {
+        selection: {
+          backend: profile.backend,
+          ...(profile.model ? { model: profile.model } : {}),
+        },
+        source: { layer: 'workspace-default', slot },
+        permissionMode: profile.permissionMode,
+      }
+    : {
+        selection: { backend: 'claude-code' },
+        source: { layer: 'daemon-default' },
+        permissionMode: 'auto',
+      };
+};
+const agents = Object.fromEntries(
+  AGENT_PROFILE_PURPOSES.map((purpose) => [
+    purpose,
+    effective(purpose === 'remediate' ? 'implement' : purpose),
+  ]),
+) as NonNullable<WorkItemView['agents']>;
+/**
+ * The hand-off defaults the daemon reports for these runs (R-E5b): a design and a review hand to
+ * the implementation default (remediation inherits it here), an implementation to review's.
+ */
+const handoffsFor = (runs: readonly AgentRunSummary[]): NonNullable<WorkItemView['handoffs']> =>
+  Object.fromEntries(
+    runs.map((r) => [
+      r.id,
+      r.role === 'implement'
+        ? { role: 'review', agent: agents.review }
+        : { role: 'implement', agent: r.role === 'review' ? agents.remediate : agents.implement },
+    ]),
+  );
+
 function panelProps(overrides: Partial<Parameters<typeof DelegationPanel>[0]> = {}) {
   return {
     repositories: [repository],
@@ -799,7 +840,8 @@ function panelProps(overrides: Partial<Parameters<typeof DelegationPanel>[0]> = 
     runs: [] as readonly AgentRunSummary[],
     mergeGates: {},
     backends: [claude, codex],
-    profiles,
+    agents,
+    handoffs: handoffsFor(overrides.runs ?? []),
     itemCompleted: false,
     canMutate: true,
     busy: false,
@@ -885,41 +927,6 @@ describe('run profiles', () => {
     expect((within(form).getByLabelText('Model') as HTMLSelectElement).value).toBe('opus');
   });
 
-  it('follows the previous run when the target role has only the daemon default', () => {
-    const parent = run({ backend: 'codex', resolvedModel: 'gpt-5.6-luna' });
-    const defaultsOnly: readonly AgentRunProfileEntry[] = [
-      { role: 'implement', backend: 'claude-code', permissionMode: 'auto', stored: false },
-    ];
-    expect(handoffDefaults('implement', defaultsOnly, parent)).toEqual({
-      backend: 'codex',
-      model: 'gpt-5.6-luna',
-      permissionMode: 'auto',
-    });
-    // Remediation without a stored profile returns to the previous implementer, not
-    // to the reviewer that found the problems.
-    const review = run({
-      id: 'review-1' as AgentRunSummary['id'],
-      role: 'review',
-      status: 'finished',
-      backend: 'codex',
-    });
-    const implementer = run({
-      id: 'impl-1' as AgentRunSummary['id'],
-      role: 'implement',
-      status: 'finished',
-      backend: 'claude-code',
-      resolvedModel: 'opus',
-    });
-    expect(handoffDefaults('implement', defaultsOnly, review, [review, implementer])).toEqual({
-      backend: 'claude-code',
-      model: 'opus',
-      permissionMode: 'auto',
-    });
-    expect(handoffDefaults('implement', defaultsOnly, review, [review])).toMatchObject({
-      backend: 'codex',
-    });
-  });
-
   it('opens a handoff form from Remediate, pre-filled from the implement profile with an override', () => {
     const onLaunch = vi.fn();
     const review = run({
@@ -941,6 +948,10 @@ describe('run profiles', () => {
     const form = screen.getByRole('form', { name: 'Remediate with' });
     expect((within(form).getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex');
     expect((within(form).getByLabelText('Model') as HTMLSelectElement).value).toBe('gpt-5.6-luna');
+    // The default is the daemon's, named with its source (R-E5b).
+    expect(within(form).getByText(/Starts from/).textContent).toBe(
+      'Starts from Codex · gpt-5.6-luna · Workspace default',
+    );
     // The previous implementer differs from the profile, so the form says so.
     expect(within(form).getByText(/last implement run here used Claude Code · opus/)).toBeDefined();
     fireEvent.change(within(form).getByLabelText('Agent'), { target: { value: 'claude-code' } });
@@ -1007,7 +1018,7 @@ describe('run profiles', () => {
         events={[]}
         connection="open"
         backends={[claude, codex]}
-        profiles={profiles}
+        handoffs={handoffsFor([run({ role: 'review' })])}
         canMutate={true}
         busy={false}
         onSend={vi.fn()}
@@ -1036,28 +1047,6 @@ describe('run profiles', () => {
       model: 'gpt-5.6-luna',
       instructions: 'Fix the blocking finding first.',
       parentRunId: 'run-1',
-    });
-  });
-
-  it('defaults a handoff to the role profile, else to the parent run', () => {
-    const parent = run({
-      backend: 'codex',
-      resolvedModel: 'gpt-5.6-luna',
-      permissionMode: 'edit-only',
-    });
-    expect(handoffDefaults('implement', profiles, parent)).toEqual({
-      backend: 'codex',
-      model: 'gpt-5.6-luna',
-      permissionMode: 'edit-only',
-    });
-    expect(handoffDefaults('implement', [], parent)).toEqual({
-      backend: 'codex',
-      model: 'gpt-5.6-luna',
-      permissionMode: 'auto',
-    });
-    expect(handoffDefaults('implement', [], run({ resolvedModel: 'default' }))).toEqual({
-      backend: 'claude-code',
-      permissionMode: 'auto',
     });
   });
 });
@@ -1117,7 +1106,7 @@ describe('review handoff', () => {
         events={[]}
         connection="open"
         backends={[claude, codex]}
-        profiles={profiles}
+        handoffs={handoffsFor([run({ role: 'implement' })])}
         canMutate={true}
         busy={false}
         onSend={vi.fn()}

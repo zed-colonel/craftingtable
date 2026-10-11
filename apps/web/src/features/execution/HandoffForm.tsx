@@ -3,22 +3,25 @@ import {
   AGENT_PERMISSION_MODES,
   type AgentBackendKind,
   type AgentPermissionMode,
+  type EffectiveAgent,
 } from '@craftingtable/domain';
 import { type FormEvent, useState } from 'react';
 import { PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
+import { EffectiveAgentText } from './EffectiveAgentText.js';
 import type { HandoffChoice } from './handoff.js';
 import { ModelField } from './ModelField.js';
 import { ReasoningEffortField } from './ReasoningEffortField.js';
 
 /**
- * The one form every handoff uses: agent, model, and permissions pre-filled
- * from the role profile, editable before launch. Rendered inline wherever a
- * handoff button lives so the table and the run page behave the same.
+ * The one form every handoff uses: agent, model, and permissions pre-filled from the daemon's
+ * default (`defaultAgent`, named with its source; R-E5b), editable for this launch. Rendered
+ * inline wherever a handoff button lives so the table and the run page behave the same.
  */
 export function HandoffForm({
   label,
   backends,
   defaults,
+  defaultAgent,
   hint,
   placeholder,
   busy,
@@ -30,6 +33,8 @@ export function HandoffForm({
   label: string;
   backends: ExecutionStatusResponse['backends'];
   defaults: HandoffChoice;
+  /** Where `defaults` came from, as the daemon reports it. */
+  defaultAgent?: EffectiveAgent;
   hint?: string;
   /** Example guidance shown in the empty instructions box. */
   placeholder?: string;
@@ -69,6 +74,11 @@ export function HandoffForm({
   return (
     <form className="inline-form handoff-form" aria-label={label} onSubmit={submit}>
       <span className="handoff-form-title">{label}</span>
+      {defaultAgent !== undefined && (
+        <p className="hint handoff-form-hint">
+          Starts from <EffectiveAgentText agent={defaultAgent} />
+        </p>
+      )}
       {backends.length > 1 && (
         <label className="field">
           Agent

@@ -3,6 +3,7 @@ import type {
   AgentRunSummary,
   ExecutionStatusResponse,
   RunEventEnvelope,
+  RunView,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
 import { AGENT_BACKEND_LABELS, PROFILE_LABELS } from '@craftingtable/domain';
@@ -39,10 +40,9 @@ import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { DiffView } from './DiffView.js';
 import { HandoffForm } from './HandoffForm.js';
 import {
-  handoffDefaults,
+  handoffChoice as choiceOf,
   handoffTarget,
   type LaunchInput,
-  type ProfileEntry,
   previousImplementerHint,
 } from './handoff.js';
 import { ReviewFindings } from './ReviewFindings.js';
@@ -155,7 +155,7 @@ export function RunPage({
   onLoadDiff,
   onCloseDiff,
   backends,
-  profiles,
+  handoffs,
   runs,
   onHandoff,
   resolveDesign,
@@ -181,8 +181,9 @@ export function RunPage({
   onLoadDiff: () => void;
   onCloseDiff: () => void;
   backends?: ExecutionStatusResponse['backends'];
-  profiles?: readonly ProfileEntry[];
-  /** The work item's other runs, so a remediation can default to the previous implementer. */
+  /** Each run's hand-off default, as the daemon reports it (R-E5b). */
+  handoffs?: RunView['handoffs'];
+  /** The work item's other runs, for the previous implementer's note on a remediation. */
   runs?: readonly AgentRunSummary[];
   /** Present when this run's output can be handed to an implement run. */
   onHandoff?: (input: LaunchInput) => void;
@@ -216,10 +217,8 @@ export function RunPage({
   const [draft, setDraft] = useState('');
   const [handoffOpen, setHandoffOpen] = useState(false);
   const target = handoffTarget(run);
-  const handoffChoice =
-    target === undefined
-      ? undefined
-      : handoffDefaults(target.role, profiles ?? [], run, runs ?? []);
+  const handoffAgent = target === undefined ? undefined : handoffs?.[run.id]?.agent;
+  const handoffChoice = handoffAgent === undefined ? undefined : choiceOf(handoffAgent);
   const handoffHint =
     run.role === 'review' && handoffChoice !== undefined
       ? previousImplementerHint(runs ?? [], run.worktreeId, handoffChoice)
@@ -398,6 +397,7 @@ export function RunPage({
               label={target.label}
               backends={backends ?? []}
               defaults={handoffChoice}
+              {...(handoffAgent === undefined ? {} : { defaultAgent: handoffAgent })}
               {...(handoffHint === undefined ? {} : { hint: handoffHint })}
               placeholder={target.placeholder}
               busy={busy}

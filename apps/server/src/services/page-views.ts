@@ -3,6 +3,7 @@ import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { AuthContext } from './auth-service.js';
 import type { ExecutionService, ExecutionStatus } from './execution-service.js';
+import { runHandoffs } from './handoff-defaults.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import type { PlanningQueryService } from './planning-query-service.js';
 import type { WorkCycleService } from './work-cycle-service.js';
@@ -53,15 +54,17 @@ export class PageViews {
           return empty;
         }
       };
+      const execution = this.execution.executionIn(tx, workspaceId, workItemId);
       return {
         detail: this.planning.workItemDetailIn(tx, workspaceId, workItemId),
-        execution: this.execution.executionIn(tx, workspaceId, workItemId),
+        execution,
         cycles: part('cycles', () => this.cycles.views(tx, workspaceId, { workItemId }), []),
         scopes: part('scopes', () => this.execution.scopesIn(tx, workspaceId, workItemId), {
           choices: [],
         }),
         repositories: tx.execution.sourceRepositories.list(workspaceId),
         ...this.runs.runProfilesIn(tx, workspaceId),
+        handoffs: runHandoffs(execution.runs, this.runs.workspaceLayerIn(tx, workspaceId)),
         ...(unavailable.length ? { unavailable } : {}),
       };
     });
@@ -80,13 +83,18 @@ export class PageViews {
     this.workspaces.requireAuthorized(context, workspaceId, requestId);
     const read = this.storage.readTransaction((tx) => {
       const detail = this.runs.detailIn(tx, workspaceId, runId);
+      const runs =
+        detail.run.workItemId === undefined
+          ? []
+          : tx.execution.runs.listForWorkItem(workspaceId, detail.run.workItemId);
       return {
         detail,
-        runs:
-          detail.run.workItemId === undefined
-            ? []
-            : tx.execution.runs.listForWorkItem(workspaceId, detail.run.workItemId),
+        runs,
         ...this.runs.runProfilesIn(tx, workspaceId),
+        handoffs: runHandoffs(
+          runs.some((r) => r.id === detail.run.id) ? runs : [...runs, detail.run],
+          this.runs.workspaceLayerIn(tx, workspaceId),
+        ),
       };
     });
     return { ...read, backends: this.executionStatus().backends };

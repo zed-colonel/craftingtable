@@ -358,6 +358,12 @@ button:disabled {
   font-size: var(--text-xs);
 }
 
+/* An effective agent's source (R-E5b): where the daemon says the selection came from. */
+.agent-source {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
 .subtle {
   color: var(--color-text-secondary);
   font-size: var(--text-sm);

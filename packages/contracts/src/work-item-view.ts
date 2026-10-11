@@ -7,6 +7,7 @@ import {
   sourceRepositoryListResponseSchema,
   workItemExecutionResponseSchema,
 } from './execution.js';
+import { runHandoffsSchema } from './agent-profiles.js';
 import { executionScopeChoicesSchema } from './execution-scope.js';
 import { workItemDetailResponseSchema } from './planning.js';
 import { cycleViewSchema } from './work-cycle.js';
@@ -27,6 +28,8 @@ export const workItemViewSchema = z.strictObject({
   backends: executionStatusResponseSchema.shape.backends,
   profiles: runProfilesResponseSchema.shape.profiles,
   agents: runProfilesResponseSchema.shape.agents,
+  /** Each run's hand-off default, so a hand-off form derives nothing (R-E5b). */
+  handoffs: runHandoffsSchema.optional(),
   /**
    * The parts that could not be read this time (R-D5 review): they come empty, and the page says
    * so where they show, while the rest of the region still works.
@@ -49,5 +52,7 @@ export const runViewSchema = z.strictObject({
   backends: executionStatusResponseSchema.shape.backends,
   profiles: runProfilesResponseSchema.shape.profiles,
   agents: runProfilesResponseSchema.shape.agents,
+  /** Each listed run's hand-off default (R-E5b). */
+  handoffs: runHandoffsSchema.optional(),
 });
 export type RunView = z.infer<typeof runViewSchema>;

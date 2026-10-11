@@ -50,10 +50,12 @@ export type WorkspaceAgentProfile = AgentProfile & { readonly role: AgentProfile
  * choice starts from; a saved roadmap definition's profiles are the lowest a roadmap's work
  * reads (E5-1); `cycle-start` is a cycle's own profiles, chosen when it was started on its own;
  * an ADR-064 assignment and a delegation grant are the roadmap's operational choices; the rest
- * are per-action choices, finalization's stage profiles among them (E5-3).
+ * are per-action choices, finalization's stage profiles among them (E5-3). `continued-run` is a
+ * hand-off's run it continues, which a hand-off takes when no workspace default is saved (R-E5b).
  */
 export const AGENT_SELECTION_LAYERS = [
   'daemon-default',
+  'continued-run',
   'workspace-default',
   'saved-definition',
   'cycle-start',
@@ -87,6 +89,8 @@ export type AgentSelectionSource = {
   readonly delegationId?: string;
   /** The finalization stage, for `finalization-stage` and `finalization-recovery`. */
   readonly stageIndex?: number;
+  /** The run a hand-off continues, for `continued-run`. */
+  readonly runId?: string;
 };
 /** A selection and where it came from. */
 export type AgentResolution = {

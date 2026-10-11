@@ -29,7 +29,9 @@ import { CycleControlButtons } from '../../decisions/cycle/CycleDecisions.js';
 import { CycleDecision, cycleDecisions } from '../../decisions/cycle/CycleDecision.js';
 import { CycleSettingsFields } from './CycleSettingsFields.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
-import type { ProfileEntry } from './handoff.js';
+type ProfileEntry = import('@craftingtable/domain').WorkspaceAgentProfile & {
+  readonly stored?: boolean;
+};
 import { defaultEffortLabel } from './ReasoningEffortField.js';
 import { SavedModelNotes } from './SavedModelNotes.js';
 import { WorkflowStatus } from './WorkflowStatus.js';

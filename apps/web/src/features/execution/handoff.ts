@@ -3,20 +3,17 @@ import {
   AGENT_BACKEND_LABELS,
   type AgentBackendKind,
   type AgentPermissionMode,
-  type AgentProfilePurpose,
   type AgentReasoningEffort,
   type AgentRunId,
   type AgentRunRole,
-  type WorkspaceAgentProfile,
+  type EffectiveAgent,
   type WorktreeId,
 } from '@craftingtable/domain';
 
 /**
- * Handing one run's output to the next: which agent runs the child.
- *
- * The operator's standing preference is the role profile; a handoff form
- * pre-fills from it and lets the operator override per launch. With no
- * profile the child follows the run it continues from.
+ * Handing one run's output to the next: which agent runs the child. The form pre-fills from the
+ * daemon's default for the run and the role it hands to (the saved workspace default, else the
+ * run it continues; R-E5b) and lets the operator change it for this launch.
  */
 
 export interface LaunchInput {
@@ -45,58 +42,14 @@ export function runModel(run: AgentRunSummary): string | undefined {
   return run.model ?? (run.resolvedModel === 'default' ? undefined : run.resolvedModel);
 }
 
-/** A profile as the daemon lists it: every role, flagged when it is only the default. */
-export type ProfileEntry = WorkspaceAgentProfile & { readonly stored?: boolean };
-
 /**
- * The operator's stated choice for a role. An entry the daemon marks as
- * unstored is its own fallback, not a preference, so it never overrides what
- * the operator or the previous run already chose.
+ * A hand-off form's starting choice: the daemon's default for this run and target role
+ * (R-E5b), reshaped as the form holds it. The daemon decides it; the browser derives nothing.
  */
-export function profileChoice(
-  role: AgentProfilePurpose,
-  profiles: readonly ProfileEntry[],
-): HandoffChoice | undefined {
-  const profile = profiles.find((candidate) => candidate.role === role);
-  if (profile === undefined || profile.stored === false) {
-    return undefined;
-  }
+export function handoffChoice(agent: EffectiveAgent): HandoffChoice {
   return {
-    backend: profile.backend,
-    ...(profile.model === undefined ? {} : { model: profile.model }),
-    permissionMode: profile.permissionMode,
-    ...(profile.reasoningEffort ? { reasoningEffort: profile.reasoningEffort } : {}),
-  };
-}
-
-/**
- * The stored role profile when there is one. Otherwise the run being continued
- * sets the default, except that remediation returns to the worktree's previous
- * implementer rather than to the reviewer that found the problems.
- */
-export function handoffDefaults(
-  role: AgentRunRole,
-  profiles: readonly ProfileEntry[],
-  parent: AgentRunSummary,
-  runs: readonly AgentRunSummary[] = [],
-): HandoffChoice {
-  const fromProfile =
-    (role === 'implement' && parent.role === 'review'
-      ? profileChoice('remediate', profiles)
-      : undefined) ?? profileChoice(role, profiles);
-  if (fromProfile !== undefined) {
-    return fromProfile;
-  }
-  const source =
-    role === 'implement' && parent.role === 'review'
-      ? (latestImplementer(runs, parent.worktreeId) ?? parent)
-      : parent;
-  const model = runModel(source);
-  return {
-    backend: source.backend,
-    ...(model === undefined ? {} : { model }),
-    permissionMode: 'auto',
-    ...(source.reasoningEffort ? { reasoningEffort: source.reasoningEffort } : {}),
+    ...agent.selection,
+    permissionMode: agent.permissionMode ?? 'auto',
   };
 }
 

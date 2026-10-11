@@ -1,5 +1,6 @@
 import {
   type ApplyRoadmapAgents,
+  type RoadmapAgentSettings,
   roadmapAgentSettingsSchema,
   roadmapGraphSchema,
   type SaveRoadmapRequest,
@@ -69,9 +70,17 @@ export async function applyRoadmapAgents(
   expectedVersion: number,
   groups: readonly Omit<ApplyRoadmapAgents, 'expectedVersion'>[],
   csrfToken: string,
+  /**
+   * Told of each group as it is applied, with the roadmap's agents after it, so a caller whose
+   * later group is refused knows what already took effect (review LOW-1).
+   */
+  onApplied?: (
+    group: Omit<ApplyRoadmapAgents, 'expectedVersion'>,
+    latest: RoadmapAgentSettings,
+  ) => void,
 ) {
   let version = expectedVersion;
-  let latest: Awaited<ReturnType<typeof loadRoadmapAgents>> | undefined;
+  let latest: RoadmapAgentSettings | undefined;
   for (const group of groups) {
     latest = await request(
       `${base(workspaceId)}/${encodeURIComponent(id)}/agent-profiles`,
@@ -79,6 +88,7 @@ export async function applyRoadmapAgents(
       mutation(csrfToken, { ...group, expectedVersion: version }),
     );
     version = latest.version;
+    onApplied?.(group, latest);
   }
   return latest;
 }

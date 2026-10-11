@@ -15,6 +15,7 @@ import {
   type PhaseBlocker,
   type PhaseBlockerCode,
   type ExecutionScope,
+  type ScopeReceipt,
   type ScopeReviewEvidence,
   type WorkItemId,
   type WorkspaceId,
@@ -524,6 +525,27 @@ export function scopeEvidenceIssues(r: ResolvedScope, evidence?: ScopeReviewEvid
     issues.push('Duplicate case evidence.');
   return issues;
 }
+/**
+ * A slice's verification receipt that stands (R-C7 D7, shown since R-E5b): one of this exact
+ * scope, recorded against the slice's current merge, still current; the latest when several are.
+ */
+export function sliceVerification(
+  receipts: readonly ScopeReceipt[],
+  scope: ExecutionScope,
+  mergeSha: string | undefined,
+  current: (receipt: ScopeReceipt) => boolean,
+): ScopeReceipt | undefined {
+  return receipts
+    .filter(
+      (r) =>
+        sameExecutionScope(r.scope, scope) &&
+        mergeSha !== undefined &&
+        r.integrationSha === mergeSha &&
+        current(r),
+    )
+    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0];
+}
+
 export function scopeChoices(
   tx: StorageRepositories,
   workspaceId: WorkspaceId,
@@ -563,14 +585,9 @@ export function scopeChoices(
       // The slice's current verification receipt, and the follow-ups it kept (R-C7 D7).
       const verification =
         scope.kind === 'slice'
-          ? receipts
-              .filter(
-                (r) =>
-                  sameExecutionScope(r.scope, scope) &&
-                  r.integrationSha === merged?.mergeSha &&
-                  currentScopeReceipt(tx, workspaceId, r),
-              )
-              .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0]
+          ? sliceVerification(receipts, scope, merged?.mergeSha, (r) =>
+              currentScopeReceipt(tx, workspaceId, r),
+            )
           : undefined;
       const verified =
         (scope.kind === 'slice' &&

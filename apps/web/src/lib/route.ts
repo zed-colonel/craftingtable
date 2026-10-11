@@ -191,7 +191,22 @@ export function parseRoute(pathname: string, search = '', hash = ''): Route {
     case 'roadmap-map':
       return { ...route, ...(focus === undefined ? {} : { focus }) };
     case 'settings': {
-      const section = route.section ?? (focus === undefined ? undefined : SETTINGS_FOCUS[focus]);
+      // The roadmap agent profiles panel moved into each roadmap's setup (R-E5b review LOW-4).
+      if (route.section === undefined && focus === 'roadmap-agent-profiles' && roadmapId)
+        return {
+          name: 'roadmap',
+          workspaceId: route.workspaceId,
+          roadmapId,
+          tab: 'setup',
+          focus: `map-settings-roadmap-${roadmapId}`,
+        };
+      const section =
+        route.section ??
+        (focus === undefined
+          ? undefined
+          : focus === 'roadmap-agent-profiles'
+            ? 'agents'
+            : SETTINGS_FOCUS[focus]);
       return {
         name: 'settings',
         workspaceId: route.workspaceId,

@@ -117,3 +117,15 @@ it('offers simplification and polish the optional-findings choice, absent unless
   expect(changed[index]!.optionalFindings).toBe('follow-up');
   expect(changed.filter((s) => s.optionalFindings !== undefined)).toHaveLength(1);
 });
+
+it('counts a stage’s own permission change as a change for that stage (review W16)', () => {
+  render(<Setup />);
+  const first = screen.getAllByText(/^Stage reviewer:/)[0]!;
+  const stage = first.closest('.disclosure-body') as HTMLElement;
+  fireEvent.click(within(stage).getAllByRole('button', { name: 'Change for this stage' })[0]!);
+  const reviewer = within(stage).getAllByRole('group', { name: 'Stage reviewer' })[0]!;
+  fireEvent.change(within(reviewer).getByLabelText('Permissions'), { target: { value: 'auto' } });
+  expect(screen.getAllByText(/^Stage reviewer:/)[0]!.textContent).toContain(
+    'changed for this stage',
+  );
+});

@@ -547,19 +547,25 @@ export function RoadmapPage({
               }}
             >
               Manage capacity
-            </Link>{' '}
-            ·{' '}
-            <Link
-              route={{
-                name: 'roadmap',
-                workspaceId,
-                roadmapId: roadmap.id,
-                tab: 'setup',
-                focus: stepAnchors(roadmapSetupIds(roadmap.id)).automation,
-              }}
-            >
-              Agents and permissions
             </Link>
+            {/* A map roadmap's agents are in its setup; a sequential one's in Edit queued entries. */}
+            {roadmap.definition.crossProject && (
+              <>
+                {' '}
+                ·{' '}
+                <Link
+                  route={{
+                    name: 'roadmap',
+                    workspaceId,
+                    roadmapId: roadmap.id,
+                    tab: 'setup',
+                    focus: stepAnchors(roadmapSetupIds(roadmap.id)).automation,
+                  }}
+                >
+                  Agents and permissions
+                </Link>
+              </>
+            )}
           </p>
           {roadmap.definition.scheduling?.mode === 'parallel' &&
             roadmap.definition.scheduling.maxInFlight > hostCapacity.development.limit && (
@@ -730,8 +736,9 @@ export function RoadmapPage({
   ) : (
     <>
       <p className="empty-state">
-        This roadmap's entries, their agents and permissions are set in Edit queued entries on its
-        board. Capacity and workspace agent defaults are in Settings.
+        This roadmap's entries, their agents and permissions are set in Edit queued entries on its{' '}
+        <Link route={tabRoute('board')}>board</Link>. Capacity and workspace agent defaults are in
+        Settings.
       </p>
       {/* Slices of one imported map share its dependency environment and decisions (LIVE-18). */}
       {mapScope && (

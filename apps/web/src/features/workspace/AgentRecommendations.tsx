@@ -78,9 +78,9 @@ export function AgentRecommendations() {
         </table>
       </div>
       <p>
-        For a harder individual scope, open Roadmap agent profiles below, select that scope and
-        apply its override. Finalization keeps its separate stage profiles. Luna is not recommended
-        as the initial reviewer for this stack.
+        For a harder individual scope, change that entry's agents in its roadmap's setup.
+        Finalization keeps its separate stage profiles. Luna is not recommended as the initial
+        reviewer for this stack.
       </p>
       <p>
         Model positioning:{' '}

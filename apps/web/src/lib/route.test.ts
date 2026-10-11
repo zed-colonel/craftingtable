@@ -215,6 +215,19 @@ describe('settings pages (R-E5b)', () => {
       roadmapId: 'r-1',
       focus: 'execution-capacity',
     });
+    // The roadmap agent profiles panel moved into each roadmap's setup.
+    expect(
+      parseRoute('/workspaces/workspace-1/settings', '?roadmap=r-1', '#roadmap-agent-profiles'),
+    ).toEqual({
+      name: 'roadmap',
+      workspaceId: WORKSPACE,
+      roadmapId: 'r-1',
+      tab: 'setup',
+      focus: 'map-settings-roadmap-r-1',
+    });
+    expect(
+      parseRoute('/workspaces/workspace-1/settings', '', '#roadmap-agent-profiles'),
+    ).toMatchObject({ name: 'settings', section: 'agents' });
     expect(parseRoute('/workspaces/workspace-1/settings', '', '#workspace-agent-profiles')).toEqual(
       {
         name: 'settings',

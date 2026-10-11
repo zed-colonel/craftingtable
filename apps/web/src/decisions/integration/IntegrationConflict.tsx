@@ -206,8 +206,9 @@ export function IntegrationConflict({
               maxInstructionsLength={16000}
               backends={backends}
               defaults={{
-                // The daemon's agent, else the one this resolution recorded; never derived here.
-                ...(agent
+                // A resumed resolution starts from the profile it recorded, as the daemon's own
+                // rule ranks it first (review LOW-3); a new one from the daemon's conflict agent.
+                ...(agent && !(owned && resolution.profile)
                   ? agent.selection
                   : {
                       ...resolution.profile,
@@ -215,9 +216,9 @@ export function IntegrationConflict({
                     }),
                 permissionMode: cycle.profiles.remediate.permissionMode,
               }}
-              {...(agent ? { defaultAgent: agent } : {})}
+              {...(agent && !(owned && resolution.profile) ? { defaultAgent: agent } : {})}
               busy={busy}
-              hint="The agent resolves and verifies files. CraftingTable completes the integration update and requires a fresh review. Final merge remains yours."
+              hint={`${owned && resolution.profile ? 'Starts from the agent this resolution recorded. ' : ''}The agent resolves and verifies files. CraftingTable completes the integration update and requires a fresh review. Final merge remains yours.`}
               onCancel={() => setForm(false)}
               onLaunch={(choice) => {
                 const { instructions, ...profile } = choice;

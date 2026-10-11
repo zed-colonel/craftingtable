@@ -198,6 +198,7 @@ it('shows a saved entry’s agents with their source, and applies a change as an
       },
     ],
     'csrf',
+    expect.any(Function),
   );
 });
 
@@ -269,4 +270,93 @@ it('shows a new entry the workspace defaults the daemon will store', async () =>
     expect(within(entry).getAllByText(/Workspace default/).length).toBeGreaterThan(0),
   );
   expect(loadRoadmapAgents).not.toHaveBeenCalled();
+});
+
+/** A saved roadmap of two entries, each with its agents as the setup view reports them. */
+const second = '00000000-0000-4000-8000-000000000012';
+const twoEntries = {
+  ...roadmap,
+  definition: {
+    ...roadmap.definition,
+    entries: [
+      roadmap.definition.entries[0]!,
+      { ...roadmap.definition.entries[0]!, id: second, workItemId: 'item-2', sourceId: 'AQ-02' },
+    ],
+  },
+} as unknown as Roadmap;
+const twoSaved: RoadmapAgentSettings = {
+  ...saved,
+  entries: [saved.entries[0]!, { ...saved.entries[0]!, id: second, label: 'AQ-02' }],
+};
+/** Changes one entry's implementation model through its own Agents group. */
+async function changeEntry(index: number, model: string) {
+  const groups = await screen.findAllByRole('group', { name: 'Agents' });
+  const entry = groups[index]!;
+  await waitFor(() =>
+    expect(within(entry).getByRole('button', { name: 'Change agents' })).toHaveProperty(
+      'disabled',
+      false,
+    ),
+  );
+  fireEvent.click(within(entry).getByRole('button', { name: 'Change agents' }));
+  const implementation = within(entry).getByRole('group', { name: 'Implementation' });
+  fireEvent.change(within(implementation).getByLabelText('Model'), { target: { value: model } });
+}
+function openEntries() {
+  for (const summary of screen.getAllByText('Agents, models, and completion policy'))
+    fireEvent.click(summary);
+}
+
+it('keeps going from what took effect when a later agent set is refused (review LOW-1)', async () => {
+  vi.mocked(loadRoadmapAgents).mockResolvedValue(twoSaved);
+  const onSaved = vi.fn();
+  vi.mocked(applyRoadmapAgents).mockImplementationOnce(
+    async (_ws, _id, _version, groups, _csrf, onApplied) => {
+      onApplied?.(groups[0]!, { ...twoSaved, version: 5 });
+      throw new Error('Use the model id "sonnet".');
+    },
+  );
+  render(<Editor current={twoEntries} initial={draftOf(twoEntries)} onSaved={onSaved} />);
+  openEntries();
+  await changeEntry(0, 'sonnet');
+  await changeEntry(1, 'opus-next');
+  fireEvent.click(screen.getByRole('button', { name: 'Save roadmap' }));
+  expect((await screen.findByRole('alert')).textContent).toBe(
+    'Some agents were applied (1 entries); the rest were not: Use the model id "sonnet".',
+  );
+  // The applied set is not sent again, and the next save goes on from the version it left.
+  vi.mocked(applyRoadmapAgents).mockResolvedValueOnce({ ...twoSaved, version: 6 });
+  const save = screen.getByRole('button', { name: 'Save roadmap' }) as HTMLButtonElement;
+  expect(save.disabled).toBe(false);
+  fireEvent.click(save);
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith(undefined, true));
+  const [, , version, groups] = vi.mocked(applyRoadmapAgents).mock.calls[1]!;
+  expect(version).toBe(5);
+  expect(groups.map((g) => g.entryIds)).toEqual([[second]]);
+  expect(saveRoadmap).not.toHaveBeenCalled();
+});
+
+it('drops the agent change of an entry removed before saving (W05)', async () => {
+  vi.mocked(loadRoadmapAgents).mockResolvedValue(twoSaved);
+  const onSaved = vi.fn();
+  vi.mocked(saveRoadmap).mockResolvedValue({ roadmap: { ...twoEntries, version: 5 } } as never);
+  render(<Editor current={twoEntries} initial={draftOf(twoEntries)} onSaved={onSaved} />);
+  openEntries();
+  await changeEntry(1, 'sonnet');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Remove entry' })[1]!);
+  fireEvent.click(screen.getByRole('button', { name: 'Save roadmap' }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  expect(applyRoadmapAgents).not.toHaveBeenCalled();
+  expect(onSaved).toHaveBeenCalledWith(expect.anything(), false);
+});
+
+it('shows a saved entry’s agents as loading, not as the workspace defaults, until they are read (review LOW-2)', async () => {
+  vi.mocked(loadRoadmapAgents).mockReturnValue(new Promise(() => undefined));
+  render(<Editor current={roadmap} initial={draftOf(roadmap)} onSaved={vi.fn()} />);
+  const entry = await screen.findByRole('group', { name: 'Agents' });
+  await waitFor(() => expect(within(entry).getByText('Loading the current agents…')).toBeTruthy());
+  expect(within(entry).queryByText(/Workspace default/)).toBeNull();
+  expect(
+    (within(entry).getByRole('button', { name: 'Change agents' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
 });

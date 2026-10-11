@@ -489,31 +489,35 @@ export class CrossProjectService {
   /**
    * A map roadmap's save as its settings form sends it (R-E5b, E5-1 as amended 2026-10-11): each
    * settings level's step permissions. A saved level keeps its agents (the defaults, or the
-   * override at the same level and key); a new level stores the workspace defaults. Agents are
-   * changed only by an ADR-064 assignment.
+   * override at the same level and key); a new map roadmap's defaults store the workspace
+   * defaults, and a new override the defaults level's. Agents are changed only by an ADR-064
+   * assignment.
    */
   save(context: AuthContext, ws: WorkspaceId, input: SaveCrossProjectRequest) {
     const saved = this.storage.roadmaps.find(ws, input.roadmapId)?.definition.crossProject;
     const level = (
       { permissions, ...settings }: SaveCrossProjectRequest['configuration']['defaults'],
-      prior: MapActivitySettings | undefined,
-    ): MapActivitySettings => ({
-      ...settings,
-      profiles: prior
-        ? withPermissions(prior.profiles, permissions)
-        : this.roadmaps.workspaceProfiles(ws, permissions),
-    });
+      agents: MapActivitySettings['profiles'],
+    ): MapActivitySettings => ({ ...settings, profiles: withPermissions(agents, permissions) });
     const c = input.configuration;
+    // The defaults level: its stored agents, or for a new map roadmap the workspace defaults now.
+    const defaults = level(
+      c.defaults,
+      saved?.defaults.profiles ?? this.roadmaps.workspaceProfiles(ws),
+    );
     return this.saveStored(context, ws, {
       ...input,
       configuration: {
         ...c,
-        defaults: level(c.defaults, saved?.defaults),
+        defaults,
+        // A saved override keeps its agents; a new one covers entries that exist, so it starts
+        // from the defaults level's and they keep theirs (operator 2026-10-11, review MEDIUM-1).
         overrides: c.overrides.map((o) => ({
           ...o,
           settings: level(
             o.settings,
-            saved?.overrides.find((s) => s.level === o.level && s.key === o.key)?.settings,
+            saved?.overrides.find((s) => s.level === o.level && s.key === o.key)?.settings
+              .profiles ?? defaults.profiles,
           ),
         })),
       },

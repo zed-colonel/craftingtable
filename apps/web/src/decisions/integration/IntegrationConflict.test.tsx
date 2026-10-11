@@ -107,3 +107,72 @@ it('posts its own command, naming the version it saw, and reloads the cycle (R-A
   expect(url).toBe('/api/workspaces/ws/cycles/c1/integration-resolution');
   expect(JSON.parse(String(init!.body))).toEqual({ action: 'inspect', expectedVersion: 7 });
 });
+
+/** R-E5b: the resolution form's agent, from the daemon or as the resolution recorded it. */
+const resolving = (status: 'detected' | 'resolving', profile?: object) =>
+  ({
+    id: 'c1',
+    workspaceId: 'ws',
+    version: 3,
+    status: 'needs-attention',
+    reason: '',
+    profiles: { remediate: { backend: 'claude-code', permissionMode: 'edit-only' } },
+    integrationResolution: {
+      id: 'r1',
+      status,
+      attempts: 1,
+      paths: ['README.md'],
+      ...(profile ? { profile } : {}),
+    },
+  }) as unknown as WorkCycle;
+const backends = [
+  {
+    kind: 'claude-code' as const,
+    label: 'Claude Code',
+    available: true,
+    models: [
+      { id: 'daemon-model', label: 'Daemon', section: 'main', hidden: false },
+      { id: 'recorded-model', label: 'Recorded', section: 'main', hidden: false },
+    ],
+    catalog: { source: 'catalog' as const },
+  },
+];
+const agent = {
+  selection: { backend: 'claude-code' as const, model: 'daemon-model' },
+  source: { layer: 'cycle-start' as const, slot: 'remediate' as const },
+  permissionMode: 'edit-only' as const,
+};
+const openForm = (cycle: WorkCycle) => {
+  render(
+    <IntegrationConflict
+      cycle={cycle}
+      agent={agent}
+      backends={backends}
+      disabled={false}
+      canMutate
+      csrfToken="csrf"
+      onChanged={vi.fn()}
+      onOpenRun={vi.fn()}
+      runIds={[]}
+    />,
+  );
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: /^(Resolve integration conflicts|Resume resolution with agent)$/,
+    }),
+  );
+  return screen.getByRole('form', { name: 'Resolve with agent' });
+};
+
+it('starts a new resolution from the daemon’s conflict agent, named with its source', () => {
+  const form = openForm(resolving('detected'));
+  expect(form).toBeTruthy();
+  expect(screen.getByText(/Starts from/).textContent).toContain('Chosen when the cycle started');
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('daemon-model');
+});
+
+it('resumes an owned resolution from the agent it recorded, as the daemon ranks it (review LOW-3)', () => {
+  openForm(resolving('resolving', { backend: 'claude-code', model: 'recorded-model' }));
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('recorded-model');
+  expect(screen.getByText(/Starts from the agent this resolution recorded/)).toBeTruthy();
+});

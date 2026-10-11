@@ -184,6 +184,43 @@ describe('hand-off defaults (the run and work-item reads)', () => {
     const run = runViewSchema.parse(await get(state, `/runs/${review}/view`));
     expect(run.handoffs).toEqual(page.handoffs);
   });
+  it('continues the latest finished implementer for remediation, not an earlier or unfinished one', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const implement = (reasoningEffort: string) =>
+      runToFinish(state, worktree.id, {
+        role: 'implement',
+        backend: 'claude-code',
+        permissionMode: 'auto',
+        reasoningEffort,
+      });
+    await implement('high');
+    const latest = await implement('medium');
+    const review = await runToFinish(state, worktree.id, {
+      role: 'review',
+      backend: 'claude-code',
+      permissionMode: 'auto',
+    });
+    // An implementer still in its session is not one remediation continues.
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: {
+        worktreeId: worktree.id,
+        role: 'implement',
+        backend: 'claude-code',
+        permissionMode: 'auto',
+        reasoningEffort: 'low',
+      },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const page = workItemViewSchema.parse(await get(state, `/work-items/${state.workItemId}/view`));
+    expect(page.handoffs?.[review]?.agent).toMatchObject({
+      selection: { reasoningEffort: 'medium' },
+      source: { layer: 'continued-run', runId: latest },
+    });
+  });
   it('takes the saved default for the role it hands to: remediation first, then implementation', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());

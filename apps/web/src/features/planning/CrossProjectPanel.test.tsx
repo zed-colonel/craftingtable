@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cloneElement, type ReactElement } from 'react';
 import { afterEach, it, expect, vi } from 'vitest';
 import type { RunProfilesResponse } from '@craftingtable/contracts';
 import {
@@ -82,6 +83,9 @@ function setup(
         },
       ]),
     ) as NonNullable<RunProfilesResponse['agents']>,
+    selections: Object.fromEntries(
+      ['design', 'implement', 'review', 'remediate'].map((step) => [step, { backend: 'codex' }]),
+    ) as NonNullable<RunProfilesResponse['selections']>,
   });
   vi.mocked(previewCrossProject).mockResolvedValue({
     definitionId: id,
@@ -486,4 +490,41 @@ it('shows a settings level’s agents from its entries and applies a change to t
     },
   ]);
   await screen.findByText('Agents applied to future runs. Plan acceptance is unaffected.');
+});
+
+it('keeps a roadmap it created when its agents are refused, and retries only the agents (review MEDIUM-2)', async () => {
+  const onCreated = vi.fn();
+  setup(undefined, undefined, undefined, (ui) =>
+    cloneElement(ui as ReactElement<{ onCreated?: (id: string) => void }>, { onCreated }),
+  );
+  fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
+  await screen.findByText('2 selected milestones');
+  fireEvent.click(screen.getByText('Roadmap agent and automation settings'));
+  const agents = await screen.findByRole('group', { name: 'Default agents' });
+  fireEvent.click(within(agents).getByRole('button', { name: 'Change agents' }));
+  fireEvent.change(
+    within(within(agents).getByRole('group', { name: 'Design' })).getByLabelText(
+      'Reasoning effort',
+    ),
+    { target: { value: 'high' } },
+  );
+  vi.mocked(saveCrossProject).mockResolvedValue({
+    roadmap: { id: 'new-roadmap', version: 1, definition: { name: 'Cross-project roadmap' } },
+  } as Awaited<ReturnType<typeof saveCrossProject>>);
+  const view = agentView(['defaults']);
+  vi.mocked(loadRoadmapAgents).mockResolvedValue({ ...view, id: 'new-roadmap', version: 1 });
+  vi.mocked(applyRoadmapAgents).mockRejectedValueOnce(new Error('Use a model id.'));
+  const create = screen.getByRole('button', { name: 'Create cross-project roadmap' });
+  await waitFor(() => expect((create as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(create);
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'The roadmap was created, but its agents were not applied',
+  );
+  expect(onCreated).not.toHaveBeenCalled();
+  vi.mocked(applyRoadmapAgents).mockResolvedValueOnce({ ...view, version: 2 });
+  fireEvent.click(screen.getByRole('button', { name: 'Create cross-project roadmap' }));
+  await waitFor(() => expect(onCreated).toHaveBeenCalledWith('new-roadmap'));
+  // One roadmap: the retry did not save a second one.
+  expect(saveCrossProject).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(applyRoadmapAgents).mock.calls[1]?.[1]).toBe('new-roadmap');
 });

@@ -327,3 +327,37 @@ it('links each decision the design waits on to its own item, else to the shared 
   expect(guidance.value).toMatch(/^Clarify WI-ADR-013 for operator review\./);
   expect(recoverDesign).not.toHaveBeenCalled();
 });
+
+it('drops an agent change made for one action when the action changes (review W17)', async () => {
+  vi.mocked(previewDesignRecovery).mockResolvedValue(preview);
+  vi.mocked(recoverDesign).mockResolvedValue({ cycle } as Awaited<
+    ReturnType<typeof recoverDesign>
+  >);
+  const own = {
+    ...agents,
+    design: { ...agents.design, selection: { backend: 'claude-code', model: 'design-model' } },
+  } as typeof agents;
+  render(
+    <DesignQuestions
+      agents={own}
+      cycle={cycle}
+      backends={backends}
+      csrfToken="csrf"
+      onChanged={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
+  await screen.findByText('Who owns this decision?');
+  fireEvent.change(screen.getByLabelText('Reasoning effort'), { target: { value: 'high' } });
+  expect(screen.getByText(/changed for this action/)).toBeTruthy();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Next action' }), {
+    target: { value: 'continue' },
+  });
+  expect(screen.queryByText(/changed for this action/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue design with evidence' }));
+  await waitFor(() => expect(recoverDesign).toHaveBeenCalled());
+  expect(vi.mocked(recoverDesign).mock.calls.at(-1)?.[1].profile).toEqual({
+    backend: 'claude-code',
+    model: 'design-model',
+  });
+});

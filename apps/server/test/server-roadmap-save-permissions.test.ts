@@ -56,6 +56,37 @@ describe('a roadmap’s save', () => {
     });
   });
 
+  it('gives a new entry the specialists the workspace defaults name, and reports each entry’s own permissions', async () => {
+    const { state, second } = await roadmapFixture();
+    await useStepModels(state, {
+      ...cycleProfiles,
+      security: { backend: 'claude-code', model: 'security-model' },
+    });
+    const input = roadmapInput(state, [state.workItemId, second]);
+    const saved = await saveRoadmapRequest(state, {
+      ...input,
+      entries: input.entries.map((e, index) =>
+        index === 1 ? { ...e, permissions: { ...e.permissions, review: 'edit-only' } } : e,
+      ),
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(storedRoadmap(state).definition.entries[0]?.profiles.security).toEqual({
+      backend: 'claude-code',
+      model: 'security-model',
+    });
+    const view = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/agent-profiles`,
+      headers: { cookie: state.cookie },
+    });
+    const { entries } = roadmapAgentSettingsSchema.parse(view.json());
+    expect(entries.map((e) => e.permissions.review)).toEqual(['auto', 'edit-only']);
+    expect(entries[0]?.agents.security.source).toEqual({
+      layer: 'saved-definition',
+      slot: 'security',
+    });
+  });
+
   it('keeps a saved entry’s agents: later defaults and assignments leave them, a new entry takes the defaults now', async () => {
     const { state, second } = await roadmapFixture();
     const one = roadmapInput(state, [state.workItemId]);
@@ -96,7 +127,7 @@ describe('a roadmap’s save', () => {
 });
 
 describe('a map roadmap’s settings save', () => {
-  it('keeps a saved level’s agents, gives a new level the defaults now, and asks the password for unrestricted', async () => {
+  it('keeps a saved level’s agents, starts a new override from the defaults level’s, and asks the password for unrestricted', async () => {
     const f = await supervisedMapFixture();
     const save = (configuration: typeof f.input.configuration) =>
       mapCommand(f, 'roadmap', {
@@ -123,7 +154,10 @@ describe('a map roadmap’s settings save', () => {
     const second = await save({ ...f.input.configuration, overrides: [override] });
     expect(second.statusCode, second.body).toBe(200);
     expect(stored().defaults.profiles).toEqual(cycleProfiles);
-    expect(stored().overrides[0]?.settings.profiles.design.model).toBe('later-default');
+    // A new override covers entries that exist: it starts from the defaults level's agents, so
+    // they keep theirs; later workspace defaults do not reach them (operator 2026-10-11, review
+    // MEDIUM-1).
+    expect(stored().overrides[0]?.settings.profiles.design.model).toBe('design-model');
     expect(stored().overrides[0]?.settings.profiles.review.permissionMode).toBe('edit-only');
     // The setup view names each entry's settings level, so its form can apply a level's agents.
     const view = await f.state.context.app.inject({
@@ -162,5 +196,55 @@ describe('a map roadmap’s settings save', () => {
       model: cycleProfiles.implement.model,
       permissionMode: 'unrestricted',
     });
+  });
+});
+
+describe('a map roadmap’s saved override', () => {
+  it('keeps its own agents on a later save, matched by level and key', async () => {
+    const f = await supervisedMapFixture();
+    const configuration = f.input.configuration;
+    const first = await mapCommand(f, 'roadmap', f.input);
+    expect(first.statusCode, first.body).toBe(200);
+    const stored = () => f.state.context.storage.roadmaps.find(f.state.workspaceId, roadmapId)!;
+    // Two overrides of one level whose stored agents differ from the defaults' and each other's,
+    // as a release before R-E5b could save them (the stored path takes profiles).
+    const level = (key: string, name: string) => ({
+      level: 'activity' as const,
+      key,
+      settings: { ...stored().definition.crossProject!.defaults, profiles: model('design', name) },
+    });
+    f.service.saveStored(f.auth, f.state.workspaceId, {
+      ...f.input,
+      expectedVersion: stored().version,
+      configuration: {
+        ...stored().definition.crossProject!,
+        overrides: [
+          level('development', 'development-agent'),
+          level('verification', 'verification-agent'),
+        ],
+      },
+    });
+    const { permissions, ...defaults } = configuration.defaults;
+    const resaved = await mapCommand(f, 'roadmap', {
+      ...f.input,
+      expectedVersion: stored().version,
+      configuration: {
+        ...configuration,
+        overrides: ['development', 'verification'].map((key) => ({
+          level: 'activity',
+          key,
+          settings: { ...defaults, permissions: { ...permissions, review: 'edit-only' } },
+        })),
+      },
+    });
+    expect(resaved.statusCode, resaved.body).toBe(200);
+    const overrides = stored().definition.crossProject!.overrides;
+    expect(overrides.map((o) => o.settings.profiles.design.model)).toEqual([
+      'development-agent',
+      'verification-agent',
+    ]);
+    expect(overrides.every((o) => o.settings.profiles.review.permissionMode === 'edit-only')).toBe(
+      true,
+    );
   });
 });

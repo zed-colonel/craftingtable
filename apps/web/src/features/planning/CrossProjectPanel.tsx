@@ -112,6 +112,8 @@ export function CrossProjectPanel({
   // A level's agents are its entries' (R-E5b): read from the roadmap's agents, edited per level
   // and applied as ADR-064 assignments to the level's entries once the settings are saved.
   const [workspaceAgents, setWorkspaceAgents] = useState<RunProfilesResponse>();
+  /** A roadmap this form created whose agents were then refused (review MEDIUM-2). */
+  const [created, setCreated] = useState<{ id: string; version: number; snapshot: string }>();
   const [roadmapAgents, setRoadmapAgents] = useState<RoadmapAgentSettings>();
   const [agentDrafts, setAgentDrafts] = useState<ReadonlyMap<string, AgentSelections>>(
     () => new Map(),
@@ -169,28 +171,42 @@ export function CrossProjectPanel({
     };
   };
   const levelAgentsFields = (key: string, legend: string) => {
-    const level = levelAgents(key);
-    if (roadmap && roadmapAgents && level.entries.length === 0)
+    // A new override starts from the defaults level's agents, as the daemon stores it (operator
+    // 2026-10-11, review MEDIUM-1); a change made here applies to its entries once it is saved.
+    const unsaved =
+      !!roadmap &&
+      key !== 'defaults' &&
+      !saved?.overrides.some((o) => `${o.level}:${o.key}` === key);
+    const level = levelAgents(unsaved ? 'defaults' : key);
+    if (!unsaved && roadmap && roadmapAgents && level.entries.length === 0)
       return <p className="hint">No entry takes these settings, so no agents run under them.</p>;
     return (
-      <RoadmapAgentsFields
-        legend={legend}
-        agents={level.agents}
-        selections={level.selections}
-        differing={level.differing}
-        value={agentDrafts.get(key)}
-        onChange={(value) =>
-          setAgentDrafts((drafts) => {
-            const next = new Map(drafts);
-            if (value) next.set(key, value);
-            else next.delete(key);
-            return next;
-          })
-        }
-        backends={backends}
-        disabled={!editing || busy}
-        locked={roadmapAgents?.editBlocker}
-      />
+      <>
+        {unsaved && (
+          <p className="hint">
+            A new override starts from the default agents below; a change applies to its entries
+            when saved.
+          </p>
+        )}
+        <RoadmapAgentsFields
+          legend={legend}
+          agents={level.agents}
+          selections={level.selections}
+          differing={level.differing}
+          value={agentDrafts.get(key)}
+          onChange={(value) =>
+            setAgentDrafts((drafts) => {
+              const next = new Map(drafts);
+              if (value) next.set(key, value);
+              else next.delete(key);
+              return next;
+            })
+          }
+          backends={backends}
+          disabled={!editing || busy}
+          locked={roadmapAgents?.editBlocker}
+        />
+      </>
     );
   };
   useEffect(() => {
@@ -281,34 +297,37 @@ export function CrossProjectPanel({
   const save = () =>
     command(async () => {
       if (!settings) return;
+      // The roadmap this form saves: the page's, or one it created whose agents then failed, so a
+      // retry applies the agents instead of creating a second roadmap (review MEDIUM-2).
+      const saving = roadmap ?? created;
       // The settings hold each step's permissions; unchanged ones are not saved again (R-E5b).
-      const result =
-        roadmap && !settingsDirty
-          ? undefined
-          : await saveCrossProject(
-              workspaceId,
-              {
-                roadmapId: roadmap?.id ?? crypto.randomUUID(),
-                expectedVersion: roadmap?.version ?? 0,
-                name,
-                configuration: {
-                  definitionId,
-                  bindingRevision,
-                  targetId: target,
-                  selection,
-                  parentAcceptance,
-                  defaults: settings,
-                  overrides: [...overrides],
-                },
-                scheduling: {
-                  mode: 'parallel',
-                  maxInFlight: limit,
-                  maxPerRepository: repoLimit,
-                  maxIntegrationRefreshes: refreshLimit,
-                },
+      const unchanged = roadmap ? !settingsDirty : created?.snapshot === snapshot;
+      const result = unchanged
+        ? undefined
+        : await saveCrossProject(
+            workspaceId,
+            {
+              roadmapId: saving?.id ?? crypto.randomUUID(),
+              expectedVersion: saving?.version ?? 0,
+              name,
+              configuration: {
+                definitionId,
+                bindingRevision,
+                targetId: target,
+                selection,
+                parentAcceptance,
+                defaults: settings,
+                overrides: [...overrides],
               },
-              csrfToken,
-            );
+              scheduling: {
+                mode: 'parallel',
+                maxInFlight: limit,
+                maxPerRepository: repoLimit,
+                maxIntegrationRefreshes: refreshLimit,
+              },
+            },
+            csrfToken,
+          );
       if (result) {
         savedPlanChanged();
         if (roadmap) {
@@ -316,16 +335,21 @@ export function CrossProjectPanel({
           setSavedSnapshot(snapshot);
         }
       }
-      const id = result?.roadmap.id ?? roadmap?.id;
+      const id = result?.roadmap.id ?? saving?.id;
       // The agents go to ADR-064 assignments: each changed level's, over the entries it covers.
       if (id && agentDrafts.size > 0) {
+        let version = result?.roadmap.version ?? saving?.version;
         try {
           const current = await loadRoadmapAgents(workspaceId, id);
+          version = current.version;
+          const levels = new Map<object, string>();
           const groups = [...agentDrafts].flatMap(([key, selections]) => {
             const entryIds = current.entries
               .filter((e) => levelKey(e.settingsLevel) === key)
               .map((e) => e.id);
-            return entryIds.length ? [{ entryIds, selections }] : [];
+            const group = { entryIds, selections };
+            levels.set(group, key);
+            return entryIds.length ? [group] : [];
           });
           const applied = await applyRoadmapAgents(
             workspaceId,
@@ -333,18 +357,32 @@ export function CrossProjectPanel({
             current.version,
             groups,
             csrfToken,
+            // A level applied before a refusal is done: its change is not sent again (LOW-1).
+            (group, latest) => {
+              version = latest.version;
+              setAgentDrafts((drafts) => {
+                const next = new Map(drafts);
+                next.delete(levels.get(group) ?? '');
+                return next;
+              });
+            },
           );
           setRoadmapAgents(applied ?? current);
           setAgentDrafts(new Map());
         } catch (e) {
+          if (!roadmap && id && version !== undefined) setCreated({ id, version, snapshot });
           throw new Error(
-            `${result ? 'The settings were saved, but the agents were not applied: ' : ''}${
-              e instanceof Error ? e.message : 'Could not apply the agents.'
-            }`,
+            `${
+              result && !roadmap
+                ? 'The roadmap was created, but its agents were not applied; change them and create again to apply them: '
+                : result
+                  ? 'The settings were saved, but the agents were not applied: '
+                  : ''
+            }${e instanceof Error ? e.message : 'Could not apply the agents.'}`,
           );
         }
       }
-      if (result && !roadmap) onCreated?.(result.roadmap.id);
+      if (!roadmap && id) onCreated?.(id);
       setNotice(
         result
           ? `Saved ${result.roadmap.definition.name}. Generate and review plan-acceptance evidence, then use the separate Start or Resume control when startup checks are clear.`
@@ -792,8 +830,8 @@ export function CrossProjectPanel({
               <About label="About roadmap settings">
                 {roadmap && (
                   <p>
-                    Changing models in Roadmap agent profiles preserves plan acceptance.
-                    Permissions, responsibilities and policy below remain plan settings.
+                    Changing agents below applies a roadmap assignment and preserves plan
+                    acceptance. Permissions, responsibilities and policy remain plan settings.
                   </p>
                 )}
                 <p>

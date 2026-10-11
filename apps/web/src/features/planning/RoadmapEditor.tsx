@@ -162,8 +162,11 @@ export function RoadmapEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const { items, backends, defaults, workspaceAgents } = useEditorChoices(workspaceId, setError);
-  // A definition this editor saved whose agents then failed to apply: the next save starts there.
-  const [savedHere, setSavedHere] = useState<RoadmapView>();
+  // Where a save this editor made stands when its agents then failed: the next save starts there.
+  const [savedHere, setSavedHere] = useState<{
+    readonly view?: RoadmapView;
+    readonly roadmap: Roadmap;
+  }>();
   const baseline =
     savedHere && (!current || savedHere.roadmap.version >= current.version)
       ? savedHere.roadmap
@@ -230,7 +233,7 @@ export function RoadmapEditor({
           const unchanged =
             baseline !== undefined &&
             JSON.stringify(input) === JSON.stringify(withoutId(draftOf(baseline)));
-          let saved = savedHere;
+          let saved = savedHere?.view;
           try {
             if (!unchanged) saved = await saveRoadmap(workspaceId, id, input, csrfToken);
           } catch (e) {
@@ -244,20 +247,36 @@ export function RoadmapEditor({
               [...agentDrafts].filter(([entryId]) => input.entries.some((e) => e.id === entryId)),
             ),
           );
+          const start = unchanged ? baseline : saved?.roadmap;
+          const applied: string[] = [];
+          let version = start?.version;
           try {
-            const version = saved?.roadmap.version ?? baseline?.version;
             if (groups.length > 0 && version !== undefined)
-              await applyRoadmapAgents(workspaceId, id, version, groups, csrfToken);
+              await applyRoadmapAgents(workspaceId, id, version, groups, csrfToken, (g, latest) => {
+                applied.push(...g.entryIds);
+                version = latest.version;
+              });
             onSaved(saved, groups.length > 0);
           } catch (e) {
-            if (saved) {
-              setSavedHere(saved);
-              setDraft({ ...draft, expectedVersion: saved.roadmap.version });
+            // What took effect stays done: the saved definition, and each group applied before
+            // the refusal; the editor goes on from there (review LOW-1, MEDIUM-2's sequential twin).
+            if (start && version !== undefined) {
+              setSavedHere({
+                ...(saved ? { view: saved } : {}),
+                roadmap: { ...start, version },
+              });
+              setDraft({ ...draft, expectedVersion: version });
             }
+            setAgentDrafts(
+              (drafts) => new Map([...drafts].filter(([entryId]) => !applied.includes(entryId))),
+            );
+            const message = e instanceof Error ? e.message : 'Could not apply the agents.';
             setError(
-              `${saved && !unchanged ? 'The roadmap was saved, but its agents were not applied: ' : ''}${
-                e instanceof Error ? e.message : 'Could not apply the agents.'
-              }`,
+              applied.length
+                ? `Some agents were applied (${applied.length} entries); the rest were not: ${message}`
+                : saved && !unchanged
+                  ? `The roadmap was saved, but its agents were not applied: ${message}`
+                  : message,
             );
           } finally {
             setBusy(false);
@@ -559,14 +578,16 @@ export function RoadmapEditor({
                 <details>
                   <summary>Agents, models, and completion policy</summary>
                   {(() => {
+                    // A saved entry's agents are the roadmap's, read; until then they are
+                    // unknown, never the workspace defaults (review LOW-2).
+                    const saved = baseline?.definition.entries.some((e) => e.id === entry.id);
                     const savedEntry = roadmapAgents?.entries.find((e) => e.id === entry.id);
+                    const source = saved ? savedEntry : workspaceAgents;
                     return (
                       <RoadmapAgentsFields
                         legend="Agents"
-                        agents={savedEntry ? savedEntry.agents : workspaceAgents?.agents}
-                        selections={
-                          savedEntry ? savedEntry.selections : workspaceAgents?.selections
-                        }
+                        agents={source?.agents}
+                        selections={source?.selections}
                         value={agentDrafts.get(entry.id)}
                         onChange={(value) =>
                           setAgentDrafts((drafts) => {

@@ -2385,6 +2385,26 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Chosen here (the entry's "left to the building session"):* **the "change for this action" disclosure** — the agent line first ("Agent: … · source"), then a disclosure named "Change for this action" (or "Change for this stage") with the agent, model and effort, and an undo; the form sends the change or else the daemon's agent. **Cycle start offers an override, not a full editor up front**: the defaults are shown, and the step-by-step editor opens on request. The two browser helpers left (`agentSelections` in the cycle editor, `selectionsForPurpose` in the specialist editor's "Inherits Review" hint) reshape the operator's own draft while it is edited, not an effective selection.
   - Tests: `execution-views.test.tsx` (the cycle starts with the daemon's defaults named with their source, and with a change for this cycle), `CycleInvestigation.test.tsx` (the agent line and source), `DesignQuestions.test.tsx`, `FinalizationStageSetup.test.tsx` (a stage's inherited default and its change; a recovery's "runs now"), `FinalizationCheckpoint.test.tsx`, `server-effective-agents.test.ts` (the work item's `cycleProfiles`; a finalization's conflict agent).
 - **Progress (2026-10-11), R-E5b carries R-C7's leftovers** (operator decision 2026-10-09; recorded in R-C7's entry too): the finalization start form offers simplification and polish stages "Optional findings: Choose a batch at a checkpoint | Keep them all as follow-up work" (D6; absent means `select`), and follow-up work is shown as what it is (D7): a finalization lists "Optional suggestions" apart from "Parked nits", and a verified slice on its work item lists the "Verification follow-ups" its receipt kept (the slice choice's new optional `followUps`, from the current verification receipt). `reviewFindingSchema` moved to `contracts/src/review-finding.ts` (re-exported from `review.ts`) so the scope schema can hold findings without a circular import.
+- **Done-when proof (2026-10-11): every place an agent is chosen, before (a85c8b5) and after R-E5b.** *Edited* means a choice that later launches use; *per action* a one-off choice for one launch. "Shown from" is where the displayed effective selection came from.
+
+  | Place | Before: what it wrote, what it showed | After: what it writes, what it shows |
+  |---|---|---|
+  | Workspace defaults (Settings) | Edited: `run-profiles`; showed defaults the browser built (`cycleProfilesFromDefaults`) | **Edit place 1**, Settings › Agents: `run-profiles`; shows each default and its source from the daemon |
+  | Roadmap agent profiles (Settings) | Edited: ADR-064 assignments for any roadmap, by scope | Removed; its job is roadmap setup's |
+  | Roadmap editor, new roadmap | Edited: the definition's `entries[].profiles` (agents and permissions); locked once saved | **Edit place 2**, roadmap setup: each entry's agents → assignment, its permissions → definition, one form; shows daemon agents and sources |
+  | Map settings (defaults, overrides), new roadmap | Edited: the map configuration's profiles; locked once saved | **Edit place 2**, roadmap setup (Automation and agents): each level's agents → assignment over its entries, permissions → definition |
+  | Integration policy's conflict-resolution agent | Edited: `automation.resolutionProfile` (roadmap, entry, map level, delegation grant) | Unchanged, part of roadmap setup and the delegation grant (kept; see "Kept, for the operator") |
+  | Cycle start | Edited, full editor from browser-built defaults → the cycle's profiles | Per action: the daemon's `cycleProfiles` and their sources; "Change for this cycle" |
+  | Manual launch | Per action; default from the browser (`profileChoice`) | Per action; each role's default and source from the daemon |
+  | Hand-off | Per action; default from the browser (`handoffDefaults`) | Per action; the daemon's `handoffs` default, named |
+  | Decision preparation | Per action; the decision's agent from the daemon | Per action; same, now with its source |
+  | Design questions | Per action; default from the browser (`selectionsForPurpose`) | Per action; the projection's agent and source; "Change for this action" |
+  | Investigation | Per action; default from the browser | Per action; the projection's agent and source; "Change for this action" |
+  | Integration conflict | Per action; default from the browser (projection or cycle profiles) | Per action; the projection's (or finalization view's) conflict agent, named |
+  | Finalization stage profiles | Per stage, from workspace defaults, no source | Per action (E5-3): the inherited default and its source, or "changed for this stage" |
+  | Finalization recovery agent | Per action; current from the browser (`finalizationProfile`) | Per action; "Runs now" and what it overrides, from the daemon |
+
+  Agents are edited in exactly two places (workspace defaults, roadmap setup) plus explicit per-action overrides, and every row shows the daemon's effective selection and source. The browser resolves no selection: the two domain helpers left in it reshape an operator's draft inside an editor.
 
 ### R-E6
 

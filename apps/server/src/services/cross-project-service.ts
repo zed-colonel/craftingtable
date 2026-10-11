@@ -2,7 +2,7 @@ import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
 import { scopeArchitectureDecisions } from './architecture-decision-policy.js';
 import { bindingIssues } from './map-binding-policy.js';
 export { bindingIssues } from './map-binding-policy.js';
-import { mapReadSnapshot } from './map-read-snapshot.js';
+import { mapReadSnapshot, snapshotCalculation } from './map-read-snapshot.js';
 import { integratedSlice } from './scope-lineage.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -51,6 +51,21 @@ export type MapSelection = Pick<
   'definitionId' | 'bindingRevision' | 'targetId' | 'selection'
 >;
 export function milestoneSatisfied(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  d: ConcurrencyDefinition,
+  revision: number,
+  r: ConcurrencyRequirement,
+): boolean {
+  // Asked once per read snapshot: the map evaluation and each entry's completion in a roadmap
+  // read ask for the same milestones (R-D8).
+  return snapshotCalculation(
+    tx,
+    JSON.stringify(['milestone-satisfied', ws, d.id, d.digest, revision, r.kind, r.id, r.state]),
+    () => milestoneMet(tx, ws, d, revision, r),
+  );
+}
+function milestoneMet(
   tx: StorageRepositories,
   ws: WorkspaceId,
   d: ConcurrencyDefinition,

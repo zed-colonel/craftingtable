@@ -23,7 +23,7 @@ import {
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { scopeNext } from './scope-next.js';
-import { mapReadSnapshot } from './map-read-snapshot.js';
+import { mapReadSnapshot, snapshotCalculation } from './map-read-snapshot.js';
 import {
   prerequisiteEvaluation,
   prerequisiteIssues,
@@ -107,6 +107,37 @@ export function scopePhaseBlockers(
   options: { resources?: boolean; ownerId?: string } = {},
 ): PhaseBlocker[] {
   tx = mapReadSnapshot(tx);
+  // Only the resource check reads the reservation owner, so the rest is computed once per read
+  // snapshot for the scope and phase and shared by every caller, whatever owner it asks for
+  // (R-D8: the map evaluation and the roadmap view ask for the same scopes in one page read).
+  // A slice's verification shares its slice's answer: every check outside the resources either
+  // reads the slice's scope or tells only a parent acceptance apart, and the resource check is
+  // given the caller's own scope (a native approval is per scope).
+  const { r, before, after } = snapshotCalculation(
+    tx,
+    `scope-phase-blockers:${workspaceId}:${workItemId}:${executionScopeKey(scope.kind === 'slice-verification' ? { ...scope, kind: 'slice' } : scope)}:${phase}`,
+    () => ownerFreePhaseBlockers(tx, workspaceId, workItemId, scope, phase),
+  );
+  const issues = [
+    ...before,
+    ...(options.resources !== false
+      ? resourceBlockers(tx, { ...r, scope }, phase, options.ownerId)
+      : []),
+    ...after,
+  ];
+  return [...new Map(issues.map((i) => [i.message, i])).values()];
+}
+/**
+ * A scope's phase blockers except its resources: those before the resource check and those
+ * after it, so the caller's answer keeps today's order.
+ */
+function ownerFreePhaseBlockers(
+  tx: StorageRepositories,
+  workspaceId: WorkspaceId,
+  workItemId: WorkItemId,
+  scope: ExecutionScope,
+  phase: ExecutionPhase,
+) {
   const r = resolveScope(tx, workspaceId, workItemId, scope);
   const issues: PhaseBlocker[] = [];
   const add = (
@@ -174,13 +205,13 @@ export function scopePhaseBlockers(
   }
   if (
     phase === 'merge' &&
-    !tx.execution.worktrees
-      .listForWorkItem(workspaceId, workItemId)
-      .some(
-        (t) =>
-          sameExecutionScope(t.executionScope, { ...scope, kind: 'slice' }) &&
-          tx.execution.runs.listForWorktree(workspaceId, t.id).some((run) => !!run.startedAt),
-      )
+    !tx.execution.runs.startedIn(
+      workspaceId,
+      tx.execution.worktrees
+        .listForWorkItem(workspaceId, workItemId)
+        .filter((t) => sameExecutionScope(t.executionScope, { ...scope, kind: 'slice' }))
+        .map((t) => t.id),
+    )
   )
     add('slice-not-started', 'dependency', 'Start this slice before merging it.');
   if (phase === 'verify' && !latestSliceMerge(tx, workspaceId, workItemId, scope))
@@ -299,8 +330,9 @@ export function scopePhaseBlockers(
       const satisfied =
         requirement.state === 'started'
           ? !!integrated ||
-            trees.some((t) =>
-              tx.execution.runs.listForWorktree(workspaceId, t.id).some((run) => !!run.startedAt),
+            tx.execution.runs.startedIn(
+              workspaceId,
+              trees.map((t) => t.id),
             )
           : requirement.state === 'merged'
             ? !!integrated?.mergeSha
@@ -341,7 +373,7 @@ export function scopePhaseBlockers(
       'evidence',
       'Actual Kata case evidence requires an independently accepted external qualification; an agent reviewer-role assignment does not supply it.',
     );
-  if (options.resources !== false) issues.push(...resourceBlockers(tx, r, phase, options.ownerId));
+  const resourcesAt = issues.length;
   if (!r.slice) {
     const trees = tx.execution.worktrees.listForWorkItem(workspaceId, workItemId);
     const receipts = tx.scopeReceipts.list(workspaceId, workItemId);
@@ -400,7 +432,7 @@ export function scopePhaseBlockers(
       'review',
       `Evidence profile ${r.profile.id} needs unassigned reviewer qualifications: ${r.profile.reviewer_roles.filter((role) => !scopeReviewerRoles(tx, workspaceId, scope).includes(role)).join(', ')}. Assign these responsibilities to the roadmap review agent, save the changed settings, then review the updated plan; independently reviewed external evidence is also supported.`,
     );
-  return [...new Map(issues.map((i) => [i.message, i])).values()];
+  return { r, before: issues.slice(0, resourcesAt), after: issues.slice(resourcesAt) };
 }
 export function scopeBlockers(
   tx: StorageRepositories,

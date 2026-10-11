@@ -19,7 +19,7 @@ import type {
   WorkspaceId,
   PhaseBlocker,
 } from '@craftingtable/domain';
-import { consumerUpstreams } from '@craftingtable/domain';
+import { consumerUpstreams, executionScopeKey } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 export function activeRuntime(
   tx: StorageRepositories,
@@ -728,6 +728,25 @@ export function prerequisiteInputKey(input: PrerequisiteInput): string {
 }
 
 export function currentScopeReceipt(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  p: import('@craftingtable/domain').ScopeReceipt,
+): boolean {
+  // Within a read snapshot the answer depends only on the fields read below, so each receipt
+  // is asked once however many blockers, prerequisites and acceptances consult it (R-D8).
+  return snapshotCalculation(
+    tx,
+    JSON.stringify([
+      'current-scope-receipt',
+      ws,
+      executionScopeKey(p.scope),
+      p.workItemId,
+      p.reviewRunId,
+    ]),
+    () => receiptCurrent(tx, ws, p),
+  );
+}
+function receiptCurrent(
   tx: StorageRepositories,
   ws: WorkspaceId,
   p: import('@craftingtable/domain').ScopeReceipt,

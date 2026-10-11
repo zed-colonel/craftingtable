@@ -131,7 +131,23 @@ export function scopeArchitectureDecisions(
   tx: StorageRepositories,
   ws: WorkspaceId,
   scope: ExecutionScope,
-) {
+): ReturnType<typeof approvedArchitectureDecisions> {
+  // Once per read snapshot for a scope: its blockers, receipts and the map's coverage all ask
+  // (R-D8). Only a parent acceptance reads its kind.
+  return snapshotCalculation(
+    tx,
+    JSON.stringify([
+      'scope-architecture-decisions',
+      ws,
+      scope.definitionId,
+      scope.bindingRevision,
+      scope.sourceId,
+      scope.kind === 'parent-acceptance',
+    ]),
+    () => decisionsForScope(tx, ws, scope),
+  );
+}
+function decisionsForScope(tx: StorageRepositories, ws: WorkspaceId, scope: ExecutionScope) {
   const d = tx.imports.definition(ws, scope.definitionId);
   if (!d) return [];
   const slice = d.source.slices.find((s) => s.id === scope.sourceId);

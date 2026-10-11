@@ -15,18 +15,23 @@ export function snapshotCalculation<T>(
 export function mapReadSnapshot(source: StorageRepositories): StorageRepositories {
   if (calculations.has(source)) return source;
   function memo<T extends object>(repo: T, names: readonly (keyof T)[]): T {
-    const caches = new Map<PropertyKey, Map<string, unknown>>();
+    // One wrapper per memoized method, made on first use: a page read asks these tens of
+    // thousands of times (R-D8).
+    const wrappers = new Map<PropertyKey, (...args: unknown[]) => unknown>();
     return new Proxy(repo, {
       get(target, key, receiver) {
+        const wrapper = wrappers.get(key);
+        if (wrapper) return wrapper;
         const method = Reflect.get(target, key, receiver);
         if (typeof method !== 'function' || !names.includes(key as keyof T)) return method;
-        const values = caches.get(key) ?? new Map<string, unknown>();
-        caches.set(key, values);
-        return (...args: unknown[]) => {
+        const values = new Map<string, unknown>();
+        const memoized = (...args: unknown[]) => {
           const id = JSON.stringify(args);
           if (!values.has(id)) values.set(id, Reflect.apply(method, target, args));
           return values.get(id);
         };
+        wrappers.set(key, memoized);
+        return memoized;
       },
     });
   }

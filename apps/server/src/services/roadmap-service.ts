@@ -187,6 +187,31 @@ function retried(error: unknown): boolean {
 }
 
 const ended = (roadmap: Roadmap) => ['stopped', 'completed'].includes(roadmap.status);
+/**
+ * Each work item's open recovery round: the first attempt, in the roadmap's order, with an
+ * unfinished recovery on an entry of that work item. Kept per attempts and entries lists (both
+ * immutable), since a page read asks for every entry (R-D8).
+ */
+const recoveryIndexes = new WeakMap<
+  readonly RoadmapAttempt[],
+  { entries: readonly RoadmapEntry[]; byWorkItem: Map<string, RoadmapAttempt> }
+>();
+function openRecoveries(roadmap: Roadmap): Map<string, RoadmapAttempt> {
+  const entries = roadmap.definition.entries;
+  const cached = recoveryIndexes.get(roadmap.attempts);
+  if (cached?.entries === entries) return cached.byWorkItem;
+  const workItems = new Map<string, Set<string>>();
+  for (const e of entries)
+    workItems.set(e.id, (workItems.get(e.id) ?? new Set()).add(e.workItemId));
+  const byWorkItem = new Map<string, RoadmapAttempt>();
+  for (const a of roadmap.attempts) {
+    if (!a.recovery || a.recovery.phase === 'completed') continue;
+    for (const workItemId of workItems.get(a.entryId) ?? [])
+      if (!byWorkItem.has(workItemId)) byWorkItem.set(workItemId, a);
+  }
+  recoveryIndexes.set(roadmap.attempts, { entries, byWorkItem });
+  return byWorkItem;
+}
 /** How long a standing preparation that could not be reserved waits before a retry (R-C3b). */
 const PREPARATION_RETRY_MS = 10 * 60_000;
 /** An entry the scheduler holds for a typed reason the operator resolves (R-A5). */
@@ -2961,14 +2986,7 @@ export class RoadmapService {
     return MOVED;
   }
   private recoveryFor(roadmap: Roadmap, entry: RoadmapEntry) {
-    return roadmap.attempts.find(
-      (a) =>
-        a.recovery &&
-        a.recovery.phase !== 'completed' &&
-        roadmap.definition.entries.some(
-          (e) => e.id === a.entryId && e.workItemId === entry.workItemId,
-        ),
-    );
+    return openRecoveries(roadmap).get(entry.workItemId);
   }
   /** The review each of the work item's verification and parent entries last ran. */
   private reviewRunIds(roadmap: Roadmap, entry: RoadmapEntry): Record<string, string> {

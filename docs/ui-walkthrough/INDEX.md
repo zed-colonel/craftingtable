@@ -128,3 +128,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-09-re4-final | `aae01e7` | 2026-10-09 | 70 (1 phone only) | 1× |
 | 2026-10-11-re5b-before | `a85c8b5` | 2026-10-11 | 70 (1 phone only) | 1× |
 | 2026-10-11-re5b-after | `0b78151` | 2026-10-11 | 72 (1 phone only) | 1× |
+| 2026-10-11-re5b-final | `f2d0c9e` | 2026-10-11 | 72 (1 phone only) | 1× |

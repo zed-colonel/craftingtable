@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
 import {
   cleanupExecutionFixtures,
-  cycleProfiles,
+  stepPermissions,
+  useStepModels,
   declareFixtureChecks,
   designDone,
   git,
@@ -104,6 +105,7 @@ describe('typed attention (R-A3)', () => {
     // A roadmap's cycles in a repository without adopted checks stop (R-G13 increment 4).
     declareFixtureChecks(f);
     await post(f, `/worktrees/${f.worktreeId}/remove`, {});
+    await useStepModels(f);
     await post(f, `/roadmaps/${roadmapId}`, {
       expectedVersion: 0,
       name: 'Automatic merges',
@@ -111,7 +113,7 @@ describe('typed attention (R-A3)', () => {
       entries: ['item-1', 'item-2'].map((workItemId, index) => ({
         id: `00000000-0000-4000-8000-00000000002${index + 1}`,
         workItemId,
-        profiles: cycleProfiles,
+        permissions: stepPermissions,
         policy: DEFAULT_COMPLETION_POLICY,
         instructions: '',
       })),

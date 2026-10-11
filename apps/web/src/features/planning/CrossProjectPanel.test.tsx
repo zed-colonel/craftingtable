@@ -1,6 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, it, expect, vi } from 'vitest';
-import { asWorkItemId, asWorkspaceId, type Roadmap } from '@craftingtable/domain';
+import type { RunProfilesResponse } from '@craftingtable/contracts';
+import {
+  AGENT_PROFILE_PURPOSES,
+  asWorkItemId,
+  asWorkspaceId,
+  type Roadmap,
+} from '@craftingtable/domain';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { testQueryStore } from '../../lib/query-store-testing.js';
 import { previewCrossProject, saveCrossProject } from '../../lib/cross-project-api.js';
@@ -56,6 +62,17 @@ function setup(
       permissionMode: 'auto',
       stored: true,
     })),
+    // The daemon's workspace defaults; review's permissions differ, for the save below.
+    agents: Object.fromEntries(
+      AGENT_PROFILE_PURPOSES.map((purpose) => [
+        purpose,
+        {
+          selection: { backend: 'codex' },
+          source: { layer: 'workspace-default', slot: purpose },
+          permissionMode: purpose === 'review' ? 'edit-only' : 'auto',
+        },
+      ]),
+    ) as NonNullable<RunProfilesResponse['agents']>,
   });
   vi.mocked(previewCrossProject).mockResolvedValue({
     definitionId: id,
@@ -184,7 +201,7 @@ it('requires explicit target choice and adoption rationale, with a trace to the 
   expect((init!.headers as Record<string, string>)['x-craftingtable-csrf']).toBe('csrf');
   expect(saveCrossProject).not.toHaveBeenCalled();
 });
-it('saves a draft with manual parent acceptance and inherited profiles; creation never starts work', async () => {
+it('saves a draft with manual parent acceptance and the defaults’ permissions, never an agent; creation never starts work', async () => {
   setup();
   fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
   await screen.findByText('2 selected milestones');
@@ -198,7 +215,8 @@ it('saves a draft with manual parent acceptance and inherited profiles; creation
   const sent = vi.mocked(saveCrossProject).mock.calls[0]![1];
   expect(sent.configuration.selection).toBe('target-only');
   expect(sent.configuration.parentAcceptance).toBe('manual');
-  expect(sent.configuration.defaults.profiles.review.backend).toBe('codex');
+  expect(sent.configuration.defaults.permissions.review).toBe('edit-only');
+  expect(sent.configuration.defaults).not.toHaveProperty('profiles');
   expect(sent.configuration.defaults.automation.integrationMerge).toBe('manual');
   expect(sent.expectedVersion).toBe(0);
   expect(adoptions()).toEqual([]);

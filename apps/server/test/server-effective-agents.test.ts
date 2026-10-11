@@ -357,7 +357,11 @@ describe('a finalization (E5-3)', () => {
       selection: claude(`${value.stages?.[1]?.kind}-review`),
       source: { layer: 'finalization-stage', slot: 'review', stageIndex: 1 },
       permissionMode: 'auto',
-      inherited: { selection: claude(), source: { layer: 'daemon-default' } },
+      // The fixture's roadmap saved the step models as workspace defaults (R-E5b).
+      inherited: {
+        selection: claude('review-model'),
+        source: { layer: 'workspace-default', slot: 'review' },
+      },
     });
     expect(agents?.stages[1]?.implement.source).toEqual({
       layer: 'finalization-stage',

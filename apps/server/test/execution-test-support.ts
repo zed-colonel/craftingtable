@@ -44,7 +44,9 @@ import {
   type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
   FINALIZATION_STAGE_KINDS,
+  PROFILE_INHERITANCE,
   type Roadmap,
+  SPECIALIST_PROFILES,
   type UserId,
   type WorkCycle,
   type WorkItemId,
@@ -1152,6 +1154,7 @@ export async function roadmapFixture(
     ...(options.gitOperations ? { gitOperations: options.gitOperations } : {}),
     ...(options.workers ? { workers: true } : {}),
   });
+  await useStepModels(state);
   const root = fixtureRepository(options.initialBranch);
   const { repository, worktree } = await registerAndWorktree(state, root, options.initialBranch);
   if (!options.undeclared) declareFixtureChecks(state);
@@ -1205,6 +1208,10 @@ export const entryIds = [
   '00000000-0000-4000-8000-000000000011',
   '00000000-0000-4000-8000-000000000012',
 ];
+/** Every step's permission mode, as a roadmap save sends it (R-E5b): `auto` throughout. */
+export const stepPermissions = Object.fromEntries(
+  CYCLE_STEPS.map((step) => [step, cycleProfiles[step].permissionMode]),
+) as Record<(typeof CYCLE_STEPS)[number], CycleProfiles['design']['permissionMode']>;
 export function roadmapInput(state: Ready, ids = [state.workItemId, asWorkItemId('item-2')]) {
   return {
     expectedVersion: 0,
@@ -1212,11 +1219,46 @@ export function roadmapInput(state: Ready, ids = [state.workItemId, asWorkItemId
     entries: ids.map((workItemId, index) => ({
       id: entryIds[index] as string,
       workItemId,
-      profiles: cycleProfiles,
+      permissions: stepPermissions,
       policy: DEFAULT_COMPLETION_POLICY,
       instructions: '',
     })),
   };
+}
+
+/**
+ * Saves `cycleProfiles`' step models as the workspace defaults, which a roadmap's new entries
+ * store when it is saved (R-E5b: a save carries permissions, never agents). Fixtures that save a
+ * roadmap call it first, so its entries run `<step>-model` as they always have.
+ */
+export async function useStepModels(
+  state: SignedIn,
+  profiles: CycleProfiles = cycleProfiles,
+): Promise<void> {
+  const saved = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/run-profiles`,
+    headers: mutationHeaders(state),
+    payload: {
+      profiles: [
+        ...CYCLE_STEPS.map((role) => ({ role, ...profiles[role] })),
+        // A specialist the profiles name, with the permissions of the step it inherits.
+        ...SPECIALIST_PROFILES.flatMap((role) => {
+          const selection = profiles[role];
+          return selection
+            ? [
+                {
+                  role,
+                  ...selection,
+                  permissionMode: profiles[PROFILE_INHERITANCE[role]].permissionMode,
+                },
+              ]
+            : [];
+        }),
+      ],
+    },
+  });
+  expect(saved.statusCode, saved.body).toBe(200);
 }
 export async function saveRoadmapRequest(
   state: Ready,
@@ -2055,24 +2097,26 @@ export async function supervisedMapFixture(
     definitionId = f.parentScope.definitionId;
   const runtime = await configureLocalRuntime(f.auth, f.state, definitionId);
   const base = roadmapInput(f.state, [f.state.workItemId]).entries[0]!;
-  const configuration: import('@craftingtable/domain').CrossProjectConfiguration = {
-    definitionId,
-    bindingRevision: 1,
-    targetId: 'LOCAL',
-    selection: 'target-only',
-    parentAcceptance,
-    defaults: {
-      reviewerRoles: [
-        'repository-maintainer',
-        'independent-security-reviewer-if-required-by-source',
-      ],
-      profiles: base.profiles,
-      policy: base.policy,
-      instructions: 'Preserve exact scope.',
-      automation: { integrationMerge: 'automatic', integrationConflicts: 'automatic' },
-    },
-    overrides: [],
-  };
+  await useStepModels(f.state);
+  const configuration: import('@craftingtable/contracts').SaveCrossProjectRequest['configuration'] =
+    {
+      definitionId,
+      bindingRevision: 1,
+      targetId: 'LOCAL',
+      selection: 'target-only',
+      parentAcceptance,
+      defaults: {
+        reviewerRoles: [
+          'repository-maintainer',
+          'independent-security-reviewer-if-required-by-source',
+        ],
+        permissions: base.permissions,
+        policy: base.policy,
+        instructions: 'Preserve exact scope.',
+        automation: { integrationMerge: 'automatic', integrationConflicts: 'automatic' },
+      },
+      overrides: [],
+    };
   f.backend.replyForRequest = async (request) => {
     if (request.model === 'design-model') return designDone;
     if (request.model === 'review-model') {
@@ -2160,6 +2204,7 @@ export async function delegateLocalReviewers(
   expect(adopted.statusCode, adopted.body).toBe(200);
   const base = roadmapInput(state, [state.workItemId]).entries[0]!;
   const target = definition.source.planning_targets[0]!.id;
+  await useStepModels(state);
   state.context.services.crossProjectService.save(auth, ws, {
     roadmapId,
     expectedVersion: storedRoadmap(state, false)?.version ?? 0,
@@ -2172,7 +2217,7 @@ export async function delegateLocalReviewers(
       parentAcceptance: options.parentAcceptance ?? 'manual',
       defaults: {
         reviewerRoles: ['independent-reviewer'],
-        profiles: base.profiles,
+        permissions: base.permissions,
         policy: base.policy,
         instructions: options.instructions ?? 'Preserve exact scope.',
         automation: {

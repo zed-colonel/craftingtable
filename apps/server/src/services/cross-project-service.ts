@@ -17,12 +17,15 @@ import {
   type WorkspaceId,
   type ConcurrencyDefinition,
   type MapActivity,
+  type MapActivitySettings,
   type RoadmapEntry,
   startedAttempts,
 } from '@craftingtable/domain';
+import { withPermissions } from './agent-profile-policy.js';
 import {
-  roadmapEntryInputSchema,
+  roadmapEntryFieldsSchema,
   type CrossProjectView,
+  type CrossProjectSave,
   type SaveCrossProjectRequest,
 } from '@craftingtable/contracts';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -471,10 +474,45 @@ export class CrossProjectService {
     this.notifier.notify();
     return { adopted: true };
   }
-  save(
+  /**
+   * A map roadmap's save as its settings form sends it (R-E5b, E5-1 as amended 2026-10-11): each
+   * settings level's step permissions. A saved level keeps its agents (the defaults, or the
+   * override at the same level and key); a new level stores the workspace defaults. Agents are
+   * changed only by an ADR-064 assignment.
+   */
+  save(context: AuthContext, ws: WorkspaceId, input: SaveCrossProjectRequest) {
+    const saved = this.storage.roadmaps.find(ws, input.roadmapId)?.definition.crossProject;
+    const level = (
+      { permissions, ...settings }: SaveCrossProjectRequest['configuration']['defaults'],
+      prior: MapActivitySettings | undefined,
+    ): MapActivitySettings => ({
+      ...settings,
+      profiles: prior
+        ? withPermissions(prior.profiles, permissions)
+        : this.roadmaps.workspaceProfiles(ws, permissions),
+    });
+    const c = input.configuration;
+    return this.saveStored(context, ws, {
+      ...input,
+      configuration: {
+        ...c,
+        defaults: level(c.defaults, saved?.defaults),
+        overrides: c.overrides.map((o) => ({
+          ...o,
+          settings: level(
+            o.settings,
+            saved?.overrides.find((s) => s.level === o.level && s.key === o.key)?.settings,
+          ),
+        })),
+      },
+    });
+  }
+
+  /** Saves a map roadmap whose settings carry their profiles: the form's, or an amendment's. */
+  saveStored(
     context: AuthContext,
     ws: WorkspaceId,
-    input: SaveCrossProjectRequest,
+    input: CrossProjectSave,
     amendment?: { readonly retainAttemptIds: readonly string[] },
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -513,7 +551,7 @@ export class CrossProjectService {
       conflict(
         'Retain the saved target and exact bindings. Use Planning amendments and reconciliation to review a scope change.',
       );
-    const entries: import('@craftingtable/contracts').SaveRoadmapRequest['entries'] = [];
+    const entries: import('@craftingtable/contracts').RoadmapEntryFields[] = [];
     for (const n of closure.nodes) {
       const r = n.requirement;
       if (r.kind === 'checkpoint' || (r.kind === 'slice' && r.state === 'merged')) continue;
@@ -587,14 +625,14 @@ export class CrossProjectService {
             : !possible.has(o.key)
       )
         conflict(`Unknown settings override ${o.level}: ${o.key}.`);
-    return this.roadmaps.save(
+    return this.roadmaps.saveDefinition(
       context,
       ws,
       input.roadmapId,
       {
         expectedVersion: input.expectedVersion,
         name: input.name,
-        entries: entries.map((e) => roadmapEntryInputSchema.parse(e)),
+        entries: entries.map((e) => roadmapEntryFieldsSchema.parse(e)),
         scheduling: input.scheduling,
         automation: c.defaults.automation,
       },

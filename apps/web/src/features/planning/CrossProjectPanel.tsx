@@ -4,10 +4,9 @@ import type {
   CrossProjectView,
   ExecutionStatusResponse,
   RuntimeEvidenceView,
+  SaveCrossProjectRequest,
 } from '@craftingtable/contracts';
 import {
-  type CrossProjectConfiguration,
-  cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_AUTOMATION,
   type MapActivitySettings,
@@ -28,6 +27,7 @@ import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
+import { defaultStepPermissions, stepPermissionsOf } from '../execution/step-permissions.js';
 import { DependencyGraph, PhaseRequirements, phaseLabel } from './DependencyRequirements.js';
 import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
@@ -35,6 +35,15 @@ import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import { useStableCallback } from '../../lib/use-stable-callback.js';
 import { MapNodeCard } from './MapNodeCard.js';
+/** A settings level as the form edits and saves it: permissions, not profiles (R-E5b). */
+type LevelSettings = SaveCrossProjectRequest['configuration']['defaults'];
+type LevelOverrides = SaveCrossProjectRequest['configuration']['overrides'];
+const levelOf = ({ profiles, reviewerRoles, ...settings }: MapActivitySettings): LevelSettings => ({
+  ...settings,
+  ...(reviewerRoles ? { reviewerRoles: [...reviewerRoles] } : {}),
+  permissions: stepPermissionsOf(profiles),
+});
+
 export function CrossProjectPanel({
   workspaceId,
   definitionId,
@@ -82,9 +91,11 @@ export function CrossProjectPanel({
   const [commandError, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [busy, setBusy] = useState(false);
-  const [settings, setSettings] = useState<MapActivitySettings | undefined>(saved?.defaults),
-    [overrides, setOverrides] = useState<CrossProjectConfiguration['overrides']>(
-      saved?.overrides ?? [],
+  const [settings, setSettings] = useState<LevelSettings | undefined>(
+      saved && levelOf(saved.defaults),
+    ),
+    [overrides, setOverrides] = useState<LevelOverrides>(
+      saved?.overrides.map((o) => ({ ...o, settings: levelOf(o.settings) })) ?? [],
     );
   const [parentAcceptance, setParentAcceptance] = useState<'manual' | 'automatic'>(
     saved?.parentAcceptance ?? 'manual',
@@ -165,10 +176,7 @@ export function CrossProjectPanel({
         setSettings(
           (old) =>
             old ?? {
-              profiles: cycleProfilesFromDefaults(p.profiles, {
-                backend: s.backends.find((b) => b.available)?.kind ?? 'claude-code',
-                permissionMode: 'auto',
-              }),
+              permissions: defaultStepPermissions(p.agents),
               policy: DEFAULT_COMPLETION_POLICY,
               instructions: '',
               automation: DEFAULT_ROADMAP_AUTOMATION,
@@ -797,11 +805,10 @@ export function CrossProjectPanel({
                       ))}
                     </div>
                     <CycleSettingsFields
-                      profilesLocked={!!roadmap}
                       policy={settings.policy}
                       setPolicy={(policy) => setSettings({ ...settings, policy })}
-                      choices={settings.profiles}
-                      setChoices={(profiles) => setSettings({ ...settings, profiles })}
+                      permissions={settings.permissions}
+                      setPermissions={(permissions) => setSettings({ ...settings, permissions })}
                       instructions={settings.instructions}
                       setInstructions={(instructions) => setSettings({ ...settings, instructions })}
                       backends={backends}
@@ -889,7 +896,7 @@ export function CrossProjectPanel({
                         Add settings override
                       </button>
                       {overrides.map((o, i) => {
-                        const update = (s: MapActivitySettings) =>
+                        const update = (s: LevelSettings) =>
                           setOverrides(
                             overrides.map((old, j) => (i === j ? { ...old, settings: s } : old)),
                           );
@@ -899,11 +906,12 @@ export function CrossProjectPanel({
                               {o.level}: {o.key}
                             </summary>
                             <CycleSettingsFields
-                              profilesLocked={!!roadmap}
                               policy={o.settings.policy}
                               setPolicy={(policy) => update({ ...o.settings, policy })}
-                              choices={o.settings.profiles}
-                              setChoices={(profiles) => update({ ...o.settings, profiles })}
+                              permissions={o.settings.permissions}
+                              setPermissions={(permissions) =>
+                                update({ ...o.settings, permissions })
+                              }
                               instructions={o.settings.instructions}
                               setInstructions={(instructions) =>
                                 update({ ...o.settings, instructions })

@@ -25,7 +25,11 @@ import {
   workspaceIdSchema,
   worktreeIdSchema,
 } from './ids.js';
-import { completionPolicySchema, cycleProfilesSchema } from './work-cycle.js';
+import {
+  completionPolicySchema,
+  cycleProfilesSchema,
+  stepPermissionsSchema,
+} from './work-cycle.js';
 import { roadmapBoardSchema } from './roadmap-board.js';
 export const roadmapAutomationSchema = z.strictObject({
   integrationMerge: z.enum(['manual', 'automatic']),
@@ -39,7 +43,8 @@ export const roadmapSchedulingSchema = z.strictObject({
   maxPerRepository: z.number().int().min(1).max(16),
   maxIntegrationRefreshes: z.number().int().min(1).max(20),
 });
-export const roadmapEntryInputSchema = z.strictObject({
+/** A saved roadmap entry's own fields, as the definition stores them (with each step's profile). */
+export const roadmapEntryFieldsSchema = z.strictObject({
   reviewerRoles: z.array(z.string().min(1).max(200)).max(50).optional(),
   executionScope: executionScopeSchema.optional(),
   id: z.string().uuid(),
@@ -54,6 +59,17 @@ export const roadmapEntryInputSchema = z.strictObject({
     .refine((groups) => new Set(groups).size === groups.length, 'Exclusion groups must be unique')
     .optional(),
 });
+/**
+ * An entry as a roadmap save sends it (R-E5b): each step's permission mode instead of its profile.
+ * The daemon keeps a saved entry's agents and gives a new entry the workspace defaults; agents are
+ * changed only by an ADR-064 assignment (`POST roadmaps/:id/agent-profiles`).
+ */
+export const roadmapEntryInputSchema = roadmapEntryFieldsSchema
+  .omit({ profiles: true })
+  .extend({ permissions: stepPermissionsSchema });
+export type RoadmapEntryInput = z.infer<typeof roadmapEntryInputSchema>;
+/** An entry with its profiles, as the daemon writes it into the definition. */
+export type RoadmapEntryFields = z.infer<typeof roadmapEntryFieldsSchema>;
 export const saveRoadmapRequestSchema = z
   .strictObject({
     expectedVersion: z.number().int().nonnegative(),
@@ -105,7 +121,7 @@ export const decisionPreparationGrantRequestSchema = z.strictObject({
   maxConcurrent: z.number().int().min(1).max(3),
 });
 export type DecisionPreparationGrantRequest = z.infer<typeof decisionPreparationGrantRequestSchema>;
-const entrySchema = roadmapEntryInputSchema.extend({
+const entrySchema = roadmapEntryFieldsSchema.extend({
   projectId: projectIdSchema,
   planVersionId: planVersionIdSchema,
   sourceId: z.string(),

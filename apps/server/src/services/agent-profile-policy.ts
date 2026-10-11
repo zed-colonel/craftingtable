@@ -1,8 +1,10 @@
+import { cycleProfilesSchema, type StepPermissions } from '@craftingtable/contracts';
 import {
   type AgentProfile,
   type AgentProfilePurpose,
   type AgentRun,
   type AgentSelection,
+  CYCLE_STEPS,
   type CycleProfiles,
   cycleProfilePurpose,
   type EffectiveAgent,
@@ -409,4 +411,58 @@ export function workspaceLayer(
   fallback: AgentSelection['backend'],
 ): NonNullable<AgentContext['workspace']> {
   return { profiles: saved, fallback: { backend: fallback, permissionMode: 'auto' } };
+}
+
+/**
+ * The profiles a new roadmap entry or map settings level stores (R-E5b, operator 2026-10-11): the
+ * workspace's defaults as they resolve now, each step with the permissions the save gave it.
+ * Agents are chosen afterwards by ADR-064 assignment; the snapshot keeps later changes to the
+ * workspace defaults from reaching an existing roadmap (ADR-064).
+ */
+export function workspaceCycleProfiles(
+  workspace: NonNullable<AgentContext['workspace']>,
+  permissions?: StepPermissions,
+): CycleProfiles {
+  const resolved = resolveAgents({ workspace });
+  // Parsed as a saved entry's profiles are, so the snapshot is stored in their form.
+  return cycleProfilesSchema.parse(
+    withPermissions(
+      {
+        ...selectionSet(resolved),
+        ...Object.fromEntries(
+          CYCLE_STEPS.map((step) => [step, launchProfile(resolved[step])] as const),
+        ),
+      } as CycleProfiles,
+      permissions,
+    ),
+  ) as CycleProfiles;
+}
+
+/**
+ * Stored profiles with each step's permission mode replaced (R-E5b): the agents are kept. The
+ * profiles come back unchanged, the same object, when no permission changes, so a saved entry
+ * compares equal to its resubmitted form.
+ */
+export function withPermissions(
+  profiles: CycleProfiles,
+  permissions: StepPermissions | undefined,
+): CycleProfiles {
+  if (
+    !permissions ||
+    CYCLE_STEPS.every((step) => profiles[step].permissionMode === permissions[step])
+  )
+    return profiles;
+  return cycleProfilesSchema.parse({
+    ...profiles,
+    ...Object.fromEntries(
+      CYCLE_STEPS.map((step) => [step, { ...profiles[step], permissionMode: permissions[step] }]),
+    ),
+  }) as CycleProfiles;
+}
+
+/** Each step's permission mode, as a save request sends it. */
+export function stepPermissions(profiles: CycleProfiles): StepPermissions {
+  return Object.fromEntries(
+    CYCLE_STEPS.map((step) => [step, profiles[step].permissionMode]),
+  ) as StepPermissions;
 }

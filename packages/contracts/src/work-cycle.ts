@@ -51,6 +51,18 @@ export const cycleProfilesSchema = z.strictObject({
   review: agentProfileSchema,
   remediate: agentProfileSchema,
 });
+/**
+ * Each step's permission mode, as a roadmap's settings save it (R-E5b, E5-1 as amended
+ * 2026-10-11): the saved definition keeps each step's permissions; its agents are chosen through
+ * ADR-064 assignments, so a save request carries no agent.
+ */
+export const stepPermissionsSchema = z.strictObject({
+  design: agentProfileSchema.shape.permissionMode,
+  implement: agentProfileSchema.shape.permissionMode,
+  review: agentProfileSchema.shape.permissionMode,
+  remediate: agentProfileSchema.shape.permissionMode,
+});
+export type StepPermissions = z.infer<typeof stepPermissionsSchema>;
 export const startWorkCycleRequestSchema = z.strictObject({
   worktreeId: worktreeIdSchema,
   policy: completionPolicySchema,

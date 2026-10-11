@@ -26,6 +26,7 @@ import {
   storedRoadmap,
   structuredFinding,
   waitFor,
+  cycleProfiles,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -180,19 +181,27 @@ describe('sequential roadmaps', () => {
     input = {
       ...input,
       entries: input.entries.map((e, index) =>
-        index === 1
-          ? {
-              ...e,
-              profiles: {
-                ...e.profiles,
-                design: { ...e.profiles.design, model: 'queued-new-model' },
-              },
-            }
-          : e,
+        index === 1 ? { ...e, instructions: 'Queued guidance' } : e,
       ),
     };
     const saved = await saveRoadmapRequest(state, input);
     expect(saved.statusCode, saved.body).toBe(200);
+    // A queued model change is an ADR-064 assignment; the save carries permissions only (R-E5b).
+    const assigned = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/agent-profiles`,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: storedRoadmap(state).version,
+        entryIds: [input.entries[1]!.id],
+        selections: {
+          ...agentSelections(cycleProfiles),
+          design: { backend: 'claude-code', model: 'queued-new-model' },
+        },
+      },
+    });
+    expect(assigned.statusCode, assigned.body).toBe(200);
+    expect(storedRoadmap(state).definition.entries[1]?.profiles.design.model).toBe('design-model');
     expect(storedRoadmap(state).definition.revision).toBe(2);
     expect(storedRoadmap(state).attempts[0]?.definitionRevision).toBe(1);
     expect(
@@ -499,7 +508,7 @@ it('changes future remediation and review models of a started roadmap cycle with
       expectedVersion: roadmap.version,
       entryIds: [attempt.entryId],
       selections: {
-        ...agentSelections(input.entries[0]!.profiles),
+        ...agentSelections(cycleProfiles),
         remediate: selection,
         review: { ...selection, model: 'gpt-6-astra', reasoningEffort: 'high' },
       },

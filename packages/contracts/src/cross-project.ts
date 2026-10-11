@@ -2,7 +2,11 @@ import { z } from 'zod';
 import type { CrossProjectConfiguration } from '@craftingtable/domain';
 import { agentProfileSchema } from './agent-profiles.js';
 import { workItemIdSchema } from './ids.js';
-import { cycleProfilesSchema, completionPolicySchema } from './work-cycle.js';
+import {
+  cycleProfilesSchema,
+  completionPolicySchema,
+  stepPermissionsSchema,
+} from './work-cycle.js';
 const automation = z.strictObject({
   integrationMerge: z.enum(['manual', 'automatic']),
   integrationConflicts: z.enum(['manual', 'automatic']),
@@ -19,27 +23,43 @@ export const mapSettingsSchema = z.strictObject({
   instructions: z.string().max(16000),
   automation,
 });
-export const crossProjectConfigurationSchema = z.strictObject({
-  definitionId: z.uuid(),
-  bindingRevision: z.number().int().positive(),
-  targetId: z.string().min(1).max(200),
-  selection: z.enum(['target-only', 'prioritize-full']),
-  parentAcceptance: z.enum(['manual', 'automatic']),
-  defaults: mapSettingsSchema,
-  overrides: z
-    .array(
-      z.strictObject({
-        level: z.enum(['project', 'activity', 'individual']),
-        key: z.string().min(1).max(240),
-        settings: mapSettingsSchema,
-      }),
-    )
-    .max(300)
-    .refine(
-      (rows) => new Set(rows.map((r) => `${r.level}:${r.key}`)).size === rows.length,
-      'Overrides must be unique',
-    ),
-});
+/**
+ * A settings level as the map's settings form saves it (R-E5b): each step's permission mode
+ * instead of its profile. The daemon keeps a saved level's agents and gives a new level the
+ * workspace defaults; agents are changed by ADR-064 assignments.
+ */
+export const mapSettingsInputSchema = mapSettingsSchema
+  .omit({ profiles: true })
+  .extend({ permissions: stepPermissionsSchema });
+const configurationOf = <S extends typeof mapSettingsSchema | typeof mapSettingsInputSchema>(
+  settings: S,
+) =>
+  z.strictObject({
+    definitionId: z.uuid(),
+    bindingRevision: z.number().int().positive(),
+    targetId: z.string().min(1).max(200),
+    selection: z.enum(['target-only', 'prioritize-full']),
+    parentAcceptance: z.enum(['manual', 'automatic']),
+    defaults: settings,
+    overrides: z
+      .array(
+        z.strictObject({
+          level: z.enum(['project', 'activity', 'individual']),
+          key: z.string().min(1).max(240),
+          settings,
+        }),
+      )
+      .max(300)
+      .refine(
+        (rows) => new Set(rows.map((r) => `${r.level}:${r.key}`)).size === rows.length,
+        'Overrides must be unique',
+      ),
+  });
+/** A map roadmap's settings as its definition stores them. */
+export const crossProjectConfigurationSchema = configurationOf(mapSettingsSchema);
+/** The same settings as the save request sends them: permissions, not profiles (R-E5b). */
+export const crossProjectConfigurationInputSchema = configurationOf(mapSettingsInputSchema);
+export type CrossProjectConfigurationInput = z.infer<typeof crossProjectConfigurationInputSchema>;
 export const mapSelectionSchema = crossProjectConfigurationSchema.pick({
   definitionId: true,
   bindingRevision: true,
@@ -55,7 +75,7 @@ export const saveCrossProjectSchema = z.strictObject({
   roadmapId: z.uuid(),
   expectedVersion: z.number().int().nonnegative(),
   name: z.string().trim().min(1).max(120),
-  configuration: crossProjectConfigurationSchema,
+  configuration: crossProjectConfigurationInputSchema,
   scheduling: z.strictObject({
     mode: z.literal('parallel'),
     maxInFlight: z.number().int().min(1).max(16),
@@ -138,9 +158,11 @@ export const crossProjectViewSchema = z.strictObject({
   published: z.boolean(),
 });
 export type CrossProjectView = z.infer<typeof crossProjectViewSchema>;
-export type SaveCrossProjectRequest = Omit<
-  z.infer<typeof saveCrossProjectSchema>,
-  'configuration'
-> & { configuration: CrossProjectConfiguration };
+/** A map roadmap's save as the request sends it: permissions, not profiles (R-E5b). */
+export type SaveCrossProjectRequest = z.infer<typeof saveCrossProjectSchema>;
+/** The same save with its settings as the definition stores them (an amendment's re-save). */
+export type CrossProjectSave = Omit<SaveCrossProjectRequest, 'configuration'> & {
+  configuration: CrossProjectConfiguration;
+};
 
 export const adoptMapResponseSchema = z.strictObject({ adopted: z.literal(true) });

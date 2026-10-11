@@ -24,6 +24,7 @@ import type {
   RoadmapCapacities,
   SaveRoadmapCapacity,
   SaveRoadmapRequest,
+  RoadmapEntryFields,
   DecisionPreparationGrantRequest,
   ScopeRecoveryPolicyRequest,
   ScopeRepairRequest,
@@ -31,6 +32,7 @@ import type {
   RoadmapBoard,
   RoadmapGraph,
 } from '@craftingtable/contracts';
+import { roadmapEntryFieldsSchema } from '@craftingtable/contracts';
 import {
   asAgentRunId,
   asAuditEventId,
@@ -65,12 +67,17 @@ import {
   type AgentSelection,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
+/** A definition's save with each entry's profiles, as the daemon writes it (R-E5b). */
+export type RoadmapDefinitionInput = Omit<SaveRoadmapRequest, 'entries'> & {
+  readonly entries: readonly RoadmapEntryFields[];
+};
 import {
   delegatedResolutionProfile,
   entryAgentSelections,
   entryAgents,
   latestAssignment,
   preparationAgent,
+  withPermissions,
 } from './agent-profile-policy.js';
 import { selectionSet } from './agent-resolution.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
@@ -1489,11 +1496,47 @@ export class RoadmapService {
       ),
     );
   }
+  /**
+   * A roadmap's save as its form sends it (R-E5b, E5-1 as amended 2026-10-11): each entry's step
+   * permissions. A saved entry keeps its agents; a new one stores the workspace defaults. The
+   * agents are changed only by an ADR-064 assignment (`applyAgentSettings`).
+   */
   save(
     context: AuthContext,
     workspaceId: WorkspaceId,
     id: string,
     input: SaveRoadmapRequest,
+  ): RoadmapView {
+    const saved = this.storage.roadmaps.find(workspaceId, id)?.definition.entries ?? [];
+    return this.saveDefinition(context, workspaceId, id, {
+      ...input,
+      // In the stored field order, so a started entry compares equal to its resubmitted form.
+      entries: input.entries.map(({ permissions, ...entry }) => {
+        const prior = saved.find((e) => e.id === entry.id);
+        return roadmapEntryFieldsSchema.parse({
+          ...entry,
+          profiles: prior
+            ? withPermissions(prior.profiles, permissions)
+            : this.cycles.workspaceProfiles(workspaceId, permissions),
+        });
+      }),
+    });
+  }
+
+  /** The profiles a new entry or map settings level stores: the workspace defaults now (R-E5b). */
+  workspaceProfiles(
+    workspaceId: WorkspaceId,
+    permissions?: import('@craftingtable/contracts').StepPermissions,
+  ) {
+    return this.cycles.workspaceProfiles(workspaceId, permissions);
+  }
+
+  /** Writes a definition whose entries carry their profiles: a form's save, or a map's. */
+  saveDefinition(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: RoadmapDefinitionInput,
     crossProject?: import('@craftingtable/domain').CrossProjectConfiguration,
     amendment?: { readonly retainAttemptIds: readonly string[] },
   ): RoadmapView {

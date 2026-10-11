@@ -168,13 +168,20 @@ export function stepUpForStoredWork(
   };
 }
 
-/** Whether a body sets `permissionMode: 'unrestricted'` anywhere in it (R-G9). */
+/**
+ * Whether a body sets `permissionMode: 'unrestricted'` anywhere in it (R-G9), or a step's mode to
+ * `unrestricted` in a `permissions` record, the shape a roadmap's settings save sends (R-E5b).
+ */
 export function grantsUnrestricted(body: unknown, depth = 0): boolean {
   if (depth > 32 || body === null || typeof body !== 'object') return false;
   if (Array.isArray(body)) return body.some((value) => grantsUnrestricted(value, depth + 1));
   return Object.entries(body).some(
     ([key, value]) =>
       (key === 'permissionMode' && value === 'unrestricted') ||
+      (key === 'permissions' &&
+        typeof value === 'object' &&
+        value !== null &&
+        Object.values(value).includes('unrestricted')) ||
       grantsUnrestricted(value, depth + 1),
   );
 }

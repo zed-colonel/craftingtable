@@ -626,7 +626,7 @@ export class MapAmendmentService {
           old.bindingRevision !== a.candidate.bindingRevision
         )
           tx.amendments.supersede(ws, old.definitionId, old.bindingRevision, a.id);
-        this.cross.save(
+        this.cross.saveStored(
           context,
           ws,
           {

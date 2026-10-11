@@ -3,7 +3,7 @@ import {
   executionStatusResponseSchema,
   startAgentRunResponseSchema,
 } from '@craftingtable/contracts';
-import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import { agentSelections, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MODEL_CATALOG_REFRESH_MS,
@@ -29,6 +29,7 @@ import {
   startCycle,
   waitFor,
   withinHangGuard,
+  useStepModels,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -272,17 +273,12 @@ it("stops a roadmap's cycle, not its scheduler, on a saved display name, and the
   const known = backend.models;
   // Saved while the catalog did not list the model, so it was sent as typed.
   backend.models = [];
-  const input = roadmapInput(state, [state.workItemId]);
-  const misnamed = {
-    ...input,
-    entries: input.entries.map((entry) => ({
-      ...entry,
-      profiles: {
-        ...entry.profiles,
-        design: { ...entry.profiles.design, model: 'Scripted model' },
-      },
-    })),
-  };
+  // A new entry stores the workspace defaults (R-E5b), saved while the name was unknown.
+  await useStepModels(state, {
+    ...cycleProfiles,
+    design: { ...cycleProfiles.design, model: 'Scripted model' },
+  });
+  const misnamed = roadmapInput(state, [state.workItemId]);
   expect((await saveRoadmapRequest(state, misnamed)).statusCode).toBe(200);
   // A refresh then learns it as the display name of scripted-model.
   backend.models = known;
@@ -396,26 +392,55 @@ it('refuses a display name entered on a roadmap, and keeps one it already saved 
   const { state, backend } = await roadmapFixture([designDone]);
   const known = backend.models;
   const input = roadmapInput(state, [state.workItemId]);
-  const withDesign = (model: string, version = 0) => ({
-    ...input,
-    expectedVersion: version,
-    entries: input.entries.map((entry) => ({
-      ...entry,
-      profiles: { ...entry.profiles, design: { ...entry.profiles.design, model } },
-    })),
-  });
-  const refused = await saveRoadmapRequest(state, withDesign('Scripted model'));
+  // A roadmap's agents are entered as an assignment (R-E5b): a display name is refused there.
+  const assign = (model: string) =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/agent-profiles`,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: storedRoadmap(state).version,
+        entryIds: [input.entries[0]!.id],
+        selections: {
+          ...agentSelections(cycleProfiles),
+          design: { backend: 'claude-code', model },
+        },
+      },
+    });
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  const refused = await assign('Scripted model');
   expect(refused.statusCode).toBe(400);
   expect(refused.json().error.message).toContain('"scripted-model"');
-  // Saved while the catalog did not list it, then kept through another save.
+  // A roadmap saved while the catalog did not list it (the workspace default a new entry
+  // stores) keeps it through another save.
   backend.models = [];
-  expect((await saveRoadmapRequest(state, withDesign('Scripted model'))).statusCode).toBe(200);
-  backend.models = known;
-  const resaved = await saveRoadmapRequest(state, {
-    ...withDesign('Scripted model', storedRoadmap(state).version),
-    name: 'Renamed',
+  await useStepModels(state, {
+    ...cycleProfiles,
+    design: { ...cycleProfiles.design, model: 'Scripted model' },
   });
+  const other = '00000000-0000-4000-8000-000000000099';
+  const saved = await saveRoadmapRequest(
+    state,
+    { ...input, entries: [{ ...input.entries[0]!, id: '00000000-0000-4000-8000-000000000098' }] },
+    other,
+  );
+  expect(saved.statusCode, saved.body).toBe(200);
+  backend.models = known;
+  const resaved = await saveRoadmapRequest(
+    state,
+    {
+      ...input,
+      entries: [{ ...input.entries[0]!, id: '00000000-0000-4000-8000-000000000098' }],
+      expectedVersion: state.context.storage.roadmaps.find(state.workspaceId, other)!.version,
+      name: 'Renamed',
+    },
+    other,
+  );
   expect(resaved.statusCode, resaved.body).toBe(200);
+  expect(
+    state.context.storage.roadmaps.find(state.workspaceId, other)!.definition.entries[0]?.profiles
+      .design.model,
+  ).toBe('Scripted model');
 });
 
 it('starts nothing for a cycle stopped while its launch waits for the first catalog look (R-G15)', async () => {

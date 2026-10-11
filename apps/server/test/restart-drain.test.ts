@@ -13,7 +13,8 @@ import {
 } from './cycle-test-support.js';
 import {
   cleanupExecutionFixtures,
-  cycleProfiles,
+  stepPermissions,
+  useStepModels,
   declareFixtureChecks,
   designDone,
   git,
@@ -269,13 +270,14 @@ describe('restart drain and automatic resume (R-B9)', () => {
       expect(response.statusCode, response.body).toBe(200);
     };
     await inject(`/worktrees/${f.worktreeId}/remove`, {});
+    await useStepModels(f);
     await inject(`/roadmaps/${roadmapId}`, {
       expectedVersion: 0,
       name: 'Restart roadmap',
       entries: ['item-1', 'item-2'].map((workItemId, index) => ({
         id: `00000000-0000-4000-8000-00000000001${index + 1}`,
         workItemId,
-        profiles: cycleProfiles,
+        permissions: stepPermissions,
         policy: DEFAULT_COMPLETION_POLICY,
         instructions: '',
       })),

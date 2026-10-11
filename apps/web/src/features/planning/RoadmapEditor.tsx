@@ -2,11 +2,10 @@ import type {
   ExecutionScopeChoice,
   ExecutionStatusResponse,
   SaveRoadmapRequest,
+  StepPermissions,
   WorkspaceWorkItemListResponse,
 } from '@craftingtable/contracts';
 import {
-  type CycleProfiles,
-  cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_SCHEDULING,
   executionScopeKey,
@@ -23,17 +22,22 @@ import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
 import { saveRoadmap } from '../../lib/roadmap-api.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
+import { defaultStepPermissions, stepPermissionsOf } from '../execution/step-permissions.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 
 export type Draft = SaveRoadmapRequest & { id: string };
 
-/** What the roadmap editor offers: the workspace's work items, backends and default profiles. */
+/**
+ * What the roadmap editor offers: the workspace's work items, backends and the permissions a new
+ * entry starts from (the workspace defaults'; a new entry's agents are the workspace defaults the
+ * daemon stores, R-E5b).
+ */
 function useEditorChoices(workspaceId: WorkspaceId, onError: (message: string) => void) {
   const [items, setItems] = useState<WorkspaceWorkItemListResponse['items']>([]);
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
-  const [defaults, setDefaults] = useState<CycleProfiles>();
+  const [defaults, setDefaults] = useState<StepPermissions>();
   useEffect(() => {
     let alive = true;
     void Promise.all([
@@ -45,12 +49,7 @@ function useEditorChoices(workspaceId: WorkspaceId, onError: (message: string) =
         if (!alive) return;
         setItems(listing.items);
         setBackends(status.backends);
-        setDefaults(
-          cycleProfilesFromDefaults(profiles.profiles, {
-            backend: status.backends.find((b) => b.available)?.kind ?? 'claude-code',
-            permissionMode: 'auto',
-          }),
-        );
+        setDefaults(defaultStepPermissions(profiles.agents));
       })
       .catch((e) => {
         if (alive) onError(e instanceof Error ? e.message : 'Could not load work items.');
@@ -85,7 +84,7 @@ export function draftOf(roadmap: Roadmap): Draft {
           : {}),
         id,
         workItemId,
-        profiles,
+        permissions: stepPermissionsOf(profiles),
         policy,
         instructions,
         ...(automation ? { automation } : {}),
@@ -347,7 +346,7 @@ export function RoadmapEditor({
                       : {}),
                     id: crypto.randomUUID(),
                     workItemId: selected as WorkItemId,
-                    profiles: defaults,
+                    permissions: defaults,
                     policy: DEFAULT_COMPLETION_POLICY,
                     instructions: '',
                   },
@@ -476,11 +475,10 @@ export function RoadmapEditor({
                 <details>
                   <summary>Agents, models, and completion policy</summary>
                   <CycleSettingsFields
-                    profilesLocked={draft.expectedVersion > 0}
                     policy={entry.policy}
                     setPolicy={(policy) => updateEntry(index, { policy })}
-                    choices={entry.profiles}
-                    setChoices={(profiles) => updateEntry(index, { profiles })}
+                    permissions={entry.permissions}
+                    setPermissions={(permissions) => updateEntry(index, { permissions })}
                     instructions={entry.instructions}
                     setInstructions={(instructions) => updateEntry(index, { instructions })}
                     backends={backends}

@@ -9,6 +9,7 @@ import {
   finalizationAgents,
   investigationAgent,
   operatorResolutionProfile,
+  workspaceCycleProfiles,
 } from './agent-profile-policy.js';
 import { resolveAgent, selectionSet } from './agent-resolution.js';
 import { mapCapabilities, V03_VOCABULARY } from '@craftingtable/domain';
@@ -1169,6 +1170,20 @@ export class WorkCycleService {
         reason,
       },
       'design-continue',
+    );
+  }
+
+  /**
+   * The profiles a new roadmap entry or map settings level stores: the workspace's defaults now,
+   * with the save's permissions (R-E5b).
+   */
+  workspaceProfiles(
+    workspaceId: WorkspaceId,
+    permissions?: import('@craftingtable/contracts').StepPermissions,
+  ): import('@craftingtable/domain').CycleProfiles {
+    return workspaceCycleProfiles(
+      this.runs.workspaceLayerIn(this.storage, workspaceId),
+      permissions,
     );
   }
 

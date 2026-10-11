@@ -35,6 +35,7 @@ import {
   startCycle,
   storedRoadmap,
   useIntegration,
+  useStepModels,
   waitFor,
 } from './execution-test-support.js';
 
@@ -610,9 +611,10 @@ describe('an integration resolution the roadmap delegates', () => {
             conflict: { backend: 'claude-code' as const, model: 'explicit-conflict' },
           }
         : cycleProfiles;
+    // A definition's own specialist is the workspace's when the entry is saved (R-E5b).
+    await useStepModels(state, profiles);
     const saved = await saveRoadmapRequest(state, {
       ...input,
-      entries: input.entries.map((e) => ({ ...e, profiles })),
       automation: {
         integrationMerge: 'automatic',
         integrationConflicts: 'automatic',

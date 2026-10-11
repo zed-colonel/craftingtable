@@ -34,9 +34,7 @@ it('allows distinct development and review activities but rejects duplicate scop
   const entry = {
     id: '00000000-0000-4000-8000-000000000002',
     workItemId: 'item-1',
-    profiles: Object.fromEntries(
-      CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
-    ),
+    permissions: Object.fromEntries(CYCLE_STEPS.map((step) => [step, 'auto'])),
     policy: DEFAULT_COMPLETION_POLICY,
     instructions: '',
     executionScope: scope,
@@ -62,9 +60,7 @@ it('preserves distinct review activities for the same source milestone', () => {
   const entry = {
     id: '00000000-0000-4000-8000-000000000002',
     workItemId: 'item-1',
-    profiles: Object.fromEntries(
-      CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
-    ),
+    permissions: Object.fromEntries(CYCLE_STEPS.map((step) => [step, 'auto'])),
     policy: DEFAULT_COMPLETION_POLICY,
     instructions: '',
     executionScope: {
@@ -86,4 +82,30 @@ it('preserves distinct review activities for the same source milestone', () => {
       entries: [entry, verification],
     }).success,
   ).toBe(true);
+});
+
+it('takes each step’s permission mode in a save, never an agent (R-E5b)', () => {
+  const entry = {
+    id: '00000000-0000-4000-8000-000000000002',
+    workItemId: 'item-1',
+    permissions: Object.fromEntries(CYCLE_STEPS.map((step) => [step, 'auto'])),
+    policy: DEFAULT_COMPLETION_POLICY,
+    instructions: '',
+  };
+  const request = { expectedVersion: 0, name: 'Steps', entries: [entry] };
+  expect(saveRoadmapRequestSchema.safeParse(request).success).toBe(true);
+  const { permissions: _, ...withoutPermissions } = entry;
+  expect(
+    saveRoadmapRequestSchema.safeParse({
+      ...request,
+      entries: [
+        {
+          ...withoutPermissions,
+          profiles: Object.fromEntries(
+            CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+          ),
+        },
+      ],
+    }).success,
+  ).toBe(false);
 });

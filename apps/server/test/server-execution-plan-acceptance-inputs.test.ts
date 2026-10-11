@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts';
 import {
+  agentSelections,
   type ConcurrencySource,
   type EvidenceSubmission,
   PLAN_ACCEPTANCE_INPUTS,
@@ -27,6 +28,28 @@ import {
 afterEach(cleanupExecutionFixtures);
 
 const PLAN = { kind: 'checkpoint' as const, sourceId: 'STACK-PLAN-ACCEPTED' };
+
+/**
+ * Re-saves a map roadmap as an applied amendment does: its stored settings (the amendment path
+ * takes them with their profiles, R-E5b), with the defaults' reviewer roles replaced.
+ */
+function amendReviewers(
+  f: Awaited<ReturnType<typeof supervisedMapFixture>>,
+  reviewerRoles: string[],
+) {
+  const stored = f.state.context.storage.roadmaps.find(f.state.workspaceId, f.input.roadmapId)!;
+  const saved = stored.definition.crossProject!;
+  f.service.saveStored(
+    f.auth,
+    f.state.workspaceId,
+    {
+      ...f.input,
+      expectedVersion: stored.version,
+      configuration: { ...saved, defaults: { ...saved.defaults, reviewerRoles } },
+    },
+    { retainAttemptIds: [] },
+  );
+}
 
 /**
  * A saved cross-project roadmap whose generated STACK-PLAN-ACCEPTED evidence the operator
@@ -158,16 +181,16 @@ it('keeps STACK-PLAN-ACCEPTED accepted across saves, generations and capacities 
   await unchanged();
   save((c) => ({ ...c, defaults: { ...c.defaults, instructions: 'New instructions.' } }));
   await unchanged();
-  save((c) => ({
-    ...c,
-    defaults: {
-      ...c.defaults,
-      profiles: {
-        ...c.defaults.profiles,
-        design: { ...c.defaults.profiles.design, model: 'review-model' },
-      },
+  // A model change is an ADR-064 assignment, which leaves the definition alone (R-E5b).
+  const entries = storage.roadmaps.find(ws, f.input.roadmapId)!.definition.entries;
+  f.state.context.services.roadmapService.applyAgentSettings(f.auth, ws, f.input.roadmapId, {
+    expectedVersion: storage.roadmaps.find(ws, f.input.roadmapId)!.version,
+    entryIds: entries.map((e) => e.id),
+    selections: {
+      ...agentSelections(entries[0]!.profiles),
+      design: { backend: 'claude-code', model: 'review-model' },
     },
-  }));
+  });
   await unchanged();
   save((c) => ({
     ...c,
@@ -286,30 +309,14 @@ it('carries the acceptance when the operator saves new reviewer roles', async ()
 // Done-when (c): the carried acceptance never reaches the inbox. An amendment never carries
 // (D2), so the same kind of change applied as one raises the plan item.
 it('opens no inbox item for a carried acceptance, and an amendment never carries', async () => {
-  const { f, ws, storage, save, carried, first, accepted, planItems, decisionOf } =
-    await acceptedPlan();
+  const { f, save, carried, first, accepted, planItems, decisionOf } = await acceptedPlan();
   await roadmapControl(f.state, 'start');
   await roadmapControl(f.state, 'pause');
   expect(planItems()).toEqual([]);
   save((c) => ({ ...c, defaults: { ...c.defaults, reviewerRoles: ['repository-maintainer'] } }));
   expect(carried().decision.carriedFrom).toBe(decisionOf(first.id)!.id);
   expect(planItems()).toEqual([]);
-  f.service.save(
-    f.auth,
-    ws,
-    {
-      ...f.input,
-      expectedVersion: storage.roadmaps.find(ws, f.input.roadmapId)!.version,
-      configuration: {
-        ...f.input.configuration,
-        defaults: {
-          ...f.input.configuration.defaults,
-          reviewerRoles: ['independent-security-reviewer-if-required-by-source'],
-        },
-      },
-    },
-    { retainAttemptIds: [] },
-  );
+  amendReviewers(f, ['independent-security-reviewer-if-required-by-source']);
   expect(accepted()).toBeUndefined();
   expect(planItems().map((item) => item.title)).toEqual([
     'Cross-project fixture · STACK-PLAN-ACCEPTED · Plan to accept',
@@ -383,22 +390,7 @@ it('carries the acceptance when the operator approves decision clauses', async (
   });
   // An amendment re-opens it; the package the operator then reviews names every input changed
   // since their own review, not only since the last carried acceptance.
-  f.service.save(
-    f.auth,
-    ws,
-    {
-      ...f.input,
-      expectedVersion: storage.roadmaps.find(ws, f.input.roadmapId)!.version,
-      configuration: {
-        ...f.input.configuration,
-        defaults: {
-          ...f.input.configuration.defaults,
-          reviewerRoles: ['independent-security-reviewer-if-required-by-source'],
-        },
-      },
-    },
-    { retainAttemptIds: [] },
-  );
+  amendReviewers(f, ['independent-security-reviewer-if-required-by-source']);
   expect((await generate()).generatedPlan).toMatchObject({
     changedInputs: ['stagedDecisions', 'reviewerRoles'],
   });

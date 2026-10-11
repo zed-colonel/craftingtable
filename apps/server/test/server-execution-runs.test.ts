@@ -279,13 +279,13 @@ describe('repository registration', () => {
       ...input,
       entries: input.entries.map((entry) => ({
         ...entry,
-        profiles: {
-          ...entry.profiles,
-          implement: { ...entry.profiles.implement, permissionMode: 'unrestricted' },
-        },
+        permissions: { ...entry.permissions, implement: 'unrestricted' },
       })),
     };
-    // Saving the grant asks for the password itself.
+    // Saving the grant asks for the password itself, in the save's permissions shape (R-E5b).
+    const refused = await saveRoadmapRequest(state, granting);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.reason).toBe('step-up-required');
     await stepUp(state);
     const saved = await saveRoadmapRequest(state, granting);
     expect(saved.statusCode, saved.body).toBe(200);

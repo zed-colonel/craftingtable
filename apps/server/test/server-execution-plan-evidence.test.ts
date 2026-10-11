@@ -477,16 +477,18 @@ it('invalidates generated plan evidence when saved settings change and rejects s
   spy.mockRestore();
   // Applied as an amendment, which never carries the acceptance (R-C6 D2); an ordinary save
   // would carry it.
-  f.service.save(
+  // The amendment path takes the stored settings, with their profiles (R-E5b).
+  const stored = changed.definition.crossProject!;
+  f.service.saveStored(
     f.auth,
     ws,
     {
       ...f.input,
       expectedVersion: changed.version,
       configuration: {
-        ...f.input.configuration,
+        ...stored,
         defaults: {
-          ...f.input.configuration.defaults,
+          ...stored.defaults,
           reviewerRoles: ['independent-security-reviewer-if-required-by-source'],
         },
       },

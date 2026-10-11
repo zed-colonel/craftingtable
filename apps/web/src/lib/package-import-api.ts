@@ -45,7 +45,7 @@ export const previewPlanZip = (
   selection?: { implementationPlan: string; workBreakdown: string },
 ) =>
   upload(
-    `${base(workspaceId)}/plan-archives/preview`,
+    `${base(workspaceId)}/imports/plan-archives/preview`,
     file,
     selection ?? {},
     csrfToken,
@@ -58,7 +58,7 @@ export const importPlanZip = (
   csrfToken: string,
 ) =>
   upload(
-    `${base(workspaceId)}/plan-archives/import`,
+    `${base(workspaceId)}/imports/plan-archives`,
     file,
     fields,
     csrfToken,
@@ -66,14 +66,14 @@ export const importPlanZip = (
   );
 export const importConcurrencyZip = (workspaceId: WorkspaceId, file: File, csrfToken: string) =>
   upload(
-    `${base(workspaceId)}/concurrency-imports`,
+    `${base(workspaceId)}/imports/concurrency-definitions`,
     file,
     {},
     csrfToken,
     concurrencyImportResponseSchema,
   );
 export const loadConcurrencyImports = (workspaceId: WorkspaceId) =>
-  request(`${base(workspaceId)}/concurrency-imports`, concurrencyListSchema);
+  request(`${base(workspaceId)}/imports/concurrency-definitions`, concurrencyListSchema);
 export const loadConcurrencyDefinition = (workspaceId: WorkspaceId, id: string) =>
   request(
     `${base(workspaceId)}/concurrency-definitions/${encodeURIComponent(id)}`,
@@ -91,4 +91,4 @@ export const saveConcurrencyBindings = (
     { method: 'POST', headers: { 'x-craftingtable-csrf': csrfToken }, body: JSON.stringify(input) },
   );
 export const archiveDownloadPath = (workspaceId: WorkspaceId, id: string) =>
-  `${base(workspaceId)}/import-archives/${encodeURIComponent(id)}`;
+  `${base(workspaceId)}/imports/archives/${encodeURIComponent(id)}`;

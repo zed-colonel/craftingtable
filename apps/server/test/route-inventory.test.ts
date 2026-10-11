@@ -30,7 +30,19 @@ const BEFORE = (
   }
 ).routes;
 /** Where each route R-H5 renamed or folded went (`METHOD path`); a route not named kept its key. */
-const MOVED: Readonly<Record<string, string>> = {};
+const W = '/api/workspaces/:workspaceId';
+const MOVED: Readonly<Record<string, string>> = {
+  // H5-1: API nouns follow the domain and contract names, with one `imports/` prefix.
+  [`GET ${W}/plans/:planVersionId/finalizations`]: `GET ${W}/plan-versions/:planVersionId/finalizations`,
+  [`POST ${W}/plans/:planVersionId/finalizations`]: `POST ${W}/plan-versions/:planVersionId/finalizations`,
+  [`GET ${W}/plan-imports`]: `GET ${W}/imports/plans`,
+  [`POST ${W}/plan-imports`]: `POST ${W}/imports/plans`,
+  [`POST ${W}/plan-archives/preview`]: `POST ${W}/imports/plan-archives/preview`,
+  [`POST ${W}/plan-archives/import`]: `POST ${W}/imports/plan-archives`,
+  [`GET ${W}/concurrency-imports`]: `GET ${W}/imports/concurrency-definitions`,
+  [`POST ${W}/concurrency-imports`]: `POST ${W}/imports/concurrency-definitions`,
+  [`GET ${W}/import-archives/:id`]: `GET ${W}/imports/archives/:id`,
+};
 /** Routes R-H5 retired, each with the reason. */
 const RETIRED: Readonly<Record<string, string>> = {};
 const RANK: Readonly<Record<RouteAccess, number>> = {

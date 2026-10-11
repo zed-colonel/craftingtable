@@ -74,7 +74,9 @@ async function readArchiveUpload(request: FastifyRequest) {
 export function registerPackageImportRoutes(app: FastifyInstance, imports: PackageImportService) {
   for (const action of ['preview', 'import'] as const)
     app.post<{ Params: { workspaceId: string } }>(
-      `/api/workspaces/:workspaceId/plan-archives/${action}`,
+      action === 'preview'
+        ? '/api/workspaces/:workspaceId/imports/plan-archives/preview'
+        : '/api/workspaces/:workspaceId/imports/plan-archives',
       {
         config: {
           access: 'editor',
@@ -145,7 +147,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
       },
     );
   app.post<{ Params: { workspaceId: string } }>(
-    '/api/workspaces/:workspaceId/concurrency-imports',
+    '/api/workspaces/:workspaceId/imports/concurrency-definitions',
     {
       config: {
         access: 'editor',
@@ -169,7 +171,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
     },
   );
   app.get<{ Params: { workspaceId: string } }>(
-    '/api/workspaces/:workspaceId/concurrency-imports',
+    '/api/workspaces/:workspaceId/imports/concurrency-definitions',
     { config: { access: 'member' } },
     async (request, reply) => {
       const context = contextOf(request);
@@ -217,7 +219,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
     },
   );
   app.get<{ Params: { workspaceId: string; id: string } }>(
-    '/api/workspaces/:workspaceId/import-archives/:id',
+    '/api/workspaces/:workspaceId/imports/archives/:id',
     { config: { access: 'member' } },
     async (request, reply) => {
       const context = contextOf(request);

@@ -88,7 +88,7 @@ describe('daemon restart reconstruction', () => {
       (
         await first.app.inject({
           method: 'POST',
-          url: `/api/workspaces/${workspaceId}/plan-imports`,
+          url: `/api/workspaces/${workspaceId}/imports/plans`,
           headers: {
             cookie,
             origin: config.publicOrigin,

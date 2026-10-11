@@ -411,7 +411,7 @@ describe('a finalization (E5-3)', () => {
     const fixture = await finalizationFixture();
     const value = await beginFinalization(fixture);
     const { finalizations } = finalizationsResponseSchema.parse(
-      await get(fixture.state, '/plans/version-1/finalizations'),
+      await get(fixture.state, '/plan-versions/version-1/finalizations'),
     );
     const agents = finalizations.find((v) => v.finalization.id === value.id)?.agents;
     expect(agents?.stages.map((s) => s.id)).toEqual(value.stages?.map((s) => s.id));

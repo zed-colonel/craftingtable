@@ -135,7 +135,7 @@ describe('finalization finding decisions', () => {
     const { state, value, backend } = await findingCheckpointFixture();
     const listed = await state.context.app.inject({
       method: 'GET',
-      url: `/api/workspaces/${state.workspaceId}/plans/${value.planVersionId}/finalizations`,
+      url: `/api/workspaces/${state.workspaceId}/plan-versions/${value.planVersionId}/finalizations`,
       headers: { cookie: state.cookie },
     });
     expect(listed.statusCode, listed.body).toBe(200);
@@ -501,7 +501,7 @@ describe('completed plan and integration branch cleanup', () => {
     expect(finalizationCycle(state, value).status).toBe('paused');
     const listed = await state.context.app.inject({
       method: 'GET',
-      url: `/api/workspaces/${state.workspaceId}/plans/${value.planVersionId}/finalizations`,
+      url: `/api/workspaces/${state.workspaceId}/plan-versions/${value.planVersionId}/finalizations`,
       headers: { cookie: state.cookie },
     });
     expect(
@@ -690,7 +690,7 @@ describe('staged finalization', () => {
     );
     const response = await state.context.app.inject({
       method: 'GET',
-      url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
+      url: `/api/workspaces/${state.workspaceId}/plan-versions/version-1/finalizations`,
       headers: { cookie: state.cookie },
     });
     expect(response.statusCode, response.body).toBe(200);
@@ -1151,7 +1151,7 @@ describe('staged finalization', () => {
       expect(f.cycle().finalizationProgress?.followUps.map((x) => x.id)).toEqual(['C-1']);
       const listed = await f.state.context.app.inject({
         method: 'GET',
-        url: `/api/workspaces/${f.state.workspaceId}/plans/version-1/finalizations`,
+        url: `/api/workspaces/${f.state.workspaceId}/plan-versions/version-1/finalizations`,
         headers: { cookie: f.state.cookie },
       });
       expect(
@@ -1199,7 +1199,7 @@ describe('staged finalization', () => {
     const start = (optionalFindings: 'follow-up' | 'select', kinds: readonly string[]) =>
       state.context.app.inject({
         method: 'POST',
-        url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
+        url: `/api/workspaces/${state.workspaceId}/plan-versions/version-1/finalizations`,
         headers: mutationHeaders(state),
         payload: {
           ...input,
@@ -1569,7 +1569,7 @@ it('keeps all selected stage findings required when recovery temporarily focuses
   expect(cycle.finalizationProgress?.followUps).toEqual([]);
   const view = await state.context.app.inject({
     method: 'GET',
-    url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
+    url: `/api/workspaces/${state.workspaceId}/plan-versions/version-1/finalizations`,
     headers: { cookie: state.cookie },
   });
   expect(view.json().finalizations[0].checkpointFindings.map((f: { id: string }) => f.id)).toEqual([

@@ -73,7 +73,7 @@ export function loadImportAttempts(
   workspaceId: WorkspaceId,
 ): Promise<PlanImportAttemptListResponse> {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/plan-imports`,
+    `/api/workspaces/${encode(workspaceId)}/imports/plans`,
     planImportAttemptListResponseSchema,
   );
 }
@@ -153,7 +153,7 @@ export async function importPlanBundle(
     // The multipart field name *is* the artifact role (CT-03 §5.1).
     form.append(entry.role, entry.file, entry.file.name);
   }
-  const url = `/api/workspaces/${encode(workspaceId)}/plan-imports`;
+  const url = `/api/workspaces/${encode(workspaceId)}/imports/plans`;
   const response = await fetch(url, {
     method: 'POST',
     credentials: 'same-origin',

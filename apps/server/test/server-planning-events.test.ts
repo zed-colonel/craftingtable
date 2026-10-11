@@ -156,7 +156,7 @@ async function importAq(ready: Awaited<ReturnType<typeof readyDaemon>>) {
   const body = buildMultipartBody({ fields: { projectName: 'AQ' }, files: aqFiles() });
   const response = await ready.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${ready.workspaceId}/plan-imports`,
+    url: `/api/workspaces/${ready.workspaceId}/imports/plans`,
     headers: {
       cookie: ready.session.cookie,
       origin: ready.context.config.publicOrigin,
@@ -379,7 +379,7 @@ describe('planning event delivery', () => {
 
       const failed = await ready.context.app.inject({
         method: 'POST',
-        url: `/api/workspaces/${ready.workspaceId}/plan-imports`,
+        url: `/api/workspaces/${ready.workspaceId}/imports/plans`,
         headers: {
           cookie: ready.session.cookie,
           origin: ready.context.config.publicOrigin,

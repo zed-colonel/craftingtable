@@ -55,8 +55,6 @@ decision boundary test reads each `decision` route from it.
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt` | editor | decision |  | `adoptMapSchema` |
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview` | editor | config |  | `mapSelectionSchema` |
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap` | editor | config |  | `saveCrossProjectSchema` |
-| GET | `workspaces/:workspaceId/concurrency-imports` | member | read |  |  |
-| POST | `workspaces/:workspaceId/concurrency-imports` | editor | config |  | `concurrencyUploadFieldsSchema` (multipart fields) |
 | GET | `workspaces/:workspaceId/cycles` | member | read |  |  |
 | GET | `workspaces/:workspaceId/cycles/:cycleId/baseline-evidence` | member | read |  |  |
 | GET | `workspaces/:workspaceId/cycles/:cycleId/baseline-preparation` | editor | read |  |  |
@@ -75,23 +73,25 @@ decision boundary test reads each `decision` route from it.
 | POST | `workspaces/:workspaceId/finalizations/:finalizationId/control` | editor | decision | the final promotion (merge), or an action that starts work under stored settings granting unrestricted | `controlFinalizationRequestSchema` |
 | GET | `workspaces/:workspaceId/host-scheduling` | installation | read |  |  |
 | POST | `workspaces/:workspaceId/host-scheduling` | installation | config |  | `saveHostSchedulingSchema` |
-| GET | `workspaces/:workspaceId/import-archives/:id` | member | read |  |  |
+| GET | `workspaces/:workspaceId/imports/archives/:id` | member | read |  |  |
+| GET | `workspaces/:workspaceId/imports/concurrency-definitions` | member | read |  |  |
+| POST | `workspaces/:workspaceId/imports/concurrency-definitions` | editor | config |  | `concurrencyUploadFieldsSchema` (multipart fields) |
+| POST | `workspaces/:workspaceId/imports/plan-archives` | editor | config |  | `planArchiveUploadFieldsSchema` (multipart fields) |
+| POST | `workspaces/:workspaceId/imports/plan-archives/preview` | editor | config |  | `planArchiveUploadFieldsSchema` (multipart fields) |
+| GET | `workspaces/:workspaceId/imports/plans` | member | read |  |  |
+| POST | `workspaces/:workspaceId/imports/plans` | editor | config |  | `planImportFieldsSchema` (multipart fields) |
 | GET | `workspaces/:workspaceId/notifications` | owner | read |  |  |
 | POST | `workspaces/:workspaceId/notifications` | owner | config |  | `saveNotificationsRequestSchema` |
 | POST | `workspaces/:workspaceId/notifications/test` | owner | control |  | `testNotificationsRequestSchema` |
 | GET | `workspaces/:workspaceId/operator-wait` | member | read |  |  |
-| POST | `workspaces/:workspaceId/plan-archives/import` | editor | config |  | `planArchiveUploadFieldsSchema` (multipart fields) |
-| POST | `workspaces/:workspaceId/plan-archives/preview` | editor | config |  | `planArchiveUploadFieldsSchema` (multipart fields) |
 | GET | `workspaces/:workspaceId/plan-artifacts/:artifactId` | member | read |  |  |
-| GET | `workspaces/:workspaceId/plan-imports` | member | read |  |  |
-| POST | `workspaces/:workspaceId/plan-imports` | editor | config |  | `planImportFieldsSchema` (multipart fields) |
 | GET | `workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings` | member | read |  |  |
 | POST | `workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings` | editor | config |  | `savePlanBranchSettingsRequestSchema` |
+| GET | `workspaces/:workspaceId/plan-versions/:planVersionId/finalizations` | member | read |  |  |
+| POST | `workspaces/:workspaceId/plan-versions/:planVersionId/finalizations` | editor | control |  | `startFinalizationRequestSchema` |
 | GET | `workspaces/:workspaceId/plan-versions/:planVersionId/graph` | member | read |  |  |
 | GET | `workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy` | member | read |  |  |
 | POST | `workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy` | editor | config |  | `saveRepositoryPolicyRequestSchema` |
-| GET | `workspaces/:workspaceId/plans/:planVersionId/finalizations` | member | read |  |  |
-| POST | `workspaces/:workspaceId/plans/:planVersionId/finalizations` | editor | control |  | `startFinalizationRequestSchema` |
 | GET | `workspaces/:workspaceId/projects` | member | read |  |  |
 | GET | `workspaces/:workspaceId/projects/:projectId` | member | read |  |  |
 | GET | `workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId` | member | read |  |  |

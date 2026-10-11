@@ -75,7 +75,7 @@ async function importPlan(
   extra: Record<string, string> = {},
 ) {
   const preview = inspectPlanArchive(fixture(name));
-  return upload(r, 'plan-archives/import', name, {
+  return upload(r, 'imports/plan-archives', name, {
     projectName: name,
     archiveDigest: preview.archiveDigest,
     implementationPlan: preview.implementationPlans[0]!,
@@ -114,7 +114,7 @@ describe('package import HTTP flow', () => {
       expect(version.json().artifacts.length).toBeGreaterThan(12);
       expect(version.json().archives).toHaveLength(1);
     }
-    const imported = await upload(r, 'concurrency-imports', mapName);
+    const imported = await upload(r, 'imports/concurrency-definitions', mapName);
     expect(imported.statusCode, imported.body).toBe(200);
     const id = imported.json().attempt.definitionId;
     expect(id).toBeTruthy();
@@ -239,7 +239,7 @@ describe('package import HTTP flow', () => {
     expect(r.context.storage.execution.worktrees.count()).toBe(0);
     expect(r.context.storage.roadmaps.list(r.workspaceId)).toHaveLength(0);
     expect(r.context.storage.planning.workItems.count()).toBe(33);
-    const duplicate = await upload(r, 'concurrency-imports', mapName);
+    const duplicate = await upload(r, 'imports/concurrency-definitions', mapName);
     expect(duplicate.json().attempt.outcome).toBe('duplicate');
     expect(r.context.storage.imports.definitions(r.workspaceId)).toHaveLength(1);
     const foreign = await r.context.app.inject({
@@ -273,7 +273,7 @@ describe('package import HTTP flow', () => {
     );
     const downloaded = await r.context.app.inject({
       method: 'GET',
-      url: `/api/workspaces/${r.workspaceId}/import-archives/${imported.json().attempt.archiveId}`,
+      url: `/api/workspaces/${r.workspaceId}/imports/archives/${imported.json().attempt.archiveId}`,
       headers: { cookie: r.session.cookie },
     });
     expect(downloaded.statusCode).toBe(200);
@@ -350,10 +350,10 @@ describe('package import HTTP flow', () => {
   });
   it('records rejected archives and rejects different content under the same map revision', async () => {
     const r = await setup();
-    const bad = await upload(r, 'concurrency-imports', mapName, {}, {}, Buffer.from('not a zip'));
+    const bad = await upload(r, 'imports/concurrency-definitions', mapName, {}, {}, Buffer.from('not a zip'));
     expect(bad.statusCode).toBe(200);
     expect(bad.json().attempt.outcome).toBe('failed-validation');
-    const first = await upload(r, 'concurrency-imports', mapName);
+    const first = await upload(r, 'imports/concurrency-definitions', mapName);
     const entries = readArchive(fixture(mapName));
     const changed = zipFixture(
       entries.map((entry) => {
@@ -363,7 +363,7 @@ describe('package import HTTP flow', () => {
         return { ...entry, bytes: Buffer.from(JSON.stringify(map)) };
       }),
     );
-    const conflicting = await upload(r, 'concurrency-imports', mapName, {}, {}, changed);
+    const conflicting = await upload(r, 'imports/concurrency-definitions', mapName, {}, {}, changed);
     expect(conflicting.statusCode, conflicting.body).toBe(200);
     expect(conflicting.json().attempt.outcome).toBe('conflict');
     expect(r.context.storage.imports.definitions(r.workspaceId)).toHaveLength(1);
@@ -376,7 +376,7 @@ describe('package import HTTP flow', () => {
   it('pins configured branches and reports later changes without rebinding', async () => {
     const r = await setup();
     const plan = (await importPlan(r, planNames[0]!)).json().plan;
-    const imported = (await upload(r, 'concurrency-imports', mapName)).json();
+    const imported = (await upload(r, 'imports/concurrency-definitions', mapName)).json();
     const context = r.context.services.authService.authenticate(r.session.cookie.split('=')[1]);
     const repositoryId = asSourceRepositoryId(randomUUID());
     const now = new Date().toISOString();
@@ -457,14 +457,14 @@ describe('package import HTTP flow', () => {
       role: 'viewer',
       occurredAt: now,
     });
-    const response = await upload({ ...r, workspaceId }, 'concurrency-imports', mapName);
+    const response = await upload({ ...r, workspaceId }, 'imports/concurrency-definitions', mapName);
     expect(response.statusCode).toBe(403);
     expect(r.context.storage.imports.attempts(workspaceId, 'concurrency')).toHaveLength(0);
   });
   it('rejects missing CSRF before accepting an archive', async () => {
     const r = await setup();
     expect(
-      (await upload(r, 'concurrency-imports', mapName, {}, { 'x-craftingtable-csrf': '' }))
+      (await upload(r, 'imports/concurrency-definitions', mapName, {}, { 'x-craftingtable-csrf': '' }))
         .statusCode,
     ).toBe(403);
     expect(r.context.storage.imports.attempts(r.workspaceId, 'concurrency')).toHaveLength(0);

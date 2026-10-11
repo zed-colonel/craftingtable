@@ -106,7 +106,7 @@ export function registerPlanningRoutes(
   });
 
   app.post<{ Params: { workspaceId: string } }>(
-    '/api/workspaces/:workspaceId/plan-imports',
+    '/api/workspaces/:workspaceId/imports/plans',
     {
       config: {
         access: 'editor',
@@ -403,7 +403,7 @@ export function registerPlanningRoutes(
   );
 
   app.get<{ Params: { workspaceId: string } }>(
-    '/api/workspaces/:workspaceId/plan-imports',
+    '/api/workspaces/:workspaceId/imports/plans',
     { config: { access: 'member' } },
     async (request, reply) => {
       const context = contextOf(request);

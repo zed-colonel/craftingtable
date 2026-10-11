@@ -13,7 +13,7 @@ import {
 import { request } from './api-client.js';
 const encode = encodeURIComponent;
 const url = (workspaceId: WorkspaceId, planVersionId: PlanVersionId) =>
-  `/api/workspaces/${encodeURIComponent(workspaceId)}/plans/${encodeURIComponent(planVersionId)}/finalizations`;
+  `/api/workspaces/${encodeURIComponent(workspaceId)}/plan-versions/${encodeURIComponent(planVersionId)}/finalizations`;
 const mutation = (csrf: string, body: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'x-craftingtable-csrf': csrf },

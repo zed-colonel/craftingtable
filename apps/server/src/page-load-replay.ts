@@ -115,7 +115,7 @@ async function regionReads(ws: string, get: Get): Promise<PageRead[]> {
       roadmap: { id: string; status: string; definition: { name: string; revision: number } };
     }[];
   };
-  const definitions = JSON.parse((await get(`${base}/concurrency-imports`)).body) as {
+  const definitions = JSON.parse((await get(`${base}/imports/concurrency-definitions`)).body) as {
     definitions?: readonly { id: string }[];
   };
   const runs = JSON.parse((await get(`${base}/runs`)).body) as {

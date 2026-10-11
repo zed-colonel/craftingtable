@@ -70,7 +70,7 @@ async function importedWorkspace() {
   });
   const response = await context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${workspaceId}/plan-imports`,
+    url: `/api/workspaces/${workspaceId}/imports/plans`,
     headers: {
       cookie: session.cookie,
       origin: context.config.publicOrigin,
@@ -409,7 +409,7 @@ describe('planning queries over HTTP', () => {
       `/api/workspaces/${outsider.workspaceId}/projects/${ready.imported.projectId}`,
       `/api/workspaces/${outsider.workspaceId}/work-items/${workItemId}`,
       `/api/workspaces/${outsider.workspaceId}/plan-artifacts/${artifactId}`,
-      `/api/workspaces/${outsider.workspaceId}/plan-imports`,
+      `/api/workspaces/${outsider.workspaceId}/imports/plans`,
     ]) {
       const response = await ready.context.app.inject({
         method: 'GET',

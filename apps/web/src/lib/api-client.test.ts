@@ -58,7 +58,7 @@ it('says so for the plan and package uploads too, which read their answers thems
   await expect(importPlanBundle(asWorkspaceId('ws'), { files: [] }, 'csrf')).rejects.toThrow();
   await expect(importConcurrencyZip(asWorkspaceId('ws'), file, 'csrf')).rejects.toThrow();
   expect(consoleError).toHaveBeenCalledTimes(2);
-  expect(String(consoleError.mock.calls[0]?.[0])).toContain('/plan-imports');
+  expect(String(consoleError.mock.calls[0]?.[0])).toContain('/imports/plans');
   expect(String(consoleError.mock.calls[1]?.[0])).toContain('/concurrency');
 });
 

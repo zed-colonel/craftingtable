@@ -76,7 +76,7 @@ it('serves the completed legacy finalization through the finalization list route
   });
   const response = await state.context.app.inject({
     method: 'GET',
-    url: `/api/workspaces/${ws}/plans/version-1/finalizations`,
+    url: `/api/workspaces/${ws}/plan-versions/version-1/finalizations`,
     headers: { cookie: state.cookie },
   });
   expect(response.statusCode, response.body).toBe(200);
@@ -95,7 +95,7 @@ it('refuses to start a finalization with improvement rounds (R-B10)', async () =
   const fixture = await finalizationFixture();
   const response = await fixture.state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${fixture.state.workspaceId}/plans/version-1/finalizations`,
+    url: `/api/workspaces/${fixture.state.workspaceId}/plan-versions/version-1/finalizations`,
     headers: mutationHeaders(fixture.state),
     payload: fixture.legacyInput,
   });

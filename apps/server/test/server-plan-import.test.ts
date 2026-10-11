@@ -87,7 +87,7 @@ async function postImport(
   });
   return ready.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${options.workspaceId ?? ready.workspaceId}/plan-imports`,
+    url: `/api/workspaces/${options.workspaceId ?? ready.workspaceId}/imports/plans`,
     headers: {
       cookie: ready.session.cookie,
       origin: ready.context.config.publicOrigin,
@@ -427,7 +427,7 @@ describe('plan import over HTTP', () => {
     const body = buildMultipartBody({ fields: { projectName: 'AQ' }, files: aqFiles() });
     const base = {
       method: 'POST' as const,
-      url: `/api/workspaces/${ready.workspaceId}/plan-imports`,
+      url: `/api/workspaces/${ready.workspaceId}/imports/plans`,
       payload: body.payload,
     };
 
@@ -493,7 +493,7 @@ describe('plan import over HTTP', () => {
     const ready = await signedIn();
     const response = await ready.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${ready.workspaceId}/plan-imports`,
+      url: `/api/workspaces/${ready.workspaceId}/imports/plans`,
       headers: {
         cookie: ready.session.cookie,
         origin: ready.context.config.publicOrigin,

@@ -1575,7 +1575,7 @@ export async function beginFinalization(
   const { state } = fixture;
   const response = await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
+    url: `/api/workspaces/${state.workspaceId}/plan-versions/version-1/finalizations`,
     headers: mutationHeaders(state),
     payload: input,
   });

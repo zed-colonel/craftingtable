@@ -140,7 +140,7 @@ it('completes all five stages with no findings and promotes only the exact revie
   const listed = async () => {
     const response = await state.context.app.inject({
       method: 'GET',
-      url: `/api/workspaces/${state.workspaceId}/plans/${value.planVersionId}/finalizations`,
+      url: `/api/workspaces/${state.workspaceId}/plan-versions/${value.planVersionId}/finalizations`,
       headers: { cookie: state.cookie },
     });
     expect(response.statusCode, response.body).toBe(200);
@@ -191,7 +191,7 @@ it('stops finalization for genuine questions and never converts exhausted remedi
   // No promotion is offered, so the list reads no checkout fact (R-G10 D3, review L4).
   const listed = await state.context.app.inject({
     method: 'GET',
-    url: `/api/workspaces/${state.workspaceId}/plans/${value.planVersionId}/finalizations`,
+    url: `/api/workspaces/${state.workspaceId}/plan-versions/${value.planVersionId}/finalizations`,
     headers: { cookie: state.cookie },
   });
   expect(
@@ -262,7 +262,7 @@ it('recovers finalization preparation only on explicit resume and preserves its 
   const { state, backend, root } = fixture;
   const response = await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
+    url: `/api/workspaces/${state.workspaceId}/plan-versions/version-1/finalizations`,
     headers: mutationHeaders(state),
     payload: fixture.input,
   });

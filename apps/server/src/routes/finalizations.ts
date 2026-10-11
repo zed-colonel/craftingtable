@@ -15,7 +15,7 @@ export function registerFinalizationRoutes(
   service: FinalizationService,
 ): void {
   app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
-    '/api/workspaces/:workspaceId/plans/:planVersionId/finalizations',
+    '/api/workspaces/:workspaceId/plan-versions/:planVersionId/finalizations',
     { config: { access: 'member' } },
     async (request, reply) => {
       const context = contextOf(request);
@@ -34,7 +34,7 @@ export function registerFinalizationRoutes(
     Params: { workspaceId: string; planVersionId: string };
     Body: BodyOf<typeof startFinalizationRequestSchema>;
   }>(
-    '/api/workspaces/:workspaceId/plans/:planVersionId/finalizations',
+    '/api/workspaces/:workspaceId/plan-versions/:planVersionId/finalizations',
     {
       config: {
         access: 'editor',

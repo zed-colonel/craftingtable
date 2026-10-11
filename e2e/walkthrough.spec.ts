@@ -15,6 +15,7 @@ import {
   setupStep,
   signIn,
   test,
+  settingsPage,
 } from './support';
 
 /**
@@ -102,6 +103,7 @@ async function attentionAgrees(page: Page): Promise<number> {
     );
   } else await expect(dashboard).toHaveCount(0);
   await navigate(page, 'Settings');
+  await settingsPage(page, 'Notifications');
   const open = page.locator('.notification-records li', { hasText: 'Still needs attention' });
   await expect(open).toHaveCount(count);
   expect([...(await open.locator('a').allTextContents())].sort()).toEqual([...inbox].sort());
@@ -1097,8 +1099,9 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await walk.capturePhoneOnly('menu-open', 'Phone navigation menu', navigation('Primary'));
     await navigate(page, 'Settings');
     await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Change workstation capacity' })).toBeEnabled();
+    // One page per section (R-E5b): general, agents, capacity, notifications, storage.
     await walk.capture('settings', 'Workspace settings', heading('Settings'));
+    await settingsPage(page, 'Agents');
     await walk.capture(
       'workspace-agent-profiles',
       'Workspace defaults and specialist inheritance',
@@ -1124,6 +1127,8 @@ test('captures every page of the app on desktop and phone viewports', async ({
       },
     );
     await page.getByText('Suggested models and where to set them').click();
+    await settingsPage(page, 'Capacity');
+    await expect(page.getByRole('button', { name: 'Change workstation capacity' })).toBeEnabled();
     await walk.capture(
       'execution-capacity',
       'Unified execution capacity controls',
@@ -1132,6 +1137,10 @@ test('captures every page of the app on desktop and phone viewports', async ({
         await p.getByRole('button', { name: 'Change workstation capacity' }).click();
       },
     );
+    await settingsPage(page, 'Notifications');
+    await walk.capture('settings-notifications', 'Settings · notifications', heading('Settings'));
+    await settingsPage(page, 'Storage');
+    await walk.capture('settings-storage', 'Settings · storage', heading('Settings'));
     await navigate(page, `Account · ${E2E_USERNAME}`);
     await expect(page.getByRole('heading', { name: 'Account', exact: true })).toBeVisible();
     await walk.capture('account', 'Account', heading('Account'));

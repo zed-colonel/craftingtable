@@ -9,10 +9,14 @@ import { queryKeys } from '../../lib/event-invalidations.js';
 import { saveRunProfiles } from '../../lib/execution-api.js';
 import { useQueryStore } from '../../lib/query-store.js';
 import { forgetLaunchOptions, useExecutionStatus, useRunProfiles } from '../reads.js';
+import type { SettingsSection } from '../../lib/route.js';
 import { useAlive, useSession, useWorkspaceScope } from '../session.js';
 
-/** The workspace's settings: its name, agent profiles, host scheduling, storage, notifications. */
-export function SettingsRoute() {
+/**
+ * The workspace's settings, one page per section (R-E5b): its name, agent defaults, capacity,
+ * notifications and storage.
+ */
+export function SettingsRoute({ section }: { section: SettingsSection }) {
   const { workspaceId, workspace, canMutate, isOwner } = useWorkspaceScope();
   const { csrfToken } = useSession();
   const store = useQueryStore();
@@ -70,6 +74,7 @@ export function SettingsRoute() {
   };
   return (
     <SettingsPage
+      section={section}
       workspace={workspace}
       canEdit={isOwner}
       busy={busy}
@@ -92,7 +97,7 @@ export function SettingsRoute() {
       }
       onRename={rename}
       {...(status === undefined ? {} : { backends: status.backends })}
-      {...(profiles === undefined ? {} : { profiles: profiles.profiles })}
+      {...(profiles === undefined ? {} : { defaults: profiles })}
       profilesBusy={profilesBusy}
       {...(profilesError === undefined ? {} : { profilesError })}
       {...(profilesNotice === undefined ? {} : { profilesNotice })}

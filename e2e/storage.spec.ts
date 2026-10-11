@@ -1,4 +1,4 @@
-import { expect, submitSignIn, test } from './support';
+import { expect, submitSignIn, test, settingsPage } from './support';
 
 test('storage settings, cleanup preview and private backups work on desktop and phone', async ({
   page,
@@ -9,6 +9,7 @@ test('storage settings, cleanup preview and private backups work on desktop and 
   if (info.project.name.endsWith('mobile-chromium'))
     await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await settingsPage(page, 'Capacity');
   const host = page.getByRole('region', { name: 'Execution capacity', exact: true });
   await expect(host.getByRole('button', { name: 'Change workstation capacity' })).toBeEnabled();
   await host.getByRole('button', { name: 'Change workstation capacity' }).click();
@@ -21,6 +22,7 @@ test('storage settings, cleanup preview and private backups work on desktop and 
   await capacity.fill('2');
   await expect(host).toBeVisible();
   await host.getByRole('button', { name: 'Cancel capacity edit' }).click();
+  await settingsPage(page, 'Storage');
   const panel = page.getByRole('region', { name: 'Storage', exact: true });
   await expect(panel.getByText('Database and history', { exact: true })).toBeVisible();
   await panel.getByText('Locations and retention', { exact: true }).click();

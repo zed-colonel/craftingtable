@@ -305,6 +305,7 @@ export function RoadmapEditor({
                 <Link
                   route={{
                     name: 'settings',
+                    section: 'capacity',
                     workspaceId,
                     roadmapId: current.id,
                     focus: 'execution-capacity',

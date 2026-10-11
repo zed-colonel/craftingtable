@@ -858,6 +858,7 @@ export function CrossProjectPanel({
                         <Link
                           route={{
                             name: 'settings',
+                            section: 'capacity',
                             workspaceId: workspaceId as WorkspaceId,
                             roadmapId: roadmap.id,
                             focus: 'execution-capacity',

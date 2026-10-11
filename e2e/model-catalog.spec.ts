@@ -1,4 +1,4 @@
-import { expect, openOwnWorkspace, test } from './support';
+import { expect, openOwnWorkspace, test, settingsPage } from './support';
 
 /**
  * Model pickers from each CLI's own catalog (R-G15, LIVE-34). The e2e daemon reads only the
@@ -24,6 +24,7 @@ test("offers each CLI's catalog by section and name, and catches a typed display
   await expect(catalogs.getByText(/^\d+ from its catalog, read /)).toHaveCount(2);
 
   await page.getByRole('link', { name: 'Settings' }).click();
+  await settingsPage(page, 'Agents');
   const profiles = page.getByRole('region', { name: 'Agent profiles' });
   await profiles.getByRole('button', { name: 'Edit workspace defaults' }).click();
   const design = profiles.getByRole('group', { name: 'Design', exact: true });

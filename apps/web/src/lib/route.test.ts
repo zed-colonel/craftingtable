@@ -60,8 +60,16 @@ const ROUTES: readonly Route[] = [
     definitionId: 'definition-1',
     focus: 'runtime-evidence-definition-1-decisions',
   },
-  { name: 'settings', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', focus: 'execution-capacity' },
-  { name: 'settings', workspaceId: WORKSPACE, focus: 'roadmap-agent-profiles' },
+  {
+    name: 'settings',
+    workspaceId: WORKSPACE,
+    section: 'capacity',
+    roadmapId: 'roadmap-1',
+    focus: 'execution-capacity',
+  },
+  { name: 'settings', workspaceId: WORKSPACE, section: 'agents' },
+  { name: 'settings', workspaceId: WORKSPACE, section: 'notifications' },
+  { name: 'settings', workspaceId: WORKSPACE, section: 'storage' },
   { name: 'work-item', workspaceId: WORKSPACE, workItemId: ITEM, focus: 'slices' },
 ];
 
@@ -165,10 +173,11 @@ describe('typed focus (R-E1)', () => {
       buildPath({
         name: 'settings',
         workspaceId: WORKSPACE,
+        section: 'capacity',
         roadmapId: 'roadmap 1',
         focus: 'execution-capacity',
       }),
-    ).toBe('/workspaces/workspace-1/settings?roadmap=roadmap%201#execution-capacity');
+    ).toBe('/workspaces/workspace-1/settings/capacity?roadmap=roadmap%201#execution-capacity');
   });
 
   it('ignores focus a route does not take, and malformed values', () => {
@@ -180,6 +189,40 @@ describe('typed focus (R-E1)', () => {
       name: 'settings',
       workspaceId: WORKSPACE,
     });
+  });
+});
+
+describe('settings pages (R-E5b)', () => {
+  it('gives each settings section its own page, the general one at /settings', () => {
+    expect(buildPath({ name: 'settings', workspaceId: WORKSPACE })).toBe(
+      '/workspaces/workspace-1/settings',
+    );
+    expect(buildPath({ name: 'settings', workspaceId: WORKSPACE, section: 'agents' })).toBe(
+      '/workspaces/workspace-1/settings/agents',
+    );
+    expect(parseRoute('/workspaces/workspace-1/settings/bogus')).toEqual({
+      name: 'settings',
+      workspaceId: WORKSPACE,
+    });
+  });
+  it('opens a link stored before the split at the section that holds its focus', () => {
+    expect(
+      parseRoute('/workspaces/workspace-1/settings', '?roadmap=r-1', '#execution-capacity'),
+    ).toEqual({
+      name: 'settings',
+      workspaceId: WORKSPACE,
+      section: 'capacity',
+      roadmapId: 'r-1',
+      focus: 'execution-capacity',
+    });
+    expect(parseRoute('/workspaces/workspace-1/settings', '', '#workspace-agent-profiles')).toEqual(
+      {
+        name: 'settings',
+        workspaceId: WORKSPACE,
+        section: 'agents',
+        focus: 'workspace-agent-profiles',
+      },
+    );
   });
 });
 

@@ -242,7 +242,7 @@ it("refreshes a run, its work item and the cycles after a run command and the ru
 });
 
 it('reads the workspace list and snapshot after a rename, and keeps saved profiles', async () => {
-  inApp(<SettingsRoute />);
+  inApp(<SettingsRoute section="general" />);
   await waitFor(() => expect(props.settings).toBeDefined());
   vi.spyOn(store, 'refreshNow');
   vi.spyOn(store, 'refetch');
@@ -268,7 +268,7 @@ it('forgets the work item and run views, which carry profiles and backends, afte
     store.view(queryKeys.workItemView(ws, 'item-1')).data,
     store.view(queryKeys.runView(ws, 'run-1')).data,
   ];
-  inApp(<SettingsRoute />);
+  inApp(<SettingsRoute section="general" />);
   await waitFor(() => expect(props.settings).toBeDefined());
   seed();
   await run(() => (props.settings!.onSaveProfiles as (p: never[]) => void)([]));

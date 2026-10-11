@@ -625,7 +625,7 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
   });
 
   it("reads a page's store queries again when an event names them, and every one after an unreadable event (R-D4)", async () => {
-    window.history.pushState(null, '', '/workspaces/workspace-a/settings');
+    window.history.pushState(null, '', '/workspaces/workspace-a/settings/notifications');
     // Faked from the start, so the app's minute timer runs on the test's clock.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     renderApp();
@@ -660,7 +660,7 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
   });
 
   it("never shows a signed-out session's data to the next one, while the next one's read is under way (R-D4 review M16)", async () => {
-    window.history.pushState(null, '', '/workspaces/workspace-a/settings');
+    window.history.pushState(null, '', '/workspaces/workspace-a/settings/notifications');
     renderApp();
     expect(await screen.findByText('Earlier session record')).toBeTruthy();
     notificationGate = new Promise(() => undefined);
@@ -669,7 +669,7 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
       fireEvent.change(await screen.findByLabelText('Username'), { target: { value: 'operator' } });
       fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
       fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-      window.history.pushState(null, '', '/workspaces/workspace-a/settings');
+      window.history.pushState(null, '', '/workspaces/workspace-a/settings/notifications');
       await waitFor(() => expect(notificationCalls.length).toBeGreaterThan(1));
       expect(screen.queryByText('Earlier session record')).toBeNull();
     } finally {

@@ -24,6 +24,24 @@ export const AGENDA_FILTERS = [
 ] as const;
 export type AgendaFilter = (typeof AGENDA_FILTERS)[number];
 
+/**
+ * Settings' pages (R-E5b): the workspace's name (`/settings`), its agent defaults, the
+ * workstation's and each roadmap's capacity, notifications, and storage.
+ */
+export const SETTINGS_SECTIONS = [
+  'general',
+  'agents',
+  'capacity',
+  'notifications',
+  'storage',
+] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+/** The section a link stored before Settings was split names by its element only. */
+const SETTINGS_FOCUS: Readonly<Record<string, SettingsSection>> = {
+  'execution-capacity': 'capacity',
+  'workspace-agent-profiles': 'agents',
+};
+
 /** One roadmap's pages (R-E2): its board and controls, its setup checklist, its history. */
 export const ROADMAP_TABS = ['board', 'setup', 'history'] as const;
 export type RoadmapTab = (typeof ROADMAP_TABS)[number];
@@ -91,6 +109,8 @@ export type Route =
   | {
       readonly name: 'settings';
       readonly workspaceId: WorkspaceId;
+      /** Absent for the general page. */
+      readonly section?: Exclude<SettingsSection, 'general'>;
       readonly roadmapId?: string;
       readonly focus?: string;
     }
@@ -170,12 +190,16 @@ export function parseRoute(pathname: string, search = '', hash = ''): Route {
     }
     case 'roadmap-map':
       return { ...route, ...(focus === undefined ? {} : { focus }) };
-    case 'settings':
+    case 'settings': {
+      const section = route.section ?? (focus === undefined ? undefined : SETTINGS_FOCUS[focus]);
       return {
-        ...route,
+        name: 'settings',
+        workspaceId: route.workspaceId,
+        ...(section === undefined || section === 'general' ? {} : { section }),
         ...(roadmapId === undefined ? {} : { roadmapId }),
         ...(focus === undefined ? {} : { focus }),
       };
+    }
     case 'work-item':
     case 'repositories':
       return { ...route, ...(focus === undefined ? {} : { focus }) };
@@ -228,6 +252,13 @@ function parsePath(pathname: string): Route {
       default:
         break;
     }
+  }
+  if (section === 'settings' && segments.length === 4) {
+    const page = decode(segments[3]);
+    return (SETTINGS_SECTIONS as readonly (string | undefined)[]).includes(page) &&
+      page !== 'general'
+      ? { name: 'settings', workspaceId, section: page as Exclude<SettingsSection, 'general'> }
+      : { name: 'settings', workspaceId };
   }
   if (section === 'agenda' && segments.length === 4) {
     const filter = decode(segments[3]);
@@ -334,7 +365,7 @@ function buildPathname(route: Route): string {
     case 'projects':
       return `${workspace(route.workspaceId)}/projects`;
     case 'settings':
-      return `${workspace(route.workspaceId)}/settings`;
+      return `${workspace(route.workspaceId)}/settings${route.section ? `/${route.section}` : ''}`;
     case 'import':
       return `${workspace(route.workspaceId)}/import`;
     case 'repositories':

@@ -1,4 +1,4 @@
-import { E2E_PASSWORD, expect, openOwnWorkspace, test } from './support';
+import { E2E_PASSWORD, expect, openOwnWorkspace, test, settingsPage } from './support';
 
 /**
  * Step-up (R-G9): a command that lets an agent run unrestricted needs the operator's password
@@ -11,6 +11,7 @@ test('asks for the password again before saving unrestricted agent defaults', as
 }, testInfo) => {
   await openOwnWorkspace(page, `Step-up ${testInfo.project.name}`);
   await page.getByRole('link', { name: 'Settings' }).click();
+  await settingsPage(page, 'Agents');
   const profiles = page.getByRole('region', { name: 'Agent profiles' });
   await profiles.getByRole('button', { name: 'Edit workspace defaults' }).click();
   await profiles.getByText('Permissions for new work').click();

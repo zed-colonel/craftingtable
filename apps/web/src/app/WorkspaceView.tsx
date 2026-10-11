@@ -173,7 +173,7 @@ export function WorkspaceView({
               {...(route.itemId === undefined ? {} : { selectedId: route.itemId })}
             />
           )}
-          {route.name === 'settings' && <SettingsRoute />}
+          {route.name === 'settings' && <SettingsRoute section={route.section ?? 'general'} />}
           {route.name === 'projects' && (
             <div className="page">
               <header className="page-header">

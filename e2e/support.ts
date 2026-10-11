@@ -357,6 +357,18 @@ export async function openRoadmap(
 }
 
 /** Opens one step of a roadmap's setup or a map's creation flow (R-E2). */
+/** Opens one of Settings' pages from its tabs (R-E5b): each section is its own page. */
+export async function settingsPage(
+  page: Page,
+  label: 'General' | 'Agents' | 'Capacity' | 'Notifications' | 'Storage',
+): Promise<void> {
+  const tab = page
+    .getByRole('navigation', { name: 'Settings pages' })
+    .getByRole('link', { name: label, exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-current', 'page');
+}
+
 export async function setupStep(page: Page, label: string): Promise<void> {
   await page
     .getByRole('navigation', { name: 'Setup checklist', exact: true })

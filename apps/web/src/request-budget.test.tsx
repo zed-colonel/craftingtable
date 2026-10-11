@@ -559,8 +559,7 @@ const heading = () => screen.findByRole('heading', { name: /AQ-01 · Alpha work 
  * The pages measured, and so the reads the budget covers: the dashboard (snapshot, workspaces,
  * attention, cycles, audit, live runs), a work item with a worktree (its detail, worktrees and
  * runs, cycles, slices, plan branches and the repository policy, repositories, profiles,
- * agent backends; the worktree's branch only once asked for, R-D5), the settings (notifications, profiles, agent
- * backends), the roadmaps list, and the repositories (each one's checks and receipts). Not
+ * agent backends; the worktree's branch only once asked for, R-D5), settings' notifications page, the roadmaps list, and the repositories (each one's checks and receipts). Not
  * measured: a roadmap's own views, its runtime evidence and the cross-project map.
  */
 it('reads only what each event changed, on the pages measured (R-D4 4c)', async () => {
@@ -569,7 +568,8 @@ it('reads only what each event changed, on the pages measured (R-D4 4c)', async 
   const workItem = await measure(`/workspaces/ws-a/work-items/${ITEM}`, heading);
   const ownWorkItem = await measure(`/workspaces/ws-a/work-items/${ITEM}`, heading, true);
   fixture.worktrees = [];
-  const settings = await measure('/workspaces/ws-a/settings', () =>
+  // Settings' notifications page, whose status a notifications event reads again (R-E5b split).
+  const settings = await measure('/workspaces/ws-a/settings/notifications', () =>
     screen.findByRole('heading', { name: 'Settings' }),
   );
   const roadmaps = await measure('/workspaces/ws-a/roadmaps', () =>

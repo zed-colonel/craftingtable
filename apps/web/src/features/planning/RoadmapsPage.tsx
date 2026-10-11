@@ -119,7 +119,14 @@ export function RoadmapsPage({
         }
       />
       <p>
-        <Link route={{ name: 'settings', workspaceId, focus: 'workspace-agent-profiles' }}>
+        <Link
+          route={{
+            name: 'settings',
+            workspaceId,
+            section: 'agents',
+            focus: 'workspace-agent-profiles',
+          }}
+        >
           Workspace agent defaults
         </Link>{' '}
         · each roadmap's own agents are set in its setup.

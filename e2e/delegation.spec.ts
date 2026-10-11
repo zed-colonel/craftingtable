@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, git, openMergeDecision, openOwnWorkspace, test } from './support';
+import { expect, git, openMergeDecision, openOwnWorkspace, test, settingsPage } from './support';
 
 /**
  * The first useful loop, driven from the browser: register a repository, open
@@ -250,6 +250,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
 
     // Agent profiles: a stored implement profile pre-fills the launch form for that role.
     await page.getByRole('link', { name: 'Settings' }).click();
+    await settingsPage(page, 'Agents');
     const profiles = page.getByRole('region', { name: 'Agent profiles' });
     await profiles.getByRole('button', { name: 'Edit workspace defaults' }).click();
     const implementProfile = profiles.getByRole('group', { name: 'Implementation' });

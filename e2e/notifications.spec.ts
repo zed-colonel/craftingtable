@@ -1,4 +1,4 @@
-import { expect, expectSignedIn, sendCommand, submitSignIn, test } from './support';
+import { expect, expectSignedIn, sendCommand, submitSignIn, test, settingsPage } from './support';
 
 test('owners configure write-only Pushover credentials and test delivery on desktop and phone', async ({
   page,
@@ -22,6 +22,7 @@ test('owners configure write-only Pushover credentials and test delivery on desk
   await create.getByRole('button', { name: 'Create workspace' }).click();
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   await navigate('Settings');
+  await settingsPage(page, 'Notifications');
   const panel = page.getByRole('region', { name: 'Pushover notifications' });
   await expect(panel.getByLabel('Reminder timezone')).toHaveValue('America/Los_Angeles');
   await expect(panel.getByLabel('Daily reminder time')).toHaveValue('21:00');

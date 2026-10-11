@@ -1,6 +1,7 @@
 import type { RoadmapAgentSettings, RunProfilesResponse } from '@craftingtable/contracts';
 import {
   AGENT_PROFILE_PURPOSES,
+  type AgentSelections,
   asWorkspaceId,
   CYCLE_STEPS,
   DEFAULT_COMPLETION_POLICY,
@@ -61,7 +62,9 @@ const agentsAt = (source: EffectiveAgent['source'], model = 'opus') =>
     ]),
   ) as NonNullable<RunProfilesResponse['agents']>;
 const selections = (model: string) =>
-  Object.fromEntries(CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', model }])) as never;
+  Object.fromEntries(
+    CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', model }]),
+  ) as unknown as AgentSelections;
 const workspaceDefaults: RunProfilesResponse = {
   profiles: [],
   agents: agentsAt({ layer: 'workspace-default', slot: 'implement' }),
@@ -72,7 +75,7 @@ const profiles = Object.fromEntries(
     step,
     { backend: 'claude-code', model: 'opus', permissionMode: 'auto' },
   ]),
-) as Roadmap['definition']['entries'][number]['profiles'];
+) as unknown as Roadmap['definition']['entries'][number]['profiles'];
 const roadmap = {
   id: roadmapId,
   workspaceId,
@@ -201,7 +204,7 @@ it('shows a saved entry’s agents with their source, and applies a change as an
 it('saves the permissions it changed, never an agent, then applies the agents at the saved version', async () => {
   const onSaved = vi.fn();
   const view = { roadmap: { ...roadmap, version: 5 } } as unknown as RoadmapView;
-  vi.mocked(saveRoadmap).mockResolvedValue(view);
+  vi.mocked(saveRoadmap).mockResolvedValue(view as never);
   vi.mocked(applyRoadmapAgents).mockResolvedValue({ ...saved, version: 6 });
   render(<Editor current={roadmap} initial={draftOf(roadmap)} onSaved={onSaved} />);
   await changeImplementation('sonnet');
@@ -223,7 +226,7 @@ it('keeps the editor open when the agents fail after the save, and retries only 
   const view = {
     roadmap: { ...roadmap, version: 5, definition: { ...roadmap.definition, name: 'Renamed' } },
   } as unknown as RoadmapView;
-  vi.mocked(saveRoadmap).mockResolvedValue(view);
+  vi.mocked(saveRoadmap).mockResolvedValue(view as never);
   vi.mocked(applyRoadmapAgents)
     .mockRejectedValueOnce(new Error('Use the model id "sonnet".'))
     .mockResolvedValueOnce({ ...saved, version: 6 });

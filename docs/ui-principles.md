@@ -89,6 +89,11 @@ structural UI work.
   panels) and its history (`/history`: amendments and saved revisions). An imported map has its
   own page (`/roadmaps/maps/:id`), which offers the supervisor only until a roadmap supervises its
   current binding revision; after that the map is rendered on that roadmap's setup alone.
+- **Settings** (`/settings`) has one page per section, reached from a `Settings pages` tab row
+  (R-E5b): General (`/settings`: the workspace's name), Agents (`/settings/agents`: the workspace's
+  agent defaults), Capacity (`/settings/capacity`: the workstation's and each roadmap's), and, for
+  an owner, Notifications and Storage. A link stored before the split opens the page that holds
+  its element.
 - `/` resolves to the last workspace used; `/workspaces` lists every workspace as a
   card with its projects and counts and hosts the new-workspace form.
 - **Needs you** (`/workspaces/:id/inbox`) is the one place decisions are made. It lists the
@@ -421,7 +426,7 @@ the shared decision and on work-item recovery, with on-demand access to their or
 Show structured-report errors without hiding evidence or inventing a complete recommendation.
 
 
-Execution capacity lives in Workspace Settings with shared workstation pools and a selected-roadmap
+Execution capacity lives in Settings › Capacity with shared workstation pools and a selected-roadmap
 editor in one section. Roadmaps show occupied/total development and independent verification slots,
 in-flight allowances and a Manage capacity link that selects the roadmap. Avoid duplicate capacity
 forms in roadmap setup; new drafts keep existing defaults and link to Settings before Start.
@@ -442,15 +447,27 @@ be labelled as a human approval.
 
 ## Agent profile settings
 
-Workspace settings present four defaults (Design, Implementation, Review, Remediation), then
-optional specialist overrides with their effective inherited selection visible. Reasoning
-effort is explicit or labeled with what an unset effort means: the local Codex configuration,
-or Claude Code's own default (Claude runs load no operator settings). Recommendations map to the actual field
-names in an About disclosure and never silently set preferences. Separate workspace-default
-saving from applying selections to existing roadmaps; the latter names the selected scopes,
-includes future steps of started cycles, and explains that plan evidence remains valid.
-Retain unsaved edits on refresh and reject stale saves. Link directly from a roadmap into its
-settings selection. Keep finalization's per-stage controls and recovery override distinct.
+Agents are chosen in two places, plus explicit per-action overrides (R-E5b), and every place
+shows the effective selection and its source as the daemon reports it; the browser derives none:
+
+- **Workspace defaults** (Settings › Agents): four defaults (Design, Implementation, Review,
+  Remediation), then optional specialist overrides with their effective inherited selection
+  visible. Reasoning effort is explicit or labeled with what an unset effort means: the local
+  Codex configuration, or Claude Code's own default (Claude runs load no operator settings).
+  Recommendations map to the actual field names in an About disclosure and never silently set
+  preferences.
+- **Roadmap setup**: each entry's (a sequential roadmap, in Edit queued entries) or settings
+  level's (a map roadmap, in its Automation and agents step) agents beside its step permissions,
+  in one form. Saving writes the permissions to the saved definition and the agents to an ADR-064
+  assignment, which reaches future steps of started cycles and leaves plan evidence valid; an
+  agents-only change saves no definition. A new entry starts from the workspace defaults. A
+  roadmap links into its setup's agents ("Agents and permissions"), not into Settings.
+- **Per-action overrides**: a form that starts one action (a cycle, a hand-off, a finalization
+  stage, a recovery, an investigation, a preparation) shows the agent it would take and its
+  source, with a "Change for this action" (or "for this stage") disclosure for a one-off choice.
+
+Retain unsaved edits on refresh and reject stale saves. Keep finalization's per-stage controls
+and recovery override distinct.
 
 Paused roadmap supervision exposes **Change future delegation** separately from saved-plan
 editing. The operator selects entries (including started ones), integration policy and reviewer

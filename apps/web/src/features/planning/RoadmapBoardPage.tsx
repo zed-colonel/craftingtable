@@ -540,6 +540,7 @@ export function RoadmapPage({
             <Link
               route={{
                 name: 'settings',
+                section: 'capacity',
                 workspaceId,
                 roadmapId: roadmap.id,
                 focus: 'execution-capacity',

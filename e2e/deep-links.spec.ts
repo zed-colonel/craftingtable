@@ -28,7 +28,7 @@ test('a settings deep link lands on its section, and links and Back never reload
   await link.scrollIntoViewIfNeeded();
   loads = 0;
   await link.click();
-  await page.waitForURL(/settings#workspace-agent-profiles$/);
+  await page.waitForURL(/settings\/agents#workspace-agent-profiles$/);
   await page.waitForTimeout(3000);
   const target = await page.locator('#workspace-agent-profiles').boundingBox();
   expect(loads).toBe(0);

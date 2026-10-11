@@ -1189,11 +1189,14 @@ export class WorkCycleService {
 
   /** A finalization's agents with their sources (R-E5a, E5-3), for its view. */
   finalizationAgentsView(value: import('@craftingtable/domain').Finalization, cycle?: WorkCycle) {
-    return finalizationAgents(
-      value,
-      cycle,
-      this.runs.workspaceLayerIn(this.storage, value.workspaceId),
-    );
+    return {
+      ...finalizationAgents(
+        value,
+        cycle,
+        this.runs.workspaceLayerIn(this.storage, value.workspaceId),
+      ),
+      ...(cycle ? { conflict: cycleAgents(this.storage, cycle).conflict } : {}),
+    };
   }
 
   validateSettings(input: Pick<StartWorkCycleRequest, 'profiles'>): void {

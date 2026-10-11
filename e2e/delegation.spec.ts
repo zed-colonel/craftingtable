@@ -271,6 +271,8 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     // The same admitted, unblocked item can now run the complete cycle from the browser.
     const cyclePanel = page.getByRole('region', { name: 'Automated cycle', exact: true });
     await cyclePanel.getByText('Set up a cycle').click();
+    // The cycle starts with the workspace defaults unless changed for it (R-E5b).
+    await cyclePanel.getByRole('button', { name: 'Change for this cycle' }).click();
     for (const step of ['Design', 'Implementation', 'Review', 'Remediation']) {
       await cyclePanel
         .getByRole('group', { name: step, exact: true })

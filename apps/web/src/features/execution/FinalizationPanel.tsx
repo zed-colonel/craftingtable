@@ -10,6 +10,7 @@ import {
   AGENT_BACKEND_LABELS,
   type AgentRunId,
   DEFAULT_COMPLETION_POLICY,
+  type EffectiveAgent,
   type PlanVersionId,
   remediationAllowance,
   remediationUsed,
@@ -97,6 +98,11 @@ export function FinalizationPanel({
     WorktreeChangesRefused & { readonly finalizationId: string }
   >();
   const [diff, setDiff] = useState<WorktreeDiffResponse>();
+  /** The workspace defaults each new stage starts from, with their sources (E5-3). */
+  const [stageDefaults, setStageDefaults] = useState<{
+    review: EffectiveAgent;
+    implement: EffectiveAgent;
+  }>();
   useEffect(() => {
     let active = true;
     void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
@@ -107,18 +113,21 @@ export function FinalizationPanel({
           backend: status.backends.find((b) => b.available)?.kind ?? ('claude-code' as const),
           permissionMode: 'auto' as const,
         };
-        const review = profiles.profiles.find((p) => p.role === 'review');
-        const implement = profiles.profiles.find((p) => p.role === 'implement');
-        const {
-          role: _r,
-          stored: _rs,
-          ...reviewProfile
-        } = review ?? { role: 'review', stored: false, ...fallback };
-        const {
-          role: _i,
-          stored: _is,
-          ...polishProfile
-        } = implement ?? { role: 'implement', stored: false, ...fallback };
+        // Each stage starts from the workspace defaults the daemon reports; a stage's own choice
+        // is a change for that stage (E5-3).
+        const launchOf = (purpose: 'review' | 'implement') => {
+          const agent = profiles.agents?.[purpose];
+          return agent
+            ? { ...agent.selection, permissionMode: agent.permissionMode ?? 'auto' }
+            : fallback;
+        };
+        const reviewProfile = launchOf('review');
+        const polishProfile = launchOf('implement');
+        if (profiles.agents)
+          setStageDefaults({
+            review: profiles.agents.review,
+            implement: profiles.agents.implement,
+          });
         setDraft({
           expectedBranchVersion: 1,
           targetBranch: 'main',
@@ -279,6 +288,7 @@ export function FinalizationPanel({
             />
           </label>
           <FinalizationStageSetup
+            {...(stageDefaults ? { defaults: stageDefaults } : {})}
             stages={draft.stages ?? []}
             onChange={(stages) => setDraft({ ...draft, stages })}
             backends={backends}
@@ -534,6 +544,7 @@ export function FinalizationPanel({
             {cycle && f.status === 'active' && (
               <IntegrationConflict
                 cycle={cycle}
+                {...(view.agents?.conflict ? { agent: view.agents.conflict } : {})}
                 backends={backends}
                 disabled={busy}
                 canMutate={canMutate}

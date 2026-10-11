@@ -3,6 +3,7 @@ import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { AuthContext } from './auth-service.js';
 import type { ExecutionService, ExecutionStatus } from './execution-service.js';
+import { workspaceCycleProfiles } from './agent-profile-policy.js';
 import { runHandoffs } from './handoff-defaults.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import type { PlanningQueryService } from './planning-query-service.js';
@@ -65,6 +66,7 @@ export class PageViews {
         repositories: tx.execution.sourceRepositories.list(workspaceId),
         ...this.runs.runProfilesIn(tx, workspaceId),
         handoffs: runHandoffs(execution.runs, this.runs.workspaceLayerIn(tx, workspaceId)),
+        cycleProfiles: workspaceCycleProfiles(this.runs.workspaceLayerIn(tx, workspaceId)),
         ...(unavailable.length ? { unavailable } : {}),
       };
     });

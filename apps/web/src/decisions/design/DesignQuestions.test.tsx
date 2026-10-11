@@ -1,8 +1,10 @@
 import type { DesignRecoveryPreview } from '@craftingtable/contracts';
 import {
+  AGENT_PROFILE_PURPOSES,
   asUserId,
   asWorkspaceId,
   CYCLE_STEPS,
+  type CycleProjection,
   DEFAULT_COMPLETION_POLICY,
   type WorkCycle,
 } from '@craftingtable/domain';
@@ -45,6 +47,17 @@ const cycle = {
     ]),
   ),
 } as unknown as WorkCycle;
+/** The cycle's agents as its projection reports them (R-E5b): its own profiles, investigation from design. */
+const agents = Object.fromEntries(
+  AGENT_PROFILE_PURPOSES.map((purpose) => [
+    purpose,
+    {
+      selection: { backend: 'claude-code', model: 'prior-model' },
+      source: { layer: 'cycle-start', slot: purpose === 'investigation' ? 'design' : purpose },
+      permissionMode: 'auto',
+    },
+  ]),
+) as NonNullable<CycleProjection['agents']>;
 const preview: DesignRecoveryPreview = {
   expectedVersion: 2,
   sourceRunId: cycle.currentRunId,
@@ -69,7 +82,13 @@ it('only discovers on request, defaults to bounded investigation, and retains gu
   vi.mocked(recoverDesign).mockRejectedValue(new Error('Evidence changed; refresh.'));
   const onChanged = vi.fn();
   render(
-    <DesignQuestions cycle={cycle} backends={backends} csrfToken="csrf" onChanged={onChanged} />,
+    <DesignQuestions
+      agents={agents}
+      cycle={cycle}
+      backends={backends}
+      csrfToken="csrf"
+      onChanged={onChanged}
+    />,
   );
   expect(previewDesignRecovery).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
@@ -107,12 +126,19 @@ it('only discovers on request, defaults to bounded investigation, and retains gu
 it('disables a preview when the cycle changes until discovery is refreshed', async () => {
   vi.mocked(previewDesignRecovery).mockResolvedValue(preview);
   const view = render(
-    <DesignQuestions cycle={cycle} backends={backends} csrfToken="csrf" onChanged={vi.fn()} />,
+    <DesignQuestions
+      agents={agents}
+      cycle={cycle}
+      backends={backends}
+      csrfToken="csrf"
+      onChanged={vi.fn()}
+    />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
   await screen.findByText('Who owns this decision?');
   view.rerender(
     <DesignQuestions
+      agents={agents}
       cycle={{ ...cycle, version: 3 }}
       backends={backends}
       csrfToken="csrf"
@@ -192,7 +218,13 @@ it('shows accepted shared decisions after discovery without resuming or requirin
     },
   });
   render(
-    <DesignQuestions cycle={cycle} backends={backends} csrfToken="csrf" onChanged={vi.fn()} />,
+    <DesignQuestions
+      agents={agents}
+      cycle={cycle}
+      backends={backends}
+      csrfToken="csrf"
+      onChanged={vi.fn()}
+    />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
   await screen.findByText(/Shared decision accepted; ready for design confirmation/);
@@ -207,6 +239,7 @@ it('shows accepted shared decisions after discovery without resuming or requirin
 it('surfaces a completed investigation without requiring evidence rediscovery', () => {
   render(
     <DesignQuestions
+      agents={agents}
       cycle={{
         ...cycle,
         designRecovery: {
@@ -270,6 +303,7 @@ it('links each decision the design waits on to its own item, else to the shared 
   ];
   render(
     <DesignQuestions
+      agents={agents}
       cycle={
         { ...cycle, owner: { kind: 'roadmap', roadmapId: 'roadmap-1' } } as unknown as WorkCycle
       }

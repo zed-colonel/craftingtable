@@ -14,6 +14,7 @@ import {
 } from '@craftingtable/domain';
 import { useExecutionStatus } from '../../app/reads.js';
 import { About } from '../../components/About.js';
+import { EffectiveAgentText } from '../../features/execution/EffectiveAgentText.js';
 import { ModelField } from '../../features/execution/ModelField.js';
 import { ReasoningEffortField } from '../../features/execution/ReasoningEffortField.js';
 import { request } from '../../lib/api-client.js';
@@ -134,6 +135,12 @@ export function PrepareDecisionBrief({
       <details>
         <summary>Preparation agent, time limit and guidance</summary>
         <p className="hint">A read-only run: no implementation, merge or approval authority.</p>
+        {decision?.agent && (
+          <p>
+            {profile ? 'Changed for this preparation from' : 'Agent:'}{' '}
+            <EffectiveAgentText agent={decision.agent} purpose="investigation" />
+          </p>
+        )}
         {agent && (
           <>
             <label className="field">

@@ -1,8 +1,12 @@
 import type { AgentRunSummary } from '@craftingtable/contracts';
 import {
+  AGENT_PROFILE_PURPOSES,
   type AgentSelections,
   agentSelections,
   type CycleAction,
+  type CycleProjection,
+  PROFILE_INHERITANCE,
+  type SpecialistProfile,
   type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
@@ -77,6 +81,25 @@ const runs = [
 const backends = [
   { kind: 'claude-code', label: 'Claude Code', available: true, models: [] },
 ] as never;
+/** A cycle's agents as its projection reports them (R-E5b): each purpose's, or the one it inherits. */
+function agentsOf(selections: AgentSelections): NonNullable<CycleProjection['agents']> {
+  return Object.fromEntries(
+    AGENT_PROFILE_PURPOSES.map((purpose) => {
+      const slot = selections[purpose]
+        ? purpose
+        : (PROFILE_INHERITANCE[purpose as SpecialistProfile] ?? purpose);
+      return [
+        purpose,
+        {
+          selection: selections[slot as keyof AgentSelections]!,
+          source: { layer: 'cycle-start', slot },
+          permissionMode: 'auto',
+        },
+      ];
+    }),
+  ) as NonNullable<CycleProjection['agents']>;
+}
+
 function decision(
   cycle: WorkCycle,
   actions: readonly CycleAction[],
@@ -86,7 +109,7 @@ function decision(
     backends?: typeof backends;
     onOpenRun?: (id: string) => void;
     onChanged?: () => void;
-    /** The projection's agents; by default, the cycle's own profiles. */
+    /** The projection's agents' selections; by default, the cycle's own profiles. */
     nextAgentSelections?: AgentSelections;
   } = {},
 ) {
@@ -97,6 +120,7 @@ function decision(
       projection={{
         actions,
         nextAgentSelections: options.nextAgentSelections ?? agentSelections(cycle.profiles),
+        agents: agentsOf(options.nextAgentSelections ?? agentSelections(cycle.profiles)),
       }}
       runs={options.liveRuns ?? runs}
       readOnly={false}
@@ -340,7 +364,15 @@ it('starts from the cycle investigation profile, refuses an unavailable agent or
     decision(base, ['continue-with-guidance', 'investigate', 'stop'], { nextAgentSelections }),
   );
   const form = screen.getByRole('form', { name: 'Investigate these questions' });
-  expect(within(form).getByText(/Agent: Claude Code · investigation-model/)).toBeTruthy();
+  // The daemon's agent and its source (R-E5b).
+  expect(
+    within(form).getByText(
+      (_, element) =>
+        element?.tagName === 'P' &&
+        element.textContent ===
+          'Agent: Claude Code · investigation-model · Chosen when the cycle started',
+    ),
+  ).toBeTruthy();
   const start = within(form).getByRole('button', {
     name: 'Start investigation',
   }) as HTMLButtonElement;

@@ -1,10 +1,9 @@
-import { agentSelections, selectionsForPurpose } from '@craftingtable/domain';
 import type {
   DesignRecoveryPreview,
   ExecutionStatusResponse,
   RecoverDesignRequest,
 } from '@craftingtable/contracts';
-import type { AgentBackendKind, AgentSelections, WorkCycle } from '@craftingtable/domain';
+import type { AgentSelection, CycleProjection, WorkCycle } from '@craftingtable/domain';
 import { useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { revealElement } from '../../lib/reveal-element.js';
@@ -13,8 +12,7 @@ import { useAttention } from '../../app/reads.js';
 import { settles } from '../architecture/ArchitectureDecision.js';
 import { BaselinePreparation } from './BaselinePreparation.js';
 import { SourceRunReport } from '../../features/execution/SourceRunReport.js';
-import { ModelField } from '../../features/execution/ModelField.js';
-import { ReasoningEffortField } from '../../features/execution/ReasoningEffortField.js';
+import { AgentOverride } from '../../features/execution/AgentOverride.js';
 import { distinct } from '../../lib/distinct.js';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import { Link } from '../../lib/navigation.js';
@@ -27,14 +25,14 @@ import { useRouteFocus } from '../../lib/navigation.js';
  */
 export function DesignQuestions({
   cycle,
-  nextAgentSelections,
+  agents,
   backends,
   csrfToken,
   onChanged,
 }: {
   cycle: WorkCycle;
-  /** The agents the next steps would use, from the cycle's projection. */
-  nextAgentSelections?: AgentSelections;
+  /** The cycle's agents with their sources, from its projection (R-E5b). */
+  agents?: CycleProjection['agents'];
   backends: ExecutionStatusResponse['backends'];
   csrfToken: string;
   onChanged: () => void;
@@ -45,20 +43,16 @@ export function DesignQuestions({
   const [error, setError] = useState<string>();
   const [instructions, setInstructions] = useState('');
   const [mode, setMode] = useState<'investigate' | 'continue'>('investigate');
-  const future = nextAgentSelections ?? agentSelections(cycle.profiles);
-  const previousProfile = nextAgentSelections
-    ? selectionsForPurpose(future, 'investigation')
-    : (cycle.designRecovery?.profile ?? selectionsForPurpose(future, 'investigation'));
-  const [backend, setBackend] = useState<AgentBackendKind>(previousProfile.backend);
-  const [model, setModel] = useState(previousProfile.model ?? '');
-  const [reasoningEffort, setReasoningEffort] = useState<
-    import('@craftingtable/domain').AgentReasoningEffort | undefined
-  >(previousProfile?.reasoningEffort);
+  // The investigation or design agent the next action takes, changed for it only on request.
+  const [change, setChange] = useState<AgentSelection>();
+  const agent = agents?.[mode === 'investigate' ? 'investigation' : 'design'];
+  const profile = change ?? agent?.selection;
   const [attachments, setAttachments] = useState<RecoverDesignRequest['attachments']>(
     () => cycle.designRecovery?.attachments.map((file) => ({ ...file })) ?? [],
   );
   const stale = preview !== undefined && preview.expectedVersion !== cycle.version;
-  const available = backends.find((entry) => entry.kind === backend)?.available === true;
+  const available =
+    !!profile && backends.find((entry) => entry.kind === profile.backend)?.available === true;
   const discover = async (clarifyCheckpoint?: string) => {
     setOpen(true);
     setBusy(true);
@@ -251,7 +245,7 @@ export function DesignQuestions({
                 className="stack-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  if (busy || stale || !available) return;
+                  if (busy || stale || !available || !profile) return;
                   setBusy(true);
                   setError(undefined);
                   void recoverDesign(
@@ -262,11 +256,7 @@ export function DesignQuestions({
                       mode,
                       instructions,
                       attachments,
-                      profile: {
-                        backend,
-                        ...(model.trim() ? { model: model.trim() } : {}),
-                        ...(reasoningEffort ? { reasoningEffort } : {}),
-                      },
+                      profile,
                     },
                     csrfToken,
                   )
@@ -285,13 +275,8 @@ export function DesignQuestions({
                     onChange={(e) => {
                       const next = e.target.value as typeof mode;
                       setMode(next);
-                      const p = selectionsForPurpose(
-                        future,
-                        next === 'investigate' ? 'investigation' : 'design',
-                      );
-                      setBackend(p.backend);
-                      setModel(p.model ?? '');
-                      setReasoningEffort(p.reasoningEffort);
+                      // Each action has its own agent; a change made for the other one is dropped.
+                      setChange(undefined);
                     }}
                   >
                     <option value="investigate">Investigate first</option>
@@ -361,37 +346,12 @@ export function DesignQuestions({
                     </button>
                   </p>
                 ))}
-                <label className="field">
-                  Agent
-                  <select
-                    value={backend}
-                    disabled={busy}
-                    onChange={(e) => {
-                      setBackend(e.target.value as AgentBackendKind);
-                      setModel('');
-                      setReasoningEffort(undefined);
-                    }}
-                  >
-                    {backends.map((entry) => (
-                      <option key={entry.kind} value={entry.kind} disabled={!entry.available}>
-                        {entry.label}
-                        {entry.available ? '' : ' (unavailable)'}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <ModelField
-                  key={backend}
-                  models={backends.find((entry) => entry.kind === backend)?.models ?? []}
-                  catalog={backends.find((entry) => entry.kind === backend)?.catalog}
-                  value={model}
-                  onChange={setModel}
-                  disabled={busy}
-                />
-                <ReasoningEffortField
-                  backend={backend}
-                  value={reasoningEffort}
-                  onChange={setReasoningEffort}
+                <AgentOverride
+                  agent={agent}
+                  purpose={mode === 'investigate' ? 'investigation' : 'design'}
+                  value={change}
+                  onChange={setChange}
+                  backends={backends}
                   disabled={busy}
                 />
                 <p className="hint">

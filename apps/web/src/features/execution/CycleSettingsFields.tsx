@@ -75,6 +75,38 @@ export function CycleSettingsFields({
   return (
     <>
       <PolicyFields policy={policy} setPolicy={setPolicy} disabled={disabled} />
+      <StepAgentFields
+        choices={choices}
+        setChoices={setChoices}
+        backends={backends}
+        disabled={disabled}
+        locked={profilesLocked}
+      />
+      <InstructionsField
+        instructions={instructions}
+        setInstructions={setInstructions}
+        disabled={disabled}
+      />
+    </>
+  );
+}
+
+/** Each step's agent and permissions, then the specialists' agents: a cycle's own profiles. */
+export function StepAgentFields({
+  choices,
+  setChoices,
+  backends,
+  disabled,
+  locked = false,
+}: {
+  choices: CycleProfiles;
+  setChoices: (profiles: CycleProfiles) => void;
+  backends: ExecutionStatusResponse['backends'];
+  disabled: boolean;
+  locked?: boolean;
+}) {
+  return (
+    <>
       <div className="cycle-settings-grid">
         {CYCLE_STEPS.map((step) => (
           <fieldset key={step} disabled={disabled}>
@@ -88,7 +120,7 @@ export function CycleSettingsFields({
                 })
               }
               backends={backends}
-              disabled={disabled || profilesLocked}
+              disabled={disabled || locked}
             />
             <PermissionField
               label="Permissions"
@@ -116,18 +148,13 @@ export function CycleSettingsFields({
           } as CycleProfiles)
         }
         backends={backends}
-        disabled={disabled || profilesLocked}
-      />
-      <InstructionsField
-        instructions={instructions}
-        setInstructions={setInstructions}
-        disabled={disabled}
+        disabled={disabled || locked}
       />
     </>
   );
 }
 
-function PolicyFields({
+export function PolicyFields({
   policy,
   setPolicy,
   disabled,
@@ -219,7 +246,7 @@ export function PermissionField({
   );
 }
 
-function InstructionsField({
+export function InstructionsField({
   instructions,
   setInstructions,
   disabled,

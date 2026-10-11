@@ -109,6 +109,8 @@ export function useWorkItem(workItemId: WorkItemId | undefined) {
     agents: data?.agents,
     /** Each run's hand-off default (R-E5b). */
     handoffs: data?.handoffs,
+    /** What a cycle started here takes: the workspace defaults (R-E5b). */
+    cycleProfiles: data?.cycleProfiles,
     refresh,
     commands,
     diff,
@@ -151,7 +153,8 @@ export function CycleControls({
       worktrees={execution.worktrees}
       runs={execution.runs}
       backends={item.backends}
-      profiles={item.profiles ?? []}
+      {...(item.cycleProfiles ? { startProfiles: item.cycleProfiles } : {})}
+      {...(item.agents ? { startAgents: item.agents } : {})}
       canMutate={canMutate}
       busy={item.commands.busy}
       admitted={detail.workItem.status === 'admitted'}

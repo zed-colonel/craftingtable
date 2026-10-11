@@ -155,6 +155,11 @@ export const finalizationViewSchema = z.strictObject({
   agents: z
     .strictObject({
       current: effectiveAgentSchema.optional(),
+      /**
+       * The agent an integration resolution on the finalization's cycle starts from (R-E5b), as
+       * the cycle's projection reports it for any other cycle.
+       */
+      conflict: effectiveAgentSchema.optional(),
       stages: z
         .array(
           z.strictObject({

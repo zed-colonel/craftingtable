@@ -1,4 +1,3 @@
-import { agentSelections, selectionsForPurpose } from '@craftingtable/domain';
 import {
   type ExecutionStatusResponse,
   type IntegrationResolutionRequest,
@@ -6,7 +5,7 @@ import {
 } from '@craftingtable/contracts';
 import {
   type AgentRunId,
-  type AgentSelections,
+  type EffectiveAgent,
   effectiveCycleAttention,
   ownsIntegrationResolution,
   type WorkCycle,
@@ -51,7 +50,7 @@ function resolveIntegration(
  */
 export function IntegrationConflict({
   cycle,
-  nextAgentSelections,
+  agent,
   backends,
   disabled,
   canMutate,
@@ -62,8 +61,11 @@ export function IntegrationConflict({
   runIds,
 }: {
   cycle: WorkCycle;
-  /** The agents the next steps would use, from the cycle's projection; absent for a finalization's. */
-  nextAgentSelections?: AgentSelections;
+  /**
+   * The agent a resolution starts from and its source, as the daemon reports it: the cycle's
+   * projection's conflict agent, or a finalization view's for its cycle (R-E5b).
+   */
+  agent?: EffectiveAgent;
   backends: ExecutionStatusResponse['backends'];
   disabled: boolean;
   canMutate: boolean;
@@ -197,19 +199,23 @@ export function IntegrationConflict({
               Resume reserved integration operation
             </button>
           )}
-          {form && resolution && (
+          {form && resolution && (agent || resolution.profile) && (
             <HandoffForm
               key={`${resolution.id}-${resolution.attempts}`}
               label="Resolve with agent"
               maxInstructionsLength={16000}
               backends={backends}
               defaults={{
-                ...(nextAgentSelections
-                  ? selectionsForPurpose(nextAgentSelections, 'conflict')
-                  : (resolution?.profile ??
-                    selectionsForPurpose(agentSelections(cycle.profiles), 'conflict'))),
+                // The daemon's agent, else the one this resolution recorded; never derived here.
+                ...(agent
+                  ? agent.selection
+                  : {
+                      ...resolution.profile,
+                      backend: resolution.profile?.backend ?? cycle.profiles.remediate.backend,
+                    }),
                 permissionMode: cycle.profiles.remediate.permissionMode,
               }}
+              {...(agent ? { defaultAgent: agent } : {})}
               busy={busy}
               hint="The agent resolves and verifies files. CraftingTable completes the integration update and requires a fresh review. Final merge remains yours."
               onCancel={() => setForm(false)}

@@ -1,7 +1,12 @@
 import type { ExecutionStatusResponse } from '@craftingtable/contracts';
-import { AGENT_BACKEND_LABELS, type AgentSelection } from '@craftingtable/domain';
+import {
+  AGENT_BACKEND_LABELS,
+  type AgentSelection,
+  type EffectiveAgent,
+} from '@craftingtable/domain';
 import { About } from '../../components/About.js';
 import { AgentSelectionFields } from '../../features/execution/AgentSelectionFields.js';
+import { EffectiveAgentText } from '../../features/execution/EffectiveAgentText.js';
 
 export function FinalizationRecoveryAgent({
   mode,
@@ -9,6 +14,7 @@ export function FinalizationRecoveryAgent({
   value,
   onChange,
   current,
+  currentAgent,
   backends,
   disabled,
 }: {
@@ -17,6 +23,8 @@ export function FinalizationRecoveryAgent({
   value: AgentSelection;
   onChange: (value: AgentSelection) => void;
   current: AgentSelection | null | undefined;
+  /** The agent the current step runs and what it overrides, as the daemon reports it (E5-3). */
+  currentAgent?: EffectiveAgent;
   backends: ExecutionStatusResponse['backends'];
   disabled: boolean;
 }) {
@@ -24,9 +32,15 @@ export function FinalizationRecoveryAgent({
     <fieldset className="stack-form" disabled={disabled}>
       <legend>Recovery agent</legend>
       <p>
-        {current
-          ? `Current override: ${AGENT_BACKEND_LABELS[current.backend]} · ${current.model ?? 'Backend default'}.`
-          : 'Using the original per-step agent settings.'}
+        {currentAgent ? (
+          <>
+            Runs now: <EffectiveAgentText agent={currentAgent} overrides />
+          </>
+        ) : current ? (
+          `Current override: ${AGENT_BACKEND_LABELS[current.backend]} · ${current.model ?? 'Backend default'}.`
+        ) : (
+          'Using the original per-step agent settings.'
+        )}
       </p>
       <label className="field">
         Agent settings

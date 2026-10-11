@@ -92,6 +92,7 @@ export function FinalizationDecision({
       {view.cycle && view.finalization.status === 'active' && (
         <IntegrationConflict
           cycle={view.cycle}
+          {...(view.agents?.conflict ? { agent: view.agents.conflict } : {})}
           backends={backends}
           disabled={false}
           canMutate={canMutate}

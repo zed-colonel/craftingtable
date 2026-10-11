@@ -185,7 +185,7 @@ export function CycleDecision({
           <DesignQuestions
             key={`${cycle.id}-${cycle.currentRunId}`}
             cycle={cycle}
-            nextAgentSelections={projection.nextAgentSelections}
+            {...(projection.agents ? { agents: projection.agents } : {})}
             backends={backends}
             csrfToken={csrfToken}
             onChanged={onChanged}
@@ -196,7 +196,7 @@ export function CycleDecision({
         <IntegrationConflict
           offerInspect={!inInbox}
           cycle={cycle}
-          nextAgentSelections={projection.nextAgentSelections}
+          {...(projection.agents ? { agent: projection.agents.conflict } : {})}
           backends={backends}
           disabled={disabled}
           canMutate={canMutate}

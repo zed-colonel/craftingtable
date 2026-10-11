@@ -151,6 +151,15 @@ const agentView = {
     },
   },
   cycle: { ...agentCycle, step: 'review' as const, polishPhase: 'final-review' as const },
+  // The final reviewer runs now, as the daemon reports it (R-E5b).
+  agents: {
+    current: {
+      selection: { backend: 'claude-code' as const, model: 'fable-fixture' },
+      source: { layer: 'finalization-stage' as const, slot: 'review' as const },
+      permissionMode: 'edit-only' as const,
+    },
+    stages: [],
+  },
 };
 
 it('switches the recovery backend/model without carrying the old model or changing permissions', () => {

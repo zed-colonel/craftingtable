@@ -1,16 +1,15 @@
 import type { ExecutionStatusResponse } from '@craftingtable/contracts';
-import {
-  type AgentRunId,
-  type AgentSelection,
-  type AgentSelections,
-  type CycleInvestigation as Investigation,
-  type CycleProjection,
-  selectionsForPurpose,
-  type WorkCycle,
+import type {
+  AgentRunId,
+  AgentSelection,
+  CycleInvestigation as Investigation,
+  CycleProjection,
+  EffectiveAgent,
+  WorkCycle,
 } from '@craftingtable/domain';
 import { useState } from 'react';
 import { About } from '../../components/About.js';
-import { AgentSelectionFields } from '../../features/execution/AgentSelectionFields.js';
+import { AgentOverride } from '../../features/execution/AgentOverride.js';
 import {
   acknowledgeWorktreeChange,
   endInvestigation,
@@ -71,7 +70,7 @@ export function CycleInvestigation({
 }: {
   cycle: WorkCycle;
   /** What the daemon offers at the stop, and the agents a new investigation would use. */
-  projection: Pick<CycleProjection, 'actions' | 'nextAgentSelections'>;
+  projection: Pick<CycleProjection, 'actions' | 'agents'>;
   backends: ExecutionStatusResponse['backends'];
   csrfToken: string;
   disabled: boolean;
@@ -258,7 +257,7 @@ export function CycleInvestigation({
       {offered && !live && (
         <InvestigateForm
           key={`${cycle.id}:${cycle.version}`}
-          nextAgentSelections={projection.nextAgentSelections}
+          {...(projection.agents ? { agent: projection.agents.investigation } : {})}
           {...(record ? { previous: record } : {})}
           backends={backends}
           disabled={locked}
@@ -271,13 +270,14 @@ export function CycleInvestigation({
 }
 
 function InvestigateForm({
-  nextAgentSelections,
+  agent,
   previous,
   backends,
   disabled,
   onStart,
 }: {
-  nextAgentSelections: AgentSelections;
+  /** The cycle's investigation agent and its source, from its projection (R-E5b). */
+  agent?: EffectiveAgent;
   /** The last investigation of this stop: another try starts from what it asked. */
   previous?: Investigation;
   backends: ExecutionStatusResponse['backends'];
@@ -286,11 +286,10 @@ function InvestigateForm({
 }) {
   const [instructions, setInstructions] = useState(previous?.instructions ?? '');
   const [minutes, setMinutes] = useState(previous?.minutes ?? 30);
-  const [profile, setProfile] = useState<AgentSelection>(
-    () => previous?.profile ?? selectionsForPurpose(nextAgentSelections, 'investigation'),
-  );
-  const backend = backends.find((b) => b.kind === profile.backend);
-  const available = backend?.available === true;
+  // A change for this investigation only; another try starts from what the last one asked.
+  const [change, setChange] = useState<AgentSelection | undefined>(previous?.profile);
+  const profile = change ?? agent?.selection;
+  const available = !!profile && backends.some((b) => b.kind === profile.backend && b.available);
   const valid = Number.isInteger(minutes) && minutes >= 5 && minutes <= 60 && available;
   return (
     <form
@@ -298,7 +297,8 @@ function InvestigateForm({
       className="stack-form"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!disabled && valid) onStart({ instructions: instructions.trim(), minutes, profile });
+        if (!disabled && valid && profile)
+          onStart({ instructions: instructions.trim(), minutes, profile });
       }}
     >
       <h4>Investigate these questions</h4>
@@ -332,21 +332,19 @@ function InvestigateForm({
           onChange={(event) => setMinutes(event.target.valueAsNumber)}
         />
       </label>
-      <p>
-        Agent: {backend?.label ?? profile.backend} · {profile.model || 'Backend default'}
-        {available ? '' : ' (unavailable on this workstation; choose another below)'}
-      </p>
+      <AgentOverride
+        agent={agent}
+        purpose="investigation"
+        value={change}
+        onChange={setChange}
+        backends={backends}
+        disabled={disabled}
+      />
       <About label="About the investigation agent">
         <p>
-          It uses the cycle’s Evidence investigation profile unless you choose another here. It
-          holds the worktree while it runs, uses no remediation round, and ends after one report.
+          It uses the cycle’s Evidence investigation profile unless you change it here. It holds the
+          worktree while it runs, uses no remediation round, and ends after one report.
         </p>
-        <AgentSelectionFields
-          value={profile}
-          backends={backends}
-          disabled={disabled}
-          onChange={setProfile}
-        />
       </About>
       <button type="submit" className="secondary-button" disabled={disabled || !valid}>
         Start investigation

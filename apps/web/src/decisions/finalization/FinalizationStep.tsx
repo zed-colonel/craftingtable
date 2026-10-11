@@ -6,7 +6,6 @@ import type {
 import {
   currentPlanChanges,
   type AgentSelection,
-  finalizationProfile,
   optionalFinding,
   remediationAllowance,
   remediationUsed,
@@ -124,8 +123,9 @@ function StageDecision({
     cycle && remediationUsed(cycle) >= remediationAllowance(cycle) ? 1 : 0,
   );
   const [agentMode, setAgentMode] = useState<'keep' | 'switch' | 'restore'>('keep');
+  // A switch starts from the agent the daemon says runs now (R-E5b), else the final reviewer.
   const [agent, setAgent] = useState<AgentSelection>(() => {
-    const p = cycle ? finalizationProfile(view.finalization, cycle) : view.finalization.finalReview;
+    const p = view.agents?.current?.selection ?? view.finalization.finalReview;
     return { backend: p.backend, ...(p.model ? { model: p.model } : {}) };
   });
   if (!cycle || !progress) return null;
@@ -330,6 +330,7 @@ function StageDecision({
         value={agent}
         onChange={setAgent}
         current={cycle.finalizationAgentOverride}
+        {...(view.agents?.current ? { currentAgent: view.agents.current } : {})}
         backends={backends}
         disabled={busy}
       />

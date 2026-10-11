@@ -1171,14 +1171,29 @@ describe('automated cycle controls', () => {
       catalog: { source: 'catalog' as const },
     },
   ];
-  const profiles = [
-    {
-      role: 'review' as const,
-      backend: 'claude-code' as const,
-      permissionMode: 'auto' as const,
-      model: 'review-model',
-    },
-  ];
+  /** What a cycle started here takes, as the work item's view reports it (R-E5b). */
+  const startProfiles = {
+    ...Object.fromEntries(
+      CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+    ),
+    review: { backend: 'claude-code', model: 'review-model', permissionMode: 'auto' },
+  } as unknown as CycleProfiles;
+  const startAgents = Object.fromEntries(
+    AGENT_PROFILE_PURPOSES.map((purpose) => [
+      purpose,
+      {
+        selection: {
+          backend: 'claude-code',
+          ...(purpose === 'review' ? { model: 'review-model' } : {}),
+        },
+        source:
+          purpose === 'review'
+            ? { layer: 'workspace-default', slot: 'review' }
+            : { layer: 'daemon-default' },
+        permissionMode: 'auto',
+      },
+    ]),
+  ) as NonNullable<WorkItemView['agents']>;
   it("shows the projection's waits in place of the cycle's reason (CTRL-22, R-D5)", () => {
     const waiting = {
       id: 'a0000000-0000-4000-8000-000000000009',
@@ -1211,7 +1226,8 @@ describe('automated cycle controls', () => {
         worktrees={[worktree]}
         runs={[]}
         backends={backends}
-        profiles={profiles}
+        startProfiles={startProfiles}
+        startAgents={startAgents}
         canMutate
         busy={false}
         admitted
@@ -1270,7 +1286,8 @@ describe('automated cycle controls', () => {
         worktrees={[worktree, second]}
         runs={[]}
         backends={backends}
-        profiles={profiles}
+        startProfiles={startProfiles}
+        startAgents={startAgents}
         canMutate
         busy={false}
         admitted
@@ -1390,7 +1407,8 @@ describe('automated cycle controls', () => {
         worktrees={[worktree]}
         runs={[]}
         backends={backends}
-        profiles={profiles}
+        startProfiles={startProfiles}
+        startAgents={startAgents}
         canMutate
         busy={false}
         admitted
@@ -1419,7 +1437,8 @@ describe('automated cycle controls', () => {
         worktrees={[worktree]}
         runs={[]}
         backends={backends}
-        profiles={profiles}
+        startProfiles={startProfiles}
+        startAgents={startAgents}
         canMutate
         busy={false}
         admitted
@@ -1447,6 +1466,39 @@ describe('automated cycle controls', () => {
       }),
     );
     expect(Object.keys(onStart.mock.calls[0]?.[0].profiles)).toEqual([...CYCLE_STEPS]);
+  });
+  it('starts a cycle with the daemon’s defaults, named with their source, unless changed for this cycle (R-E5b)', () => {
+    const onStart = vi.fn();
+    render(
+      <CyclePanel
+        cycles={daemon([])}
+        worktrees={[worktree]}
+        runs={[]}
+        backends={backends}
+        startProfiles={startProfiles}
+        startAgents={startAgents}
+        canMutate
+        busy={false}
+        admitted
+        onStart={onStart}
+        csrfToken="csrf"
+        onChanged={vi.fn()}
+        onOpenRun={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText('Set up a cycle'));
+    const agents = screen.getByRole('list', { name: 'Cycle agents' });
+    expect(within(agents).getByText(/^Review:/).textContent).toContain('Workspace default');
+    fireEvent.click(screen.getByRole('button', { name: 'Change for this cycle' }));
+    const design = screen.getByRole('group', { name: 'Design' });
+    fireEvent.change(within(design).getByLabelText('Reasoning effort'), {
+      target: { value: 'high' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start automated cycle' }));
+    expect(onStart.mock.calls[0]?.[0].profiles).toEqual({
+      ...startProfiles,
+      design: { backend: 'claude-code', reasoningEffort: 'high', permissionMode: 'auto' },
+    });
   });
   it('keeps merge approval with the operator and exposes explicit pause/stop controls', async () => {
     const cycle: WorkCycle = {
@@ -1480,7 +1532,8 @@ describe('automated cycle controls', () => {
         worktrees={[worktree]}
         runs={[run({ status: 'finished', role: 'review' })]}
         backends={backends}
-        profiles={profiles}
+        startProfiles={startProfiles}
+        startAgents={startAgents}
         canMutate
         busy={false}
         admitted
@@ -1646,7 +1699,8 @@ describe('automated cycle controls', () => {
         worktrees={[worktree, siblingTree]}
         runs={[]}
         backends={backends}
-        profiles={profiles}
+        startProfiles={startProfiles}
+        startAgents={startAgents}
         canMutate
         busy={false}
         admitted
@@ -1676,7 +1730,8 @@ describe('automated cycle controls', () => {
           worktrees={[worktree, reviewTree]}
           runs={[]}
           backends={backends}
-          profiles={profiles}
+          startProfiles={startProfiles}
+          startAgents={startAgents}
           canMutate
           busy={false}
           admitted
@@ -1711,7 +1766,8 @@ describe('automated cycle controls', () => {
           worktrees={[reviewTree]}
           runs={[]}
           backends={backends}
-          profiles={profiles}
+          startProfiles={startProfiles}
+          startAgents={startAgents}
           canMutate
           busy={false}
           admitted

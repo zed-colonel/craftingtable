@@ -10,7 +10,7 @@ import {
 import { runHandoffsSchema } from './agent-profiles.js';
 import { executionScopeChoicesSchema } from './execution-scope.js';
 import { workItemDetailResponseSchema } from './planning.js';
-import { cycleViewSchema } from './work-cycle.js';
+import { cycleProfilesSchema, cycleViewSchema } from './work-cycle.js';
 
 /**
  * A work item page's region in one answer (R-D5, PERF-14): its detail, worktrees, runs and merge
@@ -30,6 +30,11 @@ export const workItemViewSchema = z.strictObject({
   agents: runProfilesResponseSchema.shape.agents,
   /** Each run's hand-off default, so a hand-off form derives nothing (R-E5b). */
   handoffs: runHandoffsSchema.optional(),
+  /**
+   * The profiles a cycle started here now takes: the workspace defaults with their step
+   * permissions (R-E5b). The start form sends them, or the operator's change for that cycle.
+   */
+  cycleProfiles: cycleProfilesSchema.optional(),
   /**
    * The parts that could not be read this time (R-D5 review): they come empty, and the page says
    * so where they show, while the rest of the region still works.

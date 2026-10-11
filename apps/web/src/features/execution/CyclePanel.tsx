@@ -6,15 +6,12 @@ import type {
 } from '@craftingtable/contracts';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import {
-  AGENT_BACKEND_LABELS,
   PROFILE_LABELS,
   SPECIALIST_PROFILES,
-  selectionsForPurpose,
   type AgentRunId,
   CYCLE_STEPS,
   type CycleProfiles,
   type CycleView,
-  cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
   remediationAllowance,
   type WorktreeId,
@@ -27,13 +24,10 @@ import { StatusStrip } from '../../components/StatusStrip.js';
 import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
 import { CycleControlButtons } from '../../decisions/cycle/CycleDecisions.js';
 import { CycleDecision, cycleDecisions } from '../../decisions/cycle/CycleDecision.js';
-import { CycleSettingsFields } from './CycleSettingsFields.js';
+import { InstructionsField, PolicyFields, StepAgentFields } from './CycleSettingsFields.js';
+import { EffectiveAgentText } from './EffectiveAgentText.js';
 import { roadmapSetupIds, stepAnchors } from '../planning/setup-steps.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
-type ProfileEntry = import('@craftingtable/domain').WorkspaceAgentProfile & {
-  readonly stored?: boolean;
-};
-import { defaultEffortLabel } from './ReasoningEffortField.js';
 import { SavedModelNotes } from './SavedModelNotes.js';
 import { WorkflowStatus } from './WorkflowStatus.js';
 import { Link } from '../../lib/navigation.js';
@@ -45,7 +39,8 @@ export function CyclePanel({
   worktrees,
   runs,
   backends,
-  profiles,
+  startProfiles,
+  startAgents,
   canMutate,
   busy,
   admitted,
@@ -64,7 +59,10 @@ export function CyclePanel({
   worktrees: readonly WorktreeSummary[];
   runs: readonly AgentRunSummary[];
   backends: ExecutionStatusResponse['backends'];
-  profiles: readonly ProfileEntry[];
+  /** What a cycle started here takes: the workspace defaults with their step permissions. */
+  startProfiles?: CycleProfiles;
+  /** The same defaults with their sources, as the daemon reports them (R-E5b). */
+  startAgents?: import('@craftingtable/contracts').WorkItemView['agents'];
   canMutate: boolean;
   busy: boolean;
   admitted: boolean;
@@ -119,16 +117,16 @@ export function CyclePanel({
   const projection = activeView?.projection;
   const [policy, setPolicy] = useState(DEFAULT_COMPLETION_POLICY);
   const [instructions, setInstructions] = useState('');
-  const [choices, setChoices] = useState<CycleProfiles>(() =>
-    cycleProfilesFromDefaults(profiles, {
-      backend: backends.find((b) => b.available)?.kind ?? 'claude-code',
-      permissionMode: 'auto',
-    }),
-  );
+  // The cycle start's override (R-E5b): the operator's change for this cycle; without one it
+  // starts with the daemon's workspace defaults.
+  const [change, setChange] = useState<CycleProfiles>();
+  const choices = change ?? startProfiles;
   const disabled = busy || !canMutate;
-  const unavailable = CYCLE_STEPS.some(
-    (step) => !backends.find((backend) => backend.kind === choices[step].backend)?.available,
-  );
+  const unavailable =
+    !choices ||
+    CYCLE_STEPS.some(
+      (step) => !backends.find((backend) => backend.kind === choices[step].backend)?.available,
+    );
   const liveRun = runs.some(
     (run) => run.worktreeId === selected && ['starting', 'running', 'waiting'].includes(run.status),
   );
@@ -326,43 +324,40 @@ export function CyclePanel({
               )}
               Running sessions retain the model shown on their run page.
             </p>
-            <ul>
-              {(readOnly ? (['review'] as const) : CYCLE_STEPS).map((step) => (
-                <li key={step}>
-                  {PROFILE_LABELS[step]}:{' '}
-                  {AGENT_BACKEND_LABELS[projection.nextAgentSelections[step].backend]} ·{' '}
-                  {projection.nextAgentSelections[step].model ?? 'Backend default'} ·{' '}
-                  {projection.nextAgentSelections[step].reasoningEffort ??
-                    defaultEffortLabel(projection.nextAgentSelections[step].backend)}{' '}
-                  · {PERMISSION_MODE_LABELS[active.profiles[step].permissionMode]}
-                </li>
-              ))}
-            </ul>
-            <SavedModelNotes
-              backends={backends}
-              selections={[
-                ...(readOnly ? (['review'] as const) : CYCLE_STEPS),
-                ...SPECIALIST_PROFILES,
-              ].map(
-                (purpose) =>
-                  [PROFILE_LABELS[purpose], projection.nextAgentSelections[purpose]] as const,
-              )}
-            />
-            <details>
-              <summary>Future specialist agents</summary>
-              <ul>
-                {SPECIALIST_PROFILES.map((purpose) => {
-                  const selection = selectionsForPurpose(projection.nextAgentSelections, purpose);
-                  return (
-                    <li key={purpose}>
-                      {PROFILE_LABELS[purpose]}: {AGENT_BACKEND_LABELS[selection.backend]} ·{' '}
-                      {selection.model ?? 'Backend default'}
-                      {selection.reasoningEffort ? ` · ${selection.reasoningEffort}` : ''}
+            {projection.agents && (
+              <>
+                <ul>
+                  {(readOnly ? (['review'] as const) : CYCLE_STEPS).map((step) => (
+                    <li key={step}>
+                      {PROFILE_LABELS[step]}:{' '}
+                      <EffectiveAgentText agent={projection.agents![step]} purpose={step} /> ·{' '}
+                      {PERMISSION_MODE_LABELS[active.profiles[step].permissionMode]}
                     </li>
-                  );
-                })}
-              </ul>
-            </details>
+                  ))}
+                </ul>
+                <SavedModelNotes
+                  backends={backends}
+                  selections={[
+                    ...(readOnly ? (['review'] as const) : CYCLE_STEPS),
+                    ...SPECIALIST_PROFILES,
+                  ].map(
+                    (purpose) =>
+                      [PROFILE_LABELS[purpose], projection.agents![purpose].selection] as const,
+                  )}
+                />
+                <details>
+                  <summary>Future specialist agents</summary>
+                  <ul>
+                    {SPECIALIST_PROFILES.map((purpose) => (
+                      <li key={purpose}>
+                        {PROFILE_LABELS[purpose]}:{' '}
+                        <EffectiveAgentText agent={projection.agents![purpose]} purpose={purpose} />
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </>
+            )}
             {active.instructions && <pre>{active.instructions}</pre>}
           </details>
           <About label="About cycle controls">
@@ -408,12 +403,13 @@ export function CyclePanel({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              onStart({
-                worktreeId: selected as WorktreeId,
-                policy,
-                profiles: choices,
-                instructions,
-              });
+              if (choices)
+                onStart({
+                  worktreeId: selected as WorktreeId,
+                  policy,
+                  profiles: choices,
+                  instructions,
+                });
             }}
           >
             <label className="field">
@@ -433,14 +429,54 @@ export function CyclePanel({
                 ))}
               </select>
             </label>
-            <CycleSettingsFields
-              policy={policy}
-              setPolicy={setPolicy}
-              choices={choices}
-              setChoices={setChoices}
+            <PolicyFields policy={policy} setPolicy={setPolicy} disabled={disabled} />
+            {startAgents && (
+              <ul aria-label="Cycle agents">
+                {CYCLE_STEPS.map((step) => (
+                  <li key={step}>
+                    {PROFILE_LABELS[step]}:{' '}
+                    {change ? (
+                      'changed for this cycle'
+                    ) : (
+                      <>
+                        <EffectiveAgentText agent={startAgents[step]} purpose={step} /> ·{' '}
+                        {PERMISSION_MODE_LABELS[startAgents[step].permissionMode ?? 'auto']}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {change ? (
+              <fieldset className="stack-form" disabled={disabled}>
+                <legend>Changed for this cycle</legend>
+                <StepAgentFields
+                  choices={change}
+                  setChoices={setChange}
+                  backends={backends}
+                  disabled={disabled}
+                />
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setChange(undefined)}
+                >
+                  Use the workspace defaults
+                </button>
+              </fieldset>
+            ) : (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={disabled || !startProfiles}
+                onClick={() => startProfiles && setChange(structuredClone(startProfiles))}
+              >
+                Change for this cycle
+              </button>
+            )}
+            <InstructionsField
               instructions={instructions}
               setInstructions={setInstructions}
-              backends={backends}
               disabled={disabled}
             />
             <button

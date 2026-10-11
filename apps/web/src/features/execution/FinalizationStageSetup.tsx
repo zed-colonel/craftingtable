@@ -1,12 +1,15 @@
 import type { ExecutionStatusResponse, StartFinalizationRequest } from '@craftingtable/contracts';
 import {
+  type AgentProfile,
   DEFAULT_COMPLETION_POLICY,
+  type EffectiveAgent,
   FINALIZATION_STAGE_KINDS,
   FINALIZATION_STAGE_LABELS,
   stageStoppingRule,
 } from '@craftingtable/domain';
 import { useState } from 'react';
 import { AgentProfileFields } from './AgentProfileFields.js';
+import { EffectiveAgentText } from './EffectiveAgentText.js';
 import { About } from '../../components/About.js';
 
 type Stages = NonNullable<StartFinalizationRequest['stages']>;
@@ -32,7 +35,10 @@ export function FinalizationStageSetup({
   onChange,
   backends,
   disabled,
+  defaults,
 }: {
+  /** The workspace defaults a stage starts from, as the daemon reports them (E5-3). */
+  defaults?: { readonly review: EffectiveAgent; readonly implement: EffectiveAgent };
   stages: Stages;
   onChange: (stages: Stages) => void;
   backends: ExecutionStatusResponse['backends'];
@@ -90,15 +96,17 @@ export function FinalizationStageSetup({
                   This stage covers the whole plan and interactions across subsystem boundaries.
                 </p>
               )}
-              <AgentProfileFields
+              <StageAgent
                 label="Stage reviewer"
+                inherited={defaults?.review}
                 value={stage.review}
                 onChange={(review) => update(index, { review })}
                 backends={backends}
                 disabled={disabled}
               />
-              <AgentProfileFields
+              <StageAgent
                 label="Stage implementation agent"
+                inherited={defaults?.implement}
                 value={stage.implement}
                 onChange={(implement) => update(index, { implement })}
                 backends={backends}
@@ -181,6 +189,100 @@ export function FinalizationStageSetup({
         );
       })}
     </section>
+  );
+}
+
+const sameProfile = (profile: AgentProfile, agent: EffectiveAgent) =>
+  profile.backend === agent.selection.backend &&
+  profile.model === agent.selection.model &&
+  profile.reasoningEffort === agent.selection.reasoningEffort &&
+  profile.permissionMode === agent.permissionMode;
+
+/**
+ * One stage's agent as a per-action override (E5-3): the workspace default it inherits, with its
+ * source, or the change made for this stage over it; "Change for this stage" edits it.
+ */
+function StageAgent({
+  label,
+  inherited,
+  value,
+  onChange,
+  backends,
+  disabled,
+}: {
+  label: string;
+  inherited: EffectiveAgent | undefined;
+  value: AgentProfile;
+  onChange: (value: AgentProfile) => void;
+  backends: ExecutionStatusResponse['backends'];
+  disabled: boolean;
+}) {
+  const changed = !inherited || !sameProfile(value, inherited);
+  // A button, not a nested disclosure: the stage itself is one (and e2e reads its summary).
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="agent-override">
+      <p>
+        {label}:{' '}
+        {inherited && !changed ? (
+          <EffectiveAgentText agent={inherited} />
+        ) : (
+          <>
+            <span className="mono">
+              {backends.find((b) => b.kind === value.backend)?.label ?? value.backend} ·{' '}
+              {value.model ?? 'backend default'}
+              {value.reasoningEffort ? ` · ${value.reasoningEffort} effort` : ''}
+            </span>
+            {inherited && <span className="agent-source"> · changed for this stage</span>}
+          </>
+        )}
+      </p>
+      {editing ? (
+        <>
+          <AgentProfileFields
+            label={label}
+            value={value}
+            onChange={onChange}
+            backends={backends}
+            disabled={disabled}
+          />
+          <div className="inline-actions">
+            {inherited && changed && (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={disabled}
+                onClick={() =>
+                  onChange({
+                    ...inherited.selection,
+                    permissionMode: inherited.permissionMode ?? value.permissionMode,
+                  })
+                }
+              >
+                Use the workspace default
+              </button>
+            )}
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={disabled}
+              onClick={() => setEditing(false)}
+            >
+              Done
+            </button>
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={disabled}
+          onClick={() => setEditing(true)}
+        >
+          Change for this stage
+        </button>
+      )}
+    </div>
   );
 }
 

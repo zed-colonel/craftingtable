@@ -3,12 +3,7 @@ import type {
   ExecutionStatusResponse,
   FinalizationView,
 } from '@craftingtable/contracts';
-import {
-  type AgentSelection,
-  finalizationProfile,
-  remediationAllowance,
-  remediationUsed,
-} from '@craftingtable/domain';
+import { type AgentSelection, remediationAllowance, remediationUsed } from '@craftingtable/domain';
 import { useId, useState } from 'react';
 
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
@@ -46,11 +41,9 @@ export function FinalizationCheckpoint({
   const [rounds, setRounds] = useState(1);
   const hintId = useId();
   const [agentMode, setAgentMode] = useState<'keep' | 'switch' | 'restore'>('keep');
+  // A switch starts from the agent the daemon says runs now (R-E5b).
   const [agent, setAgent] = useState<AgentSelection>(() => {
-    const profile =
-      view.cycle && view.finalization.finalReview
-        ? finalizationProfile(view.finalization, view.cycle)
-        : undefined;
+    const profile = view.agents?.current?.selection;
     return {
       backend: profile?.backend ?? 'claude-code',
       ...(profile?.model ? { model: profile.model } : {}),
@@ -229,6 +222,7 @@ export function FinalizationCheckpoint({
           value={agent}
           onChange={setAgent}
           current={view.cycle.finalizationAgentOverride}
+          {...(view.agents?.current ? { currentAgent: view.agents.current } : {})}
           backends={backends}
           disabled={busy}
         />

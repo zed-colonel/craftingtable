@@ -100,6 +100,13 @@ describe('workspace defaults (run-profiles and the page reads)', () => {
       expect(listed.agents?.[profile.role].selection.model).toBe(profile.model);
     const page = workItemViewSchema.parse(await get(state, `/work-items/${state.workItemId}/view`));
     expect(page.agents).toEqual(listed.agents);
+    // What a cycle started on the page takes, with its step permissions (R-E5b).
+    expect(page.cycleProfiles).toEqual({
+      design: { backend: 'claude-code', permissionMode: 'auto' },
+      implement: { backend: 'claude-code', model: 'implement', permissionMode: 'auto' },
+      review: { backend: 'claude-code', model: 'review', permissionMode: 'edit-only' },
+      remediate: { backend: 'claude-code', model: 'implement', permissionMode: 'auto' },
+    });
   });
   it('reports a saved model exactly as the profile holds it, untrimmed as saved defaults are', async () => {
     const state = await ready();
@@ -390,5 +397,7 @@ describe('a finalization (E5-3)', () => {
       selection: claude('correctness-review'),
       source: { layer: 'finalization-stage', slot: 'review', stageIndex: 0 },
     });
+    // An integration resolution on its cycle starts from the cycle's conflict agent (R-E5b).
+    expect(agents?.conflict).toMatchObject({ source: { slot: 'remediate' } });
   });
 });

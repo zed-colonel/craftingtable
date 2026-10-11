@@ -1015,6 +1015,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
 | Item | Notes |
 |---|---|
 | R-D7 (added 2026-10-09) | Decision holds without building the whole decision inbox: 102 ms of the 263 ms roadmap page read, measured while closing R-E3b. Small; before or beside R-E4. |
+| R-D8 (added 2026-10-11, operator) | The per-entry phase blockers shared with the map evaluation in a roadmap page read: after R-D7 the read is 227 ms, about 98 ms of it phase blockers computed twice. After R-E5b, before R-H5. |
 | R-E3b | The roadmap board and graph: the answer to pain point 2. It can start once R-E2 and R-D5 exist. It builds on R-E3a's status list from P2 (split 2026-09-27). |
 | R-A6 | Consolidate decision components and delete the per-page recovery panels. |
 | R-E4, R-E5 | Work-item page as drill-down; consolidated settings. |
@@ -1049,7 +1050,9 @@ cleanup items the decisions only, is recorded in its register entry as "decided 
    **After R-H4 and R-G13 increment 4:** R-H6 (migration 0040).
 3. **The UI chain, one at a time:** R-A6's rest (carrying R-F2 part 5, and R-G10's D3 after R-G10's
    part D), then R-E3b, then R-E4, then R-E5b. R-D7 (added 2026-10-09) goes before or beside R-E4.
-4. **Last:** R-H5.
+4. **Then R-D8** (added 2026-10-11, operator): the per-entry phase blockers shared with the map
+   evaluation, after R-E5b.
+5. **Last:** R-H5.
 
 ### P4: Controller kernel and decomposition (3+ weeks, behind the harness)
 

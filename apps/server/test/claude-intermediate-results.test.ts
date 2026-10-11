@@ -134,9 +134,9 @@ it('completes a review turn once, at the collected result, after N task-notifica
 
   await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/runs/${runId}/end`,
+    url: `/api/workspaces/${state.workspaceId}/runs/${runId}/control`,
     headers: mutationHeaders(state),
-    payload: {},
+    payload: { action: 'end' },
   });
   await waitFor(() => run()?.status === 'finished', 'the run to finish');
 });

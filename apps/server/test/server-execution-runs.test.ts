@@ -459,9 +459,9 @@ describe('worktrees and diffs', () => {
     // risk until the operator explicitly chooses to discard them (GIT-02).
     const refused = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'remove' },
     });
     expect(refused.statusCode).toBe(409);
     expect(apiErrorResponseSchema.parse(refused.json()).error).toMatchObject({
@@ -477,9 +477,9 @@ describe('worktrees and diffs', () => {
 
     const removed = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/control`,
       headers: mutationHeaders(state),
-      payload: { discardChanges: true },
+      payload: { action: 'remove', discardChanges: true },
     });
     expect(removeWorktreeResponseSchema.parse(removed.json())).toMatchObject({
       changed: true,
@@ -498,9 +498,9 @@ describe('worktrees and diffs', () => {
     const { worktree } = await registerAndWorktree(state, repositoryPath);
     const removed = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'remove' },
     });
     expect(removeWorktreeResponseSchema.parse(removed.json())).toMatchObject({
       changed: true,
@@ -740,9 +740,9 @@ describe('agent runs', () => {
 
     const message = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/messages`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
       headers: mutationHeaders(state),
-      payload: { text: 'Now add a test.' },
+      payload: { action: 'message', text: 'Now add a test.' },
     });
     expect(agentRunCommandResponseSchema.parse(message.json()).accepted).toBe(true);
     expect(state.backend.sessions[0]?.sent).toEqual(['Now add a test.']);
@@ -755,9 +755,9 @@ describe('agent runs', () => {
 
     const ended = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'end' },
     });
     expect(agentRunCommandResponseSchema.parse(ended.json()).accepted).toBe(true);
     await waitFor(
@@ -809,9 +809,9 @@ describe('agent runs', () => {
 
     const late = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/messages`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
       headers: mutationHeaders(state),
-      payload: { text: 'too late' },
+      payload: { action: 'message', text: 'too late' },
     });
     expect(agentRunCommandResponseSchema.parse(late.json()).accepted).toBe(false);
   });
@@ -944,9 +944,9 @@ describe('agent runs', () => {
 
     await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'end' },
     });
     await waitFor(
       () =>
@@ -969,9 +969,9 @@ describe('agent runs', () => {
     const { run } = startAgentRunResponseSchema.parse(started.json());
     const cancelled = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/cancel`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'cancel' },
     });
     expect(agentRunCommandResponseSchema.parse(cancelled.json()).accepted).toBe(true);
     await waitFor(
@@ -995,9 +995,9 @@ describe('agent runs', () => {
 
     const removal = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'remove' },
     });
     expect(removal.statusCode).toBe(200);
   });
@@ -1014,9 +1014,9 @@ describe('agent runs', () => {
     expect(started.statusCode).toBe(200);
     const blocked = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'remove' },
     });
     expect(blocked.statusCode).toBe(409);
 
@@ -1153,9 +1153,9 @@ describe('agent runs', () => {
     );
     await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'end' },
     });
     const audited = () => {
       const db = openDatabase(state.context.storage.databasePath);
@@ -1220,9 +1220,9 @@ describe('agent runs', () => {
       );
       await state.context.app.inject({
         method: 'POST',
-        url: `/api/workspaces/${ws}/runs/${run.id}/end`,
+        url: `/api/workspaces/${ws}/runs/${run.id}/control`,
         headers: mutationHeaders(state),
-        payload: {},
+        payload: { action: 'end' },
       });
       return { runId: run.id, before, moved };
     };
@@ -1483,9 +1483,9 @@ it('counts and displays a follow-up queued before the preceding turn completes',
   const { run } = startAgentRunResponseSchema.parse(response.json());
   const sent = await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/messages`,
+    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
     headers: mutationHeaders(state),
-    payload: { text: 'second' },
+    payload: { action: 'message', text: 'second' },
   });
   expect(sent.statusCode, sent.body).toBe(200);
   await waitFor(
@@ -1791,9 +1791,9 @@ describe('complete review handoffs', () => {
     ].entries()) {
       await state.context.app.inject({
         method: 'POST',
-        url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/messages`,
+        url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
         headers: mutationHeaders(state),
-        payload: { text },
+        payload: { action: 'message', text },
       });
       await waitFor(
         () =>
@@ -1807,9 +1807,9 @@ describe('complete review handoffs', () => {
     }
     await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'end' },
     });
     await waitFor(
       () =>
@@ -1973,7 +1973,8 @@ it('adopts a preexisting worktree without rewriting its original base and refuse
     (await branchCommand(state, launchPath, { worktreeId: legacy.id, role: 'review' })).statusCode,
   ).toBe(409);
   expect((await merge(state, legacy.id)).statusCode).toBe(409);
-  const adopted = await branchCommand(state, `worktrees/${legacy.id}/retarget`, {
+  const adopted = await branchCommand(state, `worktrees/${legacy.id}/control`, {
+    action: 'retarget',
     expectedVersion: 1,
     integrationBranch: 'main',
   });
@@ -1991,10 +1992,14 @@ it('adopts a preexisting worktree without rewriting its original base and refuse
   });
   expect(launched.statusCode).toBe(200);
   expect(
-    (await branchCommand(state, `worktrees/${legacy.id}/update`, { expectedVersion: 2 }))
-      .statusCode,
+    (
+      await branchCommand(state, `worktrees/${legacy.id}/control`, {
+        action: 'update',
+        expectedVersion: 2,
+      })
+    ).statusCode,
   ).toBe(409);
-  await branchCommand(state, `runs/${launched.json().run.id}/end`, {});
+  await branchCommand(state, `runs/${launched.json().run.id}/control`, { action: 'end' });
   await waitFor(
     () =>
       state.context.storage.execution.runs.find(state.workspaceId, launched.json().run.id)
@@ -2077,9 +2082,9 @@ it('blocks a manual handoff while background work is reserved, while allowing ca
   expect(state.backend.launches).toHaveLength(1);
   const cancelled = await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/runs/${source.id}/cancel`,
+    url: `/api/workspaces/${state.workspaceId}/runs/${source.id}/control`,
     headers: mutationHeaders(state),
-    payload: {},
+    payload: { action: 'cancel' },
   });
   expect(cancelled.statusCode).toBe(200);
   await waitFor(

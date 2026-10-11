@@ -597,7 +597,8 @@ describe('plan integration branches', () => {
     const target = commitFile(root, 'other-item.txt', 'integration advanced');
     const before = git(['rev-parse', 'HEAD'], worktree.path).trim();
     expect((await merge(state, worktree.id)).statusCode).toBe(409);
-    const updated = await branchCommand(state, `worktrees/${worktree.id}/update`, {
+    const updated = await branchCommand(state, `worktrees/${worktree.id}/control`, {
+      action: 'update',
       expectedVersion: worktree.version,
     });
     expect(updated.statusCode, updated.body).toBe(200);
@@ -611,8 +612,12 @@ describe('plan integration branches', () => {
     ).toBe('admitted');
     expect((await merge(state, worktree.id)).statusCode).toBe(409);
     expect(
-      (await branchCommand(state, `worktrees/${worktree.id}/update`, { expectedVersion: 1 }))
-        .statusCode,
+      (
+        await branchCommand(state, `worktrees/${worktree.id}/control`, {
+          action: 'update',
+          expectedVersion: 1,
+        })
+      ).statusCode,
     ).toBe(409);
     const diffResponse = await state.context.app.inject({
       method: 'GET',
@@ -649,7 +654,8 @@ describe('plan integration branches', () => {
     commitFile(worktree.path, 'unreviewed.txt', 'unreviewed');
     expect((await merge(state, worktree.id)).statusCode).toBe(409);
     git(['branch', 'revision'], root);
-    const retarget = await branchCommand(state, `worktrees/${worktree.id}/retarget`, {
+    const retarget = await branchCommand(state, `worktrees/${worktree.id}/control`, {
+      action: 'retarget',
       expectedVersion: 1,
       integrationBranch: 'revision',
     });
@@ -672,7 +678,8 @@ describe('plan integration branches', () => {
     const source = commitFile(worktree.path, 'conflict.txt', 'item');
     await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
     const target = commitFile(root, 'conflict.txt', 'integration');
-    const response = await branchCommand(state, `worktrees/${worktree.id}/update`, {
+    const response = await branchCommand(state, `worktrees/${worktree.id}/control`, {
+      action: 'update',
       expectedVersion: 1,
     });
     expect(response.statusCode).toBe(409);
@@ -777,11 +784,16 @@ describe('plan integration branches', () => {
     const target = commitFile(root, 'parallel-item.txt', 'approved elsewhere');
     expect((await merge(state, worktree.id)).statusCode).toBe(409);
     expect(
-      (await branchCommand(state, `worktrees/${worktree.id}/update`, { expectedVersion: 1 }))
-        .statusCode,
+      (
+        await branchCommand(state, `worktrees/${worktree.id}/control`, {
+          action: 'update',
+          expectedVersion: 1,
+        })
+      ).statusCode,
     ).toBe(409);
     const paused = await controlCycle(state, currentCycle(state, cycle), 'pause');
-    const update = await branchCommand(state, `worktrees/${worktree.id}/update`, {
+    const update = await branchCommand(state, `worktrees/${worktree.id}/control`, {
+      action: 'update',
       expectedVersion: 1,
     });
     expect(update.statusCode, update.body).toBe(200);

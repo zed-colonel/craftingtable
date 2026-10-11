@@ -149,9 +149,9 @@ export function removeWorktree(
   input: RemoveWorktreeRequest = {},
 ): Promise<RemoveWorktreeResponse> {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/remove`,
+    `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/control`,
     removeWorktreeResponseSchema,
-    mutation(csrfToken, input),
+    mutation(csrfToken, { action: 'remove', ...input }),
   );
 }
 
@@ -206,9 +206,9 @@ export function sendRunMessage(
   csrfToken: string,
 ): Promise<AgentRunCommandResponse> {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/messages`,
+    `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/control`,
     agentRunCommandResponseSchema,
-    mutation(csrfToken, { text }),
+    mutation(csrfToken, { action: 'message', text }),
   );
 }
 
@@ -218,9 +218,9 @@ export function endRun(
   csrfToken: string,
 ): Promise<AgentRunCommandResponse> {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/end`,
+    `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/control`,
     agentRunCommandResponseSchema,
-    mutation(csrfToken, {}),
+    mutation(csrfToken, { action: 'end' }),
   );
 }
 
@@ -230,9 +230,9 @@ export function cancelRun(
   csrfToken: string,
 ): Promise<AgentRunCommandResponse> {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/cancel`,
+    `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/control`,
     agentRunCommandResponseSchema,
-    mutation(csrfToken, {}),
+    mutation(csrfToken, { action: 'cancel' }),
   );
 }
 

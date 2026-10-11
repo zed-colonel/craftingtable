@@ -92,7 +92,9 @@ describe('execution slices and parent acceptance', () => {
     expect(state.context.storage.planning.workItems.find(ws, state.workItemId)?.status).toBe(
       'admitted',
     );
-    const bypass = await branchCommand(state, `work-items/${state.workItemId}/complete`, {});
+    const bypass = await branchCommand(state, `work-items/${state.workItemId}/control`, {
+      action: 'complete',
+    });
     expect(bypass.statusCode, bypass.body).toBe(409);
     // Slice a's exact scope is verified by the roadmap's own verification attempt.
     const verification = (sourceId: string) =>
@@ -432,9 +434,9 @@ it('phase reservations serialize competing launches and release on terminal fail
   const free = occupied.id === a.id ? b : a;
   const cancelled = await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/cancel`,
+    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
     headers: mutationHeaders(state),
-    payload: {},
+    payload: { action: 'cancel' },
   });
   expect(cancelled.statusCode).toBe(200);
   await waitFor(
@@ -610,9 +612,9 @@ it('phase resource waits resume cycles automatically without consuming the execu
   const deadline = currentCycle(state, cycle).runDeadlineAt;
   await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
     headers: mutationHeaders(state),
-    payload: {},
+    payload: { action: 'end' },
   });
   await waitFor(
     () => !!state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),

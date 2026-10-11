@@ -1,7 +1,5 @@
 import {
-  admitWorkItemRequestSchema,
   admitWorkItemResponseSchema,
-  completeWorkItemRequestSchema,
   completeWorkItemResponseSchema,
   planArtifactIdSchema,
   planImportAttemptListResponseSchema,
@@ -13,7 +11,7 @@ import {
   projectDetailResponseSchema,
   projectIdSchema,
   projectListResponseSchema,
-  removeFromAgendaRequestSchema,
+  workItemControlRequestSchema,
   removeFromAgendaResponseSchema,
   workItemDetailResponseSchema,
   workItemIdSchema,
@@ -299,17 +297,19 @@ export function registerPlanningRoutes(
     },
   );
 
+  // A work item's agenda commands share one route (R-H5, H5-2): the same access, none carries
+  // authority. Each answers in its own shape.
   app.post<{
     Params: { workspaceId: string; workItemId: string };
-    Body: BodyOf<typeof completeWorkItemRequestSchema>;
+    Body: BodyOf<typeof workItemControlRequestSchema>;
   }>(
-    '/api/workspaces/:workspaceId/work-items/:workItemId/complete',
+    '/api/workspaces/:workspaceId/work-items/:workItemId/control',
     {
       config: {
         access: 'editor',
         tag: 'control',
-        body: completeWorkItemRequestSchema,
-        invalidBody: 'Invalid completion request',
+        body: workItemControlRequestSchema,
+        invalidBody: 'Invalid work item command',
       },
     },
     async (request, reply) => {
@@ -319,77 +319,37 @@ export function registerPlanningRoutes(
       if (!workspaceId.success || !workItemId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const result = workItemService.complete(
-        context,
-        workspaceId.data,
-        workItemId.data,
-        request.id,
-      );
-      return noStore(reply).send(
-        completeWorkItemResponseSchema.parse({
-          workItemId: result.workItem.id,
-          status: 'completed',
-          completed: result.completed,
-        }),
-      );
-    },
-  );
-
-  app.post<{
-    Params: { workspaceId: string; workItemId: string };
-    Body: BodyOf<typeof removeFromAgendaRequestSchema>;
-  }>(
-    '/api/workspaces/:workspaceId/work-items/:workItemId/remove-from-agenda',
-    {
-      config: {
-        access: 'editor',
-        tag: 'control',
-        body: removeFromAgendaRequestSchema,
-        invalidBody: 'Invalid agenda removal request',
-      },
-    },
-    async (request, reply) => {
-      const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
-      if (!workspaceId.success || !workItemId.success)
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      const result = workItemService.removeFromAgenda(
-        context,
-        workspaceId.data,
-        workItemId.data,
-        request.body.expectedVersion,
-        request.id,
-      );
-      return noStore(reply).send(
-        removeFromAgendaResponseSchema.parse({
-          workItemId: result.workItem.id,
-          status: 'proposed',
-          removed: result.removed,
-        }),
-      );
-    },
-  );
-
-  app.post<{
-    Params: { workspaceId: string; workItemId: string };
-    Body: BodyOf<typeof admitWorkItemRequestSchema>;
-  }>(
-    '/api/workspaces/:workspaceId/work-items/:workItemId/admit',
-    {
-      config: {
-        access: 'editor',
-        tag: 'control',
-        body: admitWorkItemRequestSchema,
-        invalidBody: 'Invalid admission request',
-      },
-    },
-    async (request, reply) => {
-      const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
-      if (!workspaceId.success || !workItemId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const body = request.body;
+      if (body.action === 'complete') {
+        const result = workItemService.complete(
+          context,
+          workspaceId.data,
+          workItemId.data,
+          request.id,
+        );
+        return noStore(reply).send(
+          completeWorkItemResponseSchema.parse({
+            workItemId: result.workItem.id,
+            status: 'completed',
+            completed: result.completed,
+          }),
+        );
+      }
+      if (body.action === 'remove-from-agenda') {
+        const result = workItemService.removeFromAgenda(
+          context,
+          workspaceId.data,
+          workItemId.data,
+          body.expectedVersion,
+          request.id,
+        );
+        return noStore(reply).send(
+          removeFromAgendaResponseSchema.parse({
+            workItemId: result.workItem.id,
+            status: 'proposed',
+            removed: result.removed,
+          }),
+        );
       }
       const result = workItemService.admit(context, workspaceId.data, workItemId.data, request.id);
       return noStore(reply).send(

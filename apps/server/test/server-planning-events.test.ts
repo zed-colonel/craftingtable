@@ -217,14 +217,14 @@ describe('planning event delivery', () => {
       const started = Date.now();
       const response = await ready.context.app.inject({
         method: 'POST',
-        url: `/api/workspaces/${ready.workspaceId}/work-items/${aq01.id}/admit`,
+        url: `/api/workspaces/${ready.workspaceId}/work-items/${aq01.id}/control`,
         headers: {
           cookie: ready.session.cookie,
           origin: ready.context.config.publicOrigin,
           [CSRF_HEADER_NAME]: ready.session.csrfToken,
           'content-type': 'application/json',
         },
-        payload: {},
+        payload: { action: 'admit' },
       });
       expect(response.statusCode).toBe(200);
 
@@ -250,14 +250,14 @@ describe('planning event delivery', () => {
     const admit = () =>
       ready.context.app.inject({
         method: 'POST',
-        url: `/api/workspaces/${ready.workspaceId}/work-items/${aq01?.id}/admit`,
+        url: `/api/workspaces/${ready.workspaceId}/work-items/${aq01?.id}/control`,
         headers: {
           cookie: ready.session.cookie,
           origin: ready.context.config.publicOrigin,
           [CSRF_HEADER_NAME]: ready.session.csrfToken,
           'content-type': 'application/json',
         },
-        payload: {},
+        payload: { action: 'admit' },
       });
 
     await admit();

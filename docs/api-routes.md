@@ -15,7 +15,7 @@ decision boundary test reads each `decision` route from it.
 - **Body** is the shared contract the daemon parses a command's body with before its handler
   runs; for a multipart upload, its text fields.
 
-**147 routes:** 66 GET, 81 POST; 66 read, 31 decision, 25 control, 25 config.
+**137 routes:** 66 GET, 71 POST; 66 read, 29 decision, 17 control, 25 config.
 
 | Method | Path (under `/api/`) | Access | Tag | Step-up | Body |
 |---|---|---|---|---|---|
@@ -63,9 +63,7 @@ decision boundary test reads each `decision` route from it.
 | GET | `workspaces/:workspaceId/cycles/:cycleId/design-recovery` | editor | read |  |  |
 | POST | `workspaces/:workspaceId/cycles/:cycleId/design-recovery` | editor | decision |  | `recoverDesignRequestSchema` |
 | POST | `workspaces/:workspaceId/cycles/:cycleId/integration-resolution` | editor | decision |  | `integrationResolutionRequestSchema` |
-| POST | `workspaces/:workspaceId/cycles/:cycleId/investigation` | editor | decision |  | `startInvestigationRequestSchema` |
-| POST | `workspaces/:workspaceId/cycles/:cycleId/investigation/acknowledge-change` | editor | decision |  | `endInvestigationRequestSchema` |
-| POST | `workspaces/:workspaceId/cycles/:cycleId/investigation/end` | editor | decision |  | `endInvestigationRequestSchema` |
+| POST | `workspaces/:workspaceId/cycles/:cycleId/investigation` | editor | decision |  | `investigationRequestSchema` |
 | GET | `workspaces/:workspaceId/cycles/:cycleId/scope-repair` | member | read |  |  |
 | POST | `workspaces/:workspaceId/cycles/:cycleId/scope-repair` | editor | decision |  | `scopeRepairRequestSchema` |
 | GET | `workspaces/:workspaceId/diagnostics` | owner | read |  |  |
@@ -132,37 +130,29 @@ decision boundary test reads each `decision` route from it.
 | POST | `workspaces/:workspaceId/run-profiles` | editor | config |  | `saveRunProfilesRequestSchema` |
 | GET | `workspaces/:workspaceId/runs` | member | read |  |  |
 | GET | `workspaces/:workspaceId/runs/:runId` | member | read |  |  |
-| POST | `workspaces/:workspaceId/runs/:runId/cancel` | editor | control |  | `cancelAgentRunRequestSchema` |
-| POST | `workspaces/:workspaceId/runs/:runId/end` | editor | control |  | `endAgentRunRequestSchema` |
+| POST | `workspaces/:workspaceId/runs/:runId/control` | editor | control |  | `agentRunControlRequestSchema` |
 | GET | `workspaces/:workspaceId/runs/:runId/event-page` | member | read |  |  |
 | GET | `workspaces/:workspaceId/runs/:runId/events` | member | read |  |  |
-| POST | `workspaces/:workspaceId/runs/:runId/messages` | editor | control |  | `sendAgentRunMessageRequestSchema` |
 | GET | `workspaces/:workspaceId/runs/:runId/tool-results/:digest` | member | read |  |  |
 | GET | `workspaces/:workspaceId/runs/:runId/view` | member | read |  |  |
 | GET | `workspaces/:workspaceId/snapshot` | member | read |  |  |
 | GET | `workspaces/:workspaceId/storage` | installation | read |  |  |
 | POST | `workspaces/:workspaceId/storage` | installation | config |  | `saveStorageRequestSchema` |
-| POST | `workspaces/:workspaceId/storage/backup` | installation | control |  | `storageCommandSchema` |
-| POST | `workspaces/:workspaceId/storage/clean` | installation | control |  | `cleanupStorageRequestSchema` |
-| POST | `workspaces/:workspaceId/storage/scan` | installation | control |  | `storageCommandSchema` |
+| POST | `workspaces/:workspaceId/storage/control` | installation | control |  | `storageControlRequestSchema` |
 | GET | `workspaces/:workspaceId/work-items` | member | read |  |  |
 | GET | `workspaces/:workspaceId/work-items/:workItemId` | member | read |  |  |
-| POST | `workspaces/:workspaceId/work-items/:workItemId/admit` | editor | control |  | `admitWorkItemRequestSchema` |
-| POST | `workspaces/:workspaceId/work-items/:workItemId/complete` | editor | control |  | `completeWorkItemRequestSchema` |
+| POST | `workspaces/:workspaceId/work-items/:workItemId/control` | editor | control |  | `workItemControlRequestSchema` |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/cycles` | editor | control |  | `startWorkCycleRequestSchema` |
 | GET | `workspaces/:workspaceId/work-items/:workItemId/execution` | member | read |  |  |
 | GET | `workspaces/:workspaceId/work-items/:workItemId/execution-scopes` | member | read |  |  |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/integration-evidence` | editor | control |  | `recordIntegrationEvidenceRequestSchema` |
-| POST | `workspaces/:workspaceId/work-items/:workItemId/remove-from-agenda` | editor | control |  | `removeFromAgendaRequestSchema` |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/runs` | editor | control |  | `startAgentRunRequestSchema` |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/scope-scheduling` | editor | decision |  | `authorizeScopeSchedulingRequestSchema` |
 | GET | `workspaces/:workspaceId/work-items/:workItemId/view` | member | read |  |  |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/worktrees` | editor | control |  | `createWorktreeRequestSchema` |
 | GET | `workspaces/:workspaceId/worktrees/:worktreeId/branch-status` | member | read |  |  |
 | GET | `workspaces/:workspaceId/worktrees/:worktreeId/check-definitions` | member | read |  |  |
+| POST | `workspaces/:workspaceId/worktrees/:worktreeId/control` | editor | control |  | `worktreeControlRequestSchema` |
 | GET | `workspaces/:workspaceId/worktrees/:worktreeId/diff` | member | read |  |  |
 | POST | `workspaces/:workspaceId/worktrees/:worktreeId/merge` | editor | decision | a merge into the repository's default branch (a final promotion) | `mergeWorktreeRequestSchema` |
-| POST | `workspaces/:workspaceId/worktrees/:worktreeId/remove` | editor | control |  | `removeWorktreeRequestSchema` |
-| POST | `workspaces/:workspaceId/worktrees/:worktreeId/retarget` | editor | control |  | `retargetWorktreeRequestSchema` |
 | POST | `workspaces/:workspaceId/worktrees/:worktreeId/scope-evidence` | editor | decision |  | `recordScopeReceiptRequestSchema` |
-| POST | `workspaces/:workspaceId/worktrees/:worktreeId/update` | editor | control |  | `updateWorktreeRequestSchema` |

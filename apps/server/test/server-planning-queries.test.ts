@@ -511,14 +511,14 @@ describe('work-item admission over HTTP', () => {
     }
     const response = await ready.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${ready.workspaceId}/work-items/${aq01.id}/admit`,
+      url: `/api/workspaces/${ready.workspaceId}/work-items/${aq01.id}/control`,
       headers: {
         cookie: ready.session.cookie,
         origin: ready.context.config.publicOrigin,
         [CSRF_HEADER_NAME]: ready.session.csrfToken,
         'content-type': 'application/json',
       },
-      payload: {},
+      payload: { action: 'admit' },
     });
     return { response, workItemId: aq01.id };
   }
@@ -561,9 +561,14 @@ describe('work-item admission over HTTP', () => {
       origin: r.context.config.publicOrigin,
       [CSRF_HEADER_NAME]: r.session.csrfToken,
     };
-    const url = `/api/workspaces/${r.workspaceId}/work-items/${workItemId}/remove-from-agenda`;
+    const url = `/api/workspaces/${r.workspaceId}/work-items/${workItemId}/control`;
     const remove = (expectedVersion = 2) =>
-      r.context.app.inject({ method: 'POST', url, headers, payload: { expectedVersion } });
+      r.context.app.inject({
+        method: 'POST',
+        url,
+        headers,
+        payload: { action: 'remove-from-agenda', expectedVersion },
+      });
     return { ...r, workItemId, actor: context, remove, url, headers };
   }
   it('returns unstarted work to Proposed with distinct history, no completion, and safe re-admission', async () => {
@@ -766,14 +771,14 @@ describe('work-item admission over HTTP', () => {
     const complete = () =>
       ready.context.app.inject({
         method: 'POST',
-        url: `/api/workspaces/${ready.workspaceId}/work-items/${workItemId}/complete`,
+        url: `/api/workspaces/${ready.workspaceId}/work-items/${workItemId}/control`,
         headers: {
           cookie: ready.session.cookie,
           origin: ready.context.config.publicOrigin,
           [CSRF_HEADER_NAME]: ready.session.csrfToken,
           'content-type': 'application/json',
         },
-        payload: {},
+        payload: { action: 'complete' },
       });
     const first = await complete();
     expect(first.statusCode, first.body).toBe(200);
@@ -849,14 +854,14 @@ describe('work-item admission over HTTP', () => {
     const aq02 = project.activeVersion?.workItems.find((item) => item.sourceId === 'AQ-02');
     const response = await ready.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${ready.workspaceId}/work-items/${aq02?.id}/complete`,
+      url: `/api/workspaces/${ready.workspaceId}/work-items/${aq02?.id}/control`,
       headers: {
         cookie: ready.session.cookie,
         origin: ready.context.config.publicOrigin,
         [CSRF_HEADER_NAME]: ready.session.csrfToken,
         'content-type': 'application/json',
       },
-      payload: {},
+      payload: { action: 'complete' },
     });
     expect(response.statusCode).toBe(409);
   });
@@ -897,14 +902,14 @@ describe('work-item admission over HTTP', () => {
 
     const response = await ready.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${ready.workspaceId}/work-items/${aq14.id}/admit`,
+      url: `/api/workspaces/${ready.workspaceId}/work-items/${aq14.id}/control`,
       headers: {
         cookie: ready.session.cookie,
         origin: ready.context.config.publicOrigin,
         [CSRF_HEADER_NAME]: ready.session.csrfToken,
         'content-type': 'application/json',
       },
-      payload: {},
+      payload: { action: 'admit' },
     });
     expect(response.statusCode).toBe(200);
 
@@ -936,7 +941,7 @@ describe('work-item admission over HTTP', () => {
       ).json(),
     );
     const aq01 = project.activeVersion?.workItems.find((item) => item.sourceId === 'AQ-01');
-    const url = `/api/workspaces/${ready.workspaceId}/work-items/${aq01?.id}/admit`;
+    const url = `/api/workspaces/${ready.workspaceId}/work-items/${aq01?.id}/control`;
 
     const noCsrf = await ready.context.app.inject({
       method: 'POST',
@@ -946,7 +951,7 @@ describe('work-item admission over HTTP', () => {
         origin: ready.context.config.publicOrigin,
         'content-type': 'application/json',
       },
-      payload: {},
+      payload: { action: 'admit' },
     });
     expect(noCsrf.statusCode).toBe(403);
 
@@ -959,7 +964,7 @@ describe('work-item admission over HTTP', () => {
         [CSRF_HEADER_NAME]: ready.session.csrfToken,
         'content-type': 'application/json',
       },
-      payload: {},
+      payload: { action: 'admit' },
     });
     expect(crossSite.statusCode).toBe(403);
 
@@ -971,7 +976,7 @@ describe('work-item admission over HTTP', () => {
         [CSRF_HEADER_NAME]: ready.session.csrfToken,
         'content-type': 'application/json',
       },
-      payload: {},
+      payload: { action: 'admit' },
     });
     expect(anonymous.statusCode).toBe(401);
   });

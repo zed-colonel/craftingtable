@@ -269,9 +269,9 @@ describe('cycle supervision and operator races', () => {
     expect(backend.launches).toHaveLength(1);
     const ended = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${cycle.currentRunId}/end`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${cycle.currentRunId}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'end' },
     });
     expect(ended.statusCode).toBe(200);
     await controlCycle(state, paused, 'resume');

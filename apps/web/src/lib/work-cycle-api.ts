@@ -144,20 +144,20 @@ export function startInvestigation(
   return request(
     `${cycleUrl(cycle)}/investigation`,
     workCycleResponseSchema,
-    mutation(csrfToken, { expectedVersion: cycle.version, ...input }),
+    mutation(csrfToken, { action: 'start', expectedVersion: cycle.version, ...input }),
   );
 }
 export function endInvestigation(cycle: WorkCycle, csrfToken: string) {
   return request(
-    `${cycleUrl(cycle)}/investigation/end`,
+    `${cycleUrl(cycle)}/investigation`,
     workCycleResponseSchema,
-    mutation(csrfToken, { expectedVersion: cycle.version }),
+    mutation(csrfToken, { action: 'end', expectedVersion: cycle.version }),
   );
 }
 export function acknowledgeWorktreeChange(cycle: WorkCycle, csrfToken: string) {
   return request(
-    `${cycleUrl(cycle)}/investigation/acknowledge-change`,
+    `${cycleUrl(cycle)}/investigation`,
     workCycleResponseSchema,
-    mutation(csrfToken, { expectedVersion: cycle.version }),
+    mutation(csrfToken, { action: 'acknowledge-change', expectedVersion: cycle.version }),
   );
 }

@@ -24,7 +24,6 @@ export const saveStorageRequestSchema = z.strictObject({
   policy: storagePolicySchema,
 });
 export type SaveStorageRequest = z.infer<typeof saveStorageRequestSchema>;
-export const storageCommandSchema = z.strictObject({});
 export const cleanupStorageRequestSchema = z.strictObject({ scanId: z.string().uuid() });
 const volumeSchema = z.strictObject({
   label: z.string(),
@@ -65,3 +64,10 @@ export const storageStatusSchema = z.strictObject({
     .nullable(),
 });
 export type StorageStatus = z.infer<typeof storageStatusSchema>;
+
+/** Storage's manual commands in one route (R-H5, H5-2): scan, clean a scan's findings, back up. */
+export const storageControlRequestSchema = z.discriminatedUnion('action', [
+  z.strictObject({ action: z.literal('scan') }),
+  cleanupStorageRequestSchema.extend({ action: z.literal('clean') }),
+  z.strictObject({ action: z.literal('backup') }),
+]);

@@ -107,6 +107,7 @@ async function investigateView(
   payload: Record<string, unknown> = {},
 ) {
   const response = await post(state, `/cycles/${cycle.id}/investigation`, {
+    action: 'start',
     expectedVersion: currentCycle(state, cycle).version,
     ...payload,
   });
@@ -145,6 +146,7 @@ async function refusedStart(
 ): Promise<void> {
   const { state, cycle, backend } = f;
   const response = await post(state, `/cycles/${cycle.id}/investigation`, {
+    action: 'start',
     expectedVersion: currentCycle(state, cycle).version,
   });
   expect(response.statusCode, response.body).toBe(409);
@@ -227,6 +229,7 @@ describe('question stop investigations (R-C16)', () => {
     expect(guidance.body).toContain('investigation of this stop is running');
     // One at a time (TS-M3): refused by its own guard, not only by the live run it started.
     const again = await post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'start',
       expectedVersion: currentCycle(state, cycle).version,
     });
     expect(again.statusCode).toBe(409);
@@ -243,7 +246,10 @@ describe('question stop investigations (R-C16)', () => {
     expect(grant.statusCode).toBe(409);
     expect(grant.body).toContain('investigation of this stop is running');
     // Its one turn is its report: no message may add another (review LOW).
-    const message = await post(state, `/runs/${record.runId}/messages`, { text: 'Also check X.' });
+    const message = await post(state, `/runs/${record.runId}/control`, {
+      action: 'message',
+      text: 'Also check X.',
+    });
     expect(message.statusCode).toBe(409);
     expect(message.body).toContain('takes no messages');
     const manual = await post(state, `/work-items/${state.workItemId}/runs`, {
@@ -341,7 +347,8 @@ describe('question stop investigations (R-C16)', () => {
     f.script({ resultText: report(), release: new Promise<void>(() => {}) });
     const started = await investigate(state, cycle);
     await waitFor(() => launchesReadOnly(f.backend.launches).length === 1, 'investigation launch');
-    const response = await post(state, `/cycles/${cycle.id}/investigation/end`, {
+    const response = await post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'end',
       expectedVersion: started.version,
     });
     expect(response.statusCode, response.body).toBe(200);
@@ -369,7 +376,8 @@ describe('question stop investigations (R-C16)', () => {
     );
     // The stop takes its commands again; ending twice is refused.
     expect((await presented(state, cycle)).actions).toContain('investigate');
-    const twice = await post(state, `/cycles/${cycle.id}/investigation/end`, {
+    const twice = await post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'end',
       expectedVersion: currentCycle(state, cycle).version,
     });
     expect(twice.statusCode).toBe(409);
@@ -385,6 +393,7 @@ describe('question stop investigations (R-C16)', () => {
     );
     expect((await presented(g.state, other)).actions).not.toContain('investigate');
     const refused = await post(g.state, `/cycles/${other.id}/investigation`, {
+      action: 'start',
       expectedVersion: currentCycle(g.state, other).version,
     });
     expect(refused.statusCode).toBe(409);
@@ -521,6 +530,7 @@ describe('question stop investigations (R-C16)', () => {
     const { state, cycle } = f;
     const before = currentCycle(state, cycle);
     const refused = await post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'start',
       expectedVersion: before.version,
       profile: { backend: 'codex' },
     });
@@ -604,6 +614,7 @@ describe('question stop investigations (R-C16)', () => {
     const { state, cycle } = f;
     f.script({ resultText: report(), release: new Promise<void>(() => {}) });
     const pending = post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'start',
       expectedVersion: currentCycle(state, cycle).version,
     });
     // Catch the moment the record is written and its run is not yet, and run the controller.
@@ -648,7 +659,7 @@ describe('question stop investigations (R-C16)', () => {
       'manual session',
     );
     await refused('End the live session in this worktree before starting an investigation.');
-    const cancelled = await post(state, `/runs/${run.id}/cancel`, {});
+    const cancelled = await post(state, `/runs/${run.id}/control`, { action: 'cancel' });
     expect(cancelled.statusCode, cancelled.body).toBe(200);
     await waitFor(
       () =>
@@ -711,7 +722,8 @@ describe('question stop investigations (R-C16)', () => {
     const stopped = currentCycle(state, cycle);
 
     // A merge, removal or update in progress holds the worktree.
-    const update = post(state, `/worktrees/${f.worktree.id}/update`, {
+    const update = post(state, `/worktrees/${f.worktree.id}/control`, {
+      action: 'update',
       expectedVersion: state.context.storage.execution.worktrees.find(
         state.workspaceId,
         f.worktree.id,
@@ -836,6 +848,7 @@ describe('the investigated worktree (R-C16)', () => {
     expect(refusal(grant)).toMatchObject(held);
     // A new investigation would replace the record, and the change with it.
     const again = await post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'start',
       expectedVersion: currentCycle(state, cycle).version,
     });
     expect(again.statusCode).toBe(409);
@@ -847,7 +860,8 @@ describe('the investigated worktree (R-C16)', () => {
       state.context.services.workCycleService.holdsReminders(state.workspaceId, cycle.id),
     ).toBe(false);
 
-    const acknowledged = await post(state, `/cycles/${cycle.id}/investigation/acknowledge-change`, {
+    const acknowledged = await post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'acknowledge-change',
       expectedVersion: currentCycle(state, cycle).version,
     });
     expect(acknowledged.statusCode, acknowledged.body).toBe(200);
@@ -859,7 +873,8 @@ describe('the investigated worktree (R-C16)', () => {
       'investigate',
       'stop',
     ]);
-    const twice = await post(state, `/cycles/${cycle.id}/investigation/acknowledge-change`, {
+    const twice = await post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'acknowledge-change',
       expectedVersion: currentCycle(state, cycle).version,
     });
     expect(twice.statusCode).toBe(409);
@@ -885,7 +900,8 @@ describe('the investigated worktree (R-C16)', () => {
     });
     const started = await investigate(state, cycle);
     await waitFor(() => launchesReadOnly(f.backend.launches).length === 1, 'investigation launch');
-    const ended = await post(state, `/cycles/${cycle.id}/investigation/end`, {
+    const ended = await post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'end',
       expectedVersion: started.version,
     });
     expect(ended.statusCode, ended.body).toBe(200);
@@ -970,12 +986,14 @@ describe('the investigated worktree (R-C16)', () => {
     backend.replyForRequest = async (request: AgentLaunchRequest) => {
       if (!request.readOnly) return implementationDone;
       // The operator presses End while the backend is still starting the run.
-      ended = await post(state, `/cycles/${cycle.id}/investigation/end`, {
+      ended = await post(state, `/cycles/${cycle.id}/investigation`, {
+        action: 'end',
         expectedVersion: currentCycle(state, cycle).version,
       });
       return { resultText: report(), release: new Promise<void>(() => {}), exitAfterKill: exited };
     };
     const started = post(state, `/cycles/${cycle.id}/investigation`, {
+      action: 'start',
       expectedVersion: currentCycle(state, cycle).version,
     });
     await waitFor(() => ended !== undefined, 'End during the launch');

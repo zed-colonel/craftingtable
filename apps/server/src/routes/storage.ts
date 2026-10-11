@@ -1,7 +1,6 @@
 import {
-  cleanupStorageRequestSchema,
   saveStorageRequestSchema,
-  storageCommandSchema,
+  storageControlRequestSchema,
   storageStatusSchema,
   workspaceIdSchema,
 } from '@craftingtable/contracts';
@@ -39,49 +38,32 @@ export function registerStorageRoutes(app: FastifyInstance, service: StorageServ
       );
     },
   );
+  // Storage's manual commands share one route (R-H5, H5-2): the same access, none carries authority.
   app.post<{
     Params: { workspaceId: string };
-    Body: BodyOf<typeof cleanupStorageRequestSchema>;
+    Body: BodyOf<typeof storageControlRequestSchema>;
   }>(
-    '/api/workspaces/:workspaceId/storage/clean',
+    '/api/workspaces/:workspaceId/storage/control',
     {
       config: {
         access: 'installation',
         tag: 'control',
-        body: cleanupStorageRequestSchema,
-        invalidBody: 'A current cleanup preview is required',
+        body: storageControlRequestSchema,
+        invalidBody: 'Invalid storage command',
       },
     },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const body = request.body;
       return noStore(reply).send(
         storageStatusSchema.parse(
-          await service.clean(context, workspace.data, request.body.scanId),
+          body.action === 'clean'
+            ? await service.clean(context, workspace.data, body.scanId)
+            : await service[body.action](context, workspace.data),
         ),
       );
     },
   );
-  for (const action of ['scan', 'backup'] as const) {
-    app.post<{ Params: { workspaceId: string } }>(
-      `/api/workspaces/:workspaceId/storage/${action}`,
-      {
-        config: {
-          access: 'installation',
-          tag: 'control',
-          body: storageCommandSchema,
-          invalidBody: 'Invalid storage command',
-        },
-      },
-      async (request, reply) => {
-        const context = contextOf(request);
-        const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-        if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-        return noStore(reply).send(
-          storageStatusSchema.parse(await service[action](context, workspace.data)),
-        );
-      },
-    );
-  }
 }

@@ -1,14 +1,11 @@
 import {
-  createWorktreeResponseSchema,
   gitBranchNameSchema,
   planBranchSettingsResponseSchema,
   planVersionIdSchema,
   recordIntegrationEvidenceRequestSchema,
   repositoryPolicyEvidenceSchema,
-  retargetWorktreeRequestSchema,
   savePlanBranchSettingsRequestSchema,
   saveRepositoryPolicyRequestSchema,
-  updateWorktreeRequestSchema,
   workItemIdSchema,
   workspaceIdSchema,
   worktreeBranchStatusResponseSchema,
@@ -150,37 +147,4 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
       );
     },
   );
-  for (const action of ['retarget', 'update'] as const) {
-    const schema =
-      action === 'update' ? updateWorktreeRequestSchema : retargetWorktreeRequestSchema;
-    app.post<{ Params: { workspaceId: string; worktreeId: string }; Body: BodyOf<typeof schema> }>(
-      `/api/workspaces/:workspaceId/worktrees/:worktreeId/${action}`,
-      {
-        config: {
-          access: 'editor',
-          tag: 'control',
-          body: schema,
-          invalidBody: 'Invalid worktree branch request',
-        },
-      },
-      async (request, reply) => {
-        const context = contextOf(request);
-        const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-        const wt = worktreeIdSchema.safeParse(request.params.worktreeId);
-        if (!ws.success || !wt.success)
-          return sendApiError(reply, 404, 'not-found', 'Resource not found');
-        return noStore(reply).send(
-          createWorktreeResponseSchema.parse(
-            await branches.changeWorktree(
-              context,
-              ws.data,
-              wt.data,
-              request.body,
-              action === 'update',
-            ),
-          ),
-        );
-      },
-    );
-  }
 }

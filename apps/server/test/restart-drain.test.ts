@@ -269,7 +269,7 @@ describe('restart drain and automatic resume (R-B9)', () => {
       });
       expect(response.statusCode, response.body).toBe(200);
     };
-    await inject(`/worktrees/${f.worktreeId}/remove`, {});
+    await inject(`/worktrees/${f.worktreeId}/control`, { action: 'remove' });
     await useStepModels(f);
     await inject(`/roadmaps/${roadmapId}`, {
       expectedVersion: 0,

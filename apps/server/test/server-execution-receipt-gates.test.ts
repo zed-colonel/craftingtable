@@ -346,9 +346,9 @@ itNeedsCargo(
     expect(storage.runtimeEvidence.checkReceipts(f.state.workspaceId, first)).toHaveLength(1);
     await f.state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${f.state.workspaceId}/runs/${first}/end`,
+      url: `/api/workspaces/${f.state.workspaceId}/runs/${first}/control`,
       headers: mutationHeaders(f.state),
-      payload: {},
+      payload: { action: 'end' },
     });
     await waitFor(
       () => storage.execution.runs.find(f.state.workspaceId, first as never)?.status === 'finished',
@@ -1061,9 +1061,9 @@ itNeedsCargo(
     for (const run of runs)
       await f.state.context.app.inject({
         method: 'POST',
-        url: `/api/workspaces/${f.state.workspaceId}/runs/${run}/end`,
+        url: `/api/workspaces/${f.state.workspaceId}/runs/${run}/control`,
         headers: mutationHeaders(f.state),
-        payload: {},
+        payload: { action: 'end' },
       });
     await waitFor(() => runs.every((run) => status(run) === 'finished'), 'every run finished');
   },
@@ -1137,9 +1137,9 @@ itNeedsCargo(
     expect(gate.pids()).toHaveLength(36);
     await f.state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${f.state.workspaceId}/runs/${run}/end`,
+      url: `/api/workspaces/${f.state.workspaceId}/runs/${run}/control`,
       headers: mutationHeaders(f.state),
-      payload: {},
+      payload: { action: 'end' },
     });
     await waitFor(() => status() === 'finished', 'finish');
     expect(

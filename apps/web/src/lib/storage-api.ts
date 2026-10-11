@@ -16,9 +16,9 @@ export function storageCommand(
   csrfToken: string,
   scanId?: string,
 ) {
-  return request(`${url(id)}/${action}`, storageStatusSchema, {
+  return request(`${url(id)}/control`, storageStatusSchema, {
     method: 'POST',
     headers: { 'x-craftingtable-csrf': csrfToken },
-    body: JSON.stringify(scanId ? { scanId } : {}),
+    body: JSON.stringify(action === 'clean' ? { action, scanId } : { action }),
   });
 }

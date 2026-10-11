@@ -143,9 +143,9 @@ it('refuses a manual run whose model is another spelling of a catalog id, and la
     const { run: sent } = startAgentRunResponseSchema.parse(started.json());
     await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/runs/${sent.id}/cancel`,
+      url: `/api/workspaces/${state.workspaceId}/runs/${sent.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'cancel' },
     });
     await waitFor(
       () =>

@@ -210,9 +210,6 @@ const DYNAMIC_TAILS: readonly string[] = [
   'lib/roadmap-api.ts: /api/workspaces/*/roadmaps/*/graph/*',
   // A roadmap's save, by id: configuration.
   'lib/roadmap-api.ts: /api/workspaces/*/roadmaps/*',
-  // Typed unions of manual controls: a worktree's retarget or update; storage's scan, clean, backup.
-  'lib/branch-api.ts: /api/workspaces/*/worktrees/*/*',
-  'lib/storage-api.ts: /api/workspaces/*/storage/*',
 ];
 
 /**
@@ -234,6 +231,13 @@ const AMBIGUOUS: readonly { readonly segment: string; readonly routes: readonly 
       /\/finalizations\/\*\/control$/,
       // A roadmap's start, pause, resume, stop and re-verify: manual controls.
       /\/roadmaps\/\*\/control$/,
+      // Manual controls folded into one route each (R-H5, H5-2): a run's message, end and
+      // cancel; a worktree's retarget, update and removal; a work item's admission, removal from
+      // the agenda and completion; storage's scan, clean and backup.
+      /\/runs\/\*\/control$/,
+      /\/worktrees\/\*\/control$/,
+      /\/work-items\/\*\/control$/,
+      /\/storage\/control$/,
     ],
   },
   { segment: 'adopt', routes: [/\/checks\/adopt$/, /\/supervision\/adopt$/] },

@@ -874,9 +874,9 @@ function reportPendingWaitsOnFailure(): void {
 export async function admit(state: Ready): Promise<void> {
   const response = await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/admit`,
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/control`,
     headers: mutationHeaders(state),
-    payload: {},
+    payload: { action: 'admit' },
   });
   expect(response.statusCode, response.body).toBe(200);
 }
@@ -904,9 +904,9 @@ export async function runToFinish(
   );
   await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/control`,
     headers: mutationHeaders(state),
-    payload: {},
+    payload: { action: 'end' },
   });
   await waitFor(
     () =>
@@ -1161,9 +1161,9 @@ export async function roadmapFixture(
   if (!options.keepWorktree) {
     const removed = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'remove' },
     });
     expect(removed.statusCode, removed.body).toBe(200);
   }
@@ -1415,9 +1415,9 @@ export async function finalizationFixture(
     await admit({ ...state, workItemId: id });
     const completed = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/work-items/${id}/complete`,
+      url: `/api/workspaces/${state.workspaceId}/work-items/${id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'complete' },
     });
     expect(completed.statusCode, completed.body).toBe(200);
     const evidence = await state.context.app.inject({

@@ -485,6 +485,7 @@ describe('a question stop’s investigation (R-C16)', () => {
       'implementation question',
     );
     const response = await post(f.state, `/cycles/${cycle.id}/investigation`, {
+      action: 'start',
       expectedVersion: currentCycle(f.state, cycle).version,
     });
     expect(response.statusCode, response.body).toBe(200);

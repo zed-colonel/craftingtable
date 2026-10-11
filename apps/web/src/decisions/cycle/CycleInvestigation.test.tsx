@@ -161,6 +161,7 @@ it("offers Investigate beside the stop's own control, and starts it with a promp
   fireEvent.click(within(form).getByRole('button', { name: 'Start investigation' }));
   expect(posted('/cycles/c1/investigation')).toEqual([
     {
+      action: 'start',
       expectedVersion: 3,
       instructions: 'Check the format spec.',
       minutes: 20,
@@ -191,7 +192,7 @@ it('shows a live investigation with only End, and no answer form while it runs',
   fireEvent.click(within(panel).getByRole('button', { name: 'Open investigation run' }));
   expect(onOpenRun).toHaveBeenCalledWith('inv-run');
   fireEvent.click(within(panel).getByRole('button', { name: 'End investigation' }));
-  expect(posted('/cycles/c1/investigation/end')).toEqual([{ expectedVersion: 3 }]);
+  expect(posted('/cycles/c1/investigation')).toEqual([{ action: 'end', expectedVersion: 3 }]);
 });
 
 it("shows the proposals, and Use proposed answers fills the stop's own answer", () => {
@@ -391,6 +392,7 @@ it('starts from the cycle investigation profile, refuses an unavailable agent or
   fireEvent.click(start);
   expect(posted('/cycles/c1/investigation')).toEqual([
     {
+      action: 'start',
       expectedVersion: 3,
       instructions: 'Check X.',
       minutes: 30,
@@ -618,7 +620,9 @@ it('names a worktree change, takes only its acknowledgement, and shows the propo
   expect(screen.queryByRole('form', { name: 'Continue with guidance' })).toBeNull();
   expect(screen.queryByRole('form', { name: 'Investigate these questions' })).toBeNull();
   fireEvent.click(within(panel).getByRole('button', { name: 'Acknowledge the change' }));
-  expect(posted('/cycles/c1/investigation/acknowledge-change')).toEqual([{ expectedVersion: 3 }]);
+  expect(posted('/cycles/c1/investigation')).toEqual([
+    { action: 'acknowledge-change', expectedVersion: 3 },
+  ]);
 });
 
 it('after an acknowledgement, answers the stop as usual but still never offers those proposals (R-C16)', () => {

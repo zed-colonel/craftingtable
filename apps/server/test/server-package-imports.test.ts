@@ -350,7 +350,14 @@ describe('package import HTTP flow', () => {
   });
   it('records rejected archives and rejects different content under the same map revision', async () => {
     const r = await setup();
-    const bad = await upload(r, 'imports/concurrency-definitions', mapName, {}, {}, Buffer.from('not a zip'));
+    const bad = await upload(
+      r,
+      'imports/concurrency-definitions',
+      mapName,
+      {},
+      {},
+      Buffer.from('not a zip'),
+    );
     expect(bad.statusCode).toBe(200);
     expect(bad.json().attempt.outcome).toBe('failed-validation');
     const first = await upload(r, 'imports/concurrency-definitions', mapName);
@@ -363,7 +370,14 @@ describe('package import HTTP flow', () => {
         return { ...entry, bytes: Buffer.from(JSON.stringify(map)) };
       }),
     );
-    const conflicting = await upload(r, 'imports/concurrency-definitions', mapName, {}, {}, changed);
+    const conflicting = await upload(
+      r,
+      'imports/concurrency-definitions',
+      mapName,
+      {},
+      {},
+      changed,
+    );
     expect(conflicting.statusCode, conflicting.body).toBe(200);
     expect(conflicting.json().attempt.outcome).toBe('conflict');
     expect(r.context.storage.imports.definitions(r.workspaceId)).toHaveLength(1);
@@ -457,15 +471,26 @@ describe('package import HTTP flow', () => {
       role: 'viewer',
       occurredAt: now,
     });
-    const response = await upload({ ...r, workspaceId }, 'imports/concurrency-definitions', mapName);
+    const response = await upload(
+      { ...r, workspaceId },
+      'imports/concurrency-definitions',
+      mapName,
+    );
     expect(response.statusCode).toBe(403);
     expect(r.context.storage.imports.attempts(workspaceId, 'concurrency')).toHaveLength(0);
   });
   it('rejects missing CSRF before accepting an archive', async () => {
     const r = await setup();
     expect(
-      (await upload(r, 'imports/concurrency-definitions', mapName, {}, { 'x-craftingtable-csrf': '' }))
-        .statusCode,
+      (
+        await upload(
+          r,
+          'imports/concurrency-definitions',
+          mapName,
+          {},
+          { 'x-craftingtable-csrf': '' },
+        )
+      ).statusCode,
     ).toBe(403);
     expect(r.context.storage.imports.attempts(r.workspaceId, 'concurrency')).toHaveLength(0);
   });

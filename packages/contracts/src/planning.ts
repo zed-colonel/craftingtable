@@ -270,16 +270,12 @@ export const removeFromAgendaResponseSchema = z.strictObject({
   removed: z.boolean(),
 });
 
-export const admitWorkItemRequestSchema = z.strictObject({});
-
 export const admitWorkItemResponseSchema = z.strictObject({
   workItemId: workItemIdSchema,
   status: z.literal('admitted'),
   /** True when this request performed the transition rather than repeating it. */
   admitted: z.boolean(),
 });
-
-export const completeWorkItemRequestSchema = z.strictObject({});
 
 export const completeWorkItemResponseSchema = z.strictObject({
   workItemId: workItemIdSchema,
@@ -338,3 +334,10 @@ export type WorkspaceWorkItemFilter = z.infer<typeof workspaceWorkItemFilterSche
 export type WorkspaceWorkItemListResponse = z.infer<typeof workspaceWorkItemListResponseSchema>;
 export type PlanArtifactSummary = z.infer<typeof planArtifactSummarySchema>;
 export type PlanningStatusCountsPayload = z.infer<typeof planningStatusCountsSchema>;
+
+/** A work item's agenda commands in one route (R-H5, H5-2): admit, remove from the agenda, complete. */
+export const workItemControlRequestSchema = z.discriminatedUnion('action', [
+  z.strictObject({ action: z.literal('admit') }),
+  removeFromAgendaRequestSchema.extend({ action: z.literal('remove-from-agenda') }),
+  z.strictObject({ action: z.literal('complete') }),
+]);

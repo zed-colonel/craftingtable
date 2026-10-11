@@ -1,15 +1,13 @@
 import {
   agentRunCommandResponseSchema,
+  agentRunControlRequestSchema,
   agentRunDetailResponseSchema,
   agentRunIdSchema,
   authenticationExpiredEventSchema,
-  cancelAgentRunRequestSchema,
-  endAgentRunRequestSchema,
   runEventEnvelopeSchema,
   runEventPageResponseSchema,
   SSE_AUTHENTICATION_EXPIRED_EVENT_NAME,
   SSE_RUN_EVENT_NAME,
-  sendAgentRunMessageRequestSchema,
   startAgentRunRequestSchema,
   startAgentRunResponseSchema,
   workItemIdSchema,
@@ -178,49 +176,48 @@ export function registerAgentRunRoutes(
     },
   );
 
-  for (const [action, schema, handler] of [
-    ['messages', sendAgentRunMessageRequestSchema, 'message'],
-    ['end', endAgentRunRequestSchema, 'end'],
-    ['cancel', cancelAgentRunRequestSchema, 'cancel'],
-  ] as const) {
-    app.post<{ Params: { workspaceId: string; runId: string }; Body: BodyOf<typeof schema> }>(
-      `/api/workspaces/:workspaceId/runs/:runId/${action}`,
-      {
-        config: {
-          access: 'editor',
-          tag: 'control',
-          body: schema,
-          invalidBody: 'Invalid run command',
-        },
+  // A run's manual commands share one route (R-H5, H5-2): the same access, none carries authority.
+  app.post<{
+    Params: { workspaceId: string; runId: string };
+    Body: BodyOf<typeof agentRunControlRequestSchema>;
+  }>(
+    '/api/workspaces/:workspaceId/runs/:runId/control',
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: agentRunControlRequestSchema,
+        invalidBody: 'Invalid run command',
       },
-      async (request, reply) => {
-        const context = contextOf(request);
-        const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-        const runId = agentRunIdSchema.safeParse(request.params.runId);
-        if (!workspaceId.success || !runId.success) {
-          return sendApiError(reply, 404, 'not-found', 'Resource not found');
-        }
-        const result =
-          handler === 'message'
-            ? agentRunService.sendMessage(
-                context,
-                workspaceId.data,
-                runId.data,
-                (request.body as { text: string }).text,
-                request.id,
-              )
-            : handler === 'end'
-              ? agentRunService.end(context, workspaceId.data, runId.data, request.id)
-              : agentRunService.cancel(context, workspaceId.data, runId.data, request.id);
-        return noStore(reply).send(
-          agentRunCommandResponseSchema.parse({
-            run: runSummary(result.run),
-            accepted: result.accepted,
-          }),
-        );
-      },
-    );
-  }
+    },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const runId = agentRunIdSchema.safeParse(request.params.runId);
+      if (!workspaceId.success || !runId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      const body = request.body;
+      const result =
+        body.action === 'message'
+          ? agentRunService.sendMessage(
+              context,
+              workspaceId.data,
+              runId.data,
+              body.text,
+              request.id,
+            )
+          : body.action === 'end'
+            ? agentRunService.end(context, workspaceId.data, runId.data, request.id)
+            : agentRunService.cancel(context, workspaceId.data, runId.data, request.id);
+      return noStore(reply).send(
+        agentRunCommandResponseSchema.parse({
+          run: runSummary(result.run),
+          accepted: result.accepted,
+        }),
+      );
+    },
+  );
 
   app.get<{ Params: { workspaceId: string; runId: string }; Querystring: { after?: string } }>(
     '/api/workspaces/:workspaceId/runs/:runId/events',

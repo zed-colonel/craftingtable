@@ -264,9 +264,9 @@ describe('sequential roadmaps', () => {
     await awaitRoadmapMerge(state, 0);
     const completed = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/complete`,
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'complete' },
     });
     expect(completed.statusCode, completed.body).toBe(200);
     await state.context.services.roadmapService.tick();

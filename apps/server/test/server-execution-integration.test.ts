@@ -401,9 +401,9 @@ it('stop during resolution preparation preserves ownership and supports explicit
   );
   const branch = await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/update`,
+    url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/control`,
     headers: mutationHeaders(state),
-    payload: { expectedVersion: worktree.version },
+    payload: { action: 'update', expectedVersion: worktree.version },
   });
   expect(branch.statusCode).toBe(409);
   const abandoned = await resolutionCommand(state, currentCycle(state, cycle), {

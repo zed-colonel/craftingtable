@@ -2,13 +2,11 @@ import {
   baselineEvidenceSchema,
   baselinePreviewSchema,
   controlWorkCycleRequestSchema,
-  acknowledgeInvestigationChangeRequestSchema,
-  endInvestigationRequestSchema,
   designRecoveryPreviewSchema,
   integrationResolutionRequestSchema,
   prepareBaselineRequestSchema,
   recoverDesignRequestSchema,
-  startInvestigationRequestSchema,
+  investigationRequestSchema,
   scopeRepairPreviewSchema,
   scopeRepairRequestSchema,
   startWorkCycleRequestSchema,
@@ -226,17 +224,18 @@ export function registerWorkCycleRoutes(
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
-  // A question stop's read-only investigation (R-C16), and ending it.
+  // A question stop's read-only investigation (R-C16): starting it, ending it, and acknowledging
+  // that the worktree changed while it ran, in one route (R-H5, H5-2).
   app.post<{
     Params: { workspaceId: string; cycleId: string };
-    Body: BodyOf<typeof startInvestigationRequestSchema>;
+    Body: BodyOf<typeof investigationRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/investigation',
     {
       config: {
         access: 'editor',
         tag: 'decision',
-        body: startInvestigationRequestSchema,
+        body: investigationRequestSchema,
         invalidBody: 'Invalid investigation request',
       },
     },
@@ -244,65 +243,28 @@ export function registerWorkCycleRoutes(
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      const cycle = await cycles.startInvestigation(
-        context,
-        workspace.data,
-        request.params.cycleId,
-        request.body,
-      );
-      return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
-    },
-  );
-  app.post<{
-    Params: { workspaceId: string; cycleId: string };
-    Body: BodyOf<typeof endInvestigationRequestSchema>;
-  }>(
-    '/api/workspaces/:workspaceId/cycles/:cycleId/investigation/end',
-    {
-      config: {
-        access: 'editor',
-        tag: 'decision',
-        body: endInvestigationRequestSchema,
-        invalidBody: 'Invalid investigation request',
-      },
-    },
-    async (request, reply) => {
-      const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      const cycle = await cycles.endInvestigation(
-        context,
-        workspace.data,
-        request.params.cycleId,
-        request.body.expectedVersion,
-      );
-      return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
-    },
-  );
-  // The worktree changed while the stop's investigation ran: the operator has seen it (R-C16).
-  app.post<{
-    Params: { workspaceId: string; cycleId: string };
-    Body: BodyOf<typeof acknowledgeInvestigationChangeRequestSchema>;
-  }>(
-    '/api/workspaces/:workspaceId/cycles/:cycleId/investigation/acknowledge-change',
-    {
-      config: {
-        access: 'editor',
-        tag: 'decision',
-        body: acknowledgeInvestigationChangeRequestSchema,
-        invalidBody: 'Invalid acknowledgement request',
-      },
-    },
-    async (request, reply) => {
-      const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      const cycle = cycles.acknowledgeWorktreeChange(
-        context,
-        workspace.data,
-        request.params.cycleId,
-        request.body.expectedVersion,
-      );
+      const { action, ...body } = request.body;
+      const cycle =
+        action === 'start'
+          ? await cycles.startInvestigation(
+              context,
+              workspace.data,
+              request.params.cycleId,
+              body as Omit<Extract<typeof request.body, { action: 'start' }>, 'action'>,
+            )
+          : action === 'end'
+            ? await cycles.endInvestigation(
+                context,
+                workspace.data,
+                request.params.cycleId,
+                body.expectedVersion,
+              )
+            : cycles.acknowledgeWorktreeChange(
+                context,
+                workspace.data,
+                request.params.cycleId,
+                body.expectedVersion,
+              );
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );

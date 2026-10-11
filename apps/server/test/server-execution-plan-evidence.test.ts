@@ -923,7 +923,7 @@ it('investigates a slice question stop without reserving its development capacit
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/investigation`,
     headers: mutationHeaders(state),
-    payload: { expectedVersion: currentCycle(state, cycle).version },
+    payload: { action: 'start', expectedVersion: currentCycle(state, cycle).version },
   });
   expect(response.statusCode, response.body).toBe(200);
   const investigation = currentCycle(state, cycle).investigation!;
@@ -1012,7 +1012,7 @@ it("investigates the stop run's own question, not one an earlier report routed",
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/investigation`,
     headers: mutationHeaders(state),
-    payload: { expectedVersion: currentCycle(state, cycle).version },
+    payload: { action: 'start', expectedVersion: currentCycle(state, cycle).version },
   });
   expect(response.statusCode, response.body).toBe(200);
   const investigation = currentCycle(state, cycle).investigation!;

@@ -302,7 +302,7 @@ export async function createCycleFixture(): Promise<CycleFixture> {
       repositoryId,
     }),
   ).worktree;
-  await inject(`/api/workspaces/${workspaceId}/work-items/item-1/admit`, {});
+  await inject(`/api/workspaces/${workspaceId}/work-items/item-1/control`, { action: 'admit' });
   return {
     ...signedIn,
     services: context.services,

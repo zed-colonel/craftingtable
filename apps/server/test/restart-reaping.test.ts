@@ -485,9 +485,9 @@ it('keeps the record until the agent has exited, and then removes it (R-G11 revi
   expect(existsSync(identityPath)).toBe(true);
   const ended = await state.context.app.inject({
     method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/runs/${runId}/end`,
+    url: `/api/workspaces/${state.workspaceId}/runs/${runId}/control`,
     headers: mutationHeaders(state),
-    payload: {},
+    payload: { action: 'end' },
   });
   expect(ended.statusCode, ended.body).toBe(200);
   await waitFor(

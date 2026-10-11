@@ -11,7 +11,7 @@ import {
   refreshModelsRequestSchema,
   registerSourceRepositoryRequestSchema,
   registerSourceRepositoryResponseSchema,
-  removeWorktreeRequestSchema,
+  worktreeControlRequestSchema,
   removeWorktreeResponseSchema,
   repositoryBranchesResponseSchema,
   retireSourceRepositoryRequestSchema,
@@ -384,17 +384,19 @@ export function registerExecutionRoutes(
     },
   );
 
+  // A worktree's manual commands share one route (R-H5, H5-2): the same access, none carries
+  // authority. Its merge is a decision and keeps its own route below.
   app.post<{
     Params: { workspaceId: string; worktreeId: string };
-    Body: BodyOf<typeof removeWorktreeRequestSchema>;
+    Body: BodyOf<typeof worktreeControlRequestSchema>;
   }>(
-    '/api/workspaces/:workspaceId/worktrees/:worktreeId/remove',
+    '/api/workspaces/:workspaceId/worktrees/:worktreeId/control',
     {
       config: {
         access: 'editor',
         tag: 'control',
-        body: removeWorktreeRequestSchema,
-        invalidBody: 'Invalid request',
+        body: worktreeControlRequestSchema,
+        invalidBody: 'Invalid worktree command',
       },
     },
     async (request, reply) => {
@@ -404,14 +406,32 @@ export function registerExecutionRoutes(
       if (!workspaceId.success || !worktreeId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const result = await executionService.removeWorktree(
-        context,
-        workspaceId.data,
-        worktreeId.data,
-        request.id,
-        { discardChanges: request.body.discardChanges === true },
+      const body = request.body;
+      if (body.action === 'remove')
+        return noStore(reply).send(
+          removeWorktreeResponseSchema.parse(
+            await executionService.removeWorktree(
+              context,
+              workspaceId.data,
+              worktreeId.data,
+              request.id,
+              { discardChanges: body.discardChanges === true },
+            ),
+          ),
+        );
+      return noStore(reply).send(
+        createWorktreeResponseSchema.parse(
+          await executionService.branches.changeWorktree(
+            context,
+            workspaceId.data,
+            worktreeId.data,
+            body.action === 'retarget'
+              ? { expectedVersion: body.expectedVersion, integrationBranch: body.integrationBranch }
+              : { expectedVersion: body.expectedVersion },
+            body.action === 'update',
+          ),
+        ),
       );
-      return noStore(reply).send(removeWorktreeResponseSchema.parse(result));
     },
   );
 

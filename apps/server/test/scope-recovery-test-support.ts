@@ -247,7 +247,10 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
     const round = storedRoadmap(state).attempts.find((a) => a.recovery)!;
     const cycle = tx.execution.cycles.find(ws, round.cycleId)!;
     f.backend.sessions.at(-1)!.backgroundWorkPending = false;
-    expect((await branchCommand(state, `runs/${cycle.currentRunId}/end`, {})).statusCode).toBe(200);
+    expect(
+      (await branchCommand(state, `runs/${cycle.currentRunId}/control`, { action: 'end' }))
+        .statusCode,
+    ).toBe(200);
     await waitFor(
       () => tx.execution.runs.find(ws, cycle.currentRunId)?.status === 'finished',
       'repair session finished',

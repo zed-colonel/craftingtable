@@ -212,9 +212,9 @@ it('requires authentication, CSRF, and ownership of every workspace; rejects arb
     (
       await s.context.app.inject({
         method: 'POST',
-        url: `${s.url}/backup`,
+        url: `${s.url}/control`,
         headers: { cookie: s.headers.cookie },
-        payload: {},
+        payload: { action: 'backup' },
       })
     ).statusCode,
   ).toBe(403);
@@ -222,9 +222,9 @@ it('requires authentication, CSRF, and ownership of every workspace; rejects arb
     (
       await s.context.app.inject({
         method: 'POST',
-        url: `${s.url}/clean`,
+        url: `${s.url}/control`,
         headers: s.headers,
-        payload: { path: '/tmp' },
+        payload: { action: 'clean', path: '/tmp' },
       })
     ).statusCode,
   ).toBe(400);
@@ -727,9 +727,9 @@ it('serves validated storage status and a usable cleanup preview through the aut
   const s = await fixture();
   const response = await s.context.app.inject({
     method: 'POST',
-    url: `${s.url}/scan`,
+    url: `${s.url}/control`,
     headers: s.headers,
-    payload: {},
+    payload: { action: 'scan' },
   });
   expect(response.statusCode, response.body).toBe(200);
   expect(storageStatusSchema.parse(response.json()).scan?.cacheCount).toBe(0);

@@ -148,9 +148,9 @@ describe('offer only actions that can make progress (R-A7)', () => {
     const worktree = createWorktreeResponseSchema.parse(created.json()).worktree;
     const admitted = await f.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${f.workspaceId}/work-items/item-2/admit`,
+      url: `/api/workspaces/${f.workspaceId}/work-items/item-2/control`,
       headers: f.headers,
-      payload: {},
+      payload: { action: 'admit' },
     });
     expect(admitted.statusCode, admitted.body).toBe(200);
     const response = await f.context.app.inject({

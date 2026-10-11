@@ -104,7 +104,7 @@ describe('typed attention (R-A3)', () => {
     const roadmapId = '00000000-0000-4000-8000-000000000020';
     // A roadmap's cycles in a repository without adopted checks stop (R-G13 increment 4).
     declareFixtureChecks(f);
-    await post(f, `/worktrees/${f.worktreeId}/remove`, {});
+    await post(f, `/worktrees/${f.worktreeId}/control`, { action: 'remove' });
     await useStepModels(f);
     await post(f, `/roadmaps/${roadmapId}`, {
       expectedVersion: 0,

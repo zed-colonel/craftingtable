@@ -223,9 +223,9 @@ itNeedsCargo(
     await expect(service.decide(f.auth, ws, roadmapId, request)).rejects.toThrow(/Wait for/);
     const cancel = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${ws}/runs/${run.id}/cancel`,
+      url: `/api/workspaces/${ws}/runs/${run.id}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'cancel' },
     });
     expect(cancel.statusCode, cancel.body).toBe(200);
     await waitFor(

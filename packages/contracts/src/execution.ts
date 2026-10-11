@@ -485,8 +485,6 @@ export const agentRunCommandResponseSchema = z.strictObject({
   accepted: z.boolean(),
 });
 
-export const endAgentRunRequestSchema = z.strictObject({});
-export const cancelAgentRunRequestSchema = z.strictObject({});
 
 /** Everything the work-item page needs to show delegation state. */
 export const workItemExecutionResponseSchema = z.strictObject({
@@ -715,3 +713,22 @@ export type SavePlanBranchSettingsRequest = z.infer<typeof savePlanBranchSetting
 export type WorktreeBranchStatusResponse = z.infer<typeof worktreeBranchStatusResponseSchema>;
 
 export const recordIntegrationEvidenceRequestSchema = z.strictObject({ commitSha: gitShaSchema });
+
+/** A run's manual commands in one route (R-H5, H5-2): a message to it, its end or its cancellation. */
+export const agentRunControlRequestSchema = z.discriminatedUnion('action', [
+  sendAgentRunMessageRequestSchema.extend({ action: z.literal('message') }),
+  z.strictObject({ action: z.literal('end') }),
+  z.strictObject({ action: z.literal('cancel') }),
+]);
+export type AgentRunControlRequest = z.infer<typeof agentRunControlRequestSchema>;
+/**
+ * A worktree's manual commands in one route (R-H5, H5-2): retarget it to another integration
+ * branch, update it from its integration branch, or remove it. A merge is a decision and keeps
+ * its own route.
+ */
+export const worktreeControlRequestSchema = z.discriminatedUnion('action', [
+  retargetWorktreeRequestSchema.extend({ action: z.literal('retarget') }),
+  updateWorktreeRequestSchema.extend({ action: z.literal('update') }),
+  removeWorktreeRequestSchema.extend({ action: z.literal('remove') }),
+]);
+export type WorktreeControlRequest = z.infer<typeof worktreeControlRequestSchema>;

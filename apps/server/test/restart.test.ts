@@ -107,14 +107,14 @@ describe('daemon restart reconstruction', () => {
       .find((item) => item.sourceId === 'AQ-01');
     await first.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${workspaceId}/work-items/${aq01?.id}/admit`,
+      url: `/api/workspaces/${workspaceId}/work-items/${aq01?.id}/control`,
       headers: {
         cookie,
         origin: config.publicOrigin,
         [CSRF_HEADER_NAME]: csrfToken,
         'content-type': 'application/json',
       },
-      payload: {},
+      payload: { action: 'admit' },
     });
 
     const before = {

@@ -42,6 +42,21 @@ const MOVED: Readonly<Record<string, string>> = {
   [`GET ${W}/concurrency-imports`]: `GET ${W}/imports/concurrency-definitions`,
   [`POST ${W}/concurrency-imports`]: `POST ${W}/imports/concurrency-definitions`,
   [`GET ${W}/import-archives/:id`]: `GET ${W}/imports/archives/:id`,
+  // H5-2: commands with the same access and no authority of their own, folded into one union.
+  [`POST ${W}/runs/:runId/messages`]: `POST ${W}/runs/:runId/control`,
+  [`POST ${W}/runs/:runId/end`]: `POST ${W}/runs/:runId/control`,
+  [`POST ${W}/runs/:runId/cancel`]: `POST ${W}/runs/:runId/control`,
+  [`POST ${W}/worktrees/:worktreeId/retarget`]: `POST ${W}/worktrees/:worktreeId/control`,
+  [`POST ${W}/worktrees/:worktreeId/update`]: `POST ${W}/worktrees/:worktreeId/control`,
+  [`POST ${W}/worktrees/:worktreeId/remove`]: `POST ${W}/worktrees/:worktreeId/control`,
+  [`POST ${W}/work-items/:workItemId/admit`]: `POST ${W}/work-items/:workItemId/control`,
+  [`POST ${W}/work-items/:workItemId/remove-from-agenda`]: `POST ${W}/work-items/:workItemId/control`,
+  [`POST ${W}/work-items/:workItemId/complete`]: `POST ${W}/work-items/:workItemId/control`,
+  [`POST ${W}/storage/scan`]: `POST ${W}/storage/control`,
+  [`POST ${W}/storage/clean`]: `POST ${W}/storage/control`,
+  [`POST ${W}/storage/backup`]: `POST ${W}/storage/control`,
+  [`POST ${W}/cycles/:cycleId/investigation/end`]: `POST ${W}/cycles/:cycleId/investigation`,
+  [`POST ${W}/cycles/:cycleId/investigation/acknowledge-change`]: `POST ${W}/cycles/:cycleId/investigation`,
 };
 /** Routes R-H5 retired, each with the reason. */
 const RETIRED: Readonly<Record<string, string>> = {};

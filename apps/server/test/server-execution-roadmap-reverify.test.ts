@@ -155,9 +155,9 @@ itNeedsCargo(
     const oldB = attempt(B.id)!;
     const removed = await state.context.app.inject({
       method: 'POST',
-      url: `/api/workspaces/${ws}/worktrees/${oldB.worktreeId}/remove`,
+      url: `/api/workspaces/${ws}/worktrees/${oldB.worktreeId}/control`,
       headers: mutationHeaders(state),
-      payload: {},
+      payload: { action: 'remove' },
     });
     expect(removed.statusCode, removed.body).toBe(200);
     const manual = await scopeTree(f, B.executionScope!);
@@ -168,9 +168,9 @@ itNeedsCargo(
       (
         await state.context.app.inject({
           method: 'POST',
-          url: `/api/workspaces/${ws}/worktrees/${manual.id}/remove`,
+          url: `/api/workspaces/${ws}/worktrees/${manual.id}/control`,
           headers: mutationHeaders(state),
-          payload: {},
+          payload: { action: 'remove' },
         })
       ).statusCode,
     ).toBe(200);
@@ -243,9 +243,9 @@ itNeedsCargo(
       (
         await state.context.app.inject({
           method: 'POST',
-          url: `/api/workspaces/${ws}/worktrees/${queued.worktreeId}/remove`,
+          url: `/api/workspaces/${ws}/worktrees/${queued.worktreeId}/control`,
           headers: mutationHeaders(state),
-          payload: {},
+          payload: { action: 'remove' },
         })
       ).statusCode,
     ).toBe(200);

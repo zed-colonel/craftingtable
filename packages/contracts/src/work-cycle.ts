@@ -131,8 +131,6 @@ export type StartInvestigationRequest = z.infer<typeof startInvestigationRequest
 export const endInvestigationRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
 });
-/** Acknowledge that the worktree changed while the stop's investigation ran (R-C16). */
-export const acknowledgeInvestigationChangeRequestSchema = endInvestigationRequestSchema;
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const gitObjectSchema = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
 /** The worktree an investigation recorded at its start (R-C16). */
@@ -535,3 +533,13 @@ export type AuthorizeWorkCycleRemediationRequest = Extract<
   { action: 'authorize-remediation' }
 >;
 export type StartWorkCycleRequest = z.infer<typeof startWorkCycleRequestSchema>;
+
+/**
+ * A question stop's investigation in one route (R-H5, H5-2; R-C16): start it, end it, or
+ * acknowledge that the worktree changed while it ran.
+ */
+export const investigationRequestSchema = z.discriminatedUnion('action', [
+  startInvestigationRequestSchema.extend({ action: z.literal('start') }),
+  endInvestigationRequestSchema.extend({ action: z.literal('end') }),
+  endInvestigationRequestSchema.extend({ action: z.literal('acknowledge-change') }),
+]);

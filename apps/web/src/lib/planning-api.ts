@@ -85,12 +85,12 @@ export function removeFromAgenda(
   csrfToken: string,
 ) {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/remove-from-agenda`,
+    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/control`,
     removeFromAgendaResponseSchema,
     {
       method: 'POST',
       headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({ expectedVersion }),
+      body: JSON.stringify({ action: 'remove-from-agenda', expectedVersion }),
     },
   );
 }
@@ -101,12 +101,12 @@ export function admitWorkItem(
   csrfToken: string,
 ): Promise<AdmitWorkItemResponse> {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/admit`,
+    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/control`,
     admitWorkItemResponseSchema,
     {
       method: 'POST',
       headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ action: 'admit' }),
     },
   );
 }
@@ -183,12 +183,12 @@ export function completeWorkItem(
   csrfToken: string,
 ): Promise<CompleteWorkItemResponse> {
   return request(
-    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/complete`,
+    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/control`,
     completeWorkItemResponseSchema,
     {
       method: 'POST',
       headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ action: 'complete' }),
     },
   );
 }

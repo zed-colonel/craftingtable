@@ -48,9 +48,9 @@ export function changeWorktreeBranch(
   csrfToken: string,
 ) {
   return request(
-    `${treeUrl(workspaceId, worktreeId)}/${action}`,
+    `${treeUrl(workspaceId, worktreeId)}/control`,
     createWorktreeResponseSchema,
-    mutation(csrfToken, input),
+    mutation(csrfToken, { action, ...input }),
   );
 }
 

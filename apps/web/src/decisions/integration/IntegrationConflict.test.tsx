@@ -176,3 +176,9 @@ it('resumes an owned resolution from the agent it recorded, as the daemon ranks 
   expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('recorded-model');
   expect(screen.getByText(/Starts from the agent this resolution recorded/)).toBeTruthy();
 });
+
+it('starts a resolution it does not own from the daemon’s agent even when one was recorded (review N19)', () => {
+  openForm(resolving('detected', { backend: 'claude-code', model: 'recorded-model' }));
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('daemon-model');
+  expect(screen.queryByText(/Starts from the agent this resolution recorded/)).toBeNull();
+});

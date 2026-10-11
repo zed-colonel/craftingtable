@@ -528,3 +528,70 @@ it('keeps a roadmap it created when its agents are refused, and retries only the
   expect(saveCrossProject).toHaveBeenCalledTimes(1);
   expect(vi.mocked(applyRoadmapAgents).mock.calls[1]?.[1]).toBe('new-roadmap');
 });
+
+/** A saved map roadmap with an activity override for development entries. */
+function savedWithOverride() {
+  const roadmap = savedRoadmap();
+  const cp = roadmap.definition.crossProject!;
+  return {
+    ...roadmap,
+    definition: {
+      ...roadmap.definition,
+      crossProject: {
+        ...cp,
+        overrides: [{ level: 'activity', key: 'development', settings: cp.defaults }],
+      },
+    },
+  } as unknown as Roadmap;
+}
+/** Changes one settings level's design effort through its own agents group. */
+function changeLevel(group: HTMLElement, effort: string) {
+  fireEvent.click(within(group).getByRole('button', { name: 'Change agents' }));
+  fireEvent.change(
+    within(within(group).getByRole('group', { name: 'Design' })).getByLabelText('Reasoning effort'),
+    { target: { value: effort } },
+  );
+}
+
+it('does not send a level’s applied agents again after a later level is refused (review N08)', async () => {
+  const view = agentView(['defaults', { level: 'activity', key: 'development' }]);
+  vi.mocked(loadRoadmapAgents).mockResolvedValue(view);
+  vi.mocked(applyRoadmapAgents).mockImplementationOnce(
+    async (_ws, _id, _version, groups, _csrf, onApplied) => {
+      onApplied?.(groups[0]!, { ...view, version: 4 });
+      throw new Error('Refused.');
+    },
+  );
+  setup(savedWithOverride());
+  fireEvent.click(await screen.findByText('Queued settings and overrides'));
+  const defaults = await screen.findByRole('group', { name: 'Default agents' });
+  await waitFor(() =>
+    expect(within(defaults).getAllByText(/Roadmap assignment/).length).toBeGreaterThan(0),
+  );
+  changeLevel(defaults, 'high');
+  changeLevel(screen.getByRole('group', { name: 'Agents for this override' }), 'low');
+  const save = screen.getByRole('button', { name: 'Save queued roadmap settings' });
+  fireEvent.click(save);
+  await screen.findByText(/Refused\./);
+  vi.mocked(applyRoadmapAgents).mockResolvedValueOnce({ ...view, version: 5 });
+  fireEvent.click(save);
+  await waitFor(() => expect(applyRoadmapAgents).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(applyRoadmapAgents).mock.calls[1]?.[3].map((g) => g.entryIds)).toEqual([
+    [view.entries[1]!.id],
+  ]);
+  expect(saveCrossProject).not.toHaveBeenCalled();
+});
+
+it('shows a new, unsaved override the default agents it starts from (review N10)', async () => {
+  vi.mocked(loadRoadmapAgents).mockResolvedValue(agentView(['defaults', 'defaults']));
+  setup(savedRoadmap());
+  fireEvent.click(await screen.findByText('Queued settings and overrides'));
+  await screen.findByRole('group', { name: 'Default agents' });
+  fireEvent.change(screen.getByLabelText('Override level'), { target: { value: 'activity' } });
+  fireEvent.change(screen.getByLabelText('Override scope'), { target: { value: 'development' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add settings override' }));
+  expect(screen.getByText(/A new override starts from the default agents below/)).toBeTruthy();
+  const agents = screen.getByRole('group', { name: 'Agents for this override' });
+  expect(within(agents).getAllByText(/Roadmap assignment/).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/No entry takes these settings/)).toBeNull();
+});

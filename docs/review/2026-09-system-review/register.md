@@ -58,7 +58,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E2](#r-e2) | P2 | M | done (3feb310; increment 2 with R-A6 2026-09-30, accepted as built by operator decision the same day) | Split the Roadmaps mega-page |
 | [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | done (R-E3a 2026-09-27; R-E3b 2026-10-09, 341b803..3d5c2e4, independently reviewed) | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | done (2026-10-09, 4b47211..aae01e7, independently reviewed; not merged or deployed) | Work-item and run pages become drill-downs |
-| [R-E5](#r-e5) | P3 | M | partial (R-E5a done; R-E5b open) | Consolidate settings and agent selection |
+| [R-E5](#r-e5) | P3 | M | done (R-E5a 2026-10-07, R-E5b 2026-10-11) | Consolidate settings and agent selection |
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
@@ -2317,7 +2317,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E5
 
-**Consolidate settings and agent selection** · Phase P3 · Effort M · Status: partial (R-E5a reviewed and integrated on `remediation/p3` 2026-10-07; R-E5b in progress on `remediation/p3` from 2026-10-11)
+**Consolidate settings and agent selection** · Phase P3 · Effort M · Status: done (R-E5a reviewed and integrated on `remediation/p3` 2026-10-07; R-E5b on `remediation/p3` 2026-10-11, a85c8b5..: independently reviewed with one re-check, 0 open; gate and replays below)
 
 - **Resolves:** [UI-14](findings/UI-information-architecture.md#ui-14-settings-that-gate-progress-are-edited-in-many-places), [DATA-11](findings/DATA-storage-domain-contracts.md#data-11-agent-profile-and-selection-shapes-have-multiplied-and-are-stored-in-at-least-12-places)
 - **Change:** Settings sub-routes (general, agents, capacity, notifications, storage); per-roadmap overrides, reviewer responsibilities, integration policy and delegation in roadmap setup with effective values shown; per-action pickers show the effective selection with a "change for this action" disclosure; converge the seven near-identical profile types.
@@ -2414,6 +2414,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW-4:* the board's "Agents and permissions" link shows only on a map roadmap (a sequential roadmap's agents are in Edit queued entries on the same page); the sequential setup note links to the board; the stale "Roadmap agent profiles" copy in the map form and the model recommendations is rewritten; an old `/settings?roadmap=<id>#roadmap-agent-profiles` link opens that roadmap's setup at Automation and agents, and without a roadmap the Agents page. Test: `route.test.ts`.
   - *LOW-5, survivors:* now tested: a saved override keeps its own agents, matched by level and key (S14, S16); a saved specialist default reaches a new entry (S12); per-entry permissions in the setup view (S21); the latest finished implementer, not an earlier or unfinished one (S04, S05); the follow-ups receipt filter, now the pure `sliceVerification` (S23-S26, `services/slice-verification.test.ts`); `agentGroups` and version chaining (W03, W04); a removed entry's change dropped (W05); the conflict form (W13); a stage permission change counts as changed (W16); a design-question change dropped on switching action (W17). Not added: S08 (a run page's own run outside its work item's listing: only runs without a work item, which offer no hand-off) and S22 (the map binding's alias for an entry: the fixture maps have one repository; the lookup is the one `decisionSettings` already uses).
   - *LOW-6:* R-E5's status and R-H5's note are updated with this entry; later commits name R-E5's findings (UI-14, DATA-11) as rule 6 asks.
+  - *Re-check (2026-10-11, at f2d0c9e):* both MEDIUM and LOW-1 to LOW-5 closed (35 mutants: 30 caught, 4 survived, 1 equivalent: `sliceVerification`'s merge guard, since `integrationSha` is required); e2e and the rehearsal green. Still open then: LOW-6 (R-E5's status line and index row had not been updated; now "done") and a new LOW-7, four guards in the fix code no test pinned. Tests added for each, and each mutant re-run through the memory-capped runner and caught: N08 (the map form drops an applied level's change, so a retry does not send it again), N10 (an unsaved override shows the default agents it starts from), N14 (after a save and a partly refused change, the retry applies only the agents, at the version they left), N19 (a resolution the cycle does not own starts from the daemon's agent even with a recorded profile). Open: 0.
 
 ### R-E6
 

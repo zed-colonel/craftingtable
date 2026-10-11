@@ -360,3 +360,37 @@ it('shows a saved entry’s agents as loading, not as the workspace defaults, un
     (within(entry).getByRole('button', { name: 'Change agents' }) as HTMLButtonElement).disabled,
   ).toBe(true);
 });
+
+it('after a save and a partly refused agent change, retries only the agents at the version they left (review N14)', async () => {
+  vi.mocked(loadRoadmapAgents).mockResolvedValue(twoSaved);
+  const onSaved = vi.fn();
+  const view = {
+    roadmap: {
+      ...twoEntries,
+      version: 5,
+      definition: { ...twoEntries.definition, name: 'Renamed' },
+    },
+  } as unknown as RoadmapView;
+  vi.mocked(saveRoadmap).mockResolvedValue(view as never);
+  vi.mocked(applyRoadmapAgents).mockImplementationOnce(
+    async (_ws, _id, version, groups, _csrf, onApplied) => {
+      expect(version).toBe(5);
+      onApplied?.(groups[0]!, { ...twoSaved, version: 6 });
+      throw new Error('Refused.');
+    },
+  );
+  render(<Editor current={twoEntries} initial={draftOf(twoEntries)} onSaved={onSaved} />);
+  openEntries();
+  await changeEntry(0, 'sonnet');
+  await changeEntry(1, 'opus-next');
+  fireEvent.change(screen.getByLabelText('Roadmap name'), { target: { value: 'Renamed' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save roadmap' }));
+  await screen.findByRole('alert');
+  vi.mocked(applyRoadmapAgents).mockResolvedValueOnce({ ...twoSaved, version: 7 });
+  fireEvent.click(screen.getByRole('button', { name: 'Save roadmap' }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith(view, true));
+  expect(saveRoadmap).toHaveBeenCalledTimes(1);
+  const [, , version, groups] = vi.mocked(applyRoadmapAgents).mock.calls[1]!;
+  expect(version).toBe(6);
+  expect(groups.map((g) => g.entryIds)).toEqual([[second]]);
+});

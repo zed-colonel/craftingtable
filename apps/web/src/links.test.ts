@@ -39,7 +39,11 @@ function components(directory: string): string[] {
 }
 
 /** Helpers that build API downloads, not pages; any other call is treated as an in-app path. */
-const DOWNLOAD_HELPERS = new Set(['archiveDownloadPath', 'buildRecordDownload']);
+const DOWNLOAD_HELPERS = new Set([
+  'archiveDownloadPath',
+  'buildRecordDownload',
+  'toolResultAddress',
+]);
 
 /** Whether a string's start makes it a page inside the app. */
 const appPath = (text: string) => text.startsWith('/') && !text.startsWith('/api/');

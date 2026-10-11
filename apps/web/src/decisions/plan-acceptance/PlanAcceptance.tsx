@@ -1,8 +1,8 @@
-import { runtimeEvidenceViewSchema, type RuntimeEvidenceView } from '@craftingtable/contracts';
+import type { RuntimeEvidenceView } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
-import { request } from '../../lib/api-client.js';
+import { generatePlanEvidence } from '../../lib/runtime-evidence-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { EvidenceReview } from '../evidence/EvidenceReview.js';
@@ -22,11 +22,7 @@ function generatePlan(
     readonly snapshotDigest: string;
   },
 ) {
-  return request(`${base}/generate-plan`, runtimeEvidenceViewSchema, {
-    method: 'POST',
-    headers: { 'x-craftingtable-csrf': csrfToken },
-    body: JSON.stringify(input),
-  });
+  return generatePlanEvidence(base, input, csrfToken);
 }
 
 /**

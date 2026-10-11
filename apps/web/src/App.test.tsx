@@ -252,8 +252,19 @@ vi.mock('./lib/api-client.js', () => ({
       super(message);
     }
   },
+  request: () => Promise.reject(new Error('not used')),
+  setStepUpPrompt: vi.fn(),
+}));
+vi.mock('./lib/session-api.js', () => ({
   loadSession: () => Promise.resolve(SESSION),
   loadSessions: () => Promise.resolve({ sessions: [] }),
+  login: () => Promise.resolve(SESSION),
+  logout: () => Promise.resolve(),
+  revokeSession: () => Promise.resolve(false),
+  changePassword: () => new Promise(() => undefined),
+}));
+vi.mock('./lib/workspace-api.js', async (original) => ({
+  ...(await original<typeof import('./lib/workspace-api.js')>()),
   loadWorkspaces: () => Promise.resolve(workspaceList),
   loadWorkspaceSnapshot: (id: string) => {
     snapshotCalls.push(id);
@@ -275,14 +286,8 @@ vi.mock('./lib/api-client.js', () => ({
       ? Promise.resolve(id === 'workspace-a' ? AUDIT_A : { records: [] })
       : Promise.reject(new Error('not found'));
   },
-  login: () => Promise.resolve(SESSION),
-  logout: () => Promise.resolve(),
-  revokeSession: () => Promise.resolve(false),
   createWorkspace: () => new Promise(() => undefined),
   renameWorkspace: () => new Promise(() => undefined),
-  changePassword: () => new Promise(() => undefined),
-  request: () => Promise.reject(new Error('not used')),
-  setStepUpPrompt: vi.fn(),
 }));
 
 // A page that fails while the shell stays (R-D5 review): the import page, when told to.

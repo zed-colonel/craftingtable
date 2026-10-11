@@ -1,29 +1,6 @@
-import { executionScopeChoicesSchema } from '@craftingtable/contracts';
 import type { ExecutionScope, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { request } from '../../lib/api-client.js';
-
-/**
- * The early-development authorization command, `work-items/:id/scope-scheduling` (R-A6 rest,
- * A1): the operator authorizes a slice's imported early-development rule for its exact binding.
- * Private to this module.
- */
-function authorizeEarlyDevelopment(
-  workspaceId: WorkspaceId,
-  workItemId: WorkItemId,
-  scope: ExecutionScope,
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/work-items/${encodeURIComponent(workItemId)}/scope-scheduling`,
-    executionScopeChoicesSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({ scope }),
-    },
-  );
-}
+import { authorizeEarlyDevelopment } from '../../lib/execution-scope-api.js';
 
 /** Authorizes one slice's early-development rule; the parent's predecessor acceptance stays. */
 export function AuthorizeEarlyDevelopment({

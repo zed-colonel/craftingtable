@@ -6,7 +6,7 @@ import { distinct } from '../../lib/distinct.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { About } from '../../components/About.js';
-import { delegateScopeRepair, previewScopeRepair } from './scope-repair-api.js';
+import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
 
 /**
  * A scope review's source findings delegated to the slice that owns them (R-A6 increment 2a).

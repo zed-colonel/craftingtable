@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import type { WorkCycle } from '@craftingtable/domain';
 import { BaselinePreparation } from './BaselinePreparation.js';
-import { prepareBaseline, previewBaseline } from './design-api.js';
-vi.mock('./design-api.js', () => ({
+import { prepareBaseline, previewBaseline } from '../../lib/work-cycle-api.js';
+vi.mock('../../lib/work-cycle-api.js', () => ({
   prepareBaseline: vi.fn(),
   previewBaseline: vi.fn(),
   loadBaselineEvidence: vi.fn(),

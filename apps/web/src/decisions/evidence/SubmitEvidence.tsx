@@ -1,12 +1,11 @@
 import {
   evidenceSubmissionRequestSchema,
-  runtimeEvidenceViewSchema,
   type EvidenceSubmissionRequest,
   type RuntimeEvidenceView,
 } from '@craftingtable/contracts';
 import { useState } from 'react';
 import { About } from '../../components/About.js';
-import { request } from '../../lib/api-client.js';
+import { submitEvidence } from '../../lib/runtime-evidence-api.js';
 import { distinct } from '../../lib/distinct.js';
 
 /**
@@ -15,11 +14,7 @@ import { distinct } from '../../lib/distinct.js';
  * evidence decision (EvidenceDecision).
  */
 function submit(base: string, input: EvidenceSubmissionRequest, csrfToken: string) {
-  return request(`${base}/submit`, runtimeEvidenceViewSchema, {
-    method: 'POST',
-    headers: { 'x-craftingtable-csrf': csrfToken },
-    body: JSON.stringify(input),
-  });
+  return submitEvidence(base, input, csrfToken);
 }
 
 /**

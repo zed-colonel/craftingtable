@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import { checkpointRecoverySchema, type CheckpointRecovery } from '@craftingtable/contracts';
+import type { CheckpointRecovery } from '@craftingtable/contracts';
 import { EvidenceDecision } from '../evidence/EvidenceDecision.js';
-import { request } from '../../lib/api-client.js';
+import {
+  prepareCheckpoint,
+  readCheckpointRecovery,
+  runtimeAddress,
+} from '../../lib/runtime-evidence-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
@@ -29,7 +33,7 @@ export function CheckpointPreparation({
   onChanged: () => void;
 }) {
   const store = useQueryStore();
-  const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
+  const base = runtimeAddress(workspaceId, definitionId);
   const [view, setView] = useState<CheckpointRecovery>();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
@@ -44,18 +48,7 @@ export function CheckpointPreparation({
       setBusy(false);
     }
   };
-  const refresh = async () =>
-    setView(
-      await request(
-        `${base}/checkpoint-recovery/${encodeURIComponent(worktreeId)}`,
-        checkpointRecoverySchema,
-      ),
-    );
-  const post = (body: unknown) => ({
-    method: 'POST',
-    headers: { 'x-craftingtable-csrf': csrfToken },
-    body: JSON.stringify(body),
-  });
+  const refresh = async () => setView(await readCheckpointRecovery(base, worktreeId));
   return (
     <section aria-label="Checkpoint recovery" className="import-binding">
       <h4>Checkpoint acceptance before merge</h4>
@@ -185,14 +178,14 @@ export function CheckpointPreparation({
                 onClick={() =>
                   void act(async () => {
                     setView(
-                      await request(
-                        `${base}/prepare-checkpoint`,
-                        checkpointRecoverySchema,
-                        post({
+                      await prepareCheckpoint(
+                        base,
+                        {
                           worktreeId,
                           checkpointId: c.checkpointId,
                           snapshotDigest: c.snapshotDigest,
-                        }),
+                        },
+                        csrfToken,
                       ),
                     );
                     onChanged();

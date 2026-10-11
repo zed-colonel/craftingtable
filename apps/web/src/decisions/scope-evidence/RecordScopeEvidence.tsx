@@ -1,28 +1,7 @@
-import { recordScopeReceiptResponseSchema, type WorktreeSummary } from '@craftingtable/contracts';
+import type { WorktreeSummary } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { request } from '../../lib/api-client.js';
-
-/**
- * The scope evidence command, `worktrees/:id/scope-evidence` (R-A6 rest, A1): records a slice
- * verification or a parent acceptance from the reviewed worktree. Private to this module; it
- * resolves a `record-scope-evidence` stop. R-C7's D4 keeps it a decision of its own.
- */
-function recordScopeEvidence(
-  workspaceId: WorkspaceId,
-  worktree: Pick<WorktreeSummary, 'id' | 'version'>,
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/worktrees/${encodeURIComponent(worktree.id)}/scope-evidence`,
-    recordScopeReceiptResponseSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({ expectedWorktreeVersion: worktree.version }),
-    },
-  );
-}
+import { recordScopeEvidence } from '../../lib/execution-scope-api.js';
 
 /** Records the reviewed worktree's scope evidence: a slice verification or a parent acceptance. */
 export function RecordScopeEvidence({

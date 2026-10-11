@@ -18,6 +18,7 @@ export * from './persisted-records.js';
 export * from './planning.js';
 export * from './repository-checks.js';
 export * from './repository-policy.js';
+export * from './request-input.js';
 export * from './review.js';
 export * from './roadmap.js';
 export * from './roadmap-board.js';

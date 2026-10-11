@@ -14,7 +14,7 @@ import {
   acknowledgeWorktreeChange,
   endInvestigation,
   startInvestigation,
-} from './investigation-api.js';
+} from '../../lib/work-cycle-api.js';
 
 type Finding = NonNullable<NonNullable<Investigation['result']>['findings']>[number];
 

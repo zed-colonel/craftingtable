@@ -13,15 +13,19 @@ import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import {
   configureRuntimeSchema,
-  discoverRuntimeResponseSchema,
-  inspectDependencyResponseSchema,
-  runtimeEvidenceViewSchema,
   type ConfigureRuntime,
   type RuntimeEvidenceView,
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { revealElement } from '../../lib/reveal-element.js';
-import { request } from '../../lib/api-client.js';
+import {
+  buildRecordAddress,
+  configureRuntime,
+  discoverRuntime,
+  inspectDependency,
+  readRuntime,
+  runtimeAddress,
+} from '../../lib/runtime-evidence-api.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
 import { distinct } from '../../lib/distinct.js';
@@ -52,14 +56,13 @@ export function RuntimeEvidencePanel({
   onViewChange?: (roadmapId: string, view: RuntimeEvidenceView) => void;
   onDraftChange?: (roadmapId: string, dirty: boolean) => void;
 }) {
-  const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
+  const base = runtimeAddress(workspaceId, definitionId);
   /** A download from the API, not a page: a plain anchor (R-E1). */
-  const buildRecordDownload = (runId: string) =>
-    `${base}/runs/${encodeURIComponent(runId)}/build-record`;
+  const buildRecordDownload = (runId: string) => buildRecordAddress(base, runId);
   // The map's environment, shared with the setup-time decisions and re-read on its events (R-D4).
   const store = useQueryStore();
   const key = queryKeys.runtime(workspaceId, definitionId);
-  const runtime = useQuery(key, () => request(base, runtimeEvidenceViewSchema));
+  const runtime = useQuery(key, () => readRuntime(workspaceId, definitionId));
   const view = runtime.data;
   const [config, setConfig] = useState<ConfigureRuntime>(),
     [busy, setBusy] = useState(false),
@@ -138,12 +141,7 @@ export function RuntimeEvidencePanel({
     }
   };
   /** Saving the dependency environment: configuration, not a decision (R-A6). */
-  const configure = (body: ConfigureRuntime) =>
-    request(`${base}/configure`, runtimeEvidenceViewSchema, {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(body),
-    });
+  const configure = (body: ConfigureRuntime) => configureRuntime(base, body, csrfToken);
   const dependencyDirty =
     !!config &&
     (JSON.stringify(config) !== savedConfig ||
@@ -319,17 +317,17 @@ export function RuntimeEvidencePanel({
               className="secondary-button"
               onClick={() =>
                 void act(async () => {
-                  const result = await request(`${base}/discover`, discoverRuntimeResponseSchema, {
-                    method: 'POST',
-                    headers: { 'x-craftingtable-csrf': csrfToken },
-                    body: JSON.stringify({
+                  const result = await discoverRuntime(
+                    base,
+                    {
                       bindingRevision,
                       refs: view.repositories.flatMap((r) => {
                         const ref = refs[r.alias] ?? r.integrationBranch;
                         return ref ? [{ alias: r.alias, ref }] : [];
                       }),
-                    }),
-                  });
+                    },
+                    csrfToken,
+                  );
                   setConfig(result.configuration);
                   setNotice(result.notes.join(' '));
                 })
@@ -369,18 +367,14 @@ export function RuntimeEvidencePanel({
                   disabled={!repo.configured}
                   onClick={() =>
                     void act(async () => {
-                      const pin = await request(
-                        `${base}/inspect`,
-                        inspectDependencyResponseSchema,
+                      const pin = await inspectDependency(
+                        base,
                         {
-                          method: 'POST',
-                          headers: { 'x-craftingtable-csrf': csrfToken },
-                          body: JSON.stringify({
-                            bindingRevision,
-                            alias: repo.alias,
-                            ref: refs[repo.alias] ?? repo.integrationBranch ?? '',
-                          }),
+                          bindingRevision,
+                          alias: repo.alias,
+                          ref: refs[repo.alias] ?? repo.integrationBranch ?? '',
                         },
+                        csrfToken,
                       );
                       setConfig({
                         ...config,
@@ -734,7 +728,7 @@ export function RuntimeEvidencePanel({
         className="secondary-button"
         type="button"
         disabled={busy}
-        onClick={() => void act(async () => adopt(await request(base, runtimeEvidenceViewSchema)))}
+        onClick={() => void act(async () => adopt(await readRuntime(workspaceId, definitionId)))}
       >
         Refresh evidence
       </button>

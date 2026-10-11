@@ -8,7 +8,11 @@ import { loadFinalizations } from '../../lib/finalization-api.js';
 import { FinalizationDecision } from './FinalizationDecision.js';
 
 vi.mock('../../lib/execution-api.js', () => ({ loadExecutionStatus: vi.fn() }));
-vi.mock('../../lib/finalization-api.js', () => ({ loadFinalizations: vi.fn() }));
+// The promotion's own command is real, and sends through the mocked `request`.
+vi.mock('../../lib/finalization-api.js', async (actual) => ({
+  ...(await actual<typeof import('../../lib/finalization-api.js')>()),
+  loadFinalizations: vi.fn(),
+}));
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
   cleanup();

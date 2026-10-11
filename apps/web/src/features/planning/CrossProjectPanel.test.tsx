@@ -20,7 +20,8 @@ vi.mock('../../lib/roadmap-api.js', async (actual) => ({
   loadRoadmapAgents: vi.fn(),
   applyRoadmapAgents: vi.fn(),
 }));
-vi.mock('../../lib/cross-project-api.js', () => ({
+vi.mock('../../lib/cross-project-api.js', async (actual) => ({
+  ...(await actual<typeof import('../../lib/cross-project-api.js')>()),
   previewCrossProject: vi.fn(),
   saveCrossProject: vi.fn(),
 }));

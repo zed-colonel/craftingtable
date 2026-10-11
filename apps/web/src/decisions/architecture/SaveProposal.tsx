@@ -1,10 +1,6 @@
 import { useState } from 'react';
-import {
-  runtimeEvidenceViewSchema,
-  type ProposeArchitectureDecision,
-  type RuntimeEvidenceView,
-} from '@craftingtable/contracts';
-import { request } from '../../lib/api-client.js';
+import type { ProposeArchitectureDecision, RuntimeEvidenceView } from '@craftingtable/contracts';
+import { proposeDecision, runtimeAddress } from '../../lib/runtime-evidence-api.js';
 
 /**
  * The architecture decision proposal command, `runtime/propose-decision` (R-A6). Private to
@@ -17,15 +13,7 @@ function propose(
   csrfToken: string,
   input: ProposeArchitectureDecision,
 ) {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime/propose-decision`,
-    runtimeEvidenceViewSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(input),
-    },
-  );
+  return proposeDecision(runtimeAddress(workspaceId, definitionId), input, csrfToken);
 }
 
 /** Saves the host's drafted proposal for the operator's review. */

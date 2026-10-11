@@ -1,39 +1,14 @@
-import {
-  type MergeGate,
-  type MergeWorktreeRequest,
-  type MergeWorktreeResponse,
-  mergeWorktreeResponseSchema,
-  type RepositoryBranchesResponse,
-  type WorktreeSummary,
+import type {
+  MergeGate,
+  MergeWorktreeRequest,
+  RepositoryBranchesResponse,
+  WorktreeSummary,
 } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { request } from '../../lib/api-client.js';
+import { mergeWorktree } from '../../lib/execution-api.js';
 import { loadRepositoryBranches } from '../../lib/execution-api.js';
 import { CheckAdoptionReview } from './CheckAdoptionReview.js';
-
-const encode = encodeURIComponent;
-
-/**
- * The decision: merge a reviewed worktree into its integration target, or recover or clean
- * up a merge already made. The only poster of `worktrees/:id/merge` (R-A6).
- */
-function mergeWorktree(
-  workspaceId: WorkspaceId,
-  worktreeId: WorktreeId,
-  input: MergeWorktreeRequest,
-  csrfToken: string,
-): Promise<MergeWorktreeResponse> {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/merge`,
-    mergeWorktreeResponseSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(input),
-    },
-  );
-}
 
 /**
  * A slice's merge approval (R-A6 increment 2a): the target, and for a `check-adoption` gate

@@ -1,8 +1,7 @@
 import type { EvidenceSubmissionRecord, RuntimeEvidenceView } from '@craftingtable/contracts';
-import { evidenceSubmissionSchema } from '@craftingtable/contracts';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
-import { request } from '../../lib/api-client.js';
+import { readSubmission } from '../../lib/runtime-evidence-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import { planInputLabels } from '../plan-acceptance/plan-inputs.js';
@@ -50,7 +49,7 @@ export function EvidenceReview({
   const loadRecord = () => {
     if (record && record !== 'failed') return;
     setRecord('loading');
-    void request(`${base}/submissions/${encodeURIComponent(s.id)}`, evidenceSubmissionSchema)
+    void readSubmission(base, s.id)
       .then(setRecord)
       .catch(() => setRecord('failed'));
   };

@@ -1,28 +1,8 @@
 import {
   type ApiErrorResponse,
-  type AuthenticatedSessionResponse,
   apiErrorResponseSchema,
-  authenticatedSessionResponseSchema,
-  type ChangePasswordResponse,
-  type CreateWorkspaceResponse,
-  changePasswordResponseSchema,
-  createWorkspaceResponseSchema,
-  type LoginRequest,
-  logoutResponseSchema,
-  type RenameWorkspaceResponse,
-  renameWorkspaceResponseSchema,
-  revokeSessionResponseSchema,
-  type SessionListResponse,
-  sessionListResponseSchema,
   stepUpResponseSchema,
-  type WorkspaceAuditPageResponse,
-  type WorkspaceListResponse,
-  type WorkspaceSnapshotResponse,
-  workspaceAuditPageResponseSchema,
-  workspaceListResponseSchema,
-  workspaceSnapshotResponseSchema,
 } from '@craftingtable/contracts';
-import type { SessionId, WorkspaceId } from '@craftingtable/domain';
 
 interface ResponseSchema<T> {
   parse(value: unknown): T;
@@ -174,107 +154,4 @@ export function parseAnswer<T>(url: string, schema: ResponseSchema<T>, body: unk
       console.error(`The daemon's answer to ${url} does not match its contract.`, error);
     throw error;
   }
-}
-
-export async function loadSession(): Promise<AuthenticatedSessionResponse | undefined> {
-  try {
-    return await request('/api/auth/session', authenticatedSessionResponseSchema);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      return undefined;
-    }
-    throw error;
-  }
-}
-
-export function login(input: LoginRequest): Promise<AuthenticatedSessionResponse> {
-  forgetValidators();
-  return request('/api/auth/login', authenticatedSessionResponseSchema, {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-}
-
-export function loadSessions(): Promise<SessionListResponse> {
-  return request('/api/auth/sessions', sessionListResponseSchema);
-}
-
-export async function logout(csrfToken: string): Promise<void> {
-  try {
-    await request('/api/auth/logout', logoutResponseSchema, {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({}),
-    });
-  } finally {
-    forgetValidators();
-  }
-}
-
-export async function revokeSession(sessionId: SessionId, csrfToken: string): Promise<boolean> {
-  const response = await request(
-    `/api/auth/sessions/${encodeURIComponent(sessionId)}/revoke`,
-    revokeSessionResponseSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({}),
-    },
-  );
-  return response.currentSessionRevoked;
-}
-
-export function loadWorkspaces(): Promise<WorkspaceListResponse> {
-  return request('/api/workspaces', workspaceListResponseSchema);
-}
-
-export function createWorkspace(name: string, csrfToken: string): Promise<CreateWorkspaceResponse> {
-  return request('/api/workspaces', createWorkspaceResponseSchema, {
-    method: 'POST',
-    headers: { 'x-craftingtable-csrf': csrfToken },
-    body: JSON.stringify({ name }),
-  });
-}
-
-export function renameWorkspace(
-  workspaceId: WorkspaceId,
-  name: string,
-  csrfToken: string,
-): Promise<RenameWorkspaceResponse> {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/rename`,
-    renameWorkspaceResponseSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({ name }),
-    },
-  );
-}
-
-export function changePassword(
-  input: { currentPassword: string; newPassword: string },
-  csrfToken: string,
-): Promise<ChangePasswordResponse> {
-  return request('/api/auth/password', changePasswordResponseSchema, {
-    method: 'POST',
-    headers: { 'x-craftingtable-csrf': csrfToken },
-    body: JSON.stringify(input),
-  });
-}
-
-export function loadWorkspaceSnapshot(
-  workspaceId: WorkspaceId,
-): Promise<WorkspaceSnapshotResponse> {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/snapshot`,
-    workspaceSnapshotResponseSchema,
-  );
-}
-
-export function loadWorkspaceAudit(workspaceId: WorkspaceId): Promise<WorkspaceAuditPageResponse> {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/audit?limit=25`,
-    workspaceAuditPageResponseSchema,
-  );
 }

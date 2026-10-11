@@ -1,7 +1,6 @@
-import {
-  type ExecutionStatusResponse,
-  type IntegrationResolutionRequest,
-  workCycleResponseSchema,
+import type {
+  ExecutionStatusResponse,
+  IntegrationResolutionRequest,
 } from '@craftingtable/contracts';
 import {
   type AgentRunId,
@@ -13,7 +12,7 @@ import {
 import { useState } from 'react';
 import { About } from '../../components/About.js';
 import { HandoffForm } from '../../features/execution/HandoffForm.js';
-import { request } from '../../lib/api-client.js';
+import { resolveIntegration } from '../../lib/work-cycle-api.js';
 
 /** Stops an integration update leaves for the operator (R-A3 codes). */
 const INTEGRATION_STOPS: readonly string[] = [
@@ -21,28 +20,6 @@ const INTEGRATION_STOPS: readonly string[] = [
   'integration-update-failed',
   'integration-refresh-limit',
 ];
-
-const encode = encodeURIComponent;
-
-/**
- * The decision on a detected integration conflict: inspect, delegate a resolution, resume one,
- * or abandon it. The only poster of `cycles/:id/integration-resolution` (R-A6).
- */
-function resolveIntegration(
-  cycle: WorkCycle,
-  input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/integration-resolution`,
-    workCycleResponseSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({ ...input, expectedVersion: cycle.version }),
-    },
-  );
-}
 
 /**
  * A cycle's integration conflict (R-A6 increment 2a). It renders in the cycle's inbox item, on

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { runtimeEvidenceViewSchema, type RuntimeEvidenceView } from '@craftingtable/contracts';
+import type { RuntimeEvidenceView } from '@craftingtable/contracts';
 import { ActionBar } from '../../components/ActionBar.js';
-import { request } from '../../lib/api-client.js';
+import { decideEvidence, runtimeAddress } from '../../lib/runtime-evidence-api.js';
 
 type Outcome = 'accepted' | 'rejected';
 
@@ -21,15 +21,7 @@ function decide(
     readonly checkpointReviewRoles?: readonly string[];
   },
 ) {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime/decide`,
-    runtimeEvidenceViewSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(input),
-    },
-  );
+  return decideEvidence(runtimeAddress(workspaceId, definitionId), input, csrfToken);
 }
 
 /**

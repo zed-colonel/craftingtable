@@ -11,9 +11,8 @@ import {
   remediationUsed,
 } from '@craftingtable/domain';
 import { useState } from 'react';
-import { finalizationViewSchema } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
-import { request } from '../../lib/api-client.js';
+import { decideFinalizationStep as decide } from '../../lib/finalization-api.js';
 import { About } from '../../components/About.js';
 import { FinalizationCheckpoint } from './FinalizationCheckpoint.js';
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
@@ -24,28 +23,6 @@ type Props = {
   backends: ExecutionStatusResponse['backends'];
   onDecide: (input: ControlFinalizationRequest) => void;
 };
-
-const encode = encodeURIComponent;
-/**
- * A staged finalization's decision (R-A6 increment 2b): the only poster of its stage, plan
- * adjustment, findings, attempts and resume decisions on `finalizations/:id/control`.
- */
-function decide(
-  workspaceId: WorkspaceId,
-  finalizationId: string,
-  input: ControlFinalizationRequest,
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/finalizations/${encode(finalizationId)}/control`,
-    finalizationViewSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(input),
-    },
-  );
-}
 
 /**
  * The next step of a staged finalization (R-A6 increment 2b): the stage's batch or the plan

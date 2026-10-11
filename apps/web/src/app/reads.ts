@@ -6,12 +6,8 @@ import type {
   WorkspaceId,
 } from '@craftingtable/domain';
 import { loadAttention } from '../lib/attention-api.js';
-import {
-  loadSessions,
-  loadWorkspaceAudit,
-  loadWorkspaceSnapshot,
-  loadWorkspaces,
-} from '../lib/api-client.js';
+import { loadSessions } from '../lib/session-api.js';
+import { loadWorkspaceAudit, loadWorkspaceSnapshot, loadWorkspaces } from '../lib/workspace-api.js';
 import { queryKeys } from '../lib/event-invalidations.js';
 import {
   loadExecutionStatus,

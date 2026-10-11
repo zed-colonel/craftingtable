@@ -1,9 +1,9 @@
-import { type RoadmapCapacities, roadmapCapacitiesSchema } from '@craftingtable/contracts';
+import type { RoadmapCapacities } from '@craftingtable/contracts';
 import { useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
-import { request } from '../../lib/api-client.js';
+import { loadRoadmapCapacities, saveRoadmapCapacity } from '../../lib/roadmap-api.js';
 import { Link } from '../../lib/navigation.js';
 import type { WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import { useRouteRoadmap } from '../../lib/navigation.js';
@@ -33,10 +33,9 @@ export function RoadmapCapacityPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
   useEffect(() => {
     let alive = true;
-    void request(`${base}/capacities`, roadmapCapacitiesSchema)
+    void loadRoadmapCapacities(workspaceId)
       .then((result) => {
         if (alive) setData(result);
       })
@@ -46,7 +45,7 @@ export function RoadmapCapacityPanel({
     return () => {
       alive = false;
     };
-  }, [base]);
+  }, [workspaceId]);
   const roadmap = data?.roadmaps.find((r) => r.id === selected) ?? data?.roadmaps[0];
   const act = async (save: boolean) => {
     if (save && (!roadmap || !draft || draft.roadmapId !== roadmap.id)) return;
@@ -54,21 +53,19 @@ export function RoadmapCapacityPanel({
     setError('');
     setNotice('');
     try {
-      const result = await request(
-        save && roadmap ? `${base}/${roadmap.id}/capacity` : `${base}/capacities`,
-        roadmapCapacitiesSchema,
-        save && draft
-          ? {
-              method: 'POST',
-              headers: { 'x-craftingtable-csrf': csrfToken },
-              body: JSON.stringify({
+      const result =
+        save && roadmap && draft
+          ? await saveRoadmapCapacity(
+              workspaceId,
+              roadmap.id,
+              {
                 expectedVersion: draft.expectedVersion,
                 maxInFlight: Number(draft.maxInFlight),
                 maxPerRepository: Number(draft.maxPerRepository),
-              }),
-            }
-          : undefined,
-      );
+              },
+              csrfToken,
+            )
+          : await loadRoadmapCapacities(workspaceId);
       setData(result);
       if (save) setDraft(undefined);
       setNotice(

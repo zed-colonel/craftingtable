@@ -4,7 +4,8 @@ import { HostSchedulingPanel } from '../../features/workspace/HostSchedulingPane
 import { NotificationPanel } from '../../features/workspace/NotificationPanel.js';
 import { SettingsPage } from '../../features/workspace/SettingsPage.js';
 import { StoragePanel } from '../../features/workspace/StoragePanel.js';
-import { ApiError, renameWorkspace } from '../../lib/api-client.js';
+import { ApiError } from '../../lib/api-client.js';
+import { renameWorkspace } from '../../lib/workspace-api.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { saveRunProfiles } from '../../lib/execution-api.js';
 import { useQueryStore } from '../../lib/query-store.js';

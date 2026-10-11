@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { runtimeEvidenceViewSchema, type RuntimeEvidenceView } from '@craftingtable/contracts';
-import { request } from '../../lib/api-client.js';
+import type { RuntimeEvidenceView } from '@craftingtable/contracts';
+import { declareTransitions } from '../../lib/runtime-evidence-api.js';
 import { About } from '../../components/About.js';
 
 /** When each consumer→upstream link moves to the current pin, and approval of undeclared ones (ADR-069). */
@@ -37,15 +37,15 @@ export function UpstreamTransitions({
     setBusy(true);
     setError('');
     try {
-      const v = await request(`${base}/declare-transitions`, runtimeEvidenceViewSchema, {
-        method: 'POST',
-        headers: { 'x-craftingtable-csrf': csrfToken },
-        body: JSON.stringify({
+      const v = await declareTransitions(
+        base,
+        {
           expectedRecordIds: transitions.records.map((r) => r.id),
           transitions: selected,
           rationale,
-        }),
-      });
+        },
+        csrfToken,
+      );
       onSaved(v);
       setChosen({});
       setRationale('');

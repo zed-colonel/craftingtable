@@ -34,6 +34,7 @@ import {
   VERDICT_ACCENTS,
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
+import { toolResultAddress } from '../../lib/execution-api.js';
 import { Link } from '../../lib/navigation.js';
 import type { Route } from '../../lib/route.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
@@ -88,7 +89,7 @@ function FullOutput({ event }: { event: RunEventEnvelope }) {
   return (
     <a
       className="run-event-full-output"
-      href={`/api/workspaces/${event.workspaceId}/runs/${event.runId}/tool-results/${digest}`}
+      href={toolResultAddress(event.workspaceId, event.runId, digest)}
       target="_blank"
       rel="noopener noreferrer"
     >

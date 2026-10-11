@@ -1,15 +1,17 @@
-import {
-  type CheckDeclarationPreview,
-  type CheckDefinitionDiagnosisView,
-  checkDeclarationPreviewSchema,
-  type RepositoryChecksView,
-  repositoryChecksViewSchema,
-  type SourceRepositorySummary,
+import type {
+  CheckDeclarationPreview,
+  CheckDefinitionDiagnosisView,
+  RepositoryChecksView,
+  SourceRepositorySummary,
 } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { request } from '../../lib/api-client.js';
-import { loadCheckDefinitions, loadRepositoryChecks } from '../../lib/execution-api.js';
+import {
+  adoptChecks,
+  loadCheckDefinitions,
+  loadRepositoryChecks,
+  previewChecks,
+} from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
 import { lineDiff } from '../../lib/line-diff.js';
 import {
@@ -18,43 +20,6 @@ import {
   visible,
   visibleDefinition,
 } from '../../lib/visible-text.js';
-
-const encode = encodeURIComponent;
-const mutation = (csrfToken: string, body: unknown): RequestInit => ({
-  method: 'POST',
-  headers: { 'x-craftingtable-csrf': csrfToken },
-  body: JSON.stringify(body),
-});
-const checksUrl = (workspaceId: WorkspaceId, repositoryId: string) =>
-  `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks`;
-
-/** What adopting the repository's checks file at `ref` would record; it changes nothing. */
-function previewChecks(
-  workspaceId: WorkspaceId,
-  repositoryId: string,
-  ref: string,
-  csrfToken: string,
-): Promise<CheckDeclarationPreview> {
-  return request(
-    `${checksUrl(workspaceId, repositoryId)}/preview`,
-    checkDeclarationPreviewSchema,
-    mutation(csrfToken, { ref }),
-  );
-}
-
-/** The decision: adopt the checks file at the commit the operator reviewed (R-G13). */
-function adoptChecks(
-  workspaceId: WorkspaceId,
-  repositoryId: string,
-  input: { ref: string; expectedCommit: string; rationale: string },
-  csrfToken: string,
-): Promise<RepositoryChecksView> {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks/adopt`,
-    repositoryChecksViewSchema,
-    mutation(csrfToken, input),
-  );
-}
 
 /**
  * Reviews a repository's checks file at a branch or commit the daemon reads, then adopts it

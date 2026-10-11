@@ -10,10 +10,10 @@ import {
 } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { previewDesignRecovery, recoverDesign } from './design-api.js';
+import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
 import { DesignQuestions } from './DesignQuestions.js';
 
-vi.mock('./design-api.js', () => ({
+vi.mock('../../lib/work-cycle-api.js', () => ({
   previewDesignRecovery: vi.fn(),
   recoverDesign: vi.fn(),
 }));

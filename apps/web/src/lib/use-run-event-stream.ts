@@ -7,6 +7,7 @@ import {
 } from '@craftingtable/contracts';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect } from 'react';
+import { runEventsAddress } from './execution-api.js';
 
 export interface RunEventCallbacks {
   readonly onOpen: () => void;
@@ -32,9 +33,7 @@ export function useRunEventStream(
     if (workspaceId === undefined || runId === undefined) {
       return;
     }
-    const source = new EventSource(
-      `/api/workspaces/${encodeURIComponent(workspaceId)}/runs/${encodeURIComponent(runId)}/events?after=${after}`,
-    );
+    const source = new EventSource(runEventsAddress(workspaceId, runId, after));
     source.onopen = callbacks.onOpen;
     source.onerror = () => callbacks.onError(source.readyState === EventSource.CLOSED);
     source.addEventListener(SSE_RUN_EVENT_NAME, (message: MessageEvent<string>) => {

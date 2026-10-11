@@ -68,14 +68,17 @@ vi.mock('../lib/use-run-event-stream.js', () => ({
     stream.handlers.add(callbacks.onEvent);
   },
 }));
-vi.mock('../lib/api-client.js', async (original) => ({
-  ...(await original<typeof import('../lib/api-client.js')>()),
+vi.mock('../lib/workspace-api.js', async (original) => ({
+  ...(await original<typeof import('../lib/workspace-api.js')>()),
   renameWorkspace: vi.fn(async () => undefined),
   createWorkspace: vi.fn(async () => ({ workspace: { id: 'ws-new' } })),
+  loadWorkspaces: vi.fn(async () => ({ workspaces: [] })),
+}));
+vi.mock('../lib/session-api.js', async (original) => ({
+  ...(await original<typeof import('../lib/session-api.js')>()),
   revokeSession: vi.fn(async () => false),
   changePassword: vi.fn(async () => ({ revokedSessionCount: 0 })),
   loadSessions: vi.fn(async () => ({ sessions: [] })),
-  loadWorkspaces: vi.fn(async () => ({ workspaces: [] })),
 }));
 vi.mock('../lib/execution-api.js', async (original) => ({
   ...(await original<typeof import('../lib/execution-api.js')>()),

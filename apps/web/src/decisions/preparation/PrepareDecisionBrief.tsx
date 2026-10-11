@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  decisionPreparationSettingsSchema,
-  roadmapViewSchema,
-  type DecisionPreparationGrantRequest,
-  type DecisionPreparationSettings,
+import type {
+  DecisionPreparationGrantRequest,
+  DecisionPreparationSettings,
 } from '@craftingtable/contracts';
 import {
   AGENT_BACKEND_LABELS,
@@ -17,26 +15,13 @@ import { About } from '../../components/About.js';
 import { EffectiveAgentText } from '../../features/execution/EffectiveAgentText.js';
 import { ModelField } from '../../features/execution/ModelField.js';
 import { ReasoningEffortField } from '../../features/execution/ReasoningEffortField.js';
-import { request } from '../../lib/api-client.js';
+import {
+  loadDecisionPreparations as loadSettings,
+  prepareDecision,
+  saveDecisionPreparationGrant,
+} from '../../lib/roadmap-api.js';
 import { Link } from '../../lib/navigation.js';
 
-/**
- * The decision-preparation commands (R-A6): starting a brief for one decision
- * (`roadmaps/:id/prepare-decision`) and the roadmap's standing grant
- * (`roadmaps/:id/decision-preparation-grant`). Private to this module.
- */
-const roadmapBase = (workspaceId: string, roadmapId: string) =>
-  `/api/workspaces/${encodeURIComponent(workspaceId)}/roadmaps/${encodeURIComponent(roadmapId)}`;
-const mutation = (csrfToken: string, body: unknown): RequestInit => ({
-  method: 'POST',
-  headers: { 'x-craftingtable-csrf': csrfToken },
-  body: JSON.stringify(body),
-});
-const loadSettings = (workspaceId: string, roadmapId: string) =>
-  request(
-    `${roadmapBase(workspaceId, roadmapId)}/decision-preparations`,
-    decisionPreparationSettingsSchema,
-  );
 /** Preparation proposes only, so it may run beside the roadmap (R-C3b, ADR-065). */
 const PREPARING_STATUSES: readonly string[] = ['draft', 'paused', 'needs-attention', 'running'];
 const LIVE = ['preparing', 'starting', 'running', 'waiting'];
@@ -97,16 +82,17 @@ export function PrepareDecisionBrief({
     setMessage('');
     try {
       const now = await loadSettings(workspaceId, roadmapId);
-      await request(
-        `${roadmapBase(workspaceId, roadmapId)}/prepare-decision`,
-        roadmapViewSchema,
-        mutation(csrfToken, {
+      await prepareDecision(
+        workspaceId,
+        roadmapId,
+        {
           expectedVersion: now.version,
           checkpointId,
           profile: agent,
           minutes,
           instructions,
-        }),
+        },
+        csrfToken,
       );
       setMessage(
         'Preparation started. Its recommendation appears with the decision when it finishes; no decision is approved automatically.',
@@ -265,11 +251,7 @@ export function StandingPreparation({
     setBusy(true);
     setMessage('');
     try {
-      await request(
-        `${roadmapBase(roadmap.workspaceId, roadmap.id)}/decision-preparation-grant`,
-        roadmapViewSchema,
-        mutation(csrfToken, grant),
-      );
+      await saveDecisionPreparationGrant(roadmap.workspaceId, roadmap.id, grant, csrfToken);
       onSaved?.();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Could not save standing preparation.');

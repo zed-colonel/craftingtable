@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { workCycleResponseSchema } from '@craftingtable/contracts';
 import {
   type CycleAction,
   type CycleProjection,
@@ -7,7 +6,7 @@ import {
   remediationAllowance,
   type WorkCycle,
 } from '@craftingtable/domain';
-import { request } from '../../lib/api-client.js';
+import { controlCycle } from '../../lib/work-cycle-api.js';
 import { CycleGuidanceRecovery } from './CycleGuidanceRecovery.js';
 import {
   type CycleRemediationGrant,
@@ -27,15 +26,7 @@ type ControlBody =
  * stopped cycle, the manual pause, resume and stop, and a service retry are all posted here.
  */
 function control(cycle: WorkCycle, csrfToken: string, body: ControlBody) {
-  return request(
-    `/api/workspaces/${encodeURIComponent(cycle.workspaceId)}/cycles/${encodeURIComponent(cycle.id)}/control`,
-    workCycleResponseSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({ ...body, expectedVersion: cycle.version }),
-    },
-  );
+  return controlCycle(cycle, { ...body, expectedVersion: cycle.version }, csrfToken);
 }
 
 function useCommand(onChanged: () => void) {

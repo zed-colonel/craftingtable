@@ -42,6 +42,11 @@ import {
   workItemViewSchema,
   workspaceRunsResponseSchema,
   worktreeDiffResponseSchema,
+  type MergeWorktreeRequest,
+  type MergeWorktreeResponse,
+  mergeWorktreeResponseSchema,
+  type CheckDeclarationPreview,
+  checkDeclarationPreviewSchema,
 } from '@craftingtable/contracts';
 import type {
   AgentRunId,
@@ -299,4 +304,63 @@ export function loadRepositoryChecks(
     `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks`,
     repositoryChecksViewSchema,
   );
+}
+
+/** `decisions/merge/MergeApproval`: a reviewed worktree's merge (R-A6). */
+export function mergeWorktree(
+  workspaceId: WorkspaceId,
+  worktreeId: WorktreeId,
+  input: MergeWorktreeRequest,
+  csrfToken: string,
+): Promise<MergeWorktreeResponse> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/merge`,
+    mergeWorktreeResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': csrfToken },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+const checksUrl = (workspaceId: WorkspaceId, repositoryId: string) =>
+  `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/checks`;
+/** What adopting the repository's checks file at `ref` would record; it changes nothing. */
+export function previewChecks(
+  workspaceId: WorkspaceId,
+  repositoryId: string,
+  ref: string,
+  csrfToken: string,
+): Promise<CheckDeclarationPreview> {
+  return request(`${checksUrl(workspaceId, repositoryId)}/preview`, checkDeclarationPreviewSchema, {
+    method: 'POST',
+    headers: { 'x-craftingtable-csrf': csrfToken },
+    body: JSON.stringify({ ref }),
+  });
+}
+/**
+ * `decisions/checks/CheckAdoption#AdoptChecks`: adopt the checks file at the commit the operator
+ * reviewed (R-G13, R-A6).
+ */
+export function adoptChecks(
+  workspaceId: WorkspaceId,
+  repositoryId: string,
+  input: { ref: string; expectedCommit: string; rationale: string },
+  csrfToken: string,
+): Promise<RepositoryChecksView> {
+  return request(`${checksUrl(workspaceId, repositoryId)}/adopt`, repositoryChecksViewSchema, {
+    method: 'POST',
+    headers: { 'x-craftingtable-csrf': csrfToken },
+    body: JSON.stringify(input),
+  });
+}
+
+/** A run's event stream, read with an `EventSource` from the given sequence. */
+export function runEventsAddress(workspaceId: WorkspaceId, runId: AgentRunId, after: number) {
+  return `/api/workspaces/${encode(workspaceId)}/runs/${encode(runId)}/events?after=${after}`;
+}
+/** A tool result's full body, opened from a link (R-H2). */
+export function toolResultAddress(workspaceId: string, runId: string, digest: string) {
+  return `/api/workspaces/${workspaceId}/runs/${runId}/tool-results/${digest}`;
 }

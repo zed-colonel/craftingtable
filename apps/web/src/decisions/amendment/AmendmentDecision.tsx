@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
-import {
-  amendmentImpactSchema,
-  mapAmendmentsViewSchema,
-  crossProjectFinalizationSchema,
-  type AmendmentImpact,
-  type MapAmendmentsView,
-  type CrossProjectFinalizationView,
+import type {
+  AmendmentImpact,
+  MapAmendmentsView,
+  CrossProjectFinalizationView,
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
@@ -15,7 +12,14 @@ import {
   type MapSelection,
   type WorkspaceId,
 } from '@craftingtable/domain';
-import { request } from '../../lib/api-client.js';
+import {
+  decideAmendment,
+  loadAmendments,
+  loadFinalizationReadiness,
+  previewAmendment,
+  proposeAmendment,
+  roadmapAddress,
+} from '../../lib/roadmap-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 export function AmendmentDecision({
@@ -29,7 +33,7 @@ export function AmendmentDecision({
   csrfToken: string;
   canMutate: boolean;
 }) {
-  const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/roadmaps/${encodeURIComponent(roadmap.id)}`;
+  const base = roadmapAddress(workspaceId, roadmap.id);
   const [view, setView] = useState<MapAmendmentsView>(),
     [readiness, setReadiness] = useState<CrossProjectFinalizationView>(),
     [candidate, setCandidate] = useState<MapSelection>(() => {
@@ -52,10 +56,7 @@ export function AmendmentDecision({
   const refreshSequence = useRef(0);
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
-    const [v, f] = await Promise.all([
-      request(`${base}/amendments`, mapAmendmentsViewSchema),
-      request(`${base}/finalization-readiness`, crossProjectFinalizationSchema),
-    ]);
+    const [v, f] = await Promise.all([loadAmendments(base), loadFinalizationReadiness(base)]);
     if (sequence !== refreshSequence.current) return;
     setView(v);
     setReadiness(f);
@@ -67,11 +68,6 @@ export function AmendmentDecision({
       setError(e instanceof Error ? e.message : 'Could not load amendments.'),
     );
   }, [refresh, roadmap.version]);
-  const post = (body: unknown) => ({
-    method: 'POST',
-    headers: { 'x-craftingtable-csrf': csrfToken },
-    body: JSON.stringify(body),
-  });
   const act = async (work: () => Promise<void>) => {
     refreshSequence.current++;
     setBusy(true);
@@ -101,16 +97,16 @@ export function AmendmentDecision({
   const decide = (outcome: 'apply' | 'reject') =>
     void act(async () => {
       if (!pending || !impact) return;
-      const next = await request(
-        `${base}/amendments/decision`,
-        mapAmendmentsViewSchema,
-        post({
+      const next = await decideAmendment(
+        base,
+        {
           amendmentId: pending.id,
           outcome,
           impactDigest: impact.digest,
           rationale,
           reuseIntegrationIds: outcome === 'apply' ? reuse : [],
-        }),
+        },
+        csrfToken,
       );
       setView(next);
       if (outcome === 'apply') {
@@ -239,15 +235,7 @@ export function AmendmentDecision({
               className="secondary-button"
               type="button"
               onClick={() =>
-                void act(async () =>
-                  setImpact(
-                    await request(
-                      `${base}/amendments/preview`,
-                      amendmentImpactSchema,
-                      post(candidate),
-                    ),
-                  ),
-                )
+                void act(async () => setImpact(await previewAmendment(base, candidate, csrfToken)))
               }
             >
               Preview amendment impact
@@ -258,15 +246,15 @@ export function AmendmentDecision({
               disabled={!impact || !summary.trim()}
               onClick={() =>
                 void act(async () => {
-                  const next = await request(
-                    `${base}/amendments`,
-                    mapAmendmentsViewSchema,
-                    post({
+                  const next = await proposeAmendment(
+                    base,
+                    {
                       expectedVersion: roadmap.version,
                       candidate,
                       summary,
                       ...(sourceRunId.trim() ? { sourceRunId: sourceRunId.trim() } : {}),
-                    }),
+                    },
+                    csrfToken,
                   );
                   setView(next);
                   setImpact(next.pendingImpact);

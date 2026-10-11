@@ -1,6 +1,7 @@
 import { asWorkspaceId } from '@craftingtable/domain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { forgetValidators, login, logout, request, setStepUpPrompt } from './api-client.js';
+import { forgetValidators, request, setStepUpPrompt } from './api-client.js';
+import { login, logout } from './session-api.js';
 import { importConcurrencyZip } from './package-import-api.js';
 import { importPlanBundle } from './planning-api.js';
 

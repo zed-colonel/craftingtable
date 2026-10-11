@@ -17,7 +17,7 @@ import { WorkspaceView } from './app/WorkspaceView.js';
 import { LoginPage } from './components/LoginPage.js';
 import { StepUpDialog } from './components/StepUpDialog.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
-import { loadSession, login, logout } from './lib/api-client.js';
+import { loadSession, login, logout } from './lib/session-api.js';
 import { type AuthenticationStatus, authenticationMessage } from './lib/auth-state.js';
 import {
   GIT_DERIVED_FAMILIES,

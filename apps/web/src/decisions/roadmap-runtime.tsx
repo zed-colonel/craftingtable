@@ -1,8 +1,8 @@
-import { runtimeEvidenceViewSchema, type RuntimeEvidenceView } from '@craftingtable/contracts';
+import type { RuntimeEvidenceView } from '@craftingtable/contracts';
 import type { Roadmap, WorkspaceId } from '@craftingtable/domain';
 import { type ReactNode, useState } from 'react';
 import { ActionBar } from '../components/ActionBar.js';
-import { request } from '../lib/api-client.js';
+import { readRuntime, runtimeAddress } from '../lib/runtime-evidence-api.js';
 import { Link } from '../lib/navigation.js';
 import { queryKeys } from '../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../lib/query-store.js';
@@ -39,10 +39,6 @@ export function runtimeScope(
     : undefined;
 }
 
-/** The API base of a map's dependency environment and its decisions. */
-export const runtimeBase = (workspaceId: WorkspaceId, definitionId: string) =>
-  `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
-
 /** A roadmap by id, from the workspace's roadmaps, which the store re-reads on their events. */
 function useRoadmap(workspaceId: WorkspaceId, roadmapId: string) {
   const query = useQuery(queryKeys.roadmaps(workspaceId), () => loadRoadmaps(workspaceId));
@@ -62,9 +58,9 @@ function useRoadmap(workspaceId: WorkspaceId, roadmapId: string) {
 /** A map's dependency environment view, shared with its setup step and re-read on its events. */
 function useMapRuntime(workspaceId: WorkspaceId, definitionId: string | undefined) {
   const store = useQueryStore();
-  const base = definitionId ? runtimeBase(workspaceId, definitionId) : undefined;
+  const base = definitionId ? runtimeAddress(workspaceId, definitionId) : undefined;
   const key = definitionId ? queryKeys.runtime(workspaceId, definitionId) : undefined;
-  const runtime = useQuery(key, () => request(base!, runtimeEvidenceViewSchema));
+  const runtime = useQuery(key, () => readRuntime(workspaceId, definitionId!));
   const error =
     runtime.error === undefined
       ? ''

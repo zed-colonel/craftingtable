@@ -1,9 +1,9 @@
-import { type HostSchedulingStatus, hostSchedulingSchema } from '@craftingtable/contracts';
+import type { HostSchedulingStatus } from '@craftingtable/contracts';
 import { useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
-import { request } from '../../lib/api-client.js';
+import { loadHostScheduling, saveHostScheduling } from '../../lib/workspace-api.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { RoadmapCapacityPanel } from './RoadmapCapacityPanel.js';
 import { Link } from '../../lib/navigation.js';
@@ -43,11 +43,10 @@ export function HostSchedulingPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/host-scheduling`;
   useEffect(() => {
     if (!canManageHost) return;
     let alive = true;
-    void request(url, hostSchedulingSchema)
+    void loadHostScheduling(workspaceId)
       .then((value) => {
         if (alive) setStatus(value);
       })
@@ -58,7 +57,7 @@ export function HostSchedulingPanel({
     return () => {
       alive = false;
     };
-  }, [url, canManageHost]);
+  }, [workspaceId, canManageHost]);
   // An older link names this section `host-scheduling`; the app reveals `execution-capacity`.
   const focus = useRouteFocus();
   const revealed = useRef(false);
@@ -74,22 +73,19 @@ export function HostSchedulingPanel({
     setError(undefined);
     setNotice(undefined);
     try {
-      const value = await request(
-        url,
-        hostSchedulingSchema,
+      const value =
         save && draft
-          ? {
-              method: 'POST',
-              headers: { 'x-craftingtable-csrf': csrfToken },
-              body: JSON.stringify({
+          ? await saveHostScheduling(
+              workspaceId,
+              {
                 expectedVersion: draft.version,
                 expectedDevelopmentVersion: draft.developmentVersion,
                 developmentCapacity: Number(draft.development),
                 verificationCapacity: Number(draft.verification),
-              }),
-            }
-          : undefined,
-      );
+              },
+              csrfToken,
+            )
+          : await loadHostScheduling(workspaceId);
       setStatus(value);
       // Keep both values and their original versions until an explicit save/cancel.
       if (save) setDraft(undefined);

@@ -1,33 +1,6 @@
-import { adoptMapResponseSchema } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { request } from '../../lib/api-client.js';
-
-/**
- * The map adoption command, `concurrency-definitions/:id/supervision/adopt` (R-A6 rest, A1):
- * the operator approves a map's scheduling proposals for one exact binding. Private to this
- * module.
- */
-function adoptMap(
-  workspaceId: WorkspaceId,
-  definitionId: string,
-  input: {
-    readonly bindingRevision: number;
-    readonly decisionIds: readonly string[];
-    readonly rationale: string;
-  },
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/supervision/adopt`,
-    adoptMapResponseSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(input),
-    },
-  );
-}
+import { adoptMap } from '../../lib/cross-project-api.js';
 
 /**
  * Adopts every listed scheduling proposal of a map for its exact binding, with the operator's

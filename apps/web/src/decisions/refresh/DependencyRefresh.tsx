@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react';
-import {
-  runtimeEvidenceViewSchema,
-  runtimeRefreshPreviewSchema,
-  type RuntimeEvidenceView,
-  type RuntimeRefreshPreview,
-} from '@craftingtable/contracts';
+import type { RuntimeEvidenceView, RuntimeRefreshPreview } from '@craftingtable/contracts';
 import { ActionBar } from '../../components/ActionBar.js';
-import { request } from '../../lib/api-client.js';
+import { applyRefresh, previewRefresh } from '../../lib/runtime-evidence-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
 
@@ -83,14 +78,14 @@ export function DependencyRefresh({
           void act(async () => {
             setConfirmed(false);
             setPreview(
-              await request(`${base}/preview-refresh`, runtimeRefreshPreviewSchema, {
-                method: 'POST',
-                headers: { 'x-craftingtable-csrf': csrfToken },
-                body: JSON.stringify({
+              await previewRefresh(
+                base,
+                {
                   bindingRevision: view.bindingRevision,
                   expectedGeneration: current.generation,
-                }),
-              }),
+                },
+                csrfToken,
+              ),
             );
           })
         }
@@ -201,16 +196,16 @@ export function DependencyRefresh({
               }
               onClick={() =>
                 void act(async () => {
-                  const result = await request(`${base}/refresh`, runtimeEvidenceViewSchema, {
-                    method: 'POST',
-                    headers: { 'x-craftingtable-csrf': csrfToken },
-                    body: JSON.stringify({
+                  const result = await applyRefresh(
+                    base,
+                    {
                       bindingRevision: preview.bindingRevision,
                       expectedGeneration: preview.expectedGeneration,
                       snapshotDigest: preview.snapshotDigest,
                       rationale: rationale.trim(),
-                    }),
-                  });
+                    },
+                    csrfToken,
+                  );
                   onSaved(result);
                   setPreview(undefined);
                   setConfirmed(false);

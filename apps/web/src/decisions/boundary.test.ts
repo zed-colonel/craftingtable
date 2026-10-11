@@ -199,8 +199,8 @@ const SHARED: readonly {
  */
 const DYNAMIC_TAILS: readonly string[] = [
   // Reads of one record by id.
-  'decisions/checkpoint/CheckpointPreparation.tsx: /api/workspaces/*/concurrency-definitions/*/runtime/checkpoint-recovery/*',
-  'decisions/evidence/EvidenceReview.tsx: */submissions/*',
+  'lib/runtime-evidence-api.ts: */checkpoint-recovery/*',
+  'lib/runtime-evidence-api.ts: */submissions/*',
   'lib/execution-api.ts: /api/workspaces/*/runs/*',
   'lib/package-import-api.ts: /api/workspaces/*/concurrency-definitions/*',
   'lib/planning-api.ts: /api/workspaces/*/plan-artifacts/*',
@@ -857,6 +857,146 @@ describe('each decision command is posted from exactly one component', () => {
   });
 });
 
+/**
+ * The daemon's routes as its generated inventory lists them (`docs/api-routes.md`, R-H5): each
+ * route's method, path under `/api/` and tag. The decision commands above are the routes it tags
+ * `decision`, so a route the daemon calls a decision cannot go unowned here (H5-4).
+ */
+export function inventoryRoutes(
+  markdown: string,
+): readonly { method: string; path: string; tag: string }[] {
+  return markdown
+    .split('\n')
+    .filter((line) => /^\| (GET|POST) \| `/.test(line))
+    .map((line) => {
+      const cells = line.split('|').map((cell) => cell.trim());
+      return { method: cells[1]!, path: cells[2]!.replaceAll('`', ''), tag: cells[4]! };
+    });
+}
+const INVENTORY = inventoryRoutes(
+  readFileSync(fileURLToPath(new URL('../../../../docs/api-routes.md', import.meta.url)), 'utf8'),
+);
+/** A route's path as a URL the detector folds: each parameter a `*`. */
+const asUrl = (path: string) => `/api/${path.replace(/:[A-Za-z]+/g, '*')}`;
+
+describe('the decision commands are the routes the daemon tags decision (R-H5, H5-4)', () => {
+  const covering = [...COMMANDS.map((c) => c.route), ...SHARED.map((s) => s.route)];
+  const decisions = INVENTORY.filter((route) => route.tag === 'decision');
+
+  it('reads the inventory', () => {
+    expect(INVENTORY.length).toBeGreaterThan(100);
+    expect(decisions.length).toBeGreaterThan(20);
+  });
+
+  it('names one owner for each route tagged decision', () => {
+    expect(
+      decisions
+        .filter((route) => covering.filter((c) => c.test(asUrl(route.path))).length !== 1)
+        .map((route) => route.path),
+    ).toEqual([]);
+  });
+
+  it('lists no command the daemon does not tag decision', () => {
+    expect(
+      covering.filter((c) => !decisions.some((route) => c.test(asUrl(route.path)))).map(String),
+    ).toEqual([]);
+    expect(
+      INVENTORY.filter((route) => route.method === 'POST' && route.tag !== 'decision')
+        .filter((route) => covering.some((c) => c.test(asUrl(route.path))))
+        .map((route) => route.path),
+    ).toEqual([]);
+  });
+});
+
+/** Where a request may be built and sent (R-H5): a `lib/*-api.ts` module, or the transport. */
+const API_MODULE = /^lib\/[a-z][a-z-]*-api\.ts$/;
+const TRANSPORT = 'lib/api-client.ts';
+
+/**
+ * The string and template literals a module writes itself, a template's substitutions as `*`
+ * (an address a lib helper builds for it is not one of them).
+ */
+function ownLiterals(module: Module): string[] {
+  const { program } = parseSync(module.path, module.source) as unknown as { program: Node };
+  const found: string[] = [];
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    if (!isNode(node)) return;
+    if (node.type === 'Literal' && typeof node.value === 'string') found.push(node.value);
+    if (node.type === 'TemplateLiteral')
+      found.push(
+        (node.quasis as Node[])
+          .map((q) => (q.value as { cooked?: string; raw: string }).cooked ?? '')
+          .join('*'),
+      );
+    for (const [key, value] of Object.entries(node))
+      if (key !== 'type' && key !== 'start' && key !== 'end') visit(value);
+  };
+  visit(program);
+  return found;
+}
+
+/** Every request sent, and every API address written, outside the API modules. */
+export function requestsOutsideApiModules(all: ReadonlyMap<string, Module>): string[] {
+  const api = (text: string) => /(^|[^a-z])\/api(\/|$)/.test(text);
+  return [...all.values()]
+    .filter((module) => !API_MODULE.test(module.path))
+    .flatMap((module) =>
+      module.path === TRANSPORT
+        ? // The transport sends what its callers built, and writes only its own step-up.
+          ownLiterals(module)
+            .filter((text) => api(text) && text !== '/api/auth/step-up')
+            .map((text) => `${module.path}: builds ${text}`)
+        : [
+            ...module.calls.map((call) => `${module.path}: sends ${call.url ?? '<not a text>'}`),
+            ...ownLiterals(module)
+              .filter(api)
+              .map((text) => `${module.path}: builds ${text}`),
+          ],
+    );
+}
+
+/**
+ * Every request the browser sends is built and sent in a `lib/*-api.ts` module (R-H5): a page,
+ * panel or decision component calls a named function there and never writes an API address or
+ * calls `request` or `fetch` itself. The decision commands' functions live there too, each
+ * reached from its one owner (the poster rules above follow imports).
+ */
+describe('every request goes through a lib/*-api.ts module (R-H5)', () => {
+  it('finds no request or API address anywhere else', () => {
+    expect(requestsOutsideApiModules(modules)).toEqual([]);
+  });
+
+  it('reports a planted request and a planted address outside them', () => {
+    const plant = (files: Record<string, string>) =>
+      analyseAll(new Map(Object.entries(files).map(([path, source]) => [join(src, path), source])));
+    const planted = plant({
+      'features/Planted.tsx':
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+        "import { request } from '../lib/api-client.js';\nexport function Planted() { return request(`/api/workspaces/${id}/runs`); }",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+      'features/Link.tsx': 'export function Link() { return `/api/workspaces/${id}/runs/${run}`; }',
+      'features/Linked.tsx':
+        "import { runs } from '../lib/runs-api.js';\nexport function Linked() { return runs('w'); }",
+      'lib/runs-api.ts':
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+        "import { request } from './api-client.js';\nexport const runs = (id: string) => request(`/api/workspaces/${id}/runs`);",
+      'lib/route.ts': "export const page = '/workspaces/api/settings';",
+      'lib/api-client.ts':
+        "export async function request(url: string) { await fetch('/api/auth/step-up'); return fetch(url); }\nexport const me = () => request('/api/auth/session');",
+    });
+    expect(requestsOutsideApiModules(planted).sort()).toEqual([
+      'features/Link.tsx: builds /api/workspaces/*/runs/*',
+      'features/Planted.tsx: builds /api/workspaces/*/runs',
+      'features/Planted.tsx: sends /api/workspaces/*/runs',
+      'lib/api-client.ts: builds /api/auth/session',
+    ]);
+  });
+});
+
 /** Whether a component's own source builds an action's name as a text (R-A6 review M2). */
 function names(all: ReadonlyMap<string, Module>, poster: string, action: string): boolean {
   const [path, name] = poster.split('#') as [string, string];
@@ -1150,44 +1290,25 @@ describe('the poster detector', () => {
 });
 
 /**
- * A kind's commands file (`decisions/<kind>/*-api.ts`) is private to its module: nothing outside
- * the kind's directory imports it, so no other component can post its command (R-A6 review).
+ * Every API module lives in `lib/` (R-H5): a decision kind's commands are functions there that
+ * only the kind's component imports (the poster rules above follow imports), so no `*-api.ts`
+ * module sits beside a component. Before R-H5 a kind's commands file was private to its
+ * directory (R-A6 review); the rules above now hold that boundary wherever the file is.
  */
-function privateImports(path: string, source = readFileSync(path, 'utf8')): string[] {
-  const decisions = join(src, 'decisions') + sep;
-  const imports = [...source.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]!);
-  return imports
-    .filter((spec) => spec.startsWith('.'))
-    .map((spec) => join(path, '..', spec))
-    .filter((target) => target.startsWith(decisions) && /-api\.js$/.test(target))
-    .filter((target) => !path.startsWith(join(target, '..') + sep))
-    .map((target) => `${relative(src, path)} -> ${relative(src, target)}`);
+function apiModulesOutsideLib(paths: readonly string[]): string[] {
+  return paths
+    .map((path) => posix(relative(src, path)))
+    .filter((path) => /-api\.tsx?$/.test(path) && !API_MODULE.test(path));
 }
 
-it('imports a decision kind’s commands only from inside its own directory', () => {
-  expect(files(src).flatMap((path) => privateImports(path))).toEqual([]);
-});
-
-/**
- * The import detector itself (TS-M11): with it disabled, the test above passes over a clean
- * tree, so this one plants a component outside the kind's directory that imports and re-exports
- * the kind's commands, next to the kind's own panel, which may.
- */
-it('reports a planted import of a kind’s commands from outside its directory', () => {
-  const planted = [
-    "import { recoverDesign } from '../decisions/design/design-api.js';",
-    "export { delegateScopeRepair } from '../decisions/scope-repair/scope-repair-api.js';",
-  ].join('\n');
-  expect(privateImports(join(src, 'components', 'planted.tsx'), planted)).toEqual([
-    `${join('components', 'planted.tsx')} -> ${join('decisions', 'design', 'design-api.js')}`,
-    `${join('components', 'planted.tsx')} -> ${join('decisions', 'scope-repair', 'scope-repair-api.js')}`,
-  ]);
+it('keeps every API module in lib (R-H5)', () => {
+  expect(apiModulesOutsideLib(files(src))).toEqual([]);
   expect(
-    privateImports(
-      join(src, 'decisions', 'design', 'planted.tsx'),
-      "import { recoverDesign } from './design-api.js';",
-    ),
-  ).toEqual([]);
+    apiModulesOutsideLib([
+      join(src, 'decisions', 'design', 'design-api.ts'),
+      join(src, 'lib', 'work-cycle-api.ts'),
+    ]),
+  ).toEqual(['decisions/design/design-api.ts']);
 });
 
 /**

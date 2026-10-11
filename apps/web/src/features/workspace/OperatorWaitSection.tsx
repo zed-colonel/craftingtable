@@ -1,11 +1,8 @@
-import {
-  type OperatorWaitReportResponse,
-  operatorWaitReportSchema,
-} from '@craftingtable/contracts';
+import type { OperatorWaitReportResponse } from '@craftingtable/contracts';
 import { useEffect, useRef, useState } from 'react';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
-import { request } from '../../lib/api-client.js';
+import { loadOperatorWait } from '../../lib/workspace-api.js';
 
 /** Display text for a stop kind; the code itself is what the daemon routes on. */
 function kindLabel(kind: string): string {
@@ -50,10 +47,7 @@ export function OperatorWaitSection({
     void refreshKey;
     void returns;
     let alive = true;
-    void request(
-      `/api/workspaces/${encodeURIComponent(workspaceId)}/operator-wait?days=7`,
-      operatorWaitReportSchema,
-    )
+    void loadOperatorWait(workspaceId, 7)
       .then((value) => {
         if (!alive) return;
         setReport(value);

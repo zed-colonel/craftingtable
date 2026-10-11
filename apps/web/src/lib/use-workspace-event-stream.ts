@@ -7,6 +7,7 @@ import {
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useEffect } from 'react';
+import { workspaceEventsAddress } from './workspace-api.js';
 
 export interface WorkspaceEventCallbacks {
   readonly onOpen: () => void;
@@ -25,9 +26,7 @@ export function useWorkspaceEventStream(
     if (workspaceId === undefined) {
       return;
     }
-    const source = new EventSource(
-      `/api/workspaces/${encodeURIComponent(workspaceId)}/events?after=${after}`,
-    );
+    const source = new EventSource(workspaceEventsAddress(workspaceId, after));
     source.onopen = callbacks.onOpen;
     source.onerror = () => callbacks.onError(source.readyState === EventSource.CLOSED);
     source.addEventListener(SSE_WORKSPACE_EVENT_NAME, (message: MessageEvent<string>) => {

@@ -1,11 +1,7 @@
 import { useState } from 'react';
-import {
-  nativeAuditSchema,
-  runtimeEvidenceViewSchema,
-  type RuntimeEvidenceView,
-} from '@craftingtable/contracts';
+import type { RuntimeEvidenceView } from '@craftingtable/contracts';
 import type { NativeAudit } from '@craftingtable/contracts';
-import { request } from '../../lib/api-client.js';
+import { auditNative, authorizeNative } from '../../lib/runtime-evidence-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
 export function EnvironmentApproval({
@@ -42,18 +38,18 @@ export function EnvironmentApproval({
     }
   };
   const save = async (approved: boolean) => {
-    const v = await request(`${base}/authorize-native`, runtimeEvidenceViewSchema, {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({
+    const v = await authorizeNative(
+      base,
+      {
         bindingRevision: view.bindingRevision,
         runtimeId: view.current?.id,
         expectedApprovalId: native.approval?.id ?? null,
         approved,
         auditDigest: audit?.auditDigest ?? native.approval?.auditDigest,
         rationale,
-      }),
-    });
+      },
+      csrfToken,
+    );
     onSaved(v);
     setConfirmed(false);
   };
@@ -113,13 +109,7 @@ export function EnvironmentApproval({
         disabled={!canMutate || busy}
         onClick={() =>
           void act(async () => {
-            setAudit(
-              await request(`${base}/audit-native`, nativeAuditSchema, {
-                method: 'POST',
-                headers: { 'x-craftingtable-csrf': csrfToken },
-                body: '{}',
-              }),
-            );
+            setAudit(await auditNative(base, csrfToken));
             setConfirmed(false);
           })
         }

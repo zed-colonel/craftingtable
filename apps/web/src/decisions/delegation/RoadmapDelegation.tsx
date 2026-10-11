@@ -1,17 +1,13 @@
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { useState } from 'react';
-import {
-  roadmapViewSchema,
-  type CrossProjectView,
-  type ExecutionStatusResponse,
-} from '@craftingtable/contracts';
+import type { CrossProjectView, ExecutionStatusResponse } from '@craftingtable/contracts';
 import {
   DEFAULT_ROADMAP_AUTOMATION,
   type Roadmap,
   type RoadmapAutomation,
 } from '@craftingtable/domain';
-import { request } from '../../lib/api-client.js';
+import { applyDelegation } from '../../lib/roadmap-api.js';
 import { RoadmapAutomationFields } from '../../features/planning/RoadmapAutomationFields.js';
 import { ReviewerResponsibilities } from '../../features/planning/ReviewerResponsibilities.js';
 
@@ -63,20 +59,16 @@ export function RoadmapDelegation({
     setBusy(true);
     setMessage('');
     try {
-      await request(
-        `/api/workspaces/${roadmap.workspaceId}/roadmaps/${roadmap.id}/delegation`,
-        roadmapViewSchema,
+      await applyDelegation(
+        roadmap,
         {
-          method: 'POST',
-          headers: { 'x-craftingtable-csrf': csrfToken },
-          body: JSON.stringify({
-            expectedVersion: roadmap.version,
-            entryIds: ids,
-            automation,
-            reviewerRoles: roles,
-            rationale: reason,
-          }),
+          expectedVersion: roadmap.version,
+          entryIds: ids,
+          automation,
+          reviewerRoles: roles,
+          rationale: reason,
         },
+        csrfToken,
       );
       setApproved(false);
       setMessage(

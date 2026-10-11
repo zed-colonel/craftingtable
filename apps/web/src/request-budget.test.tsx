@@ -160,10 +160,13 @@ const PLAN_SETTINGS = {
 };
 const never = () => new Promise<never>(() => undefined);
 
-vi.mock('./lib/api-client.js', async (original) => ({
-  ...(await original<typeof import('./lib/api-client.js')>()),
+vi.mock('./lib/session-api.js', async (original) => ({
+  ...(await original<typeof import('./lib/session-api.js')>()),
   loadSession: count('session', async () => SESSION),
   loadSessions: count('sessions', async () => ({ sessions: [] })),
+}));
+vi.mock('./lib/workspace-api.js', async (original) => ({
+  ...(await original<typeof import('./lib/workspace-api.js')>()),
   loadWorkspaces: count('workspaces', async () => WORKSPACES),
   loadWorkspaceSnapshot: count('snapshot', async () => SNAPSHOT),
   loadWorkspaceAudit: count('audit', async () => ({ records: [] })),

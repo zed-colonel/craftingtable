@@ -1,5 +1,18 @@
 import {
+  amendmentImpactSchema,
+  type applyRoadmapDelegationSchema,
   type ApplyRoadmapAgents,
+  type decisionPreparationGrantRequestSchema,
+  decisionPreparationSettingsSchema,
+  type prepareRoadmapDecisionSchema,
+  roadmapCapacitiesSchema,
+  type saveRoadmapCapacitySchema,
+  crossProjectFinalizationSchema,
+  type decideMapAmendmentSchema,
+  mapAmendmentsViewSchema,
+  type mapSelectionSchema,
+  type proposeMapAmendmentSchema,
+  type RequestInput,
   type RoadmapAgentSettings,
   roadmapAgentSettingsSchema,
   roadmapGraphSchema,
@@ -15,8 +28,7 @@ import {
 } from '@craftingtable/contracts';
 import type { Roadmap, WorkspaceId } from '@craftingtable/domain';
 import { request } from './api-client.js';
-const base = (workspaceId: WorkspaceId) =>
-  `/api/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
+const base = (workspaceId: string) => `/api/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
 const mutation = (csrfToken: string, body: unknown) => ({
   method: 'POST',
   headers: { 'x-craftingtable-csrf': csrfToken },
@@ -127,4 +139,88 @@ export const controlRoadmap = (
       expectedVersion: roadmap.version,
       ...(entryId ? { entryId } : {}),
     }),
+  );
+
+/** A roadmap's address, which its amendment commands and reads extend. */
+export const roadmapAddress = (workspaceId: string, roadmapId: string) =>
+  `${base(workspaceId)}/${encodeURIComponent(roadmapId)}`;
+/** A map roadmap's final promotion readiness (R-A6: shown beside its amendments). */
+export const loadFinalizationReadiness = (address: string) =>
+  request(`${address}/finalization-readiness`, crossProjectFinalizationSchema);
+
+// `decisions/amendment/AmendmentDecision`, a map roadmap's planning amendments (R-A6): their
+// history, an amendment's impact preview, its proposal and the decision on it.
+export const loadAmendments = (address: string) =>
+  request(`${address}/amendments`, mapAmendmentsViewSchema);
+export const previewAmendment = (
+  address: string,
+  input: RequestInput<typeof mapSelectionSchema>,
+  csrfToken: string,
+) => request(`${address}/amendments/preview`, amendmentImpactSchema, mutation(csrfToken, input));
+export const proposeAmendment = (
+  address: string,
+  input: RequestInput<typeof proposeMapAmendmentSchema>,
+  csrfToken: string,
+) => request(`${address}/amendments`, mapAmendmentsViewSchema, mutation(csrfToken, input));
+export const decideAmendment = (
+  address: string,
+  input: RequestInput<typeof decideMapAmendmentSchema>,
+  csrfToken: string,
+) => request(`${address}/amendments/decision`, mapAmendmentsViewSchema, mutation(csrfToken, input));
+
+/** Each roadmap's admission limits, for Settings' capacity page. */
+export const loadRoadmapCapacities = (workspaceId: string) =>
+  request(`${base(workspaceId)}/capacities`, roadmapCapacitiesSchema);
+export const saveRoadmapCapacity = (
+  workspaceId: string,
+  roadmapId: string,
+  input: RequestInput<typeof saveRoadmapCapacitySchema>,
+  csrfToken: string,
+) =>
+  request(
+    `${roadmapAddress(workspaceId, roadmapId)}/capacity`,
+    roadmapCapacitiesSchema,
+    mutation(csrfToken, input),
+  );
+
+/** A roadmap's decision-preparation settings: its version, decisions' agents and preparations. */
+export const loadDecisionPreparations = (workspaceId: string, roadmapId: string) =>
+  request(
+    `${roadmapAddress(workspaceId, roadmapId)}/decision-preparations`,
+    decisionPreparationSettingsSchema,
+  );
+/** `decisions/preparation/PrepareDecisionBrief`: an agent-prepared brief for one decision. */
+export const prepareDecision = (
+  workspaceId: string,
+  roadmapId: string,
+  input: RequestInput<typeof prepareRoadmapDecisionSchema>,
+  csrfToken: string,
+) =>
+  request(
+    `${roadmapAddress(workspaceId, roadmapId)}/prepare-decision`,
+    roadmapViewSchema,
+    mutation(csrfToken, input),
+  );
+/** `decisions/preparation/PrepareDecisionBrief#StandingPreparation`: the standing grant. */
+export const saveDecisionPreparationGrant = (
+  workspaceId: string,
+  roadmapId: string,
+  input: RequestInput<typeof decisionPreparationGrantRequestSchema>,
+  csrfToken: string,
+) =>
+  request(
+    `${roadmapAddress(workspaceId, roadmapId)}/decision-preparation-grant`,
+    roadmapViewSchema,
+    mutation(csrfToken, input),
+  );
+/** `decisions/delegation/RoadmapDelegation`: delegation of the chosen entries. */
+export const applyDelegation = (
+  roadmap: Roadmap,
+  input: RequestInput<typeof applyRoadmapDelegationSchema>,
+  csrfToken: string,
+) =>
+  request(
+    `${roadmapAddress(roadmap.workspaceId, roadmap.id)}/delegation`,
+    roadmapViewSchema,
+    mutation(csrfToken, input),
   );

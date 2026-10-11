@@ -90,3 +90,30 @@ it('says which agent a finalization step runs now and what it overrides', () => 
     'Runs now: Claude Code · opus · Finalization recovery agent 2 (over Claude Code · sonnet, finalization stage 2)',
   );
 });
+
+it('offers simplification and polish the optional-findings choice, absent unless follow-up (R-C7 D6)', () => {
+  const onChange = vi.fn();
+  const stages = defaultFinalizationStages(
+    { ...review.selection, permissionMode: 'edit-only' },
+    { ...implement.selection, permissionMode: 'auto' },
+  );
+  render(
+    <FinalizationStageSetup
+      stages={stages}
+      onChange={onChange}
+      backends={backends}
+      disabled={false}
+    />,
+  );
+  const choices = screen.getAllByLabelText('Optional findings') as HTMLSelectElement[];
+  // Only the simplification and polish stages take it.
+  expect(choices).toHaveLength(
+    stages.filter((s) => s.kind === 'simplification' || s.kind === 'polish').length,
+  );
+  expect(choices[0]!.value).toBe('select');
+  fireEvent.change(choices[0]!, { target: { value: 'follow-up' } });
+  const changed = onChange.mock.calls[0]![0] as typeof stages;
+  const index = stages.findIndex((s) => s.kind === 'simplification' || s.kind === 'polish');
+  expect(changed[index]!.optionalFindings).toBe('follow-up');
+  expect(changed.filter((s) => s.optionalFindings !== undefined)).toHaveLength(1);
+});

@@ -1,8 +1,12 @@
 import type { FinalizationView } from '@craftingtable/contracts';
-import { stageStoppingRule } from '@craftingtable/domain';
+import { optionalFinding, type ReviewFinding, stageStoppingRule } from '@craftingtable/domain';
 
 export function FinalizationStageProgress({ view }: { view: FinalizationView }) {
   const progress = view.cycle?.finalizationProgress;
+  // The follow-ups are optional suggestions and nits parked at a spent allowance (R-C7 D5), named
+  // apart by the controller's own rule for an optional finding.
+  const suggestions = progress?.followUps.filter((f) => optionalFinding(f)) ?? [];
+  const parkedNits = progress?.followUps.filter((f) => !optionalFinding(f)) ?? [];
   const stages = view.finalization.stages;
   if (!progress || !stages) return null;
   const stage = stages[progress.stageIndex];
@@ -72,22 +76,16 @@ export function FinalizationStageProgress({ view }: { view: FinalizationView }) 
           </article>
         ))}
       </details>
-      <details>
-        <summary>Optional follow-up work ({progress.followUps.length})</summary>
-        <p className="hint">
-          These suggestions remain open. They were not selected for the current batch and are not
-          claimed as resolved.
-        </p>
-        {progress.followUps.map((f) => (
-          <article key={f.id} className="review-finding">
-            <h4>
-              {f.id} · {f.category} · {f.severity} · {f.title}
-            </h4>
-            <p>{f.explanation}</p>
-            <p>Suggested change: {f.recommendation}</p>
-          </article>
-        ))}
-      </details>
+      <FollowUps
+        title="Optional suggestions"
+        hint="Not selected for a batch. They remain open and are not claimed as resolved."
+        findings={suggestions}
+      />
+      <FollowUps
+        title="Parked nits"
+        hint="Nits left at a spent allowance (R-C7 D5). Choosing one at a checkpoint makes it required again."
+        findings={parkedNits}
+      />
       {!!progress.decisions.length && (
         <details>
           <summary>Finding dispositions ({progress.decisions.length})</summary>
@@ -100,5 +98,34 @@ export function FinalizationStageProgress({ view }: { view: FinalizationView }) 
         </details>
       )}
     </section>
+  );
+}
+
+/** One kind of follow-up work, with its findings in full. */
+function FollowUps({
+  title,
+  hint,
+  findings,
+}: {
+  title: string;
+  hint: string;
+  findings: readonly ReviewFinding[];
+}) {
+  return (
+    <details>
+      <summary>
+        {title} ({findings.length})
+      </summary>
+      <p className="hint">{hint}</p>
+      {findings.map((f) => (
+        <article key={f.id} className="review-finding">
+          <h4>
+            {f.id} · {f.category} · {f.severity} · {f.title}
+          </h4>
+          <p>{f.explanation}</p>
+          <p>Suggested change: {f.recommendation}</p>
+        </article>
+      ))}
+    </details>
   );
 }

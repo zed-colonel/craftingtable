@@ -215,6 +215,23 @@ export function ExecutionScopesPanel({
               <span className="hint">· map binding revision {choice.scope.bindingRevision}</span>
             </p>
             <p>{choice.description}</p>
+            {choice.followUps && (
+              <details>
+                <summary>Verification follow-ups ({choice.followUps.length})</summary>
+                <p className="hint">
+                  Minor and nit findings the verification kept open as follow-up work (R-C7 D7).
+                </p>
+                {choice.followUps.map((f) => (
+                  <article key={f.id} className="review-finding">
+                    <h4>
+                      {f.id} · {f.severity} · {f.title}
+                    </h4>
+                    <p>{f.explanation}</p>
+                    <p>Suggested change: {f.recommendation}</p>
+                  </article>
+                ))}
+              </details>
+            )}
             {choice.excludes.length > 0 && (
               <details>
                 <summary>Excluded from this slice</summary>

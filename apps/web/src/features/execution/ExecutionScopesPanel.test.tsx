@@ -336,3 +336,45 @@ it('points at the acceptance worktree only once there is one (R-E4)', () => {
   ]);
   expect(screen.getByText(/acceptance worktree below/)).toBeDefined();
 });
+
+it('shows the follow-ups a passing verification kept, as such (R-C7 D7)', () => {
+  render(
+    <ExecutionScopesPanel
+      workspaceId={'ws' as WorkspaceId}
+      workItemId={'wi' as WorkItemId}
+      csrfToken="csrf"
+      canMutate
+      itemStatus="admitted"
+      onChanged={onChanged}
+      worktrees={[]}
+      scopes={{
+        choices: [
+          {
+            scope,
+            title: 'Implementation',
+            description: 'Slice',
+            status: 'verified',
+            excludes: [],
+            blockers: [],
+            repositoryId: 'repo',
+            phases: [],
+            followUps: [
+              {
+                id: 'R-1',
+                severity: 'minor',
+                status: 'open',
+                title: 'A minor left open',
+                explanation: 'Why',
+                recommendation: 'What',
+              },
+            ],
+          } as unknown as ExecutionScopeChoice,
+        ],
+      }}
+      cycles={[]}
+      onOpenCycle={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('Verification follow-ups (1)')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'R-1 · minor · A minor left open' })).toBeTruthy();
+});

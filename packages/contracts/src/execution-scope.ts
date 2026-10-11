@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { phaseBlockerCodeSchema } from './attention.js';
+import { reviewFindingSchema } from './review-finding.js';
 export const executionScopeSchema = z.strictObject({
   kind: z.enum(['slice', 'slice-verification', 'parent-acceptance']),
   definitionId: z.uuid(),
@@ -64,6 +65,11 @@ export const executionScopeChoiceSchema = z.strictObject({
     }),
   ),
   status: z.enum(['not-started', 'prepared', 'started', 'merged', 'verified', 'accepted']),
+  /**
+   * The minor and nit findings the slice's current verification kept as follow-up work (R-C7 D7,
+   * shown since R-E5b); absent when it kept none.
+   */
+  followUps: z.array(reviewFindingSchema).max(500).optional(),
   /**
    * Who acts next on the scope and on what, decided by the daemon by the roadmap status list's
    * rule (R-E4 review M1); absent once the scope is done.

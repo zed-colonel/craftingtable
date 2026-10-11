@@ -1,5 +1,6 @@
 import { afterEach, expect, it } from 'vitest';
-import type { ExecutionScope } from '@craftingtable/domain';
+import { workItemViewSchema } from '@craftingtable/contracts';
+import { type ExecutionScope, sameExecutionScope } from '@craftingtable/domain';
 import {
   cleanupExecutionFixtures,
   commitFile,
@@ -127,6 +128,17 @@ it('records scope evidence only from a review its gate admits (R-C7 D7)', async 
   await waitFor(() => receipts().length === 1, 'minor-only verification recorded');
   expect(receipts()[0]?.scope).toEqual(f.scopes[0]);
   expect(receipts()[0]?.evidence.followUps).toEqual([minor, nit]);
+  // The work item's slice shows the follow-ups its verification kept (R-E5b, R-C7 D7).
+  const page = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${ws}/work-items/${state.workItemId}/view`,
+    headers: { cookie: state.cookie },
+  });
+  const slice = workItemViewSchema
+    .parse(page.json())
+    .scopes.choices.find((c) => sameExecutionScope(c.scope, f.scopes[0]));
+  expect(slice?.status).toBe('verified');
+  expect(slice?.followUps).toEqual([minor, nit]);
 
   // Parent acceptance keeps the old rule too.
   const b = await scopeTree(f, f.scopes[1]!);

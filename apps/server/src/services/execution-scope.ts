@@ -560,6 +560,18 @@ export function scopeChoices(
       };
       const owned = trees.filter((t) => sameExecutionScope(t.executionScope, scope));
       const merged = latestSliceMerge(tx, workspaceId, workItemId, scope);
+      // The slice's current verification receipt, and the follow-ups it kept (R-C7 D7).
+      const verification =
+        scope.kind === 'slice'
+          ? receipts
+              .filter(
+                (r) =>
+                  sameExecutionScope(r.scope, scope) &&
+                  r.integrationSha === merged?.mergeSha &&
+                  currentScopeReceipt(tx, workspaceId, r),
+              )
+              .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0]
+          : undefined;
       const verified =
         (scope.kind === 'slice' &&
           !!acceptedEvidence(tx, workspaceId, d.id, b.revision, {
@@ -634,6 +646,9 @@ export function scopeChoices(
           scope.kind === 'slice' ? 'start' : 'accept',
         ),
         status,
+        ...(verification?.evidence.followUps?.length
+          ? { followUps: verification.evidence.followUps }
+          : {}),
         ...(next ? { next } : {}),
         worktreeIds: owned.map((t) => t.id),
       });

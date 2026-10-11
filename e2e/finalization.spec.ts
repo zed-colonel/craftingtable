@@ -285,7 +285,7 @@ for (const decision of ['remediate', 'staged'] as const) {
             exact: true,
           }),
         ).toBeVisible();
-        await finalization.getByText('Optional follow-up work (2)', { exact: true }).click();
+        await finalization.getByText('Optional suggestions (2)', { exact: true }).click();
         await expect(
           finalization.getByRole('heading', { name: /S-3.*A new optional suggestion/ }),
         ).toBeVisible();

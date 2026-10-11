@@ -112,6 +112,30 @@ export function FinalizationStageSetup({
                 backends={backends}
                 disabled={disabled}
               />
+              {(stage.kind === 'simplification' || stage.kind === 'polish') && (
+                <>
+                  <label className="field">
+                    Optional findings
+                    <select
+                      value={stage.optionalFindings ?? 'select'}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        update(index, {
+                          optionalFindings:
+                            e.target.value === 'follow-up' ? 'follow-up' : undefined,
+                        })
+                      }
+                    >
+                      <option value="select">Choose a batch at a checkpoint</option>
+                      <option value="follow-up">Keep them all as follow-up work</option>
+                    </select>
+                  </label>
+                  <p className="hint">
+                    Follow-up work skips the batch selection stop (R-C7 D6); required findings,
+                    checks and questions still hold the stage.
+                  </p>
+                </>
+              )}
               <label className="field">
                 Stage instructions
                 <textarea

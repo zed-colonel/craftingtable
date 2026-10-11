@@ -1,4 +1,3 @@
-import { projectIdSchema } from './ids.js';
 import {
   AGENT_BACKENDS,
   AGENT_PERMISSION_MODES,

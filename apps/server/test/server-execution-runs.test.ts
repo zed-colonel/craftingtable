@@ -29,7 +29,7 @@ import {
   runProfilesResponseSchema,
   sourceRepositoryListResponseSchema,
   startAgentRunResponseSchema,
-  workItemExecutionResponseSchema,
+  workItemViewSchema,
   workspaceRunsResponseSchema,
   worktreeDiffResponseSchema,
 } from '@craftingtable/contracts';
@@ -448,10 +448,10 @@ describe('worktrees and diffs', () => {
 
     const execution = await state.context.app.inject({
       method: 'GET',
-      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/execution`,
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/view`,
       headers: { cookie: state.cookie },
     });
-    const summary = workItemExecutionResponseSchema.parse(execution.json());
+    const summary = workItemViewSchema.parse(execution.json()).execution;
     expect(summary.worktrees).toHaveLength(1);
     expect(summary.runs).toHaveLength(0);
 
@@ -1054,7 +1054,7 @@ describe('agent runs', () => {
 
     for (const url of [
       `/api/workspaces/${state.workspaceId}/runs/${run.id}`,
-      `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/execution`,
+      `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/view`,
       `/api/workspaces/${state.workspaceId}/runs`,
     ]) {
       const response = await state.context.app.inject({

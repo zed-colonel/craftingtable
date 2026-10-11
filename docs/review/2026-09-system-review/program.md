@@ -1052,7 +1052,7 @@ cleanup items the decisions only, is recorded in its register entry as "decided 
    part D), then R-E3b, then R-E4, then R-E5b. R-D7 (added 2026-10-09) goes before or beside R-E4.
 4. **Then R-D8** (added 2026-10-11, operator): the per-entry phase blockers shared with the map
    evaluation, after R-E5b.
-5. **Last:** R-H5.
+5. **Last:** R-H5. *Deploy note (R-H5, H5-3):* the API's paths changed in a clean cut, without aliases; reload every open page after deploying, since a page loaded before the deploy asks the old paths.
 
 ### P4: Controller kernel and decomposition (3+ weeks, behind the harness)
 

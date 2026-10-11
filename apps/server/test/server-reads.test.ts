@@ -317,8 +317,27 @@ describe('work item view (R-D5, PERF-14)', () => {
     reads.mockRestore();
     const view = workItemViewSchema.parse(response.json());
     const part = async (url: string) => (await f.get(`${base}${url}`)).json();
-    expect(view.detail).toEqual(await part(`/work-items/${item}`));
-    expect(view.execution).toEqual(await part(`/work-items/${item}/execution`));
+    // The detail and execution the item's own reads gave before R-H5 retired them, built by the
+    // same functions the view uses.
+    const { planningQueryService } = f.context.services;
+    expect(view.detail).toEqual(
+      JSON.parse(
+        JSON.stringify(
+          f.context.storage.readTransaction((tx) =>
+            planningQueryService.workItemDetailIn(tx, f.workspaceId, item),
+          ),
+        ),
+      ),
+    );
+    expect(view.execution.worktrees.map((t) => t.id)).toEqual(
+      f.context.storage.execution.worktrees.listForWorkItem(f.workspaceId, item).map((t) => t.id),
+    );
+    expect(view.execution.runs.map((r) => r.id).toSorted()).toEqual(
+      f.context.storage.execution.runs
+        .listForWorkItem(f.workspaceId, item)
+        .map((r) => r.id)
+        .toSorted(),
+    );
     expect(view.cycles).toEqual((await part(`/cycles?workItemId=${item}`)).cycles);
     expect(view.cycles.map((v) => v.cycle.id).toSorted()).toEqual(
       [f.cycles.history.id, f.cycles.paused.id].toSorted(),
@@ -428,8 +447,8 @@ describe('run view (R-D5, PERF-14)', () => {
     const view = runViewSchema.parse(response.json());
     const part = async (url: string) => (await f.get(`${base}${url}`)).json();
     expect(view.detail).toEqual(await part(`/runs/${f.finishedRun}`));
-    // The runs a hand-off can start from: the run's work item's, as its execution lists them.
-    expect(view.runs).toEqual((await part(`/work-items/${f.items[0]}/execution`)).runs);
+    // The runs a hand-off can start from: the run's work item's, as its page's view lists them.
+    expect(view.runs).toEqual((await part(`/work-items/${f.items[0]}/view`)).execution.runs);
     expect(view.runs.map((run) => run.id)).toEqual([f.finishedRun]);
     expect(view.profiles).toEqual((await part('/run-profiles')).profiles);
     expect(view.backends).toEqual((await f.get('/api/execution-status')).json().backends);

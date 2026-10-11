@@ -15,7 +15,7 @@ decision boundary test reads each `decision` route from it.
 - **Body** is the shared contract the daemon parses a command's body with before its handler
   runs; for a multipart upload, its text fields.
 
-**137 routes:** 66 GET, 71 POST; 66 read, 29 decision, 17 control, 25 config.
+**133 routes:** 62 GET, 71 POST; 62 read, 29 decision, 17 control, 25 config.
 
 | Method | Path (under `/api/`) | Access | Tag | Step-up | Body |
 |---|---|---|---|---|---|
@@ -76,7 +76,6 @@ decision boundary test reads each `decision` route from it.
 | POST | `workspaces/:workspaceId/imports/concurrency-definitions` | editor | config |  | `concurrencyUploadFieldsSchema` (multipart fields) |
 | POST | `workspaces/:workspaceId/imports/plan-archives` | editor | config |  | `planArchiveUploadFieldsSchema` (multipart fields) |
 | POST | `workspaces/:workspaceId/imports/plan-archives/preview` | editor | config |  | `planArchiveUploadFieldsSchema` (multipart fields) |
-| GET | `workspaces/:workspaceId/imports/plans` | member | read |  |  |
 | POST | `workspaces/:workspaceId/imports/plans` | editor | config |  | `planImportFieldsSchema` (multipart fields) |
 | GET | `workspaces/:workspaceId/notifications` | owner | read |  |  |
 | POST | `workspaces/:workspaceId/notifications` | owner | config |  | `saveNotificationsRequestSchema` |
@@ -90,7 +89,6 @@ decision boundary test reads each `decision` route from it.
 | GET | `workspaces/:workspaceId/plan-versions/:planVersionId/graph` | member | read |  |  |
 | GET | `workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy` | member | read |  |  |
 | POST | `workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy` | editor | config |  | `saveRepositoryPolicyRequestSchema` |
-| GET | `workspaces/:workspaceId/projects` | member | read |  |  |
 | GET | `workspaces/:workspaceId/projects/:projectId` | member | read |  |  |
 | GET | `workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId` | member | read |  |  |
 | POST | `workspaces/:workspaceId/protected-ref-moves/acknowledge` | editor | decision |  | `acknowledgeProtectedRefMovesRequestSchema` |
@@ -140,10 +138,8 @@ decision boundary test reads each `decision` route from it.
 | POST | `workspaces/:workspaceId/storage` | installation | config |  | `saveStorageRequestSchema` |
 | POST | `workspaces/:workspaceId/storage/control` | installation | control |  | `storageControlRequestSchema` |
 | GET | `workspaces/:workspaceId/work-items` | member | read |  |  |
-| GET | `workspaces/:workspaceId/work-items/:workItemId` | member | read |  |  |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/control` | editor | control |  | `workItemControlRequestSchema` |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/cycles` | editor | control |  | `startWorkCycleRequestSchema` |
-| GET | `workspaces/:workspaceId/work-items/:workItemId/execution` | member | read |  |  |
 | GET | `workspaces/:workspaceId/work-items/:workItemId/execution-scopes` | member | read |  |  |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/integration-evidence` | editor | control |  | `recordIntegrationEvidenceRequestSchema` |
 | POST | `workspaces/:workspaceId/work-items/:workItemId/runs` | editor | control |  | `startAgentRunRequestSchema` |

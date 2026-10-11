@@ -412,10 +412,8 @@ const planning = {
 };
 
 vi.mock('./lib/planning-api.js', () => ({
-  loadProjects: () => new Promise(() => undefined),
   loadProject: (workspaceId: string) => Promise.resolve(projectDetailFor(workspaceId)),
   loadPlanVersion: () => new Promise(() => undefined),
-  loadImportAttempts: () => new Promise(() => undefined),
   loadArtifactText: () => planning.artifact.promise,
   admitWorkItem: () => planning.admit.promise,
   completeWorkItem: () => new Promise(() => undefined),

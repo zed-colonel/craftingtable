@@ -2,7 +2,6 @@ import {
   admitWorkItemResponseSchema,
   completeWorkItemResponseSchema,
   planArtifactIdSchema,
-  planImportAttemptListResponseSchema,
   planImportFieldsSchema,
   planImportResponseSchema,
   planVersionDetailResponseSchema,
@@ -10,10 +9,8 @@ import {
   planVersionIdSchema,
   projectDetailResponseSchema,
   projectIdSchema,
-  projectListResponseSchema,
   workItemControlRequestSchema,
   removeFromAgendaResponseSchema,
-  workItemDetailResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
   workspaceWorkItemFilterSchema,
@@ -179,23 +176,6 @@ export function registerPlanningRoutes(
     },
   );
 
-  app.get<{ Params: { workspaceId: string } }>(
-    '/api/workspaces/:workspaceId/projects',
-    { config: { access: 'member' } },
-    async (request, reply) => {
-      const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspaceId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      return noStore(reply).send(
-        projectListResponseSchema.parse(
-          queryService.listProjects(context, workspaceId.data, request.id),
-        ),
-      );
-    },
-  );
-
   app.get<{ Params: { workspaceId: string; projectId: string } }>(
     '/api/workspaces/:workspaceId/projects/:projectId',
     { config: { access: 'member' } },
@@ -253,24 +233,6 @@ export function registerPlanningRoutes(
       return noStore(reply).send(
         planVersionGraphSchema.parse(
           queryService.planVersionGraph(context, workspaceId.data, planVersionId.data, request.id),
-        ),
-      );
-    },
-  );
-
-  app.get<{ Params: { workspaceId: string; workItemId: string } }>(
-    '/api/workspaces/:workspaceId/work-items/:workItemId',
-    { config: { access: 'member' } },
-    async (request, reply) => {
-      const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
-      if (!workspaceId.success || !workItemId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      return noStore(reply).send(
-        workItemDetailResponseSchema.parse(
-          queryService.workItemDetail(context, workspaceId.data, workItemId.data, request.id),
         ),
       );
     },
@@ -358,23 +320,6 @@ export function registerPlanningRoutes(
           status: 'admitted',
           admitted: result.admitted,
         }),
-      );
-    },
-  );
-
-  app.get<{ Params: { workspaceId: string } }>(
-    '/api/workspaces/:workspaceId/imports/plans',
-    { config: { access: 'member' } },
-    async (request, reply) => {
-      const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspaceId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      return noStore(reply).send(
-        planImportAttemptListResponseSchema.parse(
-          queryService.listImportAttempts(context, workspaceId.data, request.id),
-        ),
       );
     },
   );

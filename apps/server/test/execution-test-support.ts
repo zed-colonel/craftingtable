@@ -25,7 +25,7 @@ import {
   registerSourceRepositoryResponseSchema,
   startAgentRunResponseSchema,
   workCycleResponseSchema,
-  workItemExecutionResponseSchema,
+  workItemViewSchema,
 } from '@craftingtable/contracts';
 import { type ExecutionScope, V03_VOCABULARY } from '@craftingtable/domain';
 import {
@@ -920,12 +920,10 @@ export async function runToFinish(
 export async function mergeGate(state: Ready, worktreeId: string) {
   const execution = await state.context.app.inject({
     method: 'GET',
-    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/execution`,
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/view`,
     headers: { cookie: state.cookie },
   });
-  return workItemExecutionResponseSchema.parse(execution.json()).mergeGates[
-    worktreeId as WorktreeId
-  ];
+  return workItemViewSchema.parse(execution.json()).execution.mergeGates[worktreeId as WorktreeId];
 }
 
 export async function merge(

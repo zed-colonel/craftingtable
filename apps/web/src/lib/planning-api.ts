@@ -3,18 +3,14 @@ import {
   admitWorkItemResponseSchema,
   type CompleteWorkItemResponse,
   completeWorkItemResponseSchema,
-  type PlanImportAttemptListResponse,
   type PlanImportResponse,
   type PlanVersionDetailResponse,
   type PlanVersionGraph,
   type ProjectDetailResponse,
-  type ProjectListResponse,
-  planImportAttemptListResponseSchema,
   planImportResponseSchema,
   planVersionDetailResponseSchema,
   planVersionGraphSchema,
   projectDetailResponseSchema,
-  projectListResponseSchema,
   removeFromAgendaResponseSchema,
   type WorkspaceWorkItemFilter,
   type WorkspaceWorkItemListResponse,
@@ -32,10 +28,6 @@ import { ApiError, parseAnswer, request } from './api-client.js';
 /** Every planning response is revalidated in the browser (ADR-003). */
 
 const encode = encodeURIComponent;
-
-export function loadProjects(workspaceId: WorkspaceId): Promise<ProjectListResponse> {
-  return request(`/api/workspaces/${encode(workspaceId)}/projects`, projectListResponseSchema);
-}
 
 export function loadProject(
   workspaceId: WorkspaceId,
@@ -66,15 +58,6 @@ export function loadPlanVersionGraph(
   return request(
     `/api/workspaces/${encode(workspaceId)}/plan-versions/${encode(planVersionId)}/graph`,
     planVersionGraphSchema,
-  );
-}
-
-export function loadImportAttempts(
-  workspaceId: WorkspaceId,
-): Promise<PlanImportAttemptListResponse> {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/imports/plans`,
-    planImportAttemptListResponseSchema,
   );
 }
 

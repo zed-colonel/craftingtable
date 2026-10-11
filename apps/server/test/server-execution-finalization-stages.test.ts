@@ -398,7 +398,6 @@ describe('completed plan and integration branch cleanup', () => {
       completedAt: expect.any(String),
     };
     for (const [url, pick] of [
-      [`projects`, (body: { projects: { completion?: unknown }[] }) => present(body.projects[0])],
       [
         `projects/${value.projectId}`,
         (body: { project: { completion?: unknown } }) => body.project,

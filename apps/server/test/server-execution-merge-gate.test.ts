@@ -882,11 +882,11 @@ it('records completion before cleanup, exposes retry, and preserves edits added 
   const committed = git(['rev-parse', 'main'], root);
   const view = await state.context.app.inject({
     method: 'GET',
-    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/execution`,
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/view`,
     headers: { cookie: state.cookie },
   });
   expect(view.statusCode, view.body).toBe(200);
-  expect(view.json().worktrees[0].mergeCleanupError).toContain('cleanup interruption');
+  expect(view.json().execution.worktrees[0].mergeCleanupError).toContain('cleanup interruption');
   const source = git(['rev-parse', 'HEAD'], worktree.path).trim();
   preserve = false;
   commitFile(worktree.path, 'operator.txt', 'later operator commit');

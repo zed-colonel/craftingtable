@@ -163,16 +163,6 @@ export class PlanningQueryService {
     });
   }
 
-  workItemDetail(
-    context: AuthContext,
-    workspaceId: WorkspaceId,
-    workItemId: WorkItemId,
-    requestId?: string,
-  ) {
-    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    return this.storage.readTransaction((tx) => this.workItemDetailIn(tx, workspaceId, workItemId));
-  }
-
   /** A work item's detail, read in the caller's transaction (R-D5). */
   workItemDetailIn(tx: StorageRepositories, workspaceId: WorkspaceId, workItemId: WorkItemId) {
     const detail = (() => {
@@ -271,40 +261,6 @@ export class PlanningQueryService {
           ...(row.status === 'admitted' ? { executionScopes: scopes(row.id) } : {}),
         })),
     };
-  }
-
-  /** Recent import attempts with their diagnostics, for the attention region. */
-  listImportAttempts(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
-    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    return this.storage.readTransaction((tx) => ({
-      attempts: tx.planning.importAttempts.listRecent(workspaceId, 25).map((attempt) => ({
-        id: attempt.id,
-        outcome: attempt.outcome,
-        requestedProjectName: attempt.requestedProjectName,
-        ...(attempt.projectId === undefined ? {} : { projectId: attempt.projectId }),
-        ...(attempt.planVersionId === undefined ? {} : { planVersionId: attempt.planVersionId }),
-        ...(attempt.bundleDigest === undefined ? {} : { bundleDigest: attempt.bundleDigest }),
-        artifactCount: attempt.artifactCount,
-        totalByteLength: attempt.totalByteLength,
-        errorCount: attempt.errorCount,
-        warningCount: attempt.warningCount,
-        createdAt: attempt.createdAt,
-        diagnostics: tx.planning.diagnostics
-          .listForAttempt(workspaceId, attempt.id)
-          .map((diagnostic) => ({
-            severity: diagnostic.severity,
-            code: diagnostic.code,
-            message: diagnostic.message,
-            ...(diagnostic.artifactName === undefined
-              ? {}
-              : { artifactName: diagnostic.artifactName }),
-            ...(diagnostic.path === undefined ? {} : { path: diagnostic.path }),
-            ...(diagnostic.workItemSourceId === undefined
-              ? {}
-              : { workItemSourceId: diagnostic.workItemSourceId }),
-          })),
-      })),
-    }));
   }
 
   /**

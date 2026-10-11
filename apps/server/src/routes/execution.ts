@@ -20,7 +20,6 @@ import {
   saveRunProfilesRequestSchema,
   sourceRepositoryIdSchema,
   sourceRepositoryListResponseSchema,
-  workItemExecutionResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
   workspaceRunsResponseSchema,
@@ -34,7 +33,7 @@ import type { ModelCatalogService } from '../services/model-catalog-service.js';
 import { registerBranchRoutes } from './branches.js';
 import { noStore, sendApiError } from './http.js';
 import { type BodyOf, contextOf } from './route-access.js';
-import { runListRow, runSummary } from './run-summary.js';
+import { runListRow, } from './run-summary.js';
 
 /**
  * Repository, worktree, and diff routes.
@@ -290,33 +289,6 @@ export function registerExecutionRoutes(
         request.id,
       );
       return noStore(reply).send(repositoryBranchesResponseSchema.parse(listing));
-    },
-  );
-
-  app.get<{ Params: { workspaceId: string; workItemId: string } }>(
-    '/api/workspaces/:workspaceId/work-items/:workItemId/execution',
-    { config: { access: 'member' } },
-    async (request, reply) => {
-      const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
-      if (!workspaceId.success || !workItemId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      const result = await executionService.workItemExecution(
-        context,
-        workspaceId.data,
-        workItemId.data,
-        request.id,
-      );
-      return noStore(reply).send(
-        workItemExecutionResponseSchema.parse({
-          workItemId: workItemId.data,
-          worktrees: result.worktrees,
-          runs: result.runs.map(runSummary),
-          mergeGates: result.mergeGates,
-        }),
-      );
     },
   );
 

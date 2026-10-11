@@ -4,7 +4,7 @@ import {
   authenticatedSessionResponseSchema,
   planImportResponseSchema,
   projectDetailResponseSchema,
-  workItemDetailResponseSchema,
+  workItemViewSchema,
   workspaceAuditPageResponseSchema,
   workspaceListResponseSchema,
   workspaceSnapshotResponseSchema,
@@ -161,15 +161,15 @@ describe('daemon restart reconstruction', () => {
     expect(detail.project.planningReadyCount).toBe(0);
     expect(detail.activeVersion?.workItems).toHaveLength(14);
 
-    const workItem = workItemDetailResponseSchema.parse(
+    const workItem = workItemViewSchema.parse(
       (
         await second.app.inject({
           method: 'GET',
-          url: `/api/workspaces/${workspaceId}/work-items/${aq01?.id}`,
+          url: `/api/workspaces/${workspaceId}/work-items/${aq01?.id}/view`,
           headers: { cookie },
         })
       ).json(),
-    );
+    ).detail;
     expect(workItem.workItem.status).toBe('admitted');
     expect(workItem.workItem.readiness).toBe('active');
   });

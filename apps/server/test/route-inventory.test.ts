@@ -35,7 +35,6 @@ const MOVED: Readonly<Record<string, string>> = {
   // H5-1: API nouns follow the domain and contract names, with one `imports/` prefix.
   [`GET ${W}/plans/:planVersionId/finalizations`]: `GET ${W}/plan-versions/:planVersionId/finalizations`,
   [`POST ${W}/plans/:planVersionId/finalizations`]: `POST ${W}/plan-versions/:planVersionId/finalizations`,
-  [`GET ${W}/plan-imports`]: `GET ${W}/imports/plans`,
   [`POST ${W}/plan-imports`]: `POST ${W}/imports/plans`,
   [`POST ${W}/plan-archives/preview`]: `POST ${W}/imports/plan-archives/preview`,
   [`POST ${W}/plan-archives/import`]: `POST ${W}/imports/plan-archives`,
@@ -59,7 +58,13 @@ const MOVED: Readonly<Record<string, string>> = {
   [`POST ${W}/cycles/:cycleId/investigation/acknowledge-change`]: `POST ${W}/cycles/:cycleId/investigation`,
 };
 /** Routes R-H5 retired, each with the reason. */
-const RETIRED: Readonly<Record<string, string>> = {};
+const RETIRED: Readonly<Record<string, string>> = {
+  // Reads the browser no longer makes, superseded by the view models (R-D5) and the snapshot.
+  [`GET ${W}/projects`]: 'the workspace snapshot carries the projects; no page read the list',
+  [`GET ${W}/plan-imports`]: 'no page lists import attempts; each import answers with its own',
+  [`GET ${W}/work-items/:workItemId`]: "the work item page's view carries its detail",
+  [`GET ${W}/work-items/:workItemId/execution`]: "the work item page's view carries its execution",
+};
 const RANK: Readonly<Record<RouteAccess, number>> = {
   public: 0,
   session: 1,

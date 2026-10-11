@@ -7,7 +7,7 @@ import {
   planVersionDetailResponseSchema,
   planVersionGraphSchema,
   projectDetailResponseSchema,
-  workItemDetailResponseSchema,
+  workItemViewSchema,
   workspaceSnapshotResponseSchema,
   workspaceWorkItemListResponseSchema,
 } from '@craftingtable/contracts';
@@ -243,15 +243,15 @@ describe('planning queries over HTTP', () => {
     if (aq08 === undefined) {
       throw new Error('AQ-08 missing');
     }
-    const detail = workItemDetailResponseSchema.parse(
+    const detail = workItemViewSchema.parse(
       (
         await ready.context.app.inject({
           method: 'GET',
-          url: `/api/workspaces/${ready.workspaceId}/work-items/${aq08.id}`,
+          url: `/api/workspaces/${ready.workspaceId}/work-items/${aq08.id}/view`,
           headers: { cookie: ready.session.cookie },
         })
       ).json(),
-    );
+    ).detail;
     expect(detail.workItem.sourceId).toBe('AQ-08');
     expect(detail.workItem.risk).toBe('critical');
     expect(detail.workItem.readiness).toBe('dependency-blocked');
@@ -312,9 +312,9 @@ describe('planning queries over HTTP', () => {
     expect(graph.edges).toHaveLength(24);
     // An edge runs from the predecessor to the item that requires it, as each item's detail says.
     for (const node of graph.nodes) {
-      const item = workItemDetailResponseSchema.parse(
-        (await get(`${base}/work-items/${node.workItemId}`)).json(),
-      );
+      const item = workItemViewSchema.parse(
+        (await get(`${base}/work-items/${node.workItemId}/view`)).json(),
+      ).detail;
       const into = graph.edges
         .filter(([, to]) => graph.nodes[to]!.workItemId === node.workItemId)
         .map(([from]) => graph.nodes[from]!.sourceId);
@@ -405,11 +405,9 @@ describe('planning queries over HTTP', () => {
     // Same authenticated user, other workspace: membership is missing, so every
     // route answers with the same 404 a missing resource would.
     for (const url of [
-      `/api/workspaces/${outsider.workspaceId}/projects`,
       `/api/workspaces/${outsider.workspaceId}/projects/${ready.imported.projectId}`,
-      `/api/workspaces/${outsider.workspaceId}/work-items/${workItemId}`,
+      `/api/workspaces/${outsider.workspaceId}/work-items/${workItemId}/view`,
       `/api/workspaces/${outsider.workspaceId}/plan-artifacts/${artifactId}`,
-      `/api/workspaces/${outsider.workspaceId}/imports/plans`,
     ]) {
       const response = await ready.context.app.inject({
         method: 'GET',
@@ -427,7 +425,7 @@ describe('planning queries over HTTP', () => {
     const ready = await importedWorkspace();
     for (const url of [
       `/api/workspaces/${ready.workspaceId}/projects/project-does-not-exist`,
-      `/api/workspaces/${ready.workspaceId}/work-items/item-does-not-exist`,
+      `/api/workspaces/${ready.workspaceId}/work-items/item-does-not-exist/view`,
       `/api/workspaces/${ready.workspaceId}/plan-artifacts/artifact-does-not-exist`,
       `/api/workspaces/${ready.workspaceId}/projects/${ready.imported.projectId}/plan-versions/version-does-not-exist`,
     ]) {
@@ -575,10 +573,10 @@ describe('work-item admission over HTTP', () => {
     const r = await removalFixture();
     const detail = await r.context.app.inject({
       method: 'GET',
-      url: `/api/workspaces/${r.workspaceId}/work-items/${r.workItemId}`,
+      url: `/api/workspaces/${r.workspaceId}/work-items/${r.workItemId}/view`,
       headers: r.headers,
     });
-    expect(detail.json().agendaRemoval).toEqual({ allowed: true, expectedVersion: 2 });
+    expect(detail.json().detail.agendaRemoval).toEqual({ allowed: true, expectedVersion: 2 });
     const first = await r.remove();
     expect(first.statusCode, first.body).toBe(200);
     expect(first.json()).toMatchObject({ status: 'proposed', removed: true });
@@ -789,15 +787,15 @@ describe('work-item admission over HTTP', () => {
     const repeat = completeWorkItemResponseSchema.parse((await complete()).json());
     expect(repeat.completed).toBe(false);
 
-    const detail = workItemDetailResponseSchema.parse(
+    const detail = workItemViewSchema.parse(
       (
         await ready.context.app.inject({
           method: 'GET',
-          url: `/api/workspaces/${ready.workspaceId}/work-items/${workItemId}`,
+          url: `/api/workspaces/${ready.workspaceId}/work-items/${workItemId}/view`,
           headers: { cookie: ready.session.cookie },
         })
       ).json(),
-    );
+    ).detail;
     expect(detail.workItem.status).toBe('completed');
     expect(detail.workItem.readiness).toBe('completed');
     expect(detail.workItem.completedAt).toBeDefined();
@@ -913,15 +911,15 @@ describe('work-item admission over HTTP', () => {
     });
     expect(response.statusCode).toBe(200);
 
-    const detail = workItemDetailResponseSchema.parse(
+    const detail = workItemViewSchema.parse(
       (
         await ready.context.app.inject({
           method: 'GET',
-          url: `/api/workspaces/${ready.workspaceId}/work-items/${aq14.id}`,
+          url: `/api/workspaces/${ready.workspaceId}/work-items/${aq14.id}/view`,
           headers: { cookie: ready.session.cookie },
         })
       ).json(),
-    );
+    ).detail;
     // Admission accepts into the agenda; it does not satisfy a dependency.
     expect(detail.workItem.status).toBe('admitted');
     expect(detail.workItem.readiness).toBe('active');

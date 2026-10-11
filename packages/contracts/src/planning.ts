@@ -79,25 +79,6 @@ export const planImportResponseSchema = z.discriminatedUnion('outcome', [
   planImportFailedSchema,
 ]);
 
-export const planImportAttemptSummarySchema = z.strictObject({
-  id: planImportAttemptIdSchema,
-  outcome: z.enum(PLAN_IMPORT_OUTCOMES),
-  requestedProjectName: z.string().min(1).max(120),
-  projectId: projectIdSchema.optional(),
-  planVersionId: planVersionIdSchema.optional(),
-  bundleDigest: z.string().length(64).optional(),
-  artifactCount: z.number().int().nonnegative().safe(),
-  totalByteLength: z.number().int().nonnegative().safe(),
-  errorCount: z.number().int().nonnegative().safe(),
-  warningCount: z.number().int().nonnegative().safe(),
-  createdAt: z.iso.datetime(),
-  diagnostics: z.array(planImportDiagnosticSchema).max(500),
-});
-
-export const planImportAttemptListResponseSchema = z.strictObject({
-  attempts: z.array(planImportAttemptSummarySchema).max(50),
-});
-
 export const planArtifactSummarySchema = z.strictObject({
   id: planArtifactIdSchema,
   logicalFilename: z.string().min(1).max(200),
@@ -141,10 +122,6 @@ export const projectSummarySchema = planningStatusCountsSchema.extend({
   versionCount: z.number().int().nonnegative().safe(),
   warningCount: z.number().int().nonnegative().safe(),
   createdAt: z.iso.datetime(),
-});
-
-export const projectListResponseSchema = z.strictObject({
-  projects: z.array(projectSummarySchema).max(100),
 });
 
 export const planVersionSummarySchema = z.strictObject({
@@ -319,10 +296,7 @@ export const workspaceWorkItemListResponseSchema = z.strictObject({
 
 export type PlanImportDiagnosticPayload = z.infer<typeof planImportDiagnosticSchema>;
 export type PlanImportResponse = z.infer<typeof planImportResponseSchema>;
-export type PlanImportAttemptSummary = z.infer<typeof planImportAttemptSummarySchema>;
-export type PlanImportAttemptListResponse = z.infer<typeof planImportAttemptListResponseSchema>;
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
-export type ProjectListResponse = z.infer<typeof projectListResponseSchema>;
 export type PlanVersionSummary = z.infer<typeof planVersionSummarySchema>;
 export type PlanVersionDetailResponse = z.infer<typeof planVersionDetailResponseSchema>;
 export type ProjectDetailResponse = z.infer<typeof projectDetailResponseSchema>;

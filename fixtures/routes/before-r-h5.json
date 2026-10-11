@@ -1,0 +1,887 @@
+{
+  "note": "The daemon's API routes at cc222b8, before R-H5: each route's method, path, declared access and whether it declared its own step-up rule. The route inventory test checks that no route's access or step-up weakened since (R-H5, H5-2).",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "access": "public",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/password",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/session",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/sessions",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/sessions/:sessionId/revoke",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/step-up",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/execution-status",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/execution-status/refresh-models",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "access": "public",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces",
+      "access": "session",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/attention",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/audit",
+      "access": "owner",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/bindings",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/audit-native",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/authorize-native",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/checkpoint-recovery/:worktreeId",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/configure",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/decide",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/declare-transitions",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/discover",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/generate-plan",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/inspect",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/prepare-checkpoint",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/preview-refresh",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/propose-decision",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/refresh",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/runs/:runId/build-record",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/submissions/:submissionId",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/submit",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/concurrency-imports",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/concurrency-imports",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/cycles",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/baseline-evidence",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/control",
+      "access": "editor",
+      "stepUp": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/integration-resolution",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/investigation",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/investigation/acknowledge-change",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/investigation/end",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/diagnostics",
+      "access": "owner",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/events",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/finalizations/:finalizationId/control",
+      "access": "editor",
+      "stepUp": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/host-scheduling",
+      "access": "installation",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/host-scheduling",
+      "access": "installation",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/import-archives/:id",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/notifications",
+      "access": "owner",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/notifications",
+      "access": "owner",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/notifications/test",
+      "access": "owner",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/operator-wait",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/plan-archives/import",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/plan-archives/preview",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/plan-artifacts/:artifactId",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/plan-imports",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/plan-imports",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/plan-versions/:planVersionId/graph",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/plans/:planVersionId/finalizations",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/plans/:planVersionId/finalizations",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/projects",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/projects/:projectId",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/protected-ref-moves/acknowledge",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/rename",
+      "access": "owner",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/repositories",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/repositories",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/repositories/:repositoryId/branches",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/repositories/:repositoryId/checks",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/repositories/:repositoryId/checks/adopt",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/repositories/:repositoryId/checks/preview",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/repositories/:repositoryId/checks/receipts",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/repositories/:repositoryId/retire",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/amendments",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/amendments",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/amendments/decision",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/amendments/preview",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/capacity",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/control",
+      "access": "editor",
+      "stepUp": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparation-grant",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/definitions/:revision",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/delegation",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/finalization-readiness",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/graph/:revision",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/history",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/prepare-decision",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/scope-recovery",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/status",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/:roadmapId/view",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/capacities",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/roadmaps/summaries",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/run-profiles",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/run-profiles",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/runs",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/runs/:runId",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/runs/:runId/cancel",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/runs/:runId/end",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/runs/:runId/event-page",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/runs/:runId/events",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/runs/:runId/messages",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/runs/:runId/tool-results/:digest",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/runs/:runId/view",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/snapshot",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/storage",
+      "access": "installation",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/storage",
+      "access": "installation",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/storage/backup",
+      "access": "installation",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/storage/clean",
+      "access": "installation",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/storage/scan",
+      "access": "installation",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/work-items",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/admit",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/complete",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/cycles",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/execution",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/execution-scopes",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/integration-evidence",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/remove-from-agenda",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/runs",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/scope-scheduling",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/view",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/work-items/:workItemId/worktrees",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/worktrees/:worktreeId/branch-status",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/worktrees/:worktreeId/check-definitions",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/:workspaceId/worktrees/:worktreeId/diff",
+      "access": "member",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/worktrees/:worktreeId/merge",
+      "access": "editor",
+      "stepUp": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/worktrees/:worktreeId/remove",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/worktrees/:worktreeId/retarget",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/worktrees/:worktreeId/scope-evidence",
+      "access": "editor",
+      "stepUp": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/:workspaceId/worktrees/:worktreeId/update",
+      "access": "editor",
+      "stepUp": false
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import {
   completeWorkItemResponseSchema,
   planArtifactIdSchema,
   planImportAttemptListResponseSchema,
+  planImportFieldsSchema,
   planImportResponseSchema,
   planVersionDetailResponseSchema,
   planVersionGraphSchema,
@@ -32,7 +33,7 @@ import {
   MULTIPART_PLUGIN_LIMITS,
   readPlanImportParts,
 } from './multipart.js';
-import { contextOf } from './route-access.js';
+import { type BodyOf, contextOf } from './route-access.js';
 
 /**
  * Thin planning routes.
@@ -106,7 +107,15 @@ export function registerPlanningRoutes(
 
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/plan-imports',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        multipart: true,
+        body: planImportFieldsSchema,
+        invalidBody: 'Invalid plan import request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const parsedWorkspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -290,18 +299,25 @@ export function registerPlanningRoutes(
     },
   );
 
-  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; workItemId: string };
+    Body: BodyOf<typeof completeWorkItemRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/complete',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: completeWorkItemRequestSchema,
+        invalidBody: 'Invalid completion request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      if (!completeWorkItemRequestSchema.safeParse(request.body ?? {}).success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid completion request');
       }
       const result = workItemService.complete(
         context,
@@ -319,23 +335,30 @@ export function registerPlanningRoutes(
     },
   );
 
-  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; workItemId: string };
+    Body: BodyOf<typeof removeFromAgendaRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/remove-from-agenda',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: removeFromAgendaRequestSchema,
+        invalidBody: 'Invalid agenda removal request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success)
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      const input = removeFromAgendaRequestSchema.safeParse(request.body);
-      if (!input.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid agenda removal request');
       const result = workItemService.removeFromAgenda(
         context,
         workspaceId.data,
         workItemId.data,
-        input.data.expectedVersion,
+        request.body.expectedVersion,
         request.id,
       );
       return noStore(reply).send(
@@ -348,18 +371,25 @@ export function registerPlanningRoutes(
     },
   );
 
-  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; workItemId: string };
+    Body: BodyOf<typeof admitWorkItemRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/admit',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: admitWorkItemRequestSchema,
+        invalidBody: 'Invalid admission request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
       if (!workspaceId.success || !workItemId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      if (!admitWorkItemRequestSchema.safeParse(request.body ?? {}).success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid admission request');
       }
       const result = workItemService.admit(context, workspaceId.data, workItemId.data, request.id);
       return noStore(reply).send(

@@ -11,6 +11,7 @@ import {
   inspectDependencyRequestSchema,
   inspectDependencyResponseSchema,
   nativeApprovalRequestSchema,
+  nativeAuditRequestSchema,
   upstreamTransitionRequestSchema,
   nativeAuditSchema,
   prepareCheckpointRequestSchema,
@@ -20,10 +21,11 @@ import {
   runtimeRefreshRequestSchema,
   workspaceIdSchema,
 } from '@craftingtable/contracts';
+import type { WorkspaceId } from '@craftingtable/domain';
 import type { FastifyInstance } from 'fastify';
 import type { RuntimeEvidenceService } from '../services/runtime-evidence-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { type BodyOf, type BodySchema, contextOf } from './route-access.js';
 export function registerRuntimeEvidenceRoutes(
   app: FastifyInstance,
   service: RuntimeEvidenceService,
@@ -90,198 +92,139 @@ export function registerRuntimeEvidenceRoutes(
         .send(JSON.stringify(record));
     },
   );
-  for (const action of [
-    'audit-native',
-    'authorize-native',
-    'declare-transitions',
-    'configure',
-    'preview-refresh',
-    'refresh',
-    'inspect',
-    'discover',
-    'propose-decision',
-    'generate-plan',
-    'prepare-checkpoint',
-    'submit',
-    'decide',
-  ] as const)
-    app.post<{ Params: { workspaceId: string; id: string } }>(
+  /**
+   * One route per runtime command (R-H5): its tag, its declared body and the refusal when the body
+   * does not parse; the daemon parses the body before `run` reads it.
+   */
+  const command = <S extends BodySchema>(
+    action: string,
+    tag: 'decision' | 'config',
+    body: S,
+    invalidBody: string,
+    run: (
+      context: ReturnType<typeof contextOf>,
+      ws: WorkspaceId,
+      id: string,
+      body: BodyOf<S>,
+    ) => unknown,
+  ) =>
+    app.post<{ Params: { workspaceId: string; id: string }; Body: BodyOf<S> }>(
       `${base}/${action}`,
-      { config: { access: 'editor' }, bodyLimit: 5 * 1024 * 1024 },
+      { config: { access: 'editor', tag, body, invalidBody }, bodyLimit: 5 * 1024 * 1024 },
       async (request, reply) => {
         const context = contextOf(request),
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-        const id = request.params.id;
-        if (action === 'prepare-checkpoint') {
-          const body = prepareCheckpointRequestSchema.safeParse(request.body);
-          if (!body.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Select the exact checkpoint candidate preview.',
-            );
-          return noStore(reply).send(
-            checkpointRecoverySchema.parse(
-              await service.prepareCheckpoint(context, ws.data, id, body.data),
-            ),
-          );
-        }
-        if (action === 'propose-decision') {
-          const body = proposeArchitectureDecisionSchema.safeParse(request.body);
-          if (!body.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Provide a complete architecture decision proposal.',
-            );
-          return noStore(reply).send(
-            runtimeEvidenceViewSchema.parse(
-              await service.proposeArchitectureDecision(context, ws.data, id, body.data),
-            ),
-          );
-        }
-        if (action === 'preview-refresh') {
-          const b = runtimeRefreshRequestSchema.safeParse(request.body);
-          if (!b.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Choose the current dependency generation.',
-            );
-          return noStore(reply).send(
-            runtimeRefreshPreviewSchema.parse(
-              await service.previewRefresh(context, ws.data, id, b.data),
-            ),
-          );
-        }
-        if (action === 'refresh') {
-          const b = applyRuntimeRefreshSchema.safeParse(request.body);
-          if (!b.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Review the dependency refresh preview and provide a rationale.',
-            );
-          return noStore(reply).send(
-            runtimeEvidenceViewSchema.parse(await service.refresh(context, ws.data, id, b.data)),
-          );
-        }
-        if (action === 'audit-native')
-          return noStore(reply).send(
-            nativeAuditSchema.parse(await service.auditNative(context, ws.data, id)),
-          );
-        if (action === 'authorize-native') {
-          const b = nativeApprovalRequestSchema.safeParse(request.body);
-          if (!b.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Choose the current native audit, approval and a rationale.',
-            );
-          return noStore(reply).send(
-            runtimeEvidenceViewSchema.parse(
-              await service.approveNative(context, ws.data, id, b.data),
-            ),
-          );
-        }
-        if (action === 'declare-transitions') {
-          const b = upstreamTransitionRequestSchema.safeParse(request.body);
-          if (!b.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Choose the transition slices and provide a rationale.',
-            );
-          return noStore(reply).send(
-            runtimeEvidenceViewSchema.parse(
-              await service.declareUpstreamTransitions(context, ws.data, id, b.data),
-            ),
-          );
-        }
-        if (action === 'generate-plan') {
-          const body = generatePlanEvidenceRequestSchema.safeParse(request.body);
-          if (!body.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Choose the current saved roadmap revision and snapshot.',
-            );
-          return noStore(reply).send(
-            runtimeEvidenceViewSchema.parse(
-              await service.generatePlanEvidence(context, ws.data, id, body.data),
-            ),
-          );
-        }
-        if (action === 'discover') {
-          const b = discoverRuntimeRequestSchema.safeParse(request.body);
-          if (!b.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Choose the current binding and repository refs.',
-            );
-          return noStore(reply).send(
-            discoverRuntimeResponseSchema.parse(
-              await service.discover(context, ws.data, id, b.data),
-            ),
-          );
-        }
-        if (action === 'inspect') {
-          const b = inspectDependencyRequestSchema.safeParse(request.body);
-          if (!b.success)
-            return sendApiError(reply, 400, 'invalid-request', 'Invalid dependency inspection.');
-          return noStore(reply).send(
-            inspectDependencyResponseSchema.parse(
-              await service.inspect(context, ws.data, id, b.data),
-            ),
-          );
-        }
-        if (action === 'configure') {
-          const b = configureRuntimeSchema.safeParse(request.body);
-          if (!b.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Invalid runtime configuration. Check identifiers, digests and package paths.',
-            );
-          return noStore(reply).send(
-            runtimeEvidenceViewSchema.parse(await service.configure(context, ws.data, id, b.data)),
-          );
-        }
-        if (action === 'submit') {
-          const b = evidenceSubmissionRequestSchema.safeParse(request.body);
-          if (!b.success)
-            return sendApiError(
-              reply,
-              400,
-              'invalid-request',
-              'Invalid evidence package. Check required fields, SHA-256 digests and the 4 MiB artifact limit.',
-            );
-          return noStore(reply).send(
-            runtimeEvidenceViewSchema.parse(await service.submit(context, ws.data, id, b.data)),
-          );
-        }
-        const b = evidenceDecisionRequestSchema.safeParse(request.body);
-        if (!b.success)
-          return sendApiError(
-            reply,
-            400,
-            'invalid-request',
-            'Choose a submission, decision and rationale.',
-          );
         return noStore(reply).send(
-          runtimeEvidenceViewSchema.parse(await service.decide(context, ws.data, id, b.data)),
+          await run(context, ws.data, request.params.id, request.body as BodyOf<S>),
         );
       },
     );
+  command(
+    'audit-native',
+    'decision',
+    nativeAuditRequestSchema,
+    'Invalid native audit request.',
+    async (context, ws, id) => nativeAuditSchema.parse(await service.auditNative(context, ws, id)),
+  );
+  command(
+    'authorize-native',
+    'decision',
+    nativeApprovalRequestSchema,
+    'Choose the current native audit, approval and a rationale.',
+    async (context, ws, id, body) =>
+      runtimeEvidenceViewSchema.parse(await service.approveNative(context, ws, id, body)),
+  );
+  command(
+    'declare-transitions',
+    'decision',
+    upstreamTransitionRequestSchema,
+    'Choose the transition slices and provide a rationale.',
+    async (context, ws, id, body) =>
+      runtimeEvidenceViewSchema.parse(
+        await service.declareUpstreamTransitions(context, ws, id, body),
+      ),
+  );
+  command(
+    'configure',
+    'config',
+    configureRuntimeSchema,
+    'Invalid runtime configuration. Check identifiers, digests and package paths.',
+    async (context, ws, id, body) =>
+      runtimeEvidenceViewSchema.parse(await service.configure(context, ws, id, body)),
+  );
+  command(
+    'preview-refresh',
+    'decision',
+    runtimeRefreshRequestSchema,
+    'Choose the current dependency generation.',
+    async (context, ws, id, body) =>
+      runtimeRefreshPreviewSchema.parse(await service.previewRefresh(context, ws, id, body)),
+  );
+  command(
+    'refresh',
+    'decision',
+    applyRuntimeRefreshSchema,
+    'Review the dependency refresh preview and provide a rationale.',
+    async (context, ws, id, body) =>
+      runtimeEvidenceViewSchema.parse(await service.refresh(context, ws, id, body)),
+  );
+  command(
+    'inspect',
+    'config',
+    inspectDependencyRequestSchema,
+    'Invalid dependency inspection.',
+    async (context, ws, id, body) =>
+      inspectDependencyResponseSchema.parse(await service.inspect(context, ws, id, body)),
+  );
+  command(
+    'discover',
+    'config',
+    discoverRuntimeRequestSchema,
+    'Choose the current binding and repository refs.',
+    async (context, ws, id, body) =>
+      discoverRuntimeResponseSchema.parse(await service.discover(context, ws, id, body)),
+  );
+  command(
+    'propose-decision',
+    'decision',
+    proposeArchitectureDecisionSchema,
+    'Provide a complete architecture decision proposal.',
+    async (context, ws, id, body) =>
+      runtimeEvidenceViewSchema.parse(
+        await service.proposeArchitectureDecision(context, ws, id, body),
+      ),
+  );
+  command(
+    'generate-plan',
+    'decision',
+    generatePlanEvidenceRequestSchema,
+    'Choose the current saved roadmap revision and snapshot.',
+    async (context, ws, id, body) =>
+      runtimeEvidenceViewSchema.parse(await service.generatePlanEvidence(context, ws, id, body)),
+  );
+  command(
+    'prepare-checkpoint',
+    'decision',
+    prepareCheckpointRequestSchema,
+    'Select the exact checkpoint candidate preview.',
+    async (context, ws, id, body) =>
+      checkpointRecoverySchema.parse(await service.prepareCheckpoint(context, ws, id, body)),
+  );
+  command(
+    'submit',
+    'decision',
+    evidenceSubmissionRequestSchema,
+    'Invalid evidence package. Check required fields, SHA-256 digests and the 4 MiB artifact limit.',
+    async (context, ws, id, body) =>
+      runtimeEvidenceViewSchema.parse(await service.submit(context, ws, id, body)),
+  );
+  command(
+    'decide',
+    'decision',
+    evidenceDecisionRequestSchema,
+    'Choose a submission, decision and rationale.',
+    async (context, ws, id, body) =>
+      runtimeEvidenceViewSchema.parse(await service.decide(context, ws, id, body)),
+  );
 }

@@ -4,6 +4,7 @@ import {
   type TransportFinding,
 } from '@craftingtable/planning';
 import type { FastifyRequest } from 'fastify';
+import { declaredBody } from './route-access.js';
 
 /**
  * Bounded multipart reading for plan import.
@@ -125,6 +126,10 @@ export async function readPlanImportParts(
   if (totalBytes > PLAN_BUNDLE_LIMITS.maxTotalBytes) {
     transportFindings.push({ kind: 'total-size-exceeded', observed: totalBytes });
   }
+  // The text fields the route declares (R-H5).
+  const declared = declaredBody(request);
+  if (!declared.schema.safeParse(fields).success)
+    throw new MalformedMultipartError(declared.invalid);
 
   return { fields, artifacts, transportFindings };
 }

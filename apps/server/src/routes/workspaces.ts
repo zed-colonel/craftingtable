@@ -11,7 +11,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { type BodyOf, contextOf } from './route-access.js';
 
 function workspaceId(value: string) {
   return workspaceIdSchema.safeParse(value);
@@ -42,32 +42,42 @@ export function registerWorkspaceRoutes(
     );
   });
 
-  app.post('/api/workspaces', { config: { access: 'session' } }, async (request, reply) => {
-    const context = contextOf(request);
-    const body = createWorkspaceRequestSchema.safeParse(request.body ?? {});
-    if (!body.success) {
-      return sendApiError(reply, 400, 'invalid-request', 'Invalid workspace request');
-    }
-    const workspace = workspaceService.create(context, body.data.name, request.id);
-    return noStore(reply).send(createWorkspaceResponseSchema.parse({ workspace }));
-  });
+  app.post<{ Body: BodyOf<typeof createWorkspaceRequestSchema> }>(
+    '/api/workspaces',
+    {
+      config: {
+        access: 'session',
+        tag: 'config',
+        body: createWorkspaceRequestSchema,
+        invalidBody: 'Invalid workspace request',
+      },
+    },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const workspace = workspaceService.create(context, request.body.name, request.id);
+      return noStore(reply).send(createWorkspaceResponseSchema.parse({ workspace }));
+    },
+  );
 
-  app.post<{ Params: { workspaceId: string } }>(
+  app.post<{ Params: { workspaceId: string }; Body: BodyOf<typeof renameWorkspaceRequestSchema> }>(
     '/api/workspaces/:workspaceId/rename',
-    { config: { access: 'owner' } },
+    {
+      config: {
+        access: 'owner',
+        tag: 'config',
+        body: renameWorkspaceRequestSchema,
+        invalidBody: 'Invalid workspace request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const parsed = workspaceId(request.params.workspaceId);
       if (!parsed.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const body = renameWorkspaceRequestSchema.safeParse(request.body ?? {});
-      if (!body.success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid workspace request');
-      }
       return noStore(reply).send(
         renameWorkspaceResponseSchema.parse(
-          workspaceService.rename(context, parsed.data, body.data.name, request.id),
+          workspaceService.rename(context, parsed.data, request.body.name, request.id),
         ),
       );
     },

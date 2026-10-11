@@ -4,7 +4,9 @@ import {
   concurrencyDetailSchema,
   concurrencyImportResponseSchema,
   concurrencyListSchema,
+  concurrencyUploadFieldsSchema,
   planArchivePreviewSchema,
+  planArchiveUploadFieldsSchema,
   planVersionIdSchema,
   projectIdSchema,
   saveConcurrencyBindingsSchema,
@@ -16,7 +18,7 @@ import { ExecutionRequestError } from '../services/errors.js';
 import type { PackageImportService } from '../services/package-import-service.js';
 import { noStore, sendApiError } from './http.js';
 import { importResponse } from './planning.js';
-import { contextOf } from './route-access.js';
+import { type BodyOf, contextOf, declaredBody } from './route-access.js';
 
 async function readArchiveUpload(request: FastifyRequest) {
   if (!request.isMultipart())
@@ -35,15 +37,6 @@ async function readArchiveUpload(request: FastifyRequest) {
     })) {
       if (part.type === 'field') {
         if (
-          ![
-            'implementationPlan',
-            'workBreakdown',
-            'projectId',
-            'projectName',
-            'archiveDigest',
-            'activate',
-            'expectedActivePlanVersionId',
-          ].includes(part.fieldname) ||
           Object.hasOwn(fields, part.fieldname) ||
           part.fieldnameTruncated ||
           part.valueTruncated ||
@@ -71,6 +64,10 @@ async function readArchiveUpload(request: FastifyRequest) {
       error instanceof Error ? error.message : 'Invalid ZIP upload.',
     );
   }
+  // The text fields the route declares, and no other (R-H5).
+  const declared = declaredBody(request);
+  if (!declared.schema.safeParse(fields).success)
+    throw new ExecutionRequestError('invalid-request', declared.invalid);
   if (!file) throw new ExecutionRequestError('invalid-request', 'Choose one ZIP archive.');
   return { ...file, fields };
 }
@@ -78,7 +75,16 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
   for (const action of ['preview', 'import'] as const)
     app.post<{ Params: { workspaceId: string } }>(
       `/api/workspaces/:workspaceId/plan-archives/${action}`,
-      { config: { access: 'editor' }, bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384 },
+      {
+        config: {
+          access: 'editor',
+          tag: 'config',
+          multipart: true,
+          body: planArchiveUploadFieldsSchema,
+          invalidBody: 'Invalid archive field.',
+        },
+        bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384,
+      },
       async (request, reply) => {
         const context = contextOf(request);
         const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -140,19 +146,21 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
     );
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/concurrency-imports',
-    { config: { access: 'editor' }, bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384 },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        multipart: true,
+        body: concurrencyUploadFieldsSchema,
+        invalidBody: 'Concurrency import accepts the archive only.',
+      },
+      bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384,
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       const upload = await readArchiveUpload(request);
-      if (Object.keys(upload.fields).length)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Concurrency import accepts the archive only.',
-        );
       return noStore(reply).send(
         concurrencyImportResponseSchema.parse(
           imports.importConcurrency(context, workspace.data, upload.filename, upload.bytes),
@@ -184,19 +192,26 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; id: string } }>(
+  app.post<{
+    Params: { workspaceId: string; id: string };
+    Body: BodyOf<typeof saveConcurrencyBindingsSchema>;
+  }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/bindings',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: saveConcurrencyBindingsSchema,
+        invalidBody: 'Invalid binding revision.',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const body = saveConcurrencyBindingsSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid binding revision.');
       return noStore(reply).send(
         concurrencyDetailSchema.parse(
-          imports.saveBindings(context, workspace.data, request.params.id, body.data),
+          imports.saveBindings(context, workspace.data, request.params.id, request.body),
         ),
       );
     },

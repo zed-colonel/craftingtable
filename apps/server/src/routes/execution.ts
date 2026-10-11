@@ -33,7 +33,7 @@ import type { ExecutionService, ExecutionStatus } from '../services/execution-se
 import type { ModelCatalogService } from '../services/model-catalog-service.js';
 import { registerBranchRoutes } from './branches.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { type BodyOf, contextOf } from './route-access.js';
 import { runListRow, runSummary } from './run-summary.js';
 
 /**
@@ -69,44 +69,63 @@ export function registerExecutionRoutes(
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; workItemId: string };
+    Body: BodyOf<typeof authorizeScopeSchedulingRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/scope-scheduling',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: authorizeScopeSchedulingRequestSchema,
+        invalidBody: 'Invalid scheduling authorization',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         item = workItemIdSchema.safeParse(request.params.workItemId);
       if (!ws.success || !item.success)
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      const body = authorizeScopeSchedulingRequestSchema.safeParse(request.body);
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid scheduling authorization');
       return noStore(reply).send(
         executionScopeChoicesSchema.parse(
-          executionService.authorizeEarlyDevelopment(context, ws.data, item.data, body.data.scope),
+          executionService.authorizeEarlyDevelopment(
+            context,
+            ws.data,
+            item.data,
+            request.body.scope,
+          ),
         ),
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; worktreeId: string };
+    Body: BodyOf<typeof recordScopeReceiptRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/scope-evidence',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: recordScopeReceiptRequestSchema,
+        invalidBody: 'Invalid scope evidence request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
         tree = worktreeIdSchema.safeParse(request.params.worktreeId);
       if (!ws.success || !tree.success)
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      const body = recordScopeReceiptRequestSchema.safeParse(request.body);
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid scope evidence request');
       return noStore(reply).send(
         recordScopeReceiptResponseSchema.parse(
           await executionService.recordScopeReceipt(
             context,
             ws.data,
             tree.data,
-            body.data.expectedWorktreeVersion,
+            request.body.expectedWorktreeVersion,
           ),
         ),
       );
@@ -116,12 +135,17 @@ export function registerExecutionRoutes(
     return noStore(reply).send(executionStatusResponseSchema.parse(status()));
   });
   // "Refresh models" (R-G15): reads each CLI's catalog now and answers with the new status.
-  app.post(
+  app.post<{ Body: BodyOf<typeof refreshModelsRequestSchema> }>(
     '/api/execution-status/refresh-models',
-    { config: { access: 'session' } },
-    async (request, reply) => {
-      if (!refreshModelsRequestSchema.safeParse(request.body).success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid model refresh request');
+    {
+      config: {
+        access: 'session',
+        tag: 'control',
+        body: refreshModelsRequestSchema,
+        invalidBody: 'Invalid model refresh request',
+      },
+    },
+    async (_request, reply) => {
       await modelCatalogs.refresh();
       return noStore(reply).send(executionStatusResponseSchema.parse(status()));
     },
@@ -144,25 +168,28 @@ export function registerExecutionRoutes(
     },
   );
 
-  app.post<{ Params: { workspaceId: string } }>(
+  app.post<{ Params: { workspaceId: string }; Body: BodyOf<typeof saveRunProfilesRequestSchema> }>(
     '/api/workspaces/:workspaceId/run-profiles',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: saveRunProfilesRequestSchema,
+        invalidBody: 'Invalid run profiles',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const body = saveRunProfilesRequestSchema.safeParse(request.body ?? {});
-      if (!body.success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid run profiles');
-      }
       return noStore(reply).send(
         runProfilesResponseSchema.parse(
           agentRunService.saveRunProfiles(
             context,
             workspaceId.data,
-            body.data.profiles,
+            request.body.profiles,
             request.id,
           ),
         ),
@@ -187,41 +214,54 @@ export function registerExecutionRoutes(
     },
   );
 
-  app.post<{ Params: { workspaceId: string } }>(
+  app.post<{
+    Params: { workspaceId: string };
+    Body: BodyOf<typeof registerSourceRepositoryRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/repositories',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: registerSourceRepositoryRequestSchema,
+        invalidBody: 'Invalid repository registration',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const body = registerSourceRepositoryRequestSchema.safeParse(request.body ?? {});
-      if (!body.success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid repository registration');
-      }
       const result = await executionService.registerRepository(
         context,
         workspaceId.data,
-        body.data,
+        request.body,
         request.id,
       );
       return noStore(reply).send(registerSourceRepositoryResponseSchema.parse(result));
     },
   );
 
-  app.post<{ Params: { workspaceId: string; repositoryId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; repositoryId: string };
+    Body: BodyOf<typeof retireSourceRepositoryRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/repositories/:repositoryId/retire',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: retireSourceRepositoryRequestSchema,
+        invalidBody: 'Invalid request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const repositoryId = sourceRepositoryIdSchema.safeParse(request.params.repositoryId);
       if (!workspaceId.success || !repositoryId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      if (!retireSourceRepositoryRequestSchema.safeParse(request.body ?? {}).success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid request');
       }
       const result = executionService.retireRepository(
         context,
@@ -313,9 +353,19 @@ export function registerExecutionRoutes(
     },
   );
 
-  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; workItemId: string };
+    Body: BodyOf<typeof createWorktreeRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/worktrees',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: createWorktreeRequestSchema,
+        invalidBody: 'Invalid worktree request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -323,24 +373,30 @@ export function registerExecutionRoutes(
       if (!workspaceId.success || !workItemId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const body = createWorktreeRequestSchema.safeParse(request.body ?? {});
-      if (!body.success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid worktree request');
-      }
       const worktree = await executionService.createWorktree(
         context,
         workspaceId.data,
         workItemId.data,
-        body.data,
+        request.body,
         request.id,
       );
       return noStore(reply).send(createWorktreeResponseSchema.parse({ worktree }));
     },
   );
 
-  app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; worktreeId: string };
+    Body: BodyOf<typeof removeWorktreeRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/remove',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: removeWorktreeRequestSchema,
+        invalidBody: 'Invalid request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -348,16 +404,12 @@ export function registerExecutionRoutes(
       if (!workspaceId.success || !worktreeId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const body = removeWorktreeRequestSchema.safeParse(request.body ?? {});
-      if (!body.success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid request');
-      }
       const result = await executionService.removeWorktree(
         context,
         workspaceId.data,
         worktreeId.data,
         request.id,
-        { discardChanges: body.data.discardChanges === true },
+        { discardChanges: request.body.discardChanges === true },
       );
       return noStore(reply).send(removeWorktreeResponseSchema.parse(result));
     },
@@ -368,12 +420,19 @@ export function registerExecutionRoutes(
    * target branch and refuses unless the worktree's latest run is a review
    * with a mergeable verdict (the pull-request rule).
    */
-  app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; worktreeId: string };
+    Body: BodyOf<typeof mergeWorktreeRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/merge',
     {
       config: {
         access: 'editor',
+        tag: 'decision',
+        body: mergeWorktreeRequestSchema,
+        invalidBody: 'Invalid merge request',
         // A merge into the repository's default branch is a final promotion (R-G9).
+        stepUpRule: "a merge into the repository's default branch (a final promotion)",
         stepUp: (_body, request) => {
           const { workspaceId, worktreeId } = request.params as {
             readonly workspaceId: string;
@@ -390,15 +449,11 @@ export function registerExecutionRoutes(
       if (!workspaceId.success || !worktreeId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const body = mergeWorktreeRequestSchema.safeParse(request.body ?? {});
-      if (!body.success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid merge request');
-      }
       const result = await executionService.mergeWorktree(
         context,
         workspaceId.data,
         worktreeId.data,
-        body.data,
+        request.body,
         request.id,
       );
       return noStore(reply).send(mergeWorktreeResponseSchema.parse(result));

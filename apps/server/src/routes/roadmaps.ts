@@ -25,7 +25,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf, stepUpForStoredWork } from './route-access.js';
+import { type BodyOf, contextOf, stepUpForStoredWork } from './route-access.js';
 export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapService): void {
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations',
@@ -43,49 +43,53 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof prepareRoadmapDecisionSchema>;
+  }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/prepare-decision',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: prepareRoadmapDecisionSchema,
+        invalidBody: 'Choose a decision, model and bounded preparation time.',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
-        id = roadmapIdSchema.safeParse(request.params.roadmapId),
-        input = prepareRoadmapDecisionSchema.safeParse(request.body);
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
       if (!ws.success || !id.success)
         return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
-      if (!input.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Choose a decision, model and bounded preparation time.',
-        );
       return noStore(reply).send(
         roadmapViewSchema.parse(
-          await roadmaps.prepareDecision(context, ws.data, id.data, input.data),
+          await roadmaps.prepareDecision(context, ws.data, id.data, request.body),
         ),
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof applyRoadmapDelegationSchema>;
+  }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/delegation',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: applyRoadmapDelegationSchema,
+        invalidBody: 'Choose current entries, delegation and a reason.',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
-        id = roadmapIdSchema.safeParse(request.params.roadmapId),
-        input = applyRoadmapDelegationSchema.safeParse(request.body);
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
       if (!ws.success || !id.success)
         return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
-      if (!input.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Choose current entries, delegation and a reason.',
-        );
       return noStore(reply).send(
-        roadmapViewSchema.parse(roadmaps.applyDelegation(context, ws.data, id.data, input.data)),
+        roadmapViewSchema.parse(roadmaps.applyDelegation(context, ws.data, id.data, request.body)),
       );
     },
   );
@@ -104,26 +108,29 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof applyRoadmapAgentsSchema>;
+  }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: applyRoadmapAgentsSchema,
+        invalidBody:
+          'Choose valid model profiles and current roadmap entries; permissions and policy cannot be changed here.',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
-        id = roadmapIdSchema.safeParse(request.params.roadmapId),
-        body = applyRoadmapAgentsSchema.safeParse(request.body);
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
       if (!ws.success || !id.success)
         return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
-      if (!body.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Choose valid model profiles and current roadmap entries; permissions and policy cannot be changed here.',
-        );
       return noStore(reply).send(
         roadmapAgentSettingsSchema.parse(
-          roadmaps.applyAgentSettings(context, ws.data, id.data, body.data),
+          roadmaps.applyAgentSettings(context, ws.data, id.data, request.body),
         ),
       );
     },
@@ -140,26 +147,29 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof saveRoadmapCapacitySchema>;
+  }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/capacity',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: saveRoadmapCapacitySchema,
+        invalidBody:
+          'Roadmap capacities must be integers from 1 to 16 with the current roadmap version.',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const id = roadmapIdSchema.safeParse(request.params.roadmapId);
-      const input = saveRoadmapCapacitySchema.safeParse(request.body);
       if (!workspace.success || !id.success)
         return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
-      if (!input.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Roadmap capacities must be integers from 1 to 16 with the current roadmap version.',
-        );
       return noStore(reply).send(
         roadmapCapacitiesSchema.parse(
-          roadmaps.saveCapacity(context, workspace.data, id.data, input.data),
+          roadmaps.saveCapacity(context, workspace.data, id.data, request.body),
         ),
       );
     },
@@ -266,78 +276,103 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof decisionPreparationGrantRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparation-grant',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: decisionPreparationGrantRequestSchema,
+        invalidBody: 'Invalid decision preparation grant',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const body = decisionPreparationGrantRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid decision preparation grant');
       return noStore(reply).send(
         roadmapViewSchema.parse(
           roadmaps.configureDecisionPreparation(
             context,
             workspace.data,
             request.params.roadmapId,
-            body.data,
+            request.body,
           ),
         ),
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof scopeRecoveryPolicyRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/scope-recovery',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: scopeRecoveryPolicyRequestSchema,
+        invalidBody: 'Invalid recovery delegation',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const body = scopeRecoveryPolicyRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid recovery delegation');
       return noStore(reply).send(
         roadmapViewSchema.parse(
           roadmaps.configureScopeRecovery(
             context,
             workspace.data,
             request.params.roadmapId,
-            body.data,
+            request.body,
           ),
         ),
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof saveRoadmapRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId',
-    { config: { access: 'editor' }, bodyLimit: 2 * 1024 * 1024 },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: saveRoadmapRequestSchema,
+        invalidBody: 'Invalid roadmap settings; choose unique work items and entries.',
+      },
+      bodyLimit: 2 * 1024 * 1024,
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const id = roadmapIdSchema.safeParse(request.params.roadmapId);
-      const body = saveRoadmapRequestSchema.safeParse(request.body);
       if (!workspace.success || !id.success)
         return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
-      if (!body.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Invalid roadmap settings; choose unique work items and entries.',
-        );
       return noStore(reply).send(
-        roadmapViewSchema.parse(roadmaps.save(context, workspace.data, id.data, body.data)),
+        roadmapViewSchema.parse(roadmaps.save(context, workspace.data, id.data, request.body)),
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof controlRoadmapRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/control',
     {
       config: {
         access: 'editor',
+        tag: 'control',
+        body: controlRoadmapRequestSchema,
+        invalidBody: 'Invalid roadmap command',
         // Starting or resuming work under settings that grant unrestricted asks again (R-G9).
+        stepUpRule:
+          'an action that starts or resumes work under stored settings granting unrestricted',
         stepUp: stepUpForStoredWork((request) => {
           const { workspaceId, roadmapId } = request.params as {
             readonly workspaceId: string;
@@ -350,24 +385,21 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const body = controlRoadmapRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid roadmap command');
-      if (body.data.entryId) {
-        if (body.data.action === 'reverify')
+      if (request.body.entryId) {
+        if (request.body.action === 'reverify')
           return noStore(reply).send(
             roadmapViewSchema.parse(
               await roadmaps.reverifyEntry(
                 context,
                 workspace.data,
                 request.params.roadmapId,
-                body.data.entryId,
-                body.data.expectedVersion,
+                request.body.entryId,
+                request.body.expectedVersion,
               ),
             ),
           );
-        if (body.data.action !== 'pause' && body.data.action !== 'resume')
+        if (request.body.action !== 'pause' && request.body.action !== 'resume')
           return sendApiError(
             reply,
             400,
@@ -380,14 +412,14 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
               context,
               workspace.data,
               request.params.roadmapId,
-              body.data.entryId,
-              body.data.action,
-              body.data.expectedVersion,
+              request.body.entryId,
+              request.body.action,
+              request.body.expectedVersion,
             ),
           ),
         );
       }
-      if (body.data.action === 'reverify')
+      if (request.body.action === 'reverify')
         return sendApiError(reply, 400, 'invalid-request', 'Re-verify applies to one item.');
       return noStore(reply).send(
         roadmapViewSchema.parse(
@@ -395,8 +427,8 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
             context,
             workspace.data,
             request.params.roadmapId,
-            body.data.action,
-            body.data.expectedVersion,
+            request.body.action,
+            request.body.expectedVersion,
           ),
         ),
       );

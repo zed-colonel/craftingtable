@@ -17,7 +17,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { BranchService } from '../services/branch-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { type BodyOf, contextOf } from './route-access.js';
 
 export function registerBranchRoutes(app: FastifyInstance, branches: BranchService) {
   app.get<{
@@ -42,21 +42,28 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; planVersionId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; planVersionId: string };
+    Body: BodyOf<typeof saveRepositoryPolicyRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: saveRepositoryPolicyRequestSchema,
+        invalidBody: 'Invalid repository policy',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
-      const input = saveRepositoryPolicyRequestSchema.safeParse(request.body);
       if (!ws.success || !plan.success)
         return sendApiError(reply, 404, 'not-found', 'Plan not found');
-      if (!input.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid repository policy');
       return noStore(reply).send(
         repositoryPolicyEvidenceSchema.parse(
-          await branches.savePolicy(context, ws.data, plan.data, input.data),
+          await branches.savePolicy(context, ws.data, plan.data, request.body),
         ),
       );
     },
@@ -77,21 +84,28 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; planVersionId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; planVersionId: string };
+    Body: BodyOf<typeof savePlanBranchSettingsRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: savePlanBranchSettingsRequestSchema,
+        invalidBody: 'Invalid branch settings',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
       if (!ws.success || !plan.success)
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      const body = savePlanBranchSettingsRequestSchema.safeParse(request.body);
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid branch settings');
       return noStore(reply).send(
         planBranchSettingsResponseSchema.parse(
-          await branches.save(context, ws.data, plan.data, body.data),
+          await branches.save(context, ws.data, plan.data, request.body),
         ),
       );
     },
@@ -110,47 +124,58 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; workItemId: string };
+    Body: BodyOf<typeof recordIntegrationEvidenceRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/integration-evidence',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: recordIntegrationEvidenceRequestSchema,
+        invalidBody: 'Invalid integration evidence',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
       const item = workItemIdSchema.safeParse(request.params.workItemId);
       if (!ws.success || !item.success)
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      const body = recordIntegrationEvidenceRequestSchema.safeParse(request.body);
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid integration evidence');
       return noStore(reply).send(
         planBranchSettingsResponseSchema.parse(
-          await branches.recordEvidence(context, ws.data, item.data, body.data.commitSha),
+          await branches.recordEvidence(context, ws.data, item.data, request.body.commitSha),
         ),
       );
     },
   );
   for (const action of ['retarget', 'update'] as const) {
-    app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
+    const schema =
+      action === 'update' ? updateWorktreeRequestSchema : retargetWorktreeRequestSchema;
+    app.post<{ Params: { workspaceId: string; worktreeId: string }; Body: BodyOf<typeof schema> }>(
       `/api/workspaces/:workspaceId/worktrees/:worktreeId/${action}`,
-      { config: { access: 'editor' } },
+      {
+        config: {
+          access: 'editor',
+          tag: 'control',
+          body: schema,
+          invalidBody: 'Invalid worktree branch request',
+        },
+      },
       async (request, reply) => {
         const context = contextOf(request);
         const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         const wt = worktreeIdSchema.safeParse(request.params.worktreeId);
         if (!ws.success || !wt.success)
           return sendApiError(reply, 404, 'not-found', 'Resource not found');
-        const body = (
-          action === 'update' ? updateWorktreeRequestSchema : retargetWorktreeRequestSchema
-        ).safeParse(request.body);
-        if (!body.success)
-          return sendApiError(reply, 400, 'invalid-request', 'Invalid worktree branch request');
         return noStore(reply).send(
           createWorktreeResponseSchema.parse(
             await branches.changeWorktree(
               context,
               ws.data,
               wt.data,
-              body.data,
+              request.body,
               action === 'update',
             ),
           ),

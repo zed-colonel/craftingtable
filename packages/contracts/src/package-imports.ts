@@ -16,6 +16,21 @@ export const importIssueSchema = z.strictObject({
   message: z.string().max(16000),
   path: z.string().max(500).optional(),
 });
+/**
+ * A plan archive upload's text fields, beside its one ZIP part (R-H5): the upload reader parses
+ * them with this, so no other field is accepted. Preview reads the two plan files; import reads all.
+ */
+export const planArchiveUploadFieldsSchema = z.strictObject({
+  implementationPlan: z.string().optional(),
+  workBreakdown: z.string().optional(),
+  projectId: z.string().optional(),
+  projectName: z.string().optional(),
+  archiveDigest: z.string().optional(),
+  activate: z.string().optional(),
+  expectedActivePlanVersionId: z.string().optional(),
+});
+/** A concurrency map upload carries the ZIP part only (R-H5). */
+export const concurrencyUploadFieldsSchema = z.strictObject({});
 export const archiveSelectionSchema = z.strictObject({
   implementationPlan: z.string().min(1).max(400),
   workBreakdown: z.string().min(1).max(400),

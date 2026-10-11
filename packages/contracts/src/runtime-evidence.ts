@@ -360,6 +360,8 @@ export const architectureDecisionInboxSchema = z.strictObject({
   ),
 });
 export type ArchitectureDecisionInbox = z.infer<typeof architectureDecisionInboxSchema>;
+/** A native audit's request: it carries nothing; the daemon audits the map's current runtime. */
+export const nativeAuditRequestSchema = z.strictObject({});
 export const nativeAuditSchema = z.strictObject({
   hostDigest: digest,
   auditDigest: digest,

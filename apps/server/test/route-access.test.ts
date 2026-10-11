@@ -197,6 +197,95 @@ describe('route authorization sweep', () => {
     expect(routeAccessProblem(['GET'], '/api/workspaces/:workspaceId/x', 'member')).toBeUndefined();
   });
 
+  it('refuses a command without a tag or a body schema, and a read with either (R-H5)', async () => {
+    const context = await createTestContext({ workers: false });
+    contexts.push(context);
+    const handler = async () => ({});
+    const body = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
+    const url = '/api/workspaces/:workspaceId/r-h5';
+    expect(() => context.app.post(url, { config: { access: 'editor', body } }, handler)).toThrow(
+      /without a decision, control or config tag/,
+    );
+    expect(() =>
+      context.app.post(url, { config: { access: 'editor', tag: 'control' } }, handler),
+    ).toThrow(/without a body schema/);
+    expect(() =>
+      context.app.get(url, { config: { access: 'member', tag: 'config' } }, handler),
+    ).toThrow(/is a read, which takes no tag or body/);
+    expect(() => context.app.get(url, { config: { access: 'member', body } }, handler)).toThrow(
+      /is a read/,
+    );
+    expect(() =>
+      context.app.post(
+        url,
+        { config: { access: 'editor', tag: 'control', body, stepUp: () => true } },
+        handler,
+      ),
+    ).toThrow(/without its rule in words/);
+    expect(() =>
+      context.app.post(
+        `${url}/declared`,
+        {
+          config: {
+            access: 'editor',
+            tag: 'control',
+            body,
+            stepUpRule: 'always',
+            stepUp: () => true,
+          },
+        },
+        handler,
+      ),
+    ).not.toThrow();
+  });
+
+  it("parses every command's body with its declared schema before the handler (R-H5)", async () => {
+    const context = await createTestContext({ workers: false });
+    contexts.push(context);
+    await context.bootstrap();
+    const seen: unknown[] = [];
+    const body = {
+      safeParse: (value: unknown) =>
+        typeof value === 'object' && value !== null && 'n' in value
+          ? { success: true as const, data: { n: Number((value as { n: unknown }).n) + 1 } }
+          : { success: false as const },
+    };
+    context.app.post(
+      '/api/workspaces/:workspaceId/r-h5-parsed',
+      { config: { access: 'editor', tag: 'control', body, invalidBody: 'Name n.' } },
+      async (request) => {
+        seen.push(request.body);
+        return { ok: true };
+      },
+    );
+    const session = await context.login();
+    const workspaceId = context.storage.workspaces.listAuthorized(
+      context.storage.users.findByNormalizedUsername(TEST_USERNAME)!.id,
+    )[0]!.workspace.id;
+    const send = (payload: unknown) =>
+      context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${workspaceId}/r-h5-parsed`,
+        headers: {
+          cookie: session.cookie,
+          [CSRF_HEADER_NAME]: session.csrfToken,
+          origin: context.config.publicOrigin,
+          'content-type': 'application/json',
+        },
+        payload: payload as Record<string, unknown>,
+      });
+    const refused = await send({ m: 1 });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({
+      error: { code: 'invalid-request', message: 'Name n.' },
+    });
+    expect(seen).toEqual([]);
+    const parsed = await send({ n: 1 });
+    expect(parsed.statusCode, parsed.body).toBe(200);
+    // The handler reads the schema's output, not the body as sent.
+    expect(seen).toEqual([{ n: 2 }]);
+  });
+
   it('answers each kind of caller as every route declares', async () => {
     const f = await sweepFixture();
     const failures: string[] = [];

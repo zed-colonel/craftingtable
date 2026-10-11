@@ -19,6 +19,7 @@
     "deploy:daemon": "node scripts/deploy-daemon.mjs",
     "controller:replay": "pnpm --filter @craftingtable/server replay",
     "replays": "node scripts/replays.mjs",
+    "routes:inventory": "UPDATE_ROUTE_INVENTORY=1 vitest run apps/server/test/route-inventory.test.ts",
     "db:status": "pnpm craftingtable db status",
     "db:verify": "pnpm --filter @craftingtable/server db-verify",
     "build": "tsc -b && pnpm --filter @craftingtable/web build",

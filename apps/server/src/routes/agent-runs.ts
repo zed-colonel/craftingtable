@@ -25,7 +25,7 @@ import { parseEventCursor, selectEventCursor } from '../services/workspace-event
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { eventStreamHeaders } from './browser-security.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { type BodyOf, contextOf } from './route-access.js';
 import { runDetail, runSummary } from './run-summary.js';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -65,9 +65,19 @@ export function registerAgentRunRoutes(
     await agentRunService.shutdown();
   });
 
-  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; workItemId: string };
+    Body: BodyOf<typeof startAgentRunRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/runs',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: startAgentRunRequestSchema,
+        invalidBody: 'Invalid run request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -75,15 +85,11 @@ export function registerAgentRunRoutes(
       if (!workspaceId.success || !workItemId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const body = startAgentRunRequestSchema.safeParse(request.body ?? {});
-      if (!body.success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid run request');
-      }
       const run = await agentRunService.start(
         context,
         workspaceId.data,
         workItemId.data,
-        body.data,
+        request.body,
         request.id,
       );
       return noStore(reply).send(startAgentRunResponseSchema.parse({ run: runSummary(run) }));
@@ -177,9 +183,16 @@ export function registerAgentRunRoutes(
     ['end', endAgentRunRequestSchema, 'end'],
     ['cancel', cancelAgentRunRequestSchema, 'cancel'],
   ] as const) {
-    app.post<{ Params: { workspaceId: string; runId: string } }>(
+    app.post<{ Params: { workspaceId: string; runId: string }; Body: BodyOf<typeof schema> }>(
       `/api/workspaces/:workspaceId/runs/:runId/${action}`,
-      { config: { access: 'editor' } },
+      {
+        config: {
+          access: 'editor',
+          tag: 'control',
+          body: schema,
+          invalidBody: 'Invalid run command',
+        },
+      },
       async (request, reply) => {
         const context = contextOf(request);
         const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -187,17 +200,13 @@ export function registerAgentRunRoutes(
         if (!workspaceId.success || !runId.success) {
           return sendApiError(reply, 404, 'not-found', 'Resource not found');
         }
-        const body = schema.safeParse(request.body ?? {});
-        if (!body.success) {
-          return sendApiError(reply, 400, 'invalid-request', 'Invalid run command');
-        }
         const result =
           handler === 'message'
             ? agentRunService.sendMessage(
                 context,
                 workspaceId.data,
                 runId.data,
-                (body.data as { text: string }).text,
+                (request.body as { text: string }).text,
                 request.id,
               )
             : handler === 'end'

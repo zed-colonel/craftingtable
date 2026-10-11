@@ -21,7 +21,7 @@ import type { FastifyInstance } from 'fastify';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import type { WorkCycleService } from '../services/work-cycle-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf, stepUpForStoredWork } from './route-access.js';
+import { type BodyOf, contextOf, stepUpForStoredWork } from './route-access.js';
 
 export function registerWorkCycleRoutes(
   app: FastifyInstance,
@@ -43,16 +43,23 @@ export function registerWorkCycleRoutes(
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; cycleId: string };
+    Body: BodyOf<typeof scopeRepairRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: scopeRepairRequestSchema,
+        invalidBody: 'Invalid scope repair request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const input = scopeRepairRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!input.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid scope repair request');
       return noStore(reply).send(
         workCycleResponseSchema.parse(
           cycles.present(
@@ -60,7 +67,7 @@ export function registerWorkCycleRoutes(
               context,
               workspace.data,
               request.params.cycleId,
-              input.data,
+              request.body,
             ),
           ),
         ),
@@ -93,21 +100,28 @@ export function registerWorkCycleRoutes(
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; workItemId: string };
+    Body: BodyOf<typeof startWorkCycleRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/cycles',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: startWorkCycleRequestSchema,
+        invalidBody: 'Invalid cycle settings',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       const item = workItemIdSchema.safeParse(request.params.workItemId);
-      const body = startWorkCycleRequestSchema.safeParse(request.body);
       if (!workspace.success || !item.success)
         return sendApiError(reply, 404, 'not-found', 'Work item not found');
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid cycle settings');
       return noStore(reply).send(
         workCycleResponseSchema.parse(
-          cycles.present(cycles.startRequested(context, workspace.data, item.data, body.data)),
+          cycles.present(cycles.startRequested(context, workspace.data, item.data, request.body)),
         ),
       );
     },
@@ -154,16 +168,23 @@ export function registerWorkCycleRoutes(
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; cycleId: string };
+    Body: BodyOf<typeof prepareBaselineRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: prepareBaselineRequestSchema,
+        invalidBody: 'Invalid baseline preparation',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const input = prepareBaselineRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!input.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid baseline preparation');
       return noStore(reply).send(
         workCycleResponseSchema.parse(
           cycles.present(
@@ -171,97 +192,134 @@ export function registerWorkCycleRoutes(
               context,
               workspace.data,
               request.params.cycleId,
-              input.data,
+              request.body,
             ),
           ),
         ),
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; cycleId: string };
+    Body: BodyOf<typeof recoverDesignRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
-    { config: { access: 'editor' }, bodyLimit: 2 * 1024 * 1024 },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: recoverDesignRequestSchema,
+        invalidBody: 'Invalid design recovery request',
+      },
+      bodyLimit: 2 * 1024 * 1024,
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const input = recoverDesignRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!input.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid design recovery request');
       const cycle = await cycles.recoverDesign(
         context,
         workspace.data,
         request.params.cycleId,
-        input.data,
+        request.body,
       );
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
   // A question stop's read-only investigation (R-C16), and ending it.
-  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; cycleId: string };
+    Body: BodyOf<typeof startInvestigationRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/investigation',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: startInvestigationRequestSchema,
+        invalidBody: 'Invalid investigation request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const input = startInvestigationRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!input.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid investigation request');
       const cycle = await cycles.startInvestigation(
         context,
         workspace.data,
         request.params.cycleId,
-        input.data,
+        request.body,
       );
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
-  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; cycleId: string };
+    Body: BodyOf<typeof endInvestigationRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/investigation/end',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: endInvestigationRequestSchema,
+        invalidBody: 'Invalid investigation request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const input = endInvestigationRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!input.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid investigation request');
       const cycle = await cycles.endInvestigation(
         context,
         workspace.data,
         request.params.cycleId,
-        input.data.expectedVersion,
+        request.body.expectedVersion,
       );
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
   // The worktree changed while the stop's investigation ran: the operator has seen it (R-C16).
-  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; cycleId: string };
+    Body: BodyOf<typeof acknowledgeInvestigationChangeRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/investigation/acknowledge-change',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: acknowledgeInvestigationChangeRequestSchema,
+        invalidBody: 'Invalid acknowledgement request',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const input = acknowledgeInvestigationChangeRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!input.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid acknowledgement request');
       const cycle = cycles.acknowledgeWorktreeChange(
         context,
         workspace.data,
         request.params.cycleId,
-        input.data.expectedVersion,
+        request.body.expectedVersion,
       );
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
-  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; cycleId: string };
+    Body: BodyOf<typeof controlWorkCycleRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/control',
     {
       config: {
         access: 'editor',
+        tag: 'decision',
+        body: controlWorkCycleRequestSchema,
+        invalidBody: 'Invalid cycle command',
         // Resuming work under profiles that grant unrestricted asks again (R-G9).
+        stepUpRule:
+          'an action that starts or resumes work under stored settings granting unrestricted',
         stepUp: stepUpForStoredWork((request) => {
           const { workspaceId, cycleId } = request.params as {
             readonly workspaceId: string;
@@ -274,57 +332,56 @@ export function registerWorkCycleRoutes(
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const body = controlWorkCycleRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!body.success)
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid cycle command');
       const cycle =
-        body.data.action === 'authorize-remediation'
+        request.body.action === 'authorize-remediation'
           ? await cycles.authorizeWorkItemRemediation(
               context,
               workspace.data,
               request.params.cycleId,
-              body.data,
+              request.body,
             )
-          : body.data.action === 'review-again'
+          : request.body.action === 'review-again'
             ? await cycles.repeatScopeReview(
                 context,
                 workspace.data,
                 request.params.cycleId,
-                body.data.expectedVersion,
-                body.data.instructions ?? '',
+                request.body.expectedVersion,
+                request.body.instructions ?? '',
               )
             : await cycles.control(
                 context,
                 workspace.data,
                 request.params.cycleId,
-                body.data.action,
-                body.data.expectedVersion,
-                body.data.action === 'resume' ? body.data.instructions : undefined,
+                request.body.action,
+                request.body.expectedVersion,
+                request.body.action === 'resume' ? request.body.instructions : undefined,
               );
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );
-  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+  app.post<{
+    Params: { workspaceId: string; cycleId: string };
+    Body: BodyOf<typeof integrationResolutionRequestSchema>;
+  }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/integration-resolution',
-    { config: { access: 'editor' } },
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: integrationResolutionRequestSchema,
+        invalidBody: 'Invalid integration resolution command',
+      },
+    },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const body = integrationResolutionRequestSchema.safeParse(request.body);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      if (!body.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Invalid integration resolution command',
-        );
       const cycle = await cycles.resolveIntegration(
         context,
         workspace.data,
         request.params.cycleId,
-        body.data,
+        request.body,
       );
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },

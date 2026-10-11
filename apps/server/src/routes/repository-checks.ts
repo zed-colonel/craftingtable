@@ -15,7 +15,7 @@ import type {
   RepositoryChecksService,
 } from '../services/repository-checks-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { type BodyOf, contextOf } from './route-access.js';
 
 /** A repository's declared checks (R-G13): read them, preview a proposal, adopt it. */
 export function registerRepositoryChecksRoutes(
@@ -47,18 +47,27 @@ export function registerRepositoryChecksRoutes(
       repositoryCheckReceiptsSchema.parse(service.receipts(context, target.ws, target.repository)),
     );
   });
-  app.post<Params>(`${base}/preview`, { config: { access: 'editor' } }, async (request, reply) => {
-    const context = contextOf(request);
-    const target = ids(request.params);
-    const input = checkDeclarationPreviewRequestSchema.safeParse(request.body);
-    if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
-    if (!input.success) return sendApiError(reply, 400, 'invalid-request', 'Invalid preview');
-    return noStore(reply).send(
-      checkDeclarationPreviewSchema.parse(
-        await service.preview(context, target.ws, target.repository, input.data.ref),
-      ),
-    );
-  });
+  app.post<Params & { Body: BodyOf<typeof checkDeclarationPreviewRequestSchema> }>(
+    `${base}/preview`,
+    {
+      config: {
+        access: 'editor',
+        tag: 'config',
+        body: checkDeclarationPreviewRequestSchema,
+        invalidBody: 'Invalid preview',
+      },
+    },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const target = ids(request.params);
+      if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+      return noStore(reply).send(
+        checkDeclarationPreviewSchema.parse(
+          await service.preview(context, target.ws, target.repository, request.body.ref),
+        ),
+      );
+    },
+  );
   type TreeParams = { Params: { workspaceId: string; worktreeId: string } };
   app.get<TreeParams>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/check-definitions',
@@ -80,18 +89,27 @@ export function registerRepositoryChecksRoutes(
       return noStore(reply).send(checkDefinitionDiagnosisSchema.parse(diagnosisView(diagnosis)));
     },
   );
-  app.post<Params>(`${base}/adopt`, { config: { access: 'editor' } }, async (request, reply) => {
-    const context = contextOf(request);
-    const target = ids(request.params);
-    const input = adoptCheckDeclarationRequestSchema.safeParse(request.body);
-    if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
-    if (!input.success) return sendApiError(reply, 400, 'invalid-request', 'Invalid adoption');
-    return noStore(reply).send(
-      repositoryChecksViewSchema.parse(
-        await service.adopt(context, target.ws, target.repository, input.data),
-      ),
-    );
-  });
+  app.post<Params & { Body: BodyOf<typeof adoptCheckDeclarationRequestSchema> }>(
+    `${base}/adopt`,
+    {
+      config: {
+        access: 'editor',
+        tag: 'decision',
+        body: adoptCheckDeclarationRequestSchema,
+        invalidBody: 'Invalid adoption',
+      },
+    },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const target = ids(request.params);
+      if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+      return noStore(reply).send(
+        repositoryChecksViewSchema.parse(
+          await service.adopt(context, target.ws, target.repository, request.body),
+        ),
+      );
+    },
+  );
 }
 
 /** The diagnosis as the browser reads it: the merge's proposal reduced to its checks. */

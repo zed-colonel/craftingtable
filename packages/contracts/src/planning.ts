@@ -60,6 +60,15 @@ export const planImportFailedSchema = z.strictObject({
 });
 
 /**
+ * A plan bundle upload's text fields, beside its artifact parts (R-H5). The route reads these three
+ * and ignores any other field, as it always has.
+ */
+export const planImportFieldsSchema = z.object({
+  projectName: z.string().optional(),
+  projectId: z.string().optional(),
+  bundleName: z.string().optional(),
+});
+/**
  * All three outcomes are HTTP 200: each is a recorded, durable result of a
  * valid request. 4xx stays reserved for transport and authorization faults,
  * which record no attempt because they are not import requests.

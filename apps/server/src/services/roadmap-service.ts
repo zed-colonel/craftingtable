@@ -20,7 +20,7 @@ import type {
   PrepareRoadmapDecision,
   ApplyRoadmapAgents,
   ApplyRoadmapDelegation,
-  RoadmapAgents,
+  RoadmapAgentSettings,
   RoadmapCapacities,
   SaveRoadmapCapacity,
   SaveRoadmapRequest,
@@ -77,6 +77,7 @@ import {
   entryAgents,
   latestAssignment,
   preparationAgent,
+  stepPermissions,
   withPermissions,
 } from './agent-profile-policy.js';
 import { selectionSet } from './agent-resolution.js';
@@ -84,7 +85,13 @@ import type { AuthContext, CommandContext } from './auth-service.js';
 import { neededDecisions, slicesHeldBy, slicesWaitingOn } from './decision-demand.js';
 import { decisionSettlement, settlementLines } from './decision-settlement.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
-import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
+import {
+  bindingIssues,
+  crossProjectState,
+  effectiveMapLevel,
+  mapActivity,
+  milestoneSatisfied,
+} from './cross-project-service.js';
 import {
   ConcurrentModificationError,
   DaemonDrainingError,
@@ -420,40 +427,59 @@ export class RoadmapService {
     const snapshot = mapReadSnapshot(this.storage);
     return this.storage.roadmaps.list(workspaceId).map((roadmap) => this.view(roadmap, snapshot));
   }
-  agentSettings(context: AuthContext, workspaceId: WorkspaceId): RoadmapAgents {
+  /**
+   * A roadmap's agents as its setup edits them (R-E5b): each entry's effective agents with their
+   * sources, its step permissions, and on a map roadmap its activity and settings level.
+   */
+  agentSettings(context: AuthContext, workspaceId: WorkspaceId, id: string): RoadmapAgentSettings {
     this.workspaces.requireAuthorized(context, workspaceId);
+    const r = this.find(workspaceId, id);
+    const cp = r.definition.crossProject;
+    const binding =
+      cp &&
+      this.storage.imports
+        .bindings(workspaceId, cp.definitionId)
+        .find((b) => b.revision === cp.bindingRevision);
     return {
-      roadmaps: this.storage.roadmaps
-        .list(workspaceId)
-        .filter((r) => !ended(r))
-        .map((r) => ({
-          id: r.id,
-          name: r.definition.name,
-          version: r.version,
-          status: r.status,
-          editBlocker: this.controlling.has(r.id)
-            ? 'A roadmap command is in progress.'
-            : r.status === 'running'
-              ? 'Pause scheduling before applying agent profiles. Running agents may finish normally.'
-              : this.storage.amendments.pending(workspaceId, r.id)
-                ? 'Decide the pending planning amendment first.'
-                : null,
-          entries: r.definition.entries.map((e) => {
-            const agents = entryAgents(r, e);
-            const assignment = latestAssignment(r, e.id);
-            return {
-              id: e.id,
-              label: e.sourceId + (e.executionScope ? ` · ${e.executionScope.kind}` : ''),
-              projectId: e.projectId,
-              projectName:
-                this.storage.planning.projects.find(workspaceId, e.projectId)?.name ?? e.projectId,
-              selections: selectionSet(agents),
-              agents,
-              ...(assignment ? { appliedAt: assignment.appliedAt } : {}),
-              started: startedAttempts(r).some((a) => a.entryId === e.id),
-            };
-          }),
-        })),
+      id: r.id,
+      name: r.definition.name,
+      version: r.version,
+      status: r.status,
+      editBlocker: this.controlling.has(r.id)
+        ? 'A roadmap command is in progress.'
+        : ended(r)
+          ? 'This roadmap has ended. Its agents can no longer change.'
+          : r.status === 'running'
+            ? 'Pause scheduling before applying agent profiles. Running agents may finish normally.'
+            : this.storage.amendments.pending(workspaceId, r.id)
+              ? 'Decide the pending planning amendment first.'
+              : null,
+      entries: r.definition.entries.map((e) => {
+        const agents = entryAgents(r, e);
+        const assignment = latestAssignment(r, e.id);
+        const activity = cp ? mapActivity(e) : undefined;
+        const alias = binding?.bindings.find((b) => b.planVersionId === e.planVersionId)?.alias;
+        const level =
+          cp && alias !== undefined && e.executionScope
+            ? effectiveMapLevel(cp, alias, mapActivity(e), e.executionScope.sourceId)
+            : undefined;
+        return {
+          id: e.id,
+          label: e.sourceId + (e.executionScope ? ` · ${e.executionScope.kind}` : ''),
+          projectId: e.projectId,
+          projectName:
+            this.storage.planning.projects.find(workspaceId, e.projectId)?.name ?? e.projectId,
+          selections: selectionSet(agents),
+          agents,
+          permissions: stepPermissions(e.profiles),
+          ...(activity ? { activity } : {}),
+          ...(cp
+            ? { settingsLevel: level ? { level: level.level, key: level.key } : 'defaults' }
+            : {}),
+          ...(assignment ? { appliedAt: assignment.appliedAt } : {}),
+          started: startedAttempts(r).some((a) => a.entryId === e.id),
+        };
+      }),
     };
   }
   applyAgentSettings(
@@ -461,7 +487,7 @@ export class RoadmapService {
     workspaceId: WorkspaceId,
     id: string,
     input: ApplyRoadmapAgents,
-  ): RoadmapAgents {
+  ): RoadmapAgentSettings {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const old = this.find(workspaceId, id);
     if (old.version !== input.expectedVersion || this.controlling.has(id))
@@ -497,7 +523,7 @@ export class RoadmapService {
       'apply-agent-profiles',
       context,
     );
-    return this.agentSettings(context, workspaceId);
+    return this.agentSettings(context, workspaceId, id);
   }
   decisionSettings(context: AuthContext, ws: WorkspaceId, id: string) {
     this.workspaces.requireAuthorized(context, ws);
@@ -877,8 +903,7 @@ export class RoadmapService {
       conflict('Choose reviewer responsibilities declared by this map.');
     if (input.automation.resolutionProfile) {
       this.cycles.validateAgentSelections({
-        ...this.agentSettings(context, workspaceId).roadmaps.find((r) => r.id === id)!.entries[0]!
-          .selections,
+        ...this.agentSettings(context, workspaceId, id).entries[0]!.selections,
         conflict: input.automation.resolutionProfile,
       });
       this.cycles.requireModelIds(

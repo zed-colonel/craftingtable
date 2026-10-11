@@ -688,16 +688,22 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
     await walk.capture('roadmap-draft', 'Roadmaps · saved draft', region('AQ sequential'));
     const roadmapUrl = page.url();
-    await navigate(page, 'Settings');
+    // A roadmap's agents and permissions are edited in its setup, one form (R-E5b).
     await walk.capture(
       'roadmap-agent-profiles',
-      'Future roadmap agent profiles',
-      heading('Settings'),
+      'Roadmap setup · agents and permissions',
+      region('AQ sequential'),
       async (p) => {
-        await p.getByRole('button', { name: 'Edit future run profiles' }).click();
-        await p
-          .getByRole('region', { name: 'Roadmap agent profiles' })
-          .getByText(/Specialist overrides ·/)
+        await p.getByRole('button', { name: 'Edit queued entries', exact: true }).click();
+        const entries = p.getByRole('region', { name: 'Roadmap editor' });
+        await entries
+          .getByText('Agents, models, and completion policy', { exact: true })
+          .first()
+          .click();
+        await entries
+          .getByRole('group', { name: 'Agents', exact: true })
+          .first()
+          .getByRole('button', { name: 'Change agents' })
           .click();
       },
     );

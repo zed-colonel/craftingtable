@@ -119,9 +119,10 @@ export function RoadmapsPage({
         }
       />
       <p>
-        <Link route={{ name: 'settings', workspaceId, focus: 'roadmap-agent-profiles' }}>
-          Manage agent profiles for future runs
-        </Link>
+        <Link route={{ name: 'settings', workspaceId, focus: 'workspace-agent-profiles' }}>
+          Workspace agent defaults
+        </Link>{' '}
+        · each roadmap's own agents are set in its setup.
       </p>
       <About label="About roadmaps">
         <p>
@@ -147,12 +148,13 @@ export function RoadmapsPage({
           onSaved={(view) => {
             setDraft(undefined);
             // A new roadmap opens on its own board, where it is started.
-            navigation?.navigate({
-              name: 'roadmap',
-              workspaceId,
-              roadmapId: view.roadmap.id,
-              tab: 'board',
-            });
+            if (view)
+              navigation?.navigate({
+                name: 'roadmap',
+                workspaceId,
+                roadmapId: view.roadmap.id,
+                tab: 'board',
+              });
           }}
           onCancel={cancel}
         />

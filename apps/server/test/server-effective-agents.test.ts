@@ -1,7 +1,7 @@
 import {
   decisionPreparationSettingsSchema,
   finalizationsResponseSchema,
-  roadmapAgentsSchema,
+  roadmapAgentSettingsSchema,
   runProfilesResponseSchema,
   runViewSchema,
   workCyclesResponseSchema,
@@ -86,6 +86,14 @@ describe('workspace defaults (run-profiles and the page reads)', () => {
       selection: claude(),
       source: { layer: 'daemon-default' },
       permissionMode: 'auto',
+    });
+    // The same defaults as the selection set a new roadmap entry's setup starts from (R-E5b):
+    // every step, and only the specialists a saved default names.
+    expect(listed.selections).toEqual({
+      design: claude(),
+      implement: claude('implement'),
+      review: claude('review'),
+      remediate: claude('implement'),
     });
     // Each listed profile is its purpose's effective selection.
     for (const profile of listed.profiles)
@@ -264,12 +272,22 @@ describe('a cycle’s projection', () => {
   });
 });
 
-describe('roadmap setup (roadmaps/agent-profiles)', () => {
+describe('roadmap setup (roadmaps/:id/agent-profiles)', () => {
   it('reports each entry’s saved definition as the lowest layer, and an applied assignment over it', async () => {
     const { state } = await roadmapFixture();
     expect((await saveRoadmapRequest(state, roadmapInput(state))).statusCode).toBe(200);
-    const before = roadmapAgentsSchema.parse(await get(state, '/roadmaps/agent-profiles'));
-    expect(before.roadmaps[0]?.entries[0]?.agents?.review).toEqual({
+    const before = roadmapAgentSettingsSchema.parse(
+      await get(state, `/roadmaps/${roadmapId}/agent-profiles`),
+    );
+    // The step permissions the definition holds, edited in the same form (R-E5b).
+    expect(before.entries[0]?.permissions).toEqual({
+      design: 'auto',
+      implement: 'auto',
+      review: 'auto',
+      remediate: 'auto',
+    });
+    expect(before.entries[0]).not.toHaveProperty('settingsLevel');
+    expect(before.entries[0]?.agents?.review).toEqual({
       selection: claude('review-model'),
       source: { layer: 'saved-definition', slot: 'review' },
       permissionMode: 'auto',
@@ -281,7 +299,7 @@ describe('roadmap setup (roadmaps/agent-profiles)', () => {
     });
     expect(applied.statusCode, applied.body).toBe(200);
     const assignmentId = storedRoadmap(state).agentAssignments?.[0]?.id;
-    const after = roadmapAgentsSchema.parse(applied.json()).roadmaps[0]?.entries;
+    const after = roadmapAgentSettingsSchema.parse(applied.json()).entries;
     expect(after?.[0]?.agents?.review).toEqual({
       selection: claude('assigned-review'),
       source: { layer: 'roadmap-assignment', slot: 'review', assignmentId },

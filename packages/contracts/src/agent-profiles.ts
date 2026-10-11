@@ -100,29 +100,4 @@ export const applyRoadmapAgentsSchema = z.strictObject({
   entryIds: z.array(z.uuid()).min(1).max(2000),
   selections: agentSelectionsSchema,
 });
-export const roadmapAgentsSchema = z.strictObject({
-  roadmaps: z.array(
-    z.strictObject({
-      id: z.uuid(),
-      name: z.string(),
-      version: z.number().int().positive(),
-      status: z.string(),
-      editBlocker: z.string().nullable(),
-      entries: z.array(
-        z.strictObject({
-          id: z.uuid(),
-          label: z.string(),
-          projectId: projectIdSchema,
-          projectName: z.string(),
-          selections: agentSelectionsSchema,
-          /** Each purpose's effective selection and its source (R-E5a). */
-          agents: effectiveAgentsSchema.optional(),
-          appliedAt: z.iso.datetime().optional(),
-          started: z.boolean(),
-        }),
-      ),
-    }),
-  ),
-});
-export type RoadmapAgents = z.infer<typeof roadmapAgentsSchema>;
 export type ApplyRoadmapAgents = z.infer<typeof applyRoadmapAgentsSchema>;

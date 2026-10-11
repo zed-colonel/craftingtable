@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, it, expect, vi } from 'vitest';
 import type { RunProfilesResponse } from '@craftingtable/contracts';
 import {
@@ -12,7 +12,13 @@ import { testQueryStore } from '../../lib/query-store-testing.js';
 import { previewCrossProject, saveCrossProject } from '../../lib/cross-project-api.js';
 import { request } from '../../lib/api-client.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
+import { applyRoadmapAgents, loadRoadmapAgents } from '../../lib/roadmap-api.js';
 import { phaseLabel } from './DependencyRequirements.js';
+vi.mock('../../lib/roadmap-api.js', async (actual) => ({
+  ...(await actual<typeof import('../../lib/roadmap-api.js')>()),
+  loadRoadmapAgents: vi.fn(),
+  applyRoadmapAgents: vi.fn(),
+}));
 vi.mock('../../lib/cross-project-api.js', () => ({
   previewCrossProject: vi.fn(),
   saveCrossProject: vi.fn(),
@@ -42,6 +48,9 @@ function setup(
   onDraftChange?: (id: string, dirty: boolean) => void,
   wrap: (ui: import('react').ReactElement) => import('react').ReactElement = (ui) => ui,
 ) {
+  // A roadmap's agents, unless the test reads its own (R-E5b).
+  if (!vi.mocked(loadRoadmapAgents).getMockImplementation())
+    vi.mocked(loadRoadmapAgents).mockResolvedValue(agentView([]));
   vi.mocked(loadExecutionStatus).mockResolvedValue({
     backends: [
       {
@@ -222,6 +231,42 @@ it('saves a draft with manual parent acceptance and the defaults’ permissions,
   expect(adoptions()).toEqual([]);
 });
 
+/** The roadmap's agents as its setup view reports them, each entry with its settings level. */
+function agentView(
+  levels: readonly import('@craftingtable/contracts').RoadmapAgentSettings['entries'][number]['settingsLevel'][],
+): import('@craftingtable/contracts').RoadmapAgentSettings {
+  const agent = {
+    selection: { backend: 'codex' as const, model: 'assigned' },
+    source: { layer: 'roadmap-assignment' as const, slot: 'design' as const, assignmentId: 'a-1' },
+    permissionMode: 'auto' as const,
+  };
+  return {
+    id,
+    name: 'Stack roadmap',
+    version: 3,
+    status: 'needs-attention',
+    editBlocker: null,
+    entries: levels.map((settingsLevel, index) => ({
+      id: `00000000-0000-4000-8000-00000000000${index}`,
+      label: `E-${index}`,
+      projectId: 'p' as never,
+      projectName: 'P',
+      selections: Object.fromEntries(
+        ['design', 'implement', 'review', 'remediate'].map((s) => [
+          s,
+          { backend: 'codex', model: 'assigned' },
+        ]),
+      ) as never,
+      agents: Object.fromEntries(
+        AGENT_PROFILE_PURPOSES.map((purpose) => [purpose, agent]),
+      ) as never,
+      permissions: { design: 'auto', implement: 'auto', review: 'auto', remediate: 'auto' },
+      activity: 'development',
+      ...(settingsLevel === undefined ? {} : { settingsLevel }),
+      started: false,
+    })),
+  };
+}
 function savedRoadmap() {
   return {
     id,
@@ -406,4 +451,39 @@ it("renders only the changed milestone's card when the map's preview changes", a
   store.refreshNow([['cross-project', ws, id]]);
   await screen.findByText('Under review');
   expect(vi.mocked(phaseLabel)).toHaveBeenCalledTimes(1);
+});
+
+it('shows a settings level’s agents from its entries and applies a change to them alone, without a settings save (R-E5b)', async () => {
+  const roadmap = savedRoadmap();
+  const view = agentView(['defaults', 'defaults', { level: 'activity', key: 'development' }]);
+  vi.mocked(loadRoadmapAgents).mockResolvedValue(view);
+  vi.mocked(applyRoadmapAgents).mockResolvedValue({ ...view, version: 4 });
+  setup(roadmap);
+  fireEvent.click(await screen.findByText('Queued settings and overrides'));
+  const agents = await screen.findByRole('group', { name: 'Default agents' });
+  await waitFor(() =>
+    expect(within(agents).getAllByText(/Roadmap assignment/).length).toBeGreaterThan(0),
+  );
+  fireEvent.click(within(agents).getByRole('button', { name: 'Change agents' }));
+  const implementation = within(agents).getByRole('group', { name: 'Implementation' });
+  fireEvent.change(within(implementation).getByLabelText('Reasoning effort'), {
+    target: { value: 'high' },
+  });
+  const save = screen.getByRole('button', { name: 'Save queued roadmap settings' });
+  await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
+  fireEvent.click(save);
+  await waitFor(() => expect(applyRoadmapAgents).toHaveBeenCalledTimes(1));
+  expect(saveCrossProject).not.toHaveBeenCalled();
+  const [, roadmapId, version, groups] = vi.mocked(applyRoadmapAgents).mock.calls[0]!;
+  expect([roadmapId, version]).toEqual([id, 3]);
+  expect(groups).toEqual([
+    {
+      entryIds: [view.entries[0]!.id, view.entries[1]!.id],
+      selections: {
+        ...view.entries[0]!.selections,
+        implement: { backend: 'codex', model: 'assigned', reasoningEffort: 'high' },
+      },
+    },
+  ]);
+  await screen.findByText('Agents applied to future runs. Plan acceptance is unaffected.');
 });

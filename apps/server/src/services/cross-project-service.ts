@@ -381,20 +381,32 @@ export function mapActivity(entry: Pick<RoadmapEntry, 'executionScope'>): MapAct
       ? 'verification'
       : 'development';
 }
+/**
+ * The settings level a map entry takes its settings from: the most specific override that names
+ * it (project, then activity, then the individual scope), else the defaults.
+ */
+export function effectiveMapLevel(
+  c: CrossProjectConfiguration,
+  alias: string,
+  activity: MapActivity,
+  sourceId: string,
+): CrossProjectConfiguration['overrides'][number] | undefined {
+  let found: CrossProjectConfiguration['overrides'][number] | undefined;
+  for (const [level, key] of [
+    ['project', alias],
+    ['activity', activity],
+    ['individual', `${activity}:${sourceId}`],
+  ] as const)
+    found = c.overrides.find((o) => o.level === level && o.key === key) ?? found;
+  return found;
+}
 export function effectiveMapSettings(
   c: CrossProjectConfiguration,
   alias: string,
   activity: MapActivity,
   sourceId: string,
 ) {
-  let settings = c.defaults;
-  for (const [level, key] of [
-    ['project', alias],
-    ['activity', activity],
-    ['individual', `${activity}:${sourceId}`],
-  ] as const)
-    settings = c.overrides.find((o) => o.level === level && o.key === key)?.settings ?? settings;
-  return settings;
+  return effectiveMapLevel(c, alias, activity, sourceId)?.settings ?? c.defaults;
 }
 export class CrossProjectService {
   constructor(

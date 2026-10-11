@@ -2,7 +2,6 @@ import type { WorkspaceAgentProfile } from '@craftingtable/domain';
 import { useState } from 'react';
 import { HostSchedulingPanel } from '../../features/workspace/HostSchedulingPanel.js';
 import { NotificationPanel } from '../../features/workspace/NotificationPanel.js';
-import { RoadmapAgentProfilesPanel } from '../../features/workspace/RoadmapAgentProfilesPanel.js';
 import { SettingsPage } from '../../features/workspace/SettingsPage.js';
 import { StoragePanel } from '../../features/workspace/StoragePanel.js';
 import { ApiError, renameWorkspace } from '../../lib/api-client.js';
@@ -76,15 +75,6 @@ export function SettingsRoute() {
       busy={busy}
       {...(error === undefined ? {} : { error })}
       {...(notice === undefined ? {} : { notice })}
-      roadmapProfiles={
-        <RoadmapAgentProfilesPanel
-          workspaceId={workspaceId}
-          csrfToken={csrfToken}
-          profiles={profiles?.profiles ?? []}
-          backends={status?.backends ?? []}
-          canEdit={canMutate}
-        />
-      }
       hostScheduling={
         canMutate ? (
           <HostSchedulingPanel

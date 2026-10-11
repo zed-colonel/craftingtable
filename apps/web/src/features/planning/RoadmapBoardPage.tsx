@@ -24,6 +24,7 @@ import { revealElement } from '../../lib/reveal-element.js';
 import { useStableCallback } from '../../lib/use-stable-callback.js';
 import {
   roadmapSetupIds,
+  stepAnchors,
   SetupChecklist,
   type SetupStep,
   SetupStepPart,
@@ -162,6 +163,8 @@ function useRoadmapPage(workspaceId: WorkspaceId, roadmapId: string) {
     error,
     setError,
     apply,
+    /** After a command that answers no roadmap view (an agent assignment): read it again. */
+    reload: useCallback(() => store.invalidate([pageKey]), [store, pageKey]),
   };
 }
 
@@ -221,6 +224,7 @@ export function RoadmapPage({
     error,
     setError,
     apply,
+    reload,
   } = useRoadmapPage(workspaceId, roadmapId);
   const wide = useWide();
   // No graph on a phone (ADR-072): there the list stands in for it.
@@ -546,13 +550,14 @@ export function RoadmapPage({
             ·{' '}
             <Link
               route={{
-                name: 'settings',
+                name: 'roadmap',
                 workspaceId,
                 roadmapId: roadmap.id,
-                focus: 'roadmap-agent-profiles',
+                tab: 'setup',
+                focus: stepAnchors(roadmapSetupIds(roadmap.id)).automation,
               }}
             >
-              Manage agent profiles
+              Agents and permissions
             </Link>
           </p>
           {roadmap.definition.scheduling?.mode === 'parallel' &&
@@ -579,8 +584,10 @@ export function RoadmapPage({
           draft={draft}
           setDraft={setDraft}
           current={roadmap}
-          onSaved={(saved) => {
-            apply(saved);
+          onSaved={(saved, assigned) => {
+            if (saved) apply(saved);
+            // An assignment moves the roadmap's version without answering its view (R-E5b).
+            if (assigned) reload();
             setDraft(undefined);
           }}
           onCancel={cancel}
@@ -722,8 +729,8 @@ export function RoadmapPage({
   ) : (
     <>
       <p className="empty-state">
-        This roadmap's entries, agents and policies are set in its editor on the board. Capacity and
-        agent profiles are workspace settings.
+        This roadmap's entries, their agents and permissions are set in Edit queued entries on its
+        board. Capacity and workspace agent defaults are in Settings.
       </p>
       {/* Slices of one imported map share its dependency environment and decisions (LIVE-18). */}
       {mapScope && (

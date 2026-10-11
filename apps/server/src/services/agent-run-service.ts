@@ -81,7 +81,7 @@ import {
   launchProvenance,
   workspaceLayer,
 } from './agent-profile-policy.js';
-import { launchProfile, resolveAgents } from './agent-resolution.js';
+import { launchProfile, resolveAgents, selectionSet } from './agent-resolution.js';
 import { removeAgentTree } from './agent-tree.js';
 import { cycleOwnership } from './cycle-ownership.js';
 import { WORKTREE_CACHES_DIRECTORY } from './storage-files.js';
@@ -462,6 +462,11 @@ export type RunProfiles = {
   >;
 };
 
+/** `run-profiles`' answer: the defaults, and the same as the selection set setup starts from. */
+function withSelections(profiles: RunProfiles) {
+  return { ...profiles, selections: selectionSet(profiles.agents) };
+}
+
 export class AgentRunService {
   private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
@@ -691,9 +696,11 @@ export class AgentRunService {
    * Every role, in role order; unsaved roles carry the daemon's default. Beside them, each
    * purpose's default with its source (R-E5a), read in the same read.
    */
-  listRunProfiles(context: AuthContext, workspaceId: WorkspaceId, requestId?: string): RunProfiles {
+  listRunProfiles(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    return this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId));
+    return withSelections(
+      this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId)),
+    );
   }
 
   saveRunProfiles(
@@ -742,7 +749,9 @@ export class AgentRunService {
         },
       });
     });
-    return this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId));
+    return withSelections(
+      this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId)),
+    );
   }
 
   /** The workspace's defaults as a resolution layer (R-E5a). */

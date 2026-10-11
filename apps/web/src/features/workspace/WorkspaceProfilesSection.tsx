@@ -40,6 +40,7 @@ export function WorkspaceProfilesSection({
   const current = initial();
   return (
     <Section
+      id="workspace-agent-profiles"
       title="Agent profiles"
       summary="Workspace defaults for new work. Existing roadmaps keep their selections until you explicitly apply a change."
     >

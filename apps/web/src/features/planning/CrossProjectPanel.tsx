@@ -3,10 +3,13 @@ import { RoadmapDelegation } from '../../decisions/delegation/RoadmapDelegation.
 import type {
   CrossProjectView,
   ExecutionStatusResponse,
+  RoadmapAgentSettings,
+  RunProfilesResponse,
   RuntimeEvidenceView,
   SaveCrossProjectRequest,
 } from '@craftingtable/contracts';
 import {
+  type AgentSelections,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_AUTOMATION,
   type MapActivitySettings,
@@ -30,7 +33,9 @@ import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { defaultStepPermissions, stepPermissionsOf } from '../execution/step-permissions.js';
 import { DependencyGraph, PhaseRequirements, phaseLabel } from './DependencyRequirements.js';
 import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
+import { RoadmapAgentsFields } from './RoadmapAgentsFields.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
+import { applyRoadmapAgents, loadRoadmapAgents } from '../../lib/roadmap-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import { useStableCallback } from '../../lib/use-stable-callback.js';
@@ -38,6 +43,9 @@ import { MapNodeCard } from './MapNodeCard.js';
 /** A settings level as the form edits and saves it: permissions, not profiles (R-E5b). */
 type LevelSettings = SaveCrossProjectRequest['configuration']['defaults'];
 type LevelOverrides = SaveCrossProjectRequest['configuration']['overrides'];
+/** A settings level's key: the defaults, or an override's level and key. */
+const levelKey = (level: RoadmapAgentSettings['entries'][number]['settingsLevel']) =>
+  level === undefined || level === 'defaults' ? 'defaults' : `${level.level}:${level.key}`;
 const levelOf = ({ profiles, reviewerRoles, ...settings }: MapActivitySettings): LevelSettings => ({
   ...settings,
   ...(reviewerRoles ? { reviewerRoles: [...reviewerRoles] } : {}),
@@ -101,6 +109,13 @@ export function CrossProjectPanel({
     saved?.parentAcceptance ?? 'manual',
   );
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
+  // A level's agents are its entries' (R-E5b): read from the roadmap's agents, edited per level
+  // and applied as ADR-064 assignments to the level's entries once the settings are saved.
+  const [workspaceAgents, setWorkspaceAgents] = useState<RunProfilesResponse>();
+  const [roadmapAgents, setRoadmapAgents] = useState<RoadmapAgentSettings>();
+  const [agentDrafts, setAgentDrafts] = useState<ReadonlyMap<string, AgentSelections>>(
+    () => new Map(),
+  );
   const [name, setName] = useState(roadmap?.definition.name ?? 'Cross-project roadmap');
   const limit = roadmap?.definition.scheduling?.maxInFlight ?? 2;
   const repoLimit = roadmap?.definition.scheduling?.maxPerRepository ?? 2;
@@ -124,8 +139,60 @@ export function CrossProjectPanel({
     refreshLimit,
   });
   const [savedSnapshot, setSavedSnapshot] = useState(() => snapshot);
-  const dirty = !!roadmap && snapshot !== savedSnapshot;
+  const settingsDirty = !!roadmap && snapshot !== savedSnapshot;
+  const dirty = settingsDirty || (!!roadmap && agentDrafts.size > 0);
   const roadmapId = roadmap?.id;
+  const roadmapVersion = roadmap?.version;
+  useEffect(() => {
+    let live = true;
+    if (roadmapId !== undefined && roadmapVersion !== undefined)
+      void loadRoadmapAgents(workspaceId, roadmapId)
+        .then((read) => {
+          if (live) setRoadmapAgents(read);
+        })
+        .catch((e) => {
+          if (live) setError(e instanceof Error ? e.message : 'Could not load the agents.');
+        });
+    return () => {
+      live = false;
+    };
+  }, [workspaceId, roadmapId, roadmapVersion]);
+  /** A settings level's agents: its entries' as the daemon reports them, else the defaults'. */
+  const levelAgents = (key: string) => {
+    const entries = roadmapAgents?.entries.filter((e) => levelKey(e.settingsLevel) === key);
+    const first = entries?.[0];
+    return {
+      entries: entries ?? [],
+      agents: first ? first.agents : roadmap ? undefined : workspaceAgents?.agents,
+      selections: first ? first.selections : roadmap ? undefined : workspaceAgents?.selections,
+      differing: new Set(entries?.map((e) => JSON.stringify(e.selections))).size,
+    };
+  };
+  const levelAgentsFields = (key: string, legend: string) => {
+    const level = levelAgents(key);
+    if (roadmap && roadmapAgents && level.entries.length === 0)
+      return <p className="hint">No entry takes these settings, so no agents run under them.</p>;
+    return (
+      <RoadmapAgentsFields
+        legend={legend}
+        agents={level.agents}
+        selections={level.selections}
+        differing={level.differing}
+        value={agentDrafts.get(key)}
+        onChange={(value) =>
+          setAgentDrafts((drafts) => {
+            const next = new Map(drafts);
+            if (value) next.set(key, value);
+            else next.delete(key);
+            return next;
+          })
+        }
+        backends={backends}
+        disabled={!editing || busy}
+        locked={roadmapAgents?.editBlocker}
+      />
+    );
+  };
   useEffect(() => {
     if (roadmapId) onDraftChange?.(roadmapId, dirty || staleSettings);
   }, [roadmapId, dirty, staleSettings, onDraftChange]);
@@ -173,6 +240,7 @@ export function CrossProjectPanel({
       .then(([s, p]) => {
         if (!live) return;
         setBackends(s.backends);
+        setWorkspaceAgents(p);
         setSettings(
           (old) =>
             old ?? {
@@ -213,37 +281,74 @@ export function CrossProjectPanel({
   const save = () =>
     command(async () => {
       if (!settings) return;
-      const result = await saveCrossProject(
-        workspaceId,
-        {
-          roadmapId: roadmap?.id ?? crypto.randomUUID(),
-          expectedVersion: roadmap?.version ?? 0,
-          name,
-          configuration: {
-            definitionId,
-            bindingRevision,
-            targetId: target,
-            selection,
-            parentAcceptance,
-            defaults: settings,
-            overrides: [...overrides],
-          },
-          scheduling: {
-            mode: 'parallel',
-            maxInFlight: limit,
-            maxPerRepository: repoLimit,
-            maxIntegrationRefreshes: refreshLimit,
-          },
-        },
-        csrfToken,
-      );
-      savedPlanChanged();
-      if (roadmap) {
-        setEditingRevision(result.roadmap.definition.revision);
-        setSavedSnapshot(snapshot);
-      } else onCreated?.(result.roadmap.id);
+      // The settings hold each step's permissions; unchanged ones are not saved again (R-E5b).
+      const result =
+        roadmap && !settingsDirty
+          ? undefined
+          : await saveCrossProject(
+              workspaceId,
+              {
+                roadmapId: roadmap?.id ?? crypto.randomUUID(),
+                expectedVersion: roadmap?.version ?? 0,
+                name,
+                configuration: {
+                  definitionId,
+                  bindingRevision,
+                  targetId: target,
+                  selection,
+                  parentAcceptance,
+                  defaults: settings,
+                  overrides: [...overrides],
+                },
+                scheduling: {
+                  mode: 'parallel',
+                  maxInFlight: limit,
+                  maxPerRepository: repoLimit,
+                  maxIntegrationRefreshes: refreshLimit,
+                },
+              },
+              csrfToken,
+            );
+      if (result) {
+        savedPlanChanged();
+        if (roadmap) {
+          setEditingRevision(result.roadmap.definition.revision);
+          setSavedSnapshot(snapshot);
+        }
+      }
+      const id = result?.roadmap.id ?? roadmap?.id;
+      // The agents go to ADR-064 assignments: each changed level's, over the entries it covers.
+      if (id && agentDrafts.size > 0) {
+        try {
+          const current = await loadRoadmapAgents(workspaceId, id);
+          const groups = [...agentDrafts].flatMap(([key, selections]) => {
+            const entryIds = current.entries
+              .filter((e) => levelKey(e.settingsLevel) === key)
+              .map((e) => e.id);
+            return entryIds.length ? [{ entryIds, selections }] : [];
+          });
+          const applied = await applyRoadmapAgents(
+            workspaceId,
+            id,
+            current.version,
+            groups,
+            csrfToken,
+          );
+          setRoadmapAgents(applied ?? current);
+          setAgentDrafts(new Map());
+        } catch (e) {
+          throw new Error(
+            `${result ? 'The settings were saved, but the agents were not applied: ' : ''}${
+              e instanceof Error ? e.message : 'Could not apply the agents.'
+            }`,
+          );
+        }
+      }
+      if (result && !roadmap) onCreated?.(result.roadmap.id);
       setNotice(
-        `Saved ${result.roadmap.definition.name}. Generate and review plan-acceptance evidence, then use the separate Start or Resume control when startup checks are clear.`,
+        result
+          ? `Saved ${result.roadmap.definition.name}. Generate and review plan-acceptance evidence, then use the separate Start or Resume control when startup checks are clear.`
+          : 'Agents applied to future runs. Plan acceptance is unaffected.',
       );
     });
   const included = view?.nodes.filter((n) => n.included) ?? [],
@@ -711,24 +816,6 @@ export function CrossProjectPanel({
               </About>
               {settings && (
                 <>
-                  <SetupStepPart step="automation">
-                    {roadmap && (
-                      <p>
-                        Models for future runs are managed in{' '}
-                        <Link
-                          route={{
-                            name: 'settings',
-                            workspaceId: workspaceId as WorkspaceId,
-                            roadmapId: roadmap.id,
-                            focus: 'roadmap-agent-profiles',
-                          }}
-                        >
-                          Roadmap agent profiles
-                        </Link>
-                        , which preserves plan acceptance.
-                      </p>
-                    )}
-                  </SetupStepPart>
                   <SetupStepPart step="reviewers">
                     <div id={`map-reviewers-${panelKey}`}>
                       <ReviewerResponsibilities
@@ -804,6 +891,7 @@ export function CrossProjectPanel({
                         </label>
                       ))}
                     </div>
+                    {levelAgentsFields('defaults', 'Default agents')}
                     <CycleSettingsFields
                       policy={settings.policy}
                       setPolicy={(policy) => setSettings({ ...settings, policy })}
@@ -905,6 +993,7 @@ export function CrossProjectPanel({
                             <summary>
                               {o.level}: {o.key}
                             </summary>
+                            {levelAgentsFields(`${o.level}:${o.key}`, 'Agents for this override')}
                             <CycleSettingsFields
                               policy={o.settings.policy}
                               setPolicy={(policy) => update({ ...o.settings, policy })}

@@ -1,3 +1,4 @@
+import { roadmapAgentSettingsSchema } from '@craftingtable/contracts';
 import { agentSelections } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -124,6 +125,20 @@ describe('a map roadmap’s settings save', () => {
     expect(stored().defaults.profiles).toEqual(cycleProfiles);
     expect(stored().overrides[0]?.settings.profiles.design.model).toBe('later-default');
     expect(stored().overrides[0]?.settings.profiles.review.permissionMode).toBe('edit-only');
+    // The setup view names each entry's settings level, so its form can apply a level's agents.
+    const view = await f.state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${f.state.workspaceId}/roadmaps/${roadmapId}/agent-profiles`,
+      headers: { cookie: f.state.cookie },
+    });
+    const { entries } = roadmapAgentSettingsSchema.parse(view.json());
+    expect(entries.length).toBeGreaterThan(1);
+    for (const entry of entries)
+      expect(entry.settingsLevel).toEqual(
+        entry.activity === 'development' ? { level: 'activity', key: 'development' } : 'defaults',
+      );
+    expect(entries.some((e) => e.activity !== 'development')).toBe(true);
+    expect(entries.find((e) => e.activity === 'development')?.permissions.review).toBe('edit-only');
     const granting = {
       ...f.input.configuration,
       overrides: [

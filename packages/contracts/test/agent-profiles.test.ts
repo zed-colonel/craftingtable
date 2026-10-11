@@ -5,8 +5,8 @@ import {
   agentSelectionSchema,
   effectiveAgentSchema,
   effectiveAgentsSchema,
-  roadmapAgentsSchema,
 } from '../src/agent-profiles.js';
+import { roadmapAgentSettingsSchema } from '../src/roadmap.js';
 import { runProfilesResponseSchema } from '../src/execution.js';
 import { crossProjectConfigurationSchema } from '../src/cross-project.js';
 import {
@@ -108,8 +108,6 @@ describe('effective selections on the wire (R-E5a)', () => {
         stages: [{ id: 's', review: agent, implement: agent }],
       }),
     ).toMatchObject({ stages: [{ id: 's' }] });
-    expect(
-      roadmapAgentsSchema.shape.roadmaps.element.shape.entries.element.shape.agents.parse(all),
-    ).toEqual(all);
+    expect(roadmapAgentSettingsSchema.shape.entries.element.shape.agents.parse(all)).toEqual(all);
   });
 });

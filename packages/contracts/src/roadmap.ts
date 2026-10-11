@@ -11,6 +11,7 @@ import {
   agentSelectionSchema,
   agentSelectionsSchema,
   effectiveAgentSchema,
+  effectiveAgentsSchema,
 } from './agent-profiles.js';
 import { phaseBlockerCodeSchema, roadmapAttentionSchema } from './attention.js';
 import { crossProjectConfigurationSchema } from './cross-project.js';
@@ -102,6 +103,45 @@ export const saveRoadmapRequestSchema = z
     'Entries and execution scopes must be unique; a parent cannot mix whole-item execution or map bindings',
   );
 export type SaveRoadmapRequest = z.infer<typeof saveRoadmapRequestSchema>;
+/**
+ * A roadmap's agents as its setup edits them (R-E5b): every entry's effective agent per purpose
+ * with its source (`agents`; the selection set an assignment would replace, `selections`), the
+ * step permissions its definition holds, and on a map roadmap the entry's activity and the
+ * settings level that covers it. `GET`/`POST roadmaps/:id/agent-profiles` answer it; it replaced
+ * the workspace-wide `GET roadmaps/agent-profiles`.
+ */
+export const roadmapAgentSettingsSchema = z.strictObject({
+  id: z.uuid(),
+  name: z.string(),
+  version: z.number().int().positive(),
+  status: z.string(),
+  editBlocker: z.string().nullable(),
+  entries: z.array(
+    z.strictObject({
+      id: z.uuid(),
+      label: z.string(),
+      projectId: projectIdSchema,
+      projectName: z.string(),
+      selections: agentSelectionsSchema,
+      agents: effectiveAgentsSchema,
+      permissions: stepPermissionsSchema,
+      activity: z.enum(['development', 'verification', 'acceptance']).optional(),
+      /** The map settings level whose settings the entry takes: the defaults, or an override. */
+      settingsLevel: z
+        .union([
+          z.literal('defaults'),
+          z.strictObject({
+            level: z.enum(['project', 'activity', 'individual']),
+            key: z.string().min(1).max(240),
+          }),
+        ])
+        .optional(),
+      appliedAt: z.iso.datetime().optional(),
+      started: z.boolean(),
+    }),
+  ),
+});
+export type RoadmapAgentSettings = z.infer<typeof roadmapAgentSettingsSchema>;
 export const controlRoadmapRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   action: z.enum(['start', 'pause', 'resume', 'stop', 'reverify']),

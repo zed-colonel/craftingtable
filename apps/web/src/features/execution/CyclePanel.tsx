@@ -28,6 +28,7 @@ import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution
 import { CycleControlButtons } from '../../decisions/cycle/CycleDecisions.js';
 import { CycleDecision, cycleDecisions } from '../../decisions/cycle/CycleDecision.js';
 import { CycleSettingsFields } from './CycleSettingsFields.js';
+import { roadmapSetupIds, stepAnchors } from '../planning/setup-steps.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 type ProfileEntry = import('@craftingtable/domain').WorkspaceAgentProfile & {
   readonly stored?: boolean;
@@ -305,16 +306,25 @@ export function CyclePanel({
           <details>
             <summary>Cycle settings and future agents</summary>
             <p>
-              <Link
-                route={{
-                  name: 'settings',
-                  workspaceId: active.workspaceId as WorkspaceId,
-                  focus: 'roadmap-agent-profiles',
-                }}
-              >
-                Manage roadmap agent profiles
-              </Link>
-              . Running sessions retain the model shown on their run page.
+              {active.owner ? (
+                <>
+                  <Link
+                    route={{
+                      name: 'roadmap',
+                      workspaceId: active.workspaceId as WorkspaceId,
+                      roadmapId: active.owner.roadmapId,
+                      tab: 'setup',
+                      focus: stepAnchors(roadmapSetupIds(active.owner.roadmapId)).automation,
+                    }}
+                  >
+                    Change the roadmap's agents
+                  </Link>
+                  .{' '}
+                </>
+              ) : (
+                'Chosen when the cycle started. '
+              )}
+              Running sessions retain the model shown on their run page.
             </p>
             <ul>
               {(readOnly ? (['review'] as const) : CYCLE_STEPS).map((step) => (

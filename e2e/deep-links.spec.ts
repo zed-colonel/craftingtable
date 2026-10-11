@@ -24,13 +24,13 @@ test('a settings deep link lands on its section, and links and Back never reload
 
   // In-place navigation from a content link: no document load; where does the target land?
   await page.goto(`/workspaces/${workspace}/roadmaps`);
-  const link = page.getByRole('link', { name: 'Manage agent profiles for future runs' });
+  const link = page.getByRole('link', { name: 'Workspace agent defaults' });
   await link.scrollIntoViewIfNeeded();
   loads = 0;
   await link.click();
-  await page.waitForURL(/settings#roadmap-agent-profiles$/);
+  await page.waitForURL(/settings#workspace-agent-profiles$/);
   await page.waitForTimeout(3000);
-  const target = await page.locator('#roadmap-agent-profiles').boundingBox();
+  const target = await page.locator('#workspace-agent-profiles').boundingBox();
   expect(loads).toBe(0);
   expect(target!.y).toBeLessThan(200);
   // Back returns to the roadmaps page without a document load.

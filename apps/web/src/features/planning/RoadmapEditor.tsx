@@ -1,11 +1,14 @@
 import type {
   ExecutionScopeChoice,
   ExecutionStatusResponse,
+  RoadmapAgentSettings,
+  RunProfilesResponse,
   SaveRoadmapRequest,
   StepPermissions,
   WorkspaceWorkItemListResponse,
 } from '@craftingtable/contracts';
 import {
+  type AgentSelections,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_SCHEDULING,
   executionScopeKey,
@@ -20,9 +23,15 @@ import { Section } from '../../components/Section.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
-import { saveRoadmap } from '../../lib/roadmap-api.js';
+import {
+  agentGroups,
+  applyRoadmapAgents,
+  loadRoadmapAgents,
+  saveRoadmap,
+} from '../../lib/roadmap-api.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { defaultStepPermissions, stepPermissionsOf } from '../execution/step-permissions.js';
+import { RoadmapAgentsFields } from './RoadmapAgentsFields.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
@@ -38,6 +47,7 @@ function useEditorChoices(workspaceId: WorkspaceId, onError: (message: string) =
   const [items, setItems] = useState<WorkspaceWorkItemListResponse['items']>([]);
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
   const [defaults, setDefaults] = useState<StepPermissions>();
+  const [workspaceAgents, setWorkspaceAgents] = useState<RunProfilesResponse>();
   useEffect(() => {
     let alive = true;
     void Promise.all([
@@ -50,6 +60,7 @@ function useEditorChoices(workspaceId: WorkspaceId, onError: (message: string) =
         setItems(listing.items);
         setBackends(status.backends);
         setDefaults(defaultStepPermissions(profiles.agents));
+        setWorkspaceAgents(profiles);
       })
       .catch((e) => {
         if (alive) onError(e instanceof Error ? e.message : 'Could not load work items.');
@@ -58,8 +69,36 @@ function useEditorChoices(workspaceId: WorkspaceId, onError: (message: string) =
       alive = false;
     };
   }, [workspaceId, onError]);
-  return { items, backends, defaults };
+  return { items, backends, defaults, workspaceAgents };
 }
+
+/** A saved roadmap's agents as its setup edits them, read again with each version (R-E5b). */
+function useRoadmapAgents(
+  workspaceId: WorkspaceId,
+  current: Roadmap | undefined,
+  onError: (message: string) => void,
+) {
+  const [agents, setAgents] = useState<RoadmapAgentSettings>();
+  const id = current?.id,
+    version = current?.version;
+  useEffect(() => {
+    let alive = true;
+    if (id !== undefined && version !== undefined)
+      void loadRoadmapAgents(workspaceId, id)
+        .then((read) => {
+          if (alive) setAgents(read);
+        })
+        .catch((e) => {
+          if (alive) onError(e instanceof Error ? e.message : 'Could not load the agents.');
+        });
+    return () => {
+      alive = false;
+    };
+  }, [workspaceId, id, version, onError]);
+  return agents;
+}
+
+const withoutId = ({ id: _, ...input }: Draft) => input;
 
 export function draftOf(roadmap: Roadmap): Draft {
   return {
@@ -113,12 +152,27 @@ export function RoadmapEditor({
   setDraft: (draft: Draft) => void;
   /** The saved roadmap being edited; absent for a new one. */
   current: Roadmap | undefined;
-  onSaved: (view: RoadmapView) => void;
+  /**
+   * After saving: the view the definition save answered (none when only agents changed), and
+   * whether an agent assignment moved the roadmap on since (R-E5b).
+   */
+  onSaved: (view: RoadmapView | undefined, assigned: boolean) => void;
   onCancel: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const { items, backends, defaults } = useEditorChoices(workspaceId, setError);
+  const { items, backends, defaults, workspaceAgents } = useEditorChoices(workspaceId, setError);
+  // A definition this editor saved whose agents then failed to apply: the next save starts there.
+  const [savedHere, setSavedHere] = useState<RoadmapView>();
+  const baseline =
+    savedHere && (!current || savedHere.roadmap.version >= current.version)
+      ? savedHere.roadmap
+      : current;
+  const roadmapAgents = useRoadmapAgents(workspaceId, baseline, setError);
+  /** Each entry's changed agents, applied as assignments once the definition is saved (R-E5b). */
+  const [agentDrafts, setAgentDrafts] = useState<ReadonlyMap<string, AgentSelections>>(
+    () => new Map(),
+  );
   const [selected, setSelected] = useState('');
   const [scopeChoices, setScopeChoices] = useState<ExecutionScopeChoice[]>([]);
   const [selectedScope, setSelectedScope] = useState('whole-item');
@@ -171,11 +225,40 @@ export function RoadmapEditor({
           event.preventDefault();
           setBusy(true);
           setError(undefined);
+          const { id, ...input } = draft;
+          // The definition holds each step's permissions; an unchanged one is not saved again.
+          const unchanged =
+            baseline !== undefined &&
+            JSON.stringify(input) === JSON.stringify(withoutId(draftOf(baseline)));
+          let saved = savedHere;
           try {
-            const { id, ...input } = draft;
-            onSaved(await saveRoadmap(workspaceId, id, input, csrfToken));
+            if (!unchanged) saved = await saveRoadmap(workspaceId, id, input, csrfToken);
           } catch (e) {
             setError(e instanceof Error ? e.message : 'Could not save roadmap.');
+            setBusy(false);
+            return;
+          }
+          // The agents go to ADR-064 assignments, applied after the save (E5-1 as amended).
+          const groups = agentGroups(
+            new Map(
+              [...agentDrafts].filter(([entryId]) => input.entries.some((e) => e.id === entryId)),
+            ),
+          );
+          try {
+            const version = saved?.roadmap.version ?? baseline?.version;
+            if (groups.length > 0 && version !== undefined)
+              await applyRoadmapAgents(workspaceId, id, version, groups, csrfToken);
+            onSaved(saved, groups.length > 0);
+          } catch (e) {
+            if (saved) {
+              setSavedHere(saved);
+              setDraft({ ...draft, expectedVersion: saved.roadmap.version });
+            }
+            setError(
+              `${saved && !unchanged ? 'The roadmap was saved, but its agents were not applied: ' : ''}${
+                e instanceof Error ? e.message : 'Could not apply the agents.'
+              }`,
+            );
           } finally {
             setBusy(false);
           }
@@ -474,6 +557,30 @@ export function RoadmapEditor({
                 )}
                 <details>
                   <summary>Agents, models, and completion policy</summary>
+                  {(() => {
+                    const savedEntry = roadmapAgents?.entries.find((e) => e.id === entry.id);
+                    return (
+                      <RoadmapAgentsFields
+                        legend="Agents"
+                        agents={savedEntry ? savedEntry.agents : workspaceAgents?.agents}
+                        selections={
+                          savedEntry ? savedEntry.selections : workspaceAgents?.selections
+                        }
+                        value={agentDrafts.get(entry.id)}
+                        onChange={(value) =>
+                          setAgentDrafts((drafts) => {
+                            const next = new Map(drafts);
+                            if (value) next.set(entry.id, value);
+                            else next.delete(entry.id);
+                            return next;
+                          })
+                        }
+                        backends={backends}
+                        disabled={busy}
+                        locked={roadmapAgents?.editBlocker}
+                      />
+                    );
+                  })()}
                   <CycleSettingsFields
                     policy={entry.policy}
                     setPolicy={(policy) => updateEntry(index, { policy })}
@@ -501,7 +608,7 @@ export function RoadmapEditor({
             groups. Refresh limits are fixed for each item when it starts.
           </p>
         </About>
-        {current && current.version !== draft.expectedVersion && (
+        {baseline && baseline.version !== draft.expectedVersion && (
           <p role="alert">
             This roadmap changed while you were editing. Cancel and reopen the editor to use its
             current version.
@@ -514,7 +621,7 @@ export function RoadmapEditor({
             disabled={
               busy ||
               draft.entries.length === 0 ||
-              !!(current && current.version !== draft.expectedVersion)
+              !!(baseline && baseline.version !== draft.expectedVersion)
             }
           >
             Save roadmap

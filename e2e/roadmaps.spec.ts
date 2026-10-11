@@ -139,12 +139,18 @@ for (const mode of ['sequential', 'parallel'] as const) {
           .getByRole('link', { name: 'Open roadmap supervision and saved-plan acceptance' })
           .click();
       } else {
-        await navigate('Settings');
-        const agents = page.getByRole('region', { name: 'Roadmap agent profiles', exact: true });
-        await agents
-          .getByRole('combobox', { name: 'Roadmap', exact: true })
-          .selectOption({ label: `AQ ${mode}` });
-        await agents.getByRole('button', { name: 'Edit future run profiles' }).click();
+        // A saved roadmap's agents are edited in its setup and applied as an assignment (R-E5b).
+        const editor = page.getByRole('region', { name: 'Roadmap editor' });
+        const entryAgents = async () => {
+          await page.getByRole('button', { name: 'Edit queued entries', exact: true }).click();
+          await editor
+            .getByText('Agents, models, and completion policy', { exact: true })
+            .first()
+            .click();
+          return editor.getByRole('group', { name: 'Agents', exact: true }).first();
+        };
+        const agents = await entryAgents();
+        await agents.getByRole('button', { name: 'Change agents' }).click();
         const remediation = agents.getByRole('group', { name: 'Remediation', exact: true });
         await remediation
           .getByRole('combobox', { name: 'Agent', exact: true })
@@ -155,16 +161,19 @@ for (const mode of ['sequential', 'parallel'] as const) {
         await remediation
           .getByRole('combobox', { name: 'Reasoning effort', exact: true })
           .selectOption('medium');
-        await agents.getByRole('button', { name: 'Apply to future runs' }).click();
-        await expect(agents.getByRole('status')).toContainText('Applied to future runs');
+        await editor.getByRole('button', { name: 'Save roadmap', exact: true }).click();
+        await expect(editor).toHaveCount(0);
         await page.reload();
-        await expect(agents.getByText(/Remediation: gpt-6-luna/)).toBeVisible();
+        const applied = await entryAgents();
+        await expect(
+          applied.getByText(
+            /^Remediation: Codex · gpt-6-luna · medium effort · Roadmap assignment/,
+          ),
+        ).toBeVisible();
         await expect
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-        await expect(agents).toBeVisible();
-        await navigate('Roadmaps');
-        await openRoadmap(page, `AQ ${mode}`);
+        await editor.getByRole('button', { name: 'Cancel editing' }).click();
       }
       await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
       await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();

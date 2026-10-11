@@ -4,7 +4,7 @@ import {
   controlRoadmapRequestSchema,
   decisionPreparationSettingsSchema,
   prepareRoadmapDecisionSchema,
-  roadmapAgentsSchema,
+  roadmapAgentSettingsSchema,
   roadmapCapacitiesSchema,
   roadmapDefinitionSchema,
   roadmapGraphSchema,
@@ -89,15 +89,18 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
       );
     },
   );
-  app.get<{ Params: { workspaceId: string } }>(
-    '/api/workspaces/:workspaceId/roadmaps/agent-profiles',
+  // A roadmap's agents as its setup edits them (R-E5b); it replaced the workspace-wide read.
+  app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles',
     { config: { access: 'member' } },
     async (request, reply) => {
       const context = contextOf(request),
-        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
       return noStore(reply).send(
-        roadmapAgentsSchema.parse(roadmaps.agentSettings(context, ws.data)),
+        roadmapAgentSettingsSchema.parse(roadmaps.agentSettings(context, ws.data, id.data)),
       );
     },
   );
@@ -119,7 +122,7 @@ export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapSer
           'Choose valid model profiles and current roadmap entries; permissions and policy cannot be changed here.',
         );
       return noStore(reply).send(
-        roadmapAgentsSchema.parse(
+        roadmapAgentSettingsSchema.parse(
           roadmaps.applyAgentSettings(context, ws.data, id.data, body.data),
         ),
       );

@@ -20,7 +20,6 @@ export function SettingsPage({
   notifications,
   storage,
   hostScheduling,
-  roadmapProfiles,
   backends,
   profiles,
   profilesBusy,
@@ -31,7 +30,6 @@ export function SettingsPage({
   notifications?: ReactNode;
   storage?: ReactNode;
   hostScheduling?: ReactNode;
-  roadmapProfiles?: ReactNode;
   workspace: WorkspaceOverview;
   canEdit: boolean;
   busy: boolean;
@@ -119,7 +117,6 @@ export function SettingsPage({
         />
       )}
 
-      {roadmapProfiles}
       {hostScheduling}
       {notifications}
       {storage}

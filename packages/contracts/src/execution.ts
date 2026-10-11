@@ -18,6 +18,7 @@ import {
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
+  agentSelectionsSchema,
   effectiveAgentsSchema,
   profileSelectionSchema,
   reasoningEffortSchema,
@@ -452,6 +453,11 @@ export const runProfilesResponseSchema = z.strictObject({
     .max(AGENT_PROFILE_PURPOSES.length),
   /** Each purpose's workspace default and its source: saved, inherited or the daemon's (R-E5a). */
   agents: effectiveAgentsSchema.optional(),
+  /**
+   * The same defaults as a selection set, the agents a new roadmap entry starts from in its setup
+   * (R-E5b): every step, and each specialist a saved default names.
+   */
+  selections: agentSelectionsSchema.optional(),
 });
 
 export const saveRunProfilesRequestSchema = z.strictObject({

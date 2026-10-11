@@ -91,7 +91,7 @@ const txOf = (roadmap?: Roadmap) =>
 const cycleOf = (fields: Partial<WorkCycle> = {}) =>
   ({ id: 'cycle', workspaceId: 'ws', step: 'implement', profiles, ...fields }) as WorkCycle;
 
-describe('roadmap setup (GET roadmaps/agent-profiles): an entry’s effective selections', () => {
+describe('roadmap setup (GET roadmaps/:id/agent-profiles): an entry’s effective selections', () => {
   it('reads the saved definition when no assignment covers the entry', () => {
     expect(entryAgentSelections(roadmapWith(), entry)).toEqual({
       selections: agentSelections(profiles),

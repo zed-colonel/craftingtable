@@ -1047,6 +1047,8 @@ export function confinedCheckArguments(
     roots: [],
     binds: [],
   },
+  /** Local CI's Docker socket, the one path of the user's runtime directory its unit keeps. */
+  dockerSocket?: string,
 ): string[] {
   if (!/^[A-Za-z0-9_.-]+$/.test(unitName)) throw new Error('Invalid check unit name.');
   return [
@@ -1078,9 +1080,9 @@ export function confinedCheckArguments(
     '-p',
     'TemporaryFileSystem=/dev/shm',
     // Nor the user's runtime directory, whose user bus would start a unit outside every
-    // confinement (R-G13 review). Local CI keeps the directory for its Docker socket, with the
-    // user bus, `systemd/` and the system D-Bus socket hidden; other sockets there stay visible.
-    ...runtimeDirectoryConfinement(network),
+    // confinement (R-G13 review), nor the other sockets there (an SSH or GPG agent's): local CI
+    // gets back only its Docker socket (operator decision 2026-10-12).
+    ...runtimeDirectoryConfinement(network, dockerSocket),
     ...hidden.roots.flatMap((p) => ['-p', `TemporaryFileSystem=${p}:ro`]),
     ...hidden.binds.flatMap((p) => ['-p', `BindPaths=${p}`]),
     ...(hidden.readOnlyBinds ?? []).flatMap((p) => ['-p', `BindReadOnlyPaths=-${p}`]),
@@ -1092,21 +1094,36 @@ export function confinedCheckArguments(
   ];
 }
 
-/** What of the user's runtime directory and the system's service sockets a unit may reach. */
-function runtimeDirectoryConfinement(localCi: boolean): string[] {
+/**
+ * What of the user's runtime directory and the system's service sockets a unit may reach. Every
+ * unit sees the runtime directory as an empty read-only file system and no system D-Bus socket.
+ * A check sees no Docker socket either. Local CI keeps the Docker socket its configuration names:
+ * bound back into the empty runtime directory when it lies there (rootless Docker), and the
+ * system's sockets otherwise left visible.
+ */
+function runtimeDirectoryConfinement(localCi: boolean, dockerSocket?: string): string[] {
   const uid = process.getuid?.();
   const runtime = uid === undefined ? undefined : `/run/user/${uid}`;
   const hide = (paths: readonly string[]) =>
     paths.flatMap((p) => ['-p', `InaccessiblePaths=-${p}`]);
-  if (localCi)
-    return hide([
-      ...(runtime ? [`${runtime}/bus`, `${runtime}/systemd`] : []),
-      '/run/dbus/system_bus_socket',
-    ]);
+  const bindBack =
+    localCi && runtime !== undefined && dockerSocket?.startsWith(`${runtime}/`)
+      ? ['-p', `BindPaths=${dockerSocket}`]
+      : [];
   return [
     ...(runtime ? ['-p', `TemporaryFileSystem=${runtime}:ro`] : []),
-    ...hide(['/run/docker.sock', '/var/run/docker.sock', '/run/dbus/system_bus_socket']),
+    ...bindBack,
+    ...hide(
+      localCi
+        ? ['/run/dbus/system_bus_socket']
+        : ['/run/docker.sock', '/var/run/docker.sock', '/run/dbus/system_bus_socket'],
+    ),
   ];
+}
+
+/** The socket path of a `unix:///path` Docker host. */
+export function dockerSocketPath(dockerHost: string): string {
+  return dockerHost.replace(/^unix:\/\//, '');
 }
 
 function stopCheckUnit(unitName: string): void {
@@ -2586,6 +2603,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           snapshot ? [] : [join(m.workspacePath, '.git')],
           inaccessible,
           hidden,
+          act && ci ? dockerSocketPath(ci.dockerHost) : undefined,
         ),
         env: busEnvironment,
       };

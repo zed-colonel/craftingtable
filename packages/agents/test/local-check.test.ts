@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { createServer } from 'node:net';
 import { deflateSync } from 'node:zlib';
 import { afterEach, expect, it } from 'vitest';
 import { hostCargo, hostGit } from './host-tools-test-support.js';
@@ -24,6 +25,7 @@ import { nativeHostDigest } from '../src/native-environment.js';
 import {
   acquireLocalCiLock,
   confinedCheckArguments,
+  dockerSocketPath,
   declaredUnitSettings,
   executeCheck,
   lockedPackages,
@@ -2279,5 +2281,94 @@ it.skipIf(!rustupProxy)(
       'wasm32-unknown-unknown',
     ]);
     expect(target.outcome.diagnostic).toContain('--target is refused');
+  },
+);
+
+it("keeps local CI's Docker socket, and nothing else, of the user's runtime directory (operator decision 2026-10-12)", () => {
+  const runtime = `/run/user/${process.getuid?.()}`;
+  const args = (network: boolean, socket?: string) =>
+    confinedCheckArguments(
+      'unit',
+      '/work',
+      60,
+      [],
+      {},
+      ['true'],
+      network,
+      [],
+      [],
+      undefined,
+      socket,
+    );
+  // Rootless Docker: the runtime directory is empty and read-only, with the socket bound back.
+  const rootless = args(true, `${runtime}/docker.sock`);
+  expect(rootless).toContain(`TemporaryFileSystem=${runtime}:ro`);
+  expect(rootless).toContain(`BindPaths=${runtime}/docker.sock`);
+  expect(rootless).toContain('InaccessiblePaths=-/run/dbus/system_bus_socket');
+  expect(rootless).not.toContain('InaccessiblePaths=-/var/run/docker.sock');
+  // The system's Docker: nothing of the runtime directory comes back, the socket stays visible.
+  const system = args(true, '/var/run/docker.sock');
+  expect(system).toContain(`TemporaryFileSystem=${runtime}:ro`);
+  expect(system.filter((arg) => arg.startsWith('BindPaths='))).toEqual([]);
+  expect(system).not.toContain('InaccessiblePaths=-/var/run/docker.sock');
+  // A check gets neither, whatever socket is passed.
+  const check = args(false, `${runtime}/docker.sock`);
+  expect(check).toContain(`TemporaryFileSystem=${runtime}:ro`);
+  expect(check.filter((arg) => arg.startsWith('BindPaths='))).toEqual([]);
+  expect(check).toContain('InaccessiblePaths=-/var/run/docker.sock');
+  expect(check).toContain('InaccessiblePaths=-/run/docker.sock');
+  expect(dockerSocketPath('unix:///run/user/1000/docker.sock')).toBe('/run/user/1000/docker.sock');
+});
+
+itConfines(
+  'a local CI unit reaches its Docker socket in the runtime directory and no other socket there (operator decision 2026-10-12)',
+  async () => {
+    const runtime = `/run/user/${process.getuid?.()}`;
+    const docker = join(runtime, `ct-test-docker-${process.pid}.sock`);
+    const other = join(runtime, `ct-test-other-${process.pid}.sock`);
+    const servers = [docker, other].map((path) => {
+      // Accepting is enough: the probe closes at once, and a write would meet a closed peer.
+      const server = createServer((socket) => {
+        socket.on('error', () => {});
+        socket.end();
+      });
+      server.listen(path);
+      return server;
+    });
+    try {
+      await Promise.all(servers.map((server) => once(server, 'listening')));
+      const probe = (path: string, label: string) =>
+        `python3 -c "import socket;s=socket.socket(socket.AF_UNIX);s.connect('${path}')" 2>/dev/null && echo connected:${label} || echo refused:${label}`;
+      const child = spawn(
+        'systemd-run',
+        confinedCheckArguments(
+          `craftingtable-check-test-${process.pid}-${Date.now()}`,
+          '/',
+          60,
+          [],
+          { PATH: process.env.PATH ?? '/usr/bin' },
+          ['sh', '-c', `ls -A ${runtime}; ${probe(docker, 'docker')}; ${probe(other, 'other')}`],
+          true,
+          [],
+          [],
+          undefined,
+          docker,
+        ),
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let output = '';
+      child.stdout.on('data', (chunk) => (output += chunk));
+      child.stderr.on('data', (chunk) => (output += chunk));
+      const [code] = await once(child, 'exit');
+      expect(code, output).toBe(0);
+      expect(output.split('\n')[0]).toBe(`ct-test-docker-${process.pid}.sock`);
+      expect(output).toContain('connected:docker');
+      expect(output).toContain('refused:other');
+      expect(output).not.toContain('connected:other');
+    } finally {
+      for (const server of servers) server.close();
+      rmSync(docker, { force: true });
+      rmSync(other, { force: true });
+    }
   },
 );

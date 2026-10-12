@@ -5319,6 +5319,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     the files outside the run's directories, which read-only runs refuse anyway, and passed with the
     old rules too; the files now sit where only the deny rules can refuse them.) Unit tests:
     `claude-code/arguments.test.ts` and `normalize.test.ts`.
+  - *(3) Local CI's runtime directory down to its Docker socket (review L-2's alternative).* A local
+    CI unit hid only the user bus, `systemd/` and the system D-Bus socket of `/run/user/<uid>`, so
+    other sockets there (an SSH or GPG agent's) reached it. It now gets the runtime directory as an
+    empty read-only file system, as check units do, with only the Docker socket its configuration
+    names (`dockerHost`) bound back when it lies there; the system's Docker socket stays visible,
+    and the system D-Bus socket hidden. Tests in `local-check.test.ts`: the unit arguments for
+    rootless and system Docker and for a check, and a real transient unit, run where a user manager
+    is, which lists the runtime directory as just the Docker socket, connects to it, and is refused
+    by another socket made beside it. Both fail on the old mask.
+  - *(8) `packages/testing/`:* untracked and ignored build output (`dist/`, `node_modules/`, a
+    `tsbuildinfo`) of the package `3f3441c` removed; nothing referenced it, so it was deleted from
+    the checkout. Nothing in Git changed.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

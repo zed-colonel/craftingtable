@@ -303,10 +303,11 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   except the run's own paths, a private `/tmp`, an empty `/dev/shm`, no network, no new
   privileges, a time limit for the whole cgroup, and exactly the environment the daemon names.
   A check unit sees neither the user's runtime directory nor the system's Docker and D-Bus
-  sockets. A local CI unit keeps the runtime directory, for its Docker socket, with the user bus,
-  `systemd/` and the system D-Bus socket hidden; other sockets there (an SSH or GPG agent's, if
-  present) stay visible to it. `CRAFTINGTABLE_CHECK_CONFINEMENT=none`
-  runs checks as plain process groups instead (tests, or a host without a user manager).
+  sockets. A local CI unit sees the runtime directory empty too, but for the Docker socket its
+  configuration names, which is bound back when it lies there (rootless Docker), and it keeps the
+  system's Docker socket; no other socket there (an SSH or GPG agent's, the user bus) reaches it.
+  `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs checks as plain process groups instead (tests, or a
+  host without a user manager).
 - **Private clones and Cargo.** A declared check, and a pinned build of a clean worktree, runs
   on a daemon-private clone of the committed head, with verified private checkouts of the pinned
   upstream commits, in a unit that sees none of the roots any agent writes, from the manifest

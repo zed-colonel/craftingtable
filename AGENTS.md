@@ -27,8 +27,9 @@ Before changing code, read:
 
 `init/` holds the original product planning package. Treat it as background on intent
 and vocabulary, not as authority: where it conflicts with this file, the README, or the
-code, the code wins. `archive/` holds superseded planning and review artifacts and is
-never required reading.
+code, the code wins. `archive/` holds superseded planning, review and process artifacts and
+is never required reading. Not everything superseded moves there: a superseded ADR stays in
+`docs/decisions/`, marked by its status.
 
 ## Working method
 
@@ -52,6 +53,8 @@ never required reading.
 - Keep changes coherent and self-describing. A different agent should be able to
   understand a change from the diff, the tests, and the commit message alone.
   Conversation context is not a deliverable.
+- The README is the operator guide: what CraftingTable is, how to run it, and the main
+  workflow. Do not update it per feature; change it only when one of those changes.
 - When a question would materially change the work, ask. Otherwise make the routine
   call yourself and note it in the report.
 
@@ -99,9 +102,10 @@ never required reading.
 
 ## Git expectations
 
-Commit finished increments with clear messages. Do not push, merge into another branch,
-or rewrite history unless the operator explicitly asks; merge authority is the
-operator's alone. Report changed files, commands run, and unresolved issues.
+Commit finished increments with clear messages. Every commit message has a body that
+says what stop, finding or need motivated the change, not only what changed. Do not push,
+merge into another branch, or rewrite history unless the operator explicitly asks; merge
+authority is the operator's alone. Report changed files, commands run, and unresolved issues.
 
 ## Escalation
 

@@ -4971,6 +4971,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     history and not maintained, with its links re-pointed so they still resolve. ADR-028's link and
     ADR-038's mention follow; `archive/README.md` lists them and the README feature log. Nothing in
     code referred to them.
+  - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
+    and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
+    finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts
+    moved to `archive/` on 2026-09-24 (R-I8), so REPO-03's example is gone, but "superseded artifacts
+    are in `archive/`" still overstated it: superseded ADRs stay in `docs/decisions/`, marked by
+    status, as part 1 keeps them. Part 3 changes the read order's `docs/ui-principles.md` line and
+    the walkthrough paragraph's reference to it, as the operator asked for that part.
 
 ### R-I8
 

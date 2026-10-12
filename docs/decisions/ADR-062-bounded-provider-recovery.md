@@ -4,6 +4,7 @@
 - **Date:** 2026-09-22
 - **Amended:** 2026-09-25 (R-C11): provider-side credential rejections
 - **Amended:** 2026-09-25 (R-C9): ending the session on a used-up allowance
+- **Amended:** 2026-09-27: a decision the step reached stays with the operator, with the outage noted
 
 A temporary model-service failure is neither a source finding nor an invalid-report remediation.
 Adapters normalize trusted structured failure discriminants into a vendor-neutral optional turn

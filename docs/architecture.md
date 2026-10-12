@@ -68,7 +68,8 @@ head against its record; test daemons run the same check at cleanup.
 
 Imported plans, archives, source maps, roadmap definitions, runtime generations, evidence,
 decisions and receipts are immutable (enforced by triggers); mutable state lives in separate
-versioned rows, and commands carry the version they read.
+versioned rows, and a command on such a row (a cycle, a roadmap, a finalization, a setting)
+carries the version it read.
 
 ## Execution model
 
@@ -92,8 +93,8 @@ Runs record `resolvedModel` and `billing` from session metadata, and a review ru
 stop's investigation (R-C16) is a read-only run beside its cycle, never in the worktree's lineage.
 
 Each run gets a registered run directory for its brief and plan documents; its `scratch` is the
-commands' `TMPDIR`, `TMP` and `TEMP`, while the agent process itself gets a short private
-directory under the agents' temporary root, where Claude Code's sandbox makes its sockets.
+commands' `TMPDIR`, `TMP` and `TEMP`, while a sandboxed Claude Code process itself gets a short
+private directory under the agents' temporary root, where its sandbox makes its sockets.
 `CARGO_TARGET_DIR` is the worktree's build cache, shared by its steps (`worktree_build_caches`,
 ADR-039), and `CARGO_HOME` the daemon's own Cargo home.
 
@@ -168,7 +169,8 @@ backend, model and optional reasoning effort; absent specialists inherit their b
 (`packages/domain/src/agent-profiles.ts`). One pure decision table, `resolveAgent`
 (`services/agent-resolution.ts`), picks every effective selection from its layers (a resumed
 session, an action's own choice, the latest ADR-064 assignment, the cycle's or entry's profiles,
-the workspace default, the daemon's default) and reports its source; the browser derives none.
+the workspace default, the run a hand-off continues, the daemon's default) and reports its source;
+the browser derives none.
 Permissions belong to the step: a roadmap save carries permission modes, never an agent, and
 agents change only through an ADR-064 assignment (`POST roadmaps/:id/agent-profiles`) while the
 roadmap is a draft, paused or needs attention. An assignment changes no saved definition or
@@ -261,7 +263,8 @@ view, status list and board from one transaction, one map snapshot and one evalu
 The board (`services/roadmap-board.ts`, R-E3b) is a pure read model: the roadmap's static graph
 at one revision (a map's milestones, or a sequential roadmap's work items and required
 predecessors; served once per revision by `GET roadmaps/:id/graph/:revision`) joined with the
-evaluation, the status list's states and actors and the open attention items. It finds each
+evaluation, the status list's states and actors and the open attention items of its
+checkpoints. It finds each
 node's root blockers and the slices it unblocks, and decides no state again. On a map roadmap an
 inbox item's "unblocks N" counts slices. Who acts next on a work item's slices comes from the
 same rule (`services/scope-next.ts`, R-E4).
@@ -373,8 +376,8 @@ stage decisions and any agent launch are refused, and its cycle stops with
 
 ## Agent backend seam
 
-`packages/agents` defines `AgentBackend` (`describe`, `launch`) and `AgentSession` (`items`,
-`send`, `end`, `kill`). A backend owns the child process and translates vendor output into
+`packages/agents` defines `AgentBackend` (`describe`, `launch`, `listModels`) and `AgentSession`
+(`items`, `send`, `end`, `kill`). A backend owns the child process and translates vendor output into
 `NormalizedAgentEvent`s; the daemon owns run state, the journal, audit and workspace events. A
 bounded raw vendor line travels only on a notice for output the adapter could not normalize; it
 is never the durable vocabulary. Both adapters use the shared supervisor in
@@ -428,7 +431,7 @@ definition revision. Recovery after an interruption checks the unique commit mar
 parents in bounded first-parent history before recording completion, so a finished merge is never
 repeated. Repository and worktree mutation guards serialize daemon creation, removal, updates and
 merges; external Git changes are detected through commit and cleanliness checks. A run's
-repository's branch heads are read when it starts and ends: a branch no managed worktree owns
+repository's branches and tags are read when it starts and ends: a ref no managed worktree owns
 that moved, and that no daemon operation left there, is recorded in `protected_ref_moves`
 (`services/ref-watch.ts`).
 
@@ -510,9 +513,9 @@ inbox, the rail count, the dashboard, the strip on other pages and each roadmap 
 page derives it from cycle or roadmap state. An inbox item's page renders the decision kinds its
 typed code names (`decisions/registry.ts`). The roadmap board and graph draw the daemon's board
 read; graphs are laid out by `features/roadmap-board/layered-layout.ts` (ADR-072). No agent
-output is ever rendered as markup. Commands carry the daemon versions they were shown and are
-refused when stale. The visual language, information architecture and per-surface specs are in
-[ui/README.md](ui/README.md).
+output is ever rendered as markup. Commands on versioned records carry the version they were
+shown and are refused when stale; a merge re-checks its gate at exact commits instead. The visual
+language, information architecture and per-surface specs are in [ui/README.md](ui/README.md).
 
 ## Installation storage and maintenance
 

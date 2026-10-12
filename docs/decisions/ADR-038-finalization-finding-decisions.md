@@ -36,6 +36,7 @@ finding selection. Setup exposes the independent initial finalization budget (de
 which does not inherit a work item's or roadmap's saved policy.
 
 The staged evolution is recorded in archive/finalization-roadmap.md and remains future work.
+(Since built: ADR-042, 2026-09-15.)
 
 ## Amendment 2026-09-25: deferral retired with improvement rounds (R-B10)
 

@@ -23,9 +23,9 @@ typed commands, never commands to run.
 |---|---|---|---|
 | Network listener | A non-loopback listener is refused without TLS or an HTTPS public origin; a `Host` check; security headers on every answer | TLS termination by a proxy (`tailscale serve`) is outside the daemon | `apps/server/test/config.test.ts`, `apps/server/test/routes/browser-security.test.ts` |
 | Browser session | Argon2id passwords, digest-only session tokens, idle and absolute session ends, sign-in throttling, session-bound CSRF token and exact origin | — | `apps/server/test/server-auth.test.ts`, `apps/server/test/server-auth-hardening.test.ts`, `apps/server/test/security/*.test.ts` |
-| Route authority | Every route's declared access, checked before its body is read; step-up for the commands that grant the most; one body schema per command | Services repeat their own role checks as a second line | `apps/server/test/route-access.test.ts`, `apps/server/test/route-inventory.test.ts` |
+| Route authority | Every route's declared access, checked before its body is read; step-up for the commands that grant the most; one body schema per command | Services repeat their own role checks as a second line | `apps/server/test/route-access.test.ts`, `apps/server/test/route-inventory.test.ts`, `apps/server/test/server-auth-hardening.test.ts` (step-up) |
 | Browser input | Typed commands only; repository registration under configured roots; cleanup by daemon-held preview | — | `apps/server/test/server-execution-runs.test.ts`, `apps/server/test/storage-management.test.ts` |
-| Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only; process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
+| Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only for agents, checks and daemon Git (not the native probes); process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
 | Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; denied reads, for read-only runs too; outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
 | The daemon's own Git | Git directories named explicitly; no hooks, fsmonitor, system or global configuration; untrusted Git directories refused | A repository's own configuration still applies; the ref watch detects moves, it does not prevent them | `packages/git/test/git-directory-pinning.test.ts`, `packages/git/test/adapter-robustness.test.ts`, `apps/server/test/services/ref-watch.test.ts` |
 | Checks and builds | Checks run by the daemon in confined units, on private clones, with offline Cargo homes; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts` |
@@ -49,8 +49,8 @@ typed commands, never commands to run.
   scripts, styles, fonts and requests, `data:` images, no plugins, no base, no framing),
   `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`
   and `Cross-Origin-Opener-Policy: same-origin`. A route that sets one itself keeps its own:
-  imported plan files, archives and build records are served as `text/plain` attachments under
-  `default-src 'none'; sandbox`.
+  imported plan files (`text/plain`), archives (`application/octet-stream`) and build records
+  (`application/json`) are served as attachments under `default-src 'none'; sandbox`.
 - The daemon can serve the built browser app, so one origin carries the app and the API.
 
 ## Authentication and sessions
@@ -195,7 +195,10 @@ leave a sandbox: Claude's refuses unsandboxed commands and will not start withou
 and Codex runs with approval policy `never`.
 
 **Claude.** Every posture but `unrestricted` runs Bash in Claude Code's OS sandbox. Commands may
-write the worktree, the run's directories, its scratch space and the outside sources' caches. In
+write the worktree, the run's directories, its scratch space, the outside sources' caches and the
+directories the daemon adds for the run (`additionalDirectories`: the previous run's directory, a
+historical baseline's Cargo home, a pinned local-CI cache root, the worktree's shared Cargo
+target). In
 the repository's Git directory they may write what a commit needs, except `config`, `hooks/`,
 `info/`, the common directory's `commondir`, `config.worktree` and `objects/info`, every other
 worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`, existing or not.
@@ -207,7 +210,8 @@ the daemon's secrets, so they have nothing of the daemon's to send.
 
 **Codex.** A sandboxed Codex run's commands get a permission profile defined for the run
 (`craftingtable`), selected on the thread and on every turn: they may write the worktree, the
-temporary directories, the run's directories and the outside sources' caches, and reach no
+temporary directories, the run's directories, the outside sources' caches and the same added
+directories, and reach no
 network but the sources' hosts, through Codex's own proxy (none without a source). To stage and
 commit, only the common directory's `objects/`, `refs/` and `logs/` and the run's own Git
 directory are writable, with `objects/info`, `commondir` and `gitdir` read-only; the rest of the
@@ -240,10 +244,11 @@ Configuration is in [Agents on the workstation](operations.md#agents-on-the-work
 **Read-only runs.** A decision preparation or a question stop's investigation runs read-only,
 whatever its posture, with escalation denied. Claude is restricted to Read, Glob and Grep, which
 are denied the protected paths. Codex's commands get a read-only permission profile defined for
-the run (`craftingtable-read-only`): they read what the account can except the denied reads,
-write nothing (not the worktree, `/tmp` or `$TMPDIR`) and reach no network. The daemon records the worktree when an investigation starts and compares it once the
-run has ended; a change stops it as `worktree-changed`, and the stop's commands are refused
-until the operator acknowledges it or the tree matches again.
+the run (`craftingtable-read-only`): they read what the account can except the denied reads, write
+nothing (not the worktree, `/tmp` or `$TMPDIR`) and reach no network. The daemon records the
+worktree when an investigation starts and compares it once the run has ended; a change stops it as
+`worktree-changed`, and the stop's commands are refused until the operator acknowledges it or the
+tree matches again.
 
 ## The daemon's own Git
 
@@ -266,7 +271,9 @@ Every daemon Git command runs through `packages/git/src/runner.ts` with:
 - an index file only when the daemon makes one for a single command (`GIT_INDEX_FILE`).
 
 A repository's own configuration still applies, including its identity, merge drivers, signing
-program and filters; sandboxed agents cannot write it.
+program and filters; sandboxed agents cannot write it. The daemon removes only merged
+integration branches, by compare-and-delete, so a branch that moved meanwhile stays; it creates
+baseline tags create-only and never moves or publishes one.
 
 The daemon records a run's repository's branches and tags when the run starts and compares them
 when it ends. A ref no managed worktree owns that moved, and that none of the daemon's own Git
@@ -288,7 +295,9 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   except the run's own paths, a private `/tmp`, an empty `/dev/shm`, no network, no new
   privileges, a time limit for the whole cgroup, and exactly the environment the daemon names.
   A check unit sees neither the user's runtime directory nor the system's Docker and D-Bus
-  sockets; a local CI unit keeps only its Docker socket there. `CRAFTINGTABLE_CHECK_CONFINEMENT=none`
+  sockets. A local CI unit keeps the runtime directory, for its Docker socket, with the user bus,
+  `systemd/` and the system D-Bus socket hidden; other sockets there (an SSH or GPG agent's, if
+  present) stay visible to it. `CRAFTINGTABLE_CHECK_CONFINEMENT=none`
   runs checks as plain process groups instead (tests, or a host without a user manager).
 - **Private clones and Cargo.** A declared check, and a pinned build of a clean worktree, runs
   on a daemon-private clone of the committed head, with verified private checkouts of the pinned
@@ -307,7 +316,9 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   check-only manifest whose one launcher is `ct-check`), and any merge needs a clean, successful,
   daemon-recorded receipt of each check on the reviewed head; a review prepared without the
   adoption is refused. A roadmap's cycle in a repository with no adoption stops before launch as
-  `repository-checks-undeclared`.
+  `repository-checks-undeclared`. Where a review's gate needs a build (upstream pins, scoped
+  checks, native verification) or adopted checks, it authorizes integration only with a valid
+  frozen build record from its current dependency environment.
 - **Local CI and native verification.** `ct-act` runs act in a daemon unit with the same file
   limits plus the CI cache, network allowed, and a `HOME` and working directory the daemon owns
   (no planted `.actrc`); it refuses jobs with `container`, `services`, a reusable workflow or a
@@ -358,8 +369,11 @@ evidence it accepts is a current review.
 - **Slices and evidence.** A slice merge never completes its parent; parent acceptance is a
   separate reviewed command. Saved-plan acceptance is generated only for a map's plan checkpoint
   whose obligations are the setup facts the daemon knows (`mapCapabilities`), and is accepted
-  by the operator with a rationale, bound to the exact saved roadmap revision, binding, adoption,
-  pins and settings ([ADR-050](decisions/ADR-050-generated-plan-acceptance-evidence.md)). The
+  by the operator with a rationale. It is bound to the plan-acceptance inputs: the map and its
+  archives, the binding, the adopted proposals and staged decisions, reviewer roles, target and
+  selection, resources and upstream pins; names, instructions, agents, automation and capacity
+  are not inputs, and records from before (v1) keep their saved-revision rule
+  ([ADR-050](decisions/ADR-050-generated-plan-acceptance-evidence.md)). The
   public evidence upload cannot carry the server-only markers of generated plans, candidate
   checkpoints or architecture decisions. Agent checkpoint attestations are attributed to the
   delegated review, never presented as operator approval
@@ -371,7 +385,8 @@ evidence it accepts is a current review.
   Background work then acts as the recorded delegating user, without a browser session: the
   daemon rechecks on every pass that the user is active and still an owner or editor of the
   workspace, and each cycle keeps its own launch checks. Signing out leaves deliberate
-  delegation running; Pause and Stop are the controls.
+  delegation running; Pause and Stop are the controls. While a cycle runs or awaits merge, or an
+  integration resolution owns the worktree, a manual launch or a message to its agent is refused.
 - Controller reviews of a slice cycle (checkpoint, reassessment, the source-required security
   review) run on its roadmap's saved reviewer delegation. A cycle no roadmap owns still owes the
   security review, which the operator who started the cycle authorizes; a roadmap that owns a
@@ -448,7 +463,7 @@ The daemon makes two kinds of request of its own:
   that the configuring owner is still an active owner
   ([ADR-070](decisions/ADR-070-attention-items.md)).
 - **crates.io's index** (`https://index.crates.io/`), to verify the crates checks use: redirects
-  refused, a timeout per request and at most 500 requests in any ten minutes.
+  refused, a timeout per request and at most 500 requests per ten-minute window.
 
 The agents' own CLIs reach their vendors as the operator's account does.
 
@@ -480,6 +495,9 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Process groups** do not contain work that deliberately leaves its session. The native unit
   and local CI's Docker keep the account's file-system and Docker authority, and a checked tree's
   build scripts, procedural macros and tests run with whatever the check's unit allows.
+- **Native probes.** The native environment's fixed version probes (`native-environment.ts`)
+  start with the daemon's whole environment, not the named variables agents and checks get; they
+  run fixed commands with no agent input.
 - **Session cookie.** The cookie has no `__Host-` prefix; its protection is `HttpOnly`,
   `SameSite=Strict` and `Secure` on HTTPS.
 - **Secrets at rest** are plaintext files protected by modes and the denied reads. Database

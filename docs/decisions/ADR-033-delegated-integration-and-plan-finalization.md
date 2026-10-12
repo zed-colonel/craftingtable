@@ -1,7 +1,8 @@
 # ADR-033: Delegated integration and explicit plan finalization
 
-- **Status:** accepted
+- **Status:** partly superseded
 - **Date:** 2026-09-12
+- **Superseded in part by:** ADR-042 (staged finalization in place of the assessment, polish and verification rounds); register item R-B10 (round-based finalization retired for new starts)
 - **Refines:** ADR-021, ADR-025, ADR-029, ADR-032 (merge authority)
 
 ## Decision

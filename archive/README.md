@@ -20,8 +20,12 @@ reading, and nothing here governs current work.
 - `finalization-roadmap.md`, `cross-project-roadmap.md` and `plans/` — completed planning
   documents (the finalization stages of ADR-042, the cross-project roadmap, the Codex backend
   plan), archived on 2026-10-12 (R-I7, DOC-05). Each is headed as superseded.
+- `ui-principles-2026-10.md`, `security-2026-10.md` and `operations-2026-10.md` — the three
+  documents R-I7 rewrote on 2026-10-12, verbatim as they stood at `3a03927`, each headed as
+  superseded: the UI principles became `docs/ui/` and `docs/roadmaps.md`, and security.md and
+  operations.md were rewritten as current state.
 
 The code merged from CT-04A1 through CT-04A2b2a (the read-only Git inspection
 package, repository domain and persistence, and the repository journal
-correlation) remains in the tree and is described in `docs/architecture.md`
-and the ADRs.
+correlation) was removed by R-B8 (2026-09-23), and migration 0040 dropped its tables
+(R-H6, 2026-10-08); ADR-016 to ADR-019 record it as superseded.

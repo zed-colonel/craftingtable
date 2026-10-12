@@ -44,8 +44,9 @@ rail's count, the dashboard's section, the strip on every other page and a roadm
 read it, and none computes it from cycle or roadmap state. Who acts next on a slice or a board
 card, and what an entry waits on, are the daemon's words, shown as given. Where the daemon returns
 the actions it offers (a cycle's and a finalization's), the page offers only those. Pages still
-choose which controls to show from a record's status. Commands carry the version the page was
-shown, and the daemon refuses a stale one.
+choose which controls to show from a record's status. Commands on versioned records (cycles,
+roadmaps, finalizations, settings) carry the version the page was shown, and the daemon refuses a
+stale one; a merge re-checks its gate at exact commits instead.
 
 Held by: review; the roadmap board's modules reach no request (`decisions/boundary.test.ts`).
 
@@ -89,4 +90,7 @@ are pure functions (`parseRoute`, `buildPath`), with no routing library
 A page with nothing to do does not read as a form. Forms open from an action that names them
 ("New roadmap", "Launch a run…", "Set up finalization", "Import concurrency map"); the one
 exception is a form that is the next step, such as the launch form on a work item with no run and
-no automation. Reference and history start closed; working sections are open. Held by review.
+no automation. Reference and history start closed; working sections are open. An unsent answer
+to a stop survives a data refresh, a refused command and a move between the stop's views (one
+draft per stop for the page's life, `decisions/cycle/answer-draft.ts`), and a form saved from a
+version that has since changed is refused, not merged. Held by review.

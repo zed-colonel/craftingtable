@@ -97,7 +97,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I4](#r-i4) | P2 | M | done (test-suite review pass, 2026-10-02) | Structural test/production and process-authority boundaries |
 | [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 done in the test-suite review pass (2026-10-02) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
-| [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb; the rest is P3's last item, operator 2026-10-12) | Documentation reset to current state |
+| [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb; the rest built 2026-10-12 on `remediation/p3`, under review) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | done (3836b99, 6fb5a4a, 0cf4fa5; 10 runs at 661282f) | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 | [R-I10](#r-i10) | P2 | M | done (2026-09-27); versioned replay gate (TS-M12) done in the test-suite review pass (2026-10-02) | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
@@ -4879,7 +4879,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I7
 
-**Documentation reset to current state** · Phase P1-P3 · Effort M · Status: partial (P1 start done 2026-09-25)
+**Documentation reset to current state** · Phase P1-P3 · Effort M · Status: partial (P1 start done 2026-09-25; the rest built 2026-10-12 on `remediation/p3`, under review)
 
 - **Resolves:** [DOC-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-01-the-readme-is-a-feature-changelog-not-an-operator-guide), [DOC-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-02-adr-sprawl--65-records-broken-index-inconsistent-status-metadata-long-refinement-chains), [DOC-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-03-doc-claims-out-of-sync-with-code-spot-check-of-14-claims-7-false-or-stale), [DOC-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-05-principles-security-and-operations-docs-have-become-per-feature-narratives), [UI-15](findings/UI-information-architecture.md#ui-15-docsui-principlesmd-has-become-a-per-slice-accretion-log-that-encourages-new-surfaces), [SEC-09](findings/AGT-GIT-SEC-agents-git-security.md#sec-09-docssecuritymd-is-an-accreted-per-slice-log-with-stale-claims), [HIST-13](findings/HIST-history-and-live-usage.md#hist-13-schema-and-adr-churn-rate-22-migrations-46-adrs-in-18-days-with-manual-pre-migration-backups), [HIST-15](findings/HIST-history-and-live-usage.md#hist-15-commit-messages-stopped-describing-changes-adr-numbering-is-inconsistent), [DATA-15](findings/DATA-storage-domain-contracts.md#data-15-documentation-and-vocabulary-drift-adrs-process-authority-branded-ids-exports-plan-specific-literals), [AGT-17](findings/AGT-GIT-SEC-agents-git-security.md#agt-17-documentation-drift-in-the-agent-seam)
 - **Change:** README becomes an operator guide (what it is, run it, the main workflow) instead of a feature changelog; architecture.md describes the current design, not schema history; one ADR naming scheme, a complete index and correct statuses, superseded chains marked; ui-principles split into visual language, IA rules ("decisions are made only in the inbox; other pages link"), glossary and short per-surface specs; security.md and operations.md rewritten as current state; commit messages carry a body saying what stop or need motivated the change.
@@ -4913,7 +4913,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   Two overstatements are narrowed: the prose-branching check's scope, and the one test that skips record verification. The archive now holds the complete old README verbatim, so the six configuration rows the operator guide leaves out (`WEB_DIST`, model lists, diff limit, session lifetime, log level) are not lost before P2's full variable list.
 - **Defect found by the review, fixed.** `admin reset-password` and `admin bootstrap` opened storage, and so migrated it, without the single-daemon lock. The README tells the operator to run reset-password from a checkout. From a checkout newer than the deployed release, that would have changed the schema under the running daemon. Such a command now takes the lock when the database has pending migrations, and is refused while a daemon holds it; on a current database nothing changes. `cli.test.ts` covers both commands and fails without the fix.
 - **Placement of the rest, operator decision 2026-10-12:** P3's last item, built at P3's close-out so that `main` is a clean baseline before the P4 branch (program.md, P3 build order step 6). Checked that day: 19 of 72 ADRs lack the `ADR-NNN-` prefix (033–050, 057), the decisions index lists 42 of 72, README is 161 lines (done-when: about 150), `security.md` 757 and `operations.md` 649 lines, and `docs/finalization-roadmap.md` and `docs/cross-project-roadmap.md` are not archived.
-- **Left for P2–P3:**
+- **Left for P2–P3** (all eight built 2026-10-12; see "The rest" below):
   1. **ADRs:** one naming scheme (033–050 and 057 lack the `ADR-NNN-` prefix) and one header format; a complete `docs/decisions/README.md` index (it omits 033–050 and 054–068); correct statuses (028 still "proposed", 031's retention superseded by 034); mark the superseded chains (004–007, 014, 022→023). DOC-02, HIST-15.
   2. **ADR-008:** its stale claims (Playwright specs and mobile project, the removed `testing` package, `test-support` authority). DOC-03 #4–6.
   3. **Split `docs/ui-principles.md`** into visual language, IA rules ("decisions are made only in the inbox; other pages link"), the glossary (now present), and short per-surface specs. Move the cross-project import narrative out, and fix the "bare Ready/Blocked never appears" claim against `ProjectCards.tsx`. UI-15, DOC-03 #7, DOC-05.
@@ -4945,7 +4945,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       ADR-034's retention and R-G5's hookless daemon Git) → `partly superseded`. Supersession is
       recorded at both ends: ADR-020 now names 004, 006 and 007; ADR-034 names 031; ADR-043 names
       011; ADR-070 names 027.
-    - *Index.* `docs/decisions/README.md` lists all 72 (it listed 33) with title, status, date and
+    - *Index.* `docs/decisions/README.md` lists all 72 (it listed 42) with title, status, date and
       relations, the header format, and reading chains by topic (finalization, cross-project maps,
       stops and recovery, …) instead of DOC-02's proposed topic pages.
     - *Held structurally.* `scripts/check-docs.mjs`, run by `scripts/check-docs.test.mjs` in `pnpm
@@ -5162,6 +5162,62 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     profile on every thread and turn, its denies equal to a sandboxed run's, no write, no network,
     no proxy; the refusal; requests still declined), seven of which failed before the change.
     `security.md` describes it, and its known limit is gone.
+  - **Independent review 2026-10-12 (a fresh agent, at `20000a2`):** 517 claims checked across
+    every rewritten document against the code (each row in its report), the new checker
+    mutation-tested with 56 mutants through the memory-capped runner (35 on the checker: 24
+    caught, 11 survived; 21 on the docs and sources it guards: 18 caught, 3 survived), and part 8's
+    code change found behaviour-neutral (typecheck, `check:scope`, the route inventory and the three
+    packages' tests; `docs/api-routes.md` unchanged). 19 findings, 0 HIGH, 3 MEDIUM, 16 LOW, none
+    needing an operator decision except one alternative (L-2). Settled:
+    - *M-1, the CLI password bound stated falsely* (the rewrite had turned a true claim false, and
+      the register queued a defect that does not exist): fixed in `cd80edd`, and the register's
+      defect, the ledger's rows and part 5's list corrected here.
+    - *M-2, operations.md said every check is read-only with no network:* `ct-act` keeps the
+      network and Docker, and the native unit is bounded only in resources and builds from the
+      operator's `~/.cargo`; the Checks section and the `CARGO_HOME` row now say so.
+    - *M-3, security.md bound saved-plan acceptance to the retired v1 inputs:* now the v2 inputs
+      (R-C6), with v1 records' revision rule noted.
+    - *L-1, security.md's "sandboxed agents cannot read" against its read-only Codex limit:* true
+      since `111140e`, which closed the limit.
+    - *L-2, the local CI unit sees more of the runtime directory than documented:* the doc and the
+      `local-check.ts` comment now name what is hidden (the user bus, `systemd/`, the system D-Bus
+      socket) and that other sockets stay visible. **Left for the operator:** the reviewer's
+      alternative, an empty read-only runtime directory with only the Docker socket bound back, is
+      a confinement change.
+    - *L-3:* the process-authority row says the native probes are the exception to "named
+      variables only", and a known limit records it.
+    - *L-4:* the raw downloads' media types, step-up's covering test
+      (`server-auth-hardening.test.ts`), and crates.io's fixed ten-minute window.
+    - *L-5, still-true rules the rewrite dropped:* restored, one line each: manual launches and
+      messages refused while automation owns the worktree; a frozen build record needed where a
+      review's gate needs a build or adopted checks; compare-and-delete branch removal and
+      create-only baseline tags; emptying a run's `config.worktree` after `untrusted-git-directory`;
+      unsent answers kept per stop; the merge decision's full branch names with Merge and Cancel;
+      the full final message in a disclosure.
+    - *L-6, L-8, L-16:* architecture.md's private TMPDIR (a sandboxed Claude process's), the
+      command-version rule narrowed to versioned records (architecture, information architecture),
+      and the imprecise statements made exact (the hand-off layer, the board's checkpoint items,
+      `listModels`, tags in the ref watch, the Projects header exception, the "No one" label, the
+      worktree rule in both roadmap modes, when future delegation may change, `TEST_NO_NETNS`).
+    - *L-7, "only `storage` owns SQL" is false:* `brief-size-replay.ts` runs a raw `SELECT`;
+      settled below, with the id branding.
+    - *L-9:* `RUSTUP_HOME` is in the Daemon table.
+    - *L-10:* ADR-033 is `partly superseded` by ADR-042 (which now names it) and R-B10; ADR-062's
+      header lists its 2026-09-27 amendment; ADR-038's "remains future work" is annotated; the
+      index says when the checker prints rows.
+    - *L-11:* this entry's status, the "Left for P2–P3" heading and two counts (the old index
+      listed 42; 183 symbols lose `export`).
+    - *L-12:* `archive/README.md` lists the three archived documents and no longer says the CT-04A
+      code remains; `target-ui.md` points at `docs/ui/`.
+    - *L-13, six survivors:* self-tests now pin the blank line after an ADR's title, a bare ISO
+      date, the slug's characters, partial supersession at its later end, `Refines` not counting as
+      `Supersedes`, and the `node_modules` exclusion (the fixture now sits under a source root);
+      the four equivalent survivors (mixed fences, an anchored link to a non-Markdown file, a
+      `mailto:` link, an empty anchor) are pinned too.
+    - *L-14, the "reads from env" rule was lexical:* it also reads destructured `env` reads now,
+      says what it does not see (computed names, helpers), and has a self-test.
+    - *L-15:* `security.md` and the two seam comments name the directories the daemon adds for a run
+      (`additionalDirectories`).
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts
@@ -5172,11 +5228,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Part 8, the remaining DATA-15 and AGT-17 drift.**
     - *Exports (DATA-15).* Of the domain, contracts and storage symbols exported with no consumer
       outside their own file (243 by a crude scan; 54 of those are used by the storage repositories,
-      which the scan had taken for barrels), 189 lose `export` after a whole-repository search (tests
-      and scripts count as consumers, `export *` does not); 27 of them were then used nowhere and are
-      deleted (unused request and response type aliases, `workspaceMembershipIdSchema`,
-      `planImportDiagnosticIdSchema`, `isAuditAction`, `SchemaOutput`, …). Six stay exported because a
-      server function's inferred return type names them, which declaration emit needs. No runtime,
+      which the scan had taken for barrels), 183 lose `export` after a whole-repository search (tests
+      and scripts count as consumers, `export *` does not): 156 stay in their file, and 27 were then
+      used nowhere and are deleted (unused request and response type aliases,
+      `workspaceMembershipIdSchema`, `planImportDiagnosticIdSchema`, `isAuditAction`, `SchemaOutput`,
+      …). Six more stay exported because a server function's inferred return type names them, which
+      declaration emit needs. No runtime,
       wire or persisted shape changes. Checked: `pnpm typecheck`, lint, format, `check:scope`, and the
       full `pnpm test` (373 files, 3,119 tests, the gate's count at 9f2164a).
     - *Agent seam (AGT-17).* Two comments still claimed more than the adapters do, and are

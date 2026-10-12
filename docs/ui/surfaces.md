@@ -37,7 +37,8 @@ active workspace.
 `/inbox/:itemId`: the item's stop and message, its facts (waiting since, unblocks, notified), a
 link to where it happened, and the decisions that resolve it, chosen from its code
 (`decisions/registry.ts`), with the item's own actions where it has them (re-verify,
-acknowledge). A resolved item says so and links to the subject's current item, if any.
+acknowledge). A merge decision names the full source and target branches, with explicit
+**Merge** and **Cancel**. A resolved item says so and links to the subject's current item, if any.
 
 ## Work items
 
@@ -93,7 +94,7 @@ withdrawn), a run summary, the diff, Activity, and, while the run is live, a mes
 agent. Activity is its own scroll pane: filter chips with counts (system events hidden and tool
 output collapsed by default), and it follows new events only while the reader is at its bottom;
 **Jump to latest** returns. Agent text is always escaped; the outcome panel formats bold and
-inline code and nothing else.
+inline code and nothing else, and the full recorded final message stays in a disclosure.
 
 ## Roadmaps
 

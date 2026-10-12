@@ -41,8 +41,8 @@ exists, including manual worktrees and other roadmaps' work.
 is blocked. It admits work up to the roadmap's in-flight limit and its per-repository limit (both
 2 by default, 1–16); in-flight counts work awaiting merge, paused or needing attention, while
 "Cycles running" counts only running cycles. Several roadmaps sharing a checkout are held to the
-tightest per-repository limit among them. An item that already has an unmerged worktree, manual
-or not, is not given another. Entries sharing an **exclusion group** (exact names, comma
+tightest per-repository limit among them. In either mode, an item that already has an unmerged
+worktree, manual or not, is not given another. Entries sharing an **exclusion group** (exact names, comma
 separated) never overlap: the group is held until the holder merges or its worktree is removed.
 The workstation's own slots (**Settings → Capacity**) bound every roadmap together.
 
@@ -97,7 +97,8 @@ branch moved updates from it at an idle review boundary and is reviewed again, u
 roadmap's refresh limit per item (3 by default, at most 20). At the limit the cycle stops as
 `integration-refresh-limit`: update from integration by hand, then resume.
 
-**Change future delegation** (a map roadmap's setup, paused, with no agent running) changes the
+**Change future delegation** (a map roadmap's setup, while it is a draft, paused or needing
+attention, and no agent run or cycle is running in the workspace) changes the
 merge policy and reviewer responsibilities for selected entries, started ones included, without
 resuming anything or reopening plan acceptance.
 

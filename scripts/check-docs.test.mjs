@@ -45,12 +45,16 @@ describe('checkLinks', () => {
         '[guide](docs/guide.md), [section](docs/guide.md#two-words), [dir](docs/)',
         '[again](docs/guide.md#repeated-1), [anchor](docs/guide.md#kept), [self](#top)',
         '[web](https://example.org/missing.md), `[code](docs/missing.md)`',
+        '[mail](mailto:op@example.org), [empty anchor](docs/guide.md#), [text](docs/notes.txt#l2)',
         '```',
         '[fenced](docs/missing.md)',
+        '~~~ a tilde line inside a backtick fence does not close it',
+        '[still fenced](docs/missing.md)',
         '```',
         '# Top',
       ].join('\n'),
       'docs/guide.md': '## Two `words`\n## Repeated\n## Repeated\n<a id="kept"></a>\n',
+      'docs/notes.txt': 'plain text\n',
     });
     expect(checkLinks(root)).toEqual([]);
   });
@@ -136,11 +140,29 @@ describe('checkAdrs', () => {
     const root = decisions({
       '004-bare.md': ADR('004', 'Bare', accepted()),
       'ADR-005-wrong.md': ADR('006', 'Wrong', accepted()),
+      'ADR-007-Foo Bar.md': ADR('007', 'Foo', accepted()),
     });
     expect(checkAdrs(root)).toEqual([
       'docs/decisions/004-bare.md: not named ADR-NNN-<slug>.md',
       'docs/decisions/ADR-005-wrong.md: the first line must be "# ADR-005: <title>"',
+      'docs/decisions/ADR-007-Foo Bar.md: not named ADR-NNN-<slug>.md',
     ]);
+  });
+
+  it('requires a blank line after the title and a bare ISO date', () => {
+    const root = decisions({
+      'ADR-001-a.md': '# ADR-001: A\n- **Status:** accepted\n- **Date:** 2026-01-01\n\nText.\n',
+      'ADR-002-b.md': ADR('002', 'B', [
+        ['Status', 'accepted'],
+        ['Date', '2026-01-01 approx'],
+      ]),
+    });
+    expect(checkAdrs(root)).toEqual(
+      expect.arrayContaining([
+        'docs/decisions/ADR-001-a.md: a blank line must follow the title',
+        'docs/decisions/ADR-002-b.md: the second header field must be Date: YYYY-MM-DD',
+      ]),
+    );
   });
 
   it('refuses a header out of format, order or vocabulary', () => {
@@ -219,6 +241,29 @@ describe('checkAdrs', () => {
     ]);
   });
 
+  it('requires partial supersession at its later end, and never counts Refines as Supersedes', () => {
+    const problems = checkAdrs(
+      decisions({
+        'ADR-001-a.md': ADR('001', 'A', [
+          ['Status', 'partly superseded'],
+          ['Date', '2026-01-01'],
+          ['Superseded in part by', 'ADR-002 (one clause)'],
+        ]),
+        'ADR-002-b.md': ADR('002', 'B', accepted()),
+        'ADR-003-c.md': ADR('003', 'C', [
+          ['Status', 'superseded'],
+          ['Date', '2026-01-01'],
+          ['Superseded by', 'ADR-004'],
+        ]),
+        'ADR-004-d.md': ADR('004', 'D', [...accepted(), ['Refines', 'ADR-003']]),
+      }),
+    );
+    expect(problems).toEqual([
+      'docs/decisions/ADR-001-a.md: superseded by ADR-002, whose Supersedes does not name ADR-001',
+      'docs/decisions/ADR-003-c.md: superseded by ADR-004, whose Supersedes does not name ADR-003',
+    ]);
+  });
+
   it('requires the index to list every ADR once, as its header says, in order', () => {
     const adrs = {
       'ADR-001-a.md': ADR('001', 'A', accepted()),
@@ -278,7 +323,7 @@ const environment = (overrides = {}) => {
     'apps/server/test/e2e/harness.ts': "process.env['CRAFTINGTABLE_TEST_ONLY'];\n",
     'packages/agents/src/launch.ts': "const set = { CRAFTINGTABLE_RUN_ID: 'x' };\n",
     'vitest.config.ts': 'process.env.CRAFTINGTABLE_SCALE;\n',
-    'node_modules/dep/index.js': 'CRAFTINGTABLE_IN_A_DEPENDENCY',
+    'apps/server/node_modules/dep/index.js': 'CRAFTINGTABLE_IN_A_DEPENDENCY',
     'apps/server/dist/config.js': 'CRAFTINGTABLE_IN_BUILD_OUTPUT',
     'scripts/check-docs.test.mjs': 'CRAFTINGTABLE_FIXTURE_IN_THIS_TEST',
     'docs/operations.md': operations({
@@ -374,11 +419,25 @@ describe('checkEnvironmentList', () => {
     ]);
   });
 
-  it('reads literal env names, dotted or bracketed', () => {
+  it('reads literal env names, dotted, bracketed or destructured', () => {
     expect([...environmentReads("env.A_B; process.env.C; env['D']; env[name]; myenv.E")]).toEqual([
       'A_B',
       'C',
       'D',
+    ]);
+    expect([
+      ...environmentReads(
+        'const { F, G: g, H = 1, lower } = process.env; const {I} = env; f({ J } = env2);',
+      ),
+    ]).toEqual(['F', 'G', 'H', 'I']);
+  });
+
+  it('requires a destructured read of config.ts in the Daemon table', () => {
+    const root = environment({
+      'apps/server/src/config.ts': `${config(['CRAFTINGTABLE_PORT', 'XDG_DATA_HOME'], ['CRAFTINGTABLE_OLD'])}const { HOSTNAME_OVERRIDE } = env;\n`,
+    });
+    expect(checkEnvironmentList(root)).toEqual([
+      'docs/operations.md: HOSTNAME_OVERRIDE, which apps/server/src/config.ts reads, is not in the Daemon table',
     ]);
   });
 });

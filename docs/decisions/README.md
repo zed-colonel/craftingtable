@@ -32,7 +32,7 @@ stay deferred rather than designed prematurely.
 
 `scripts/check-docs.test.mjs` (part of `pnpm test`) checks every header and this index: each
 ADR appears below once, with the title, status, date and relations of its header.
-`node scripts/check-docs.mjs` prints the rows the index should hold.
+When the index is out of date, `node scripts/check-docs.mjs` prints the rows it should hold.
 
 ## Reading chains
 
@@ -93,7 +93,7 @@ Some decisions are spread over several records. Read the latest first:
 | [ADR-030](ADR-030-controlled-parallel-roadmaps.md) | Controlled parallel roadmaps | accepted | 2026-09-11 |  |
 | [ADR-031](ADR-031-worktree-finalization-and-review-housekeeping.md) | Worktree finalization and review housekeeping | partly superseded | 2026-09-11 | superseded in part by ADR-034, R-G5 |
 | [ADR-032](ADR-032-delegated-integration-conflict-resolution.md) | Delegated integration conflict resolution | accepted | 2026-09-12 |  |
-| [ADR-033](ADR-033-delegated-integration-and-plan-finalization.md) | Delegated integration and explicit plan finalization | accepted | 2026-09-12 | refines ADR-021, ADR-025, ADR-029, ADR-032 |
+| [ADR-033](ADR-033-delegated-integration-and-plan-finalization.md) | Delegated integration and explicit plan finalization | partly superseded | 2026-09-12 | superseded in part by ADR-042, R-B10; refines ADR-021, ADR-025, ADR-029, ADR-032 |
 | [ADR-034](ADR-034-storage-placement-and-retention.md) | Storage placement and retention | accepted | 2026-09-12 | supersedes ADR-031 |
 | [ADR-035](ADR-035-compact-finalization-reports.md) | Compact finalization reports and scoped recovery guidance | accepted | 2026-09-13 | refines ADR-024, ADR-033 |
 | [ADR-036](ADR-036-finalization-remediation-authorization.md) | Explicit additional finalization remediation | accepted | 2026-09-13 | refines ADR-033, ADR-035 |
@@ -102,7 +102,7 @@ Some decisions are spread over several records. Read the latest first:
 | [ADR-039](ADR-039-post-run-build-cache-cleanup.md) | Clean build caches when runs end | accepted | 2026-09-15 | refines ADR-034, ADR-037 |
 | [ADR-040](ADR-040-finalization-recovery-agent-selection.md) | Change the finalization agent at recovery | accepted | 2026-09-15 | refines ADR-033, ADR-038 |
 | [ADR-041](ADR-041-plan-completion-and-integration-cleanup.md) | Plan completion and optional integration branch cleanup | accepted | 2026-09-15 | refines ADR-026, ADR-033 |
-| [ADR-042](ADR-042-staged-plan-finalization.md) | Staged plan finalization | accepted | 2026-09-15 |  |
+| [ADR-042](ADR-042-staged-plan-finalization.md) | Staged plan finalization | accepted | 2026-09-15 | supersedes ADR-033 |
 | [ADR-043](ADR-043-package-imports-and-concurrency-previews.md) | ZIP packages and bound concurrency-map drafts | accepted | 2026-09-15 | supersedes ADR-011 |
 | [ADR-044](ADR-044-return-unstarted-items-to-proposed.md) | Return unstarted agenda items to Proposed | accepted | 2026-09-15 |  |
 | [ADR-045](ADR-045-slice-execution-and-parent-acceptance.md) | Slice execution and parent acceptance | accepted | 2026-09-16 |  |

@@ -126,7 +126,9 @@ function deniedFileRules(request: AgentLaunchRequest): string[] {
 /**
  * Settings every supervised Claude run gets. Except with the unrestricted posture, Bash runs in
  * Claude Code's OS sandbox (R-G5, SEC-02c): it may write only the worktree, the run's
- * directories, its scratch space, the outside sources' caches and the repository's Git
+ * directories, its scratch space, the outside sources' caches, the directories the daemon adds
+ * for the run (`additionalDirectories`: a previous run's directory, a historical baseline's Cargo
+ * home, a local-CI cache root, the worktree's shared Cargo target) and the repository's Git
  * directory but what `gitDeniedWrites` keeps read-only; it reaches no network but loopback and
  * those sources' hosts, and no command may name more (a strict allowlist); it cannot read what
  * `sandboxDeniedReads` lists (the runtime directory, Docker sockets, the operator's credentials,

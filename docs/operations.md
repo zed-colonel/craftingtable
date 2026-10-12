@@ -234,8 +234,9 @@ CRAFTINGTABLE_TLS_KEY=/home/<you>/.config/craftingtable/key.pem
 
 This route also needs the host firewall to allow the port on the LAN interface, a stable address
 (a DHCP reservation or a `.local` name), and the certificate trusted on every device that
-connects. With `CRAFTINGTABLE_TLS_CERT` in the unit's environment, the deploy's health check
-asks over HTTPS and trusts that certificate ([Deploying and rolling back](#deploying-and-rolling-back)).
+connects. With `CRAFTINGTABLE_TLS_CERT` in the unit's environment, the deploy's health check asks
+over HTTPS and trusts that certificate ([Deploying and rolling
+back](#deploying-and-rolling-back)).
 
 ## Agents on the workstation
 
@@ -304,12 +305,16 @@ crate it has not seen before stays unverified, and checks that need it fail nami
 ## Checks
 
 The daemon runs the checks agents ask for (`ct-check`, `ct-act`, `ct-native`, the Cargo launcher's
-builds) itself, each in a transient systemd user unit `craftingtable-check-<instance>-<request>`
-with a read-only file system apart from the run's own paths and no network
-([security.md](security.md#checks-and-builds)). The daemon therefore needs the user manager: its
-environment must carry `XDG_RUNTIME_DIR` and the user bus, as the unit provides. On a host without
-one, `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs checks as plain process groups. Logs are kept in
-`<data>/check-logs/<run>/`, and a start stops the check units a previous daemon left.
+builds) itself, outside the agent's process tree, as transient systemd user units. A `ct-check`
+and a launcher build run in `craftingtable-check-<instance>-<request>` with a read-only file
+system apart from the run's own paths and no network; `ct-act` keeps the network and its Docker
+socket; `ct-native` starts the approved native unit, `craftingtable-native-<run>`, which is
+bounded in CPU, memory, tasks and time but not confined in its files or network, and builds with
+the operator's `~/.cargo` ([security.md](security.md#checks-and-builds)). The daemon therefore
+needs the user manager: its environment must carry `XDG_RUNTIME_DIR` and the user bus, as the unit
+provides. On a host without one, `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs checks as plain
+process groups. Logs are kept in `<data>/check-logs/<run>/`, and a start stops the check units a
+previous daemon left.
 
 - **Adopted checks.** A repository's checks are its `.craftingtable/checks.json`, adopted by a
   person on the Repositories page at a branch or exact commit. Every run in a repository with an
@@ -435,8 +440,11 @@ in the same worktree with its original agent, permissions, guidance and deadline
 After a crash, a stop that did not finish draining, a step whose agent never reported a session,
 or a resume that fails, the work waits for an explicit Resume: the next start ends any process
 group its own record proves was a live run's, marks those runs `interrupted`, and the cycle or
-roadmap needs attention. Worktrees survive restarts. Removing a worktree whose directory was
-deleted by hand prunes it from Git's metadata and marks it removed.
+roadmap needs attention. Worktrees survive restarts. A daemon Git command refused with
+`untrusted-git-directory` in a managed run's worktree or repository most often means the run's Git
+directory holds a non-empty `config.worktree`, which Git never writes there: inspect it, then
+empty it to go on ([security.md](security.md#the-daemons-own-git)). Removing a worktree whose
+directory was deleted by hand prunes it from Git's metadata and marks it removed.
 
 ## Forgotten password
 
@@ -448,10 +456,10 @@ pnpm craftingtable admin reset-password --username <name>
 ```
 
 It prints the database path, refuses a missing database or an inactive or unknown user, and asks
-twice for the new password without echoing it (Ctrl-C cancels; Ctrl-U clears). The password is
-12 to 1024 UTF-8 bytes, as in the browser. Never pass a password in arguments or the environment. Its authority is local access
-to the database: it replaces the hash, revokes every login session of that user and records an
-audit entry, all in one transaction, and leaves everything else intact.
+twice for the new password without echoing it (Ctrl-C cancels; Ctrl-U clears). The password is 12
+to 1024 UTF-8 bytes, as in the browser. Never pass a password in arguments or the environment. Its
+authority is local access to the database: it replaces the hash, revokes every login session of
+that user and records an audit entry, all in one transaction, and leaves everything else intact.
 
 ## Deleting all application data
 
@@ -506,6 +514,7 @@ Read by `apps/server/src/config.ts` unless the meaning says otherwise.
 | `HOME` | the account's | Default bases and Cargo home; the agents' temporary root may not be or contain it. |
 | `TMPDIR` | `/tmp` | The agents' temporary root may not be or contain it. |
 | `CARGO_HOME` | `~/.cargo` | The default for `CRAFTINGTABLE_CARGO_SEED_FROM`. |
+| `RUSTUP_HOME` | `~/.rustup` | Where rustup keeps toolchains; passed into checks, which run the checked commit's toolchain from it (`check-request-service.ts`, `local-check.ts`). |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's account directory: its model catalog, and passed to Claude runs (`packages/agents/src/claude-code/catalog.ts`). |
 | `PATH` | | Where `git`, `claude`, `codex`, `cargo`, `bwrap` and `socat` are found. |
 
@@ -536,7 +545,7 @@ Read by the test harness: `vitest.config.ts`, `playwright.config.ts`, `e2e/` and
 | `CRAFTINGTABLE_DEV_API_TARGET` | `http://127.0.0.1:${CRAFTINGTABLE_PORT:-4601}` | The Vite dev server's API proxy target (`apps/web/vite.config.ts`; the e2e run sets it). |
 | `CRAFTINGTABLE_MIGRATION_SNAPSHOT` | unset | A copied snapshot for the opt-in migration and resume tests; never a live database. |
 | `CRAFTINGTABLE_REAL_CLAUDE` | unset | `1` runs the sandbox test against the installed Claude Code. |
-| `CRAFTINGTABLE_TEST_NO_NETNS` | unset | `1` skips the instance-lock test that needs a network namespace. |
+| `CRAFTINGTABLE_TEST_NO_NETNS` | unset | `1` declares that the host refuses unprivileged network namespaces, so the instance-lock test that needs one skips there instead of failing. |
 | `CRAFTINGTABLE_UPDATE_GOLDEN` | unset | `1` rewrites the planning format golden files. |
 | `UPDATE_ROUTE_INVENTORY` | unset | `1` rewrites `docs/api-routes.md` (`pnpm routes:inventory`). |
 
@@ -552,7 +561,7 @@ Not configuration: the daemon puts these in the environment of agents, launchers
 | `CRAFTINGTABLE_CARGO_CONFIG` | | Cargo patches onto the exported dependency sources, likewise. |
 | `CRAFTINGTABLE_VERIFICATION_MODE` | | Scoped checks or a current-upstream build, in local CI jobs. |
 | `CRAFTINGTABLE_CI_ARTIFACTS_DIR` | | Where a local CI job keeps logs and artifacts. |
-| `CARGO_HOME` | | `<data>/cargo-home` for agents; a fresh home per check. |
+| `CARGO_HOME` | | `<data>/cargo-home` for agents; a fresh home per declared check; the operator's `~/.cargo` for native checks. |
 | `CARGO_TARGET_DIR` | | The worktree's shared target for agents (else the run's `scratch/target`); the manifest's for launchers and checks. |
 | `TMPDIR` | | The run's `scratch/` for its commands (with `TMP` and `TEMP`); a sandboxed Claude process gets its own short directory. |
 

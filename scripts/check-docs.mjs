@@ -15,7 +15,8 @@
  * - **Environment variables.** `docs/operations.md`'s "Environment variables" tables list every
  *   `CRAFTINGTABLE_*` name the sources mention (production, tests and the harness; not this
  *   check's own test, whose names are fixtures) and no other;
- *   every variable `apps/server/src/config.ts` reads from `env` is in the Daemon table, every one
+ *   every variable `apps/server/src/config.ts` reads from `env` by a literal name (`env.NAME`,
+ *   `env['NAME']`, or destructured from `env`) is in the Daemon table, every one
  *   `scripts/deploy-daemon.mjs` reads in the Deploy table, and the Retired table is exactly
  *   config.ts's `RETIRED_SETTINGS`.
  */
@@ -385,13 +386,20 @@ export function sourceVariables(root) {
   return found;
 }
 
-/** The variables a module reads from `env` or `process.env` by a literal name. */
+/**
+ * The variables a module reads from `env` or `process.env` by a literal name: `env.NAME`,
+ * `env['NAME']`, or a destructuring of `env` (`const { NAME, OTHER: alias } = env`). A name
+ * computed at run time or read through a helper is not seen.
+ */
 export function environmentReads(text) {
   const reads = new Set();
   for (const match of text.matchAll(
     /\benv(?:\.([A-Z_][A-Z0-9_]*)\b|\[\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*\])/g,
   ))
     reads.add(match[1] ?? match[2]);
+  for (const match of text.matchAll(/\{([^{}]*)\}\s*=\s*(?:process\.)?env\b/g))
+    for (const part of match[1].split(','))
+      if (/^\s*[A-Z_][A-Z0-9_]*\s*(?:[:=]|$)/.test(part)) reads.add(part.trim().split(/[\s:=]/)[0]);
   return reads;
 }
 

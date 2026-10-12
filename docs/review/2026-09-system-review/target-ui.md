@@ -5,9 +5,9 @@ converge on (R-A5, R-A6, R-E1 to R-E6). The full inventory of today's surfaces, 
 map and the per-component disposition table are in the
 [UI report](findings/UI-information-architecture.md) (Deliverables 1–5).
 
-The visual language in `docs/ui-principles.md` stays: dark theme, one teal accent, semantic
-state colours, dense layout, and the page-anatomy primitives. The problem is the information
-architecture, not the styling.
+The visual language in `docs/ui-principles.md` (since R-I7, `docs/ui/visual-language.md`) stays:
+dark theme, one teal accent, semantic state colours, dense layout, and the page-anatomy
+primitives. The problem is the information architecture, not the styling.
 
 ## Principles
 
@@ -23,7 +23,7 @@ architecture, not the styling.
    steps and a clear "ready to start" state.
 4. **One status vocabulary, typed by the daemon.** The UI switches on attention codes and
    blocker codes, never on message text. A glossary of about 15 operator-facing terms lives in
-   ui-principles.
+   ui-principles (since R-I7, `docs/ui/glossary.md`).
 5. **Navigation is routing.** There is one `Link` component and no raw in-app `href`s. Deep
    links carry typed parameters (inbox item, roadmap, tab, focus node) and never depend on a
    particular panel happening to be mounted.

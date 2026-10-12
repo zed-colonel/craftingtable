@@ -1078,7 +1078,8 @@ export function confinedCheckArguments(
     '-p',
     'TemporaryFileSystem=/dev/shm',
     // Nor the user's runtime directory, whose user bus would start a unit outside every
-    // confinement (R-G13 review). Local CI keeps only its Docker socket there.
+    // confinement (R-G13 review). Local CI keeps the directory for its Docker socket, with the
+    // user bus, `systemd/` and the system D-Bus socket hidden; other sockets there stay visible.
     ...runtimeDirectoryConfinement(network),
     ...hidden.roots.flatMap((p) => ['-p', `TemporaryFileSystem=${p}:ro`]),
     ...hidden.binds.flatMap((p) => ['-p', `BindPaths=${p}`]),

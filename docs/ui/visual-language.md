@@ -41,7 +41,8 @@ and accessible name whether or not it is collapsed.
 ## Page anatomy
 
 Every page reads top to bottom in the same order, built from the primitives in
-`apps/web/src/components/`, which are the only way to build these parts:
+`apps/web/src/components/`, which are the only way to build these parts (the Projects page's
+hand-built header is the one exception, noted on R-I7):
 
 1. **Identity.** `PageHeader`: crumbs, one `h1`, one line of context, the page-level status badge
    and the actions that apply to the whole page. Sections below never repeat them.

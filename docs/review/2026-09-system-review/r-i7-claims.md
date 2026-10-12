@@ -771,7 +771,7 @@ checked against code.
 | 126 | After a crash: recorded groups ended, runs interrupted, explicit Resume | `agent-run-service.ts:2738-2800`; `restart-resume.ts:1-11` | true |
 | 127 | Removing a worktree whose directory is gone prunes Git's metadata and marks it removed | `packages/git/src/worktrees.ts:154-168`; `execution-service.ts:1475` | true |
 | 128 | `reset-password` refuses a missing database or inactive/unknown user; prompts twice; Ctrl-C/Ctrl-U | `cli.ts:110-130,295-297,325-331`; `password-reset-service.ts:18-26` | true |
-| 129 | "Passwords must be 12–1024 UTF-8 bytes" (for the CLI) | `auth-service.ts:22,245-249` vs `cli.ts:136-140` | fixed: only the browser enforces 12; the CLI enforces ≤ 1024 (code defect D1) |
+| 129 | "Passwords must be 12–1024 UTF-8 bytes" (for the CLI) | `auth-service.ts:22,245-249` vs `cli.ts:136-140` | withdrawn (see Corrections): the hasher enforces 12–1024 for the CLI too; the old text was true |
 | 130 | Reset replaces the hash, revokes sessions, audits, in one transaction | `password-reset-service.ts:21-50` | true |
 | 131 | Deleting the data dir leaves worktrees listed until `git worktree prune` | Git behaviour | true (carried) |
 
@@ -797,8 +797,8 @@ and Deploy; `CARGO_HOME` and `TMPDIR` in Daemon and Set by the daemon).
 4. Old "Shutdown and recovery": SIGTERM "terminates every live agent process group … On the next
    start, runs that were live are marked `interrupted`" → a stop drains, interrupts for resume and
    records a clean stop; the next start resumes (`server.ts:163-169`); rewritten.
-5. "Passwords must be 12–1024 UTF-8 bytes" for `reset-password` → the CLI enforces only ≤ 1024
-   bytes (an empty password is accepted); fixed, and code defect D1.
+5. *Withdrawn (see Corrections):* "Passwords must be 12–1024 UTF-8 bytes" for `reset-password`
+   was listed here as false; it is true, through the hasher.
 6. Tailscale "Then `pnpm build` once, start the daemon" → the deploy builds the release; restart
    the unit.
 7. "Directly on the LAN" pointed at the README's "Using it from the couch" → self-contained.
@@ -836,7 +836,7 @@ and Deploy; `CARGO_HOME` and `TMPDIR` in Daemon and Set by the daemon).
 
 ### Code defects
 
-- **D1 (low).** `admin reset-password` and `admin bootstrap` accept any password up to 1024 bytes,
+- *Withdrawn (see Corrections):* **D1 (low).** `admin reset-password` and `admin bootstrap` accept any password up to 1024 bytes,
   including an empty one (Enter twice): `apps/server/src/cli.ts:319-331` checks only that the two
   entries match, and `PasswordResetService.reset` / `BootstrapService.bootstrap` check no length.
   The browser's change requires 12–1024 bytes (`services/auth-service.ts:22,245-249`), and login

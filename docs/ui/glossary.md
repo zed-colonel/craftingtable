@@ -53,7 +53,8 @@ stops the work ([ADR-067](../decisions/ADR-067-typed-attention.md)):
 
 Name a flow by the stop it resolves, not by the panel that hosts it. Group waiting reasons by who
 moves them, as `Reasons` does: *Needs you*, *Waiting on automation*, *Waiting on other work*. A
-board or slice strip names who acts next as *Needs you*, *Agent at work*, *Waiting* or *Done*.
+board or slice strip names who acts next as *Needs you*, *Agent at work*, *Waiting* or *No one*,
+and a finished slice as *Done*.
 
 ## Work-item states
 

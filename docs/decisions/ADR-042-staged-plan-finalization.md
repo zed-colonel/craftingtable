@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-09-15
+- **Supersedes:** ADR-033 in part (finalization's rounds)
 - **Amended:** 2026-10-07 (R-C7 D5): optional findings parked at a stage
 
 ## Context

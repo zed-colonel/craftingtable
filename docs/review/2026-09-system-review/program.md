@@ -1058,6 +1058,34 @@ cleanup items the decisions only, is recorded in its register entry as "decided 
    criteria were met by then (checked 2026-10-12: R-E3b's done-when on a live snapshot; the
    decision boundary test reads the generated route inventory's tags).
 
+**P3 closed (2026-10-12).** Built on `remediation/p3` from `2d265a5` to `85d1820` (251 commits),
+then `main` fast-forwarded to it. Not deployed at closing: the deployed release is still P2's
+(`e577d91`).
+
+- **Items, all done and each independently reviewed:** R-G14, R-G13 increment 4, R-H4 (rest), R-F2,
+  R-G11, R-G10, R-E5 (R-E5a, R-E5b), R-C7 (wave 1); R-C6, R-G6, R-H6 (wave 2); R-A6 (rest), R-E3b,
+  R-D7, R-E4, R-D8, R-H5; R-I7's rest. R-D7 and R-D8 were added while measuring R-E3b's page read
+  (270 ms before R-D7, about 150 ms after R-D8, against a 300 ms budget).
+- **Exit criteria, checked 2026-10-12:**
+  - *From the board, the operator can answer "what is this waiting on, and what does this decision
+    unblock" without leaving the page:* R-E3b's done-when (a) to (e), proven on a live snapshot and
+    re-derived by its reviewer; the board tests pass.
+  - *Each decision command is posted from exactly one component:* `decisions/boundary.test.ts` reads
+    the daemon's generated route inventory (`docs/api-routes.md`, R-H5) and fails when a route tagged
+    `decision` has no posting component or more than one.
+- **Final gate and replays (at `746441d`):** `pnpm check` alone, green: 3,159 unit tests (4 skipped),
+  23 e2e and the walkthrough rehearsal, the scope check. `pnpm replays`: 31 of 56 unchanged, 25 only
+  as expected, 0 failed. The commit after it records them (docs only).
+- **Deploying it:** `docs/operations.md`, "Upgrading across schemas 38–40": no rollback across
+  schema 38 (the pre-migration copy is the way back); Git 2.43.0 or newer; reload every open page;
+  everyone signs in again once (the `__Host-` cookie); reviews prepared earlier without a pinned
+  environment, in a repository with adopted checks, are reviewed afresh before merge; a repository a
+  roadmap runs in needs adopted checks (ActionQueue has none); `outside-sources.json` is optional.
+- **Carried forward:** to P4, R-D6 with R-F1's lighter evaluator (the measured cold reads; the page
+  read's remaining room), R-C10's follow-up (automating a roadmap's resume and re-verify) and R-H7
+  (route parameters and branded ids). Outside the phases: measuring R-C3b's design-stage stop rate
+  (open to-dos, below).
+
 ### P4: Controller kernel and decomposition (3+ weeks, behind the harness)
 
 R-B4 (pure decision core, stop record and step history), R-B5 (event-driven kernel), R-B6

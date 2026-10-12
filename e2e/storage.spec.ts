@@ -35,7 +35,7 @@ test('storage settings, cleanup preview and private backups work on desktop and 
         page.waitForResponse(
           (response) =>
             response.request().method() === 'POST' &&
-            /\/storage(?:\/(?:scan|backup))?$/.test(new URL(response.url()).pathname),
+            /\/storage(?:\/control)?$/.test(new URL(response.url()).pathname),
         ),
         panel.getByRole('button', { name, exact: true }).click(),
       ]);

@@ -4955,6 +4955,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       (`node scripts/check-docs.mjs` prints them). The same module checks that every relative link
       under `docs/` and in the top-level Markdown resolves, anchors included by GitHub's slug rule:
       1,083 links in 104 files at this commit, none broken. A self-test covers each rule.
+  - **Part 2, ADR-008.** Its 16 claims were checked against the code; three were stale (DOC-03
+    #4–6) and are corrected in place with a dated amendment, as the 2026-09-24 one was: Playwright
+    runs the `e2e/` specs in desktop and iPhone-13 `chromium` projects, two installation projects for
+    the storage spec and the walkthrough project (not "one chromium-only flow"); the
+    `agents`/`git`/`testing` seam rule went in `3f3441c` and the `testing` package is gone; there is
+    no test-capability allowlist or `test-support` name rule, since R-I4 classifies tests and test
+    support by what vitest runs and what only tests import. True as written: the Node 24.18.0 pin
+    (`pnpm-workspace.yaml`, `engine-strict`, `.nvmrc`), Biome, the two vitest projects, `yaml` 2.9.0
+    and `@fastify/multipart` 10.1.0, the `pnpm check` order, `tsx watch`, `"."`-only package exports,
+    the three `onlyBuiltDependencies`, `packages/git/test`, and the archived CT-04 package.
 
 ### R-I8
 

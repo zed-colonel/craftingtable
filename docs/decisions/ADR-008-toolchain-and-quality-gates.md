@@ -7,6 +7,7 @@
 - **Amended:** 2026-07-24 for CT-03 planning dependencies and DOM component tests
 - **Amended:** 2026-07-26 for CT-04A1 structural Git tests and protected-package verification
 - **Amended:** 2026-09-24: `command-runner.ts` was removed with the CT-04A1 inspector (R-B8); the process authorities are the modules listed in `scripts/check-forbidden-scope.mjs`
+- **Amended:** 2026-10-12 (R-I7, DOC-03 #4–6): the Playwright suite, the scope check's seam rule and test support as they are now
 
 ## Context
 
@@ -17,7 +18,7 @@ CT-01 requires a deliberately simple TypeScript workspace with one documented fo
 - **Workspace:** pnpm workspaces (`apps/*`, `packages/*`) without Nx or Turborepo. Internal packages are consumed as built output via TypeScript **project references**; `tsc -b` enforces the dependency graph.
 - **Node version:** supported floor is **Node 24 (active LTS)** — `engines: ">=24"` with `engine-strict`, `.nvmrc` pinned to `24`. The workspace additionally pins the **script runtime** with `useNodeVersion: 24.18.0` in `pnpm-workspace.yaml`: pnpm downloads that exact Node once and runs all workspace scripts under it, so `pnpm check` behaves identically regardless of which Node (if any) is on `PATH` and which runtime the pnpm executable itself embeds. This closes review finding CT01-R5, where a standalone pnpm binary fell back to its embedded Node 20 when `node` was absent from `PATH` and the engines gate refused to run.
 - **Formatter + linter:** **Biome** (single tool, single config, formats and lints TS/TSX/CSS/JSON). Chosen over Prettier + ESLint for simplicity; its smaller rule set is acceptable for this codebase.
-- **Tests:** **Vitest** for unit and real-file SQLite integration tests (root config aliases workspace packages to source, so `pnpm test` needs no prior build). **Playwright** runs one chromium-only authenticated flow at a 1440×900 viewport. It always starts a fresh daemon with a unique temporary data directory and a fresh Vite server; occupied ports fail rather than reusing stale processes (finding CT01-R2).
+- **Tests:** **Vitest** for unit and real-file SQLite integration tests (root config aliases workspace packages to source, so `pnpm test` needs no prior build). **Playwright** runs one chromium-only authenticated flow at a 1440×900 viewport (amended 2026-10-12: it now runs the specs in `e2e/` in a desktop `chromium` project at 1440×900 and a `mobile-chromium` project on an iPhone 13 viewport for five of them, the installation-level storage spec in two projects of its own after those, and, when `CRAFTINGTABLE_WALKTHROUGH` is set, the `walkthrough` project, which `pnpm test:e2e` runs as a rehearsal). It always starts a fresh daemon with a unique temporary data directory and a fresh Vite server; occupied ports fail rather than reusing stale processes (finding CT01-R2).
 - **Server dev runner:** `tsx watch`.
 - **Quality gate:** `pnpm check` = `format:check → lint → typecheck → build → test → test:e2e → check:scope`, fail-fast, fully local, no GitHub Actions required. `check:scope` (`scripts/check-forbidden-scope.mjs`) fails on any Exo Stack dependency or import.
 
@@ -34,6 +35,10 @@ CT-03 additions:
   process-execution, or vendor-agent-SDK import in production source; on a
   production import of the `agents`/`git`/`testing` seams; and on any filesystem,
   process, socket, database, or UI import inside `@craftingtable/planning`.
+  (Amended 2026-10-12: the seam rule was removed in `3f3441c`, and the `testing`
+  package no longer exists; capability imports are confined to the modules
+  `PROCESS_AUTHORITY` and `LOADER_AUTHORITY` name. The script's header lists its
+  current rules.)
 
 CT-04A1 additions:
 
@@ -44,7 +49,13 @@ CT-04A1 additions:
   explicitly.
 - The scope walker scans both `src` and `test`. Existing test-capability
   modules are exact-path allowlisted; a production filename containing
-  `test-support` gains no authority.
+  `test-support` gains no authority. (Amended 2026-10-12, R-I4: there is no
+  allowlist and no name rule now. The check reads what the TypeScript projects
+  compile; tests are what `vitest.config.ts` runs, test support is what only
+  tests reach on the resolved import graph, and everything else is production,
+  whatever its name. Every package keeps its tests and test support in `test/`,
+  which only a `noEmit` project compiles, and a test-only module built into
+  `dist` is a finding.)
 - Exactly `packages/git/src/command-runner.ts` may import
   `node:child_process` in production. (Superseded 2026-09-24: that module is gone, and
   `PROCESS_AUTHORITY` in `scripts/check-forbidden-scope.mjs` lists the modules that may.) Package exports remain `"."` only, and

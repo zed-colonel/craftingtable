@@ -182,9 +182,11 @@ export function isTerminalAgentRunStatus(status: AgentRunStatus): boolean {
  * - `edit-only`: Claude Code pre-approves file edits and denies whatever would need a prompt,
  *   commands included, so it runs no commands and the outside sources do nothing for it
  *   (operator decision 2026-10-08, R-G14). Codex runs commands without asking inside its
- *   sandbox, a per-run permission profile (the worktree, its Git directories but `config`,
- *   `hooks` and `info`, the run's directories and the outside sources' caches writable; no
- *   network but the outside sources' hosts), and nothing may ask to leave it.
+ *   sandbox, a per-run permission profile: the worktree, the temporary directories, the run's
+ *   directories and the outside sources' caches writable and, to stage and commit, the common
+ *   Git directory's `objects/`, `refs/` and `logs/` and the run's own Git directory (no Git
+ *   grant where the repository enables `extensions.worktreeConfig`, or where a path it keeps
+ *   read-only is missing); no network but the outside sources' hosts. Nothing may ask to leave.
  * - `auto`: Claude Code's safety classifier approves routine actions and denies risky ones,
  *   with commands in its sandbox. Codex is as in `edit-only`: since R-G14 (operator decision
  *   2026-10-07) its reviewer no longer approves requests to leave the sandbox. Prompts are

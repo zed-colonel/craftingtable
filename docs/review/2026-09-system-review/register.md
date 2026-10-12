@@ -4988,6 +4988,34 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       server function's inferred return type names them, which declaration emit needs. No runtime,
       wire or persisted shape changes. Checked: `pnpm typecheck`, lint, format, `check:scope`, and the
       full `pnpm test` (373 files, 3,119 tests, the gate's count at 9f2164a).
+    - *Agent seam (AGT-17).* Two comments still claimed more than the adapters do, and are
+      corrected: `AgentPermissionMode` said a sandboxed Codex run may write "its Git directories but
+      `config`, `hooks` and `info`", where its profile grants only the common directory's `objects/`,
+      `refs/` and `logs/` and the run's own Git directory, and nothing of Git under
+      `extensions.worktreeConfig` or with a read-only path missing (`codexGitAccess`); and the Claude
+      run-settings comment sat detached above `gitDeniedWrites` and left out the Git-directory write
+      and most denied reads. ADR-007's name is part 1's; the agent-environment claim (SEC-02) is part
+      4's; architecture.md already defers to `PROCESS_AUTHORITY` (P1 start), whose five entries and
+      reasons were checked (pinned Cargo's "agent process group" holds: non-build commands and builds
+      without a spool run there).
+    - *Checked and closed without a change.* DATA-15's "`RUN_EVENT_PAGE_LIMIT` silently caps the run
+      page at 10,000 events" is false: after 20 pages the page hands over to the event stream at the
+      last sequence, and the stream reads every committed event after its cursor
+      (`RunRoute.tsx`, `run-event-stream-service.ts`). The `STACK-PLAN-ACCEPTED` literal is gone from
+      production code since R-F2: the plan checkpoint is the map's one `plan_approval` checkpoint the
+      `stack` owns, whatever its id (`map-capabilities.ts`, `plan-acceptance-policy.ts`).
+    - *Left for the operator.* (1) **Branding the remaining ids** (DATA-15's "opportunistically"): of
+      140 `*Id: string` domain fields, 24 have a brand in `ids.ts`; branding even those failed
+      `tsc -b` in 11 files, and the deciding ones are contracts whose `equivalentSchema` pins on
+      persisted records (run environments and receipts, protected-ref moves, attention items,
+      evidence, amendments, check adoptions, cycle agent selections) validate the fields with
+      `z.string()` or `z.uuid()`. A branded output means the id schemas (`isWellFormedId`), stricter
+      than one and looser than the other: a persisted-format validation change, so it was reverted
+      and is a question. The roadmap, cycle, definition, attempt, entry and checkpoint ids have no
+      brand yet. (2) **A guard against new unconsumed exports** was costed, not built: the scope
+      check's TypeScript API resolves module specifiers, not named imports through `export *`, so a
+      structural rule is about 150–200 lines plus exceptions (`route-inventory.ts` enumerates the
+      contracts; six declaration-emit types); a grep version would be heuristic.
 
 ### R-I8
 

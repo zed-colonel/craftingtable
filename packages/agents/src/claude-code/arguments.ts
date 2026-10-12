@@ -78,15 +78,6 @@ export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
 }
 
 /**
- * Settings every supervised Claude run gets. Except with the unrestricted posture, Bash runs in
- * Claude Code's OS sandbox (R-G5, SEC-02c): it may write only the worktree, the run's
- * directories, its scratch space and the outside sources' caches; it reaches no network but
- * loopback and those sources' hosts, and no command may name more (a strict allowlist); it
- * cannot read the Docker socket or the operator's credentials. The run does not start without the sandbox, and
- * a command may not ask to leave it. Sandboxed commands run without asking only in the auto
- * posture; edit-only keeps its approval rule for commands.
- */
-/**
  * What sandboxed commands may not write in the repository's Git directory (R-G14 review
  * MEDIUM-1, operator decision 2026-10-08). Claude Code lets them write it, so a run can commit,
  * except `config` and `hooks/`; these keep the rest of what says where the repository and its
@@ -132,6 +123,17 @@ function deniedFileRules(request: AgentLaunchRequest): string[] {
   return (request.deniedReads ?? []).flatMap((path) => [`Read(/${path}/**)`, `Edit(/${path}/**)`]);
 }
 
+/**
+ * Settings every supervised Claude run gets. Except with the unrestricted posture, Bash runs in
+ * Claude Code's OS sandbox (R-G5, SEC-02c): it may write only the worktree, the run's
+ * directories, its scratch space, the outside sources' caches and the repository's Git
+ * directory but what `gitDeniedWrites` keeps read-only; it reaches no network but loopback and
+ * those sources' hosts, and no command may name more (a strict allowlist); it cannot read what
+ * `sandboxDeniedReads` lists (the runtime directory, Docker sockets, the operator's credentials,
+ * the daemon's database, backups and settings). The run does not start without the sandbox,
+ * and a command may not ask to leave it. Sandboxed commands run without asking only in the auto
+ * posture; edit-only keeps its approval rule for commands.
+ */
 function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown> {
   const deny = deniedFileRules(request);
   return {

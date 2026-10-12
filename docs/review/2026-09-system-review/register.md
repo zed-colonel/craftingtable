@@ -5322,65 +5322,6 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     Docker socket (L-2's alternative, a confinement change); a structural guard against new
     unconsumed exports (costed at about 150–200 lines); and branding route parameters and storage
     lookups, which the branding left as strings where no route parses a schema.
-- **Operator decisions after the report, 2026-10-12 (later):** (1) add the `__Host-` cookie prefix;
-  (2) deny Claude's file tools the whole denied-reads list, for consistency; (3) mask local CI's
-  runtime directory down to the Docker socket, as recommended; (4) build the unconsumed-export
-  guard, as recommended: only if it can be structural; (5) route parameters and storage lookups:
-  a suggestion asked for, not built; (6) P3's close-out, `main` and P4 are the operator's; (7) no
-  action on load-dependent test failures; (8) remove `packages/testing/` if nothing needs it.
-  - *(1) The `__Host-` session cookie (SEC-04).* On an HTTPS public origin the session cookie is
-    `__Host-craftingtable_session` (`sessionCookieName(config)`, from `secureCookies`): `Secure`,
-    `Path=/`, no `Domain`, so a browser accepts it only from this exact origin. An HTTP origin
-    keeps `craftingtable_session`, since a browser refuses a `__Host-` cookie without `Secure`
-    (loopback development, test daemons). The daemon reads the cookie only under its origin's name (the
-    route guard, the run and workspace event streams, the page-load replay), and an HTTPS sign-in
-    clears a cookie left under the plain name. Deploying it signs everyone out once (a deploy note
-    in operations.md). ADR-009 amended. Test: `server-auth.test.ts` (each origin's name and
-    attributes, no `Domain`, the old name cleared on HTTPS, a session read only under its own
-    name), which fails when the prefix is never applied.
-  - *(2) Claude's file tools denied the whole list.* Its Read, Grep, Glob and Edit were denied the
-    daemon's protected paths only; they now get every path of `sandboxDeniedReads`, the list its
-    sandboxed commands and Codex's profiles are denied, in Claude's rule syntax (`~/` kept
-    home-relative, `//` absolute) and both as the path itself, for a file, and everything under it,
-    for a directory. A read-only Claude run, which has only those tools, is covered with the rest.
-    Checked against the real CLI with an opt-in test (`sandbox-real.test.ts`, run once with
-    `CRAFTINGTABLE_REAL_CLAUDE=1`): in a read-only run a file in the worktree denied by its absolute
-    path, and one in an added directory denied by a home-relative rule, are refused while an allowed
-    file is read; with the old rules the home-relative one was readable. (A first version placed
-    the files outside the run's directories, which read-only runs refuse anyway, and passed with the
-    old rules too; the files now sit where only the deny rules can refuse them.) Unit tests:
-    `claude-code/arguments.test.ts` and `normalize.test.ts`.
-  - *(3) Local CI's runtime directory down to its Docker socket (review L-2's alternative).* A local
-    CI unit hid only the user bus, `systemd/` and the system D-Bus socket of `/run/user/<uid>`, so
-    other sockets there (an SSH or GPG agent's) reached it. It now gets the runtime directory as an
-    empty read-only file system, as check units do, with only the Docker socket its configuration
-    names (`dockerHost`) bound back when it lies there; the system's Docker socket stays visible,
-    and the system D-Bus socket hidden. Tests in `local-check.test.ts`: the unit arguments for
-    rootless and system Docker and for a check, and a real transient unit, run where a user manager
-    is, which lists the runtime directory as just the Docker socket, connects to it, and is refused
-    by another socket made beside it. Both fail on the old mask.
-  - *(8) `packages/testing/`:* untracked and ignored build output (`dist/`, `node_modules/`, a
-    `tsbuildinfo`) of the package `3f3441c` removed; nothing referenced it, so it was deleted from
-    the checkout. Nothing in Git changed.
-  - *(4) The unconsumed-export guard, structural (DATA-15).* Rule 8 of `check:scope`: every symbol
-    a production module of `packages/domain`, `contracts` or `storage` declares and exports must be
-    taken by name by another module (production, a test, test support, a script or an e2e file),
-    resolved by the compiler (`getExportsOfModule`, `getAliasedSymbol`) through barrels and
-    re-exports to the declaration: a named import, a default import, an `import()` type, a
-    destructured `import()`, `ns.a` on an imported namespace, or `export { a } from` in another
-    package. A namespace used whole (`Object.entries(contracts)`) names nothing and counts nothing.
-    The only exceptions are a map of seven types that declaration emit needs (a server function's
-    inferred return type names them), each with its reason; an exception without a reason, or one
-    no longer needed, is a finding. It found eight exports `f7db32a`'s name search had missed (a
-    same-named declaration elsewhere hid them): four lose `export`, three unused types are deleted,
-    and `ArchitectureDecision` joins the map. Built in a worktree and cherry-picked; self-tests on
-    throwaway workspaces cover each consumer form, each finding and the exception rules; adding an
-    unconsumed export to a domain file makes `check:scope` fail with the finding; it adds about 0.15
-    s. Known gaps, which can only let an unused export pass: a shadowed namespace name, `ns['a']`,
-    `import x = require()` and `.d.ts` consumers. Declaring those server functions' return types
-    would let the map go (not done).
-  - *(5) Route parameters and storage lookups:* the operator agreed with the suggestion the same day
-    and placed it in P4 as [R-H7](#r-h7); nothing built here.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts
@@ -5429,6 +5370,82 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       check's TypeScript API resolves module specifiers, not named imports through `export *`, so a
       structural rule is about 150–200 lines plus exceptions (`route-inventory.ts` enumerates the
       contracts; six declaration-emit types); a grep version would be heuristic.
+- **Operator decisions after the report, 2026-10-12 (later):** (1) add the `__Host-` cookie prefix;
+  (2) deny Claude's file tools the whole denied-reads list, for consistency; (3) mask local CI's
+  runtime directory down to the Docker socket, as recommended; (4) build the unconsumed-export
+  guard, as recommended: only if it can be structural; (5) route parameters and storage lookups:
+  a suggestion asked for, not built; (6) P3's close-out, `main` and P4 are the operator's; (7) no
+  action on load-dependent test failures; (8) remove `packages/testing/` if nothing needs it.
+  - *(1) The `__Host-` session cookie (SEC-04).* On an HTTPS public origin the session cookie is
+    `__Host-craftingtable_session` (`sessionCookieName(config)`, from `secureCookies`): `Secure`,
+    `Path=/`, no `Domain`, so a browser accepts it only from this host over HTTPS (any port:
+    cookies are scoped by host). An HTTP origin keeps `craftingtable_session`, since a browser
+    refuses a `__Host-` cookie without `Secure` (loopback development, test daemons). The daemon
+    reads the cookie only under its origin's name (the route guard, the run and workspace event
+    streams, the page-load replay), and an HTTPS sign-in clears a cookie left under the plain
+    name. Deploying it signs everyone out once, and rolling back signs everyone out again (a deploy
+    note in operations.md). ADR-009 amended. Tests: `server-auth.test.ts` (each origin's name and
+    attributes, no `Domain`, the old name cleared on HTTPS, a session read only under its own
+    name), which fails when the prefix is never applied; and, from the follow-up review,
+    `server-execution-runs.test.ts`: on HTTPS both event streams open with the `__Host-` cookie and
+    refuse the plain name, and revoking the current session and signing out clear the `__Host-`
+    cookie.
+  - *(2) Claude's file tools denied the whole list.* Its Read, Grep, Glob and Edit were denied the
+    daemon's protected paths only; they now get every path of `sandboxDeniedReads`, the list its
+    sandboxed commands and Codex's profiles are denied, in Claude's rule syntax (`~/` kept
+    home-relative, `//` absolute) and both as the path itself, for a file, and everything under it,
+    for a directory. A read-only Claude run, which has only those tools, is covered with the rest.
+    Checked against the real CLI with an opt-in test (`sandbox-real.test.ts`, run once with
+    `CRAFTINGTABLE_REAL_CLAUDE=1`): in a read-only run a file in the worktree denied by its absolute
+    path, and one in an added directory denied by a home-relative rule, are refused while an allowed
+    file is read; with the old rules the home-relative one was readable. (A first version placed
+    the files outside the run's directories, which read-only runs refuse anyway, and passed with the
+    old rules too; the files now sit where only the deny rules can refuse them.) Unit tests:
+    `claude-code/arguments.test.ts` and `normalize.test.ts`. *Amended by the operator the same day
+    (follow-up review M-3):* the change had reached `unrestricted` runs too, where Claude Code
+    applies deny rules even with permission checks off, and to the file commands it recognises
+    (`cat`, `sed`, `tee`, redirection), while a script could still read the files: friction, not a
+    boundary, and against security.md's "the operator's full local authority". An `unrestricted`
+    run, whose commands are not sandboxed, keeps only the daemon's protected paths, as before and as
+    a Codex `unrestricted` run; every other posture, and every read-only run, gets the whole list.
+    `arguments.test.ts` pins both, and that an unrestricted run with no protected paths gets no
+    rules; security.md says so.
+  - *(3) Local CI's runtime directory down to its Docker socket (review L-2's alternative).* A local
+    CI unit hid only the user bus, `systemd/` and the system D-Bus socket of `/run/user/<uid>`, so
+    other sockets there (an SSH or GPG agent's) reached it. It now gets the runtime directory as an
+    empty read-only file system, as check units do, with only the Docker socket its configuration
+    names (`dockerHost`) bound back when it lies there; the system's Docker socket stays visible,
+    and the system D-Bus socket hidden. Tests in `local-check.test.ts`: the unit arguments for
+    rootless and system Docker and for a check, and a real transient unit, run where a user manager
+    is, which lists the runtime directory as just the Docker socket, connects to it, and is refused
+    by another socket made beside it. Both fail on the old mask. From the follow-up review: the
+    socket is bound with `BindPaths=-`, so a missing socket (Docker stopped) no longer fails the
+    unit's setup with exit 226 and no output, and act starts and reports the unreachable daemon
+    (L-1); and a confined `ct-act` run through `executeCheck`, with a fake act connecting where
+    `DOCKER_HOST` points, reaches the configured socket and is refused another beside it, which
+    fails when `executeCheck` stops passing the socket (M-2).
+  - *(4) The unconsumed-export guard, structural (DATA-15).* Rule 8 of `check:scope`: every symbol
+    a production module of `packages/domain`, `contracts` or `storage` declares and exports must be
+    taken by name by another module (production, a test, test support, a script or an e2e file),
+    resolved by the compiler (`getExportsOfModule`, `getAliasedSymbol`) through barrels and
+    re-exports to the declaration: a named import, a default import, an `import()` type, a
+    destructured `import()`, `ns.a` on an imported namespace, or `export { a } from` in another
+    package. A namespace used whole (`Object.entries(contracts)`) names nothing and counts nothing.
+    The only exceptions are a map of seven types that declaration emit needs (a server function's
+    inferred return type names them), each with its reason; an exception without a reason, or one
+    no longer needed, is a finding. It found eight exports `f7db32a`'s name search had missed (a
+    same-named declaration elsewhere hid them): four lose `export`, three unused types are deleted,
+    and `ArchitectureDecision` joins the map. Built in a worktree and cherry-picked; self-tests on
+    throwaway workspaces cover each consumer form, each finding and the exception rules; adding an
+    unconsumed export to a domain file makes `check:scope` fail with the finding; it adds about 0.15
+    s. Known gaps, which can only let an unused export pass: a shadowed namespace name, `ns['a']`,
+    `import x = require()` and `.d.ts` consumers. Declaring those server functions' return types
+    would let the map go (not done).
+  - *(5) Route parameters and storage lookups:* the operator agreed with the suggestion the same day
+    and placed it in P4 as [R-H7](#r-h7); nothing built here.
+  - *(8) `packages/testing/`:* untracked and ignored build output (`dist/`, `node_modules/`, a
+    `tsbuildinfo`) of the package `3f3441c` removed; nothing referenced it, so it was deleted from
+    the checkout. Nothing in Git changed.
 
 ### R-I8
 

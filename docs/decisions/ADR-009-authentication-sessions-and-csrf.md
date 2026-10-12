@@ -54,7 +54,8 @@ HTTPS is mandatory in CT-08.
 The consequence foreseen above is taken, for HTTPS origins rather than when HTTPS becomes
 mandatory. On an HTTPS public origin the session cookie is `__Host-craftingtable_session`: a
 browser accepts it only with `Secure`, `Path=/` and no `Domain`, so neither a sibling host nor a
-plain-HTTP page on the same name can set or shadow it. An HTTP origin keeps
+plain-HTTP page on the same name can set or shadow it; cookies are scoped by host, not port, so
+another HTTPS service on the same host still can. An HTTP origin keeps
 `craftingtable_session`, because a browser refuses a `__Host-` cookie without `Secure`, and
 loopback development and the test daemons are HTTP. The daemon reads the cookie only under its
 origin's name, and an HTTPS sign-in clears a cookie left under the plain name. Deploying the change

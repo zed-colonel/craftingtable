@@ -703,6 +703,84 @@ it('runs ct-act in the daemon with a private HOME, under the workflow hold, and 
 });
 
 itConfines(
+  'runs ct-act in a confined unit that reaches its configured Docker socket and no other socket of the runtime directory (follow-up review M-2)',
+  async () => {
+    const shared = mkdtempSync(join(tmpdir(), 'ct-act-confined-'));
+    roots.push(shared);
+    const runtime = `/run/user/${process.getuid?.()}`;
+    const docker = join(runtime, `ct-test-act-docker-${process.pid}.sock`);
+    const other = join(runtime, `ct-test-act-other-${process.pid}.sock`);
+    const servers = [docker, other].map((path) => {
+      const server = createServer((socket) => {
+        socket.on('error', () => {});
+        socket.end();
+      });
+      server.listen(path);
+      return server;
+    });
+    const tool = (name: string, body: string) => {
+      const path = join(shared, name);
+      writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+      return path;
+    };
+    const probe = (target: string, label: string) =>
+      `python3 -c "import os,socket;s=socket.socket(socket.AF_UNIX);s.connect(${target})" 2>/dev/null && echo connected:${label} || echo refused:${label}`;
+    // The fake act connects where act would: the socket DOCKER_HOST names, as executeCheck passes it.
+    const localCi = {
+      actExecutable: tool(
+        'act',
+        `${probe("os.environ['DOCKER_HOST'].removeprefix('unix://')", 'docker')}; ${probe(`'${other}'`, 'other')}`,
+      ),
+      dockerExecutable: tool('docker', 'exit 0'),
+      dockerHost: `unix://${docker}`,
+      image: `image@sha256:${'a'.repeat(64)}`,
+      cacheRoot: join(shared, 'cache'),
+    };
+    try {
+      await Promise.all(servers.map((server) => once(server, 'listening')));
+      const f = fixture();
+      mkdirSync(join(f.m.workspacePath, '.github/workflows'), { recursive: true });
+      writeFileSync(
+        join(f.m.workspacePath, '.github/workflows/contract.yml'),
+        'name: C\non: push\n',
+      );
+      spawnSync(hostGit(), ['add', '.'], { cwd: f.m.workspacePath });
+      spawnSync(
+        hostGit(),
+        ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'workflow'],
+        { cwd: f.m.workspacePath },
+      );
+      const launcher = f.launch({ ...f.m, localCi });
+      let output = '';
+      const outcome = await executeCheck({
+        tool: 'ct-act',
+        manifestPath: launcher.manifestPath,
+        manifestDigest: launcher.manifestDigest,
+        manifest: launcher.manifest,
+        args: ['-W', '.github/workflows/contract.yml'],
+        logPath: join(shared, 'logs', 'act.log'),
+        logReference: 'check-logs/run/act.log',
+        privateDirectory: join(shared, 'daemon-private'),
+        confinement: 'systemd',
+        unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
+        writablePaths: [],
+        environment: {},
+        holdWorkflow: async () => () => undefined,
+        onOutput: (text) => (output += text),
+        signal: new AbortController().signal,
+      });
+      expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+      expect(output).toContain('connected:docker');
+      expect(output).toContain('refused:other');
+    } finally {
+      for (const server of servers) server.close();
+      rmSync(docker, { force: true });
+      rmSync(other, { force: true });
+    }
+  },
+);
+
+itConfines(
   'runs ct-native in the daemon, in the approved native unit with a daemon-owned HOME, and refuses without approval (R-G4)',
   async () => {
     const f = fixture();
@@ -2303,7 +2381,8 @@ it("keeps local CI's Docker socket, and nothing else, of the user's runtime dire
   // Rootless Docker: the runtime directory is empty and read-only, with the socket bound back.
   const rootless = args(true, `${runtime}/docker.sock`);
   expect(rootless).toContain(`TemporaryFileSystem=${runtime}:ro`);
-  expect(rootless).toContain(`BindPaths=${runtime}/docker.sock`);
+  // `-`: a missing socket is skipped, so act starts and says the daemon is unreachable (L-1).
+  expect(rootless).toContain(`BindPaths=-${runtime}/docker.sock`);
   expect(rootless).toContain('InaccessiblePaths=-/run/dbus/system_bus_socket');
   expect(rootless).not.toContain('InaccessiblePaths=-/var/run/docker.sock');
   // The system's Docker: nothing of the runtime directory comes back, the socket stays visible.

@@ -1099,7 +1099,8 @@ export function confinedCheckArguments(
  * unit sees the runtime directory as an empty read-only file system and no system D-Bus socket.
  * A check sees no Docker socket either. Local CI keeps the Docker socket its configuration names:
  * bound back into the empty runtime directory when it lies there (rootless Docker), and the
- * system's sockets otherwise left visible.
+ * system's sockets otherwise left visible. A missing socket is skipped rather than failing the
+ * unit's setup, so act starts and reports the unreachable daemon itself (follow-up review L-1).
  */
 function runtimeDirectoryConfinement(localCi: boolean, dockerSocket?: string): string[] {
   const uid = process.getuid?.();
@@ -1108,7 +1109,7 @@ function runtimeDirectoryConfinement(localCi: boolean, dockerSocket?: string): s
     paths.flatMap((p) => ['-p', `InaccessiblePaths=-${p}`]);
   const bindBack =
     localCi && runtime !== undefined && dockerSocket?.startsWith(`${runtime}/`)
-      ? ['-p', `BindPaths=${dockerSocket}`]
+      ? ['-p', `BindPaths=-${dockerSocket}`]
       : [];
   return [
     ...(runtime ? ['-p', `TemporaryFileSystem=${runtime}:ro`] : []),

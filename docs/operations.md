@@ -167,7 +167,8 @@ database, so the deploy's automatic rollback restores the previous release. Afte
   deploy asks the old ones.
 - **Sign in again, once.** On an HTTPS origin the session cookie is now
   `__Host-craftingtable_session`; the daemon no longer reads the old name, and the first sign-in
-  clears it.
+  clears it. Rolling back to an earlier release signs everyone out again, since that release reads
+  only the old name.
 - **Adopt checks in every repository a roadmap runs in.** A roadmap's cycle in a repository with
   no adopted `.craftingtable/checks.json` stops as `repository-checks-undeclared` before anything
   launches (ActionQueue has none yet). Adopt on the Repositories page.

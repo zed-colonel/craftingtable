@@ -642,6 +642,66 @@ describe('agent runs', () => {
     expect(state.backend.launches[0]?.prompt).toContain('CARGO_TARGET_DIR points to');
   });
 
+  it('on an HTTPS origin, both event streams, logout and revocation use the __Host- cookie (follow-up review M-1)', async () => {
+    const state = await ready({ env: { CRAFTINGTABLE_PUBLIC_ORIGIN: 'https://127.0.0.1:5173' } });
+    expect(state.cookie).toMatch(/^__Host-craftingtable_session=/);
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, role: 'implement' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    await state.context.app.listen({ host: '127.0.0.1', port: 0 });
+    const { port } = state.context.app.server.address() as { port: number };
+    const token = state.cookie.slice(state.cookie.indexOf('=') + 1);
+    // Each stream reads the session under the origin's own name, past the route guard: with the
+    // `__Host-` cookie it opens, and with only the plain name it is refused.
+    for (const path of [
+      `/api/workspaces/${state.workspaceId}/runs/${run.id}/events`,
+      `/api/workspaces/${state.workspaceId}/events?after=0`,
+    ]) {
+      const open = async (cookie: string) => {
+        const controller = new AbortController();
+        const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+          headers: { cookie },
+          signal: controller.signal,
+        });
+        controller.abort();
+        return response.status;
+      };
+      expect(await open(state.cookie), path).toBe(200);
+      expect(await open(`craftingtable_session=${token}`), path).toBe(401);
+    }
+    // Revoking the current session and signing out each clear the `__Host-` cookie.
+    const cleared = (response: { headers: Record<string, unknown> }) =>
+      [response.headers['set-cookie'] ?? []]
+        .flat()
+        .filter((value) =>
+          /^__Host-craftingtable_session=;.*Expires=Thu, 01 Jan 1970/.test(`${value}`),
+        );
+    const current = await state.context.login();
+    const revoked = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/auth/sessions/${current.sessionId}/revoke`,
+      headers: mutationHeaders({ ...state, cookie: current.cookie, csrfToken: current.csrfToken }),
+      payload: {},
+    });
+    expect(revoked.statusCode, revoked.body).toBe(200);
+    expect(cleared(revoked)).toHaveLength(1);
+    const again = await state.context.login();
+    const loggedOut = await state.context.app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      headers: mutationHeaders({ ...state, cookie: again.cookie, csrfToken: again.csrfToken }),
+      payload: {},
+    });
+    expect(loggedOut.statusCode, loggedOut.body).toBe(200);
+    expect(cleared(loggedOut)).toHaveLength(1);
+  });
+
   it('starts a run with a composed brief, streams events, accepts follow-ups, and finishes', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());

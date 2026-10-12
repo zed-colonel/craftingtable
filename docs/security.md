@@ -62,9 +62,10 @@ typed commands, never commands to run.
   bytes, kept only as SHA-256 digests, and each session has its own CSRF token. The session
   cookie is `HttpOnly` and `SameSite=Strict` with `Path=/` and no `Domain`. On an HTTPS public
   origin it is also `Secure` and carries the `__Host-` prefix (`__Host-craftingtable_session`), so
-  a browser accepts it only from this exact origin and neither a sibling host nor a plain-HTTP page
-  can set or shadow it; an HTTP origin (loopback development) keeps the plain name, which a browser
-  would refuse with the prefix. The daemon reads the cookie only under its origin's name.
+  a browser accepts it only from this host over HTTPS and neither a sibling host nor a plain-HTTP
+  page can set or shadow it. Cookies are scoped by host, not port: another HTTPS service on the
+  same host (another `tailscale serve` port) still can. An HTTP origin (loopback development)
+  keeps the plain name, which a browser would refuse with the prefix. The daemon reads the cookie only under its origin's name.
 - A session ends after its lifetime (30 days by default, `CRAFTINGTABLE_SESSION_LIFETIME_SECONDS`)
   or after 24 hours with no request (`CRAFTINGTABLE_SESSION_IDLE_SECONDS`). Event streams check
   the session on every iteration without counting as use; a tab left hidden reads nothing, so it

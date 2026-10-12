@@ -3,6 +3,10 @@ import {
   type AgentRunEvent,
   type AgentRunEventKind,
   type AgentRunId,
+  asAgentRunId,
+  asWorkItemId,
+  asWorkspaceId,
+  asWorktreeId,
   isAgentRunEventKind,
   isTerminalAgentRunStatus,
   type SourceRepository,
@@ -16,6 +20,7 @@ import {
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import type {
+  AgentRunBrief,
   AgentRunEventRepository,
   AgentRunHeader,
   AgentRunRepository,
@@ -660,6 +665,32 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         )
         .all() as AgentRunRow[]
     ).map(mapAgentRun);
+  }
+
+  listBriefsSince(since: string): readonly AgentRunBrief[] {
+    const rows = this.database
+      .prepare(
+        `SELECT id, workspace_id, worktree_id, work_item_id, parent_run_id, role, brief
+         FROM agent_runs WHERE created_at >= ? ORDER BY created_at ASC, id ASC`,
+      )
+      .all(since) as {
+      id: string;
+      workspace_id: string;
+      worktree_id: string;
+      work_item_id: string | null;
+      parent_run_id: string | null;
+      role: AgentRunBrief['role'];
+      brief: string;
+    }[];
+    return rows.map((row) => ({
+      id: asAgentRunId(row.id),
+      workspaceId: asWorkspaceId(row.workspace_id),
+      worktreeId: asWorktreeId(row.worktree_id),
+      ...(row.work_item_id === null ? {} : { workItemId: asWorkItemId(row.work_item_id) }),
+      ...(row.parent_run_id === null ? {} : { parentRunId: asAgentRunId(row.parent_run_id) }),
+      role: row.role,
+      brief: row.brief,
+    }));
   }
 
   listRecentHeaders(workspaceId: WorkspaceId, limit: number): readonly AgentRunHeader[] {

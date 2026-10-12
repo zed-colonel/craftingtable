@@ -40,6 +40,12 @@ export type AgentRunHeader = Pick<
   | 'reviewBranchContext'
   | 'profileSelection'
 >;
+
+/** What the brief-size replay rebuilds a run's brief from (R-G6), as stored. */
+export type AgentRunBrief = Pick<
+  AgentRun,
+  'id' | 'workspaceId' | 'worktreeId' | 'workItemId' | 'parentRunId' | 'role' | 'brief'
+>;
 export interface CreateSourceRepositoryInput {
   readonly id: SourceRepositoryId;
   readonly workspaceId: WorkspaceId;
@@ -207,6 +213,11 @@ export interface AgentRunRepository {
   startedIn(workspaceId: WorkspaceId, worktreeIds: readonly WorktreeId[]): boolean;
   /** Runs in a non-terminal status across every workspace; used at startup. */
   listLive(): readonly AgentRun[];
+  /**
+   * Every run created at or after `since`, across workspaces, oldest first, with only what the
+   * brief-size replay rebuilds a brief from, read as stored and not decoded as a whole run.
+   */
+  listBriefsSince(since: string): readonly AgentRunBrief[];
   /** Live runs first, then the most recent finished ones, for the workspace overview. */
   listRecent(workspaceId: WorkspaceId, limit: number): readonly AgentRun[];
   /** `listRecent` without each run's brief and summary, for views that list runs (R-H4). */

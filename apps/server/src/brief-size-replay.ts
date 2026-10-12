@@ -11,7 +11,7 @@ import {
   type WorkItem,
   type WorkspaceId,
 } from '@craftingtable/domain';
-import { type CraftingTableStorage, openDatabase } from '@craftingtable/storage';
+import type { CraftingTableStorage } from '@craftingtable/storage';
 import {
   type BriefDirectory,
   type BriefInput,
@@ -652,23 +652,17 @@ function topSections(text: string): string[] {
   return sections;
 }
 
-/** Every run since `since`, stored and rebuilt. */
-export function replayBriefSizes(
-  storage: CraftingTableStorage,
-  databasePath: string,
-  since: string,
-): BriefSizeReport {
-  const database = openDatabase(databasePath);
-  let rows: RunRow[];
-  try {
-    rows = database
-      .prepare(
-        'SELECT id, workspace_id, role, brief, worktree_id, work_item_id, parent_run_id FROM agent_runs WHERE created_at >= ? ORDER BY created_at',
-      )
-      .all(since) as RunRow[];
-  } finally {
-    database.close();
-  }
+/** Every run since `since`, stored and rebuilt. Storage reads the runs (only it owns SQL). */
+export function replayBriefSizes(storage: CraftingTableStorage, since: string): BriefSizeReport {
+  const rows: RunRow[] = storage.execution.runs.listBriefsSince(since).map((run) => ({
+    id: run.id,
+    workspace_id: run.workspaceId,
+    role: run.role,
+    brief: run.brief,
+    worktree_id: run.worktreeId,
+    work_item_id: run.workItemId ?? null,
+    parent_run_id: run.parentRunId ?? null,
+  }));
   const runs: BriefSize[] = [];
   const skipped: { runId: string; reason: string }[] = [];
   const sectionsAfter: Record<string, number> = {};

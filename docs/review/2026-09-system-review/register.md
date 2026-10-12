@@ -5199,8 +5199,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       and the imprecise statements made exact (the hand-off layer, the board's checkpoint items,
       `listModels`, tags in the ref watch, the Projects header exception, the "No one" label, the
       worktree rule in both roadmap modes, when future delegation may change, `TEST_NO_NETNS`).
-    - *L-7, "only `storage` owns SQL" is false:* `brief-size-replay.ts` runs a raw `SELECT`;
-      settled below, with the id branding.
+    - *L-7, "only `storage` owns SQL" is false:* `brief-size-replay.ts` ran a raw `SELECT` on the
+      snapshot copy. The query moved into storage (`runs.listBriefsSince`, which reads the columns
+      as stored, without decoding the whole run, as the raw read did), so no production module
+      outside `packages/storage` opens the database; the rule is held by review, not a check.
+      Test: `brief-size-replay.test.ts` reads two runs through it and the replay.
     - *L-9:* `RUSTUP_HOME` is in the Daemon table.
     - *L-10:* ADR-033 is `partly superseded` by ADR-042 (which now names it) and R-B10; ADR-062's
       header lists its 2026-09-27 amendment; ADR-038's "remains future work" is annotated; the
@@ -5218,6 +5221,27 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       says what it does not see (computed names, helpers), and has a self-test.
     - *L-15:* `security.md` and the two seam comments name the directories the daemon adds for a run
       (`additionalDirectories`).
+  - **Fix from decision (4): the remaining ids branded** (DATA-15). Built in a worktree by a builder
+    and cherry-picked as three commits (domain; contracts and storage; server and web). 35 brand
+    types join `ids.ts`: 23 for records the daemon stores (roadmap, entry, attempt, work cycle,
+    finalization and stage, attention item, evidence submission, merge operation, …) and 12 for
+    identities in an imported map or plan (checkpoint, slice, map work item, planning target, …),
+    each with an `asX` constructor that brands without checking, so a value keeps the rule of the
+    edge that admitted it. 140 of the domain's 159 `*Id` fields are branded, and the ids of the
+    records they point to. The 19 left as `string` hold an identity whose kind depends on another
+    field (a scope's `sourceId`, an audit `targetId`, a reservation's `ownerId`), a label
+    (`workItemSourceId`, which can be `'Finalization'`), a vendor token, or a lookup into the raw
+    v0.3 map document, whose format keeps plain strings. *No validation change:* every contract
+    field that describes a branded field outputs the brand through `branded<T>(schema)`, the same
+    schema with only its output type changed; a structural comparison of all 279 exported schemas
+    before and after found no difference, so no stored or posted record is accepted or refused
+    differently, and wire and stored formats are unchanged. Checked by the builder: `pnpm
+    typecheck`, lint, format, `check:scope`, the full `pnpm test` (374 files, 3,137 tests), and `pnpm
+    db:verify` on a fresh copy of the 2026-10-11 snapshot migrated to 40 ("PASS: 111389 records
+    conform"); and again on the integrated head here. *Noted, unchanged:* the two concurrency-import
+    events put a definition id in `roadmap-changed`'s `roadmapId` (the browser only refreshes on
+    it; changing it would change stored events); route parameters and storage lookups are branded
+    only where a route already parses a schema, a natural follow-up.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

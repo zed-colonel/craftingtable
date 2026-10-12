@@ -1,7 +1,36 @@
 import type { CraftingTableStorage } from '@craftingtable/storage';
-import { expect, it } from 'vitest';
-import { rebuildBrief } from '../src/brief-size-replay.js';
+import { afterEach, expect, it } from 'vitest';
+import { rebuildBrief, replayBriefSizes } from '../src/brief-size-replay.js';
 import { STEP_RULES } from '../src/services/step-rules.js';
+import {
+  cleanupExecutionFixtures,
+  fixtureRepository,
+  ready,
+  registerAndWorktree,
+  runToFinish,
+} from './execution-test-support.js';
+
+afterEach(cleanupExecutionFixtures);
+
+it('reads the runs since a moment through storage, oldest first, as stored (R-I7)', async () => {
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  const first = await runToFinish(state, worktree.id, { instructions: 'First run.' });
+  const second = await runToFinish(state, worktree.id, { instructions: 'Second run.' });
+  const runs = state.context.storage.execution.runs;
+  const all = runs.listBriefsSince('1970-01-01T00:00:00.000Z');
+  expect(all.map((run) => run.id)).toEqual([first, second]);
+  expect(all[1]).toMatchObject({ workspaceId: state.workspaceId, worktreeId: worktree.id });
+  expect(all[1]?.brief).toContain('Second run.');
+  const since = runs.find(state.workspaceId, second)?.createdAt as string;
+  expect(runs.listBriefsSince(since).map((run) => run.id)).toEqual([second]);
+  // The replay reads them the same way: each run is rebuilt or named as skipped.
+  const report = replayBriefSizes(state.context.storage, since);
+  expect([
+    ...report.runs.map((run) => run.runId),
+    ...report.skipped.map((run) => run.runId),
+  ]).toEqual([second]);
+});
 
 /**
  * The brief-size replay (R-G6, G6-5) rebuilds a stored brief from its own inputs with today's

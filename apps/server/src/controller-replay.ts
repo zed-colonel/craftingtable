@@ -302,7 +302,7 @@ function briefSizes(snapshot: string, since: string, json: string | undefined): 
     copyFileSync(snapshot, copy);
     const storage = openDaemonStorage(copy);
     try {
-      const sizes = replayBriefSizes(storage, copy, since);
+      const sizes = replayBriefSizes(storage, since);
       if (json) writeFileSync(json, `${JSON.stringify(sizes, null, 2)}\n`, { mode: 0o600 });
       process.stdout.write(formatBriefSizes(sizes));
       return 0;

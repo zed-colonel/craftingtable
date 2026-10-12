@@ -1,8 +1,13 @@
+> **Superseded; archived 2026-10-12 (R-I7, DOC-05).** The finalization-stages roadmap, completed
+> with ADR-042. It is kept as history, is not maintained and may be stale. The current design is
+> in `docs/architecture.md`, `docs/roadmaps.md` and the ADRs; where they or the code disagree with
+> this file, they win.
+
 # Finalization stages — next before WorldInterface and Exoskeleton
 
 Status: implemented. New finalizations default to focused stages; existing finalizations and
 an explicit legacy setup option preserve the earlier flow. Ready for WorldInterface and
-Exoskeleton finalization. See [ADR-042](decisions/ADR-042-staged-plan-finalization.md).
+Exoskeleton finalization. See [ADR-042](../docs/decisions/ADR-042-staged-plan-finalization.md).
 
 AQ's seven remediation rounds demonstrated that an unrestricted whole-plan improvement
 review can keep discovering optional work after the release requirements are satisfied.

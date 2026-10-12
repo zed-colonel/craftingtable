@@ -35,7 +35,7 @@ and the resulting allowance are explicit; the old separate form is no longer sho
 finding selection. Setup exposes the independent initial finalization budget (default three),
 which does not inherit a work item's or roadmap's saved policy.
 
-The staged evolution is recorded in ../finalization-roadmap.md and remains future work.
+The staged evolution is recorded in archive/finalization-roadmap.md and remains future work.
 
 ## Amendment 2026-09-25: deferral retired with improvement rounds (R-B10)
 

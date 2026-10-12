@@ -1,7 +1,12 @@
+> **Superseded; archived 2026-10-12 (R-I7, DOC-05).** The Codex backend implementation plan,
+> carried out and then superseded by ADR-023. It is kept as history, is not maintained and may be
+> stale. The current design is in `docs/architecture.md`, `docs/roadmaps.md` and the ADRs; where
+> they or the code disagree with this file, they win.
+
 # Codex Backend Implementation Plan
 
 > Historical implementation plan. The exec/resume transport and its permission and
-> telemetry limitations are superseded by [ADR-023](../decisions/ADR-023-codex-app-server.md).
+> telemetry limitations are superseded by [ADR-023](../../docs/decisions/ADR-023-codex-app-server.md).
 > Current behavior is documented in README.md and docs/architecture.md.
 
 > **For agentic workers:** work through the tasks in order, one commit per task,

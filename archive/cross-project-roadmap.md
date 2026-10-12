@@ -1,3 +1,8 @@
+> **Superseded; archived 2026-10-12 (R-I7, DOC-05).** The cross-project roadmap, whose tracked
+> backlog was delivered by 2026-09-22. It is kept as history, is not maintained and may be stale.
+> The current design is in `docs/architecture.md`, `docs/roadmaps.md` and the ADRs; where they or
+> the code disagree with this file, they win.
+
 # Cross-project roadmaps
 
 Status: **delivered; tracked implementation backlog complete** (2026-09-22).
@@ -9,12 +14,12 @@ plan/evidence acceptance and protected-branch promotion remain explicit operator
 
 | Capability | Delivered behavior | Decision |
 | --- | --- | --- |
-| Import and binding | Bounded ZIP preview, immutable map versions and exact project/plan/repository binding; full plan ZIP replacement preserves history. | [ADR-043](decisions/ADR-043-package-imports-and-concurrency-previews.md) |
-| Executable slices | Independent slice worktrees, implementation/review cycles, slice verification and original-parent acceptance. | [Execution scopes](decisions/ADR-045-slice-execution-and-parent-acceptance.md) |
-| Scheduling | Transition-specific gates, exclusions, development/review limits and durable resource reservations. Dependencies and evidence gates always apply. | [ADR-046](decisions/ADR-046-transition-gates-and-resource-reservations.md) |
-| Dependency environments | Exact upstream pins, immutable prepared sources, scoped/current-build policies and reviewed evidence receipts. | [ADR-047](decisions/ADR-047-pinned-builds-and-reviewed-evidence.md), [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md) |
-| Supervision | Selected targets and scope, project lanes, cross-project dependency tracing, explicit map adoption and saved-plan acceptance. | [ADR-048](decisions/ADR-048-cross-project-supervision.md) |
-| Amendments and finalization | Reviewed changes with impact/reconciliation, evidence invalidation and coordinated full-plan finalization. | [ADR-049](decisions/ADR-049-reviewed-map-amendments-and-finalization.md) |
+| Import and binding | Bounded ZIP preview, immutable map versions and exact project/plan/repository binding; full plan ZIP replacement preserves history. | [ADR-043](../docs/decisions/ADR-043-package-imports-and-concurrency-previews.md) |
+| Executable slices | Independent slice worktrees, implementation/review cycles, slice verification and original-parent acceptance. | [Execution scopes](../docs/decisions/ADR-045-slice-execution-and-parent-acceptance.md) |
+| Scheduling | Transition-specific gates, exclusions, development/review limits and durable resource reservations. Dependencies and evidence gates always apply. | [ADR-046](../docs/decisions/ADR-046-transition-gates-and-resource-reservations.md) |
+| Dependency environments | Exact upstream pins, immutable prepared sources, scoped/current-build policies and reviewed evidence receipts. | [ADR-047](../docs/decisions/ADR-047-pinned-builds-and-reviewed-evidence.md), [ADR-053](../docs/decisions/ADR-053-scoped-verification-and-local-ci.md) |
+| Supervision | Selected targets and scope, project lanes, cross-project dependency tracing, explicit map adoption and saved-plan acceptance. | [ADR-048](../docs/decisions/ADR-048-cross-project-supervision.md) |
+| Amendments and finalization | Reviewed changes with impact/reconciliation, evidence invalidation and coordinated full-plan finalization. | [ADR-049](../docs/decisions/ADR-049-reviewed-map-amendments-and-finalization.md) |
 
 The map describes requirements and evidence; a roadmap binds it to exact plans, repositories,
 model profiles, policies and execution attempts. This extends the existing roadmap scheduler.
@@ -39,8 +44,8 @@ the same applicable gates as automation.
 Freshness binds evidence to reviewed source, dependency generation, environment and policy.
 Changes require explicit reconciliation; there is no implicit binding to a latest plan or pin.
 Integration merges may be delegated. Final promotion to main/protected destinations always needs
-operator approval. See [integration authority](decisions/ADR-033-delegated-integration-and-plan-finalization.md)
-and [staged finalization](decisions/ADR-042-staged-plan-finalization.md).
+operator approval. See [integration authority](../docs/decisions/ADR-033-delegated-integration-and-plan-finalization.md)
+and [staged finalization](../docs/decisions/ADR-042-staged-plan-finalization.md).
 
 ## Capacity and recovery
 
@@ -49,7 +54,7 @@ and the selected roadmap's total/per-repository in-flight ceilings. Occupied res
 waits link to their work. Values survive restarts; lowering capacity preserves existing runs.
 Changing capacity never clears a dependency or evidence gate. Pause roadmap scheduling before
 saving; capacity changes require refreshed saved-plan acceptance. Roadmaps link to these settings.
-See [ADR-061](decisions/ADR-061-host-verification-settings.md).
+See [ADR-061](../docs/decisions/ADR-061-host-verification-settings.md).
 
 Known temporary model-service failures receive at most three automatic retries, after 1, 5 and
 15 minutes, on the same backend/model. The separate service allowance, next attempt and failure
@@ -63,7 +68,7 @@ Process/tool completion must be unambiguous and cleanup complete. New attempts r
 phase, evidence, branch and authority gates. Unknown failures, authentication, quota limits, pending
 tools, operator questions and exhausted retries require operator attention. Partial reports never
 become successful review evidence. Historical failures remain explicit manual recoveries; raw old
-vendor logs are not reinterpreted to launch work. See [ADR-062](decisions/ADR-062-bounded-provider-recovery.md).
+vendor logs are not reinterpreted to launch work. See [ADR-062](../docs/decisions/ADR-062-bounded-provider-recovery.md).
 
 Independent domain-only parent acceptance may depend on an accepted same-repository predecessor
 without acquiring an upstream runtime-build obligation. Required slices, assigned cases and every
@@ -121,6 +126,6 @@ Remote qualification adapters are also future work. Imported resource names alon
 an available environment; unsupported required semantics remain blocked with an explicit reason.
 Neither capability is an unfinished item in the completed six-increment roadmap.
 
-See [Planning Studio boundaries](decisions/ADR-028-roadmaps-and-planning-studio-boundaries.md),
-[sequential execution](decisions/ADR-029-sequential-roadmap-execution.md), and
-[controlled parallelism](decisions/ADR-030-controlled-parallel-roadmaps.md).
+See [Planning Studio boundaries](../docs/decisions/ADR-028-roadmaps-and-planning-studio-boundaries.md),
+[sequential execution](../docs/decisions/ADR-029-sequential-roadmap-execution.md), and
+[controlled parallelism](../docs/decisions/ADR-030-controlled-parallel-roadmaps.md).

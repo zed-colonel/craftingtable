@@ -4965,6 +4965,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     (`pnpm-workspace.yaml`, `engine-strict`, `.nvmrc`), Biome, the two vitest projects, `yaml` 2.9.0
     and `@fastify/multipart` 10.1.0, the `pnpm check` order, `tsx watch`, `"."`-only package exports,
     the three `onlyBuiltDependencies`, `packages/git/test`, and the archived CT-04 package.
+  - **Part 6, completed planning documents archived (DOC-05).** `docs/finalization-roadmap.md`,
+    `docs/cross-project-roadmap.md` and `docs/plans/2026-09-09-codex-backend.md` moved to
+    `archive/` (the plan to `archive/plans/`), each under a header saying it is superseded, kept as
+    history and not maintained, with its links re-pointed so they still resolve. ADR-028's link and
+    ADR-038's mention follow; `archive/README.md` lists them and the README feature log. Nothing in
+    code referred to them.
 
 ### R-I8
 

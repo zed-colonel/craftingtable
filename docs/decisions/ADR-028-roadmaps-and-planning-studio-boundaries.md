@@ -5,7 +5,7 @@
 - **Amended:** 2026-10-12 (R-I7): status corrected from "proposed". Its roadmap and execution boundaries were built (ADR-029, ADR-030, ADR-043 to ADR-050); its Planning Studio parts remain the direction for the Studio (register item R-F6)
 
 Implementation planning update (2026-09-15): the operator-approved
-[cross-project concurrency roadmap](../cross-project-roadmap.md) applies these boundaries
+[cross-project concurrency roadmap](../../archive/cross-project-roadmap.md) applies these boundaries
 to the revised v0.3.0 package and records the delivery sequence and acceptance criteria.
 The v0.1.0 facts below remain historical context; the linked roadmap records current input
 identities. Cross-map import and execution are not implemented yet.

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { asEventId, type Roadmap } from '@craftingtable/domain';
+import { asEventId, asRoadmapId, asWorkItemSourceId, type Roadmap } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/database.js';
 import { SEED_NOW, seedPlan, seedWorkspace } from './planning-test-support.js';
@@ -45,7 +45,7 @@ function tables(path: string): string[] {
 }
 
 function roadmap(workspaceId: Roadmap['workspaceId'], userId: Roadmap['createdByUserId']) {
-  const id = randomUUID();
+  const id = asRoadmapId(randomUUID());
   return {
     id,
     workspaceId,
@@ -273,7 +273,7 @@ describe('persisted record registry (R-H3)', () => {
         projectId: seed.projectId,
         planVersionId: seed.planVersionId,
         workItemId: seed.rootWorkItemId,
-        sourceWorkItemId: 'WI-1',
+        sourceWorkItemId: asWorkItemSourceId('WI-1'),
         ...extra,
       },
     });

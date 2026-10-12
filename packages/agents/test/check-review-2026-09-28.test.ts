@@ -2,6 +2,7 @@
  * R-G4 independent review, 2026-09-28: the reproductions of findings 1 and 2, inverted to
  * assert the fixed behaviour.
  */
+import { asConcurrencyDefinitionId } from '@craftingtable/domain';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -70,7 +71,12 @@ function worktreeFixture() {
     verification: {
       version: 1,
       mode: 'scoped-checks',
-      scope: { kind: 'slice', definitionId: 'd', bindingRevision: 1, sourceId: 'contracts' },
+      scope: {
+        kind: 'slice',
+        definitionId: asConcurrencyDefinitionId('d'),
+        bindingRevision: 1,
+        sourceId: 'contracts',
+      },
       reason: 'fixture',
     },
   };

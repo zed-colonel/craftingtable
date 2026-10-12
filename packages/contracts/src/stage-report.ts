@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { agentRunIdSchema } from './ids.js';
+import { agentRunIdSchema, branded } from './ids.js';
+import type { FinalizationStageId, WorkItemSourceId } from '@craftingtable/domain';
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 export const obligationReportSchema = z
@@ -7,7 +8,7 @@ export const obligationReportSchema = z
     id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
     source: text(1000).optional(),
     requirement: text(4000).optional(),
-    workItemSourceId: text(64).optional(),
+    workItemSourceId: branded<WorkItemSourceId>(text(64)).optional(),
     status: z.enum(['met', 'gap', 'change-requested']),
     evidence: text(4000),
     proposedRequirement: text(4000).optional(),
@@ -18,7 +19,7 @@ export const obligationReportSchema = z
   });
 export const stageReviewReportSchema = z
   .strictObject({
-    stageId: text(64),
+    stageId: branded<FinalizationStageId>(text(64)),
     fullChecks: z.boolean(),
     checks: z
       .array(

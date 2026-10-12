@@ -1,8 +1,25 @@
 import { z } from 'zod';
-import { PLAN_ACCEPTANCE_INPUTS, type MapCapabilityGap } from '@craftingtable/domain';
+import {
+  type AgentRunId,
+  type CheckpointId,
+  type ConcurrencyDefinitionId,
+  type EvidenceProfileId,
+  type EvidenceSubmissionId,
+  type MapResourceId,
+  type NativeVerificationApprovalId,
+  PLAN_ACCEPTANCE_INPUTS,
+  type MapCapabilityGap,
+  type QualificationEnvironmentId,
+  type RoadmapId,
+  type RuntimeGenerationId,
+  type SliceId,
+  type UpstreamTransitionRecordId,
+  type WorkCycleId,
+  type WorktreeId,
+} from '@craftingtable/domain';
 import { equivalentSchema } from './type-equivalence.js';
 import { architectureRecommendationSchema } from './design-report.js';
-import { sourceRepositoryIdSchema, userIdSchema, workspaceIdSchema } from './ids.js';
+import { branded, sourceRepositoryIdSchema, userIdSchema, workspaceIdSchema } from './ids.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const name = z.string().trim().min(1).max(200);
@@ -12,7 +29,7 @@ const evidenceSubjectSchema = z.strictObject({
   sourceId: name,
 });
 const qualificationEnvironmentSchema = z.strictObject({
-  id: name,
+  id: branded<QualificationEnvironmentId>(name),
   kind: z.enum(['local-development', 'external-native', 'external-kata']),
   identityDigest: digest,
   fixtureDigest: digest,
@@ -69,9 +86,9 @@ const runtimePinSchema = z.strictObject({
   packages: z.array(cratePinSchema),
 });
 export const runtimeGenerationSchema = z.strictObject({
-  id: z.uuid(),
+  id: branded<RuntimeGenerationId>(z.uuid()),
   workspaceId: workspaceIdSchema,
-  definitionId: z.uuid(),
+  definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
   bindingRevision: z.number(),
   generation: z.number(),
   digest,
@@ -83,7 +100,7 @@ export const runtimeGenerationSchema = z.strictObject({
 });
 export const evidenceSubmissionRequestSchema = z
   .strictObject({
-    runtimeId: z.uuid(),
+    runtimeId: branded<RuntimeGenerationId>(z.uuid()),
     subject: evidenceSubjectSchema,
     testedCode: z
       .array(z.strictObject({ alias: name, commitSha: z.string().regex(/^[a-f0-9]{40,64}$/) }))
@@ -93,7 +110,7 @@ export const evidenceSubmissionRequestSchema = z
       .string()
       .regex(/^[a-f0-9]{40,64}$/)
       .optional(),
-    environmentId: name,
+    environmentId: branded<QualificationEnvironmentId>(name),
     executedBy: name,
     executedAt: z.iso.datetime(),
     reviewers: z
@@ -125,7 +142,7 @@ export const evidenceSubmissionRequestSchema = z
       )
       .min(1)
       .max(50),
-    sourceRunId: z.string().min(1).max(100).optional(),
+    sourceRunId: branded<AgentRunId>(z.string().min(1).max(100)).optional(),
     kata: z
       .strictObject({
         runtime: z.literal('kata'),
@@ -146,7 +163,7 @@ export const evidenceSubmissionRequestSchema = z
       c.addIssue({ code: 'custom', message: 'Evidence artifacts exceed 4 MiB.' });
   });
 export const evidenceDecisionRequestSchema = z.strictObject({
-  submissionId: z.uuid(),
+  submissionId: branded<EvidenceSubmissionId>(z.uuid()),
   outcome: z.enum(['accepted', 'rejected']),
   rationale: text,
   checkpointReviewRoles: z.array(name).min(1).max(20).optional(),
@@ -155,15 +172,15 @@ const candidateCheckpointSchema = z.strictObject({
   kind: z.literal('reviewed-candidate-v1'),
   delegatedReview: z
     .strictObject({
-      cycleId: z.uuid(),
-      roadmapId: z.uuid(),
+      cycleId: branded<WorkCycleId>(z.uuid()),
+      roadmapId: branded<RoadmapId>(z.uuid()),
       definitionRevision: z.number().int().positive(),
       roles: z.array(name).max(30),
     })
     .optional(),
-  worktreeId: z.uuid(),
-  sliceId: name,
-  runId: z.uuid(),
+  worktreeId: branded<WorktreeId>(z.uuid()),
+  sliceId: branded<SliceId>(name),
+  runId: branded<AgentRunId>(z.uuid()),
   reportDigest: digest,
   buildDigest: digest,
   headSha: z.string().regex(/^[a-f0-9]{40,64}$/),
@@ -172,29 +189,29 @@ const candidateCheckpointSchema = z.strictObject({
   snapshotDigest: digest,
 });
 export const prepareCheckpointRequestSchema = z.strictObject({
-  worktreeId: z.uuid(),
-  checkpointId: name,
+  worktreeId: branded<WorktreeId>(z.uuid()),
+  checkpointId: branded<CheckpointId>(name),
   snapshotDigest: digest,
 });
 const planAcceptanceInputSchema = z.enum(PLAN_ACCEPTANCE_INPUTS);
 const generatedPlanEvidenceSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('saved-plan-v1'),
-    roadmapId: z.uuid(),
+    roadmapId: branded<RoadmapId>(z.uuid()),
     definitionRevision: z.number().int().positive(),
     snapshotDigest: digest,
   }),
   // R-C6 D3: bound to the plan-acceptance inputs, not to the definition revision.
   z.strictObject({
     kind: z.literal('saved-plan-v2'),
-    roadmapId: z.uuid(),
+    roadmapId: branded<RoadmapId>(z.uuid()),
     definitionRevision: z.number().int().positive(),
     inputsDigest: digest,
     changedInputs: z.array(planAcceptanceInputSchema).max(PLAN_ACCEPTANCE_INPUTS.length),
   }),
 ]);
 export const generatePlanEvidenceRequestSchema = z.strictObject({
-  roadmapId: z.uuid(),
+  roadmapId: branded<RoadmapId>(z.uuid()),
   definitionRevision: z.number().int().positive(),
   snapshotDigest: digest,
 });
@@ -206,7 +223,7 @@ const architectureDecisionInputSchema = z.strictObject({
   consumers: z
     .array(
       z.strictObject({
-        sliceId: name,
+        sliceId: branded<SliceId>(name),
         phase: z.enum(['start', 'merge']),
         replacesFullCheckpoint: z.boolean(),
       }),
@@ -215,9 +232,9 @@ const architectureDecisionInputSchema = z.strictObject({
 });
 export const proposeArchitectureDecisionSchema = architectureDecisionInputSchema
   .extend({
-    checkpointId: name,
+    checkpointId: branded<CheckpointId>(name),
     bindingRevision: z.number().int().positive(),
-    sourceRunId: z.uuid().optional(),
+    sourceRunId: branded<AgentRunId>(z.uuid()).optional(),
     sourceReportDigest: digest.optional(),
   })
   .refine(
@@ -236,9 +253,9 @@ export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExte
   reviewers: z
     .array(z.strictObject({ identity: name, roles: z.array(name).min(1).max(20), artifact: name }))
     .max(20),
-  id: z.uuid(),
+  id: branded<EvidenceSubmissionId>(z.uuid()),
   workspaceId: workspaceIdSchema,
-  definitionId: z.uuid(),
+  definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
   bindingRevision: z.number(),
   createdAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
@@ -279,7 +296,7 @@ export const evidenceDecisionSchema = z.strictObject({
   checkpointReviewRoles: z.array(name).readonly().optional(),
   id: z.uuid(),
   workspaceId: workspaceIdSchema,
-  submissionId: z.uuid(),
+  submissionId: branded<EvidenceSubmissionId>(z.uuid()),
   outcome: z.enum(['accepted', 'rejected']),
   rationale: text,
   decidedAt: z.iso.datetime(),
@@ -372,7 +389,7 @@ export const nativeAuditSchema = z.strictObject({
 export type NativeAudit = z.infer<typeof nativeAuditSchema>;
 export const nativeApprovalRequestSchema = z.strictObject({
   bindingRevision: z.number().int().positive(),
-  runtimeId: z.uuid(),
+  runtimeId: branded<RuntimeGenerationId>(z.uuid()),
   expectedApprovalId: z.string().nullable(),
   approved: z.boolean(),
   auditDigest: digest,
@@ -380,11 +397,11 @@ export const nativeApprovalRequestSchema = z.strictObject({
 });
 export type NativeApprovalRequest = z.infer<typeof nativeApprovalRequestSchema>;
 export const nativeApprovalSchema = z.strictObject({
-  id: z.uuid(),
+  id: branded<NativeVerificationApprovalId>(z.uuid()),
   workspaceId: workspaceIdSchema,
-  definitionId: z.string(),
+  definitionId: branded<ConcurrencyDefinitionId>(z.string()),
   bindingRevision: z.number(),
-  runtimeId: z.string(),
+  runtimeId: branded<RuntimeGenerationId>(z.string()),
   approved: z.boolean(),
   hostDigest: digest,
   auditDigest: digest,
@@ -400,9 +417,9 @@ const upstreamTransitionSchema = z.strictObject({
   slice: name,
 });
 export const upstreamTransitionRecordSchema = z.strictObject({
-  id: z.uuid(),
+  id: branded<UpstreamTransitionRecordId>(z.uuid()),
   workspaceId: workspaceIdSchema,
-  definitionId: z.string(),
+  definitionId: branded<ConcurrencyDefinitionId>(z.string()),
   transitions: z.array(upstreamTransitionSchema).min(1).max(200),
   rationale: z.string(),
   createdAt: z.string(),
@@ -467,16 +484,16 @@ const mapCapabilityGapSchema = equivalentSchema<MapCapabilityGap>()(
   z.discriminatedUnion('code', [
     z.strictObject({
       code: z.literal('plan-checkpoint-ambiguous'),
-      checkpointIds: z.array(z.string()).max(2000),
+      checkpointIds: z.array(branded<CheckpointId>(z.string())).max(2000),
     }),
     z.strictObject({
       code: z.literal('plan-owner-unrecognized'),
-      checkpointId: z.string(),
+      checkpointId: branded<CheckpointId>(z.string()),
       owner: z.string(),
     }),
     z.strictObject({
       code: z.literal('plan-contract-changed'),
-      checkpointId: z.string(),
+      checkpointId: branded<CheckpointId>(z.string()),
       fields: z
         .array(
           z.enum([
@@ -492,8 +509,8 @@ const mapCapabilityGapSchema = equivalentSchema<MapCapabilityGap>()(
     }),
     z.strictObject({
       code: z.literal('decision-contract-changed'),
-      checkpointId: z.string(),
-      profileId: z.string(),
+      checkpointId: branded<CheckpointId>(z.string()),
+      profileId: branded<EvidenceProfileId>(z.string()),
       fields: z
         .array(
           z.enum([
@@ -509,12 +526,15 @@ const mapCapabilityGapSchema = equivalentSchema<MapCapabilityGap>()(
     z.strictObject({ code: z.literal('security-role-undeclared') }),
     z.strictObject({
       code: z.literal('recovery-profile-unrecognized'),
-      checkpointIds: z.array(z.string()).max(2000),
+      checkpointIds: z.array(branded<CheckpointId>(z.string())).max(2000),
     }),
-    z.strictObject({ code: z.literal('resource-adapter-missing'), resourceId: z.string() }),
+    z.strictObject({
+      code: z.literal('resource-adapter-missing'),
+      resourceId: branded<MapResourceId>(z.string()),
+    }),
     z.strictObject({
       code: z.literal('resource-adapter-unusable'),
-      resourceId: z.string(),
+      resourceId: branded<MapResourceId>(z.string()),
       adapter: z.enum(['development-workspace', 'native-test-host']),
       fields: z
         .array(

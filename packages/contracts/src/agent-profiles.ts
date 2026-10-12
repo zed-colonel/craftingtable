@@ -4,11 +4,18 @@ import {
   AGENT_PROFILE_PURPOSES,
   AGENT_REASONING_EFFORTS,
   AGENT_SELECTION_LAYERS,
+  type AgentAssignmentId,
   type AgentProfilePurpose,
+  type AgentRunId,
+  type CycleInvestigationId,
+  type DecisionPreparationId,
+  type DelegationAssignmentId,
   type EffectiveAgent,
+  type RoadmapEntryId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import { equivalentSchema } from './type-equivalence.js';
+import { branded } from './ids.js';
 export const reasoningEffortSchema = z.enum(AGENT_REASONING_EFFORTS);
 /** Both backends take a reasoning effort (Claude since the operator's decision 2026-09-28). */
 export const agentSelectionSchema = z.strictObject({
@@ -44,10 +51,10 @@ export const agentSelectionsSchema = z.strictObject({
 const agentSelectionSourceSchema = z.strictObject({
   layer: z.enum(AGENT_SELECTION_LAYERS),
   slot: z.enum(AGENT_PROFILE_PURPOSES).optional(),
-  assignmentId: z.string().min(1).max(200).optional(),
-  delegationId: z.string().min(1).max(200).optional(),
+  assignmentId: branded<AgentAssignmentId>(z.string().min(1).max(200)).optional(),
+  delegationId: branded<DelegationAssignmentId>(z.string().min(1).max(200)).optional(),
   stageIndex: z.number().int().nonnegative().optional(),
-  runId: z.string().min(1).max(200).optional(),
+  runId: branded<AgentRunId>(z.string().min(1).max(200)).optional(),
 });
 const agentResolutionSchema = z.strictObject({
   // Reported as held: a saved workspace default's model was never trimmed (`agentRunProfileSchema`).
@@ -89,14 +96,14 @@ const runHandoffSchema = z.strictObject({
 export const runHandoffsSchema = z.record(z.string().min(1).max(200), runHandoffSchema);
 export const profileSelectionSchema = z.strictObject({
   purpose: z.enum(AGENT_PROFILE_PURPOSES),
-  assignmentId: z.uuid().optional(),
-  delegationId: z.uuid().optional(),
-  preparationId: z.uuid().optional(),
-  investigationId: z.uuid().optional(),
+  assignmentId: branded<AgentAssignmentId>(z.uuid()).optional(),
+  delegationId: branded<DelegationAssignmentId>(z.uuid()).optional(),
+  preparationId: branded<DecisionPreparationId>(z.uuid()).optional(),
+  investigationId: branded<CycleInvestigationId>(z.uuid()).optional(),
 });
 export const applyRoadmapAgentsSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
-  entryIds: z.array(z.uuid()).min(1).max(2000),
+  entryIds: z.array(branded<RoadmapEntryId>(z.uuid())).min(1).max(2000),
   selections: agentSelectionsSchema,
 });
 export type ApplyRoadmapAgents = z.infer<typeof applyRoadmapAgentsSchema>;

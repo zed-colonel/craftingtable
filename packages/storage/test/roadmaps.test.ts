@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Roadmap } from '@craftingtable/domain';
+import { asRoadmapId } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { openDatabase } from '../src/database.js';
 import { SEED_NOW, seedWorkspace } from './planning-test-support.js';
@@ -15,7 +16,7 @@ it('retains definitions across reopen, rejects stale writes, and rolls back revi
   const f = temporaryStorage();
   fixtures.push(f);
   const seed = seedWorkspace(f.storage);
-  const id = randomUUID();
+  const id = asRoadmapId(randomUUID());
   const roadmap: Roadmap = {
     id,
     workspaceId: seed.workspaceId,

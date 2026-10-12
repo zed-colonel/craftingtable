@@ -9,6 +9,7 @@ import type {
   SessionId,
   User,
   UserId,
+  WorkCycleId,
   Workspace,
   WorkspaceEvent,
   WorkspaceEventKind,
@@ -196,7 +197,7 @@ export interface AuditRepository {
     from: string,
     until: string,
   ): readonly {
-    readonly cycleId: string;
+    readonly cycleId: WorkCycleId;
     readonly occurredAt: string;
     readonly metadata: Readonly<Record<string, unknown>>;
   }[];

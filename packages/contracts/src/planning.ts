@@ -1,5 +1,6 @@
 import {
   DIAGNOSTIC_SEVERITIES,
+  type FinalizationId,
   PLAN_ARTIFACT_ROLES,
   WORK_ITEM_READINESS,
   WORK_ITEM_RISKS,
@@ -7,6 +8,7 @@ import {
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
+  branded,
   planArtifactIdSchema,
   planImportAttemptIdSchema,
   planVersionIdSchema,
@@ -105,7 +107,7 @@ export const planningStatusCountsSchema = z.strictObject({
 });
 
 const planCompletionSchema = z.strictObject({
-  finalizationId: z.string().uuid(),
+  finalizationId: branded<FinalizationId>(z.string().uuid()),
   targetBranch: z.string().min(1).max(255),
   mergeSha: z.string().regex(/^[0-9a-f]{40,64}$/),
   completedAt: z.iso.datetime(),

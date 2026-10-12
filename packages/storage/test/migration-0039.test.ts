@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
+import { asSliceId, type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/database.js';
@@ -75,7 +75,9 @@ const SUBMISSIONS = [
       proposal: 'The proposal text.',
       sourceReferences: 'docs/adr/ADR-2.md',
       retainedObligations: 'Full checkpoint stays.',
-      consumers: [{ sliceId: 'wi/WI-01/domain', phase: 'merge', replacesFullCheckpoint: false }],
+      consumers: [
+        { sliceId: asSliceId('wi/WI-01/domain'), phase: 'merge', replacesFullCheckpoint: false },
+      ],
     },
   }),
 ] as unknown as EvidenceSubmission[];

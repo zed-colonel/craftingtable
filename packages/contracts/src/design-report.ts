@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import type { CheckpointId, SliceId } from '@craftingtable/domain';
+import { branded } from './ids.js';
 export const architectureRecommendationSchema = z
   .strictObject({
-    checkpointId: z.string().trim().min(1).max(200),
+    checkpointId: branded<CheckpointId>(z.string().trim().min(1).max(200)),
     decisionText: z.string().trim().min(1).max(16000),
     why: z.string().trim().min(1).max(4000),
     alternatives: z
@@ -18,7 +20,7 @@ export const architectureRecommendationSchema = z
     consumers: z
       .array(
         z.strictObject({
-          sliceId: z.string().trim().min(1).max(200),
+          sliceId: branded<SliceId>(z.string().trim().min(1).max(200)),
           phase: z.enum(['start', 'merge']),
           replacesFullCheckpoint: z.boolean(),
         }),

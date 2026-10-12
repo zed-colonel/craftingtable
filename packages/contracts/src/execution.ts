@@ -13,6 +13,7 @@ import {
   MODEL_CATALOG_SOURCES,
   OUTCOME_SUMMARY_LIMIT_BYTES,
   OUTSIDE_SOURCE_KINDS,
+  type RepositoryCheckDeclarationId,
   SOURCE_REPOSITORY_STATUSES,
   WORKTREE_STATUSES,
 } from '@craftingtable/domain';
@@ -27,6 +28,7 @@ import { executionScopeSchema } from './execution-scope.js';
 import {
   agentRunEventIdSchema,
   agentRunIdSchema,
+  branded,
   planVersionIdSchema,
   projectIdSchema,
   sourceRepositoryIdSchema,
@@ -265,7 +267,7 @@ export const mergeWorktreeRequestSchema = z.strictObject({
       proposalDigest: z.string().regex(/^[a-f0-9]{64}$/),
       rationale: z.string().trim().min(1).max(2000),
       /** The adoption the definitions were shown against; a later one refuses the merge. */
-      declarationId: z.uuid(),
+      declarationId: branded<RepositoryCheckDeclarationId>(z.uuid()),
     })
     .optional(),
 });

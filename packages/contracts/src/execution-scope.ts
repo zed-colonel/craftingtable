@@ -1,9 +1,16 @@
 import { z } from 'zod';
 import { phaseBlockerCodeSchema } from './attention.js';
 import { reviewFindingSchema } from './review-finding.js';
+import type {
+  AcceptanceCaseId,
+  CheckpointId,
+  ConcurrencyDefinitionId,
+  SliceId,
+} from '@craftingtable/domain';
+import { branded } from './ids.js';
 export const executionScopeSchema = z.strictObject({
   kind: z.enum(['slice', 'slice-verification', 'parent-acceptance']),
-  definitionId: z.uuid(),
+  definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
   bindingRevision: z.number().int().positive().safe(),
   sourceId: z.string().min(1).max(200),
 });
@@ -17,7 +24,7 @@ export const scopeReviewEvidenceSchema = z.strictObject({
       }),
     )
     .max(200),
-  caseIds: z.array(z.string().min(1).max(200)).max(1000),
+  caseIds: z.array(branded<AcceptanceCaseId>(z.string().min(1).max(200))).max(1000),
 });
 export const phaseBlockerSchema = z.strictObject({
   kind: z.enum(['dependency', 'evidence', 'review', 'authorization', 'resource']),
@@ -25,8 +32,8 @@ export const phaseBlockerSchema = z.strictObject({
   code: phaseBlockerCodeSchema.optional(),
   refs: z
     .strictObject({
-      checkpointId: z.string().min(1).max(200).optional(),
-      sliceId: z.string().min(1).max(200).optional(),
+      checkpointId: branded<CheckpointId>(z.string().min(1).max(200)).optional(),
+      sliceId: branded<SliceId>(z.string().min(1).max(200)).optional(),
       resourceKey: z.string().min(1).max(4096).optional(),
     })
     .optional(),

@@ -14,6 +14,7 @@ import type {
   WorkItemRisk,
   WorkItemStatus,
 } from '@craftingtable/domain';
+import { asWorkItemSourceId } from '@craftingtable/domain';
 import { readRecord } from '../../records.js';
 
 /**
@@ -222,7 +223,9 @@ export function mapDiagnostic(row: PlanImportDiagnosticRow): PlanImportDiagnosti
     code: row.code,
     ...(row.artifact_name === null ? {} : { artifactName: row.artifact_name }),
     ...(row.path === null ? {} : { path: row.path }),
-    ...(row.work_item_source_id === null ? {} : { workItemSourceId: row.work_item_source_id }),
+    ...(row.work_item_source_id === null
+      ? {}
+      : { workItemSourceId: asWorkItemSourceId(row.work_item_source_id) }),
     message: row.message,
   };
 }

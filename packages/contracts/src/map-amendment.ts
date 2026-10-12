@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { mapSelectionSchema } from './cross-project.js';
 import {
+  branded,
   planVersionIdSchema,
   projectIdSchema,
   userIdSchema,
@@ -9,19 +10,20 @@ import {
   worktreeIdSchema,
 } from './ids.js';
 import { roadmapSchema } from './roadmap.js';
+import type { AgentRunId, MapAmendmentId, RoadmapId, SliceId } from '@craftingtable/domain';
 export const proposeMapAmendmentSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   candidate: mapSelectionSchema,
   summary: z.string().trim().min(1).max(16000),
-  sourceRunId: z.uuid().optional(),
+  sourceRunId: branded<AgentRunId>(z.uuid()).optional(),
 });
 export const decideMapAmendmentSchema = z.strictObject({
-  amendmentId: z.uuid(),
+  amendmentId: branded<MapAmendmentId>(z.uuid()),
   outcome: z.enum(['apply', 'reject']),
   impactDigest: z.string().regex(/^[a-f0-9]{64}$/),
   rationale: z.string().trim().min(1).max(8000),
   reuseIntegrationIds: z
-    .array(z.string().max(200))
+    .array(branded<SliceId>(z.string().max(200)))
     .max(2000)
     .refine((a) => new Set(a).size === a.length),
 });
@@ -72,7 +74,7 @@ export const amendmentImpactSchema = z.strictObject({
   ),
   integrations: z.array(
     z.strictObject({
-      sourceId: z.string(),
+      sourceId: branded<SliceId>(z.string()),
       sourceWorktreeId: worktreeIdSchema,
       mergeSha: z.string(),
       eligible: z.boolean(),
@@ -81,13 +83,13 @@ export const amendmentImpactSchema = z.strictObject({
   ),
 });
 export const mapAmendmentSchema = z.strictObject({
-  id: z.uuid(),
+  id: branded<MapAmendmentId>(z.uuid()),
   workspaceId: workspaceIdSchema,
-  roadmapId: z.uuid(),
+  roadmapId: branded<RoadmapId>(z.uuid()),
   baseRevision: z.number(),
   candidate: mapSelectionSchema,
   summary: z.string(),
-  sourceRunId: z.string().optional(),
+  sourceRunId: branded<AgentRunId>(z.string()).optional(),
   createdAt: z.string(),
   createdByUserId: userIdSchema,
   decision: z
@@ -99,7 +101,7 @@ export const mapAmendmentSchema = z.strictObject({
       impactDigest: z.string(),
       previous: roadmapSchema,
       resultingRevision: z.number().optional(),
-      reusedIntegrationIds: z.array(z.string()),
+      reusedIntegrationIds: z.array(branded<SliceId>(z.string())),
     })
     .optional(),
 });

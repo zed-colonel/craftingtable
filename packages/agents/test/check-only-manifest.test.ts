@@ -21,6 +21,7 @@ import {
 } from '../src/local-check.js';
 import { type CheckOnlyManifest, prepareCargoLauncher } from '../src/pinned-cargo.js';
 import { testTimeScale } from './test-time.js';
+import { asDeclaredCheckId, asRepositoryCheckDeclarationId } from '@craftingtable/domain';
 
 /**
  * R-G13 increment 4 (operator decision 2026-10-06): a run with no pinned dependency environment
@@ -64,11 +65,11 @@ function fixture(manifest: Partial<CheckOnlyManifest> = {}) {
     ...resolveGitDirectories(hostGit(), workspacePath),
     workspacePath,
     declaredChecks: {
-      declarationId: randomUUID(),
+      declarationId: asRepositoryCheckDeclarationId(randomUUID()),
       version: 1,
       checks: [
         {
-          id: 'c',
+          id: asDeclaredCheckId('c'),
           argv: ['./check.sh'],
           definitionPaths: ['check.sh'],
           definitionDigests: { 'check.sh': sha256(CHECK_SCRIPT) },

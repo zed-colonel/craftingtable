@@ -1,28 +1,44 @@
 import {
+  type AgentRunId,
   ATTENTION_CLAIMS,
   ATTENTION_ITEM_ACTIONS,
   ATTENTION_ITEM_CODES,
   type AttentionItemCode,
+  type CheckpointId,
+  type ConcurrencyDefinitionId,
   CYCLE_ATTENTION,
   CYCLE_ATTENTION_CODES,
   type CycleAttentionCode,
+  type FinalizationId,
   OUTPUT_REPAIR_LIMIT,
   PHASE_BLOCKER_CODES,
   type PhaseBlockerCode,
+  type PlanVersionId,
+  type ProjectId,
   ROADMAP_ATTENTION,
   ROADMAP_ATTENTION_CODES,
   type RoadmapAttentionCode,
+  type RoadmapEntryId,
+  type RoadmapId,
+  type SourceRepositoryId,
+  type WorkCycleId,
+  type WorkItemId,
+  type WorktreeId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
+import { branded } from './ids.js';
+
+/** An optional reference to a record by id: 1 to 200 characters. */
+const ref = <T extends string>() => branded<T>(z.string().min(1).max(200)).optional();
 
 /** Typed attention on the wire (R-A3). The owner must be the one the code declares. */
 const attentionRefsSchema = z
   .strictObject({
-    checkpointId: z.string().min(1).max(200).optional(),
-    cycleId: z.string().min(1).max(200).optional(),
-    entryId: z.string().min(1).max(200).optional(),
-    definitionId: z.string().min(1).max(200).optional(),
-    repositoryId: z.string().min(1).max(200).optional(),
+    checkpointId: ref<CheckpointId>(),
+    cycleId: ref<WorkCycleId>(),
+    entryId: ref<RoadmapEntryId>(),
+    definitionId: ref<ConcurrencyDefinitionId>(),
+    repositoryId: ref<SourceRepositoryId>(),
     checkId: z.string().min(1).max(200).optional(),
     pins: z
       .array(
@@ -94,17 +110,16 @@ export type OperatorWaitReportResponse = z.infer<typeof operatorWaitReportSchema
 export const attentionItemCodeSchema = z.enum(
   ATTENTION_ITEM_CODES as [AttentionItemCode, ...AttentionItemCode[]],
 );
-const itemRef = z.string().min(1).max(200).optional();
 export const attentionItemRefsSchema = z.strictObject({
-  cycleId: itemRef,
-  runId: itemRef,
-  worktreeId: itemRef,
-  workItemId: itemRef,
-  projectId: itemRef,
-  planVersionId: itemRef,
-  roadmapId: itemRef,
-  entryId: itemRef,
-  finalizationId: itemRef,
+  cycleId: ref<WorkCycleId>(),
+  runId: ref<AgentRunId>(),
+  worktreeId: ref<WorktreeId>(),
+  workItemId: ref<WorkItemId>(),
+  projectId: ref<ProjectId>(),
+  planVersionId: ref<PlanVersionId>(),
+  roadmapId: ref<RoadmapId>(),
+  entryId: ref<RoadmapEntryId>(),
+  finalizationId: ref<FinalizationId>(),
 });
 export const attentionItemActionSchema = z.enum(ATTENTION_ITEM_ACTIONS);
 export const attentionResolutionSchema = z.enum(['operator', 'automation', 'superseded']);

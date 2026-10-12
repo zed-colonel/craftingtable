@@ -41,6 +41,11 @@ import {
   prepareCargoLauncher,
 } from '../src/pinned-cargo.js';
 import { withinHangGuard } from './test-time.js';
+import {
+  asConcurrencyDefinitionId,
+  asDeclaredCheckId,
+  asRepositoryCheckDeclarationId,
+} from '@craftingtable/domain';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -78,7 +83,12 @@ function fixture() {
     verification: {
       version: 1,
       mode: 'scoped-checks',
-      scope: { kind: 'slice', definitionId: 'd', bindingRevision: 1, sourceId: 'contracts' },
+      scope: {
+        kind: 'slice',
+        definitionId: asConcurrencyDefinitionId('d'),
+        bindingRevision: 1,
+        sourceId: 'contracts',
+      },
       reason: 'Contract-only fixture',
     },
   };
@@ -1456,11 +1466,11 @@ itConfines(
     const manifest: PinnedCargoManifest = {
       ...f.m,
       declaredChecks: {
-        declarationId: randomUUID(),
+        declarationId: asRepositoryCheckDeclarationId(randomUUID()),
         version: 1,
         checks: [
           {
-            id: 'peek',
+            id: asDeclaredCheckId('peek'),
             argv: [
               'sh',
               '-c',
@@ -1547,11 +1557,11 @@ it("a declared check's clone carries the repository's tags, which checks may com
   const manifest: PinnedCargoManifest = {
     ...f.m,
     declaredChecks: {
-      declarationId: randomUUID(),
+      declarationId: asRepositoryCheckDeclarationId(randomUUID()),
       version: 1,
       checks: [
         {
-          id: 'baseline',
+          id: asDeclaredCheckId('baseline'),
           argv: ['git', 'rev-parse', 'refs/tags/project/baseline^{commit}'],
           definitionPaths: [],
           definitionDigests: {},
@@ -1643,7 +1653,12 @@ else {
     verification: {
       version: 1,
       mode: 'current-upstream-build',
-      scope: { kind: 'slice', definitionId: 'd', bindingRevision: 1, sourceId: 'contracts' },
+      scope: {
+        kind: 'slice',
+        definitionId: asConcurrencyDefinitionId('d'),
+        bindingRevision: 1,
+        sourceId: 'contracts',
+      },
       reason: 'Integration fixture',
     },
     packages: [{ name: 'up-crate', path: copy }],
@@ -1830,11 +1845,11 @@ it.each(overlayCases)(
     const manifest: PinnedCargoManifest = {
       ...p.manifest(),
       declaredChecks: {
-        declarationId: randomUUID(),
+        declarationId: asRepositoryCheckDeclarationId(randomUUID()),
         version: 1,
         checks: [
           {
-            id: 'peek',
+            id: asDeclaredCheckId('peek'),
             argv: [
               'sh',
               '-c',
@@ -1948,11 +1963,11 @@ it.skipIf(!hostCargo).each([
         },
       ],
       declaredChecks: {
-        declarationId: randomUUID(),
+        declarationId: asRepositoryCheckDeclarationId(randomUUID()),
         version: 1,
         checks: [
           {
-            id: 'run',
+            id: asDeclaredCheckId('run'),
             argv: ['cargo', 'run', '--offline', '-q'],
             definitionPaths: ['.cargo/config.toml'],
             definitionDigests: {},
@@ -2086,9 +2101,9 @@ async function declaredRun(
     dependencySources: undefined,
     cargoExecutable,
     declaredChecks: {
-      declarationId: randomUUID(),
+      declarationId: asRepositoryCheckDeclarationId(randomUUID()),
       version: 1,
-      checks: [{ id: 'c', argv, definitionPaths, definitionDigests: {} }],
+      checks: [{ id: asDeclaredCheckId('c'), argv, definitionPaths, definitionDigests: {} }],
     },
   });
   let output = '';

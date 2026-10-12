@@ -4,10 +4,17 @@ import {
   CYCLE_STATUSES,
   CYCLE_STEPS,
   type CycleAttentionCode,
+  type CycleInvestigationId,
   type CycleProjection,
+  type FinalizationId,
+  type ImportedArchiveId,
   INVESTIGATION_WORKTREE_PARTS,
   type InvestigationWorktreePart,
   OUTPUT_REPAIR_LIMIT,
+  type RoadmapAttemptId,
+  type RoadmapEntryId,
+  type RoadmapId,
+  type WorkCycleId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
@@ -24,6 +31,7 @@ import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import { finalizationProgressSchema } from './finalization-progress.js';
 import {
   agentRunIdSchema,
+  branded,
   planArtifactIdSchema,
   planVersionIdSchema,
   projectIdSchema,
@@ -96,7 +104,7 @@ export type IntegrationResolutionRequest = z.infer<typeof integrationResolutionR
 const designRecoverySourceSchema = z.strictObject({
   planVersionId: planVersionIdSchema,
   artifactId: planArtifactIdSchema.optional(),
-  archiveId: z.string().uuid().optional(),
+  archiveId: branded<ImportedArchiveId>(z.string().uuid()).optional(),
   archiveDigest: z
     .string()
     .regex(/^[0-9a-f]{64}$/)
@@ -256,16 +264,16 @@ export const workCycleSchema = z
   .strictObject({
     owner: z
       .strictObject({
-        roadmapId: z.uuid(),
-        attemptId: z.uuid(),
-        entryId: z.string().min(1),
+        roadmapId: branded<RoadmapId>(z.uuid()),
+        attemptId: branded<RoadmapAttemptId>(z.uuid()),
+        entryId: branded<RoadmapEntryId>(z.string().min(1)),
         definitionRevision: z.number().int().positive(),
       })
       .nullable()
       .optional(),
     scopeRepair: z
       .strictObject({
-        sourceCycleId: z.uuid(),
+        sourceCycleId: branded<WorkCycleId>(z.uuid()),
         sources: z
           .array(
             z.strictObject({
@@ -295,7 +303,7 @@ export const workCycleSchema = z
       .optional(),
     investigation: z
       .strictObject({
-        id: z.uuid(),
+        id: branded<CycleInvestigationId>(z.uuid()),
         runId: agentRunIdSchema,
         sourceRunId: agentRunIdSchema,
         code: z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
@@ -337,10 +345,10 @@ export const workCycleSchema = z
       .optional(),
     workflow: cycleWorkflowSchema.optional(),
     executionScope: executionScopeSchema.optional(),
-    id: z.string().uuid(),
+    id: branded<WorkCycleId>(z.string().uuid()),
     workspaceId: workspaceIdSchema,
     workItemId: workItemIdSchema.optional(),
-    finalizationId: z.string().uuid().optional(),
+    finalizationId: branded<FinalizationId>(z.string().uuid()).optional(),
     finalizationProgress: finalizationProgressSchema.optional(),
     planVersionId: planVersionIdSchema.optional(),
     polishRound: z.number().int().min(0).max(10).optional(),

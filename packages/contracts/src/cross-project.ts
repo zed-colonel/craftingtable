@@ -1,7 +1,13 @@
 import { z } from 'zod';
-import type { CrossProjectConfiguration } from '@craftingtable/domain';
+import type {
+  ConcurrencyDefinitionId,
+  CrossProjectConfiguration,
+  MapDecisionId,
+  PlanningTargetId,
+  RoadmapId,
+} from '@craftingtable/domain';
 import { agentProfileSchema } from './agent-profiles.js';
-import { workItemIdSchema } from './ids.js';
+import { branded, workItemIdSchema } from './ids.js';
 import {
   cycleProfilesSchema,
   completionPolicySchema,
@@ -35,9 +41,9 @@ const configurationOf = <S extends typeof mapSettingsSchema | typeof mapSettings
   settings: S,
 ) =>
   z.strictObject({
-    definitionId: z.uuid(),
+    definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
     bindingRevision: z.number().int().positive(),
-    targetId: z.string().min(1).max(200),
+    targetId: branded<PlanningTargetId>(z.string().min(1).max(200)),
     selection: z.enum(['target-only', 'prioritize-full']),
     parentAcceptance: z.enum(['manual', 'automatic']),
     defaults: settings,
@@ -67,11 +73,11 @@ export const mapSelectionSchema = crossProjectConfigurationSchema.pick({
 });
 export const adoptMapSchema = z.strictObject({
   bindingRevision: z.number().int().positive(),
-  decisionIds: z.array(z.string().max(200)).max(200),
+  decisionIds: z.array(branded<MapDecisionId>(z.string().max(200))).max(200),
   rationale: z.string().trim().min(1).max(8000),
 });
 export const saveCrossProjectSchema = z.strictObject({
-  roadmapId: z.uuid(),
+  roadmapId: branded<RoadmapId>(z.uuid()),
   expectedVersion: z.number().int().nonnegative(),
   name: z.string().trim().min(1).max(120),
   configuration: crossProjectConfigurationInputSchema,

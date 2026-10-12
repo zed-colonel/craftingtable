@@ -9,6 +9,7 @@ import type {
   ProjectId,
   WorkspaceId,
 } from '@craftingtable/domain';
+import { asImportedArchiveId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { type PersistedRecordKind, parseRecord, type RecordGuard } from '../records.js';
 
@@ -105,7 +106,7 @@ export class SqliteImportRepository implements ImportRepository {
       | undefined;
     return (
       row && {
-        id: row.id,
+        id: asImportedArchiveId(row.id),
         workspaceId: row.workspace_id,
         filename: row.filename,
         digest: row.digest,

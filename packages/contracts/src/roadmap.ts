@@ -1,9 +1,21 @@
 import {
+  type AgentAssignmentId,
+  type AgentRunId,
+  type AttentionItemId,
+  type CheckpointId,
+  type ConcurrencyDefinitionId,
+  type DecisionPreparationId,
+  type DelegationAssignmentId,
   ENTRY_WAIT_CODES,
   type EntryWaitCode,
   ROADMAP_ATTENTION_CODES,
   ROADMAP_STATUSES,
+  type RoadmapAttemptId,
   type RoadmapAttentionCode,
+  type RoadmapEntryId,
+  type RoadmapId,
+  type RuntimeGenerationId,
+  type WorkCycleId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
@@ -18,6 +30,7 @@ import { crossProjectConfigurationSchema } from './cross-project.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import {
   agentRunIdSchema,
+  branded,
   planVersionIdSchema,
   projectIdSchema,
   sourceRepositoryIdSchema,
@@ -37,7 +50,7 @@ export const roadmapAutomationSchema = z.strictObject({
   integrationConflicts: z.enum(['manual', 'automatic']),
   resolutionProfile: agentProfileSchema.optional(),
 });
-export const roadmapIdSchema = z.string().uuid();
+export const roadmapIdSchema = branded<RoadmapId>(z.string().uuid());
 export const roadmapSchedulingSchema = z.strictObject({
   mode: z.enum(['sequential', 'parallel']),
   maxInFlight: z.number().int().min(1).max(16),
@@ -48,7 +61,7 @@ export const roadmapSchedulingSchema = z.strictObject({
 export const roadmapEntryFieldsSchema = z.strictObject({
   reviewerRoles: z.array(z.string().min(1).max(200)).max(50).optional(),
   executionScope: executionScopeSchema.optional(),
-  id: z.string().uuid(),
+  id: branded<RoadmapEntryId>(z.string().uuid()),
   workItemId: workItemIdSchema,
   profiles: cycleProfilesSchema,
   policy: completionPolicySchema,
@@ -144,7 +157,7 @@ export type RoadmapAgentSettings = z.infer<typeof roadmapAgentSettingsSchema>;
 export const controlRoadmapRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   action: z.enum(['start', 'pause', 'resume', 'stop', 'reverify']),
-  entryId: z.string().uuid().optional(),
+  entryId: branded<RoadmapEntryId>(z.string().uuid()).optional(),
 });
 export const scopeRecoveryPolicyRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
@@ -170,7 +183,7 @@ const entrySchema = roadmapEntryFieldsSchema.extend({
 });
 export const roadmapDefinitionSchema = z.strictObject({
   crossProject: crossProjectConfigurationSchema.optional(),
-  roadmapId: z.string().uuid(),
+  roadmapId: roadmapIdSchema,
   revision: z.number().int().positive(),
   name: z.string(),
   entries: z.array(entrySchema),
@@ -181,7 +194,7 @@ export const roadmapDefinitionSchema = z.strictObject({
 });
 export const applyRoadmapDelegationSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
-  entryIds: z.array(z.uuid()).min(1).max(1000),
+  entryIds: z.array(branded<RoadmapEntryId>(z.uuid())).min(1).max(1000),
   automation: roadmapAutomationSchema,
   reviewerRoles: z.array(z.string().min(1).max(200)).max(50),
   rationale: z.string().trim().min(1).max(4000),
@@ -189,18 +202,18 @@ export const applyRoadmapDelegationSchema = z.strictObject({
 export type ApplyRoadmapDelegation = z.infer<typeof applyRoadmapDelegationSchema>;
 export const prepareRoadmapDecisionSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
-  checkpointId: z.string().min(1).max(200),
+  checkpointId: branded<CheckpointId>(z.string().min(1).max(200)),
   profile: agentSelectionSchema,
   minutes: z.number().int().min(5).max(60),
   instructions: z.string().trim().max(8000),
 });
 export type PrepareRoadmapDecision = z.infer<typeof prepareRoadmapDecisionSchema>;
 const decisionPreparationSchema = z.strictObject({
-  id: z.uuid(),
-  definitionId: z.uuid(),
+  id: branded<DecisionPreparationId>(z.uuid()),
+  definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
   bindingRevision: z.number().int().positive(),
   bindingDigest: z.string(),
-  checkpointId: z.string(),
+  checkpointId: branded<CheckpointId>(z.string()),
   workspaceId: workspaceIdSchema,
   repositoryId: sourceRepositoryIdSchema,
   projectId: projectIdSchema,
@@ -226,28 +239,28 @@ const roadmapAttemptSchema = z.strictObject({
     .optional(),
   dependencyRefresh: z
     .strictObject({
-      runtimeId: z.uuid(),
+      runtimeId: branded<RuntimeGenerationId>(z.uuid()),
       generation: z.number().int().positive(),
       sourceRunId: agentRunIdSchema,
     })
     .optional(),
   recovery: z
     .strictObject({
-      sourceEntryId: z.string().uuid(),
+      sourceEntryId: branded<RoadmapEntryId>(z.string().uuid()),
       sourceRunId: agentRunIdSchema,
       sourceSequence: z.number().int().positive(),
       findingFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
       phase: z.enum(['repair', 'verification', 'parent-review', 'completed']),
-      reviewRunIds: z.record(z.string().uuid(), z.string().uuid()),
+      reviewRunIds: z.record(z.string().uuid(), branded<AgentRunId>(z.string().uuid())),
       reviewRestarts: z.record(z.string().uuid(), z.number().int().nonnegative()).optional(),
       requestedByUserId: userIdSchema.optional(),
     })
     .optional(),
-  id: z.string().uuid(),
-  entryId: z.string().uuid(),
+  id: branded<RoadmapAttemptId>(z.string().uuid()),
+  entryId: branded<RoadmapEntryId>(z.string().uuid()),
   definitionRevision: z.number().int().positive(),
   worktreeId: worktreeIdSchema,
-  cycleId: z.string().uuid(),
+  cycleId: branded<WorkCycleId>(z.string().uuid()),
   status: z.enum(['preparing', 'active', 'completed']),
   createdAt: z.iso.datetime(),
   completedAt: z.iso.datetime().optional(),
@@ -257,7 +270,7 @@ export const roadmapSchema = z.strictObject({
   delegationAssignments: z
     .array(
       applyRoadmapDelegationSchema.omit({ expectedVersion: true }).extend({
-        id: z.uuid(),
+        id: branded<DelegationAssignmentId>(z.uuid()),
         appliedAt: z.iso.datetime(),
         appliedByUserId: userIdSchema,
       }),
@@ -266,8 +279,8 @@ export const roadmapSchema = z.strictObject({
   agentAssignments: z
     .array(
       z.strictObject({
-        id: z.uuid(),
-        entryIds: z.array(z.uuid()),
+        id: branded<AgentAssignmentId>(z.uuid()),
+        entryIds: z.array(branded<RoadmapEntryId>(z.uuid())),
         selections: agentSelectionsSchema,
         appliedAt: z.iso.datetime(),
         appliedByUserId: userIdSchema,
@@ -286,7 +299,7 @@ export const roadmapSchema = z.strictObject({
       grantedAt: z.iso.datetime(),
     })
     .optional(),
-  id: z.string().uuid(),
+  id: roadmapIdSchema,
   workspaceId: workspaceIdSchema,
   version: z.number().int().positive(),
   definition: roadmapDefinitionSchema,
@@ -316,8 +329,8 @@ export const roadmapSchema = z.strictObject({
         since: z.iso.datetime(),
         refs: z
           .strictObject({
-            cycleId: z.string().min(1).max(200).optional(),
-            entryId: z.string().min(1).max(200).optional(),
+            cycleId: branded<WorkCycleId>(z.string().min(1).max(200)).optional(),
+            entryId: branded<RoadmapEntryId>(z.string().min(1).max(200)).optional(),
             blockers: z.array(phaseBlockerCodeSchema).max(50).optional(),
           })
           .optional(),
@@ -353,7 +366,7 @@ export const roadmapViewSchema = z.strictObject({
     z.strictObject({
       phase: z.enum(['start', 'merge', 'verify', 'accept']).optional(),
       blockers: z.array(phaseBlockerSchema).optional(),
-      entryId: z.string().uuid(),
+      entryId: branded<RoadmapEntryId>(z.string().uuid()),
       effectiveAutomation: roadmapAutomationSchema.optional(),
       reverifiable: z.literal(true).optional(),
       status: z.enum([
@@ -374,7 +387,7 @@ export const roadmapViewSchema = z.strictObject({
 export const roadmapsResponseSchema = z.strictObject({ roadmaps: z.array(roadmapViewSchema) });
 /** A roadmap's read-only status list (R-E3a). */
 export const roadmapStatusListSchema = z.strictObject({
-  roadmapId: z.string().uuid(),
+  roadmapId: roadmapIdSchema,
   name: z.string(),
   status: z.enum(ROADMAP_STATUSES),
   reason: z.string(),
@@ -384,7 +397,7 @@ export const roadmapStatusListSchema = z.strictObject({
   completed: z.number().int().nonnegative(),
   entries: z.array(
     z.strictObject({
-      entryId: z.string().uuid(),
+      entryId: branded<RoadmapEntryId>(z.string().uuid()),
       sourceId: z.string(),
       scope: z.enum(['item', 'slice', 'slice-verification', 'parent-acceptance']),
       title: z.string(),
@@ -397,10 +410,10 @@ export const roadmapStatusListSchema = z.strictObject({
           code: z.string().max(200).optional(),
           reason: z.string(),
           since: z.iso.datetime().optional(),
-          attentionItemId: z.string().optional(),
-          cycleId: z.string().optional(),
-          runId: z.string().optional(),
-          entryId: z.string().optional(),
+          attentionItemId: branded<AttentionItemId>(z.string()).optional(),
+          cycleId: branded<WorkCycleId>(z.string()).optional(),
+          runId: branded<AgentRunId>(z.string()).optional(),
+          entryId: branded<RoadmapEntryId>(z.string()).optional(),
           blockers: z.array(phaseBlockerCodeSchema).max(50).optional(),
         })
         .optional(),

@@ -1,7 +1,15 @@
-import type { DeclaredCheck, RepositoryCheckDeclaration } from '@craftingtable/domain';
+import type {
+  AgentRunId,
+  DeclaredCheck,
+  DeclaredCheckId,
+  MergeOperationId,
+  RepositoryCheckDeclaration,
+  RepositoryCheckDeclarationId,
+  WorktreeId,
+} from '@craftingtable/domain';
 import { z } from 'zod';
 import { gitShaSchema } from './execution.js';
-import { sourceRepositoryIdSchema, userIdSchema, workspaceIdSchema } from './ids.js';
+import { branded, sourceRepositoryIdSchema, userIdSchema, workspaceIdSchema } from './ids.js';
 import { equivalentSchema } from './type-equivalence.js';
 
 /**
@@ -12,7 +20,7 @@ import { equivalentSchema } from './type-equivalence.js';
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 
 /** A check's name: lowercase letters, digits and hyphens. */
-const checkIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
+const checkIdSchema = branded<DeclaredCheckId>(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/));
 
 /** A path inside the repository: relative, without `..` or empty segments. */
 const repositoryPathSchema = z
@@ -73,7 +81,7 @@ const declaredCheckSchema = equivalentSchema<DeclaredCheck>()(
 
 export const repositoryCheckDeclarationSchema = equivalentSchema<RepositoryCheckDeclaration>()(
   z.strictObject({
-    id: z.uuid(),
+    id: branded<RepositoryCheckDeclarationId>(z.uuid()),
     workspaceId: workspaceIdSchema,
     repositoryId: sourceRepositoryIdSchema,
     version: z.number().int().positive().safe(),
@@ -86,9 +94,9 @@ export const repositoryCheckDeclarationSchema = equivalentSchema<RepositoryCheck
     adoptedAt: z.iso.datetime(),
     adoptedAtMerge: z
       .strictObject({
-        operationId: z.uuid(),
-        worktreeId: z.string().min(1).max(200),
-        reviewRunId: z.string().min(1).max(200),
+        operationId: branded<MergeOperationId>(z.uuid()),
+        worktreeId: branded<WorktreeId>(z.string().min(1).max(200)),
+        reviewRunId: branded<AgentRunId>(z.string().min(1).max(200)),
       })
       .optional(),
   }),

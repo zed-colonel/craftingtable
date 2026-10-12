@@ -1,4 +1,14 @@
-import { FINALIZATION_DECISIONS, FINALIZATION_STAGE_KINDS } from '@craftingtable/domain';
+import {
+  type ConcurrencyDefinitionId,
+  FINALIZATION_DECISIONS,
+  FINALIZATION_STAGE_KINDS,
+  type FinalizationId,
+  type FinalizationStageId,
+  type ReviewFindingId,
+  type RuntimeGenerationId,
+  type WorkCycleId,
+  type WorkItemSourceId,
+} from '@craftingtable/domain';
 import { z } from 'zod';
 import {
   agentRunSummarySchema,
@@ -7,6 +17,7 @@ import {
   worktreeSummarySchema,
 } from './execution.js';
 import {
+  branded,
   planVersionIdSchema,
   projectIdSchema,
   sourceRepositoryIdSchema,
@@ -24,10 +35,10 @@ import { completionPolicySchema, workCycleSchema } from './work-cycle.js';
 
 const profile = agentProfileSchema;
 export const finalizationStageSchema = z.strictObject({
-  id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+  id: branded<FinalizationStageId>(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)),
   kind: z.enum(FINALIZATION_STAGE_KINDS),
   name: z.string().trim().min(1).max(200),
-  workItemSourceIds: z.array(z.string().min(1).max(64)).max(2000),
+  workItemSourceIds: z.array(branded<WorkItemSourceId>(z.string().min(1).max(64))).max(2000),
   instructions: z.string().max(16000),
   review: profile,
   implement: profile,
@@ -100,13 +111,13 @@ export const startFinalizationRequestSchema = finalizationSettingsSchema.extend(
 export const finalizationSchema = finalizationSettingsSchema.extend({
   mapContext: z
     .strictObject({
-      definitionId: z.uuid(),
+      definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
       bindingRevision: z.number().int().positive(),
-      runtimeId: z.uuid(),
+      runtimeId: branded<RuntimeGenerationId>(z.uuid()),
       alias: z.string(),
     })
     .optional(),
-  id: z.string().uuid(),
+  id: branded<FinalizationId>(z.string().uuid()),
   workspaceId: workspaceIdSchema,
   planVersionId: planVersionIdSchema,
   projectId: projectIdSchema,
@@ -116,7 +127,7 @@ export const finalizationSchema = finalizationSettingsSchema.extend({
   targetBranch: gitBranchNameSchema,
   targetSha: gitShaSchema,
   worktreeId: worktreeIdSchema,
-  cycleId: z.string().uuid(),
+  cycleId: branded<WorkCycleId>(z.string().uuid()),
   status: z.enum(['preparing', 'active', 'stopped', 'completed']),
   integrationCleanup: z
     .strictObject({
@@ -193,7 +204,7 @@ export const controlFinalizationRequestSchema = z
       'approve-plan-change',
     ]),
     findingIds: z
-      .array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/))
+      .array(branded<ReviewFindingId>(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)))
       .min(1)
       .max(100)
       .refine((ids) => new Set(ids).size === ids.length)
@@ -201,7 +212,10 @@ export const controlFinalizationRequestSchema = z
     agentOverride: agentSelectionSchema.nullable().optional(),
     /** With `remove-worktree`: discard uncommitted changes instead of refusing. */
     discardChanges: z.boolean().optional(),
-    selectedFindingIds: z.array(z.string().min(1).max(64)).max(100).optional(),
+    selectedFindingIds: z
+      .array(branded<ReviewFindingId>(z.string().min(1).max(64)))
+      .max(100)
+      .optional(),
     obligationId: z.string().min(1).max(64).optional(),
     rationale: z.string().trim().min(1).max(4000).optional(),
     additionalRounds: z.number().int().min(1).max(20).optional(),

@@ -1,4 +1,12 @@
-import { AGENT_BACKENDS, AGENT_RUN_ROLES, AGENT_RUN_STATUSES } from '@craftingtable/domain';
+import {
+  AGENT_BACKENDS,
+  AGENT_RUN_ROLES,
+  AGENT_RUN_STATUSES,
+  type ConcurrencyDefinitionId,
+  type RoadmapId,
+  type WorkCycleId,
+  type WorkItemSourceId,
+} from '@craftingtable/domain';
 import { z } from 'zod';
 import {
   gitBranchNameSchema,
@@ -8,6 +16,7 @@ import {
 } from './execution.js';
 import {
   agentRunIdSchema,
+  branded,
   eventIdSchema,
   planVersionIdSchema,
   projectIdSchema,
@@ -75,7 +84,7 @@ const workItemAdmittedEventSchema = workspaceEventBaseSchema.extend({
     projectId: projectIdSchema,
     planVersionId: planVersionIdSchema,
     workItemId: workItemIdSchema,
-    sourceWorkItemId: z.string().min(1).max(64),
+    sourceWorkItemId: branded<WorkItemSourceId>(z.string().min(1).max(64)),
   }),
 });
 
@@ -228,7 +237,7 @@ const workItemCompletedEventSchema = workspaceEventBaseSchema
     payload: z.strictObject({
       projectId: projectIdSchema,
       workItemId: workItemIdSchema,
-      sourceWorkItemId: z.string().min(1).max(64),
+      sourceWorkItemId: branded<WorkItemSourceId>(z.string().min(1).max(64)),
       worktreeId: worktreeIdSchema.optional(),
       mergeSha: gitShaSchema.optional(),
     }),
@@ -260,7 +269,7 @@ const workCycleChangedEventSchema = workspaceEventBaseSchema
     runId: forbiddenCorrelationSchema,
     payload: z.strictObject({
       planVersionId: planVersionIdSchema.optional(),
-      cycleId: z.string().uuid(),
+      cycleId: branded<WorkCycleId>(z.string().uuid()),
       status: z.enum([
         'running',
         'paused',
@@ -315,7 +324,7 @@ const roadmapChangedEventSchema = workspaceEventBaseSchema.extend({
   workItemId: forbiddenCorrelationSchema,
   runId: forbiddenCorrelationSchema,
   payload: z.strictObject({
-    roadmapId: z.string().uuid(),
+    roadmapId: branded<RoadmapId>(z.string().uuid()),
     status: z.enum(['draft', 'running', 'paused', 'needs-attention', 'stopped', 'completed']),
     reason: z.string().max(4000),
   }),
@@ -335,7 +344,10 @@ const scopeEvidenceRecordedEventSchema = workspaceEventBaseSchema.extend({
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   scopeEvidenceRecordedEventSchema.extend({
     kind: z.literal('runtime-evidence-changed'),
-    payload: z.strictObject({ definitionId: z.uuid(), message: z.string().min(1).max(500) }),
+    payload: z.strictObject({
+      definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
+      message: z.string().min(1).max(500),
+    }),
   }),
   scopeEvidenceRecordedEventSchema,
   scopeEvidenceRecordedEventSchema.extend({

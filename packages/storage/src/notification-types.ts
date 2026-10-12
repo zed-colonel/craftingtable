@@ -2,6 +2,7 @@ import type {
   AttentionItem,
   NotificationDelivery,
   NotificationPreferences,
+  NotificationRecordId,
   UserId,
   WorkspaceId,
 } from '@craftingtable/domain';
@@ -17,7 +18,7 @@ export interface StoredNotificationSettings {
   retryAt: string | null;
 }
 export interface NotificationRecord {
-  id: string;
+  id: NotificationRecordId;
   workspaceId: WorkspaceId;
   sourceKey: string;
   kind: 'merge' | 'attention' | 'test';

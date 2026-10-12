@@ -1,26 +1,43 @@
 import {
+  type AgentRunId,
   type ArchiveImportAttempt,
   type AttentionItem,
+  type AttentionItemId,
   type ConcurrencyBindingRevision,
   type ConcurrencyDefinition,
+  type ConcurrencyDefinitionId,
+  type ConcurrencyMapId,
   type ConcurrencySource,
+  type ImportedArchiveId,
   type MapAdoption,
+  type MapAmendmentId,
+  type MapDecisionId,
+  type MapSourceFileId,
+  type MapWorkItemId,
   type MergeOperation,
+  type MergeOperationId,
+  type NativeVerificationApprovalId,
   type NotificationDelivery,
+  type NotificationRecordId,
   PLAN_BUNDLE_DIGEST_ALGORITHM,
   PLAN_BUNDLE_DIGEST_FORMAT_VERSION,
   PLAN_SOURCE_PROFILES,
   type PlanArchiveLink,
   type PlanVersion,
   type ProtectedRefMove,
+  type RepositoryCheckDeclarationId,
+  type RoadmapId,
   type RunBuildRecord,
   type RunCheckReceipt,
   type RunEnvironment,
+  type RuntimeGenerationId,
   type ScopeIntegrationReuse,
   type ScopeReceipt,
+  type SourceRepositoryId,
   WORK_ITEM_RISKS,
   WORK_ITEM_STATUSES,
   type WorkItem,
+  type WorkItemSourceId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
@@ -38,6 +55,7 @@ import {
 import { executionScopeSchema, scopeReviewEvidenceSchema } from './execution-scope.js';
 import {
   agentRunIdSchema,
+  branded,
   planArtifactIdSchema,
   planBundleIdSchema,
   planVersionIdSchema,
@@ -74,7 +92,7 @@ export const protectedRefMoveSchema = equivalentSchema<ProtectedRefMove>()(
     .strictObject({
       id: z.uuid(),
       workspaceId: workspaceIdSchema,
-      repositoryId: name,
+      repositoryId: branded<SourceRepositoryId>(name),
       runId: agentRunIdSchema,
       worktreeId: worktreeIdSchema,
       detectedAt: z.iso.datetime(),
@@ -99,7 +117,7 @@ export const protectedRefMoveSchema = equivalentSchema<ProtectedRefMove>()(
 
 export const mergeOperationSchema = equivalentSchema<MergeOperation>()(
   z.strictObject({
-    id: z.uuid(),
+    id: branded<MergeOperationId>(z.uuid()),
     workspaceId: workspaceIdSchema,
     worktreeId: worktreeIdSchema,
     status: z.enum(['reserved', 'failed', 'merged', 'cleaned']),
@@ -109,7 +127,7 @@ export const mergeOperationSchema = equivalentSchema<MergeOperation>()(
     reviewRunId: agentRunIdSchema,
     createdAt: z.iso.datetime(),
     authorizedByUserId: userIdSchema,
-    roadmapId: z.uuid().optional(),
+    roadmapId: branded<RoadmapId>(z.uuid()).optional(),
     definitionRevision: positive.optional(),
     mergeSha: gitShaSchema.optional(),
     cleanupError: text.optional(),
@@ -127,15 +145,15 @@ export const runEnvironmentSchema = equivalentSchema<RunEnvironment>()(
   z
     .strictObject({
       architectureDecisionDigest: digest.optional(),
-      nativeApprovalId: z.uuid().optional(),
-      runId: name,
+      nativeApprovalId: branded<NativeVerificationApprovalId>(z.uuid()).optional(),
+      runId: branded<AgentRunId>(name),
       workspaceId: workspaceIdSchema,
-      runtimeId: z.uuid().optional(),
+      runtimeId: branded<RuntimeGenerationId>(z.uuid()).optional(),
       manifestPath: name,
       manifestDigest: digest,
       verificationMode: z.literal('current-upstream-build').optional(),
       receiptAuthority: z.literal('daemon').optional(),
-      checkDeclarationId: z.uuid().optional(),
+      checkDeclarationId: branded<RepositoryCheckDeclarationId>(z.uuid()).optional(),
     })
     // A run without a pinned environment is check-only (R-G13 increment 4): it is held to
     // adopted checks, recorded by the daemon, and to nothing pinned.
@@ -153,7 +171,7 @@ export const runEnvironmentSchema = equivalentSchema<RunEnvironment>()(
 
 export const runCheckReceiptSchema = equivalentSchema<RunCheckReceipt>()(
   z.strictObject({
-    runId: name,
+    runId: branded<AgentRunId>(name),
     workspaceId: workspaceIdSchema,
     sequence: positive,
     receipt: text,
@@ -163,9 +181,9 @@ export const runCheckReceiptSchema = equivalentSchema<RunCheckReceipt>()(
 
 export const runBuildRecordSchema = equivalentSchema<RunBuildRecord>()(
   z.strictObject({
-    runId: name,
+    runId: branded<AgentRunId>(name),
     workspaceId: workspaceIdSchema,
-    runtimeId: z.uuid().optional(),
+    runtimeId: branded<RuntimeGenerationId>(z.uuid()).optional(),
     manifestDigest: digest,
     receipts: text,
     digest,
@@ -198,13 +216,13 @@ export const archiveImportAttemptRecordSchema = equivalentSchema<ArchiveImportAt
   z.strictObject({
     id: z.uuid(),
     workspaceId: workspaceIdSchema,
-    archiveId: z.uuid(),
+    archiveId: branded<ImportedArchiveId>(z.uuid()),
     kind: z.enum(['plan', 'concurrency']),
     outcome: z.enum(['succeeded', 'duplicate', 'failed-validation', 'conflict']),
     createdAt: z.iso.datetime(),
     createdByUserId: userIdSchema,
     diagnostics: z.array(importIssueSchema),
-    definitionId: z.uuid().optional(),
+    definitionId: branded<ConcurrencyDefinitionId>(z.uuid()).optional(),
     planVersionId: planVersionIdSchema.optional(),
   }),
 );
@@ -215,10 +233,10 @@ export const archiveImportAttemptRecordSchema = equivalentSchema<ArchiveImportAt
  */
 export const concurrencyDefinitionRecordSchema = equivalentSchema<ConcurrencyDefinition>()(
   z.strictObject({
-    id: z.uuid(),
+    id: branded<ConcurrencyDefinitionId>(z.uuid()),
     workspaceId: workspaceIdSchema,
-    archiveId: z.uuid(),
-    mapId: name,
+    archiveId: branded<ImportedArchiveId>(z.uuid()),
+    mapId: branded<ConcurrencyMapId>(name),
     revision: name,
     digest,
     source: z.custom<ConcurrencySource>(
@@ -234,7 +252,7 @@ export const concurrencyDefinitionRecordSchema = equivalentSchema<ConcurrencyDef
 
 export const concurrencyBindingRecordSchema = equivalentSchema<ConcurrencyBindingRevision>()(
   z.strictObject({
-    definitionId: z.uuid(),
+    definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
     workspaceId: workspaceIdSchema,
     revision: positive,
     createdAt: z.iso.datetime(),
@@ -248,11 +266,15 @@ export const concurrencyBindingRecordSchema = equivalentSchema<ConcurrencyBindin
         integrationBranch: gitBranchNameSchema.optional(),
         branchSettingsVersion: positive.optional(),
         sourceArtifacts: z.array(
-          z.strictObject({ sourceId: name, artifactId: planArtifactIdSchema, sha256: digest }),
+          z.strictObject({
+            sourceId: branded<MapSourceFileId>(name),
+            artifactId: planArtifactIdSchema,
+            sha256: digest,
+          }),
         ),
         workItems: z.array(
           z.strictObject({
-            sourceId: name,
+            sourceId: branded<MapWorkItemId>(name),
             workItemId: workItemIdSchema,
             sourceRecordDigest: digest,
           }),
@@ -266,7 +288,7 @@ export const planArchiveLinkSchema = equivalentSchema<PlanArchiveLink>()(
   z.strictObject({
     workspaceId: workspaceIdSchema,
     planVersionId: planVersionIdSchema,
-    archiveId: z.uuid(),
+    archiveId: branded<ImportedArchiveId>(z.uuid()),
     implementationPlan: name,
     workBreakdown: name,
     selectedPaths: z.array(name),
@@ -277,9 +299,9 @@ export const mapAdoptionSchema = equivalentSchema<MapAdoption>()(
   z.strictObject({
     id: z.uuid(),
     workspaceId: workspaceIdSchema,
-    definitionId: z.uuid(),
+    definitionId: branded<ConcurrencyDefinitionId>(z.uuid()),
     bindingRevision: positive,
-    decisionIds: z.array(name),
+    decisionIds: z.array(branded<MapDecisionId>(name)),
     rationale: name,
     createdAt: z.iso.datetime(),
     createdByUserId: userIdSchema,
@@ -289,7 +311,7 @@ export const mapAdoptionSchema = equivalentSchema<MapAdoption>()(
 export const scopeIntegrationReuseSchema = equivalentSchema<ScopeIntegrationReuse>()(
   z.strictObject({
     id: z.uuid(),
-    amendmentId: z.uuid(),
+    amendmentId: branded<MapAmendmentId>(z.uuid()),
     workspaceId: workspaceIdSchema,
     workItemId: workItemIdSchema,
     scope: executionScopeSchema,
@@ -328,7 +350,7 @@ export const workItemRecordSchema = equivalentSchema<WorkItem>()(
     workspaceId: workspaceIdSchema,
     projectId: projectIdSchema,
     planVersionId: planVersionIdSchema,
-    sourceId: name,
+    sourceId: branded<WorkItemSourceId>(name),
     ordinal: count,
     title: name,
     status: z.enum(WORK_ITEM_STATUSES),
@@ -363,7 +385,7 @@ export const storedNotificationSettingsSchema = z.strictObject({
 });
 
 export const notificationRecordSchema = z.strictObject({
-  id: name,
+  id: branded<NotificationRecordId>(name),
   workspaceId: workspaceIdSchema,
   sourceKey: name,
   kind: z.enum(['merge', 'attention', 'test']),
@@ -387,7 +409,7 @@ export const notificationRecordSchema = z.strictObject({
 /** An attention occurrence (R-A4). Resolved items are immutable; storage refuses updates. */
 export const attentionItemSchema = equivalentSchema<AttentionItem>()(
   z.strictObject({
-    id: name,
+    id: branded<AttentionItemId>(name),
     workspaceId: workspaceIdSchema,
     scopeKey: name,
     subjectKey: name,
@@ -404,7 +426,7 @@ export const attentionItemSchema = equivalentSchema<AttentionItem>()(
     openedAt: z.iso.datetime(),
     resolvedAt: z.iso.datetime().optional(),
     resolvedBy: attentionResolutionSchema.optional(),
-    continues: name.optional(),
+    continues: branded<AttentionItemId>(name).optional(),
     delivery: z.strictObject({
       firstSentAt: z.iso.datetime().nullable(),
       lastSentAt: z.iso.datetime().nullable(),
@@ -425,9 +447,9 @@ export const notificationDeliverySchema = equivalentSchema<NotificationDelivery>
     id: name,
     workspaceId: workspaceIdSchema,
     attemptedAt: z.iso.datetime(),
-    itemIds: z.array(name),
-    reminderItemIds: z.array(name),
-    testId: name.optional(),
+    itemIds: z.array(branded<AttentionItemId>(name)),
+    reminderItemIds: z.array(branded<AttentionItemId>(name)),
+    testId: branded<NotificationRecordId>(name).optional(),
     title: text.max(250),
     message: text.max(1024),
     result: z.enum(['accepted', 'retry', 'blocked']),

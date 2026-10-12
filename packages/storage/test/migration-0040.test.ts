@@ -5,8 +5,10 @@ import {
   asEventId,
   asPlanVersionId,
   asProjectId,
+  asRoadmapId,
   asUserId,
   asWorkItemId,
+  asWorkItemSourceId,
   asWorkspaceId,
   asWorktreeId,
 } from '@craftingtable/domain';
@@ -142,7 +144,7 @@ function schema39(path: string): Database.Database {
       projectId: asProjectId('project-a'),
       planVersionId: asPlanVersionId('version-a'),
       workItemId: asWorkItemId('item-root-a'),
-      sourceWorkItemId: 'ROOT-A',
+      sourceWorkItemId: asWorkItemSourceId('ROOT-A'),
     },
   });
   events.appendEvent({
@@ -170,7 +172,11 @@ function schema39(path: string): Database.Database {
     ...b,
     id: id(),
     kind: 'roadmap-changed',
-    payload: { roadmapId: '00000000-0000-4000-8000-000000000001', status: 'running', reason: '' },
+    payload: {
+      roadmapId: asRoadmapId('00000000-0000-4000-8000-000000000001'),
+      status: 'running',
+      reason: '',
+    },
   });
   events.appendEvent({
     ...a,

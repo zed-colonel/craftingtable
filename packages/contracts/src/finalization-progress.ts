@@ -1,16 +1,18 @@
 import { z } from 'zod';
-import { agentRunIdSchema, userIdSchema } from './ids.js';
+import { agentRunIdSchema, branded, userIdSchema } from './ids.js';
 import { reviewFindingSchema } from './review.js';
 import { obligationReportSchema } from './stage-report.js';
+import type { FinalizationStageId, ReviewFindingId } from '@craftingtable/domain';
 
 const sha = z.string().regex(/^[0-9a-f]{40,64}$/);
-const ids = z.array(z.string().min(1).max(64)).max(500);
+/** Review finding ids, as a stage's selection names them. */
+const ids = z.array(branded<ReviewFindingId>(z.string().min(1).max(64))).max(500);
 export const finalizationProgressSchema = z.strictObject({
   stageIndex: z.number().int().min(0).max(23),
   stages: z
     .array(
       z.strictObject({
-        id: z.string().min(1).max(64),
+        id: branded<FinalizationStageId>(z.string().min(1).max(64)),
         status: z.enum(['pending', 'reviewing', 'selecting', 'verifying', 'completed']),
         remediationRounds: z.number().int().nonnegative(),
         additionalRemediationRounds: z.number().int().nonnegative(),
@@ -47,7 +49,7 @@ export const finalizationProgressSchema = z.strictObject({
   decisions: z
     .array(
       z.strictObject({
-        stageId: z.string().min(1).max(64),
+        stageId: branded<FinalizationStageId>(z.string().min(1).max(64)),
         runId: agentRunIdSchema,
         selectedIds: ids,
         rationale: z.string().min(1).max(4000),

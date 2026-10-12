@@ -1,4 +1,5 @@
 import type { AuditEvent, UserId, WorkspaceId } from '@craftingtable/domain';
+import { asWorkCycleId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { type RecordGuard, readRecord, readWritten } from '../records.js';
 import type { AppendAuditInput, AuditRepository } from '../types.js';
@@ -136,7 +137,7 @@ export class SqliteAuditRepository implements AuditRepository {
         metadata_json: string;
       }[]
     ).map((row) => ({
-      cycleId: row.target_id,
+      cycleId: asWorkCycleId(row.target_id),
       occurredAt: row.occurred_at,
       metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
     }));

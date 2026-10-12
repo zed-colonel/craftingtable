@@ -1,5 +1,6 @@
-import { FINDING_SEVERITIES, FINDING_STATUSES } from '@craftingtable/domain';
+import { FINDING_SEVERITIES, FINDING_STATUSES, type ReviewFindingId } from '@craftingtable/domain';
 import { z } from 'zod';
+import { branded } from './ids.js';
 
 /**
  * One review finding, as a structured report states it. A module of its own so the schemas that
@@ -9,7 +10,7 @@ const text = (maximum: number) => z.string().trim().min(1).max(maximum);
 
 export const reviewFindingSchema = z
   .strictObject({
-    id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+    id: branded<ReviewFindingId>(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)),
     severity: z.enum(FINDING_SEVERITIES),
     category: z.enum(['correctness', 'conformance', 'simplification', 'polish']).optional(),
     status: z.enum(FINDING_STATUSES),

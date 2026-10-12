@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import type { AcceptanceCaseId, AgentRunId, CheckpointId } from '@craftingtable/domain';
+import { branded } from './ids.js';
 const text = z.string().trim().min(1).max(4000);
 export const workflowQuestionSchema = z.strictObject({
   question: text,
   destination: z.enum(['shared-decision', 'work-item']),
-  checkpointId: z.string().trim().min(1).max(200).optional(),
+  checkpointId: branded<CheckpointId>(z.string().trim().min(1).max(200)).optional(),
 });
 export const workflowReportSchema = z.strictObject({
   version: z.literal(1),
@@ -22,7 +24,7 @@ export const workflowReportSchema = z.strictObject({
       id: z.string().trim().min(1).max(200),
       passed: z.boolean(),
       requirements: z.array(z.strictObject({ requirement: text, evidence: text })).max(100),
-      caseIds: z.array(z.string().min(1).max(200)).max(500),
+      caseIds: z.array(branded<AcceptanceCaseId>(z.string().min(1).max(200))).max(500),
     })
     .optional(),
 });
@@ -50,10 +52,10 @@ export const cycleWorkflowSchema = z.strictObject({
   activeReview: z
     .strictObject({
       kind: z.enum(['reassessment', 'security', 'checkpoint']),
-      checkpointId: z.string().min(1).max(200).optional(),
-      sourceRunId: z.string().min(1),
+      checkpointId: branded<CheckpointId>(z.string().min(1).max(200)).optional(),
+      sourceRunId: branded<AgentRunId>(z.string().min(1)),
       requirements: z.array(text).max(100),
-      caseIds: z.array(z.string().min(1).max(200)).max(500),
+      caseIds: z.array(branded<AcceptanceCaseId>(z.string().min(1).max(200))).max(500),
       roles: z.array(z.string().min(1).max(200)).max(30),
       contextDigest: z.string().regex(/^[0-9a-f]{64}$/),
     })
@@ -61,7 +63,7 @@ export const cycleWorkflowSchema = z.strictObject({
     .optional(),
   securityReceipt: z
     .strictObject({
-      runId: z.string().min(1),
+      runId: branded<AgentRunId>(z.string().min(1)),
       headSha: z.string().regex(/^[0-9a-f]{40,64}$/),
       targetSha: z.string().regex(/^[0-9a-f]{40,64}$/),
     })

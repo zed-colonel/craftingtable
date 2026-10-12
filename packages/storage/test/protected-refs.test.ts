@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ProtectedRefMove } from '@craftingtable/domain';
+import { asSourceRepositoryId } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { openDatabase } from '../src/database.js';
 import { seedWorkspace } from './planning-test-support.js';
@@ -18,7 +19,7 @@ it('lets a protected-ref move change only by its one acknowledgement (R-G5 revie
   const move: ProtectedRefMove = {
     id: randomUUID(),
     workspaceId,
-    repositoryId: 'repo',
+    repositoryId: asSourceRepositoryId('repo'),
     runId: 'run' as ProtectedRefMove['runId'],
     worktreeId: 'tree' as ProtectedRefMove['worktreeId'],
     detectedAt: '2026-09-28T12:00:00.000Z',

@@ -18,6 +18,16 @@ import {
 } from '@craftingtable/domain';
 import { z } from 'zod';
 
+/**
+ * `schema` with its output typed as the brand `T` (DATA-15, operator decision 2026-10-12). The
+ * same schema object comes back, so it accepts and refuses exactly what it did, with the same
+ * messages: a UUID field stays a UUID check, a plain string stays one. Only the output type
+ * changes; the input stays a string, which is what a sender passes.
+ */
+export function branded<T extends string>(schema: z.ZodType<string, string>): z.ZodType<T, string> {
+  return schema as unknown as z.ZodType<T, string>;
+}
+
 function idSchema<T extends string>(label: string) {
   return z.custom<T>(isWellFormedId, {
     message: `${label} must be a non-empty string without surrounding whitespace`,

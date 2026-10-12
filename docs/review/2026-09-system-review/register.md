@@ -5096,6 +5096,29 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       after 90 s unless `CRAFTINGTABLE_DEPLOY_HEALTH_URL` is set; the doc gives an untried
       workaround. Noted: `CRAFTINGTABLE_RUN_NAMESPACE` is set for launchers and check units but
       nothing reads it. (Defect 1, the CLI password bound, is under part 4.)
+  - **README and architecture.md, current with P3.**
+    - *README:* 132 lines (161 before; the done-when asks for about 150). The LAN certificate and
+      start commands moved to operations.md, the configuration table keeps the five settings an
+      operator usually sets and points to the full list, and the documentation map names
+      `docs/roadmaps.md`, `docs/ui/` and the generated `docs/api-routes.md`. Its 22 claims were
+      checked again (19 true as kept, 3 new), in the claims ledger.
+    - *Architecture:* 546 lines (509 before), still by component and without schema history. 151
+      claims checked (128 true, 10 new, 13 fixed), in the claims ledger. Fixed: "the last three"
+      pre-migration copies (one, with a 14-day expiry); a parent run's "256 KiB preview" (a bounded
+      digest, R-G6); scratch as the agent's own temporary directory (the commands', LIVE-31); the
+      pinned Cargo adapter "runs in the agent's process group" (its builds are requests the daemon
+      runs, R-G4); launchers for scoped runs only (any run in a repository with adopted checks gets
+      `ct-check`, R-G13); saved-plan acceptance (the v2 digest and carry-forward, R-C6); the
+      controller-claim list (automatic acceptance); the Git operations list ("merge … aborting on
+      conflict" described the retired worktree merge); the browser's "projection reducer" (the keyed
+      query store, R-D4); agents saved with roadmap entries (permissions only, R-E5b); and three
+      smaller ones. Added for P3: route declarations and the generated inventory (R-H5), page views
+      and per-read memos (R-D5, R-D7, R-D8), the board read model and graphs (R-E3b, R-E4),
+      `mapCapabilities` and its typed gaps (R-F2), evidence heads (R-H4), the check spool and
+      check-only manifests (R-G4, R-G13), finalization follow-ups (R-C7), Git pinning and the ref
+      watch (R-G14, R-G5), the agent resolution table (R-E5), and earlier changes it never covered
+      (R-C3b, R-C5, R-C12, R-C16, R-G15). The P1 start's untraced "receipt and parent completion
+      are atomic" is now traced.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

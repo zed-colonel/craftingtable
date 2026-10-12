@@ -865,3 +865,328 @@ place.
 
 `CONVENTIONS.md` names the retired list `RETIRED`; the constant in `config.ts` is
 `RETIRED_SETTINGS` (not exported; `retiredSettings()` is).
+
+## docs/architecture.md: claims ledger (R-I7, drafting agent D)
+
+Checked against the code at `remediation/p3` 3a03927. 151 claims: 128 true as kept, 13 fixed
+(false or stale in the old text), 10 new. Paths are repository-relative; `services/` means
+`apps/server/src/services/`.
+
+### Packages and dependency direction
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 1 | domain has no workspace dependency; contracts, planning, storage, git, agents depend on domain only | each `packages/*/package.json` dependencies | true (agents' "depends on domain" new in the table) |
+| 2 | server depends on all packages; web on domain + contracts only | `apps/server/package.json`, `apps/web/package.json` | true |
+| 3 | Only storage owns SQL | storage-only `better-sqlite3` use (`packages/storage/src/database.ts`) | true |
+| 4 | Process authority is the `PROCESS_AUTHORITY` map, each entry with a reason | `scripts/check-forbidden-scope.mjs:108-123` | true |
+| 5 | planning may import only domain and contracts | `check-forbidden-scope.mjs:151` (`PLANNING_MAY_IMPORT`) | fixed: old text said only "planning pure" |
+| 6 | domain imports nothing | `check-forbidden-scope.mjs:154` (`DOMAIN_FORBIDDEN_PATTERNS`) | true |
+| 7 | Git and vendor-agent libraries forbidden elsewhere | `FORBIDDEN_CAPABILITY_PATTERNS` `:58-104` | true |
+| 8 | Prose-branching rule covers server, web, contracts, domain, planning, storage | `PROSE_PACKAGES` `:157-164` | true |
+| 9 | Map vocabulary only in `V03_VOCABULARY` in `map-capabilities.ts` | rule 7, `:30-43`, `MAP_VOCABULARY_MODULE` `:168`; `packages/domain/src/map-capabilities.ts:18` | new (R-F2) |
+| 10 | No dependency on ActionQueue/WorldInterface/Exoskeleton | rule 1, `FORBIDDEN_PATTERNS` `:56` | true |
+| 11 | The check reads compiled projects through the compiler; tests are what vitest runs | header `:45-66` | true |
+| 12 | Tests live in each package's `test/`; tsconfig compiles src into dist, tsconfig.test.json noEmit | `packages/git/tsconfig.json`, `packages/git/tsconfig.test.json` | true |
+| 13 | e2e daemon in `apps/server/test/e2e/` | `apps/server/test/e2e/e2e-entry.ts` | true |
+| 14 | Web tests beside components; vite builds only what index.html loads | `vitest.config.ts` web project `apps/web/src/**/*.test.tsx` | true |
+
+### Persisted records and migrations
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 15 | Migrations forward-only in `packages/storage/migrations/`, run whenever daemon or CLI opens the DB | `apps/server/src/cli.ts:299-315` | true |
+| 16 | `db:verify` migrates only a copy | `apps/server/src/db-verify.ts` | true |
+| 17 | Pre-migration copy: newest kept, older than 14 days removed at start | `packages/storage/src/migrations.ts:205-206, 223-239, 249-273` | fixed: old text said "the last three copies are kept" |
+| 18 | CLI migration takes the single-daemon lock | `cli.ts:299-315` | true |
+| 19 | Table rebuilds need a preservation test and a count guard | `packages/storage/test/migration-preservation.ts` (used by `migration-0038/0039.test.ts`); `0040-journal-without-registry.sql:15-33,123` | true |
+| 20 | Every record has a kind in `records.ts` | `packages/storage/src/records.ts` | true |
+| 21 | `readRecord` applies upcasters | `records.ts:257` | true |
+| 22 | `RecordGuard`; read-back refuses an upcast record (`readWritten`) | `records.ts:103, 289` | true |
+| 23 | `openDaemonStorage` checks each record against its contract | `apps/server/src/persisted-records.ts:170` | true |
+| 24 | `equivalentSchema` pins schema to type | `packages/contracts/src/type-equivalence.ts:67`; `persisted-records.ts:68` | true |
+| 25 | `db:verify` checks contracts, v0.3 map format, integrity, foreign keys, evidence heads | `persisted-records.ts:185-221` (`integrityProblems`: "SQLite integrity, foreign keys and evidence heads"; `concurrencySourceIssues`) | fixed: evidence heads added (R-H4) |
+| 26 | Test daemons run the same check at cleanup | `apps/server/test/test-support.ts:144, 239` | true |
+| 27 | Imported records, definitions, evidence, receipts immutable by triggers | e.g. `0018-execution-scopes.sql:18-19`, `0019-phase-reservations.sql:32-42` | true |
+
+### Execution model
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 28 | Run statuses `starting…interrupted` | `packages/domain/src/execution.ts:141-157` | true |
+| 29 | Roles implement, review, design | `execution.ts:115` | true |
+| 30 | Event kinds list (9) | `execution.ts:286-296` | true |
+| 31 | Runs record `resolvedModel`, `billing`, `verdict` from `VERDICT:` line | `execution.ts:256-259`; `services/review-report.ts:5` | true |
+| 32 | Investigation is a read-only run outside the lineage | `execution.ts:166-172` (`isInvestigationRun`); `services/investigation.ts` header | new (R-C16) |
+| 33 | Scratch is the commands' TMPDIR/TMP/TEMP | `services/agent-run-service.ts:2092-2099` | fixed: old text said scratch is "passed to both backends as their temporary directory" |
+| 34 | Agent process gets a short private dir under the agents' temporary root (Claude sockets) | `agent-run-service.ts:1449, 2543-2548`; `packages/agents/src/claude-code/backend.ts:142-157` | new (LIVE-31) |
+| 35 | `CARGO_TARGET_DIR` = worktree build cache (else scratch/target); `CARGO_HOME` = daemon's | `agent-run-service.ts:2099-2103` | true |
+| 36 | Brief sections order (goal, where, build environment, role, final message, files, step rules, operator words) | `services/brief.ts:430-509` | true |
+| 37 | Rules file `plan/craftingtable-rules.md` | `brief.ts:81` | true |
+| 38 | Parent run in the brief is a bounded digest pointing to the handoff | `services/brief-handoff.ts:5-41` (600-byte quote, 40 findings, gate evidence) | fixed: old text said the run "receives a 256 KiB preview of the parent's final message" (256 KiB is now only the bound on the parent message read, `agent-run-service.ts:245,1314`) |
+| 39 | Tool results > 4 KiB keep a preview, body in run dir | `execution.ts:284` | true |
+| 40 | `db compact-journal` applies the rule to older runs | `services/journal-compaction.ts` | true |
+| 41 | Handoff materializes conversations, final messages, assessments; manifest of sources and cursors | `services/run-handoff.ts:190-260` | true |
+| 42 | Handoff over 32 MiB refused | `run-handoff.ts:215` | true |
+| 43 | Handoff over 1,000 source runs refused | `run-handoff.ts` ("exceeds 1000 source runs") | new |
+| 44 | Source turn must stop before handoff; parent and child share a worktree | `agent-run-service.ts:1300-1305` | true |
+| 45 | Drain: admissions stop, bounded wait, `daemon-drain` reason, clean stop record | `services/daemon-drain.ts`; `execution.ts:126` | true |
+| 46 | Next start resumes vendor sessions after a drain | `services/restart-resume.ts` | true |
+| 47 | Crash leaves `interrupted` without reason, waits for resume | `execution.ts:154-155`; ADR-066 | true |
+| 48 | Process record `state/processes/<runId>.json`; ends a group only on proof incl. `CRAFTINGTABLE_RUN_ID` | `apps/server/src/config.ts:875`; `packages/agents/src/process.ts:211` | true (run-id marker named) |
+
+### Work items, plan versions and branch settings
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 49 | In progress derived, completion a separate row | `0006-workflow.sql` (`work_item_completions`) | true |
+| 50 | Agenda removal eligibility: history, active worktree, roadmap, in-memory preparation guard | `services/work-item-service.ts:142-170` | true |
+| 51 | Predecessor rule in `transition-gate.ts`, read by commands, launch, scheduler | `services/transition-gate.ts:1-20`; importers `branch-service.ts`, `roadmap-service.ts`, `work-cycle-service.ts` | true |
+| 52 | `plan_branch_settings`, `work_item_integration_evidence` | `0010-branch-mechanics.sql` | true |
+| 53 | Repository policy records (ADR-055) | `services/repository-policy.ts` | true |
+| 54 | `mergeGateFor` conditions | `services/execution-service.ts:111` | true |
+| 55 | Adopted checks: merge needs daemon receipts of each on the reviewed head; a review without a run record is refused where an adoption exists | `services/runtime-evidence-service.ts:2788-2817` (`assertMergeRun`) | new |
+| 56 | Merge commit built with merge-tree + commit-tree, no worktree | `packages/git/src/merge.ts:191-196` | true |
+| 57 | Compare-and-swap, or fast-forward of the primary checkout | `merge.ts:259, 518-520` | true |
+| 58 | Refusal codes `checkout-dirty`, `checkout-would-overwrite`, `target-moved`, `target-checked-out` | `packages/git/src/merge.ts`, `operations.ts` | true |
+| 59 | Completion before cleanup; cleanup retried independently | ADR-021/033; `execution-service.ts` merge path | true |
+| 60 | Review reports reconstructed from the journal; IDs across lineage; invalid reports never close findings | `services/review-report.ts`; `run-handoff.ts:316` | true |
+| 61 | Four step defaults + five specialists; effort | `packages/domain/src/agent-profiles.ts:4-21` | true |
+| 62 | One decision table `resolveAgent` with layers | `services/agent-resolution.ts:115-129, 245` | new (R-E5) |
+| 63 | Daemon reports source and override; browser derives none | `agent-profiles.ts:100-107` (`EffectiveAgent`) | new |
+| 64 | Roadmap save carries permissions only; new entries store workspace defaults | `packages/contracts/src/roadmap.ts:70,127`; `services/roadmap-service.ts:1551` | new (R-E5b) |
+| 65 | ADR-064 assignment via `POST roadmaps/:id/agent-profiles`, allowed in draft/paused/needs-attention | `apps/server/src/routes/roadmaps.ts:115`; `roadmap-service.ts:509-550` | true (route named) |
+
+### The cycle controller
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 66 | `WorkCycleService` steps; `work_cycles` holds policy, profiles, reservation | `0009-work-cycles.sql`; `services/work-cycle-service.ts` | true |
+| 67 | Completion: no blocking/major/minor, nits ≤ allowance default 3 | `packages/domain/src/work-cycle.ts:26-30, 428-438` | true |
+| 68 | `decideStepOutcome` pure; `replayStepOutcomes` | `services/step-outcome.ts:352, 841` | true |
+| 69 | `--scheduler` replays one `RoadmapService.tick()` with commands and Git intercepted | `apps/server/src/scheduler-replay.ts` | true |
+| 70 | `tick()` and `quiesce()` stepping | `work-cycle-service.ts:2301`; `agent-run-service.ts:2842` | true |
+| 71 | `pnpm replays` manifest paths relative to `$XDG_DATA_HOME` with SHA-256 and expected differences | `scripts/replays.mjs`; `scripts/replays.manifest.json` | true |
+| 72 | Typed attention codes on stops, compile-time | `packages/domain/src/attention.ts` | true |
+| 73 | `awaiting-merge` codes: merge approval, merge requirements, final promotion, scope evidence, controller wait, scheduling held | `attention.ts:109-114` | true |
+| 74 | Controller claims: merge, verification, acceptance, conflict automation, scope recovery, prerequisite work | `attention.ts:190-195` | fixed: acceptance was missing |
+| 75 | Entry waits typed (`entry-waits.ts`) | `services/entry-waits.ts:1-6` | new (R-C12) |
+| 76 | `attention-legacy.ts` the one legacy mapping | `check-forbidden-scope.mjs:166` | true |
+| 77 | Remediation grant 1–20 | `packages/contracts/src/work-cycle.ts:525-527` | true |
+| 78 | Question stop investigation; commands refused on `worktree-changed` | `work-cycle.ts:168`; `services/errors.ts` (`investigation-worktree-changed`) | new (R-C16) |
+| 79 | Automatic recovery: output format (R-C2), provider (ADR-062, 3 retries), usage limit (R-C8), background work (ADR-037), design dependencies | `step-outcome.ts:41-44, 111, 259-260, 496-503, 663`; `work-cycle-service.ts:1927, 2658` | true (format and usage-limit recovery added) |
+| 80 | Housekeeping checkpoint before automated review (ADR-031) | `packages/git/src/checkpoint.ts`; `work-cycle-service.ts` | true |
+| 81 | Integration update waits idle, invalidates review, normal merge, fresh review | `packages/git/src/merge.ts:72-75` (`updateWorktree`); `work-cycle-service.ts` | true |
+| 82 | Held-roadmap cycle refreshes before its review (R-C4) | register R-C4; `work-cycle-service.ts` | new |
+| 83 | Conflict resolution operation; up to three agent attempts | `work-cycle-service.ts:4619` | true |
+| 84 | Design recovery investigation (ADR-051) | `services/design-recovery.ts` | true |
+| 85 | Decision preparation by command or standing grant | `packages/domain/src/roadmap.ts:186` (`decisionPreparationGrant`) | new (R-C3b) |
+| 86 | Baseline tags create-only; `.baselines`, `.historical-cargo` | `services/baseline-preparation.ts:199, 340` | true |
+
+### Roadmaps
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 87 | One delegated roadmap per workspace (partial unique index) | `0012-roadmaps.sql:12-13` | true |
+| 88 | `roadmap_definitions` immutable; control row stores `definitionRevision` | `packages/domain/src/roadmap.ts:127`; `0012`/`0029` | true |
+| 89 | `cycleOwnership` | `services/cycle-ownership.ts:23` | true |
+| 90 | Merges only under the attempt's revision policy; never into protected destinations | ADR-029/030/033; `roadmap-service.ts` merge path | true |
+| 91 | Scope recovery rounds stop when not converging | `services/recovery-progress.ts:1-10` | new (R-C5) |
+| 92 | Capacity 1–32, env defaults 2 and 1 | `apps/server/src/config.ts:463-476` | true |
+| 93 | Page read returns view, status list, board in one transaction and evaluation | `roadmap-service.ts:1225-1249` | new (R-E3b, R-D5) |
+| 94 | Board read model pure; static graph per revision; roots and unblocked slices | `services/roadmap-board.ts:12-17, 21, 76, 231`; `routes/roadmaps.ts:237` | new |
+| 95 | "Unblocks N" counts slices on a map roadmap | register R-E3b; `roadmap-board.ts` | new |
+| 96 | `scope-next.ts` decides who acts next | `services/scope-next.ts:13-19, 41` | new (R-E4) |
+
+### Concurrency maps and execution scopes
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 97 | `PackageImportService` records archives, attempts, definitions, bindings; no Git/agent authority | `services/package-import-service.ts` | true |
+| 98 | `mapCapabilities` and typed gaps; plan checkpoint whatever its id | `packages/domain/src/map-capabilities.ts:80-150, 315` | new (R-F2) |
+| 99 | `CrossProjectService` adoptions, layered settings, launches nothing | `services/cross-project-service.ts` | true |
+| 100 | `saved-plan-v2` digest of plan-acceptance inputs | `packages/domain/src/runtime-evidence.ts:106`; `contracts/src/runtime-evidence.ts:189`; `services/plan-acceptance-policy.ts` | fixed: old text said acceptance is generated from "the saved map, bindings, decisions, pins, reviewer settings and resources" and accepted by the operator each time |
+| 101 | Carry-forward in the operator's command transaction; scheduler never accepts | `services/generated-plan-evidence.ts:210` | new (R-C6) |
+| 102 | Scope identity; missing scope = whole item; `execution-scope.ts` | `packages/domain/src/execution-scope.ts:4`; `services/execution-scope.ts` | true |
+| 103 | Slice verification separate (ADR-071); minor/nit-only verification recorded with follow-ups | `execution-service.ts:950-962` (`verificationFollowUps`) | new (R-C7 D7) |
+| 104 | Receipts append-only; receipt and parent completion in one transaction | `0018-execution-scopes.sql:18-19`; `execution-service.ts:1063-1088` | true (P1 listed it as not traced; now traced) |
+| 105 | Owning-slice delegation (ADR-056) | `services/scope-repair.ts` | true |
+| 106 | `scopePhaseBlockers` five blocker kinds | `services/execution-scope.ts:101` | true |
+| 107 | `phase_reservations` capacity trigger | `0019-phase-reservations.sql:18` | true |
+| 108 | Run admission reserves with the run row; release in terminal transaction | `services/phase-resources.ts` | true |
+| 109 | Runtime generations immutable and separate | `services/runtime-evidence-service.ts` | true |
+| 110 | Evidence heads (`evidence_submission_heads`) without artifact contents; views read heads | `0039-evidence-submission-heads.sql:13`; register R-H4 | new |
+| 111 | Phase gates recheck Git freshness (ADR-047) | `runtime-evidence-policy.ts` | true |
+| 112 | Dependency refresh digest-checked save queues reviews (ADR-058) | `services/runtime-refresh.ts` | true |
+| 113 | Candidate checkpoint evidence only for the exact slice merge (ADR-060) | `services/checkpoint-candidate-policy.ts` | true |
+| 114 | Launchers `ct-check`, `ct-act`, `ct-native`, `cargo` leave spool requests | `packages/agents/src/check-spool.ts:1-15, 34` | fixed: old text said the pinned Cargo adapter "runs in the agent's process group … and records a clean-commit build receipt" |
+| 115 | `CheckRequestService` runs in a transient systemd user unit, records receipts; build record frozen from rows | `services/check-request-service.ts:175-184`; `packages/agents/src/local-check.ts:1024` | fixed: same |
+| 116 | Checks declared in `.craftingtable/checks.json`, adopted only by a person | `packages/domain/src/repository-checks.ts:10`; `repository-checks-service.ts:204-208` | new (R-G13) |
+| 117 | Adopted checks and clean pinned builds run on a daemon-private clone, with private pin checkouts | `local-check.ts:1284`; `check-request-service.ts:489-505` | new |
+| 118 | Check-only manifest gives `ct-check` alone | `local-check.ts:147`; `packages/agents/src/pinned-cargo.ts` (`CheckManifest.kind: 'checks'`) | new (R-G13 inc 4) |
+| 119 | Roadmap cycle without adoption stops `repository-checks-undeclared` | `packages/domain/src/attention.ts`; `services/errors.ts:208` | new |
+| 120 | Native approvals table; `ct-native` bounded user service | `0023-native-verification.sql`; `packages/agents/src/native-environment.ts` | true |
+| 121 | Kata readiness via `CRAFTINGTABLE_KATA_READINESS` | `native-environment.ts:131` | true |
+| 122 | Amendments apply in one transaction (ADR-049) | `services/map-amendment-service.ts` | true |
+
+### Finalization
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 123 | Finalization requires completed items with integration evidence; holds merges | `services/finalization-service.ts` | true |
+| 124 | Only the exact-commit operator command promotes | `services/finalization-policy.ts` | true |
+| 125 | Five stage kinds | `packages/domain/src/finalization-stages.ts:6-12` | true |
+| 126 | Stage usage atomic with run reservations | `work-cycle-service.ts:4906-4950` (`changes` and `currentRunId` in one write) | true |
+| 127 | Nit-only parking at spent allowance | `finalization-stages.ts:152` (`heldOnlyByParkedNits`); `work-cycle-service.ts:3406` | new (R-C7 D5) |
+| 128 | `optionalFindings: 'follow-up'` on simplification and polish | `finalization-stages.ts:37` | new (R-C7 D6) |
+| 129 | Legacy records read: fixture and test | `fixtures/records/legacy-finalization-2026-09-13.json`; `apps/server/test/legacy-finalization-record.test.ts` | true (test path made exact) |
+| 130 | Stage-less finalization: launch refused, `legacy-finalization-retired` | `agent-run-service.ts:937-938`; `attention.ts` | true |
+
+### Agent backend seam
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 131 | `AgentBackend`/`AgentSession` shape; adapters normalize | `packages/agents/src/index.ts` | true |
+| 132 | Default backend = first available of Claude Code, Codex | `agent-run-service.ts:683-685`; `execution.ts:102` | true |
+| 133 | Model catalogs; non-catalog model refused (`agent-model-misnamed`) | `services/model-catalog-service.ts`; `execution.ts` exit reasons | new (R-G15) |
+| 134 | Named environment variables only | `packages/agents/src/child-environment.ts:1-6` | new (R-G5) |
+| 135 | Posture meaning per backend on `AgentPermissionMode` | `execution.ts:178-196` | new |
+| 136 | Claude: `claude -p`, stream-json, no settings from any scope | `packages/agents/src/claude-code/arguments.ts:13-35` | true (settings sources added) |
+| 137 | Background tasks pending → progress notice (R-G11) | `claude-code/normalize.ts:198-251, 367-387` | true |
+| 138 | Codex: one `app-server --stdio` per run with isolation flags | `codex/session.ts:85`; `codex/isolation.ts:5-30` | true (isolation added) |
+
+### Git boundary
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 139 | `createGitOperations` surface (inspection, branches and heads, ancestry, worktrees, diffs, snapshots, checkpoints, updates, merge prediction and merges, resolution, recovery, reads/exports, tags) | `packages/git/src/operations.ts:195-345, 367-380` | fixed: old list lacked branch heads, merge-tree prediction, reading files and listing paths at a commit, snapshots, and said merges "abort on conflict" (branch merges are plumbing; only worktree updates abort, `merge.ts:72-75`) |
+| 140 | Module split (refs, worktrees, diff, merge, resolution, checkpoint, export) over `runner.ts` | `operations.ts:367-380`; `ls packages/git/src` | true |
+| 141 | Runner hardening: named env, no system config, identity file, hooks and fsmonitor off | `packages/git/src/runner.ts:40-98` | new here (was only in security.md) |
+| 142 | Every command names its Git directories; untrusted → `untrusted-git-directory` | `packages/git/src/pinning.ts`; `runner.ts:173`; `services/git-trust.ts` | new (R-G14) |
+| 143 | Merge recovery checks marker and parents in first-parent history | `merge.ts:167-180` | true |
+| 144 | Ref watch records moved branches no managed worktree owns | `services/ref-watch.ts`; `0035-protected-ref-flags.sql` | new |
+| 145 | 0040 dropped the registry tables; trigger refuses retired kinds and actions | `0040-journal-without-registry.sql:144-147, 166-189` | true |
+| 146 | Retired environment variables only warn | `config.ts:754-776` (`RETIRED`, `retiredSettings`) | true |
+
+### Events, routes, browser, storage, deploy
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 147 | Run events read by page and streamed from a cursor; streams re-authenticate without touching the session | `routes/agent-runs.ts:223-290`; `services/run-event-stream-service.ts:18-42` | true (event page added) |
+| 148 | Attention items: projector, scheduler sync, storage monitor; resolution by operator/automation/superseded; reopen within ten minutes continues | `packages/domain/src/attention-item.ts:75, 159`; `services/attention-projector.ts:546-580` | true |
+| 149 | Notification settle 30 s, quiescence, 5-minute presence grace, 5 s wake | `services/notification-service.ts:36-45, 365-368` | true (reminder schedule moved to operations.md) |
+| 150 | Route declarations (access, tag, body), refusal at start, guard order preParsing → step-up → body parse; inventory generated and tested against the before-R-H5 fixture | `routes/route-access.ts:27-63, 120-246`; `docs/api-routes.md:1-18`; register R-H5 | new (R-H5) |
+| 151 | Page views one per region in one transaction over one map snapshot; per-read memos (phase blockers owner-free part, receipts, milestones); `decisionBriefs` | `services/page-views.ts:1-40`; `services/map-read-snapshot.ts:3-14`; `services/architecture-decision-inbox.ts:165-200`; register R-D8 | new (R-D5, R-D7, R-D8) |
+
+Also kept and checked in these sections (counted under the rows above): keyed query store and
+invalidation keys (`apps/web/src/lib/query-store.ts`, `event-invalidations.ts`); requests only in
+API modules and one poster per decision command (`apps/web/src/decisions/boundary.test.ts`,
+register R-H5 M2); `decisions/registry.ts` renders the kinds an item's code names; graphs laid out
+by `features/roadmap-board/layered-layout.ts` (ADR-072); no router or data-fetching library
+(`apps/web/package.json`); storage policy defaults (`services/storage-service.ts:61-70`);
+instance lock and CLI lock users (`apps/server/src/instance-lock.ts`, `cli.ts:258-315`); deploy
+script steps (`scripts/deploy-daemon.mjs:14, 121-126, 234-321, 381, 483-490`).
+
+### False or stale in the old doc
+
+1. "A populated database is first copied into `pre-migration/` … (the last three copies are
+   kept)" → one copy, the newest, is kept; older ones past 14 days go at each start
+   (`migrations.ts:205-273`, R-G9). Fixed in "Persisted records".
+2. "A run started with `parentRunId` receives a 256 KiB preview of the parent's final message"
+   → the brief carries a bounded digest (600-byte quote, up to 40 open findings, gate evidence)
+   pointing to the handoff files (`brief-handoff.ts`, R-G6, ADR-024 amended). Fixed in
+   "Briefs"/"Handoffs".
+3. "a `scratch` subdirectory passed to both backends as their temporary directory" → scratch is
+   the commands' TMPDIR/TMP/TEMP; the agent process gets a short private TMPDIR under the agents'
+   temporary root (LIVE-31). Fixed in "Execution model".
+4. "the pinned Cargo adapter runs in the agent's process group … and records a clean-commit build
+   receipt" → build commands are spool requests the daemon runs in a confined unit (on a private
+   clone for a clean worktree) and records (R-G4, R-G13). Fixed in "Checks and builds".
+5. "Scoped runs get `ct-check` … and `ct-act` … through the local-check adapter" → launchers run
+   nothing; any run in a repository with adopted checks gets `ct-check` (check-only manifest).
+   Fixed in "Checks and builds".
+6. "Saved-plan acceptance evidence is generated from the saved map, bindings, decisions, pins,
+   reviewer settings and resources, and accepted explicitly by the operator before Start" → v2
+   digest of the plan-acceptance inputs only, carried forward by the operator's own commands
+   (R-C6). Fixed in "Adoption and supervision".
+7. Controller-claim list omitted automatic acceptance (`roadmap-acceptance`,
+   `attention.ts:192`). Fixed.
+8. Git operations list incomplete (branch heads, merge prediction, commit file reads/listing,
+   snapshots), and "merge with a merge commit (aborting on conflict)" described the retired
+   worktree merge. Fixed in "Git boundary".
+9. "the projection reducer marks scopes stale on events and the app refetches the authoritative
+   endpoints, batching background invalidations in a bounded window" → a keyed query store:
+   events mark keys stale by prefix, watched keys re-read after debounce and max wait, hidden
+   pages defer (R-D4). Fixed in "Browser".
+10. "For existing roadmaps an operator appends a version-checked model assignment" → the
+    assignment carries agents (backend, model, effort) through `POST roadmaps/:id/agent-profiles`,
+    and roadmap saves carry permissions only (R-E5b). Fixed in "Agent selection".
+11. "The visual language and page anatomy are in `docs/ui-principles.md`" → `docs/ui/` (this
+    reset). Fixed.
+12. "`legacy-finalization-record.test.ts`" named without a path; it is
+    `apps/server/test/legacy-finalization-record.test.ts`. Fixed.
+13. `db:verify` description omitted the evidence-head check (R-H4). Fixed.
+
+### Dropped
+
+- "the daemon's tests also use the storage and planning packages' test support" (true, and the
+  git package's too): test-layout detail cut for length.
+- "Reservations written by releases that merged in a scratch worktree under the worktree root
+  still have that scratch recovered and removed": history of an upgrade path, not current design.
+- "Optional local removal of the integration branch is reserved with the approval and reconciled
+  after promotion": still true; cut for length (ADR-041 holds it).
+- "Completed items become bounded durable events" (Codex): true; cut for length.
+- The conflict-resolution state names (`detected → … | abandoned`) and the notification reminder
+  schedule and hysteresis: moved to ADR-032 and operations.md ("Notifications") respectively.
+- The explicit per-recovery bounds (two continuations, two rechecks, three service retries): kept
+  in the ADRs they cite; this doc names the recoveries.
+- The detailed checkout refusal wording of the merge gate: the four codes remain in `merge.ts`;
+  the doc says refusals are by code.
+
+### Code defects
+
+None found.
+
+### Questions for the operator
+
+None.
+
+### Noted outside this part
+
+- An untracked `packages/testing/` directory (no `package.json`) is still in the working
+  checkout (REPO-03 leftover); `node -e require('./packages/testing/package.json')` fails. Not
+  tracked, so no doc change.
+
+## README.md (R-I7, the coordinator)
+
+Checked against `remediation/p3` at `69633cb`. The README kept its P1-start operator guide; these
+are the claims it keeps or gains, each checked again. 22 claims: 19 true, 3 new.
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 1 | UI labels: Import plan, Repositories, Repository & branches, Admit into agenda, Automated cycle, Merge into, Finalize integration, Approve final promotion, Roadmaps | `ImportPlanPage.tsx:97`, `WorkspaceShell.tsx`, `PlanBranchPanel.tsx:114`, `WorkItemPage.tsx:108`, `CyclePanel.tsx:162`, `MergeApproval.tsx:128`, `FinalizationPanel.tsx:219`, `FinalPromotion.tsx:50` | true |
+| 2 | Merge only on a finished review with a current `mergeable` verdict; any later run closes the gate | `mergeGateFor`, `services/execution-service.ts` | true |
+| 3 | Staged finalization's five stages; promotion only by the operator's exact-commit approval | ADR-042, `finalization-stage-policy.ts`, `decisions/finalization/FinalPromotion.tsx` | true |
+| 4 | Every operator stop is a Needs you item; dashboard, rail, strip and roadmap read the same items | `GET …/attention`, architecture.md "Browser" (checked there) | true |
+| 5 | Git 2.43.0 or newer, refused below | `gitVersionIssue`, `composition.ts:192-196` | true |
+| 6 | `claude` on PATH or `~/.local/bin`; Codex signed in as the daemon's user | `config.ts` executable resolution, operations.md ledger | true |
+| 7 | pnpm downloads the pinned Node 24 | `pnpm-workspace.yaml` `useNodeVersion: 24.18.0` | true |
+| 8 | `pnpm craftingtable:dev db migrate`, `admin bootstrap --username` prompts | `apps/server/src/cli.ts:16-75` | true |
+| 9 | `pnpm dev`: daemon on 127.0.0.1:4601 and Vite on 5173, own state in `~/.local/share/craftingtable-dev` | `apps/server/src/dev-defaults.ts:8-21`, Vite's default port | true |
+| 10 | `fixtures/plan-bundles/aq-cont-1` exists | the directory | true |
+| 11 | The installed daemon runs from a deploy checkout; deploy drains and restarts; `--rollback` | `scripts/deploy-daemon.mjs` (operations.md ledger) | true |
+| 12 | Reload open pages after a deploy | R-H5 deploy note, program.md P3 step 5 | new |
+| 13 | `pnpm check` = format, lint, types, build, unit, e2e, scope | `package.json` `check` | true |
+| 14 | Test daemons' data in `CRAFTINGTABLE_TEST_DATA_ROOT`, else `$XDG_RUNTIME_DIR` | `apps/server/test/e2e/test-data-root.ts` | true |
+| 15 | Non-loopback listener refused without TLS or an HTTPS origin; cookie `Secure` on HTTPS | `config.ts:818-821`, security.md ledger | true |
+| 16 | The public origin must match the browser's URL exactly | origin check, security.md ledger | true |
+| 17 | Configuration defaults: host `127.0.0.1`, port `4600`, origin `http://127.0.0.1:5173`, TLS unset, data directory, repository roots | `config.ts:777-830`, `:164-190`, `:369-375` | true |
+| 18 | Every variable is listed in operations.md | `scripts/check-docs.mjs` environment check | new |
+| 19 | Package map (`apps/server`, `apps/web`, the six packages) | `apps/*`, `packages/*` | true |
+| 20 | `scripts/` holds deploy, scope and docs checks, replays, local CI and Kata setup | `scripts/` | true (docs checks new) |
+| 21 | The documentation map's files exist | `scripts/check-docs.mjs` link check | true |
+| 22 | `docs/api-routes.md` is the generated route inventory | `pnpm routes:inventory`, `route-inventory.test.ts` | new |
+
+Dropped from the README: the LAN certificate and start commands (now in operations.md, "Directly
+on the LAN"), seven configuration rows (all in operations.md's tables), and the reset-password
+paragraph (in operations.md, "Forgotten password").

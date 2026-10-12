@@ -14,7 +14,7 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
+import { type ServerConfig, sessionCookieName } from '../config.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
 import type { AgentRunService } from '../services/agent-run-service.js';
 import { ForbiddenError } from '../services/errors.js';
@@ -223,7 +223,7 @@ export function registerAgentRunRoutes(
     '/api/workspaces/:workspaceId/runs/:runId/events',
     { config: { access: 'member' } },
     (request, reply) => {
-      const rawSessionToken = request.cookies[SESSION_COOKIE_NAME];
+      const rawSessionToken = request.cookies[sessionCookieName(config)];
       const context = contextOf(request);
       if (
         !isAllowedBrowserRequest(

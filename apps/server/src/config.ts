@@ -140,6 +140,18 @@ export interface ServerConfig {
 
 export const SERVER_VERSION = '0.3.0';
 export const SESSION_COOKIE_NAME = 'craftingtable_session';
+/**
+ * The session cookie's name on an HTTPS origin (SEC-04, operator decision 2026-10-12). A browser
+ * accepts a `__Host-` cookie only with `Secure`, `Path=/` and no `Domain`, so neither a sibling
+ * host nor a plain-HTTP page can set or shadow it. A browser refuses a `__Host-` cookie without
+ * `Secure`, so an HTTP origin (loopback development, the test daemons) keeps the plain name.
+ */
+export const SECURE_SESSION_COOKIE_NAME = '__Host-craftingtable_session';
+
+/** The session cookie's name for this daemon's public origin. */
+export function sessionCookieName(config: Pick<ServerConfig, 'secureCookies'>): string {
+  return config.secureCookies ? SECURE_SESSION_COOKIE_NAME : SESSION_COOKIE_NAME;
+}
 export const CSRF_HEADER_NAME = 'x-craftingtable-csrf';
 
 /** The data directory's subdirectory holding the database and its pre-migration copies. */

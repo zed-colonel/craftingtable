@@ -8,7 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { inject } from 'vitest';
 import { copyMigratedTemplate } from '../../../packages/storage/test/test-support.js';
 import { type CraftingTableRuntime, createDaemon, type ServiceSet } from '../src/composition.js';
-import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from '../src/config.js';
+import { configFromEnv, type ServerConfig, sessionCookieName } from '../src/config.js';
 import { groupedIssues } from '../src/db-verify.js';
 import { openDaemonStorage, verified, verifyRecords } from '../src/persisted-records.js';
 import type { PasswordHasher } from '../src/security/password-hasher.js';
@@ -177,7 +177,7 @@ export async function createTestContext(
       const setCookie = response.headers['set-cookie'];
       const rawCookie = Array.isArray(setCookie) ? setCookie[0] : setCookie;
       const cookie = rawCookie?.split(';')[0];
-      if (cookie === undefined || !cookie.startsWith(`${SESSION_COOKIE_NAME}=`)) {
+      if (cookie === undefined || !cookie.startsWith(`${sessionCookieName(config)}=`)) {
         throw new Error('Test login did not return a session cookie');
       }
       const body = response.json() as { csrfToken: string; session: { id: string } };

@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-24
+- **Amended:** 2026-10-12 (R-I7, SEC-04): the session cookie takes the `__Host-` prefix on an HTTPS origin
 
 ## Context
 
@@ -47,3 +48,14 @@ HTTPS is mandatory in CT-08.
 - JWT/browser storage — harder revocation and greater bearer exposure.
 - Cookie-only CSRF defense — `SameSite` is defense in depth, not the sole
   control.
+
+## Amendment 2026-10-12: the `__Host-` prefix on HTTPS (R-I7, SEC-04)
+
+The consequence foreseen above is taken, for HTTPS origins rather than when HTTPS becomes
+mandatory. On an HTTPS public origin the session cookie is `__Host-craftingtable_session`: a
+browser accepts it only with `Secure`, `Path=/` and no `Domain`, so neither a sibling host nor a
+plain-HTTP page on the same name can set or shadow it. An HTTP origin keeps
+`craftingtable_session`, because a browser refuses a `__Host-` cookie without `Secure`, and
+loopback development and the test daemons are HTTP. The daemon reads the cookie only under its
+origin's name, and an HTTPS sign-in clears a cookie left under the plain name. Deploying the change
+signs everyone out once (operator decision 2026-10-12).

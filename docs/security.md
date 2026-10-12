@@ -22,7 +22,7 @@ typed commands, never commands to run.
 | Boundary | Enforced by | Only cooperative | Covering tests |
 |---|---|---|---|
 | Network listener | A non-loopback listener is refused without TLS or an HTTPS public origin; a `Host` check; security headers on every answer | TLS termination by a proxy (`tailscale serve`) is outside the daemon | `apps/server/test/config.test.ts`, `apps/server/test/routes/browser-security.test.ts` |
-| Browser session | Argon2id passwords, digest-only session tokens, idle and absolute session ends, sign-in throttling, session-bound CSRF token and exact origin | — | `apps/server/test/server-auth.test.ts`, `apps/server/test/server-auth-hardening.test.ts`, `apps/server/test/security/*.test.ts` |
+| Browser session | Argon2id passwords, a `__Host-` session cookie on HTTPS, digest-only session tokens, idle and absolute session ends, sign-in throttling, session-bound CSRF token and exact origin | — | `apps/server/test/server-auth.test.ts`, `apps/server/test/server-auth-hardening.test.ts`, `apps/server/test/security/*.test.ts` |
 | Route authority | Every route's declared access, checked before its body is read; step-up for the commands that grant the most; one body schema per command | Services repeat their own role checks as a second line | `apps/server/test/route-access.test.ts`, `apps/server/test/route-inventory.test.ts`, `apps/server/test/server-auth-hardening.test.ts` (step-up) |
 | Browser input | Typed commands only; repository registration under configured roots; cleanup by daemon-held preview | — | `apps/server/test/server-execution-runs.test.ts`, `apps/server/test/storage-management.test.ts` |
 | Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only for agents, checks and daemon Git (not the native probes); process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
@@ -60,7 +60,11 @@ typed commands, never commands to run.
   whether set in the browser or by `admin bootstrap` and `admin reset-password` (the hasher
   refuses any other length), and are stored as Argon2id hashes. Session tokens are 32 random
   bytes, kept only as SHA-256 digests, and each session has its own CSRF token. The session
-  cookie is `HttpOnly`, `SameSite=Strict`, and `Secure` whenever the public origin is HTTPS.
+  cookie is `HttpOnly` and `SameSite=Strict` with `Path=/` and no `Domain`. On an HTTPS public
+  origin it is also `Secure` and carries the `__Host-` prefix (`__Host-craftingtable_session`), so
+  a browser accepts it only from this exact origin and neither a sibling host nor a plain-HTTP page
+  can set or shadow it; an HTTP origin (loopback development) keeps the plain name, which a browser
+  would refuse with the prefix. The daemon reads the cookie only under its origin's name.
 - A session ends after its lifetime (30 days by default, `CRAFTINGTABLE_SESSION_LIFETIME_SECONDS`)
   or after 24 hours with no request (`CRAFTINGTABLE_SESSION_IDLE_SECONDS`). Event streams check
   the session on every iteration without counting as use; a tab left hidden reads nothing, so it
@@ -501,8 +505,6 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Native probes.** The native environment's fixed version probes (`native-environment.ts`)
   start with the daemon's whole environment, not the named variables agents and checks get; they
   run fixed commands with no agent input.
-- **Session cookie.** The cookie has no `__Host-` prefix; its protection is `HttpOnly`,
-  `SameSite=Strict` and `Secure` on HTTPS.
 - **Secrets at rest** are plaintext files protected by modes and the denied reads. Database
   copies made before the credentials moved still hold them, and clearing credentials does not
   securely erase SQLite pages or older backups.

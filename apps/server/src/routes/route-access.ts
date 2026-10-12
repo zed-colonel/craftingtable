@@ -1,7 +1,7 @@
 import { workspaceIdSchema } from '@craftingtable/contracts';
 import type { WorkspaceRole } from '@craftingtable/domain';
 import type { FastifyContextConfig, FastifyInstance, FastifyRequest } from 'fastify';
-import { CSRF_HEADER_NAME, SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
+import { CSRF_HEADER_NAME, type ServerConfig, sessionCookieName } from '../config.js';
 import { csrfTokensEqual } from '../security/csrf.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
 import type { AuthContext, AuthService } from '../services/auth-service.js';
@@ -214,7 +214,7 @@ export function installRouteAccess(
     if (access === undefined || access === 'public') return;
     const context = isMutation(request.method)
       ? authorizeMutation(request, auth, config)
-      : authenticate(request, auth);
+      : authenticate(request, auth, config);
     request.auth = context;
     if (access === 'session') return;
     const workspaceId = workspaceIdSchema.safeParse(
@@ -285,8 +285,12 @@ export function grantsUnrestricted(body: unknown, depth = 0): boolean {
 }
 
 // The guard alone authenticates: handlers read what it attached, with `contextOf` (R-G9).
-function authenticate(request: FastifyRequest, authService: AuthService): AuthContext {
-  return authService.authenticate(request.cookies[SESSION_COOKIE_NAME]);
+function authenticate(
+  request: FastifyRequest,
+  authService: AuthService,
+  config: ServerConfig,
+): AuthContext {
+  return authService.authenticate(request.cookies[sessionCookieName(config)]);
 }
 
 /**
@@ -299,7 +303,7 @@ function authorizeMutation(
   authService: AuthService,
   config: ServerConfig,
 ): AuthContext {
-  const context = authenticate(request, authService);
+  const context = authenticate(request, authService, config);
   const csrf = request.headers[CSRF_HEADER_NAME];
   if (
     typeof csrf !== 'string' ||

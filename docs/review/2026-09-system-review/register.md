@@ -5291,6 +5291,22 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     Docker socket (L-2's alternative, a confinement change); a structural guard against new
     unconsumed exports (costed at about 150–200 lines); and branding route parameters and storage
     lookups, which the branding left as strings where no route parses a schema.
+- **Operator decisions after the report, 2026-10-12 (later):** (1) add the `__Host-` cookie prefix;
+  (2) deny Claude's file tools the whole denied-reads list, for consistency; (3) mask local CI's
+  runtime directory down to the Docker socket, as recommended; (4) build the unconsumed-export
+  guard, as recommended: only if it can be structural; (5) route parameters and storage lookups:
+  a suggestion asked for, not built; (6) P3's close-out, `main` and P4 are the operator's; (7) no
+  action on load-dependent test failures; (8) remove `packages/testing/` if nothing needs it.
+  - *(1) The `__Host-` session cookie (SEC-04).* On an HTTPS public origin the session cookie is
+    `__Host-craftingtable_session` (`sessionCookieName(config)`, from `secureCookies`): `Secure`,
+    `Path=/`, no `Domain`, so a browser accepts it only from this exact origin. An HTTP origin
+    keeps `craftingtable_session`, since a browser refuses a `__Host-` cookie without `Secure` (loopback
+    development, test daemons). The daemon reads the cookie only under its origin's name (the
+    route guard, the run and workspace event streams, the page-load replay), and an HTTPS sign-in
+    clears a cookie left under the plain name. Deploying it signs everyone out once (a deploy note
+    in operations.md). ADR-009 amended. Test: `server-auth.test.ts` (each origin's name and
+    attributes, no `Domain`, the old name cleared on HTTPS, a session read only under its own
+    name), which fails when the prefix is never applied.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

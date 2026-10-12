@@ -6,7 +6,7 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
+import { type ServerConfig, sessionCookieName } from '../config.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
 import { ForbiddenError } from '../services/errors.js';
 import {
@@ -40,7 +40,7 @@ export function registerWorkspaceEventRoute(
     Params: { workspaceId: string };
     Querystring: { after?: string };
   }>('/api/workspaces/:workspaceId/events', { config: { access: 'member' } }, (request, reply) => {
-    const rawSessionToken = request.cookies[SESSION_COOKIE_NAME];
+    const rawSessionToken = request.cookies[sessionCookieName(config)];
     const context = contextOf(request);
     if (
       !isAllowedBrowserRequest(

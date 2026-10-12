@@ -13,7 +13,7 @@ import {
   stepUpResponseSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
+import { SESSION_COOKIE_NAME, type ServerConfig, sessionCookieName } from '../config.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
 import type { AuthService } from '../services/auth-service.js';
 import { NotFoundError, UnauthenticatedError } from '../services/errors.js';
@@ -65,10 +65,19 @@ export function registerAuthRoutes(
         address: clientAddress(request),
       });
       reply.setCookie(
-        SESSION_COOKIE_NAME,
+        sessionCookieName(config),
         result.rawSessionToken,
         cookieOptions(config, new Date(result.session.expiresAt)),
       );
+      // A cookie under the plain name, from before the `__Host-` prefix, no longer signs anyone
+      // in; it goes at the next sign-in.
+      if (config.secureCookies)
+        reply.clearCookie(SESSION_COOKIE_NAME, {
+          httpOnly: true,
+          sameSite: 'strict',
+          path: '/',
+          secure: true,
+        });
       return noStore(reply).send(
         authenticatedSessionResponseSchema.parse(
           authenticatedResponse(result.user, result.session),
@@ -110,7 +119,7 @@ export function registerAuthRoutes(
     async (request, reply) => {
       const context = contextOf(request);
       authService.logout(context, request.id);
-      reply.clearCookie(SESSION_COOKIE_NAME, {
+      reply.clearCookie(sessionCookieName(config), {
         httpOnly: true,
         sameSite: 'strict',
         path: '/',
@@ -180,7 +189,7 @@ export function registerAuthRoutes(
       }
       const result = authService.revokeSession(context, parsedSessionId.data, request.id);
       if (result.currentSessionRevoked) {
-        reply.clearCookie(SESSION_COOKIE_NAME, {
+        reply.clearCookie(sessionCookieName(config), {
           httpOnly: true,
           sameSite: 'strict',
           path: '/',

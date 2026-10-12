@@ -6,7 +6,7 @@ import type { AgentBackendKind, UserId, WorkspaceId } from '@craftingtable/domai
 import { asSessionId } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import { createDaemon } from './composition.js';
-import { configFromEnv, SESSION_COOKIE_NAME } from './config.js';
+import { configFromEnv, sessionCookieName } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
 
 /**
@@ -216,7 +216,7 @@ export async function replayPageLoads(
         const response = await daemon.app.inject({
           method: 'GET',
           url,
-          cookies: { [SESSION_COOKIE_NAME]: raw },
+          cookies: { [sessionCookieName(config)]: raw },
         });
         return { status: response.statusCode, body: response.body };
       };
@@ -233,7 +233,7 @@ export async function replayPageLoads(
           const response = await daemon.app.inject({
             method: 'GET',
             url: read.url,
-            cookies: { [SESSION_COOKIE_NAME]: raw },
+            cookies: { [sessionCookieName(config)]: raw },
             headers: { 'accept-encoding': 'gzip' },
           });
           times.push(performance.now() - start);

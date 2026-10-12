@@ -88,12 +88,37 @@ describe('authentication HTTP surface', () => {
         headers: { origin, 'content-type': 'application/json' },
         payload: { username: TEST_USERNAME, password: TEST_PASSWORD },
       });
-      const cookie = String(response.headers['set-cookie']);
+      const cookies = [response.headers['set-cookie'] ?? []].flat();
+      const https = origin.startsWith('https:');
+      // On HTTPS the session cookie carries the `__Host-` prefix (SEC-04, operator decision
+      // 2026-10-12): Secure, Path=/ and no Domain, or a browser refuses it. HTTP keeps the plain
+      // name, which a browser would refuse with the prefix.
+      const name = https ? '__Host-craftingtable_session' : 'craftingtable_session';
+      const cookie = cookies.find((value) => value.startsWith(`${name}=`)) ?? '';
+      expect(cookie.split(';')[0]?.length).toBeGreaterThan(name.length + 1);
       expect(cookie).toContain('HttpOnly');
       expect(cookie).toContain('SameSite=Strict');
       expect(cookie).toContain('Path=/');
       expect(cookie).toContain('Expires=');
-      expect(cookie.includes('Secure')).toBe(origin.startsWith('https:'));
+      expect(cookie).not.toContain('Domain=');
+      expect(cookie.includes('Secure')).toBe(https);
+      // An HTTPS sign-in clears a cookie left under the plain name; HTTP sets only its own.
+      if (https) {
+        const cleared = cookies.filter((value) => value.startsWith('craftingtable_session='));
+        expect(cleared).toHaveLength(1);
+        expect(cleared[0]).toMatch(/^craftingtable_session=;.*Expires=Thu, 01 Jan 1970/);
+      } else expect(cookies).toHaveLength(1);
+      // The daemon reads the cookie only under its own name.
+      const token = cookie.split(';')[0]?.slice(name.length + 1);
+      const session = (cookieName: string) =>
+        context.app.inject({
+          method: 'GET',
+          url: '/api/auth/session',
+          headers: { cookie: `${cookieName}=${token}` },
+        });
+      expect((await session(name)).statusCode).toBe(200);
+      const other = https ? 'craftingtable_session' : '__Host-craftingtable_session';
+      expect((await session(other)).statusCode).toBe(401);
     }
   });
 
@@ -400,5 +425,8 @@ it('explains a localhost origin mismatch before checking credentials and still a
     payload: { username: TEST_USERNAME, password: TEST_PASSWORD },
   });
   expect(accepted.statusCode).toBe(200);
-  expect(accepted.headers['set-cookie']).toContain('Secure');
+  const session = [accepted.headers['set-cookie'] ?? []]
+    .flat()
+    .find((value) => value.startsWith('__Host-craftingtable_session='));
+  expect(session).toContain('Secure');
 });

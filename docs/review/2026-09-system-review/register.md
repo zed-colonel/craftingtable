@@ -5331,6 +5331,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *(8) `packages/testing/`:* untracked and ignored build output (`dist/`, `node_modules/`, a
     `tsbuildinfo`) of the package `3f3441c` removed; nothing referenced it, so it was deleted from
     the checkout. Nothing in Git changed.
+  - *(4) The unconsumed-export guard, structural (DATA-15).* Rule 8 of `check:scope`: every symbol
+    a production module of `packages/domain`, `contracts` or `storage` declares and exports must be
+    taken by name by another module (production, a test, test support, a script or an e2e file),
+    resolved by the compiler (`getExportsOfModule`, `getAliasedSymbol`) through barrels and
+    re-exports to the declaration: a named import, a default import, an `import()` type, a
+    destructured `import()`, `ns.a` on an imported namespace, or `export { a } from` in another
+    package. A namespace used whole (`Object.entries(contracts)`) names nothing and counts nothing.
+    The only exceptions are a map of seven types that declaration emit needs (a server function's
+    inferred return type names them), each with its reason; an exception without a reason, or one
+    no longer needed, is a finding. It found eight exports `f7db32a`'s name search had missed (a
+    same-named declaration elsewhere hid them): four lose `export`, three unused types are deleted,
+    and `ArchitectureDecision` joins the map. Built in a worktree and cherry-picked; self-tests on
+    throwaway workspaces cover each consumer form, each finding and the exception rules; adding an
+    unconsumed export to a domain file makes `check:scope` fail with the finding; it adds about 0.15
+    s. Known gaps, which can only let an unused export pass: a shadowed namespace name, `ns['a']`,
+    `import x = require()` and `.d.ts` consumers. Declaring those server functions' return types
+    would let the map go (not done).
+  - *(5) Route parameters and storage lookups:* a suggestion was given to the operator; nothing built.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

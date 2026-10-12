@@ -215,4 +215,3 @@ export const WORK_ITEM_READINESS = [
   'active',
   'completed',
 ] as const;
-export type WorkItemReadiness = (typeof WORK_ITEM_READINESS)[number];

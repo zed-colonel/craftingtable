@@ -441,7 +441,7 @@ export const startAgentRunRequestSchema = z.strictObject({
  * carries only the roles to store, each at most once. Its model is not
  * trimmed, as saved workspace defaults never were.
  */
-export const agentRunProfileSchema = z.strictObject({
+const agentRunProfileSchema = z.strictObject({
   reasoningEffort: reasoningEffortSchema.optional(),
   role: z.enum(AGENT_PROFILE_PURPOSES),
   backend: z.enum(AGENT_BACKENDS),
@@ -645,13 +645,11 @@ export type CreateWorktreeResponse = z.infer<typeof createWorktreeResponseSchema
 export type RemoveWorktreeRequest = z.infer<typeof removeWorktreeRequestSchema>;
 export type RemoveWorktreeResponse = z.infer<typeof removeWorktreeResponseSchema>;
 export type MergeGate = z.infer<typeof mergeGateSchema>;
-export type MergeWorktreeRequest = z.infer<typeof mergeWorktreeRequestSchema>;
 export type RepositoryBranchesResponse = z.infer<typeof repositoryBranchesResponseSchema>;
 export type MergeWorktreeResponse = z.infer<typeof mergeWorktreeResponseSchema>;
 export type RunOverview = z.infer<typeof runOverviewSchema>;
 export type WorkspaceRunsResponse = z.infer<typeof workspaceRunsResponseSchema>;
 export type WorktreeDiffResponse = z.infer<typeof worktreeDiffResponseSchema>;
-export type DiffFileStatus = z.infer<typeof diffFileStatusSchema>;
 export type AgentRunSummary = z.infer<typeof agentRunSummarySchema>;
 export type AgentRunDetailResponse = z.infer<typeof agentRunDetailResponseSchema>;
 export type AgentRunProfileEntry = z.infer<typeof runProfilesResponseSchema>['profiles'][number];

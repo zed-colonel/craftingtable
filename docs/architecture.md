@@ -26,7 +26,9 @@ each entry with its reason. The same check (`pnpm check:scope`) keeps `planning`
 import only `domain` and `contracts`) and `domain` free of imports, forbids Git and vendor-agent
 libraries elsewhere, fails any branching on the text of a `reason` or `message` in the daemon,
 the browser and the shared packages, and keeps the map vocabulary the controller gives a meaning
-to in one table (`V03_VOCABULARY`, `packages/domain/src/map-capabilities.ts`). No package depends
+to in one table (`V03_VOCABULARY`, `packages/domain/src/map-capabilities.ts`), and lets `domain`,
+`contracts` and `storage` export only what another module imports, resolved through the compiler
+to the declaration (a short map names the types declaration emit needs). No package depends
 on ActionQueue, WorldInterface, Exoskeleton, or any other supervised project. The check reads
 what the TypeScript projects compile, through the compiler: tests are what `vitest.config.ts`
 runs, test support is what only tests import, and everything else is production, whatever its

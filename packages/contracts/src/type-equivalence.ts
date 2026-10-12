@@ -7,7 +7,7 @@ import type { z } from 'zod';
  */
 
 /** Deep structural view: readonly dropped, branded identifiers kept. */
-export type Plain<T> = T extends string | number | boolean | bigint | symbol | null | undefined
+type Plain<T> = T extends string | number | boolean | bigint | symbol | null | undefined
   ? T
   : T extends (...args: never[]) => unknown
     ? T

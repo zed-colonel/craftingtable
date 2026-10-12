@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { inspectWorkspace, PROCESS_AUTHORITY, runCheck } from './check-forbidden-scope.mjs';
+import {
+  EMITTED_EXPORTS,
+  inspectWorkspace,
+  PROCESS_AUTHORITY,
+  runCheck,
+} from './check-forbidden-scope.mjs';
 
 const roots = [];
 afterEach(() => {
@@ -96,6 +101,8 @@ const capability = (file, specifier) =>
 const computed = (file, line, what) =>
   `${file}:${line}: loads a module by a name it computes (${what}); only a listed process authority may`;
 const prose = (file, line) => `${file}:${line}: branches on human-readable text; use a typed code`;
+/** The other rules' workspaces plant exports nothing imports; rule 8 has its own tests. */
+const exceptRule8 = (findings) => findings.filter((finding) => !finding.endsWith('(DATA-15)'));
 
 describe('the bypasses that printed "passed" (TS-M11; GR F-4, F-7)', () => {
   it('fails each of them', () => {
@@ -211,7 +218,7 @@ describe('what the boundaries allow', () => {
       'packages/agents/src/codex.ts':
         'export const limited = (message: string) => /usage limit/i.test(message);\n',
     });
-    expect(runCheck(root)).toEqual([]);
+    expect(exceptRule8(runCheck(root))).toEqual([]);
   });
 
   it('lets each listed process authority, and only it, spawn and load by computed names', () => {
@@ -269,7 +276,7 @@ describe('the package boundaries', () => {
       'packages/domain/src/ok.ts':
         "import type { Id } from './ids.js';\nexport const a: Id = 'a';\n",
     });
-    expect(runCheck(root).sort()).toEqual(
+    expect(exceptRule8(runCheck(root)).sort()).toEqual(
       [
         'packages/planning/src/parse.ts: planning package imports impure module "node:fs"',
         'packages/planning/src/escape.ts: planning package imports "packages/storage/src/database.ts" from packages/storage',
@@ -367,7 +374,7 @@ describe('the fail-open gaps the independent review found', () => {
       // Ignored build output is not source.
       'apps/web/coverage/prettify.js': spawning,
     });
-    expect(runCheck(root).sort()).toEqual(
+    expect(exceptRule8(runCheck(root)).sort()).toEqual(
       [
         'packages/newpkg/src/index.ts: forbidden import "@exo/action-queue"',
         capability('packages/newpkg/src/index.ts', 'node:child_process'),
@@ -415,7 +422,9 @@ describe('the fail-open gaps the independent review found', () => {
         "import { spawn } from '@craftingtable/test-stack';\nexport { spawn };\n",
     });
     const { findings, classes } = inspectWorkspace(root);
-    expect(findings).toEqual([capability('packages/runner/src/index.ts', 'node:child_process')]);
+    expect(exceptRule8(findings)).toEqual([
+      capability('packages/runner/src/index.ts', 'node:child_process'),
+    ]);
     expect(classes.get('packages/storage/test/support.ts')).toBe('test-support');
     expect(classes.get('packages/test-stack/src/index.ts')).toBe('test-support');
   });
@@ -535,7 +544,7 @@ describe('the fail-open gaps the independent review found', () => {
       { emit: true },
     );
     const keepOut = "keep the package's test/ directory out of its production tsconfig.json";
-    expect(runCheck(root).sort()).toEqual(
+    expect(exceptRule8(runCheck(root)).sort()).toEqual(
       [
         "packages/storage/src/stray.test.ts: named as a test, though vitest does not run it, built into packages/storage/dist; tests live in the package's test/ directory",
         "packages/storage/src/help.ts: only tests import it, yet it is built into packages/storage/dist; move it to the package's test/ directory, or name it with new URL(…, import.meta.url) from the module that loads it",
@@ -667,7 +676,7 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
       'packages/domain/src/attention-legacy.ts':
         "export const legacy = (m: string) => m.startsWith('Resource native-host');\n",
     });
-    expect(runCheck(root).sort()).toEqual(
+    expect(exceptRule8(runCheck(root)).sort()).toEqual(
       [
         vocabulary('apps/server/src/policy.ts', 1, 'plan-owner'),
         vocabulary('apps/server/src/policy.ts', 2, 'native-host'),
@@ -700,7 +709,7 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
       'apps/server/test/folded.test.ts':
         "export const ids = ['STACK-PLAN-ACCEPTED', 'independent-reviewer'];\n",
     });
-    expect(runCheck(root).sort()).toEqual(
+    expect(exceptRule8(runCheck(root)).sort()).toEqual(
       [
         vocabulary('apps/server/src/folded.ts', 1, 'plan-owner'),
         vocabulary('apps/server/src/folded.ts', 2, 'plan-owner'),
@@ -734,7 +743,7 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
         '',
       ].join('\n'),
     });
-    expect(runCheck(root)).toEqual([]);
+    expect(exceptRule8(runCheck(root))).toEqual([]);
   });
 
   it('pins what it does not catch: text built at run time and other spellings of a pattern', () => {
@@ -750,7 +759,7 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
         '',
       ].join('\n'),
     });
-    expect(runCheck(root)).toEqual([]);
+    expect(exceptRule8(runCheck(root))).toEqual([]);
   });
 
   it('fails closed when the module no longer declares the table', () => {
@@ -759,9 +768,113 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
         "export const VOCABULARY = { role: 'plan-owner' };\n",
       'apps/server/src/policy.ts': "export const role = 'plan-owner';\n",
     });
-    expect(runCheck(root)).toEqual([
+    expect(exceptRule8(runCheck(root))).toEqual([
       'packages/domain/src/map-capabilities.ts: declares no V03_VOCABULARY literals, so map vocabulary cannot be confined',
     ]);
+  });
+});
+
+describe('domain, contracts and storage export only what another module takes (rule 8, DATA-15)', () => {
+  const unimported = (name, file) =>
+    `\`${name}\` is exported by \`${file}\` but no other module imports it; drop the \`export\` (DATA-15)`;
+  const kept = (name, file, what) => `\`${name}\` is kept exported by \`${file}\`${what} (DATA-15)`;
+  const DOMAIN = {
+    'packages/domain/package.json': JSON.stringify({
+      name: '@craftingtable/domain',
+      exports: { '.': { source: './src/index.ts', default: './dist/index.js' } },
+    }),
+    'packages/domain/src/index.ts':
+      "export * from './vocabulary.js';\nexport { plumbed } from './plumbing.js';\n",
+  };
+
+  it('finds an export no other module takes, and counts each way another module takes one', () => {
+    const root = workspace({
+      ...DOMAIN,
+      'packages/domain/src/vocabulary.ts': [
+        'export const unused = 1;',
+        'export const ownOnly = 2;',
+        'export const viaBarrel = ownOnly + 1;',
+        'export const aliased = 3;',
+        'export const viaTest = 4;',
+        'export const viaScript = 5;',
+        'export const viaNamespace = 6;',
+        'export type ViaQualifiedName = string;',
+        'export const onlyWholesale = 7;',
+        'export const viaReexport = 8;',
+        'export const viaDynamic = 9;',
+        'export type ViaImportType = number;',
+        '',
+      ].join('\n'),
+      // Re-exported by name within its own package: barrel plumbing, not a use.
+      'packages/domain/src/plumbing.ts': 'export const plumbed = 10;\n',
+      // Production, through the package's barrel; a namespace used whole takes no name.
+      'apps/server/src/index.ts': [
+        "import { aliased as renamed, viaBarrel } from '@craftingtable/domain';",
+        "import * as domain from '@craftingtable/domain';",
+        'export const a = [viaBarrel, renamed, domain.viaNamespace, Object.keys(domain)];',
+        "export type B = domain.ViaQualifiedName | import('@craftingtable/domain').ViaImportType;",
+        'export const c = async () => {',
+        "  const { viaDynamic } = await import('@craftingtable/domain');",
+        '  return viaDynamic;',
+        '};',
+        '',
+      ].join('\n'),
+      'packages/domain/test/vocabulary.test.ts':
+        "import { viaTest } from '../src/vocabulary.js';\nexport { viaTest };\n",
+      'scripts/tool.mjs':
+        "import { viaScript } from '@craftingtable/domain';\nexport { viaScript };\n",
+      // Another package's surface.
+      'packages/contracts/src/index.ts': "export { viaReexport } from '@craftingtable/domain';\n",
+    });
+    expect(runCheck(root).sort()).toEqual(
+      [
+        unimported('unused', 'packages/domain/src/vocabulary.ts'),
+        unimported('ownOnly', 'packages/domain/src/vocabulary.ts'),
+        unimported('onlyWholesale', 'packages/domain/src/vocabulary.ts'),
+        unimported('plumbed', 'packages/domain/src/plumbing.ts'),
+      ].sort(),
+    );
+  });
+
+  it('keeps a listed export only with its reason, and fails an exception no longer needed', () => {
+    const emitted = 'packages/storage/src/emitted.ts';
+    const root = workspace({
+      [emitted]: [
+        'export interface Kept { a: number }',
+        'export interface Unreasoned { b: number }',
+        'export const used = 1;',
+        '',
+      ].join('\n'),
+      'apps/server/src/index.ts': `import { used } from '../../../${emitted.replace('.ts', '.js')}';\nexport { used };\n`,
+    });
+    const exceptions = new Map([
+      [
+        emitted,
+        new Map([
+          ['Kept', 'the inferred return type of a server function names it'],
+          ['Unreasoned', ' '],
+          ['used', 'imported since'],
+          ['Gone', 'deleted since'],
+        ]),
+      ],
+      // A module this workspace does not have.
+      ['packages/storage/src/absent.ts', new Map([['Elsewhere', 'another workspace']])],
+    ]);
+    expect(inspectWorkspace(root, exceptions).findings.sort()).toEqual(
+      [
+        kept('Unreasoned', emitted, ' without a reason; say what needs it, or drop the `export`'),
+        ...['used', 'Gone'].map((name) =>
+          kept(
+            name,
+            emitted,
+            ', which exports no such declaration that no other module imports; drop the exception',
+          ),
+        ),
+      ].sort(),
+    );
+    expect(runCheck(root).sort()).toEqual(
+      [unimported('Kept', emitted), unimported('Unreasoned', emitted)].sort(),
+    );
   });
 });
 
@@ -778,6 +891,8 @@ it('passes on the real repository, having read and classified its modules', () =
   expect(count('production')).toBeGreaterThan(400);
   expect(count('test')).toBeGreaterThan(200);
   for (const path of PROCESS_AUTHORITY.keys()) expect(classes.get(path)).toBe('production');
+  // Rule 8's exceptions name production modules: one for a moved module would pass vacuously.
+  for (const path of EMITTED_EXPORTS.keys()) expect(classes.get(path)).toBe('production');
   expect(classes.get('apps/server/src/index.ts')).toBe('production');
   // Run by a package script, and imported by its own test.
   expect(classes.get('apps/server/src/db-verify.ts')).toBe('production');

@@ -137,7 +137,7 @@ interface MapResourceCapability {
 }
 
 /** What the controller can automate for a map, and what it cannot (R-F2). */
-export interface MapCapabilities {
+interface MapCapabilities {
   /** The plan checkpoint: the single plan approval the stack owns, whatever its id. */
   readonly planCheckpoint?: CheckpointId;
   /** Present when the plan checkpoint's contract is the one the generator attests. */

@@ -53,7 +53,7 @@ export const planArchivePreviewSchema = z.strictObject({
   itemCount: z.number().int().nonnegative().optional(),
   valid: z.boolean().optional(),
 });
-export const archiveAttemptSchema = z.strictObject({
+const archiveAttemptSchema = z.strictObject({
   id: z.uuid(),
   archiveId: z.uuid(),
   filename: z.string().max(200),

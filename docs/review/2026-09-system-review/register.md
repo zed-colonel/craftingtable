@@ -14,7 +14,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A3](#r-a3) | P1 | M-L | done (eb757da, 57a3a16) | Controller-declared, typed attention on every blocking transition |
 | [R-A4](#r-a4) | P2 | M-L | done (16d94de, see review) | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | done (a4635c7, see review) | One "Needs you" inbox that every surface reads |
-| [R-A6](#r-a6) | P3 | L | partial (increments 1, 2a, 2b; architecture and preparation hosts left) | Consolidate decision and recovery components; delete per-page hosts |
+| [R-A6](#r-a6) | P3 | L | done (increments 1, 2a, 2b; the rest 2026-10-09, with R-F2 part 5 and R-G10 D3) | Consolidate decision and recovery components; delete per-page hosts |
 | [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0, 9084e50) | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
@@ -62,7 +62,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
-| [R-F2](#r-f2) | P3 | M | partial (parts 1 to 4 and 6; 5 open) | Typed feature recognition instead of prose and magic identifiers |
+| [R-F2](#r-f2) | P3 | M | done (parts 1 to 4 2026-10-07; 6 with R-G6 2026-10-08; 5 with R-A6 2026-10-09) | Typed feature recognition instead of prose and magic identifiers |
 | [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95; FMT-15 done in 432bb00, 0ef20b1) | Format ingestion bugs and test honesty |
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
@@ -78,7 +78,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G7](#r-g7) | P1 | M | partial (0fc17d2; live measurement after deploy) | Stop cold-building Rust on every step |
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
 | [R-G9](#r-g9) | P2 | M | done | Authentication and authorization hardening |
-| [R-G10](#r-g10) | P3 | M | done (D3 goes with R-A6) | Git adapter robustness and structure |
+| [R-G10](#r-g10) | P3 | M | done (A to F 2026-10-07; D3 with R-A6 2026-10-09) | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | done (see Progress) | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | [R-G13](#r-g13) | P2 | M | done (increments 1 to 3 and 5 in P2; 4 in P3, 2026-10-07) | Declared per-repository checks |
@@ -97,7 +97,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I4](#r-i4) | P2 | M | done (test-suite review pass, 2026-10-02) | Structural test/production and process-authority boundaries |
 | [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 done in the test-suite review pass (2026-10-02) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
-| [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
+| [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb; the rest is P3's last item, operator 2026-10-12) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | done (3836b99, 6fb5a4a, 0cf4fa5; 10 runs at 661282f) | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 | [R-I10](#r-i10) | P2 | M | done (2026-09-27); versioned replay gate (TS-M12) done in the test-suite review pass (2026-10-02) | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
@@ -1298,7 +1298,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **A retired attempt lost ownership of its ended cycle.** Ownership now resolves through retired attempts too, for history.
   - **Still open:** Re-verify of a parent-acceptance entry, and on a running (not paused) roadmap, run the same code, but the test does not exercise them.
 
-- **Follow-up, operator decision 2026-10-09 (from R-A6's review L6):** a roadmap's resume and re-verify of held entries should be automated when possible. Needs a design before building: which holds (stale evidence, held entries the operator released) the scheduler may resume or re-verify by itself, on which typed facts, and which stay the operator's. Not scheduled yet.
+- **Follow-up, operator decision 2026-10-09 (from R-A6's review L6):** a roadmap's resume and re-verify of held entries should be automated when possible. Needs a design before building: which holds (stale evidence, held entries the operator released) the scheduler may resume or re-verify by itself, on which typed facts, and which stay the operator's. Placed in P4 by the operator 2026-10-12, designed with the controller kernel (program.md, P4).
 
 ### R-C11
 
@@ -4912,6 +4912,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
   Two overstatements are narrowed: the prose-branching check's scope, and the one test that skips record verification. The archive now holds the complete old README verbatim, so the six configuration rows the operator guide leaves out (`WEB_DIST`, model lists, diff limit, session lifetime, log level) are not lost before P2's full variable list.
 - **Defect found by the review, fixed.** `admin reset-password` and `admin bootstrap` opened storage, and so migrated it, without the single-daemon lock. The README tells the operator to run reset-password from a checkout. From a checkout newer than the deployed release, that would have changed the schema under the running daemon. Such a command now takes the lock when the database has pending migrations, and is refused while a daemon holds it; on a current database nothing changes. `cli.test.ts` covers both commands and fails without the fix.
+- **Placement of the rest, operator decision 2026-10-12:** P3's last item, built at P3's close-out so that `main` is a clean baseline before the P4 branch (program.md, P3 build order step 6). Checked that day: 19 of 72 ADRs lack the `ADR-NNN-` prefix (033–050, 057), the decisions index lists 42 of 72, README is 161 lines (done-when: about 150), `security.md` 757 and `operations.md` 649 lines, and `docs/finalization-roadmap.md` and `docs/cross-project-roadmap.md` are not archived.
 - **Left for P2–P3:**
   1. **ADRs:** one naming scheme (033–050 and 057 lack the `ADR-NNN-` prefix) and one header format; a complete `docs/decisions/README.md` index (it omits 033–050 and 054–068); correct statuses (028 still "proposed", 031's retention superseded by 034); mark the superseded chains (004–007, 014, 022→023). DOC-02, HIST-15.
   2. **ADR-008:** its stale claims (Playwright specs and mobile project, the removed `testing` package, `test-support` authority). DOC-03 #4–6.

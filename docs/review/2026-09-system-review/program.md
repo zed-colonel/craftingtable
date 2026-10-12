@@ -1053,6 +1053,10 @@ cleanup items the decisions only, is recorded in its register entry as "decided 
 4. **Then R-D8** (added 2026-10-11, operator): the per-entry phase blockers shared with the map
    evaluation, after R-E5b.
 5. **Last:** R-H5. *Deploy note (R-H5, H5-3):* the API's paths changed in a clean cut, without aliases; reload every open page after deploying, since a page loaded before the deploy asks the old paths.
+6. **Then R-I7's rest** (placed by the operator 2026-10-12, at P3's close-out): the documentation
+   reset's remaining parts, so that `main` is a clean baseline before the P4 branch. P3's exit
+   criteria were met by then (checked 2026-10-12: R-E3b's done-when on a live snapshot; the
+   decision boundary test reads the generated route inventory's tags).
 
 ### P4: Controller kernel and decomposition (3+ weeks, behind the harness)
 
@@ -1061,7 +1065,10 @@ R-B4 (pure decision core, stop record and step history), R-B5 (event-driven kern
 (compiled map model and one evaluator), R-F5 (backward-compatible format additions: explicit
 operator decision points, typed capabilities, relaxed cardinalities; format ADR, v0.3 keeps
 working), R-D6 (only if measurements still call for it; 2026-10-09: the cold Needs you feed read
-after a write, 117 ms, is that measured need, with R-F1's lighter evaluator beside it).
+after a write, 117 ms, is that measured need, with R-F1's lighter evaluator beside it). R-C10's
+follow-up (placed by the operator 2026-10-12): automate a roadmap's resume and re-verify of held
+entries where typed facts allow, designed with the controller kernel (which holds the scheduler may
+clear by itself, and which stay the operator's).
 
 Exit criteria:
 - `reconcile` is a thin shell.

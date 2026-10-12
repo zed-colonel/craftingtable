@@ -5009,6 +5009,46 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       (`WorkspaceView.tsx`).
     - Two of the new pages' links name sections that parts 4 and 5 add to `security.md` and
       `operations.md`; the docs check is green again from part 5's commit.
+  - **Part 4, `docs/security.md` rewritten as current state (SEC-09, DOC-05).** 490 lines (757
+    before), by trust boundary and authority: a threat model (who is trusted, semi-trusted,
+    untrusted), then SEC-09's table (boundary, what enforces it, what is only cooperative, the
+    covering tests, each an existing file), then one section per boundary: network and origin,
+    authentication and sessions, route access and step-up (R-G9 and R-H5's declarations), what the
+    browser can submit, agent processes, agent sandboxes (Claude's OS sandbox and Codex's per-run
+    profile, the shared denied reads, outside sources, read-only runs), the daemon's own Git
+    (R-G14's pinning), checks and builds (R-G4, R-G13), merge and promotion authority, delegated
+    work, untrusted input, stored secrets, the daemon's outbound requests, installation storage,
+    and known limits. The per-ADR workflow paragraphs (old lines 473–757) keep each authority rule
+    once, in the section it belongs to, and leave the workflow to their ADRs. The old file is
+    `archive/security-2026-10.md`, verbatim under a superseded header.
+    - *Claims:* 189 checked (167 true as carried, 13 new, 9 fixed), every one in the claims ledger,
+      with the few carried claims not traced end to end listed there. False or stale in the old
+      doc: "Claude runs have no OS sandbox … until R-G5's sandbox increment"; credentials "omitted
+      from spawned-agent environments" (agents start from an allowlist, AGT-17, SEC-02); "never
+      submits a path the daemon will execute" (registration paths, now bounded by
+      `CRAFTINGTABLE_REPOSITORY_ROOTS`, SEC-06); the `STACK-PLAN-ACCEPTED` contract (R-F2's
+      `mapCapabilities`); three "never resumes after restart" statements (a drained restart
+      resumes, ADR-066); "an open tab keeps its session" (a hidden tab reads nothing, and streams do
+      not count as use); "every spawn … a detached process group" (pinned Cargo's and the native
+      probes' synchronous calls are not); every agent's TMPDIR in `<data>/t` (only a sandboxed
+      Claude process's); and "reaching nothing but loopback" (restated as the settings say it). Also
+      corrected: a password is 12 to 1,024 bytes only through the browser (see the defects).
+    - *Code defects found, not fixed (recorded here; each needs a decision before code changes):*
+      (1) **MEDIUM: read-only Codex runs have no denied reads.** A decision preparation or a
+      question stop's investigation on Codex runs in Codex's `read-only` sandbox with no
+      permission profile (`codex/arguments.ts`, `codexSandboxed` excludes `readOnly`; its test
+      asserts the legacy sandbox), so its commands can read the daemon's database, backups and
+      credentials file and the operator's `~/.ssh`, and the model sees what they print. A read-only
+      Claude run stays sandboxed with the denied reads. In `security.md`'s known limits. (2) LOW:
+      `admin bootstrap` and `admin reset-password` check only the 1,024-byte bound, so an empty
+      password can be set from the CLI (the browser requires 12 bytes, sign-in at least one). (3)
+      LOW: the native environment's fixed version probes inherit the daemon's whole environment
+      (`native-environment.ts`), not the named allowlist. (4) LOW: a stale path in
+      `sandbox-real.test.ts`'s header comment.
+    - *Left for the operator:* whether read-only Codex runs get a read-only profile carrying the
+      denied reads (defect 1; it changes an agent sandbox, and Codex's read-only profile form needs
+      checking against CLI 0.160.0 first); and whether to adopt the `__Host-` cookie prefix SEC-04
+      suggested (it signs everyone out once at deploy), now a known limit.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

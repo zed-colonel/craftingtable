@@ -123,11 +123,16 @@ function rulePath(path: string): string {
 /**
  * Claude's own file tools (Read, Grep, Glob, Edit) are denied what its sandboxed commands are, the
  * whole `sandboxDeniedReads` list (R-G9 review for the daemon's files; operator decision
- * 2026-10-12 for the rest, so the two agree): the sandbox governs only commands. Each path is
- * denied itself, for a file, and everything under it, for a directory.
+ * 2026-10-12 for the rest, so the two agree): the sandbox governs only commands. An unrestricted
+ * run, whose commands are not sandboxed, has the operator's authority and is denied only the
+ * daemon's own files, as Codex's is (operator decision 2026-10-12, follow-up review M-3). Each path
+ * is denied itself, for a file, and everything under it, for a directory.
  */
 function deniedFileRules(request: AgentLaunchRequest): string[] {
-  return sandboxDeniedReads(request).flatMap((path) => {
+  const paths = claudeSandboxed(request)
+    ? sandboxDeniedReads(request)
+    : (request.deniedReads ?? []);
+  return paths.flatMap((path) => {
     const rule = rulePath(path);
     return [`Read(${rule})`, `Read(${rule}/**)`, `Edit(${rule})`, `Edit(${rule}/**)`];
   });
@@ -150,7 +155,7 @@ function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown>
   const deny = deniedFileRules(request);
   return {
     autoMemoryEnabled: false,
-    permissions: { deny },
+    ...(deny.length === 0 ? {} : { permissions: { deny } }),
     ...(!claudeSandboxed(request)
       ? {}
       : {

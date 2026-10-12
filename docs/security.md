@@ -209,9 +209,10 @@ worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`,
 They may listen on local ports and reach no host but the outside sources' hosts, a strict
 allowlist. Claude's own file tools are not commands: permission rules deny them reads and edits of
 the same list its commands are denied (below), each path itself and everything under it;
-otherwise they follow the posture. Its WebFetch and
-WebSearch tools are not limited by the network allowlist, by decision: a sandboxed run cannot read
-the daemon's secrets, so they have nothing of the daemon's to send.
+otherwise they follow the posture. An `unrestricted` run's file tools are denied only the daemon's
+protected paths, as its commands are denied nothing. Its WebFetch and WebSearch tools are not
+limited by the network allowlist, by decision: a sandboxed run cannot read the daemon's secrets,
+so they have nothing of the daemon's to send.
 
 **Codex.** A sandboxed Codex run's commands get a permission profile defined for the run
 (`craftingtable`), selected on the thread and on every turn: they may write the worktree, the
@@ -232,8 +233,9 @@ Claude Code's credentials file (for Codex, the whole of `~/.claude`), the regist
 run's Cargo home, and the daemon's protected paths: the database directory (with its
 pre-migration copies and process records), the default and the configured backup directories,
 and the settings directory with the credentials file. Claude's own file tools are denied the same
-list, so a read-only Claude run, which has no commands, has its Read, Glob and Grep denied it, and
-a read-only Codex run's profile denies it too. Codex 0.160.0 can mask at most one existing file
+list on every posture but `unrestricted` (which keeps only the daemon's protected paths), so a
+read-only Claude run, which has no commands, has its Read, Glob and Grep denied it, and a
+read-only Codex run's profile denies it too. Codex 0.160.0 can mask at most one existing file
 per sandbox, so a sandboxed or
 read-only Codex run that would need more is refused before it starts (`environment-unavailable`;
 a cycle stops as `agent-environment-unavailable`), naming the files.
@@ -491,11 +493,12 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 
 ## Known limits
 
-- **`unrestricted` is the operator's authority.** Such a run has no sandbox, no denied reads and
-  no network limit; the worktree is a convention. Step-up is the only gate before it.
+- **`unrestricted` is the operator's authority.** Such a run has no sandbox and no network limit,
+  and nothing is denied it but a Claude run's file tools on the daemon's protected paths; the
+  worktree is a convention. Step-up is the only gate before it.
 - **Claude Code's own tools** are not sandboxed commands. Its file tools are held by permission
-  rules (the denied-reads list, then the posture's checks), not by the OS sandbox; WebFetch and
-  WebSearch reach any host.
+  rules (the denied-reads list, or on `unrestricted` the daemon's protected paths, then the
+  posture's checks), not by the OS sandbox; WebFetch and WebSearch reach any host.
 - **External Git.** The daemon's guards serialize its own Git work. A person or tool running Git
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;
   check it before running Git there by hand. External changes are detected by commit and

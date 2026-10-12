@@ -146,17 +146,41 @@ it("keeps the daemon's own files out of the sandbox's reach: its database, backu
   );
 });
 
-it('denies the whole list to the file tools of read-only and unrestricted runs alike (operator decision 2026-10-12)', () => {
+it("denies the whole list to every sandboxed run's file tools, read-only ones too, and an unrestricted run only the daemon's files (operator decisions 2026-10-12)", () => {
+  const deniedReads = ['/data/state', '/home/op/.config/craftingtable'];
+  const deny = (request: {
+    readonly permissionMode: 'auto' | 'edit-only' | 'unrestricted';
+    readonly readOnly?: boolean;
+    readonly deniedReads?: readonly string[];
+  }) => {
+    const args = claudeCodeArguments({ cwd: '/work/x', prompt: 'Go', deniedReads, ...request });
+    return JSON.parse(args[args.indexOf('--settings') + 1]!).permissions?.deny as
+      | string[]
+      | undefined;
+  };
   for (const request of [
+    { permissionMode: 'auto' as const },
+    { permissionMode: 'edit-only' as const },
     { permissionMode: 'auto' as const, readOnly: true },
-    { permissionMode: 'unrestricted' as const },
+    { permissionMode: 'unrestricted' as const, readOnly: true },
   ]) {
-    const args = claudeCodeArguments({ cwd: '/work/x', prompt: 'Go', ...request });
-    const { permissions } = JSON.parse(args[args.indexOf('--settings') + 1]!);
-    expect(permissions.deny).toEqual(
+    expect(deny(request)).toEqual(
       expect.arrayContaining(['Read(~/.ssh)', 'Read(~/.ssh/**)', 'Read(~/.codex/**)']),
     );
   }
+  // An unrestricted run's commands are not sandboxed, and it has the operator's authority:
+  // its file tools keep only the R-G9 denials, as a Codex unrestricted run does (review M-3).
+  expect(deny({ permissionMode: 'unrestricted' })).toEqual([
+    'Read(//data/state)',
+    'Read(//data/state/**)',
+    'Edit(//data/state)',
+    'Edit(//data/state/**)',
+    'Read(//home/op/.config/craftingtable)',
+    'Read(//home/op/.config/craftingtable/**)',
+    'Edit(//home/op/.config/craftingtable)',
+    'Edit(//home/op/.config/craftingtable/**)',
+  ]);
+  expect(deny({ permissionMode: 'unrestricted', deniedReads: [] })).toBeUndefined();
 });
 
 it('confines Bash in the OS sandbox on every posture but unrestricted, with no way out (R-G5, SEC-02)', () => {

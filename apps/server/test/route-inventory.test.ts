@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { routeInventory } from '../src/route-inventory.js';
+import { routeInventory } from './route-inventory.js';
 import { declaredRoutes, type RouteAccess } from '../src/routes/route-access.js';
 import { createTestContext, routeTable } from './test-support.js';
 

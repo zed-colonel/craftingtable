@@ -1,6 +1,6 @@
 import * as contracts from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import { type DeclaredRoute, declaredRoutes } from './routes/route-access.js';
+import { type DeclaredRoute, declaredRoutes } from '../src/routes/route-access.js';
 
 /**
  * The daemon's route inventory (R-H5, H5-4), generated from the route table as registered: each

@@ -98,7 +98,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I4](#r-i4) | P2 | M | done (test-suite review pass, 2026-10-02) | Structural test/production and process-authority boundaries |
 | [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 done in the test-suite review pass (2026-10-02) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
-| [R-I7](#r-i7) | P1-P3 | M | done (P1 start: e317636, 61e41cb; the rest 04ec04d..f6441fa, 2026-10-12, reviewed) | Documentation reset to current state |
+| [R-I7](#r-i7) | P1-P3 | M | done (P1 start: e317636, 61e41cb; the rest 04ec04d..f6441fa and the operator's follow-ups 28a7994..746441d, 2026-10-12, reviewed) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | done (3836b99, 6fb5a4a, 0cf4fa5; 10 runs at 661282f) | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 | [R-I10](#r-i10) | P2 | M | done (2026-09-27); versioned replay gate (TS-M12) done in the test-suite review pass (2026-10-02) | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
@@ -4910,7 +4910,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I7
 
-**Documentation reset to current state** · Phase P1-P3 · Effort M · Status: done (P1 start 2026-09-25; the rest 2026-10-12, `04ec04d`..`f6441fa` on `remediation/p3`, independently reviewed; not merged or deployed)
+**Documentation reset to current state** · Phase P1-P3 · Effort M · Status: done (P1 start 2026-09-25; the rest 2026-10-12, `04ec04d`..`f6441fa` on `remediation/p3`, and the operator's follow-ups `28a7994`..`746441d` the same day, each independently reviewed; not merged or deployed)
 
 - **Resolves:** [DOC-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-01-the-readme-is-a-feature-changelog-not-an-operator-guide), [DOC-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-02-adr-sprawl--65-records-broken-index-inconsistent-status-metadata-long-refinement-chains), [DOC-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-03-doc-claims-out-of-sync-with-code-spot-check-of-14-claims-7-false-or-stale), [DOC-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-05-principles-security-and-operations-docs-have-become-per-feature-narratives), [UI-15](findings/UI-information-architecture.md#ui-15-docsui-principlesmd-has-become-a-per-slice-accretion-log-that-encourages-new-surfaces), [SEC-09](findings/AGT-GIT-SEC-agents-git-security.md#sec-09-docssecuritymd-is-an-accreted-per-slice-log-with-stale-claims), [HIST-13](findings/HIST-history-and-live-usage.md#hist-13-schema-and-adr-churn-rate-22-migrations-46-adrs-in-18-days-with-manual-pre-migration-backups), [HIST-15](findings/HIST-history-and-live-usage.md#hist-15-commit-messages-stopped-describing-changes-adr-numbering-is-inconsistent), [DATA-15](findings/DATA-storage-domain-contracts.md#data-15-documentation-and-vocabulary-drift-adrs-process-authority-branded-ids-exports-plan-specific-literals), [AGT-17](findings/AGT-GIT-SEC-agents-git-security.md#agt-17-documentation-drift-in-the-agent-seam)
 - **Change:** README becomes an operator guide (what it is, run it, the main workflow) instead of a feature changelog; architecture.md describes the current design, not schema history; one ADR naming scheme, a complete index and correct statuses, superseded chains marked; ui-principles split into visual language, IA rules ("decisions are made only in the inbox; other pages link"), glossary and short per-surface specs; security.md and operations.md rewritten as current state; commit messages carry a body saying what stop or need motivated the change.
@@ -5456,6 +5456,38 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *(8) `packages/testing/`:* untracked and ignored build output (`dist/`, `node_modules/`, a
     `tsbuildinfo`) of the package `3f3441c` removed; nothing referenced it, so it was deleted from
     the checkout. Nothing in Git changed.
+  - **Independent review of the follow-ups (a fresh agent, at `16f6021`): 0 HIGH, 3 MEDIUM, 4 LOW.**
+    41 mutants: 28 caught, 10 survived, 3 equivalent; no production regression found.
+    - *M-1, fixed:* on HTTPS the cookie was tested only at sign-in and in the route guard; the event
+      streams, sign-out and revocation had no test under the `__Host-` name (now
+      `server-execution-runs.test.ts`; see (1)).
+    - *M-2, fixed:* the Docker socket reached a local CI unit only through a new `executeCheck`
+      argument no test exercised (now a confined `ct-act` run; see (3)).
+    - *M-3, operator decision:* (2) had reached `unrestricted` runs too; the operator kept the
+      whole list for sandboxed postures only (see (2)).
+    - *L-1, fixed:* a missing Docker socket failed the unit's setup with exit 226 and no output
+      (`BindPaths=-`; see (3)).
+    - *L-2, fixed:* five of rule 8's code paths had no self-test.
+    - *L-3, fixed:* rule 8 credited a re-export alone (a false pass), the register described its
+      gaps as false passes when they were false findings, and several namespace forms gave false
+      findings; see (4).
+    - *L-4, fixed:* the `__Host-` cookie described as tied to one origin rather than the host over
+      HTTPS; no rollback note; this entry's status line named only `04ec04d..f6441fa`.
+    - *Fixes:* `80d5e70` (M-3), `21e9cb0` (M-1, M-2, L-1, L-4), `746441d` (L-2, L-3, built in a
+      worktree and cherry-picked). Mutants of the fixes, through the capped runner: 10 of 10
+      caught (each stream read, sign-out and revocation reverted to the plain name; each posture's
+      list; the empty-rules case; `BindPaths=` without `-`; `executeCheck` passing no socket), and
+      32 of 32 on rule 8's changes.
+  - **Re-check (the same reviewer, at `746441d`): 0 open.** Each fix verified; the ten survivors
+    rewritten for the new code and caught; 35 new mutants, 34 caught and 1 equivalent (a run
+    stream falling back to the plain name, which the route guard never lets it reach); a
+    rule-8 probe of ten more cases found no false pass and only the false findings listed in (4);
+    no regression.
+  - **Gate and replays at `746441d`.** `pnpm check` alone in `~/src/craftingtable-gate`: green in
+    499 s (375 test files, 3,159 tests, 4 skipped: the two opt-in real-CLI Claude tests among
+    them; 23 e2e specs and the walkthrough rehearsal; the scope check with rule 8 and its seven
+    exceptions). `pnpm replays` from the clean checkout: 31 of 56 comparisons unchanged, 25 differ
+    only as expected, 0 failed, 234 s; the same as at `f6441fa`.
 
 ### R-I8
 

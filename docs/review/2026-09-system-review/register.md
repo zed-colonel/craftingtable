@@ -52,7 +52,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-D5](#r-d5) | P2 | M-L | done | Server view models, compression and git-fact caching |
 | [R-D6](#r-d6) | P4 | L | open (measured need recorded 2026-10-09) | Shared projections keyed by write generation (only if still needed) |
 | [R-D7](#r-d7) | P3 | S | done (2026-10-09, not merged or deployed; page read 270 → 227 ms; the rest goes to R-D8, operator 2026-10-11) | Decision holds without the whole decision inbox (added 2026-10-09) |
-| [R-D8](#r-d8) | P3 | S-M | built (2026-10-11, not merged or deployed; page read 226 → about 150–166 ms with the same bytes; under independent review) (added 2026-10-11, operator) | Per-entry phase blockers shared with the map evaluation in a roadmap page read |
+| [R-D8](#r-d8) | P3 | S-M | built and reviewed (2026-10-11, not merged or deployed; page read 235.6 → 156 ms, reviewer's medians, the same bytes) (added 2026-10-11, operator) | Per-entry phase blockers shared with the map evaluation in a roadmap page read |
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
 | [R-E1](#r-e1) | P2 | M | done (a07dbfe, 4102517) | Real routes and one Link component |
 | [R-E2](#r-e2) | P2 | M | done (3feb310; increment 2 with R-A6 2026-09-30, accepted as built by operator decision the same day) | Split the Roadmaps mega-page |
@@ -88,7 +88,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
 | [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
-| [R-H5](#r-h5) | P3 | M | in progress (2026-10-11, not merged or deployed) | Rationalize the route surface |
+| [R-H5](#r-h5) | P3 | M | built and reviewed (2026-10-11, not merged or deployed; 147 → 133 routes; gate and replays recorded in the entry) | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
@@ -2088,7 +2088,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-D8
 
-**Per-entry phase blockers shared with the map evaluation** · Phase P3 · Effort S-M · Status: built (2026-10-11, not merged or deployed; under independent review) (added 2026-10-11, operator)
+**Per-entry phase blockers shared with the map evaluation** · Phase P3 · Effort S-M · Status: built and reviewed (2026-10-11, not merged or deployed) (added 2026-10-11, operator)
 
 - **Found by:** R-D7's measurement (2026-10-09). On a fresh live snapshot (19:20 UTC; the live 171-entry roadmap) the roadmap page read (`GET …/roadmaps/:id/view`) takes 226.6 ms after R-D7, and 187 ms even with the decision hold stubbed out. Profiled over 30 reads after a write: `scopePhaseBlockers` called from `RoadmapService.view()` costs about 98 ms per read (inclusive), and the map evaluation (`crossProjectState`) about 70 ms.
 - **Cause:** the work is done twice in one read. For every unmet slice or work-item node, `crossProjectState` already calls `scopePhaseBlockers` for that scope and its phase (`cross-project-service.ts`) and keeps only the blockers' messages. `view()` then calls it again for each entry with an execution scope (`roadmap-service.ts`, the per-entry progress), this time passing the cycle's current run as the reservation owner (`{ ownerId }`), and keeps the typed blockers. The memoized parts of the read snapshot only partly absorb the repeat.
@@ -4235,7 +4235,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H5
 
-**Rationalize the route surface** · Phase P3 · Effort M · Status: in progress (2026-10-11, not merged or deployed)
+**Rationalize the route surface** · Phase P3 · Effort M · Status: built and reviewed (2026-10-11, not merged or deployed)
 
 - **Resolves:** [DATA-13](findings/DATA-storage-domain-contracts.md#data-13-the-route-surface-has-grown-by-accretion-121-routes-naming-is-inconsistent-endpoints-are-panel-specific-and-the-forbidden-fragment-guard-only-checks-names)
 - **Change:** Consistent resource naming across the 121 routes; retire panel-specific endpoints as view models (R-D5) and the inbox (R-A5) replace them; make the forbidden-fragment guard check semantics, not names.
@@ -4283,10 +4283,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Independent review (2026-10-11, at `daf4c3a`, with R-D8; `~/.cache/ct-p3-tmp/rh5-review/review.md`).** A fresh reviewer checked every route before and after (121 kept, 8 renamed, 15 folded into 5 unions, 4 retired; none wrongly treated; no access fell and no step-up was lost, the four step-up rules and the body-grants-unrestricted check proved by mutants), every moved browser request against `cc222b8` (byte for byte, apart from the renames and folds), and ran 63 mutants through the memory-capped runner, re-running every survivor against the whole server project. 0 HIGH, 2 MEDIUM, 6 LOW (two of them R-D8's, recorded there). Settled:
   - *M1:* `pnpm check` failed at `daf4c3a` on formatting (two files) and an unused import. Fixed; format and lint are clean over the whole repository.
   - *M2 (operator decision 2026-10-11):* decision commands back in their kinds, structurally. Each kind's commands are in `decisions/<kind>/<kind>-api.ts` (acknowledge, adoption, amendment, architecture, checkpoint, checks, cycle, delegation, design, early-development, environment, evidence, finalization, integration, merge, plan-acceptance, preparation, refresh, scope-evidence, scope-repair, upstream), each request unchanged. The boundary test's rules: a request is sent and an `/api` address written only in an API module, `lib/<name>-api.ts` or `decisions/<kind>/<name>-api.ts`; a kind's module is imported (statically, re-exported or at run time) only from its own directory; no `lib/` module posts a single-owner decision command; an API module lives nowhere else. Planted violations of each are reported.
-  - *L2:* the untested guards are pinned: an absent body is parsed as `{}` (route-access); sign-in's origin refusal comes before the body is read, with its message; an upload's undeclared field is refused with its route's message (plan archive, concurrency map); the runtime command table (now `runtimeCommands(service)`, exported) runs each action through its own service method with its own tag; `storage/control` cleans a scan and backs up. The sign-in media-type check survives its mutant but is equivalent: without it a non-JSON body still reaches the schema and gets the same 400 and message.
+  - *L2:* the untested guards are pinned: an absent body is parsed as `{}` (route-access); sign-in's origin refusal comes before the body is read, with its message; an upload's undeclared field is refused with its route's message (plan archive, concurrency map); the runtime command table (now `runtimeCommands(service)`, exported) runs each action through its own service method with its own tag; `storage/control` cleans a scan and backs up. The sign-in media-type check survives its mutant and is equivalent in effect: without it a body Fastify parses (`text/plain`, multipart) reaches the schema and gets the same 400 and message, and one it cannot parse gets Fastify's 415, exactly as at `cc222b8`, where the check sat after the parse; either way the sign-in is refused.
   - *L4:* the request rule now also reports, outside `lib/`, an import from the transport other than its error and step-up hook (`ApiError`, `ApiErrorDetail`, `setStepUpPrompt`, `forgetValidators`), a namespace, re-export or run-time import of it, and a browser request interface named as a text (`globalThis['fetch']`); the transport's own addresses are read built in pieces too. The tag rule became `decisionCoverageProblems`, with a planted retagged, unowned and doubly owned route.
   - *L5:* the text is corrected above: the seven refusal messages the folds changed, the 14 folded paths, the 400-before-404 order on about 25 routes and the multipart order, the four commands that now accept an absent body. Later commits name DATA-13, the finding R-H5 resolves (rule 6).
   - *L6 (operator decision 2026-10-11):* `checkpoint-recovery` is kept, as the decision's only read of the candidate preview.
+  - **Re-check at `9393736`:** every finding closed but two LOW (39 mutants; the 37 moved request functions identical to their earlier versions; planted evasions of the kind rule, a re-export through the kind's index, `export *`, a `.ts` import and a const hand-off, all reported). *R1:* a request interface named by a text built in pieces (`'fe' + 'tch'`, a template) and a transport address built with `.concat` still passed: the name rule now reads folded texts too, and the folder reads `.concat` as `+`; planted cases added. *R2:* this item's and R-D8's table rows are updated.
 
 
 ### R-H6

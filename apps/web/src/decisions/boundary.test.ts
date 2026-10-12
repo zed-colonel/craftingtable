@@ -393,6 +393,13 @@ function fold(node: Node, resolve: Resolve = () => undefined): string | undefine
       const callee = node.callee as Node;
       if (callee.type === 'Identifier') return resolve(callee.name as string, true);
       const separator = (node.arguments as Node[])[0];
+      // `a.concat(b, …)` builds a text as `a + b` does (R-H5 review R1).
+      if (callee.type === 'MemberExpression' && nameOf(callee.property) === 'concat') {
+        const parts = [callee.object as Node, ...(node.arguments as Node[])].map(f);
+        return parts.every((p) => p === undefined)
+          ? undefined
+          : parts.map((p) => p ?? '*').join('');
+      }
       if (
         callee.type !== 'MemberExpression' ||
         nameOf(callee.property) !== 'join' ||
@@ -1005,7 +1012,8 @@ export function requestsOutsideApiModules(all: ReadonlyMap<string, Module>): str
             ...ownLiterals(module)
               .filter(api)
               .map((text) => `${module.path}: builds ${text}`),
-            ...ownLiterals(module)
+            // A request interface named by a text, written whole or built in pieces.
+            ...[...new Set([...ownLiterals(module), ...module.texts.map((t) => t.text)])]
               .filter((text) => REQUEST_APIS.test(text))
               .map((text) => `${module.path}: names ${text}`),
             // Outside `lib/` the transport gives its error and the step-up hook, never a sender.
@@ -1053,12 +1061,17 @@ describe('every request goes through an API module (R-H5)', () => {
         "import { request } from './api-client.js';\nexport const runs = (id: string) => request(`/api/workspaces/${id}/runs`);",
       'lib/route.ts': "export const page = '/workspaces/api/settings';",
       'lib/api-client.ts':
-        "export async function request(url: string) { await fetch('/api/auth/step-up'); return fetch(url); }\nexport const me = () => request('/api/auth/session');\nexport const pieced = () => request('/ap' + 'i/auth/sessions');",
+        "export async function request(url: string) { await fetch('/api/auth/step-up'); return fetch(url); }\nexport const me = () => request('/api/auth/session');\nexport const pieced = () => request('/ap' + 'i/auth/sessions');\nexport const joined = () => request('/ap'.concat('i/auth/password'));",
       'features/Lazy.tsx':
         "export function Lazy() { return import('../lib/api-client.js').then((m) => m.request('x')); }",
       'features/Namespace.tsx':
         "import * as api from '../lib/api-client.js';\nexport function Namespace() { const { request: send } = api; return send; }",
       'features/Computed.tsx': "export function Computed() { return globalThis['fetch']('x'); }",
+      'features/Pieced.tsx':
+        "export function Pieced() { return (globalThis as never)['fe' + 'tch']('x'); }",
+      'features/Templated.tsx':
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a planted module's source holds a template literal.
+        "const f = 'fet';\nexport function Templated() { return window[`${f}ch`]('x'); }",
       'features/Allowed.tsx':
         "import { ApiError } from '../lib/api-client.js';\nexport function Allowed() { return new ApiError(400, 'x', 'y'); }",
     });
@@ -1067,9 +1080,12 @@ describe('every request goes through an API module (R-H5)', () => {
       'features/Lazy.tsx: imports the transport at run time',
       'features/Link.tsx: builds /api/workspaces/*/runs/*',
       'features/Namespace.tsx: imports * from the transport',
+      'features/Pieced.tsx: names fetch',
       'features/Planted.tsx: builds /api/workspaces/*/runs',
       'features/Planted.tsx: imports request from the transport',
       'features/Planted.tsx: sends /api/workspaces/*/runs',
+      'features/Templated.tsx: names fetch',
+      'lib/api-client.ts: builds /api/auth/password',
       'lib/api-client.ts: builds /api/auth/session',
       'lib/api-client.ts: builds /api/auth/sessions',
     ]);

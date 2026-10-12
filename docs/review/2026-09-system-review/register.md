@@ -90,6 +90,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | done (2026-10-11, not merged or deployed; 147 → 133 routes; reload open pages after deploying) | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
+| [R-H7](#r-h7) | P4 | M | open | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -4306,7 +4307,6 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Depends on:** R-H3 (table-rebuild preservation tests and `db:verify`).
 - **Done when:** The three tables and the correlation columns are gone. A preservation test proves sequence, trigger and index continuity on a snapshot copy. `db:verify` passes on a live snapshot.
 
-## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 - **Decisions, by the operator 2026-10-06 (P3 design pass; detail is left to the building session).**
   - *Today (live, read-only):* schema 36 (0037 pending); `workspace_events` 6,573 rows, 0.9 MB of payload; the three registry tables empty; no row with a correlation column set, no `repository-*` event and no `repository.*` audit action; no table references `workspace_events`. R-H3's preservation tests, the rebuild-must-have-a-test rule and `db:verify` exist. This entry names two correlation columns; there are three, and `repository_id` has a foreign key into `registered_repositories`, so that table cannot be dropped while the column keeps its key; the CHECK over per-kind correlation shapes goes too. `sequence` is the event stream's resume cursor (`Last-Event-ID`), so its continuity is what must be preserved.
   - *Decisions:*
@@ -4347,6 +4347,37 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW-1, fixed: the `sequence` guard refused a journal with rows but no `sqlite_sequence` row,* a state SQLite handles (it issues the last sequence plus one, so the stream continues without a gap) and 0004 accepted. The guard now reads `sequence_row_was_present = 0 OR sequence_value >= max_sequence`, as 0004's did; the comment says what an absent row means. Test: with the row deleted, a journal with eight events and an empty one both migrate, the row stays absent, and the next event gets 9 and 1 (the first failed before the fix, rolled back by the guard).
     - *LOW-2, fixed: four guard checks had no test that made them fail* (S05 registry tables empty, S08 the row comparison, S11/S12 the `sequence` checkpoint, S13 the `schema` checkpoint). Each now has a break-it test like the truncation one, the schema-39 database left whole: a registry binding with no event; a copy that changes one payload but keeps the count; a restored high-water mark one off, and a captured one below the last row; the journal index not recreated. The reviewer's 27 SQL mutants rerun at the fix: all caught but the three equivalent ones (S06, S07, S09); S11 to S13, whose text the fixes changed, rewritten for the new guards and caught, as are two more for the MEDIUM-1 guard (keys compared without their actions, `STRICT` unchecked).
   - **Done-when:** the three tables and the three correlation columns are gone; the preservation test proves sequence, trigger and index continuity on a snapshot copy; `db:verify` passes on a live snapshot (2026-10-07).
+
+### R-H7
+
+**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: open
+
+- **Added 2026-10-12 by the operator,** after R-I7 branded the domain's ids (part 8) and left route
+  parameters and service and storage lookups as plain strings wherever no route parses a schema.
+- **Resolves:** the rest of [DATA-15](findings/DATA-storage-domain-contracts.md#data-15-documentation-and-vocabulary-drift-adrs-process-authority-branded-ids-exports-plan-specific-literals)'s uneven branded ids; extends [R-H5](#r-h5)'s route
+  declarations from bodies to path parameters.
+- **Today (at `16f6021`):** 122 routes take path parameters, and each handler parses its own: 138
+  id-schema parses and 182 raw `request.params` reads in `apps/server/src/routes`. A parameter can
+  reach a service unparsed, and nothing lists or checks what each route takes.
+- **Change:**
+  - Each route declares its parameters' schemas in its route config beside `body` (R-H5); the
+    daemon parses them once, before the handler, as it parses bodies, and handlers read the
+    parsed, branded values. A malformed id still answers 404, as handlers do today.
+  - The daemon refuses to start when a route's path has a parameter without a declared schema, as
+    it refuses a command without a body schema, and the generated route inventory
+    (`docs/api-routes.md`) shows each route's parameters.
+  - Service methods and storage repository lookups take branded ids, branded at the edges where a
+    value enters (a parsed parameter, a row storage reads, a generated id), as R-I7 did for
+    records. Compile-time only.
+- **Constraints:** no wire or persisted-format change; the status code for a malformed id stays
+  404, and the route inventory test pins the rest.
+- **Sequencing:** early in P4, before [R-B7](#r-b7)'s service decomposition, which moves much of the
+  same code; branded signatures make that move safer.
+- **Done when:** every path parameter has a declared schema (the startup refusal tested); no
+  handler reads `request.params` directly (held by a check); service and storage lookups take
+  branded ids wherever a brand exists; `pnpm check` and `pnpm replays` are unchanged.
+
+## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 
 ### R-I1
 
@@ -5348,7 +5379,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     s. Known gaps, which can only let an unused export pass: a shadowed namespace name, `ns['a']`,
     `import x = require()` and `.d.ts` consumers. Declaring those server functions' return types
     would let the map go (not done).
-  - *(5) Route parameters and storage lookups:* a suggestion was given to the operator; nothing built.
+  - *(5) Route parameters and storage lookups:* the operator agreed with the suggestion the same day
+    and placed it in P4 as [R-H7](#r-h7); nothing built here.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

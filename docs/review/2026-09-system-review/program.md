@@ -1068,7 +1068,9 @@ working), R-D6 (only if measurements still call for it; 2026-10-09: the cold Nee
 after a write, 117 ms, is that measured need, with R-F1's lighter evaluator beside it). R-C10's
 follow-up (placed by the operator 2026-10-12): automate a roadmap's resume and re-verify of held
 entries where typed facts allow, designed with the controller kernel (which holds the scheduler may
-clear by itself, and which stay the operator's).
+clear by itself, and which stay the operator's). R-H7 (added by the operator 2026-10-12): route
+parameters declared and parsed once, and branded ids through services and storage, early in P4
+and before R-B7.
 
 Exit criteria:
 - `reconcile` is a thin shell.

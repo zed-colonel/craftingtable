@@ -97,7 +97,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I4](#r-i4) | P2 | M | done (test-suite review pass, 2026-10-02) | Structural test/production and process-authority boundaries |
 | [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d); TS-M15 done in the test-suite review pass (2026-10-02) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
-| [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb; the rest built 2026-10-12 on `remediation/p3`, under review) | Documentation reset to current state |
+| [R-I7](#r-i7) | P1-P3 | M | done (P1 start: e317636, 61e41cb; the rest 04ec04d..f6441fa, 2026-10-12, reviewed) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | done (3836b99, 6fb5a4a, 0cf4fa5; 10 runs at 661282f) | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 | [R-I10](#r-i10) | P2 | M | done (2026-09-27); versioned replay gate (TS-M12) done in the test-suite review pass (2026-10-02) | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
@@ -4879,7 +4879,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I7
 
-**Documentation reset to current state** · Phase P1-P3 · Effort M · Status: partial (P1 start done 2026-09-25; the rest built 2026-10-12 on `remediation/p3`, under review)
+**Documentation reset to current state** · Phase P1-P3 · Effort M · Status: done (P1 start 2026-09-25; the rest 2026-10-12, `04ec04d`..`f6441fa` on `remediation/p3`, independently reviewed; not merged or deployed)
 
 - **Resolves:** [DOC-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-01-the-readme-is-a-feature-changelog-not-an-operator-guide), [DOC-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-02-adr-sprawl--65-records-broken-index-inconsistent-status-metadata-long-refinement-chains), [DOC-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-03-doc-claims-out-of-sync-with-code-spot-check-of-14-claims-7-false-or-stale), [DOC-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-05-principles-security-and-operations-docs-have-become-per-feature-narratives), [UI-15](findings/UI-information-architecture.md#ui-15-docsui-principlesmd-has-become-a-per-slice-accretion-log-that-encourages-new-surfaces), [SEC-09](findings/AGT-GIT-SEC-agents-git-security.md#sec-09-docssecuritymd-is-an-accreted-per-slice-log-with-stale-claims), [HIST-13](findings/HIST-history-and-live-usage.md#hist-13-schema-and-adr-churn-rate-22-migrations-46-adrs-in-18-days-with-manual-pre-migration-backups), [HIST-15](findings/HIST-history-and-live-usage.md#hist-15-commit-messages-stopped-describing-changes-adr-numbering-is-inconsistent), [DATA-15](findings/DATA-storage-domain-contracts.md#data-15-documentation-and-vocabulary-drift-adrs-process-authority-branded-ids-exports-plan-specific-literals), [AGT-17](findings/AGT-GIT-SEC-agents-git-security.md#agt-17-documentation-drift-in-the-agent-seam)
 - **Change:** README becomes an operator guide (what it is, run it, the main workflow) instead of a feature changelog; architecture.md describes the current design, not schema history; one ADR naming scheme, a complete index and correct statuses, superseded chains marked; ui-principles split into visual language, IA rules ("decisions are made only in the inbox; other pages link"), glossary and short per-surface specs; security.md and operations.md rewritten as current state; commit messages carry a body saying what stop or need motivated the change.
@@ -5269,6 +5269,28 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       puts a definition id in `roadmapId` (commented there; widening the event's type would ripple
       through every reader), and a scope receipt with no local-development environment names
       `''` as its environment.
+  - **Re-check 2 (at `f6441fa`):** every item closed (L-13 by the earlier-end `Refines` case); 8
+    mutants, 7 caught and one equivalent (the id tie-break in `listBriefsSince`, which matters only
+    for two runs created in the same millisecond). **RECHECK: 0 open.**
+  - **Gate and replays at `f6441fa`.** `pnpm check` alone in `~/src/craftingtable-gate`, with
+    `CRAFTINGTABLE_TEST_DATA_ROOT` and `TMPDIR` set as usual: green in 502 s, with no serial rerun:
+    375 test files and 3,152 unit tests (3 skipped), 23 e2e tests and the walkthrough rehearsal,
+    and the scope check. `pnpm replays`: 31 of 56 comparisons at 0 changed, 25 differing only as
+    expected, 0 failed (177 s), the same as at `9f2164a`: the branding and the fixes change no
+    recorded decision.
+  - **Done-when, checked:** spot-checked claims all true (517 checked by the independent review,
+    every finding settled and re-checked; 680 claims checked while building, in the claims ledger:
+    171 for `docs/ui/` and the roadmap guide, 189 security, 131 operations plus its variable rows,
+    151 architecture, 22 README, 16 ADR-008); README 132 lines (161 before). Line counts, before → after: `security.md` 757 → 510,
+    `operations.md` 649 → 585 (with 76 environment-variable rows), `architecture.md` 509 → 549,
+    `ui-principles.md` 483 → `docs/ui/` 478 and `docs/roadmaps.md` 162, `docs/decisions/README.md`
+    64 → 135 (72 ADRs indexed, was 42).
+  - **Left for the operator:** the `__Host-` cookie prefix (SEC-04; signs everyone out once);
+    denying Claude's file tools the whole denied-reads list, not only the daemon's protected paths
+    (R-1's alternative, a sandbox change); masking the local CI unit's runtime directory down to the
+    Docker socket (L-2's alternative, a confinement change); a structural guard against new
+    unconsumed exports (costed at about 150–200 lines); and branding route parameters and storage
+    lookups, which the branding left as strings where no route parses a schema.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

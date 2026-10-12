@@ -26,7 +26,7 @@ typed commands, never commands to run.
 | Route authority | Every route's declared access, checked before its body is read; step-up for the commands that grant the most; one body schema per command | Services repeat their own role checks as a second line | `apps/server/test/route-access.test.ts`, `apps/server/test/route-inventory.test.ts`, `apps/server/test/server-auth-hardening.test.ts` (step-up) |
 | Browser input | Typed commands only; repository registration under configured roots; cleanup by daemon-held preview | — | `apps/server/test/server-execution-runs.test.ts`, `apps/server/test/storage-management.test.ts` |
 | Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only for agents, checks and daemon Git (not the native probes); process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
-| Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; denied reads (for read-only Codex runs too); outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
+| Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; one denied-reads list for commands, Claude's file tools and read-only runs; outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
 | The daemon's own Git | Git directories named explicitly; no hooks, fsmonitor, system or global configuration; untrusted Git directories refused | A repository's own configuration still applies; the ref watch detects moves, it does not prevent them | `packages/git/test/git-directory-pinning.test.ts`, `packages/git/test/adapter-robustness.test.ts`, `apps/server/test/services/ref-watch.test.ts` |
 | Checks and builds | Checks run by the daemon in confined units, on private clones, with offline Cargo homes; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts` |
 | Merge and promotion | The review gate at exact commits; protected destinations; final promotion only by an operator's session, with step-up | A review's verdict is the reviewer's assertion | `apps/server/test/server-execution-merge-gate.test.ts`, `apps/server/test/server-execution-integration.test.ts`, `apps/server/test/server-execution-finalization.test.ts` |
@@ -208,7 +208,8 @@ the repository's Git directory they may write what a commit needs, except `confi
 worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`, existing or not.
 They may listen on local ports and reach no host but the outside sources' hosts, a strict
 allowlist. Claude's own file tools are not commands: permission rules deny them reads and edits of
-the daemon's protected paths (below); otherwise they follow the posture. Its WebFetch and
+the same list its commands are denied (below), each path itself and everything under it;
+otherwise they follow the posture. Its WebFetch and
 WebSearch tools are not limited by the network allowlist, by decision: a sandboxed run cannot read
 the daemon's secrets, so they have nothing of the daemon's to send.
 
@@ -230,9 +231,10 @@ runtime directory (the rootless Docker socket and the session bus), the system D
 Claude Code's credentials file (for Codex, the whole of `~/.claude`), the registry tokens in the
 run's Cargo home, and the daemon's protected paths: the database directory (with its
 pre-migration copies and process records), the default and the configured backup directories,
-and the settings directory with the credentials file. A read-only Codex run's profile denies the
-whole list too; a read-only Claude run has no commands, and its Read, Glob and Grep are denied
-the daemon's protected paths only (see Known limits). Codex 0.160.0 can mask at most one existing file per sandbox, so a sandboxed or
+and the settings directory with the credentials file. Claude's own file tools are denied the same
+list, so a read-only Claude run, which has no commands, has its Read, Glob and Grep denied it, and
+a read-only Codex run's profile denies it too. Codex 0.160.0 can mask at most one existing file
+per sandbox, so a sandboxed or
 read-only Codex run that would need more is refused before it starts (`environment-unavailable`;
 a cycle stops as `agent-environment-unavailable`), naming the files.
 
@@ -490,8 +492,8 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 
 - **`unrestricted` is the operator's authority.** Such a run has no sandbox, no denied reads and
   no network limit; the worktree is a convention. Step-up is the only gate before it.
-- **Claude Code's own tools** are not sandboxed commands. Its file tools are denied only the
-  daemon's protected paths and otherwise follow the posture's permission checks; WebFetch and
+- **Claude Code's own tools** are not sandboxed commands. Its file tools are held by permission
+  rules (the denied-reads list, then the posture's checks), not by the OS sandbox; WebFetch and
   WebSearch reach any host.
 - **External Git.** The daemon's guards serialize its own Git work. A person or tool running Git
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;

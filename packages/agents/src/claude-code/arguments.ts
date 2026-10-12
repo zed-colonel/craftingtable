@@ -115,12 +115,22 @@ export function claudeSandboxed(request: AgentLaunchRequest): boolean {
   return request.readOnly === true || request.permissionMode !== 'unrestricted';
 }
 
+/** A path of the shared list in Claude's rule syntax: `~/` stays, and `//` marks an absolute path. */
+function rulePath(path: string): string {
+  return path.startsWith('~/') ? path : `/${path}`;
+}
+
 /**
- * Claude's own file tools (Read, Grep, Glob, Edit) may not touch the daemon's files either
- * (R-G9 review): the sandbox governs only commands. `//` marks an absolute path in a rule.
+ * Claude's own file tools (Read, Grep, Glob, Edit) are denied what its sandboxed commands are, the
+ * whole `sandboxDeniedReads` list (R-G9 review for the daemon's files; operator decision
+ * 2026-10-12 for the rest, so the two agree): the sandbox governs only commands. Each path is
+ * denied itself, for a file, and everything under it, for a directory.
  */
 function deniedFileRules(request: AgentLaunchRequest): string[] {
-  return (request.deniedReads ?? []).flatMap((path) => [`Read(/${path}/**)`, `Edit(/${path}/**)`]);
+  return sandboxDeniedReads(request).flatMap((path) => {
+    const rule = rulePath(path);
+    return [`Read(${rule})`, `Read(${rule}/**)`, `Edit(${rule})`, `Edit(${rule}/**)`];
+  });
 }
 
 /**
@@ -140,7 +150,7 @@ function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown>
   const deny = deniedFileRules(request);
   return {
     autoMemoryEnabled: false,
-    ...(deny.length === 0 ? {} : { permissions: { deny } }),
+    permissions: { deny },
     ...(!claudeSandboxed(request)
       ? {}
       : {

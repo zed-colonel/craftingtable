@@ -5300,13 +5300,25 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *(1) The `__Host-` session cookie (SEC-04).* On an HTTPS public origin the session cookie is
     `__Host-craftingtable_session` (`sessionCookieName(config)`, from `secureCookies`): `Secure`,
     `Path=/`, no `Domain`, so a browser accepts it only from this exact origin. An HTTP origin
-    keeps `craftingtable_session`, since a browser refuses a `__Host-` cookie without `Secure` (loopback
-    development, test daemons). The daemon reads the cookie only under its origin's name (the
+    keeps `craftingtable_session`, since a browser refuses a `__Host-` cookie without `Secure`
+    (loopback development, test daemons). The daemon reads the cookie only under its origin's name (the
     route guard, the run and workspace event streams, the page-load replay), and an HTTPS sign-in
     clears a cookie left under the plain name. Deploying it signs everyone out once (a deploy note
     in operations.md). ADR-009 amended. Test: `server-auth.test.ts` (each origin's name and
     attributes, no `Domain`, the old name cleared on HTTPS, a session read only under its own
     name), which fails when the prefix is never applied.
+  - *(2) Claude's file tools denied the whole list.* Its Read, Grep, Glob and Edit were denied the
+    daemon's protected paths only; they now get every path of `sandboxDeniedReads`, the list its
+    sandboxed commands and Codex's profiles are denied, in Claude's rule syntax (`~/` kept
+    home-relative, `//` absolute) and both as the path itself, for a file, and everything under it,
+    for a directory. A read-only Claude run, which has only those tools, is covered with the rest.
+    Checked against the real CLI with an opt-in test (`sandbox-real.test.ts`, run once with
+    `CRAFTINGTABLE_REAL_CLAUDE=1`): in a read-only run a file in the worktree denied by its absolute
+    path, and one in an added directory denied by a home-relative rule, are refused while an allowed
+    file is read; with the old rules the home-relative one was readable. (A first version placed
+    the files outside the run's directories, which read-only runs refuse anyway, and passed with the
+    old rules too; the files now sit where only the deny rules can refuse them.) Unit tests:
+    `claude-code/arguments.test.ts` and `normalize.test.ts`.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

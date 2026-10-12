@@ -11,6 +11,22 @@ import {
 } from '../../src/claude-code/normalize.js';
 
 const fixturePath = fileURLToPath(new URL('../../fixtures/claude-stream.jsonl', import.meta.url));
+/** The shared denied-reads list for a run with the default Cargo home and no daemon paths. */
+const DENIED = [
+  `/run/user/${process.getuid?.()}`,
+  '/var/run/docker.sock',
+  '/run/docker.sock',
+  '~/.ssh',
+  '~/.gnupg',
+  '~/.aws',
+  '~/.docker',
+  '~/.config/gh',
+  '~/.git-credentials',
+  '~/.codex',
+  '~/.claude/.credentials.json',
+  join(homedir(), '.cargo', 'credentials.toml'),
+  join(homedir(), '.cargo', 'credentials'),
+];
 const fixtureLines = readFileSync(fixturePath, 'utf8').split('\n');
 
 function normalizer(): ClaudeStreamNormalizer {
@@ -46,27 +62,20 @@ describe('claudeCodeArguments', () => {
       '--settings',
       JSON.stringify({
         autoMemoryEnabled: false,
+        // Claude's file tools are denied the same list as its sandboxed commands.
+        permissions: {
+          deny: DENIED.flatMap((path) => {
+            const rule = path.startsWith('~/') ? path : `/${path}`;
+            return [`Read(${rule})`, `Read(${rule}/**)`, `Edit(${rule})`, `Edit(${rule}/**)`];
+          }),
+        },
         sandbox: {
           enabled: true,
           failIfUnavailable: true,
           allowUnsandboxedCommands: false,
           autoAllowBashIfSandboxed: true,
           filesystem: {
-            denyRead: [
-              `/run/user/${process.getuid?.()}`,
-              '/var/run/docker.sock',
-              '/run/docker.sock',
-              '~/.ssh',
-              '~/.gnupg',
-              '~/.aws',
-              '~/.docker',
-              '~/.config/gh',
-              '~/.git-credentials',
-              '~/.codex',
-              '~/.claude/.credentials.json',
-              join(homedir(), '.cargo', 'credentials.toml'),
-              join(homedir(), '.cargo', 'credentials'),
-            ],
+            denyRead: DENIED,
             allowWrite: [join(homedir(), '.cargo', 'registry'), join(homedir(), '.cargo', 'git')],
           },
           network: {

@@ -119,16 +119,44 @@ it("keeps the daemon's own files out of the sandbox's reach: its database, backu
   );
   // The operator's credentials stay denied beside them.
   expect(denyRead).toEqual(expect.arrayContaining(['~/.ssh', '~/.claude/.credentials.json']));
-  // Claude's own file tools are denied them too, not only sandboxed commands (R-G9 review).
+  // Claude's own file tools are denied them too, not only sandboxed commands (R-G9 review), and
+  // the rest of the list as well (operator decision 2026-10-12): each path itself, for a file,
+  // and what lies under it, for a directory; `~/` stays home-relative, `//` is absolute.
   const { permissions } = JSON.parse(args[args.indexOf('--settings') + 1]!);
-  expect(permissions.deny).toEqual([
-    'Read(//data/state/**)',
-    'Edit(//data/state/**)',
-    'Read(//data/backups/**)',
-    'Edit(//data/backups/**)',
-    'Read(//home/op/.config/craftingtable/**)',
-    'Edit(//home/op/.config/craftingtable/**)',
-  ]);
+  const rule = (path: string) => (path.startsWith('~/') ? path : `/${path}`);
+  expect(permissions.deny).toEqual(
+    (denyRead as string[]).flatMap((path) => [
+      `Read(${rule(path)})`,
+      `Read(${rule(path)}/**)`,
+      `Edit(${rule(path)})`,
+      `Edit(${rule(path)}/**)`,
+    ]),
+  );
+  expect(permissions.deny).toEqual(
+    expect.arrayContaining([
+      'Read(//data/state/**)',
+      'Edit(//data/backups/**)',
+      'Read(//home/op/.config/craftingtable/**)',
+      'Read(~/.ssh/**)',
+      'Read(~/.git-credentials)',
+      'Read(~/.claude/.credentials.json)',
+      'Edit(~/.aws/**)',
+      'Read(//var/run/docker.sock)',
+    ]),
+  );
+});
+
+it('denies the whole list to the file tools of read-only and unrestricted runs alike (operator decision 2026-10-12)', () => {
+  for (const request of [
+    { permissionMode: 'auto' as const, readOnly: true },
+    { permissionMode: 'unrestricted' as const },
+  ]) {
+    const args = claudeCodeArguments({ cwd: '/work/x', prompt: 'Go', ...request });
+    const { permissions } = JSON.parse(args[args.indexOf('--settings') + 1]!);
+    expect(permissions.deny).toEqual(
+      expect.arrayContaining(['Read(~/.ssh)', 'Read(~/.ssh/**)', 'Read(~/.codex/**)']),
+    );
+  }
 });
 
 it('confines Bash in the OS sandbox on every posture but unrestricted, with no way out (R-G5, SEC-02)', () => {

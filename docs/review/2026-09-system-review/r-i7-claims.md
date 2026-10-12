@@ -1190,3 +1190,17 @@ are the claims it keeps or gains, each checked again. 22 claims: 19 true, 3 new.
 Dropped from the README: the LAN certificate and start commands (now in operations.md, "Directly
 on the LAN"), seven configuration rows (all in operations.md's tables), and the reset-password
 paragraph (in operations.md, "Forgotten password").
+
+## Corrections after the build (2026-10-12)
+
+- **Withdrawn: "`admin bootstrap` and `admin reset-password` accept any password up to 1024
+  bytes".** Both the operations and security sections above recorded it as code defect D1, and
+  the operations section listed the old doc's "12–1024 bytes" for the reset as false. On checking,
+  both commands hash with `Argon2PasswordHasher`, whose `hash()` refuses any password outside
+  12–1024 UTF-8 bytes (`apps/server/src/security/password-hasher.ts:3-18`), and
+  `apps/server/test/services/password-reset-service.test.ts:80` asserts that a short password is
+  refused. The old doc was right; `docs/operations.md` and `docs/security.md` now say so.
+- **Fixed after the operator's decisions:** D2 (the Git version is checked before the database is
+  opened), D3 (the deploy's health check speaks HTTPS to a daemon that serves TLS itself), the
+  Roadmaps page's About text, and the project cards' "Ready"/"Blocked" labels; the docs describe
+  the fixed behaviour. See the register entry.

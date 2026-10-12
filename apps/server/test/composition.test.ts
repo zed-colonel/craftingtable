@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDaemon, createServices } from '../src/composition.js';
+import { createDaemon, createRuntime, createServices } from '../src/composition.js';
 import { configFromEnv } from '../src/config.js';
 import { openDaemonStorage } from '../src/persisted-records.js';
 import { FastTestPasswordHasher, testDataRoot } from './test-support.js';
@@ -97,6 +97,30 @@ describe('service composition', () => {
     } finally {
       storage.close();
     }
+  });
+
+  it('refuses an old Git before opening the database, so the refused release migrates nothing (R-I7, operator decision 2026-10-12)', async () => {
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
+    directories.push(directory);
+    const oldGit = join(directory, 'old-git');
+    writeFileSync(
+      oldGit,
+      `#!${process.execPath}\nif (process.argv.includes('version')) process.stdout.write('git version 2.42.0\\n');\nelse process.exit(1);\n`,
+      { mode: 0o755 },
+    );
+    const config = configFromEnv({
+      CRAFTINGTABLE_DATA_DIR: directory,
+      CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+      CRAFTINGTABLE_GIT_EXECUTABLE: oldGit,
+      // No copy of the operator's Cargo caches into the test's data directory.
+      CRAFTINGTABLE_CARGO_SEED_FROM: '',
+    });
+    await expect(createRuntime(config, { logger: false })).rejects.toThrow(
+      /Git 2\.42\.0; CraftingTable needs Git 2\.43\.0 or newer/,
+    );
+    // Opening the database would have created and migrated it; the deploy's rollback could then
+    // not reopen it with the previous release.
+    expect(existsSync(config.databasePath)).toBe(false);
   });
 
   it("saves the production storage defaults on a daemon's first start (TS-H8)", async () => {

@@ -12,15 +12,19 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverMigrations, openDatabase, runMigrations } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  askHealth,
   dataDirectory,
   drainDaemon,
   environmentAssignments,
+  healthCheck,
   migrationPreflight,
   timeSpanSeconds,
   unitAssignments,
@@ -468,6 +472,114 @@ describe('deploy:daemon drain handshake (R-B9)', () => {
     expect(dataDirectory({ CRAFTINGTABLE_DEPLOY_DATA_DIR: '/x/y' }, {})).toBe('/x/y');
     expect(dataDirectory({}, { CRAFTINGTABLE_DATA_DIR: '/srv/ct' })).toBe('/srv/ct');
     expect(dataDirectory({ XDG_DATA_HOME: '/xdg' }, {})).toBe('/xdg/craftingtable');
+  });
+});
+
+describe('deploy:daemon health check (R-I7, operator decision 2026-10-12)', () => {
+  it('asks over HTTPS, trusting the unit certificate, when the unit serves TLS itself', () => {
+    expect(healthCheck({}, {})).toEqual({ url: 'http://127.0.0.1:4600/api/health' });
+    expect(healthCheck({}, { CRAFTINGTABLE_HOST: '0.0.0.0', CRAFTINGTABLE_PORT: '4700' })).toEqual({
+      url: 'http://127.0.0.1:4700/api/health',
+    });
+    const tls = {
+      CRAFTINGTABLE_HOST: '0.0.0.0',
+      CRAFTINGTABLE_PORT: '4600',
+      CRAFTINGTABLE_TLS_CERT: '/home/op/.config/craftingtable/cert.pem',
+      CRAFTINGTABLE_TLS_KEY: '/home/op/.config/craftingtable/key.pem',
+    };
+    expect(healthCheck({}, tls)).toEqual({
+      url: 'https://127.0.0.1:4600/api/health',
+      certificate: '/home/op/.config/craftingtable/cert.pem',
+    });
+    expect(healthCheck({}, { ...tls, CRAFTINGTABLE_HOST: '::1' }).url).toBe(
+      'https://[::1]:4600/api/health',
+    );
+    // An explicit address wins; an HTTPS one still trusts the unit's certificate.
+    expect(
+      healthCheck(
+        { CRAFTINGTABLE_DEPLOY_HEALTH_URL: 'https://workstation.lan:4600/api/health' },
+        tls,
+      ),
+    ).toEqual({
+      url: 'https://workstation.lan:4600/api/health',
+      certificate: '/home/op/.config/craftingtable/cert.pem',
+    });
+    expect(
+      healthCheck({ CRAFTINGTABLE_DEPLOY_HEALTH_URL: 'http://127.0.0.1:9/api/health' }, tls),
+    ).toEqual({ url: 'http://127.0.0.1:9/api/health' });
+  });
+
+  const openssl = spawnSync('openssl', ['version']).status === 0;
+  it.skipIf(!openssl)(
+    "verifies a TLS daemon's chain against its own certificate, not its name",
+    async () => {
+      const root = scratch('craftingtable-deploy-health-');
+      // A self-signed certificate for the LAN name only: the check asks 127.0.0.1.
+      const certificate = (name) => {
+        const key = join(root, `${name}.key`);
+        const cert = join(root, `${name}.pem`);
+        const made = spawnSync('openssl', [
+          'req',
+          '-x509',
+          '-newkey',
+          'ec',
+          '-pkeyopt',
+          'ec_paramgen_curve:prime256v1',
+          '-nodes',
+          '-days',
+          '1',
+          '-subj',
+          `/CN=${name}`,
+          '-addext',
+          `subjectAltName=DNS:${name}`,
+          '-keyout',
+          key,
+          '-out',
+          cert,
+        ]);
+        expect(made.status).toBe(0);
+        return { key, cert };
+      };
+      const daemon = certificate('workstation.lan');
+      const other = certificate('elsewhere.lan');
+      const server = createHttpsServer(
+        { key: readFileSync(daemon.key), cert: readFileSync(daemon.cert) },
+        (request, response) => {
+          response.writeHead(request.url === '/api/health' ? 200 : 404).end('{}');
+        },
+      );
+      await new Promise((done) => server.listen(0, '127.0.0.1', done));
+      const url = `https://127.0.0.1:${server.address().port}/api/health`;
+      try {
+        expect(await askHealth({ url, certificate: daemon.cert })).toBe(true);
+        // The chain is still checked: another certificate, or none, is not trusted.
+        expect(await askHealth({ url, certificate: other.cert })).toBe(false);
+        expect(await askHealth({ url })).toBe(false);
+        expect(await askHealth({ url, certificate: join(root, 'missing.pem') })).toBe(false);
+        expect(
+          await askHealth({
+            url: url.replace('/api/health', '/nothing'),
+            certificate: daemon.cert,
+          }),
+        ).toBe(false);
+      } finally {
+        await new Promise((done) => server.close(done));
+      }
+    },
+  );
+
+  it('asks a plain-HTTP daemon with fetch', async () => {
+    const server = createHttpServer((request, response) => {
+      response.writeHead(request.url === '/api/health' ? 200 : 503).end('{}');
+    });
+    await new Promise((done) => server.listen(0, '127.0.0.1', done));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    try {
+      expect(await askHealth({ url: `${base}/api/health` })).toBe(true);
+      expect(await askHealth({ url: `${base}/other` })).toBe(false);
+    } finally {
+      await new Promise((done) => server.close(done));
+    }
   });
 });
 

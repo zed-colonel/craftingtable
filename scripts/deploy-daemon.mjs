@@ -44,10 +44,12 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { request as httpsRequest } from 'node:https';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
+import { rootCertificates } from 'node:tls';
 
 const HEALTH_TIMEOUT_MS = 90_000;
 /** A daemon that predates drain support never answers; restart it the old way. */
@@ -340,25 +342,63 @@ function requireMigrationsMatch(root, release, entry, current) {
   );
 }
 
-/** Health URL from the unit's environment file, overridable for unusual setups. */
-function healthUrl(env = process.env) {
-  if (env.CRAFTINGTABLE_DEPLOY_HEALTH_URL) return env.CRAFTINGTABLE_DEPLOY_HEALTH_URL;
-  const unit = unitEnvironment();
+/**
+ * Where, and how, the health check asks: the unit's host and port (a wildcard read as loopback),
+ * over HTTPS when the unit serves TLS itself (R-I7, operator decision 2026-10-12; a plain-HTTP
+ * check never reached such a daemon, so every deploy of it was rolled back). The check then
+ * trusts the public roots and the unit's own certificate, a self-signed one included.
+ * `CRAFTINGTABLE_DEPLOY_HEALTH_URL` overrides the address.
+ */
+export function healthCheck(env = process.env, unit = {}) {
+  const certificate = unit.CRAFTINGTABLE_TLS_CERT || undefined;
   let host = unit.CRAFTINGTABLE_HOST ?? '127.0.0.1';
   const port = unit.CRAFTINGTABLE_PORT ?? '4600';
   if (host === '0.0.0.0' || host === '::') host = '127.0.0.1';
-  return `http://${host.includes(':') ? `[${host}]` : host}:${port}/api/health`;
+  const url =
+    env.CRAFTINGTABLE_DEPLOY_HEALTH_URL ||
+    `${certificate ? 'https' : 'http'}://${host.includes(':') ? `[${host}]` : host}:${port}/api/health`;
+  return url.startsWith('https:') && certificate ? { url, certificate } : { url };
 }
 
-async function waitHealthy(url) {
+/**
+ * One health request: whether the daemon answered with a 2xx status within three seconds. Over
+ * HTTPS with the unit's certificate the chain is verified, not the name: the check asks a
+ * loopback or listening address, which a certificate for the public name need not carry.
+ */
+export function askHealth({ url, certificate }) {
+  if (certificate === undefined)
+    return fetch(url, { signal: AbortSignal.timeout(3_000) }).then(
+      (response) => response.ok,
+      () => false,
+    );
+  return new Promise((done) => {
+    let ca;
+    try {
+      ca = [...rootCertificates, readFileSync(certificate, 'utf8')];
+    } catch {
+      done(false);
+      return;
+    }
+    const request = httpsRequest(
+      url,
+      { ca, checkServerIdentity: () => undefined, timeout: 3_000 },
+      (response) => {
+        response.resume();
+        const status = response.statusCode ?? 0;
+        done(status >= 200 && status < 300);
+      },
+    );
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => done(false));
+    request.end();
+  });
+}
+
+async function waitHealthy(check) {
   const deadline = Date.now() + HEALTH_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-      if (response.ok) return true;
-    } catch {
-      // Not listening yet.
-    }
+    // Not listening yet, or not healthy yet: ask again.
+    if (await askHealth(check)) return true;
     await new Promise((done) => setTimeout(done, 1_000));
   }
   return false;
@@ -446,9 +486,11 @@ async function drainBeforeRestart(options) {
 async function restartAndCheck() {
   process.stdout.write(`Restarting ${unitName()}…\n`);
   run('systemctl', ['--user', 'restart', unitName()], undefined, true);
-  const url = healthUrl();
-  const healthy = await waitHealthy(url);
-  process.stdout.write(healthy ? `Healthy at ${url}\n` : `No healthy answer from ${url}\n`);
+  const check = healthCheck(process.env, unitEnvironment());
+  const healthy = await waitHealthy(check);
+  process.stdout.write(
+    healthy ? `Healthy at ${check.url}\n` : `No healthy answer from ${check.url}\n`,
+  );
   return healthy;
 }
 

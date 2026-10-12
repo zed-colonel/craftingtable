@@ -154,6 +154,26 @@ function operatorModels(value: string | undefined): { models?: readonly AgentMod
   return models.length === 0 ? {} : { models };
 }
 
+/** The Git the daemon runs, unless a test supplies its Git operations. */
+function daemonGitExecutable(
+  config: ServerConfig,
+  overrides: ServiceOverrides,
+): string | undefined {
+  return overrides.gitOperations === undefined
+    ? resolveExecutable('git', config.execution.gitExecutable)
+    : undefined;
+}
+
+/**
+ * Below the Git floor the daemon's merges fail; it refuses to start, naming both versions
+ * (R-G10, operator decision 2026-10-07).
+ */
+async function refuseGitBelowFloor(gitExecutable: string | undefined): Promise<void> {
+  if (gitExecutable === undefined) return;
+  const issue = await gitVersionIssue(gitExecutable);
+  if (issue !== undefined) throw new Error(issue);
+}
+
 export async function createServices(
   storage: CraftingTableStorage,
   config: ServerConfig,
@@ -184,16 +204,8 @@ export async function createServices(
   const planImportService = new PlanImportService(storage, workspaceService, notifier, now);
   const workItemService = new WorkItemService(storage, workspaceService, notifier, now);
   const planningQueryService = new PlanningQueryService(storage, workspaceService, workItemService);
-  const gitExecutable =
-    overrides.gitOperations === undefined
-      ? resolveExecutable('git', config.execution.gitExecutable)
-      : undefined;
-  // Below the Git floor the daemon's merges fail; it refuses to start, naming both versions
-  // (R-G10, operator decision 2026-10-07).
-  if (gitExecutable !== undefined) {
-    const issue = await gitVersionIssue(gitExecutable);
-    if (issue !== undefined) throw new Error(issue);
-  }
+  const gitExecutable = daemonGitExecutable(config, overrides);
+  await refuseGitBelowFloor(gitExecutable);
   // Every daemon Git operation that can move a branch records where it left it, so a run's
   // protected-ref snapshot can tell the daemon's moves from anyone else's (R-G5).
   const refWatch = new RefWatch();
@@ -623,6 +635,10 @@ export async function createRuntime(
   } catch (error) {
     console.warn(error instanceof Error ? error.message : error);
   }
+  // Before the database is opened, since opening it migrates it: a release refused for an old
+  // Git must leave a database the previous release can still open, or the deploy's rollback is
+  // refused too (R-I7, operator decision 2026-10-12).
+  await refuseGitBelowFloor(daemonGitExecutable(config, options.overrides ?? {}));
   const storage = openDaemonStorage(config.databasePath);
   try {
     // The run service's and check service's warnings reach the daemon's log (LIVE-31

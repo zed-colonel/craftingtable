@@ -139,7 +139,9 @@ holds a bare clone `repo.git`, one directory per release (`releases/<time>-<comm
 The data directory and health address come from the unit: `CRAFTINGTABLE_DEPLOY_DATA_DIR`, else
 the unit's `CRAFTINGTABLE_DATA_DIR` (its environment files override its `Environment=` lines),
 else the XDG default; `CRAFTINGTABLE_DEPLOY_HEALTH_URL`, else
-`http://<unit host, 0.0.0.0 read as 127.0.0.1>:<unit port>/api/health`.
+`http://<unit host, 0.0.0.0 read as 127.0.0.1>:<unit port>/api/health`, or `https://` when the unit
+sets `CRAFTINGTABLE_TLS_CERT` (the check then trusts that certificate and checks its chain, not
+its name, since it asks the unit's own address).
 
 **Rolling back.** `--rollback` switches to the most recent previous release still on disk, with no
 rebuild, after the same preflight. An older release cannot open a database a newer one migrated,
@@ -158,9 +160,8 @@ migrations store, so the preflight refuses any rollback across them:
 - 0040 rebuilds the workspace journal without the retired repository registry's columns and drops
   its three empty tables. Allow free space for the pre-migration copy (about the database's size).
 
-Before deploying such a release, check that the workstation's Git is 2.43.0 or newer: the
-version check runs after the database has migrated, so a release refused for an old Git leaves a
-database the previous release cannot open. After deploying:
+The release needs Git 2.43.0 or newer. One refused for an older Git stops before it opens the
+database, so the deploy's automatic rollback restores the previous release. After deploying:
 
 - **Reload every open page.** The API's paths changed without aliases; a page loaded before the
   deploy asks the old ones.
@@ -233,10 +234,8 @@ CRAFTINGTABLE_TLS_KEY=/home/<you>/.config/craftingtable/key.pem
 
 This route also needs the host firewall to allow the port on the LAN interface, a stable address
 (a DHCP reservation or a `.local` name), and the certificate trusted on every device that
-connects. The deploy's health check speaks plain HTTP by default, so it cannot reach a daemon that
-serves TLS itself and would roll the deploy back (a defect recorded on R-I7). The workaround, not
-yet tried: set `CRAFTINGTABLE_DEPLOY_HEALTH_URL` to `https://workstation.lan:4600/api/health`
-and give the deploy command `NODE_EXTRA_CA_CERTS=~/.config/craftingtable/cert.pem`.
+connects. With `CRAFTINGTABLE_TLS_CERT` in the unit's environment, the deploy's health check
+asks over HTTPS and trusts that certificate ([Deploying and rolling back](#deploying-and-rolling-back)).
 
 ## Agents on the workstation
 
@@ -449,9 +448,8 @@ pnpm craftingtable admin reset-password --username <name>
 ```
 
 It prints the database path, refuses a missing database or an inactive or unknown user, and asks
-twice for the new password without echoing it (Ctrl-C cancels; Ctrl-U clears). Use 12 to 1024
-UTF-8 bytes, as the browser's password change requires; the command itself enforces only the
-upper bound. Never pass a password in arguments or the environment. Its authority is local access
+twice for the new password without echoing it (Ctrl-C cancels; Ctrl-U clears). The password is
+12 to 1024 UTF-8 bytes, as in the browser. Never pass a password in arguments or the environment. Its authority is local access
 to the database: it replaces the hash, revokes every login session of that user and records an
 audit entry, all in one transaction, and leaves everything else intact.
 
@@ -519,7 +517,7 @@ Read by `scripts/deploy-daemon.mjs`.
 |---|---|---|
 | `CRAFTINGTABLE_DEPLOY_ROOT` | `$XDG_DATA_HOME/craftingtable-deploy` | The bare clone, releases, `current` and `deploys.jsonl`. |
 | `CRAFTINGTABLE_DEPLOY_DATA_DIR` | the unit's `CRAFTINGTABLE_DATA_DIR`, else the XDG default | The data directory a drain request and the migration preflight use. |
-| `CRAFTINGTABLE_DEPLOY_HEALTH_URL` | `http://<unit host>:<unit port>/api/health` | What the health check polls after a restart. |
+| `CRAFTINGTABLE_DEPLOY_HEALTH_URL` | `http://<unit host>:<unit port>/api/health` (`https://` with the unit's TLS certificate) | What the health check polls after a restart. |
 | `CRAFTINGTABLE_DEPLOY_UNIT` | `craftingtable` | The systemd user unit to drain, restart and check. |
 | `XDG_DATA_HOME` | `~/.local/share` | Base of the default deploy root and data directory. |
 

@@ -56,12 +56,11 @@ typed commands, never commands to run.
 ## Authentication and sessions
 
 - There is no registration route: the first account comes from `admin bootstrap`, an interactive
-  command that refuses a password on its command line. Passwords are stored as Argon2id hashes; a
-  password change in the browser takes 12 to 1024 UTF-8 bytes, while `admin bootstrap` and
-  `admin reset-password` check only the 1024-byte bound (a defect recorded on R-I7). Session
-  tokens are 32 random bytes, kept only as SHA-256 digests, and each session has its own CSRF
-  token. The session cookie is `HttpOnly`, `SameSite=Strict`, and `Secure` whenever the
-  public origin is HTTPS.
+  command that refuses a password on its command line. Passwords are 12 to 1024 UTF-8 bytes,
+  whether set in the browser or by `admin bootstrap` and `admin reset-password` (the hasher
+  refuses any other length), and are stored as Argon2id hashes. Session tokens are 32 random
+  bytes, kept only as SHA-256 digests, and each session has its own CSRF token. The session
+  cookie is `HttpOnly`, `SameSite=Strict`, and `Secure` whenever the public origin is HTTPS.
 - A session ends after its lifetime (30 days by default, `CRAFTINGTABLE_SESSION_LIFETIME_SECONDS`)
   or after 24 hours with no request (`CRAFTINGTABLE_SESSION_IDLE_SECONDS`). Event streams check
   the session on every iteration without counting as use; a tab left hidden reads nothing, so it

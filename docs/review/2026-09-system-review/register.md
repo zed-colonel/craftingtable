@@ -5031,18 +5031,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       resumes, ADR-066); "an open tab keeps its session" (a hidden tab reads nothing, and streams do
       not count as use); "every spawn … a detached process group" (pinned Cargo's and the native
       probes' synchronous calls are not); every agent's TMPDIR in `<data>/t` (only a sandboxed
-      Claude process's); and "reaching nothing but loopback" (restated as the settings say it). Also
-      corrected: a password is 12 to 1,024 bytes only through the browser (see the defects).
+      Claude process's); and "reaching nothing but loopback" (restated as the settings say it).
     - *Code defects found, not fixed (recorded here; each needs a decision before code changes):*
       (1) **MEDIUM: read-only Codex runs have no denied reads.** A decision preparation or a
       question stop's investigation on Codex runs in Codex's `read-only` sandbox with no
       permission profile (`codex/arguments.ts`, `codexSandboxed` excludes `readOnly`; its test
       asserts the legacy sandbox), so its commands can read the daemon's database, backups and
       credentials file and the operator's `~/.ssh`, and the model sees what they print. A read-only
-      Claude run stays sandboxed with the denied reads. In `security.md`'s known limits. (2) LOW:
-      `admin bootstrap` and `admin reset-password` check only the 1,024-byte bound, so an empty
-      password can be set from the CLI (the browser requires 12 bytes, sign-in at least one). (3)
-      LOW: the native environment's fixed version probes inherit the daemon's whole environment
+      Claude run stays sandboxed with the denied reads. In `security.md`'s known limits. (2)
+      *Withdrawn on checking:* "`admin bootstrap` and `admin reset-password` check only the
+      1,024-byte bound". Their prompt does, but both hash with `Argon2PasswordHasher`, which
+      refuses anything outside 12–1,024 bytes before hashing, and `password-reset-service.test.ts`
+      asserts it; the docs say so. (3) LOW: the native environment's fixed version probes inherit the daemon's whole environment
       (`native-environment.ts`), not the named allowlist. (4) LOW: a stale path in
       `sandbox-real.test.ts`'s header comment.
     - *Left for the operator:* whether read-only Codex runs get a read-only profile carrying the
@@ -5081,8 +5081,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       agent TMPDIR in `<data>/t` (only a sandboxed Claude process's); builds in the run's
       `scratch/target` (the worktree's shared target, R-G7); "the three newest pre-migration
       copies" (one); "Shutdown and recovery" killing agents and marking runs interrupted at the next
-      start (a stop drains and the next start resumes); 12–1,024-byte passwords for the CLI reset
-      (only the upper bound is checked); "`pnpm build` once" for Tailscale (the deploy builds); the
+      start (a stop drains and the next start resumes); "`pnpm build` once" for Tailscale (the
+      deploy builds); the
       LAN pointer into the README; "Settings → Pushover notifications" (Settings → Notifications);
       `--status` "prints the drop-in" (only when a stop setting is off); schema-15 history; and the
       schema-11 and -12 restart notes and CLI-version history (dropped).
@@ -5095,7 +5095,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       `deploy-daemon.mjs`), so a daemon serving TLS itself (the direct-LAN route) is rolled back
       after 90 s unless `CRAFTINGTABLE_DEPLOY_HEALTH_URL` is set; the doc gives an untried
       workaround. Noted: `CRAFTINGTABLE_RUN_NAMESPACE` is set for launchers and check units but
-      nothing reads it. (Defect 1, the CLI password bound, is under part 4.)
+      nothing reads it. (Defect 1, the CLI password bound, is under part 4, and was withdrawn.)
   - **README and architecture.md, current with P3.**
     - *README:* 132 lines (161 before; the done-when asks for about 150). The LAN certificate and
       start commands moved to operations.md, the configuration table keeps the five settings an
@@ -5119,6 +5119,30 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       watch (R-G14, R-G5), the agent resolution table (R-E5), and earlier changes it never covered
       (R-C3b, R-C5, R-C12, R-C16, R-G15). The P1 start's untraced "receipt and parent completion
       are atomic" is now traced.
+  - **Operator decisions 2026-10-12, asked while the independent review ran:** (1) read-only Codex
+    runs get the denied reads now, on this branch (part 4's defect 1); (2) fix the deploy defects
+    now (part 5's 2 and 3; part 4's 2 was then withdrawn on checking); (3) correct the Roadmaps
+    page's About text and rename the project cards' "Ready" and "Blocked" counts to the glossary's
+    "Ready for admission" and "Dependency-blocked"; (4) brand the remaining ids now (part 8's
+    question 1). Each is built with a test that fails without it and goes through the review's
+    re-check.
+  - **Fixes from the decisions (2), (3):**
+    - *The Git floor before the database (part 5's defect 2).* `createRuntime` checks the Git
+      version before it opens storage, through the same helper `createServices` uses
+      (`refuseGitBelowFloor`), so a release refused for a Git below 2.43.0 has migrated nothing and
+      the deploy's automatic rollback can restore the previous release. Test: `composition.test.ts`
+      starts a runtime with a fake Git 2.42.0 and finds no database file; it fails without the fix.
+    - *The deploy's health check over HTTPS (part 5's defect 3).* When the unit's environment sets
+      `CRAFTINGTABLE_TLS_CERT`, `healthCheck` asks `https://` and `askHealth` trusts the public roots
+      plus that certificate, verifying the chain and not the name (it asks the unit's own loopback
+      or listening address). Tests in `deploy-daemon.test.mjs`: the address chosen per unit, and
+      real HTTPS servers with self-signed certificates (the unit's is accepted; another one, none,
+      or a missing file is refused) and a plain-HTTP one.
+    - *UI copy (decision 3).* The Roadmaps page's About now says a drained restart resumes by
+      itself and only a crash needs Resume; the project cards count "Ready for admission" and
+      "Dependency-blocked". The glossary drops its one exception, and `planning-labels.ts`'s rule
+      holds again. Tests: `ProjectCards.test.tsx` (new) and `RoadmapsPage.test.tsx` fail on the old
+      text. No walkthrough capture: no page's structure changes, only two labels and a sentence.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

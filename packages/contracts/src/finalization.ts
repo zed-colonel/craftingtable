@@ -75,7 +75,7 @@ export const finalizationStagesSchema = z
           message: `${kind} must end with a whole-plan check across subsystem boundaries.`,
         });
   });
-export const finalizationSettingsSchema = z.strictObject({
+const finalizationSettingsSchema = z.strictObject({
   rounds: z
     .array(
       z.strictObject({ review: profile, polish: profile, instructions: z.string().max(16000) }),

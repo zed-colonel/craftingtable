@@ -80,7 +80,7 @@ export const designReportSchema = z.strictObject({
     )
     .max(40),
 });
-export type DesignReport = z.infer<typeof designReportSchema>;
+type DesignReport = z.infer<typeof designReportSchema>;
 export function parseDesignReport(
   text: string,
 ):

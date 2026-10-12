@@ -8,7 +8,7 @@ import type {
   WorktreeId,
 } from './ids.js';
 import type { CompletionPolicy, WorkCycle } from './work-cycle.js';
-export interface FinalizationRound {
+interface FinalizationRound {
   readonly review: AgentProfile;
   readonly polish: AgentProfile;
   readonly instructions: string;

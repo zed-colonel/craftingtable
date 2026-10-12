@@ -7,11 +7,11 @@ import { sourceRepositoryIdSchema, userIdSchema, workspaceIdSchema } from './ids
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const name = z.string().trim().min(1).max(200);
 const text = z.string().trim().min(1).max(16000);
-export const evidenceSubjectSchema = z.strictObject({
+const evidenceSubjectSchema = z.strictObject({
   kind: z.enum(['checkpoint', 'slice', 'parent']),
   sourceId: name,
 });
-export const qualificationEnvironmentSchema = z.strictObject({
+const qualificationEnvironmentSchema = z.strictObject({
   id: name,
   kind: z.enum(['local-development', 'external-native', 'external-kata']),
   identityDigest: digest,
@@ -27,7 +27,7 @@ export const qualificationEnvironmentSchema = z.strictObject({
     })
     .optional(),
 });
-export const cratePinSchema = z.strictObject({
+const cratePinSchema = z.strictObject({
   version: name.optional(),
   name: z
     .string()
@@ -151,7 +151,7 @@ export const evidenceDecisionRequestSchema = z.strictObject({
   rationale: text,
   checkpointReviewRoles: z.array(name).min(1).max(20).optional(),
 });
-export const candidateCheckpointSchema = z.strictObject({
+const candidateCheckpointSchema = z.strictObject({
   kind: z.literal('reviewed-candidate-v1'),
   delegatedReview: z
     .strictObject({
@@ -176,8 +176,8 @@ export const prepareCheckpointRequestSchema = z.strictObject({
   checkpointId: name,
   snapshotDigest: digest,
 });
-export const planAcceptanceInputSchema = z.enum(PLAN_ACCEPTANCE_INPUTS);
-export const generatedPlanEvidenceSchema = z.discriminatedUnion('kind', [
+const planAcceptanceInputSchema = z.enum(PLAN_ACCEPTANCE_INPUTS);
+const generatedPlanEvidenceSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('saved-plan-v1'),
     roadmapId: z.uuid(),
@@ -198,7 +198,7 @@ export const generatePlanEvidenceRequestSchema = z.strictObject({
   definitionRevision: z.number().int().positive(),
   snapshotDigest: digest,
 });
-export const architectureDecisionInputSchema = z.strictObject({
+const architectureDecisionInputSchema = z.strictObject({
   coverage: z.enum(['full', 'clauses']),
   proposal: text,
   sourceReferences: z.string().trim().min(1).max(65536),
@@ -225,7 +225,7 @@ export const proposeArchitectureDecisionSchema = architectureDecisionInputSchema
     'A report digest requires its source run.',
   );
 export type ProposeArchitectureDecision = z.infer<typeof proposeArchitectureDecisionSchema>;
-export const architectureDecisionSchema = architectureDecisionInputSchema.extend({
+const architectureDecisionSchema = architectureDecisionInputSchema.extend({
   kind: z.literal('architecture-decision-v1'),
   bindingDigest: digest,
 });
@@ -274,7 +274,6 @@ export const evidenceSubmissionSummarySchema = z.strictObject({
     .pick({ kind: true, coverage: true, consumers: true, bindingDigest: true })
     .optional(),
 });
-export type EvidenceSubmissionSummary = z.infer<typeof evidenceSubmissionSummarySchema>;
 export type EvidenceSubmissionRecord = z.infer<typeof evidenceSubmissionSchema>;
 export const evidenceDecisionSchema = z.strictObject({
   checkpointReviewRoles: z.array(name).readonly().optional(),
@@ -395,7 +394,7 @@ export const nativeApprovalSchema = z.strictObject({
   createdByUserId: userIdSchema,
 });
 /** ADR-069: the consumer slice whose merge moves one consumer→upstream link to the current pin. */
-export const upstreamTransitionSchema = z.strictObject({
+const upstreamTransitionSchema = z.strictObject({
   consumer: name,
   upstream: name,
   slice: name,
@@ -415,7 +414,7 @@ export const upstreamTransitionRequestSchema = z.strictObject({
   rationale: text,
 });
 export type UpstreamTransitionRequest = z.infer<typeof upstreamTransitionRequestSchema>;
-export const runtimePinStatusSchema = z.strictObject({
+const runtimePinStatusSchema = z.strictObject({
   alias: name,
   ref: name,
   savedCommitSha: name,
@@ -464,7 +463,7 @@ export type ApplyRuntimeRefresh = z.infer<typeof applyRuntimeRefreshSchema>;
  * What the controller cannot automate on a map (R-F2 part 5), as `mapCapabilities` types it:
  * each gap names the fields or ids at fault, and a reader branches on `code`.
  */
-export const mapCapabilityGapSchema = equivalentSchema<MapCapabilityGap>()(
+const mapCapabilityGapSchema = equivalentSchema<MapCapabilityGap>()(
   z.discriminatedUnion('code', [
     z.strictObject({
       code: z.literal('plan-checkpoint-ambiguous'),

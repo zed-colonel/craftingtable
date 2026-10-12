@@ -26,7 +26,7 @@ export const MODEL_ALIAS_SECTION = 'alias';
  * has been read), or the operator's `CRAFTINGTABLE_{CLAUDE,CODEX}_MODELS`, which replaces it.
  */
 export const MODEL_CATALOG_SOURCES = ['catalog', 'fallback', 'environment'] as const;
-export type ModelCatalogSource = (typeof MODEL_CATALOG_SOURCES)[number];
+type ModelCatalogSource = (typeof MODEL_CATALOG_SOURCES)[number];
 
 /** Why the last look at a CLI's catalog did not give a full list. */
 export const MODEL_CATALOG_ISSUES = [
@@ -54,7 +54,7 @@ export interface ModelCatalogStatus {
   readonly issue?: ModelCatalogIssue;
 }
 
-export type ModelSpelling =
+type ModelSpelling =
   /** The text is a listed id, hidden or not. */
   | { readonly kind: 'listed' }
   /** Another spelling of a listed id, or an entry's display name: `id` is what to send. */

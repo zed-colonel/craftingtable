@@ -41,7 +41,7 @@ export const agentSelectionsSchema = z.strictObject({
   ...specialistSelectionsShape,
 });
 /** Where an effective selection came from (R-E5a): its layer and the slot or record in it. */
-export const agentSelectionSourceSchema = z.strictObject({
+const agentSelectionSourceSchema = z.strictObject({
   layer: z.enum(AGENT_SELECTION_LAYERS),
   slot: z.enum(AGENT_PROFILE_PURPOSES).optional(),
   assignmentId: z.string().min(1).max(200).optional(),
@@ -81,7 +81,7 @@ export const effectiveAgentsSchema = equivalentSchema<
  * hand-off form starts from, with its source. The run's role decides the target: a design hands
  * to implementation, an implementation to review, a review to remediation (an implement run).
  */
-export const runHandoffSchema = z.strictObject({
+const runHandoffSchema = z.strictObject({
   role: z.enum(['implement', 'review']),
   agent: effectiveAgentSchema,
 });

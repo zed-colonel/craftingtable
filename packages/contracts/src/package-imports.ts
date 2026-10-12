@@ -69,7 +69,7 @@ export const archivePlanImportResponseSchema = z.strictObject({
   plan: planImportResponseSchema.optional(),
 });
 export const concurrencyImportResponseSchema = z.strictObject({ attempt: archiveAttemptSchema });
-export const concurrencySummarySchema = z.strictObject({
+const concurrencySummarySchema = z.strictObject({
   id: z.uuid(),
   mapId: id,
   revision: id,
@@ -186,4 +186,3 @@ export type ConcurrencyDetail = z.infer<typeof concurrencyDetailSchema>;
 export type ConcurrencyList = z.infer<typeof concurrencyListSchema>;
 export type PlanArchivePreview = z.infer<typeof planArchivePreviewSchema>;
 export type ArchivePlanImportResponse = z.infer<typeof archivePlanImportResponseSchema>;
-export type ConcurrencyImportResponse = z.infer<typeof concurrencyImportResponseSchema>;

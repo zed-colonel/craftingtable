@@ -4,7 +4,7 @@ declare const brand: unique symbol;
  * Branded string identifier. Values with different brands are not assignable
  * to each other even though they are all strings at runtime.
  */
-export type Brand<B extends string> = string & { readonly [brand]: B };
+type Brand<B extends string> = string & { readonly [brand]: B };
 
 export type UserId = Brand<'UserId'>;
 export type SessionId = Brand<'SessionId'>;

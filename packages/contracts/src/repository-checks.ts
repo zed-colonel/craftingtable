@@ -12,10 +12,10 @@ import { equivalentSchema } from './type-equivalence.js';
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 
 /** A check's name: lowercase letters, digits and hyphens. */
-export const checkIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
+const checkIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
 
 /** A path inside the repository: relative, without `..` or empty segments. */
-export const repositoryPathSchema = z
+const repositoryPathSchema = z
   .string()
   .min(1)
   .max(512)
@@ -38,7 +38,7 @@ const argument = z
  * One check as a repository proposes it. Its program is a name on PATH or a repository path;
  * its definition files default to the program when that is a repository path.
  */
-export const proposedCheckSchema = z
+const proposedCheckSchema = z
   .strictObject({
     id: checkIdSchema,
     argv: z.array(argument).min(1).max(64),
@@ -63,7 +63,7 @@ export const checkDeclarationFileSchema = z
     message: 'Each check has its own id',
   });
 
-export const declaredCheckSchema = equivalentSchema<DeclaredCheck>()(
+const declaredCheckSchema = equivalentSchema<DeclaredCheck>()(
   z.strictObject({
     id: checkIdSchema,
     argv: z.array(argument).min(1).max(64),

@@ -113,7 +113,6 @@ export const AWAITING_MERGE_GATES = [
   'controller-wait',
   'scheduling-held',
 ] as const satisfies readonly CycleAttentionCode[];
-export type AwaitingMergeGate = (typeof AWAITING_MERGE_GATES)[number];
 
 /** Stops a roadmap's scheduler declares, on the roadmap or on one entry's hold. */
 export const ROADMAP_ATTENTION = {

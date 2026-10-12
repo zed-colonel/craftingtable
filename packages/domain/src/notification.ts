@@ -1,5 +1,5 @@
 /** Reminder times are measured from the first accepted delivery, not failed attempts. */
-export const REMINDER_MINUTES = [30, 60, 120, 180, 240, 300, 360] as const;
+const REMINDER_MINUTES = [30, 60, 120, 180, 240, 300, 360] as const;
 export interface NotificationPreferences {
   readonly enabled: boolean;
   readonly mergeReady: boolean;

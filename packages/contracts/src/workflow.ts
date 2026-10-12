@@ -26,7 +26,6 @@ export const workflowReportSchema = z.strictObject({
     })
     .optional(),
 });
-export type WorkflowReport = z.infer<typeof workflowReportSchema>;
 export function parseWorkflowReport(text: string) {
   const blocks = [...text.matchAll(/^```craftingtable-workflow\s*\n([\s\S]*?)^```\s*$/gm)];
   if (!blocks.length && !text.includes('```craftingtable-workflow'))

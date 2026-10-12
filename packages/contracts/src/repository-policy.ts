@@ -7,7 +7,7 @@ import {
 } from './ids.js';
 import { gitBranchNameSchema, gitShaSchema } from './execution.js';
 
-export const repositoryFreezeSchema = z.strictObject({
+const repositoryFreezeSchema = z.strictObject({
   branch: gitBranchNameSchema.refine((branch) => !branch.startsWith('-'), 'Use a branch name'),
   commitSha: gitShaSchema.refine(
     (s) => s.length === 40 || s.length === 64,

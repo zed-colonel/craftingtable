@@ -110,7 +110,7 @@ export const attentionItemActionSchema = z.enum(ATTENTION_ITEM_ACTIONS);
 export const attentionResolutionSchema = z.enum(['operator', 'automation', 'superseded']);
 
 /** One open item as the inbox shows it (R-A5). Delivery internals stay on the daemon. */
-export const attentionItemViewSchema = z.strictObject({
+const attentionItemViewSchema = z.strictObject({
   id: z.string().min(1),
   subjectKey: z.string().min(1),
   code: attentionItemCodeSchema,

@@ -48,7 +48,7 @@ export function isPlanArtifactRole(value: unknown): value is PlanArtifactRole {
   return (PLAN_ARTIFACT_ROLES as readonly string[]).includes(value as string);
 }
 
-export const PLAN_IMPORT_OUTCOMES = ['succeeded', 'failed-validation', 'duplicate'] as const;
+const PLAN_IMPORT_OUTCOMES = ['succeeded', 'failed-validation', 'duplicate'] as const;
 export type PlanImportOutcome = (typeof PLAN_IMPORT_OUTCOMES)[number];
 
 export const DIAGNOSTIC_SEVERITIES = ['error', 'warning', 'info'] as const;
@@ -74,7 +74,7 @@ export function isWorkItemRisk(value: unknown): value is WorkItemRisk {
   return (WORK_ITEM_RISKS as readonly string[]).includes(value as string);
 }
 
-export const DEPENDENCY_KINDS = ['required', 'recommended'] as const;
+const DEPENDENCY_KINDS = ['required', 'recommended'] as const;
 export type DependencyKind = (typeof DEPENDENCY_KINDS)[number];
 
 /** Digest format version for the canonical plan-bundle digest (CT-03 §5.6). */

@@ -106,7 +106,7 @@ export interface WorkspaceEventBase {
   readonly schemaVersion: 1;
 }
 
-export interface WorkspaceCreatedEvent extends WorkspaceEventBase {
+interface WorkspaceCreatedEvent extends WorkspaceEventBase {
   readonly kind: 'workspace-created';
   readonly payload: {
     readonly name: string;
@@ -114,7 +114,7 @@ export interface WorkspaceCreatedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface ProjectCreatedEvent extends WorkspaceEventBase {
+interface ProjectCreatedEvent extends WorkspaceEventBase {
   readonly kind: 'project-created';
   readonly payload: {
     readonly projectId: ProjectId;
@@ -122,7 +122,7 @@ export interface ProjectCreatedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface PlanVersionImportedEvent extends WorkspaceEventBase {
+interface PlanVersionImportedEvent extends WorkspaceEventBase {
   readonly kind: 'plan-version-imported';
   readonly payload: {
     readonly projectId: ProjectId;
@@ -135,7 +135,7 @@ export interface PlanVersionImportedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface WorkItemAdmittedEvent extends WorkspaceEventBase {
+interface WorkItemAdmittedEvent extends WorkspaceEventBase {
   readonly kind: 'work-item-admitted';
   readonly payload: {
     readonly projectId: ProjectId;
@@ -145,11 +145,11 @@ export interface WorkItemAdmittedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface WorkItemRemovedFromAgendaEvent extends Omit<WorkItemAdmittedEvent, 'kind'> {
+interface WorkItemRemovedFromAgendaEvent extends Omit<WorkItemAdmittedEvent, 'kind'> {
   readonly kind: 'work-item-removed-from-agenda';
 }
 
-export interface SourceRepositoryRegisteredEvent extends WorkspaceEventBase {
+interface SourceRepositoryRegisteredEvent extends WorkspaceEventBase {
   readonly kind: 'source-repository-registered';
   readonly projectId?: never;
   readonly workItemId?: never;
@@ -162,7 +162,7 @@ export interface SourceRepositoryRegisteredEvent extends WorkspaceEventBase {
   };
 }
 
-export interface WorktreeCreatedEvent extends WorkspaceEventBase {
+interface WorktreeCreatedEvent extends WorkspaceEventBase {
   readonly kind: 'worktree-created';
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
@@ -177,7 +177,7 @@ export interface WorktreeCreatedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface WorktreeRemovedEvent extends WorkspaceEventBase {
+interface WorktreeRemovedEvent extends WorkspaceEventBase {
   readonly kind: 'worktree-removed';
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
@@ -190,7 +190,7 @@ export interface WorktreeRemovedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface AgentRunStartedEvent extends WorkspaceEventBase {
+interface AgentRunStartedEvent extends WorkspaceEventBase {
   readonly kind: 'agent-run-started';
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
@@ -205,7 +205,7 @@ export interface AgentRunStartedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface AgentRunStatusChangedEvent extends WorkspaceEventBase {
+interface AgentRunStatusChangedEvent extends WorkspaceEventBase {
   readonly kind: 'agent-run-status-changed';
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
@@ -219,7 +219,7 @@ export interface AgentRunStatusChangedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface WorkspaceUpdatedEvent extends WorkspaceEventBase {
+interface WorkspaceUpdatedEvent extends WorkspaceEventBase {
   readonly kind: 'workspace-updated';
   readonly projectId?: never;
   readonly workItemId?: never;
@@ -231,7 +231,7 @@ export interface WorkspaceUpdatedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface WorkItemCompletedEvent extends WorkspaceEventBase {
+interface WorkItemCompletedEvent extends WorkspaceEventBase {
   readonly kind: 'work-item-completed';
   readonly projectId: ProjectId;
   readonly workItemId: WorkItemId;
@@ -245,7 +245,7 @@ export interface WorkItemCompletedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface WorktreeMergedEvent extends WorkspaceEventBase {
+interface WorktreeMergedEvent extends WorkspaceEventBase {
   readonly kind: 'worktree-merged';
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
@@ -260,7 +260,7 @@ export interface WorktreeMergedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface WorkCycleChangedEvent extends WorkspaceEventBase {
+interface WorkCycleChangedEvent extends WorkspaceEventBase {
   readonly kind: 'work-cycle-changed';
   readonly projectId: ProjectId;
   readonly workItemId?: WorkItemId;
@@ -274,7 +274,7 @@ export interface WorkCycleChangedEvent extends WorkspaceEventBase {
   };
 }
 
-export interface BranchesChangedEvent extends WorkspaceEventBase {
+interface BranchesChangedEvent extends WorkspaceEventBase {
   readonly kind: 'branches-changed';
   readonly projectId: ProjectId;
   readonly workItemId?: never;
@@ -286,7 +286,7 @@ export interface BranchesChangedEvent extends WorkspaceEventBase {
 }
 
 /** The workspace's open attention items changed (R-A5): items opened or resolved. */
-export interface AttentionChangedEvent extends WorkspaceEventBase {
+interface AttentionChangedEvent extends WorkspaceEventBase {
   readonly kind: 'attention-changed';
   readonly projectId?: never;
   readonly workItemId?: never;
@@ -294,7 +294,7 @@ export interface AttentionChangedEvent extends WorkspaceEventBase {
   readonly payload: { readonly open: number };
 }
 
-export interface NotificationsChangedEvent extends WorkspaceEventBase {
+interface NotificationsChangedEvent extends WorkspaceEventBase {
   readonly kind: 'notifications-changed';
   readonly projectId?: never;
   readonly workItemId?: never;
@@ -302,7 +302,7 @@ export interface NotificationsChangedEvent extends WorkspaceEventBase {
   readonly payload: { readonly action: 'settings' | 'attention' | 'delivery' | 'test' };
 }
 
-export interface RoadmapChangedEvent extends WorkspaceEventBase {
+interface RoadmapChangedEvent extends WorkspaceEventBase {
   readonly kind: 'roadmap-changed';
   readonly projectId?: never;
   readonly workItemId?: never;
@@ -313,7 +313,7 @@ export interface RoadmapChangedEvent extends WorkspaceEventBase {
     readonly reason: string;
   };
 }
-export interface ScopeEvidenceRecordedEvent extends WorkspaceEventBase {
+interface ScopeEvidenceRecordedEvent extends WorkspaceEventBase {
   readonly kind: 'scope-evidence-recorded';
   readonly projectId?: never;
   readonly workItemId?: never;
@@ -325,13 +325,12 @@ export interface ScopeEvidenceRecordedEvent extends WorkspaceEventBase {
     readonly parentAccepted: boolean;
   };
 }
-export interface ScopeSchedulingAuthorizedEvent
+interface ScopeSchedulingAuthorizedEvent
   extends Omit<ScopeEvidenceRecordedEvent, 'kind' | 'payload'> {
   readonly kind: 'scope-scheduling-authorized';
   readonly payload: { readonly workItemId: WorkItemId; readonly sourceId: string };
 }
-export interface RuntimeEvidenceChangedEvent
-  extends Omit<ScopeEvidenceRecordedEvent, 'kind' | 'payload'> {
+interface RuntimeEvidenceChangedEvent extends Omit<ScopeEvidenceRecordedEvent, 'kind' | 'payload'> {
   readonly kind: 'runtime-evidence-changed';
   readonly payload: { readonly definitionId: string; readonly message: string };
 }

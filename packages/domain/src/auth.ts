@@ -1,10 +1,10 @@
 import type { SessionId, UserId } from './ids.js';
 
 export const USER_STATUSES = ['active', 'disabled'] as const;
-export type UserStatus = (typeof USER_STATUSES)[number];
+type UserStatus = (typeof USER_STATUSES)[number];
 
 export const SESSION_STATUSES = ['active', 'revoked'] as const;
-export type SessionStatus = (typeof SESSION_STATUSES)[number];
+type SessionStatus = (typeof SESSION_STATUSES)[number];
 
 export interface User {
   readonly id: UserId;

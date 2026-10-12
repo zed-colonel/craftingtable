@@ -4978,6 +4978,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     are in `archive/`" still overstated it: superseded ADRs stay in `docs/decisions/`, marked by
     status, as part 1 keeps them. Part 3 changes the read order's `docs/ui-principles.md` line and
     the walkthrough paragraph's reference to it, as the operator asked for that part.
+  - **Part 8, the remaining DATA-15 and AGT-17 drift.**
+    - *Exports (DATA-15).* Of the domain, contracts and storage symbols exported with no consumer
+      outside their own file (243 by a crude scan; 54 of those are used by the storage repositories,
+      which the scan had taken for barrels), 189 lose `export` after a whole-repository search (tests
+      and scripts count as consumers, `export *` does not); 27 of them were then used nowhere and are
+      deleted (unused request and response type aliases, `workspaceMembershipIdSchema`,
+      `planImportDiagnosticIdSchema`, `isAuditAction`, `SchemaOutput`, …). Six stay exported because a
+      server function's inferred return type names them, which declaration emit needs. No runtime,
+      wire or persisted shape changes. Checked: `pnpm typecheck`, lint, format, `check:scope`, and the
+      full `pnpm test` (373 files, 3,119 tests, the gate's count at 9f2164a).
 
 ### R-I8
 

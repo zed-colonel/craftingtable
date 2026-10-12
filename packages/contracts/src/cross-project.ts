@@ -12,7 +12,7 @@ const automation = z.strictObject({
   integrationConflicts: z.enum(['manual', 'automatic']),
   resolutionProfile: agentProfileSchema.optional(),
 });
-export const mapSettingsSchema = z.strictObject({
+const mapSettingsSchema = z.strictObject({
   reviewerRoles: z
     .array(z.string().min(1).max(200))
     .max(50)
@@ -28,7 +28,7 @@ export const mapSettingsSchema = z.strictObject({
  * instead of its profile. The daemon keeps a saved level's agents and gives a new level the
  * workspace defaults; agents are changed by ADR-064 assignments.
  */
-export const mapSettingsInputSchema = mapSettingsSchema
+const mapSettingsInputSchema = mapSettingsSchema
   .omit({ profiles: true })
   .extend({ permissions: stepPermissionsSchema });
 const configurationOf = <S extends typeof mapSettingsSchema | typeof mapSettingsInputSchema>(
@@ -58,8 +58,7 @@ const configurationOf = <S extends typeof mapSettingsSchema | typeof mapSettings
 /** A map roadmap's settings as its definition stores them. */
 export const crossProjectConfigurationSchema = configurationOf(mapSettingsSchema);
 /** The same settings as the save request sends them: permissions, not profiles (R-E5b). */
-export const crossProjectConfigurationInputSchema = configurationOf(mapSettingsInputSchema);
-export type CrossProjectConfigurationInput = z.infer<typeof crossProjectConfigurationInputSchema>;
+const crossProjectConfigurationInputSchema = configurationOf(mapSettingsInputSchema);
 export const mapSelectionSchema = crossProjectConfigurationSchema.pick({
   definitionId: true,
   bindingRevision: true,
@@ -83,7 +82,7 @@ export const saveCrossProjectSchema = z.strictObject({
     maxIntegrationRefreshes: z.number().int().min(1).max(20),
   }),
 });
-export const mapNodeSchema = z.strictObject({
+const mapNodeSchema = z.strictObject({
   key: z.string(),
   kind: z.enum(['slice', 'work_item', 'checkpoint']),
   sourceId: z.string(),

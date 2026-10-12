@@ -67,7 +67,7 @@ export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 );
 
 /** A model a backend offers, as its CLI's catalog names it (R-G15). */
-export const agentModelSchema = z.strictObject({
+const agentModelSchema = z.strictObject({
   id: z.string().min(1).max(100),
   label: z.string().min(1).max(100),
   section: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/),
@@ -75,7 +75,7 @@ export const agentModelSchema = z.strictObject({
 });
 
 /** Where a backend's models came from, and how the last look at its catalog went (R-G15). */
-export const modelCatalogStatusSchema = z.strictObject({
+const modelCatalogStatusSchema = z.strictObject({
   source: z.enum(MODEL_CATALOG_SOURCES),
   listedAt: z.iso.datetime().optional(),
   checkedAt: z.iso.datetime().optional(),
@@ -142,7 +142,7 @@ export const gitBranchNameSchema = z
   .max(255)
   .refine(hasNoControls, { message: 'must not contain C0 or DEL controls' });
 
-export const sourceRepositorySummarySchema = z.strictObject({
+const sourceRepositorySummarySchema = z.strictObject({
   id: sourceRepositoryIdSchema,
   workspaceId: workspaceIdSchema,
   displayName: sourceRepositoryDisplayNameSchema,
@@ -238,7 +238,7 @@ export const createWorktreeResponseSchema = z.strictObject({
   worktree: worktreeSummarySchema,
 });
 
-export const removeWorktreeRequestSchema = z.strictObject({
+const removeWorktreeRequestSchema = z.strictObject({
   /**
    * Remove even though the worktree has uncommitted or untracked changes,
    * discarding them. Without it a dirty worktree is refused with its paths.
@@ -274,7 +274,7 @@ export const mergeWorktreeRequestSchema = z.strictObject({
  * Why a worktree can or cannot be merged right now. Computed by the daemon
  * from the worktree's runs; the browser only renders it.
  */
-export const mergeGateSchema = z.strictObject({
+const mergeGateSchema = z.strictObject({
   mergeable: z.boolean(),
   reason: z.enum([
     'ready',
@@ -311,7 +311,7 @@ export const mergeWorktreeResponseSchema = z.strictObject({
   workItemCompleted: z.boolean(),
 });
 
-export const diffFileStatusSchema = z.enum([
+const diffFileStatusSchema = z.enum([
   'added',
   'modified',
   'deleted',
@@ -323,7 +323,7 @@ export const diffFileStatusSchema = z.enum([
   'unknown',
 ]);
 
-export const worktreeDiffFileSchema = z.strictObject({
+const worktreeDiffFileSchema = z.strictObject({
   path: boundedUtf8(4096).min(1),
   previousPath: boundedUtf8(4096).min(1).optional(),
   status: diffFileStatusSchema,
@@ -400,7 +400,7 @@ export const agentRunSummarySchema = z
     message: 'Execution must have exactly one work-item or plan-version subject',
   });
 
-export const runOutcomeSchema = z.strictObject({
+const runOutcomeSchema = z.strictObject({
   providerFailure: providerFailureSchema.optional(),
   sequence: nonNegativeSafeInteger,
   occurredAt: z.iso.datetime(),
@@ -476,7 +476,7 @@ export const startAgentRunResponseSchema = z.strictObject({
   run: agentRunSummarySchema,
 });
 
-export const sendAgentRunMessageRequestSchema = z.strictObject({
+const sendAgentRunMessageRequestSchema = z.strictObject({
   text: boundedUtf8(50000).min(1),
 });
 
@@ -495,7 +495,7 @@ export const workItemExecutionResponseSchema = z.strictObject({
 });
 
 /** A run with enough context to be listed outside its work item. */
-export const runOverviewSchema = agentRunSummarySchema.safeExtend({
+const runOverviewSchema = agentRunSummarySchema.safeExtend({
   workItemSourceId: z.string().min(1).max(64),
   workItemTitle: z.string().min(1).max(300),
   projectName: z.string().min(1).max(120),
@@ -648,7 +648,6 @@ export type RepositoryBranchesResponse = z.infer<typeof repositoryBranchesRespon
 export type MergeWorktreeResponse = z.infer<typeof mergeWorktreeResponseSchema>;
 export type RunOverview = z.infer<typeof runOverviewSchema>;
 export type WorkspaceRunsResponse = z.infer<typeof workspaceRunsResponseSchema>;
-export type WorktreeDiffFile = z.infer<typeof worktreeDiffFileSchema>;
 export type WorktreeDiffResponse = z.infer<typeof worktreeDiffResponseSchema>;
 export type DiffFileStatus = z.infer<typeof diffFileStatusSchema>;
 export type AgentRunSummary = z.infer<typeof agentRunSummarySchema>;
@@ -658,9 +657,7 @@ export type RunProfilesResponse = z.infer<typeof runProfilesResponseSchema>;
 export type SaveRunProfilesRequest = z.infer<typeof saveRunProfilesRequestSchema>;
 export type StartAgentRunRequest = z.infer<typeof startAgentRunRequestSchema>;
 export type StartAgentRunResponse = z.infer<typeof startAgentRunResponseSchema>;
-export type SendAgentRunMessageRequest = z.infer<typeof sendAgentRunMessageRequestSchema>;
 export type AgentRunCommandResponse = z.infer<typeof agentRunCommandResponseSchema>;
-export type WorkItemExecutionResponse = z.infer<typeof workItemExecutionResponseSchema>;
 export type RunEventEnvelope = z.infer<typeof runEventEnvelopeSchema>;
 export type RunEventPageResponse = z.infer<typeof runEventPageResponseSchema>;
 
@@ -700,11 +697,11 @@ export const worktreeBranchStatusResponseSchema = z.strictObject({
   reviewCurrent: z.boolean(),
   issues: z.array(z.string()).max(1000),
 });
-export const retargetWorktreeRequestSchema = z.strictObject({
+const retargetWorktreeRequestSchema = z.strictObject({
   integrationBranch: gitBranchNameSchema,
   expectedVersion: positiveSafeInteger,
 });
-export const updateWorktreeRequestSchema = z.strictObject({
+const updateWorktreeRequestSchema = z.strictObject({
   expectedVersion: positiveSafeInteger,
 });
 export type PlanBranchSettingsResponse = z.infer<typeof planBranchSettingsResponseSchema>;
@@ -719,7 +716,6 @@ export const agentRunControlRequestSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('end') }),
   z.strictObject({ action: z.literal('cancel') }),
 ]);
-export type AgentRunControlRequest = z.infer<typeof agentRunControlRequestSchema>;
 /**
  * A worktree's manual commands in one route (R-H5, H5-2): retarget it to another integration
  * branch, update it from its integration branch, or remove it. A merge is a decision and keeps
@@ -730,4 +726,3 @@ export const worktreeControlRequestSchema = z.discriminatedUnion('action', [
   updateWorktreeRequestSchema.extend({ action: z.literal('update') }),
   removeWorktreeRequestSchema.extend({ action: z.literal('remove') }),
 ]);
-export type WorktreeControlRequest = z.infer<typeof worktreeControlRequestSchema>;

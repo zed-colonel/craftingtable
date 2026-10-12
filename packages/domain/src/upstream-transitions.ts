@@ -23,7 +23,7 @@ export interface UpstreamTransitionRecord {
   readonly createdAt: string;
   readonly createdByUserId: UserId;
 }
-export interface UpstreamTransitionIssue {
+interface UpstreamTransitionIssue {
   readonly code:
     | 'upstream-transition-duplicate'
     | 'upstream-transition-link'

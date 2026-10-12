@@ -1,13 +1,13 @@
 import type { UserId, WorkspaceId, WorkspaceMembershipId } from './ids.js';
 
 export const WORKSPACE_STATUSES = ['active', 'archived'] as const;
-export type WorkspaceStatus = (typeof WORKSPACE_STATUSES)[number];
+type WorkspaceStatus = (typeof WORKSPACE_STATUSES)[number];
 
 export const WORKSPACE_ROLES = ['owner', 'editor', 'viewer'] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
 export const MEMBERSHIP_STATUSES = ['active', 'revoked'] as const;
-export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
+type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
 
 export interface Workspace {
   readonly id: WorkspaceId;

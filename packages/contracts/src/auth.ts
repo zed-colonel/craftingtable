@@ -2,7 +2,7 @@ import { SESSION_STATUSES, USER_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
 import { sessionIdSchema, userIdSchema } from './ids.js';
 
-export const apiErrorCodeSchema = z.enum([
+const apiErrorCodeSchema = z.enum([
   'invalid-request',
   'invalid-credentials',
   'unauthenticated',
@@ -16,7 +16,7 @@ export const apiErrorCodeSchema = z.enum([
 ]);
 
 /** Machine-readable refinements of an error code that the browser can act on. */
-export const apiErrorReasonSchema = z.enum([
+const apiErrorReasonSchema = z.enum([
   /** A worktree removal was refused because it would discard uncommitted work. */
   'worktree-has-changes',
   /**
@@ -59,13 +59,13 @@ export const loginRequestSchema = z.strictObject({
   password: z.string().min(1).max(1024),
 });
 
-export const authenticatedUserSchema = z.strictObject({
+const authenticatedUserSchema = z.strictObject({
   id: userIdSchema,
   username: z.string().min(1).max(64),
   status: z.enum(USER_STATUSES),
 });
 
-export const sessionSummarySchema = z.strictObject({
+const sessionSummarySchema = z.strictObject({
   id: sessionIdSchema,
   createdAt: z.iso.datetime(),
   lastSeenAt: z.iso.datetime(),
@@ -123,8 +123,4 @@ export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type AuthenticatedSessionResponse = z.infer<typeof authenticatedSessionResponseSchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionListResponse = z.infer<typeof sessionListResponseSchema>;
-export type LogoutRequest = z.infer<typeof logoutRequestSchema>;
-export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
 export type ChangePasswordResponse = z.infer<typeof changePasswordResponseSchema>;
-export type RevokeSessionRequest = z.infer<typeof revokeSessionRequestSchema>;
-export type RevokeSessionResponse = z.infer<typeof revokeSessionResponseSchema>;

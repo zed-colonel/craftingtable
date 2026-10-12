@@ -54,10 +54,10 @@ export const V03_VOCABULARY = {
 } as const;
 
 /** How the daemon runs a resource it manages. */
-export type ResourceAdapter = 'development-workspace' | 'native-test-host';
+type ResourceAdapter = 'development-workspace' | 'native-test-host';
 
 /** A plan-acceptance contract field that differs from the attested one. */
-export type PlanContractField =
+type PlanContractField =
   | 'requires'
   | 'evidence_profile'
   | 'required_evidence'
@@ -65,14 +65,14 @@ export type PlanContractField =
   | 'reviewer_roles'
   | 'acceptance_coverage';
 /** A decision-review contract field that differs from the known one. */
-export type DecisionContractField =
+type DecisionContractField =
   | 'evidence_profile'
   | 'independence_required'
   | 'required_evidence'
   | 'reviewer_roles'
   | 'acceptance_coverage';
 /** A resource profile field that keeps its adapter from running it. */
-export type ResourceProfileField =
+type ResourceProfileField =
   | 'resource_profile'
   | 'requires_hardware_virtualization'
   | 'fixture_authorization_required';
@@ -117,7 +117,7 @@ export type MapCapabilityGap =
       readonly fields: readonly ResourceProfileField[];
     };
 
-export interface MapResourceCapability {
+interface MapResourceCapability {
   readonly resourceId: string;
   /** The adapter for this id, whatever the profile declares. */
   readonly adapter?: ResourceAdapter;

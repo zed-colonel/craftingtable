@@ -112,7 +112,7 @@ export const acceptAnyRecord: RecordGuard = () => {};
  * Brings one historical shape forward. `applies` recognises the old shape; `upcast`
  * returns the current one without mutating its input.
  */
-export interface RecordUpcaster {
+interface RecordUpcaster {
   /** Names the historical shape, for `db:verify`'s report. */
   readonly name: string;
   readonly applies: (record: Readonly<Record<string, unknown>>) => boolean;
@@ -296,7 +296,7 @@ export function readWritten<T>(read: () => T): T {
 }
 
 /** Told of each stored document a read decodes: its kind, its size and what it became. */
-export type DecodeObserver = (kind: PersistedRecordKind, bytes: number, record: unknown) => void;
+type DecodeObserver = (kind: PersistedRecordKind, bytes: number, record: unknown) => void;
 
 let decodes: DecodeObserver | undefined;
 

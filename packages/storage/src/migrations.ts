@@ -18,10 +18,7 @@ interface AppliedMigrationRow {
   readonly checksum: string;
 }
 
-export type MigrationValidationFailure =
-  | 'unsupported-version'
-  | 'name-mismatch'
-  | 'checksum-mismatch';
+type MigrationValidationFailure = 'unsupported-version' | 'name-mismatch' | 'checksum-mismatch';
 
 export class MigrationValidationError extends Error {
   constructor(
@@ -203,7 +200,7 @@ export function runMigrations(
  * database, credentials' former home included, so fewer copies are fewer to protect.
  */
 export const PRE_MIGRATION_SNAPSHOTS_KEPT = 1;
-export const PRE_MIGRATION_SNAPSHOT_DAYS = 14;
+const PRE_MIGRATION_SNAPSHOT_DAYS = 14;
 const SNAPSHOT_FILE = /^craftingtable-schema-\d+-[0-9TZ-]+\.sqlite$/;
 
 /** When a snapshot was taken, from its name (`…-2026-09-23T12-00-00-000Z.sqlite`). */

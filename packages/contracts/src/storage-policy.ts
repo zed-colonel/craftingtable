@@ -24,7 +24,7 @@ export const saveStorageRequestSchema = z.strictObject({
   policy: storagePolicySchema,
 });
 export type SaveStorageRequest = z.infer<typeof saveStorageRequestSchema>;
-export const cleanupStorageRequestSchema = z.strictObject({ scanId: z.string().uuid() });
+const cleanupStorageRequestSchema = z.strictObject({ scanId: z.string().uuid() });
 const volumeSchema = z.strictObject({
   label: z.string(),
   path: z.string(),

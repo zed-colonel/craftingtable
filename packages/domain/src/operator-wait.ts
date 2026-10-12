@@ -20,14 +20,14 @@ export interface CycleTransitionRecord {
   readonly attention?: { readonly code: CycleAttentionCode; readonly owner: AttentionOwner };
 }
 
-export interface AgentActivityInterval {
+interface AgentActivityInterval {
   readonly startedAt: string;
   /** Absent while the run is live. */
   readonly endedAt?: string;
 }
 
 /** `paused` is the operator's own pause; every other kind is an attention code. */
-export type OperatorWaitKind = CycleAttentionCode | 'paused';
+type OperatorWaitKind = CycleAttentionCode | 'paused';
 
 export interface OperatorWaitReport {
   readonly from: string;

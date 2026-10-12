@@ -113,7 +113,7 @@ export type AppendWorkspaceEventInput<K extends WorkspaceEventKind = WorkspaceEv
     ? Omit<Extract<WorkspaceEvent, { readonly kind: K }>, 'sequence' | 'schemaVersion'>
     : never;
 
-export type WorkspaceEventAppendFailure = 'payload-correlation-mismatch';
+type WorkspaceEventAppendFailure = 'payload-correlation-mismatch';
 
 export class WorkspaceEventAppendError extends Error {
   constructor(
@@ -125,7 +125,7 @@ export class WorkspaceEventAppendError extends Error {
   }
 }
 
-export type WorkspaceEventMappingFailure =
+type WorkspaceEventMappingFailure =
   | 'unknown-kind'
   | 'invalid-json'
   | 'invalid-structural-correlations'

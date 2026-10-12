@@ -31,7 +31,7 @@ export const phaseBlockerSchema = z.strictObject({
     })
     .optional(),
 });
-export const phaseReservationSchema = z.strictObject({
+const phaseReservationSchema = z.strictObject({
   id: z.string(),
   workspaceId: z.string(),
   worktreeId: z.string(),
@@ -44,7 +44,7 @@ export const phaseReservationSchema = z.strictObject({
 export const authorizeScopeSchedulingRequestSchema = z.strictObject({
   scope: executionScopeSchema,
 });
-export const executionScopeChoiceSchema = z.strictObject({
+const executionScopeChoiceSchema = z.strictObject({
   scope: executionScopeSchema,
   repositoryId: z.uuid().optional(),
   title: z.string(),

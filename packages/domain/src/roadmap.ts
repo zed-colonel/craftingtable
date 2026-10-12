@@ -28,7 +28,7 @@ export const DEFAULT_ROADMAP_AUTOMATION: RoadmapAutomation = {
   integrationMerge: 'manual',
   integrationConflicts: 'manual',
 };
-export interface RoadmapScheduling {
+interface RoadmapScheduling {
   readonly mode: 'sequential' | 'parallel';
   readonly maxInFlight: number;
   readonly maxPerRepository: number;

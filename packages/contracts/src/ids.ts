@@ -7,7 +7,6 @@ import {
   type PlanArtifactId,
   type PlanBundleId,
   type PlanImportAttemptId,
-  type PlanImportDiagnosticId,
   type PlanVersionId,
   type ProjectId,
   type SessionId,
@@ -15,7 +14,6 @@ import {
   type UserId,
   type WorkItemId,
   type WorkspaceId,
-  type WorkspaceMembershipId,
   type WorktreeId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
@@ -29,7 +27,6 @@ function idSchema<T extends string>(label: string) {
 export const userIdSchema = idSchema<UserId>('userId');
 export const sessionIdSchema = idSchema<SessionId>('sessionId');
 export const workspaceIdSchema = idSchema<WorkspaceId>('workspaceId');
-export const workspaceMembershipIdSchema = idSchema<WorkspaceMembershipId>('workspaceMembershipId');
 export const auditEventIdSchema = idSchema<AuditEventId>('auditEventId');
 export const projectIdSchema = idSchema<ProjectId>('projectId');
 export const workItemIdSchema = idSchema<WorkItemId>('workItemId');
@@ -39,8 +36,6 @@ export const planBundleIdSchema = idSchema<PlanBundleId>('planBundleId');
 export const planVersionIdSchema = idSchema<PlanVersionId>('planVersionId');
 export const planImportAttemptIdSchema = idSchema<PlanImportAttemptId>('planImportAttemptId');
 export const planArtifactIdSchema = idSchema<PlanArtifactId>('planArtifactId');
-export const planImportDiagnosticIdSchema =
-  idSchema<PlanImportDiagnosticId>('planImportDiagnosticId');
 export const sourceRepositoryIdSchema = idSchema<SourceRepositoryId>('sourceRepositoryId');
 export const worktreeIdSchema = idSchema<WorktreeId>('worktreeId');
 export const agentRunEventIdSchema = idSchema<AgentRunEventId>('agentRunEventId');

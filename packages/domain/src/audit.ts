@@ -163,10 +163,6 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   >
 >;
 
-export function isAuditAction(value: unknown): value is AuditAction {
-  return (AUDIT_ACTIONS as readonly string[]).includes(value as string);
-}
-
 export type JsonValue =
   | null
   | boolean

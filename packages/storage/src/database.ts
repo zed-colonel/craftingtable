@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 
-export interface DatabasePragmas {
+interface DatabasePragmas {
   readonly journalMode: string;
   readonly foreignKeys: number;
   readonly synchronous: number;

@@ -1,6 +1,6 @@
 import type { ConcurrencySource, ConcurrencyRequirement } from './concurrency-source.js';
 export const milestoneKey = (r: ConcurrencyRequirement): string => `${r.kind}:${r.id}:${r.state}`;
-export interface ConcurrencyMilestone {
+interface ConcurrencyMilestone {
   readonly key: string;
   readonly requirement: ConcurrencyRequirement;
   readonly repository: string;

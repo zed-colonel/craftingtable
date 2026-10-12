@@ -25,11 +25,11 @@ export const investigationFindingSchema = z
         message: 'An open question requires the reason the evidence does not settle it.',
       });
   });
-export const investigationReportSchema = z.strictObject({
+const investigationReportSchema = z.strictObject({
   version: z.literal(1),
   questions: z.array(investigationFindingSchema).min(1).max(40),
 });
-export type InvestigationReport = z.infer<typeof investigationReportSchema>;
+type InvestigationReport = z.infer<typeof investigationReportSchema>;
 
 export function parseInvestigationReport(
   text: string,

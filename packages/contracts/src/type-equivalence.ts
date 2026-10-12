@@ -18,7 +18,7 @@ export type Plain<T> = T extends string | number | boolean | bigint | symbol | n
 type Identical<A, B> =
   (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2 ? true : false;
 
-export type Equivalent<A, B> = Identical<Plain<A>, Plain<B>>;
+type Equivalent<A, B> = Identical<Plain<A>, Plain<B>>;
 
 type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never;
 type KindOf<T> = T extends { kind: infer K extends string } ? K : never;
@@ -58,10 +58,7 @@ type DriftOf<A, B> =
         : { schema: A; type: B };
 
 /** What differs between a schema's output and a type; shown in the compiler error. */
-export type Drift<A, B> = DriftOf<Plain<A>, Plain<B>>;
-
-/** The value a schema accepts, as TypeScript sees it. */
-export type SchemaOutput<S extends z.ZodType> = z.output<S>;
+type Drift<A, B> = DriftOf<Plain<A>, Plain<B>>;
 
 /**
  * Accepts `schema` only when its output is equivalent to `T`; otherwise the argument type

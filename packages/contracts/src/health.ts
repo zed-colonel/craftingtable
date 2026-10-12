@@ -7,12 +7,10 @@ export const healthResponseSchema = z.object({
   time: z.iso.datetime(),
 });
 
-export type HealthResponse = z.infer<typeof healthResponseSchema>;
-
 const milliseconds = z.number().nonnegative();
 
 /** Delay percentiles of the daemon's event loop over one sampling window. */
-export const eventLoopDelaySummarySchema = z.strictObject({
+const eventLoopDelaySummarySchema = z.strictObject({
   windowMs: milliseconds,
   samples: z.number().int().nonnegative(),
   meanMs: milliseconds,
@@ -23,7 +21,7 @@ export const eventLoopDelaySummarySchema = z.strictObject({
 });
 
 /** Recent cost of one route, over its last bounded set of completed requests. */
-export const routeTimingSummarySchema = z.strictObject({
+const routeTimingSummarySchema = z.strictObject({
   method: z.string().min(1).max(16),
   route: z.string().min(1).max(512),
   count: z.number().int().nonnegative(),

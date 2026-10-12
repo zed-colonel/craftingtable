@@ -23,7 +23,7 @@ import { readRecord } from '../../records.js';
  * records match the exact-optional domain types.
  */
 
-export function parseJson(value: string): JsonValue {
+function parseJson(value: string): JsonValue {
   return JSON.parse(value) as JsonValue;
 }
 

@@ -191,7 +191,7 @@ export interface WorkspaceWorkItemRow extends WorkItemRow {
   readonly projectName: string;
 }
 
-export interface PlanningRiskCounts {
+interface PlanningRiskCounts {
   readonly low: number;
   readonly medium: number;
   readonly high: number;

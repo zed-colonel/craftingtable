@@ -27,7 +27,7 @@ import type { ReviewReportAssessment } from './review.js';
 /* -------------------------------------------------------------------------- */
 
 export const SOURCE_REPOSITORY_STATUSES = ['active', 'retired'] as const;
-export type SourceRepositoryStatus = (typeof SOURCE_REPOSITORY_STATUSES)[number];
+type SourceRepositoryStatus = (typeof SOURCE_REPOSITORY_STATUSES)[number];
 
 export interface SourceRepository {
   readonly id: SourceRepositoryId;
@@ -49,7 +49,7 @@ export interface SourceRepository {
 /* -------------------------------------------------------------------------- */
 
 export const WORKTREE_STATUSES = ['active', 'removed'] as const;
-export type WorktreeStatus = (typeof WORKTREE_STATUSES)[number];
+type WorktreeStatus = (typeof WORKTREE_STATUSES)[number];
 
 export interface PlanBranchSettings {
   readonly manualMergeBranches?: readonly string[];
@@ -283,7 +283,7 @@ export interface AgentRun {
  */
 export const TOOL_RESULT_PREVIEW_BYTES = 4096;
 
-export const AGENT_RUN_EVENT_KINDS = [
+const AGENT_RUN_EVENT_KINDS = [
   'session-started',
   'user-message',
   'assistant-message',
@@ -307,7 +307,7 @@ export const AGENT_NOTICE_CATEGORIES = [
   'task',
   'other',
 ] as const;
-export type AgentNoticeCategory = (typeof AGENT_NOTICE_CATEGORIES)[number];
+type AgentNoticeCategory = (typeof AGENT_NOTICE_CATEGORIES)[number];
 
 /** Journal cursor of a source conversation actually supplied to a child run. */
 export interface RunHandoffSource {

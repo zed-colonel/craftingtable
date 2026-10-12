@@ -93,7 +93,7 @@ export const integrationResolutionRequestSchema = z.strictObject({
   instructions: z.string().max(16000).optional(),
 });
 export type IntegrationResolutionRequest = z.infer<typeof integrationResolutionRequestSchema>;
-export const designRecoverySourceSchema = z.strictObject({
+const designRecoverySourceSchema = z.strictObject({
   planVersionId: planVersionIdSchema,
   artifactId: planArtifactIdSchema.optional(),
   archiveId: z.string().uuid().optional(),
@@ -128,7 +128,7 @@ export const startInvestigationRequestSchema = z.strictObject({
   profile: agentSelectionSchema.optional(),
 });
 export type StartInvestigationRequest = z.infer<typeof startInvestigationRequestSchema>;
-export const endInvestigationRequestSchema = z.strictObject({
+const endInvestigationRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
 });
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -186,14 +186,14 @@ const baselineRefSchema = z
   .max(255)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/)
   .refine((v) => !v.includes('..') && !v.endsWith('/') && !v.endsWith('.lock'));
-export const baselineSourceSchema = z.strictObject({
+const baselineSourceSchema = z.strictObject({
   alias: z.string().min(1).max(100),
   repositoryId: sourceRepositoryIdSchema,
   directoryName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/),
   commitSha: commitShaSchema,
   tag: baselineRefSchema.optional(),
 });
-export const baselinePreparationSchema = z.strictObject({
+const baselinePreparationSchema = z.strictObject({
   id: z.string().uuid(),
   contextDigest: z.string().regex(/^[0-9a-f]{64}$/),
   createdAt: z.iso.datetime(),

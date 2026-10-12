@@ -36,7 +36,7 @@ const workspaceEventBaseSchema = z.strictObject({
 const forbiddenCorrelationSchema = z.never().optional();
 const positiveSafeIntegerSchema = z.number().int().positive().safe();
 
-export const workspaceCreatedEventSchema = workspaceEventBaseSchema.extend({
+const workspaceCreatedEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('workspace-created'),
   payload: z.strictObject({
     name: z.string().min(1).max(120),
@@ -44,7 +44,7 @@ export const workspaceCreatedEventSchema = workspaceEventBaseSchema.extend({
   }),
 });
 
-export const projectCreatedEventSchema = workspaceEventBaseSchema.extend({
+const projectCreatedEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('project-created'),
   payload: z.strictObject({
     projectId: projectIdSchema,
@@ -56,7 +56,7 @@ export const projectCreatedEventSchema = workspaceEventBaseSchema.extend({
  * One summary event per import, never one per imported work item: the
  * authoritative work-item table carries the detail (CT-03 §5.9).
  */
-export const planVersionImportedEventSchema = workspaceEventBaseSchema.extend({
+const planVersionImportedEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('plan-version-imported'),
   payload: z.strictObject({
     projectId: projectIdSchema,
@@ -69,7 +69,7 @@ export const planVersionImportedEventSchema = workspaceEventBaseSchema.extend({
   }),
 });
 
-export const workItemAdmittedEventSchema = workspaceEventBaseSchema.extend({
+const workItemAdmittedEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('work-item-admitted'),
   payload: z.strictObject({
     projectId: projectIdSchema,
@@ -79,12 +79,12 @@ export const workItemAdmittedEventSchema = workspaceEventBaseSchema.extend({
   }),
 });
 
-export const workItemRemovedFromAgendaEventSchema = workItemAdmittedEventSchema.extend({
+const workItemRemovedFromAgendaEventSchema = workItemAdmittedEventSchema.extend({
   kind: z.literal('work-item-removed-from-agenda'),
   payload: workItemAdmittedEventSchema.shape.payload,
 });
 
-export const sourceRepositoryRegisteredEventSchema = workspaceEventBaseSchema.extend({
+const sourceRepositoryRegisteredEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('source-repository-registered'),
   projectId: forbiddenCorrelationSchema,
   workItemId: forbiddenCorrelationSchema,
@@ -116,7 +116,7 @@ const requireWorkItemAgreement = (
   }
 };
 
-export const worktreeCreatedEventSchema = workspaceEventBaseSchema
+const worktreeCreatedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('worktree-created'),
     projectId: projectIdSchema,
@@ -133,7 +133,7 @@ export const worktreeCreatedEventSchema = workspaceEventBaseSchema
   })
   .superRefine(requireWorkItemAgreement);
 
-export const worktreeRemovedEventSchema = workspaceEventBaseSchema
+const worktreeRemovedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('worktree-removed'),
     projectId: projectIdSchema,
@@ -161,7 +161,7 @@ const requireRunAgreement = (
   }
 };
 
-export const agentRunStartedEventSchema = workspaceEventBaseSchema
+const agentRunStartedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('agent-run-started'),
     projectId: projectIdSchema,
@@ -181,7 +181,7 @@ export const agentRunStartedEventSchema = workspaceEventBaseSchema
     requireRunAgreement(event, context);
   });
 
-export const agentRunStatusChangedEventSchema = workspaceEventBaseSchema
+const agentRunStatusChangedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('agent-run-status-changed'),
     projectId: projectIdSchema,
@@ -207,7 +207,7 @@ export const agentRunStatusChangedEventSchema = workspaceEventBaseSchema
     }
   });
 
-export const workspaceUpdatedEventSchema = workspaceEventBaseSchema.extend({
+const workspaceUpdatedEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('workspace-updated'),
   projectId: forbiddenCorrelationSchema,
   workItemId: forbiddenCorrelationSchema,
@@ -219,7 +219,7 @@ export const workspaceUpdatedEventSchema = workspaceEventBaseSchema.extend({
   }),
 });
 
-export const workItemCompletedEventSchema = workspaceEventBaseSchema
+const workItemCompletedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('work-item-completed'),
     projectId: projectIdSchema,
@@ -235,7 +235,7 @@ export const workItemCompletedEventSchema = workspaceEventBaseSchema
   })
   .superRefine(requireWorkItemAgreement);
 
-export const worktreeMergedEventSchema = workspaceEventBaseSchema
+const worktreeMergedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('worktree-merged'),
     projectId: projectIdSchema,
@@ -252,7 +252,7 @@ export const worktreeMergedEventSchema = workspaceEventBaseSchema
   })
   .superRefine(requireWorkItemAgreement);
 
-export const workCycleChangedEventSchema = workspaceEventBaseSchema
+const workCycleChangedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('work-cycle-changed'),
     projectId: projectIdSchema,
@@ -282,7 +282,7 @@ export const workCycleChangedEventSchema = workspaceEventBaseSchema
       });
   });
 
-export const branchesChangedEventSchema = workspaceEventBaseSchema.extend({
+const branchesChangedEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('branches-changed'),
   projectId: projectIdSchema,
   workItemId: forbiddenCorrelationSchema,
@@ -367,4 +367,3 @@ export const authenticationExpiredEventSchema = z.strictObject({
 });
 
 export type WorkspaceEventEnvelope = z.infer<typeof workspaceEventEnvelopeSchema>;
-export type WorkspaceCreatedEventEnvelope = z.infer<typeof workspaceCreatedEventSchema>;

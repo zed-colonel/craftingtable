@@ -8,7 +8,7 @@ const hasNoControls = (value: string): boolean =>
     return codePoint > 31 && codePoint !== 127;
   });
 
-export const workspaceNameSchema = z
+const workspaceNameSchema = z
   .string()
   .trim()
   .min(1)
@@ -24,7 +24,7 @@ export const workspaceSummarySchema = z.strictObject({
 });
 
 /** The summary plus the counts a workspace card on the home page shows. */
-export const workspaceOverviewSchema = workspaceSummarySchema.extend({
+const workspaceOverviewSchema = workspaceSummarySchema.extend({
   projectCount: z.number().int().nonnegative().safe(),
   admittedCount: z.number().int().nonnegative().safe(),
   completedCount: z.number().int().nonnegative().safe(),
@@ -63,10 +63,7 @@ export const renameWorkspaceResponseSchema = z.strictObject({
   changed: z.boolean(),
 });
 
-export type WorkspaceSummary = z.infer<typeof workspaceSummarySchema>;
 export type WorkspaceOverview = z.infer<typeof workspaceOverviewSchema>;
 export type WorkspaceListResponse = z.infer<typeof workspaceListResponseSchema>;
-export type CreateWorkspaceRequest = z.infer<typeof createWorkspaceRequestSchema>;
 export type CreateWorkspaceResponse = z.infer<typeof createWorkspaceResponseSchema>;
-export type RenameWorkspaceRequest = z.infer<typeof renameWorkspaceRequestSchema>;
 export type RenameWorkspaceResponse = z.infer<typeof renameWorkspaceResponseSchema>;

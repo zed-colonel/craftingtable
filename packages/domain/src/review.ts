@@ -44,7 +44,7 @@ export interface ReviewReport {
  * automatically; content faults stop for the operator. Older records omit it; the reader
  * derives it from the report text.
  */
-export type ReviewReportFault = 'format' | 'content';
+type ReviewReportFault = 'format' | 'content';
 
 /** Structural validity never implies that a reviewer found every possible defect. */
 export type ReviewReportAssessment =

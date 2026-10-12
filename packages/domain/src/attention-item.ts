@@ -19,7 +19,7 @@ import type { WorkspaceId } from './ids.js';
  */
 
 /** Operator stops that are not a cycle's or a roadmap's own declared attention. */
-export const ITEM_ATTENTION = {
+const ITEM_ATTENTION = {
   // A run started by hand, outside an automated cycle.
   'manual-run-failed': 'operator',
   'manual-run-interrupted': 'operator',
@@ -46,7 +46,7 @@ export const ITEM_ATTENTION = {
   // A protected branch or tag moved during a run, not by the daemon; open until acknowledged.
   'protected-ref-moved': 'operator',
 } as const satisfies Record<string, AttentionOwner>;
-export type ItemAttentionCode = keyof typeof ITEM_ATTENTION;
+type ItemAttentionCode = keyof typeof ITEM_ATTENTION;
 
 export type AttentionItemCode = CycleAttentionCode | RoadmapAttentionCode | ItemAttentionCode;
 export const ATTENTION_ITEM_CODES = [
@@ -88,10 +88,10 @@ export interface AttentionItemRefs {
 
 /** Controls an item offers besides its subject's own form. */
 export const ATTENTION_ITEM_ACTIONS = ['reverify', 'acknowledge'] as const;
-export type AttentionItemAction = (typeof ATTENTION_ITEM_ACTIONS)[number];
+type AttentionItemAction = (typeof ATTENTION_ITEM_ACTIONS)[number];
 
 /** Push scheduling for one occurrence. The delivery log keeps the history. */
-export interface AttentionItemDelivery {
+interface AttentionItemDelivery {
   readonly firstSentAt: string | null;
   readonly lastSentAt: string | null;
   readonly deliveredCount: number;

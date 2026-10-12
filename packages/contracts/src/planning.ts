@@ -17,7 +17,7 @@ import {
 
 /** Strict wire contracts for CT-03 planning (archive/CT-03/work-items/CT-03.md §5.13). */
 
-export const planImportDiagnosticSchema = z.strictObject({
+const planImportDiagnosticSchema = z.strictObject({
   severity: z.enum(DIAGNOSTIC_SEVERITIES),
   code: z.string().min(1).max(64),
   message: z.string().min(1).max(500),
@@ -30,7 +30,7 @@ const importOutcomeBase = {
   importAttemptId: planImportAttemptIdSchema,
 };
 
-export const planImportSucceededSchema = z.strictObject({
+const planImportSucceededSchema = z.strictObject({
   ...importOutcomeBase,
   outcome: z.literal('succeeded'),
   projectId: projectIdSchema,
@@ -43,7 +43,7 @@ export const planImportSucceededSchema = z.strictObject({
   diagnostics: z.array(planImportDiagnosticSchema).max(500),
 });
 
-export const planImportDuplicateSchema = z.strictObject({
+const planImportDuplicateSchema = z.strictObject({
   ...importOutcomeBase,
   outcome: z.literal('duplicate'),
   projectId: projectIdSchema,
@@ -52,7 +52,7 @@ export const planImportDuplicateSchema = z.strictObject({
   isActiveVersion: z.boolean(),
 });
 
-export const planImportFailedSchema = z.strictObject({
+const planImportFailedSchema = z.strictObject({
   ...importOutcomeBase,
   outcome: z.literal('failed-validation'),
   diagnostics: z.array(planImportDiagnosticSchema).max(500),
@@ -78,7 +78,7 @@ export const planImportResponseSchema = z.discriminatedUnion('outcome', [
   planImportFailedSchema,
 ]);
 
-export const planArtifactSummarySchema = z.strictObject({
+const planArtifactSummarySchema = z.strictObject({
   id: planArtifactIdSchema,
   logicalFilename: z.string().min(1).max(200),
   role: z.enum(PLAN_ARTIFACT_ROLES),
@@ -87,7 +87,7 @@ export const planArtifactSummarySchema = z.strictObject({
   sha256: z.string().length(64),
 });
 
-export const riskCountsSchema = z.strictObject({
+const riskCountsSchema = z.strictObject({
   low: z.number().int().nonnegative().safe(),
   medium: z.number().int().nonnegative().safe(),
   high: z.number().int().nonnegative().safe(),
@@ -104,7 +104,7 @@ export const planningStatusCountsSchema = z.strictObject({
   riskCounts: riskCountsSchema,
 });
 
-export const planCompletionSchema = z.strictObject({
+const planCompletionSchema = z.strictObject({
   finalizationId: z.string().uuid(),
   targetBranch: z.string().min(1).max(255),
   mergeSha: z.string().regex(/^[0-9a-f]{40,64}$/),
@@ -123,7 +123,7 @@ export const projectSummarySchema = planningStatusCountsSchema.extend({
   createdAt: z.iso.datetime(),
 });
 
-export const planVersionSummarySchema = z.strictObject({
+const planVersionSummarySchema = z.strictObject({
   completion: planCompletionSchema.optional(),
   id: planVersionIdSchema,
   versionNumber: z.number().int().positive().safe(),
@@ -136,7 +136,7 @@ export const planVersionSummarySchema = z.strictObject({
 });
 
 /** Readiness vocabulary carried on the wire; see `WORK_ITEM_READINESS`. */
-export const workItemSummarySchema = z.strictObject({
+const workItemSummarySchema = z.strictObject({
   id: workItemIdSchema,
   sourceId: z.string().min(1).max(64),
   ordinal: z.number().int().nonnegative().safe(),
@@ -152,7 +152,7 @@ export const workItemSummarySchema = z.strictObject({
   readiness: z.enum(WORK_ITEM_READINESS),
 });
 
-export const workItemDependencySummarySchema = z.strictObject({
+const workItemDependencySummarySchema = z.strictObject({
   workItemId: workItemIdSchema,
   sourceId: z.string().min(1).max(64),
   title: z.string().min(1).max(300),
@@ -237,7 +237,7 @@ export const workItemDetailResponseSchema = z.strictObject({
   dependents: z.array(workItemDependencySummarySchema).max(2000),
 });
 
-export const removeFromAgendaRequestSchema = z.strictObject({
+const removeFromAgendaRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive().safe(),
 });
 export const removeFromAgendaResponseSchema = z.strictObject({
@@ -296,7 +296,6 @@ export const workspaceWorkItemListResponseSchema = z.strictObject({
 export type PlanImportDiagnosticPayload = z.infer<typeof planImportDiagnosticSchema>;
 export type PlanImportResponse = z.infer<typeof planImportResponseSchema>;
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
-export type PlanVersionSummary = z.infer<typeof planVersionSummarySchema>;
 export type PlanVersionDetailResponse = z.infer<typeof planVersionDetailResponseSchema>;
 export type ProjectDetailResponse = z.infer<typeof projectDetailResponseSchema>;
 export type WorkItemSummary = z.infer<typeof workItemSummarySchema>;
@@ -305,8 +304,6 @@ export type AdmitWorkItemResponse = z.infer<typeof admitWorkItemResponseSchema>;
 export type CompleteWorkItemResponse = z.infer<typeof completeWorkItemResponseSchema>;
 export type WorkspaceWorkItemFilter = z.infer<typeof workspaceWorkItemFilterSchema>;
 export type WorkspaceWorkItemListResponse = z.infer<typeof workspaceWorkItemListResponseSchema>;
-export type PlanArtifactSummary = z.infer<typeof planArtifactSummarySchema>;
-export type PlanningStatusCountsPayload = z.infer<typeof planningStatusCountsSchema>;
 
 /** A work item's agenda commands in one route (R-H5, H5-2): admit, remove from the agenda, complete. */
 export const workItemControlRequestSchema = z.discriminatedUnion('action', [

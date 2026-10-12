@@ -36,7 +36,7 @@ export interface FinalizationStage {
    */
   readonly optionalFindings?: 'select' | 'follow-up';
 }
-export interface ObligationReport {
+interface ObligationReport {
   readonly id: string;
   readonly source?: string;
   readonly requirement?: string;
@@ -56,7 +56,7 @@ export interface StageReviewReport {
   }[];
   readonly obligations: readonly ObligationReport[];
 }
-export interface FinalizationObligation extends Omit<ObligationReport, 'status'> {
+interface FinalizationObligation extends Omit<ObligationReport, 'status'> {
   readonly source: string;
   readonly requirement: string;
   readonly status: ObligationReport['status'] | 'unverified';
@@ -70,7 +70,7 @@ export interface FinalizationObligation extends Omit<ObligationReport, 'status'>
     readonly createdAt: string;
   };
 }
-export interface FinalizationStageState {
+interface FinalizationStageState {
   readonly id: string;
   readonly status: 'pending' | 'reviewing' | 'selecting' | 'verifying' | 'completed';
   readonly remediationRounds: number;

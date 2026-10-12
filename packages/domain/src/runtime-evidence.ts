@@ -15,7 +15,7 @@ export interface NativeVerificationApproval {
   readonly createdAt: string;
   readonly createdByUserId: UserId;
 }
-export interface DependencyPin {
+interface DependencyPin {
   readonly alias: string;
   readonly ref: string;
   readonly repositoryId: SourceRepositoryId;
@@ -28,7 +28,7 @@ export interface DependencyPin {
     readonly version?: string;
   }[];
 }
-export interface QualificationEnvironment {
+interface QualificationEnvironment {
   readonly id: string;
   readonly kind: 'local-development' | 'external-native' | 'external-kata';
   readonly identityDigest: string;
@@ -60,7 +60,7 @@ export interface EvidenceSubject {
   readonly kind: 'checkpoint' | 'slice' | 'parent';
   readonly sourceId: string;
 }
-export interface EvidenceArtifact {
+interface EvidenceArtifact {
   readonly name: string;
   readonly content: string;
   readonly digest: string;
@@ -115,7 +115,7 @@ export interface GeneratedPlanEvidenceV2 {
    */
   readonly changedInputs: readonly PlanAcceptanceInput[];
 }
-export type GeneratedPlanEvidence = GeneratedPlanEvidenceV1 | GeneratedPlanEvidenceV2;
+type GeneratedPlanEvidence = GeneratedPlanEvidenceV1 | GeneratedPlanEvidenceV2;
 export interface EvidenceSubmission {
   /** Saved review of a pre-merge candidate; never authorizes another unmerged slice. */
   readonly candidateCheckpoint?: {
@@ -181,7 +181,7 @@ export interface EvidenceSubmission {
   readonly createdByUserId: UserId;
 }
 /** An artifact as a submission's head lists it: everything but its contents (R-H4). */
-export interface EvidenceArtifactHead {
+interface EvidenceArtifactHead {
   readonly name: string;
   readonly digest: string;
   /** The contents' size in UTF-8 bytes. */

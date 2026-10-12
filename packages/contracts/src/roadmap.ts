@@ -68,7 +68,6 @@ export const roadmapEntryFieldsSchema = z.strictObject({
 export const roadmapEntryInputSchema = roadmapEntryFieldsSchema
   .omit({ profiles: true })
   .extend({ permissions: stepPermissionsSchema });
-export type RoadmapEntryInput = z.infer<typeof roadmapEntryInputSchema>;
 /** An entry with its profiles, as the daemon writes it into the definition. */
 export type RoadmapEntryFields = z.infer<typeof roadmapEntryFieldsSchema>;
 export const saveRoadmapRequestSchema = z
@@ -196,7 +195,7 @@ export const prepareRoadmapDecisionSchema = z.strictObject({
   instructions: z.string().trim().max(8000),
 });
 export type PrepareRoadmapDecision = z.infer<typeof prepareRoadmapDecisionSchema>;
-export const decisionPreparationSchema = z.strictObject({
+const decisionPreparationSchema = z.strictObject({
   id: z.uuid(),
   definitionId: z.uuid(),
   bindingRevision: z.number().int().positive(),
@@ -217,7 +216,7 @@ export const decisionPreparationSchema = z.strictObject({
   createdByUserId: userIdSchema,
   failure: z.string().optional(),
 });
-export const roadmapAttemptSchema = z.strictObject({
+const roadmapAttemptSchema = z.strictObject({
   reverification: z
     .strictObject({
       requestedAt: z.iso.datetime(),

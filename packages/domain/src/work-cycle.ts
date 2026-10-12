@@ -64,7 +64,7 @@ export interface DesignRecoverySource {
   readonly name: string;
   readonly digest: string;
 }
-export interface DesignRecovery {
+interface DesignRecovery {
   readonly runId: AgentRunId;
   readonly sourceRunId: AgentRunId;
   readonly mode: 'investigate' | 'continue';
@@ -81,7 +81,7 @@ export interface DesignRecovery {
   readonly attachments: readonly { readonly name: string; readonly content: string }[];
 }
 /** One question's result in an investigation's `craftingtable-investigation` block (R-C16). */
-export interface InvestigationFinding {
+interface InvestigationFinding {
   readonly question: string;
   /** `proposed`: an answer with cited sources; `open`: why the evidence does not settle it. */
   readonly status: 'proposed' | 'open';
@@ -390,7 +390,7 @@ export function remediationUsed(
   return currentFinalizationStage(cycle)?.remediationRounds ?? cycle.remediationRounds;
 }
 
-export interface CompletionDecision {
+interface CompletionDecision {
   readonly action: 'awaiting-merge' | 'remediate' | 'needs-attention';
   readonly reason: string;
   readonly openCounts: Readonly<Record<FindingSeverity, number>>;

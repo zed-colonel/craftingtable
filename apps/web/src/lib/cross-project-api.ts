@@ -1,5 +1,4 @@
 import {
-  adoptMapResponseSchema,
   crossProjectViewSchema,
   roadmapViewSchema,
   type SaveCrossProjectRequest,
@@ -27,25 +26,3 @@ export const saveCrossProject = (ws: WorkspaceId, input: SaveCrossProjectRequest
     roadmapViewSchema,
     post(csrf, input),
   );
-
-/** `decisions/adoption/MapAdoption`: adopting a map's exact binding and decisions (R-A6 A1). */
-export function adoptMap(
-  workspaceId: WorkspaceId,
-  definitionId: string,
-  input: {
-    readonly bindingRevision: number;
-    readonly decisionIds: readonly string[];
-    readonly rationale: string;
-  },
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/supervision/adopt`,
-    adoptMapResponseSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(input),
-    },
-  );
-}

@@ -12,14 +12,13 @@ import {
   type MapSelection,
   type WorkspaceId,
 } from '@craftingtable/domain';
+import { loadFinalizationReadiness, roadmapAddress } from '../../lib/roadmap-api.js';
 import {
   decideAmendment,
   loadAmendments,
-  loadFinalizationReadiness,
   previewAmendment,
   proposeAmendment,
-  roadmapAddress,
-} from '../../lib/roadmap-api.js';
+} from './amendment-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 export function AmendmentDecision({

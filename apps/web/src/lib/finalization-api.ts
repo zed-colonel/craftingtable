@@ -11,7 +11,6 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { request } from './api-client.js';
-const encode = encodeURIComponent;
 const url = (workspaceId: WorkspaceId, planVersionId: PlanVersionId) =>
   `/api/workspaces/${encodeURIComponent(workspaceId)}/plan-versions/${encodeURIComponent(planVersionId)}/finalizations`;
 const mutation = (csrf: string, body: unknown): RequestInit => ({
@@ -49,45 +48,3 @@ export const controlFinalization = async (
     mutation(csrf, input),
   );
 };
-
-/** `decisions/finalization/FinalPromotion`: the final promotion, a finalization's merge (R-A6). */
-export function promoteFinalization(
-  workspaceId: WorkspaceId,
-  finalizationId: string,
-  input: {
-    expectedVersion: number;
-    expectedCycleVersion: number;
-    expectedHeadSha: string;
-    expectedTargetSha: string;
-    removeIntegrationBranch: boolean;
-  },
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/finalizations/${encode(finalizationId)}/control`,
-    finalizationViewSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify({ action: 'merge', ...input }),
-    },
-  );
-}
-
-/** `decisions/finalization/FinalizationStep`: a stage's decisions (R-A6), the actions the daemon offers. */
-export function decideFinalizationStep(
-  workspaceId: WorkspaceId,
-  finalizationId: string,
-  input: ControlFinalizationRequest,
-  csrfToken: string,
-) {
-  return request(
-    `/api/workspaces/${encode(workspaceId)}/finalizations/${encode(finalizationId)}/control`,
-    finalizationViewSchema,
-    {
-      method: 'POST',
-      headers: { 'x-craftingtable-csrf': csrfToken },
-      body: JSON.stringify(input),
-    },
-  );
-}

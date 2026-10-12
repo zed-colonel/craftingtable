@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ProposeArchitectureDecision, RuntimeEvidenceView } from '@craftingtable/contracts';
-import { proposeDecision, runtimeAddress } from '../../lib/runtime-evidence-api.js';
+import { runtimeAddress } from '../../lib/runtime-evidence-api.js';
+import { proposeDecision } from './architecture-api.js';
 
 /**
  * The architecture decision proposal command, `runtime/propose-decision` (R-A6). Private to

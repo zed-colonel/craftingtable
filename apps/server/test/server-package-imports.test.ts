@@ -494,4 +494,21 @@ describe('package import HTTP flow', () => {
     ).toBe(403);
     expect(r.context.storage.imports.attempts(r.workspaceId, 'concurrency')).toHaveLength(0);
   });
+
+  it('accepts only the text fields each upload declares (R-H5)', async () => {
+    const r = await setup();
+    const archive = await upload(r, 'imports/plan-archives/preview', planNames[0]!, {
+      notAField: 'x',
+    });
+    expect(archive.statusCode).toBe(400);
+    expect(archive.json()).toMatchObject({
+      error: { code: 'invalid-request', message: 'Invalid archive field.' },
+    });
+    const map = await upload(r, 'imports/concurrency-definitions', mapName, { projectName: 'x' });
+    expect(map.statusCode).toBe(400);
+    expect(map.json()).toMatchObject({
+      error: { code: 'invalid-request', message: 'Concurrency import accepts the archive only.' },
+    });
+    expect(r.context.storage.imports.attempts(r.workspaceId, 'concurrency')).toHaveLength(0);
+  });
 });

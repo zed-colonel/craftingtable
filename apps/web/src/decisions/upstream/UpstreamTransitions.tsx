@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { RuntimeEvidenceView } from '@craftingtable/contracts';
-import { declareTransitions } from '../../lib/runtime-evidence-api.js';
+import { declareTransitions } from './upstream-api.js';
 import { About } from '../../components/About.js';
 
 /** When each consumer→upstream link moves to the current pin, and approval of undeclared ones (ADR-069). */

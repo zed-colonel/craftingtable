@@ -1,6 +1,6 @@
 import type { ExecutionScope, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { authorizeEarlyDevelopment } from '../../lib/execution-scope-api.js';
+import { authorizeEarlyDevelopment } from './early-development-api.js';
 
 /** Authorizes one slice's early-development rule; the parent's predecessor acceptance stays. */
 export function AuthorizeEarlyDevelopment({

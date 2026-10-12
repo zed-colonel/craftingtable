@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { RuntimeEvidenceView } from '@craftingtable/contracts';
 import { ActionBar } from '../../components/ActionBar.js';
-import { decideEvidence, runtimeAddress } from '../../lib/runtime-evidence-api.js';
+import { runtimeAddress } from '../../lib/runtime-evidence-api.js';
+import { decideEvidence } from './evidence-api.js';
 
 type Outcome = 'accepted' | 'rejected';
 

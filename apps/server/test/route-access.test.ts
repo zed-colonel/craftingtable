@@ -244,11 +244,14 @@ describe('route authorization sweep', () => {
     contexts.push(context);
     await context.bootstrap();
     const seen: unknown[] = [];
+    const seenRaw: unknown[] = [];
     const body = {
-      safeParse: (value: unknown) =>
-        typeof value === 'object' && value !== null && 'n' in value
+      safeParse: (value: unknown) => {
+        seenRaw.push(value);
+        return typeof value === 'object' && value !== null && 'n' in value
           ? { success: true as const, data: { n: Number((value as { n: unknown }).n) + 1 } }
-          : { success: false as const },
+          : { success: false as const };
+      },
     };
     context.app.post(
       '/api/workspaces/:workspaceId/r-h5-parsed',
@@ -274,6 +277,19 @@ describe('route authorization sweep', () => {
         },
         payload: payload as Record<string, unknown>,
       });
+    // An absent body is parsed as `{}` (the shape a command without fields takes).
+    const bare = await context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${workspaceId}/r-h5-parsed`,
+      headers: {
+        cookie: session.cookie,
+        [CSRF_HEADER_NAME]: session.csrfToken,
+        origin: context.config.publicOrigin,
+      },
+    });
+    expect(bare.statusCode).toBe(400);
+    expect(seenRaw).toEqual([{}]);
+    seenRaw.length = 0;
     const refused = await send({ m: 1 });
     expect(refused.statusCode).toBe(400);
     expect(refused.json()).toMatchObject({
@@ -284,6 +300,28 @@ describe('route authorization sweep', () => {
     expect(parsed.statusCode, parsed.body).toBe(200);
     // The handler reads the schema's output, not the body as sent.
     expect(seen).toEqual([{ n: 2 }]);
+  });
+
+  it('checks sign-in origin and media type before reading the body (R-H5)', async () => {
+    const context = await createTestContext({ workers: false });
+    contexts.push(context);
+    await context.bootstrap();
+    const signIn = (headers: Record<string, string>, payload: string) =>
+      context.app.inject({ method: 'POST', url: '/api/auth/login', headers, payload });
+    const text = await signIn(
+      { origin: context.config.publicOrigin, 'content-type': 'text/plain' },
+      'username=x',
+    );
+    expect(text.statusCode).toBe(400);
+    expect(text.json()).toMatchObject({
+      error: { code: 'invalid-request', message: 'Invalid authentication request' },
+    });
+    const foreign = await signIn(
+      { origin: 'http://attacker.invalid', 'content-type': 'text/plain' },
+      'username=x',
+    );
+    expect(foreign.statusCode).toBe(403);
+    expect(foreign.json().error.message).toContain('Sign-in is only allowed from');
   });
 
   it('answers each kind of caller as every route declares', async () => {

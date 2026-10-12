@@ -33,7 +33,7 @@ import type { ModelCatalogService } from '../services/model-catalog-service.js';
 import { registerBranchRoutes } from './branches.js';
 import { noStore, sendApiError } from './http.js';
 import { type BodyOf, contextOf } from './route-access.js';
-import { runListRow, } from './run-summary.js';
+import { runListRow } from './run-summary.js';
 
 /**
  * Repository, worktree, and diff routes.

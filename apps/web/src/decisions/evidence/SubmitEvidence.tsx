@@ -5,7 +5,7 @@ import {
 } from '@craftingtable/contracts';
 import { useState } from 'react';
 import { About } from '../../components/About.js';
-import { submitEvidence } from '../../lib/runtime-evidence-api.js';
+import { submitEvidence } from './evidence-api.js';
 import { distinct } from '../../lib/distinct.js';
 
 /**

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { RuntimeEvidenceView, RuntimeRefreshPreview } from '@craftingtable/contracts';
 import { ActionBar } from '../../components/ActionBar.js';
-import { applyRefresh, previewRefresh } from '../../lib/runtime-evidence-api.js';
+import { applyRefresh, previewRefresh } from './refresh-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
 

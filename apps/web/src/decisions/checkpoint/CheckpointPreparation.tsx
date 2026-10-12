@@ -1,11 +1,8 @@
 import { useState } from 'react';
 import type { CheckpointRecovery } from '@craftingtable/contracts';
 import { EvidenceDecision } from '../evidence/EvidenceDecision.js';
-import {
-  prepareCheckpoint,
-  readCheckpointRecovery,
-  runtimeAddress,
-} from '../../lib/runtime-evidence-api.js';
+import { readCheckpointRecovery, runtimeAddress } from '../../lib/runtime-evidence-api.js';
+import { prepareCheckpoint } from './checkpoint-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';

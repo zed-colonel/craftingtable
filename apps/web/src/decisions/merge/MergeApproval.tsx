@@ -6,7 +6,7 @@ import type {
 } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { mergeWorktree } from '../../lib/execution-api.js';
+import { mergeWorktree } from './merge-api.js';
 import { loadRepositoryBranches } from '../../lib/execution-api.js';
 import { CheckAdoptionReview } from './CheckAdoptionReview.js';
 

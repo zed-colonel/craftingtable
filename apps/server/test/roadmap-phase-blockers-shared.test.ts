@@ -1,15 +1,28 @@
 import { roadmapPageSchema } from '@craftingtable/contracts';
-import { phaseBlockerCode, type ExecutionScope } from '@craftingtable/domain';
+import {
+  type AgentRunId,
+  type ExecutionScope,
+  phaseBlockerCode,
+  type Roadmap,
+  type WorkItemId,
+  type WorkspaceId,
+} from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
+import { scopeDecisionsKey } from '../src/services/architecture-decision-policy.js';
+import { milestoneMemoKey } from '../src/services/cross-project-service.js';
 import { scopePhaseBlockers } from '../src/services/execution-scope.js';
 import { mapReadSnapshot } from '../src/services/map-read-snapshot.js';
+import { openRecoveries } from '../src/services/roadmap-service.js';
+import { receiptCurrencyKey } from '../src/services/runtime-evidence-policy.js';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
+  launchScoped,
   roadmapId,
   scopeTree,
   supervisedMapFixture,
+  waitFor,
 } from './execution-test-support.js';
 
 /**
@@ -140,4 +153,196 @@ it('keeps the reservation owner exact while sharing the rest within a read snaps
   expect(ask(snapshot, 'run-a', 'verify', 'slice-verification')).toEqual(verification.own);
   expect(calls.computed).toHaveLength(1);
   expect(calls.resources).toHaveLength(2);
+});
+
+it('shares a verification with its slice away from merge, and computes them apart at merge (R-D8 review L1)', async () => {
+  const f = await adoptedMap();
+  const { storage } = f.state.context;
+  const ws = f.state.workspaceId;
+  const slice = f.scopes[0]!;
+  const verification: ExecutionScope = { ...slice, kind: 'slice-verification' };
+  const snapshot = mapReadSnapshot(storage);
+  for (const [phase, computations] of [
+    ['start', 1],
+    ['verify', 1],
+    // At merge an unmerged candidate checkpoint counts for the slice alone (`candidateApplies`).
+    ['merge', 2],
+  ] as const) {
+    calls.computed.length = 0;
+    scopePhaseBlockers(snapshot, ws, f.state.workItemId, slice, phase, { resources: false });
+    scopePhaseBlockers(snapshot, ws, f.state.workItemId, verification, phase, {
+      resources: false,
+    });
+    expect(calls.computed, phase).toHaveLength(computations);
+  }
+});
+
+it('keeps a resource blocker where it was, before the checks that follow it (R-D8 review L3)', async () => {
+  const f = await adoptedMap();
+  const { storage } = f.state.context;
+  const ws = f.state.workspaceId;
+  // Parent acceptance needs the verification workstation, held by another owner, and its
+  // required slices, which have not merged: blockers from both sides of the resource check.
+  const tree = await scopeTree(f, f.scopes[0]!);
+  storage.phaseScheduling.setCapacity('local-verification', 1);
+  storage.phaseScheduling.acquire({
+    id: 'reservation-v',
+    workspaceId: ws,
+    worktreeId: tree.id,
+    ownerId: 'run-other',
+    phase: 'accept',
+    resourceKey: 'local-verification',
+    capacity: 1,
+    acquiredAt: new Date().toISOString(),
+  });
+  const codes = scopePhaseBlockers(
+    mapReadSnapshot(storage),
+    ws,
+    f.state.workItemId,
+    f.parentScope,
+    'accept',
+    { ownerId: 'run-mine' },
+  ).map((b) => phaseBlockerCode(b));
+  const busy = codes.indexOf('resource-busy');
+  const unmerged = codes.indexOf('required-slice-unmerged');
+  expect(busy).toBeGreaterThanOrEqual(0);
+  expect(unmerged).toBeGreaterThan(busy);
+});
+
+it('keys each read-snapshot memo by every input its answer reads (R-D8 review L3)', () => {
+  const ws = 'ws-1' as WorkspaceId;
+  const scope: ExecutionScope = {
+    kind: 'slice',
+    definitionId: 'map',
+    bindingRevision: 1,
+    sourceId: 'a',
+  };
+  const receipt = { scope, workItemId: 'item' as WorkItemId, reviewRunId: 'run-1' as AgentRunId };
+  const receiptKeys = [
+    receipt,
+    { ...receipt, reviewRunId: 'run-2' as AgentRunId },
+    { ...receipt, workItemId: 'item-2' as WorkItemId },
+    { ...receipt, scope: { ...scope, sourceId: 'b' } },
+    { ...receipt, scope: { ...scope, kind: 'slice-verification' as const } },
+    { ...receipt, scope: { ...scope, bindingRevision: 2 } },
+  ].map((r) => receiptCurrencyKey(ws, r));
+  expect(new Set(receiptKeys).size).toBe(receiptKeys.length);
+  const d = { id: 'map', digest: 'd1' };
+  const requirement = { kind: 'slice' as const, id: 'a', state: 'merged' as const };
+  const milestoneKeys = [
+    milestoneMemoKey(ws, d, 1, requirement),
+    milestoneMemoKey(ws, { ...d, digest: 'd2' }, 1, requirement),
+    milestoneMemoKey(ws, d, 2, requirement),
+    milestoneMemoKey(ws, d, 1, { ...requirement, id: 'b' }),
+    milestoneMemoKey(ws, d, 1, { ...requirement, state: 'verified' as const }),
+    milestoneMemoKey(ws, d, 1, { ...requirement, kind: 'work_item' as const }),
+  ];
+  expect(new Set(milestoneKeys).size).toBe(milestoneKeys.length);
+  const decisionKeys = [
+    scopeDecisionsKey(ws, scope),
+    scopeDecisionsKey(ws, { ...scope, sourceId: 'b' }),
+    scopeDecisionsKey(ws, { ...scope, bindingRevision: 2 }),
+    scopeDecisionsKey(ws, { ...scope, definitionId: 'other' }),
+    scopeDecisionsKey(ws, { ...scope, kind: 'parent-acceptance' }),
+  ];
+  expect(new Set(decisionKeys).size).toBe(decisionKeys.length);
+  // Only a parent acceptance is told apart: a slice and its verification ask the same.
+  expect(scopeDecisionsKey(ws, { ...scope, kind: 'slice-verification' })).toBe(decisionKeys[0]);
+});
+
+it("finds a work item's open recovery round as the roadmap's attempts list them (R-D8 review L3)", () => {
+  const entries = [
+    { id: 'e1', workItemId: 'w1' },
+    { id: 'e2', workItemId: 'w1' },
+    { id: 'e3', workItemId: 'w2' },
+  ];
+  const attempt = (id: string, entryId: string, phase?: string) => ({
+    id,
+    entryId,
+    ...(phase ? { recovery: { phase } } : {}),
+  });
+  const roadmap = {
+    definition: { entries },
+    attempts: [
+      attempt('plain', 'e1'),
+      attempt('done', 'e1', 'completed'),
+      attempt('first', 'e2', 'repair'),
+      attempt('second', 'e1', 'verification'),
+      attempt('other', 'e3', 'repair'),
+    ],
+  } as unknown as Roadmap;
+  const open = openRecoveries(roadmap);
+  expect(open.get('w1')?.id).toBe('first');
+  expect(open.get('w2')?.id).toBe('other');
+  // A new entries list (a new definition) is read again, not taken from the last answer.
+  const moved = {
+    ...roadmap,
+    definition: { entries: [{ id: 'e2', workItemId: 'w3' }, ...entries.slice(0, 1)] },
+  } as unknown as Roadmap;
+  expect(openRecoveries(moved).get('w3')?.id).toBe('first');
+  expect(openRecoveries(moved).get('w1')?.id).toBe('second');
+});
+
+it("asks a slice's merge whether that slice started, not another slice of its work item (R-D8 review L3)", async () => {
+  const f = await adoptedMap();
+  const { storage } = f.state.context;
+  const [a, b] = [f.scopes[0]!, f.scopes[1]!];
+  expect(a.sourceId).not.toBe(b.sourceId);
+  // Slice b starts; slice a has not.
+  const started = await launchScoped(f, await scopeTree(f, b));
+  expect(started.statusCode, started.body).toBe(200);
+  await waitFor(
+    () =>
+      storage.execution.runs
+        .listForWorkItem(f.state.workspaceId, f.state.workItemId)
+        .some((r) => !!r.startedAt),
+    'slice b started',
+  );
+  const codes = (scope: ExecutionScope) =>
+    scopePhaseBlockers(
+      mapReadSnapshot(storage),
+      f.state.workspaceId,
+      f.state.workItemId,
+      scope,
+      'merge',
+      {
+        resources: false,
+      },
+    ).map((blocker) => phaseBlockerCode(blocker));
+  expect(codes(a)).toContain('slice-not-started');
+  expect(codes(b)).not.toContain('slice-not-started');
+});
+
+it('says a blocker once when two requirements name the same thing (R-D8 review L3)', async () => {
+  // Slice b requires slice a merged both to start and to merge: one message, said once.
+  const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
+    ...source,
+    slices: source.slices.map((slice, index) =>
+      index === 1
+        ? {
+            ...slice,
+            start_requires: [
+              { kind: 'slice' as const, id: source.slices[0]!.id, state: 'merged' as const },
+            ],
+            merge_requires: [
+              { kind: 'slice' as const, id: source.slices[0]!.id, state: 'merged' as const },
+            ],
+          }
+        : slice,
+    ),
+  }));
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await adoptSupervisedMap(f);
+  const messages = scopePhaseBlockers(
+    mapReadSnapshot(f.state.context.storage),
+    f.state.workspaceId,
+    f.state.workItemId,
+    f.scopes[1]!,
+    'merge',
+    { resources: false },
+  ).map((b) => b.message);
+  expect(
+    messages.filter((m) => m.startsWith('Slice ') && m.endsWith(' must be merged.')),
+  ).toHaveLength(1);
+  expect(new Set(messages).size).toBe(messages.length);
 });

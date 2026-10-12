@@ -1,7 +1,7 @@
 import type { WorktreeSummary } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { recordScopeEvidence } from '../../lib/execution-scope-api.js';
+import { recordScopeEvidence } from './scope-evidence-api.js';
 
 /** Records the reviewed worktree's scope evidence: a slice verification or a parent acceptance. */
 export function RecordScopeEvidence({

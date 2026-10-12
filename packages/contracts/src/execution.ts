@@ -485,7 +485,6 @@ export const agentRunCommandResponseSchema = z.strictObject({
   accepted: z.boolean(),
 });
 
-
 /** Everything the work-item page needs to show delegation state. */
 export const workItemExecutionResponseSchema = z.strictObject({
   workItemId: workItemIdSchema,

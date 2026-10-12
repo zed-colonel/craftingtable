@@ -15,11 +15,8 @@ import { About } from '../../components/About.js';
 import { EffectiveAgentText } from '../../features/execution/EffectiveAgentText.js';
 import { ModelField } from '../../features/execution/ModelField.js';
 import { ReasoningEffortField } from '../../features/execution/ReasoningEffortField.js';
-import {
-  loadDecisionPreparations as loadSettings,
-  prepareDecision,
-  saveDecisionPreparationGrant,
-} from '../../lib/roadmap-api.js';
+import { loadDecisionPreparations as loadSettings } from '../../lib/roadmap-api.js';
+import { prepareDecision, saveDecisionPreparationGrant } from './preparation-api.js';
 import { Link } from '../../lib/navigation.js';
 
 /** Preparation proposes only, so it may run beside the roadmap (R-C3b, ADR-065). */

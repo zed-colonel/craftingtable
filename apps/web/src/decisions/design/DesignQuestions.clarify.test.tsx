@@ -10,10 +10,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { NavigationProvider } from '../../lib/navigation.js';
 import { buildPath, parseRoute, type Route } from '../../lib/route.js';
-import { previewDesignRecovery } from '../../lib/work-cycle-api.js';
+import { previewDesignRecovery } from './design-api.js';
 import { DesignQuestions } from './DesignQuestions.js';
 
-vi.mock('../../lib/work-cycle-api.js', () => ({
+vi.mock('./design-api.js', () => ({
   previewDesignRecovery: vi.fn(),
   recoverDesign: vi.fn(),
 }));

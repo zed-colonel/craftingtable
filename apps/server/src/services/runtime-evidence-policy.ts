@@ -734,17 +734,20 @@ export function currentScopeReceipt(
 ): boolean {
   // Within a read snapshot the answer depends only on the fields read below, so each receipt
   // is asked once however many blockers, prerequisites and acceptances consult it (R-D8).
-  return snapshotCalculation(
-    tx,
-    JSON.stringify([
-      'current-scope-receipt',
-      ws,
-      executionScopeKey(p.scope),
-      p.workItemId,
-      p.reviewRunId,
-    ]),
-    () => receiptCurrent(tx, ws, p),
-  );
+  return snapshotCalculation(tx, receiptCurrencyKey(ws, p), () => receiptCurrent(tx, ws, p));
+}
+/** The memo key of `currentScopeReceipt`: every field of the receipt its answer reads (R-D8). */
+export function receiptCurrencyKey(
+  ws: WorkspaceId,
+  p: Pick<import('@craftingtable/domain').ScopeReceipt, 'scope' | 'workItemId' | 'reviewRunId'>,
+): string {
+  return JSON.stringify([
+    'current-scope-receipt',
+    ws,
+    executionScopeKey(p.scope),
+    p.workItemId,
+    p.reviewRunId,
+  ]);
 }
 function receiptCurrent(
   tx: StorageRepositories,

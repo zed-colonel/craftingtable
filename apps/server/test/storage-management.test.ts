@@ -732,7 +732,18 @@ it('serves validated storage status and a usable cleanup preview through the aut
     payload: { action: 'scan' },
   });
   expect(response.statusCode, response.body).toBe(200);
-  expect(storageStatusSchema.parse(response.json()).scan?.cacheCount).toBe(0);
+  const scan = storageStatusSchema.parse(response.json()).scan;
+  expect(scan?.cacheCount).toBe(0);
+  // Each of storage's commands reaches its own work through the one route (R-H5, H5-2).
+  const control = (payload: Record<string, unknown>) =>
+    s.context.app.inject({ method: 'POST', url: `${s.url}/control`, headers: s.headers, payload });
+  const cleaned = await control({ action: 'clean', scanId: scan!.id });
+  expect(cleaned.statusCode, cleaned.body).toBe(200);
+  expect(storageStatusSchema.parse(cleaned.json()).scan).toBeNull();
+  expect(s.context.storage.maintenance.backups()).toHaveLength(0);
+  const backedUp = await control({ action: 'backup' });
+  expect(backedUp.statusCode, backedUp.body).toBe(200);
+  expect(s.context.storage.maintenance.backups()).toHaveLength(1);
 });
 
 it('keeps reclaiming caches when backup storage is unavailable and retries backup after recovery', async () => {

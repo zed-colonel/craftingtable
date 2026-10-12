@@ -110,12 +110,17 @@ export function scopePhaseBlockers(
   // Only the resource check reads the reservation owner, so the rest is computed once per read
   // snapshot for the scope and phase and shared by every caller, whatever owner it asks for
   // (R-D8: the map evaluation and the roadmap view ask for the same scopes in one page read).
-  // A slice's verification shares its slice's answer: every check outside the resources either
-  // reads the slice's scope or tells only a parent acceptance apart, and the resource check is
-  // given the caller's own scope (a native approval is per scope).
+  // A slice's verification shares its slice's answer except at merge: away from merge every check
+  // outside the resources reads the slice's scope or tells only a parent acceptance apart; at
+  // merge an unmerged candidate checkpoint counts for the slice alone (`candidateApplies`). The
+  // resource check is given the caller's own scope.
+  const sharedScope =
+    phase !== 'merge' && scope.kind === 'slice-verification'
+      ? { ...scope, kind: 'slice' as const }
+      : scope;
   const { r, before, after } = snapshotCalculation(
     tx,
-    `scope-phase-blockers:${workspaceId}:${workItemId}:${executionScopeKey(scope.kind === 'slice-verification' ? { ...scope, kind: 'slice' } : scope)}:${phase}`,
+    `scope-phase-blockers:${workspaceId}:${workItemId}:${executionScopeKey(sharedScope)}:${phase}`,
     () => ownerFreePhaseBlockers(tx, workspaceId, workItemId, scope, phase),
   );
   const issues = [

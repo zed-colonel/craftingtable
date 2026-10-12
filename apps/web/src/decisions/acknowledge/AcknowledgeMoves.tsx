@@ -1,6 +1,6 @@
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { acknowledgeProtectedRefMoves } from '../../lib/attention-api.js';
+import { acknowledgeProtectedRefMoves } from './acknowledge-api.js';
 
 /**
  * Acknowledges the protected ref moves an inbox item shows (R-G5 follow-up). It sends exactly

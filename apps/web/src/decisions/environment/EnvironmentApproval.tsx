@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { RuntimeEvidenceView } from '@craftingtable/contracts';
 import type { NativeAudit } from '@craftingtable/contracts';
-import { auditNative, authorizeNative } from '../../lib/runtime-evidence-api.js';
+import { auditNative, authorizeNative } from './environment-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { About } from '../../components/About.js';
 export function EnvironmentApproval({

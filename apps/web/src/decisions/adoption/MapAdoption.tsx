@@ -1,6 +1,6 @@
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { adoptMap } from '../../lib/cross-project-api.js';
+import { adoptMap } from './adoption-api.js';
 
 /**
  * Adopts every listed scheduling proposal of a map for its exact binding, with the operator's

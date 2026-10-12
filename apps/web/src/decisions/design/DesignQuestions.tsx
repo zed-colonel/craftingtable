@@ -7,7 +7,7 @@ import type { AgentSelection, CycleProjection, WorkCycle } from '@craftingtable/
 import { useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { revealElement } from '../../lib/reveal-element.js';
-import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
+import { previewDesignRecovery, recoverDesign } from './design-api.js';
 import { useAttention } from '../../app/reads.js';
 import { settles } from '../architecture/ArchitectureDecision.js';
 import { BaselinePreparation } from './BaselinePreparation.js';

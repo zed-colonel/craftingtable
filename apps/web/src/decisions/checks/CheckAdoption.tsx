@@ -6,12 +6,8 @@ import type {
 } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import {
-  adoptChecks,
-  loadCheckDefinitions,
-  loadRepositoryChecks,
-  previewChecks,
-} from '../../lib/execution-api.js';
+import { loadCheckDefinitions, loadRepositoryChecks } from '../../lib/execution-api.js';
+import { adoptChecks, previewChecks } from './checks-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
 import { lineDiff } from '../../lib/line-diff.js';
 import {

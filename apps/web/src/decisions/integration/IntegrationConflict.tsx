@@ -12,7 +12,7 @@ import {
 import { useState } from 'react';
 import { About } from '../../components/About.js';
 import { HandoffForm } from '../../features/execution/HandoffForm.js';
-import { resolveIntegration } from '../../lib/work-cycle-api.js';
+import { resolveIntegration } from './integration-api.js';
 
 /** Stops an integration update leaves for the operator (R-A3 codes). */
 const INTEGRATION_STOPS: readonly string[] = [

@@ -10,11 +10,7 @@ import type {
 import { useState } from 'react';
 import { About } from '../../components/About.js';
 import { AgentOverride } from '../../features/execution/AgentOverride.js';
-import {
-  acknowledgeWorktreeChange,
-  endInvestigation,
-  startInvestigation,
-} from '../../lib/work-cycle-api.js';
+import { acknowledgeWorktreeChange, endInvestigation, startInvestigation } from './cycle-api.js';
 
 type Finding = NonNullable<NonNullable<Investigation['result']>['findings']>[number];
 

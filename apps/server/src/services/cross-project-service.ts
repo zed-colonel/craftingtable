@@ -59,11 +59,27 @@ export function milestoneSatisfied(
 ): boolean {
   // Asked once per read snapshot: the map evaluation and each entry's completion in a roadmap
   // read ask for the same milestones (R-D8).
-  return snapshotCalculation(
-    tx,
-    JSON.stringify(['milestone-satisfied', ws, d.id, d.digest, revision, r.kind, r.id, r.state]),
-    () => milestoneMet(tx, ws, d, revision, r),
+  return snapshotCalculation(tx, milestoneMemoKey(ws, d, revision, r), () =>
+    milestoneMet(tx, ws, d, revision, r),
   );
+}
+/** The memo key of `milestoneSatisfied`: the definition, revision and requirement (R-D8). */
+export function milestoneMemoKey(
+  ws: WorkspaceId,
+  d: Pick<ConcurrencyDefinition, 'id' | 'digest'>,
+  revision: number,
+  r: Pick<ConcurrencyRequirement, 'kind' | 'id' | 'state'>,
+): string {
+  return JSON.stringify([
+    'milestone-satisfied',
+    ws,
+    d.id,
+    d.digest,
+    revision,
+    r.kind,
+    r.id,
+    r.state,
+  ]);
 }
 function milestoneMet(
   tx: StorageRepositories,

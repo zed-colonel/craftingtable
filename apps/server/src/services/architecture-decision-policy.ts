@@ -134,18 +134,23 @@ export function scopeArchitectureDecisions(
 ): ReturnType<typeof approvedArchitectureDecisions> {
   // Once per read snapshot for a scope: its blockers, receipts and the map's coverage all ask
   // (R-D8). Only a parent acceptance reads its kind.
-  return snapshotCalculation(
-    tx,
-    JSON.stringify([
-      'scope-architecture-decisions',
-      ws,
-      scope.definitionId,
-      scope.bindingRevision,
-      scope.sourceId,
-      scope.kind === 'parent-acceptance',
-    ]),
-    () => decisionsForScope(tx, ws, scope),
+  return snapshotCalculation(tx, scopeDecisionsKey(ws, scope), () =>
+    decisionsForScope(tx, ws, scope),
   );
+}
+/**
+ * The memo key of `scopeArchitectureDecisions`: the scope's definition, revision and source, and
+ * whether it is a parent acceptance, the only kind its answer tells apart (R-D8).
+ */
+export function scopeDecisionsKey(ws: WorkspaceId, scope: ExecutionScope): string {
+  return JSON.stringify([
+    'scope-architecture-decisions',
+    ws,
+    scope.definitionId,
+    scope.bindingRevision,
+    scope.sourceId,
+    scope.kind === 'parent-acceptance',
+  ]);
 }
 function decisionsForScope(tx: StorageRepositories, ws: WorkspaceId, scope: ExecutionScope) {
   const d = tx.imports.definition(ws, scope.definitionId);

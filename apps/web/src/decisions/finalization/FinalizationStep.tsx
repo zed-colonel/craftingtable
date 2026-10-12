@@ -12,7 +12,7 @@ import {
 } from '@craftingtable/domain';
 import { useState } from 'react';
 import type { WorkspaceId } from '@craftingtable/domain';
-import { decideFinalizationStep as decide } from '../../lib/finalization-api.js';
+import { decideFinalizationStep as decide } from './finalization-api.js';
 import { About } from '../../components/About.js';
 import { FinalizationCheckpoint } from './FinalizationCheckpoint.js';
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';

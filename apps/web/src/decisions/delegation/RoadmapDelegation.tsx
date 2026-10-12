@@ -7,7 +7,7 @@ import {
   type Roadmap,
   type RoadmapAutomation,
 } from '@craftingtable/domain';
-import { applyDelegation } from '../../lib/roadmap-api.js';
+import { applyDelegation } from './delegation-api.js';
 import { RoadmapAutomationFields } from '../../features/planning/RoadmapAutomationFields.js';
 import { ReviewerResponsibilities } from '../../features/planning/ReviewerResponsibilities.js';
 

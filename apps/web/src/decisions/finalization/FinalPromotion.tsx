@@ -1,7 +1,7 @@
 import type { FinalizationView } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { promoteFinalization as promote } from '../../lib/finalization-api.js';
+import { promoteFinalization as promote } from './finalization-api.js';
 
 /**
  * A finalization's promotion approval (R-A6 increment 2b): the exact candidate and destination

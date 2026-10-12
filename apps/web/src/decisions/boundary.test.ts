@@ -883,37 +883,71 @@ const INVENTORY = inventoryRoutes(
 /** A route's path as a URL the detector folds: each parameter a `*`. */
 const asUrl = (path: string) => `/api/${path.replace(/:[A-Za-z]+/g, '*')}`;
 
+/**
+ * Where the owner list and the daemon's tags disagree: a route tagged decision that no entry or
+ * more than one covers, an entry that covers no decision route, and a command of another tag that
+ * an entry covers.
+ */
+export function decisionCoverageProblems(
+  inventory: readonly { method: string; path: string; tag: string }[],
+  covering: readonly RegExp[],
+): string[] {
+  const decisions = inventory.filter((route) => route.tag === 'decision');
+  return [
+    ...decisions
+      .filter((route) => covering.filter((c) => c.test(asUrl(route.path))).length !== 1)
+      .map((route) => `${route.path}: not one owner`),
+    ...covering
+      .filter((c) => !decisions.some((route) => c.test(asUrl(route.path))))
+      .map((c) => `${String(c)}: covers no decision route`),
+    ...inventory
+      .filter((route) => route.method === 'POST' && route.tag !== 'decision')
+      .filter((route) => covering.some((c) => c.test(asUrl(route.path))))
+      .map((route) => `${route.path}: owned but tagged ${route.tag}`),
+  ];
+}
+
 describe('the decision commands are the routes the daemon tags decision (R-H5, H5-4)', () => {
   const covering = [...COMMANDS.map((c) => c.route), ...SHARED.map((s) => s.route)];
-  const decisions = INVENTORY.filter((route) => route.tag === 'decision');
 
   it('reads the inventory', () => {
     expect(INVENTORY.length).toBeGreaterThan(100);
-    expect(decisions.length).toBeGreaterThan(20);
+    expect(INVENTORY.filter((route) => route.tag === 'decision').length).toBeGreaterThan(20);
   });
 
-  it('names one owner for each route tagged decision', () => {
-    expect(
-      decisions
-        .filter((route) => covering.filter((c) => c.test(asUrl(route.path))).length !== 1)
-        .map((route) => route.path),
-    ).toEqual([]);
+  it('names one owner for each route tagged decision, and owns nothing else', () => {
+    expect(decisionCoverageProblems(INVENTORY, covering)).toEqual([]);
   });
 
-  it('lists no command the daemon does not tag decision', () => {
-    expect(
-      covering.filter((c) => !decisions.some((route) => c.test(asUrl(route.path)))).map(String),
-    ).toEqual([]);
-    expect(
-      INVENTORY.filter((route) => route.method === 'POST' && route.tag !== 'decision')
-        .filter((route) => covering.some((c) => c.test(asUrl(route.path))))
-        .map((route) => route.path),
-    ).toEqual([]);
+  it('reports a retagged, an unowned and a doubly owned route (planted)', () => {
+    const preview = 'workspaces/:workspaceId/roadmaps/:roadmapId/amendments/preview';
+    const retagged = INVENTORY.map((route) =>
+      route.path === preview && route.method === 'POST' ? { ...route, tag: 'control' } : route,
+    );
+    expect(decisionCoverageProblems(retagged, covering)).toEqual([
+      `${preview}: owned but tagged control`,
+    ]);
+    const unowned = [
+      ...INVENTORY,
+      { method: 'POST', path: 'workspaces/:id/new-decision', tag: 'decision' },
+    ];
+    expect(decisionCoverageProblems(unowned, covering)).toEqual([
+      'workspaces/:id/new-decision: not one owner',
+    ]);
+    expect(decisionCoverageProblems(INVENTORY, [...covering, tail('decide')])).toContain(
+      'workspaces/:workspaceId/concurrency-definitions/:id/runtime/decide: not one owner',
+    );
   });
 });
 
-/** Where a request may be built and sent (R-H5): a `lib/*-api.ts` module, or the transport. */
-const API_MODULE = /^lib\/[a-z][a-z-]*-api\.ts$/;
+/**
+ * Where a request may be built and sent (R-H5): an API module, shared in `lib/<name>-api.ts` or a
+ * decision kind's own in `decisions/<kind>/<name>-api.ts` (operator decision 2026-10-11, the R-A6
+ * boundary kept structural), or the transport.
+ */
+const API_MODULE = /^(lib|decisions\/[a-z][a-z-]*)\/[a-z][a-z-]*-api\.ts$/;
+/** A decision kind's own API module: its directory. */
+const KIND_API_MODULE = /^(decisions\/[a-z][a-z-]*)\/[a-z][a-z-]*-api\.ts$/;
 const TRANSPORT = 'lib/api-client.ts';
 
 /**
@@ -943,15 +977,27 @@ function ownLiterals(module: Module): string[] {
   return found;
 }
 
+/** What a module outside `lib/` may take from the transport: its error, and the step-up hook. */
+const TRANSPORT_EXPORTS: ReadonlySet<string> = new Set([
+  'ApiError',
+  'ApiErrorDetail',
+  'setStepUpPrompt',
+  'forgetValidators',
+]);
+/** Browser request interfaces a module could reach by a name written as a text. */
+const REQUEST_APIS = /^(fetch|XMLHttpRequest|sendBeacon|EventSource|WebSocket)$/;
+
 /** Every request sent, and every API address written, outside the API modules. */
 export function requestsOutsideApiModules(all: ReadonlyMap<string, Module>): string[] {
   const api = (text: string) => /(^|[^a-z])\/api(\/|$)/.test(text);
+  const transport = (from: string) => /(^|\/)lib\/api-client$/.test(from);
   return [...all.values()]
     .filter((module) => !API_MODULE.test(module.path))
     .flatMap((module) =>
       module.path === TRANSPORT
-        ? // The transport sends what its callers built, and writes only its own step-up.
-          ownLiterals(module)
+        ? // The transport sends what its callers built, and writes only its own step-up, in a
+          // literal or built in pieces.
+          [...new Set([...ownLiterals(module), ...module.texts.map((t) => t.text)])]
             .filter((text) => api(text) && text !== '/api/auth/step-up')
             .map((text) => `${module.path}: builds ${text}`)
         : [
@@ -959,17 +1005,34 @@ export function requestsOutsideApiModules(all: ReadonlyMap<string, Module>): str
             ...ownLiterals(module)
               .filter(api)
               .map((text) => `${module.path}: builds ${text}`),
+            ...ownLiterals(module)
+              .filter((text) => REQUEST_APIS.test(text))
+              .map((text) => `${module.path}: names ${text}`),
+            // Outside `lib/` the transport gives its error and the step-up hook, never a sender.
+            ...(module.path.startsWith('lib/')
+              ? []
+              : [
+                  ...module.imports
+                    .filter((i) => transport(i.from) && !TRANSPORT_EXPORTS.has(i.imported))
+                    .map((i) => `${module.path}: imports ${i.imported} from the transport`),
+                  ...module.reExports
+                    .filter((r) => transport(r.from))
+                    .map(() => `${module.path}: re-exports the transport`),
+                  ...module.dynamicImports
+                    .filter((i) => transport(i.from))
+                    .map(() => `${module.path}: imports the transport at run time`),
+                ]),
           ],
     );
 }
 
 /**
- * Every request the browser sends is built and sent in a `lib/*-api.ts` module (R-H5): a page,
- * panel or decision component calls a named function there and never writes an API address or
- * calls `request` or `fetch` itself. The decision commands' functions live there too, each
- * reached from its one owner (the poster rules above follow imports).
+ * Every request the browser sends is built and sent in an API module (R-H5): a page, panel or
+ * decision component calls a named function there and never writes an API address or calls
+ * `request` or `fetch` itself. Shared requests live in `lib/*-api.ts`; a decision kind's
+ * commands live in its own `decisions/<kind>/*-api.ts` (R-A6), checked below.
  */
-describe('every request goes through a lib/*-api.ts module (R-H5)', () => {
+describe('every request goes through an API module (R-H5)', () => {
   it('finds no request or API address anywhere else', () => {
     expect(requestsOutsideApiModules(modules)).toEqual([]);
   });
@@ -990,13 +1053,25 @@ describe('every request goes through a lib/*-api.ts module (R-H5)', () => {
         "import { request } from './api-client.js';\nexport const runs = (id: string) => request(`/api/workspaces/${id}/runs`);",
       'lib/route.ts': "export const page = '/workspaces/api/settings';",
       'lib/api-client.ts':
-        "export async function request(url: string) { await fetch('/api/auth/step-up'); return fetch(url); }\nexport const me = () => request('/api/auth/session');",
+        "export async function request(url: string) { await fetch('/api/auth/step-up'); return fetch(url); }\nexport const me = () => request('/api/auth/session');\nexport const pieced = () => request('/ap' + 'i/auth/sessions');",
+      'features/Lazy.tsx':
+        "export function Lazy() { return import('../lib/api-client.js').then((m) => m.request('x')); }",
+      'features/Namespace.tsx':
+        "import * as api from '../lib/api-client.js';\nexport function Namespace() { const { request: send } = api; return send; }",
+      'features/Computed.tsx': "export function Computed() { return globalThis['fetch']('x'); }",
+      'features/Allowed.tsx':
+        "import { ApiError } from '../lib/api-client.js';\nexport function Allowed() { return new ApiError(400, 'x', 'y'); }",
     });
     expect(requestsOutsideApiModules(planted).sort()).toEqual([
+      'features/Computed.tsx: names fetch',
+      'features/Lazy.tsx: imports the transport at run time',
       'features/Link.tsx: builds /api/workspaces/*/runs/*',
+      'features/Namespace.tsx: imports * from the transport',
       'features/Planted.tsx: builds /api/workspaces/*/runs',
+      'features/Planted.tsx: imports request from the transport',
       'features/Planted.tsx: sends /api/workspaces/*/runs',
       'lib/api-client.ts: builds /api/auth/session',
+      'lib/api-client.ts: builds /api/auth/sessions',
     ]);
   });
 });
@@ -1294,25 +1369,65 @@ describe('the poster detector', () => {
 });
 
 /**
- * Every API module lives in `lib/` (R-H5): a decision kind's commands are functions there that
- * only the kind's component imports (the poster rules above follow imports), so no `*-api.ts`
- * module sits beside a component. Before R-H5 a kind's commands file was private to its
- * directory (R-A6 review); the rules above now hold that boundary wherever the file is.
+ * Decision commands stay in their kinds (R-A6; operator decision 2026-10-11 on R-H5's review M2):
+ * a decision kind's API module is imported only from its own directory, so no other component can
+ * post its command, a location boundary rather than an analysis; no shared `lib/` module posts a
+ * single-owner decision command; and an API module lives in `lib/` or in a kind's directory.
  */
-function apiModulesOutsideLib(paths: readonly string[]): string[] {
-  return paths
-    .map((path) => posix(relative(src, path)))
-    .filter((path) => /-api\.tsx?$/.test(path) && !API_MODULE.test(path));
+export function decisionModuleProblems(all: ReadonlyMap<string, Module>): string[] {
+  const kindOf = (path: string) => KIND_API_MODULE.exec(`${path}.ts`)?.[1];
+  return [...all.values()].flatMap((module) => [
+    ...(/-api\.tsx?$/.test(module.path) && !API_MODULE.test(module.path)
+      ? [`${module.path}: an API module outside lib/ and the decision kinds`]
+      : []),
+    ...[
+      ...module.imports.map((i) => i.from),
+      ...module.reExports.map((r) => r.from),
+      ...module.dynamicImports.map((i) => i.from),
+    ]
+      .filter((from) => {
+        const kind = kindOf(from);
+        return kind !== undefined && !module.path.startsWith(`${kind}/`);
+      })
+      .map((from) => `${module.path}: imports ${from} from outside its kind`),
+    ...(module.path.startsWith('lib/')
+      ? module.urls
+          .filter((url) => COMMANDS.some((c) => c.route.test(url.text)))
+          .map((url) => `${module.path}: posts the decision command ${url.text}`)
+      : []),
+  ]);
 }
 
-it('keeps every API module in lib (R-H5)', () => {
-  expect(apiModulesOutsideLib(files(src))).toEqual([]);
-  expect(
-    apiModulesOutsideLib([
-      join(src, 'decisions', 'design', 'design-api.ts'),
-      join(src, 'lib', 'work-cycle-api.ts'),
-    ]),
-  ).toEqual(['decisions/design/design-api.ts']);
+it("keeps each decision kind's commands in its own directory (R-A6, R-H5)", () => {
+  expect(decisionModuleProblems(modules)).toEqual([]);
+  expect([...modules.keys()].filter((path) => KIND_API_MODULE.test(path)).length).toBeGreaterThan(
+    15,
+  );
+});
+
+it('reports a planted kind module imported from outside, a decision in lib and a stray module', () => {
+  const planted = analyseAll(
+    new Map(
+      Object.entries({
+        'decisions/design/design-api.ts':
+          "export const recover = () => request('/api/x/design-recovery');",
+        'decisions/design/Design.tsx':
+          "import { recover } from './design-api.js';\nexport function Design() { return recover(); }",
+        'features/Panel.tsx':
+          "import { recover } from '../decisions/design/design-api.js';\nexport function Panel() { return recover(); }",
+        'features/Lazy.tsx':
+          "export function Lazy() { return import('../decisions/design/design-api.js'); }",
+        'lib/cycle-api.ts': "export const decide = () => request('/api/x/runtime/decide');",
+        'features/stray-api.ts': 'export const nothing = 1;',
+      }).map(([path, source]) => [join(src, path), source]),
+    ),
+  );
+  expect(decisionModuleProblems(planted).sort()).toEqual([
+    'features/Lazy.tsx: imports decisions/design/design-api from outside its kind',
+    'features/Panel.tsx: imports decisions/design/design-api from outside its kind',
+    'features/stray-api.ts: an API module outside lib/ and the decision kinds',
+    'lib/cycle-api.ts: posts the decision command /api/x/runtime/decide',
+  ]);
 });
 
 /**

@@ -6,7 +6,7 @@ import {
   remediationAllowance,
   type WorkCycle,
 } from '@craftingtable/domain';
-import { controlCycle } from '../../lib/work-cycle-api.js';
+import { controlCycle } from './cycle-api.js';
 import { CycleGuidanceRecovery } from './CycleGuidanceRecovery.js';
 import {
   type CycleRemediationGrant,

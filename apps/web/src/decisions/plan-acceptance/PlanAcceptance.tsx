@@ -2,7 +2,7 @@ import type { RuntimeEvidenceView } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
-import { generatePlanEvidence } from '../../lib/runtime-evidence-api.js';
+import { generatePlanEvidence } from './plan-acceptance-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { EvidenceReview } from '../evidence/EvidenceReview.js';

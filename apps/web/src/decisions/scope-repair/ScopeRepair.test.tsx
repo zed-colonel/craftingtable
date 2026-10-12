@@ -2,9 +2,9 @@ import type { ScopeRepairPreview } from '@craftingtable/contracts';
 import { asAgentRunId, cycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
+import { delegateScopeRepair, previewScopeRepair } from './scope-repair-api.js';
 import { ScopeRepair } from './ScopeRepair.js';
-vi.mock('../../lib/work-cycle-api.js', () => ({
+vi.mock('./scope-repair-api.js', () => ({
   delegateScopeRepair: vi.fn(),
   previewScopeRepair: vi.fn(),
 }));

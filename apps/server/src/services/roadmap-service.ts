@@ -196,7 +196,7 @@ const recoveryIndexes = new WeakMap<
   readonly RoadmapAttempt[],
   { entries: readonly RoadmapEntry[]; byWorkItem: Map<string, RoadmapAttempt> }
 >();
-function openRecoveries(roadmap: Roadmap): Map<string, RoadmapAttempt> {
+export function openRecoveries(roadmap: Roadmap): ReadonlyMap<string, RoadmapAttempt> {
   const entries = roadmap.definition.entries;
   const cached = recoveryIndexes.get(roadmap.attempts);
   if (cached?.entries === entries) return cached.byWorkItem;

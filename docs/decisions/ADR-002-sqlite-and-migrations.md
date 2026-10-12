@@ -1,10 +1,10 @@
-# ADR-002 — SQLite library and migration strategy
+# ADR-002: SQLite library and migration strategy
 
 - **Status:** accepted
 - **Date:** 2026-07-24
-- **Amended:** 2026-07-24 for CT-03 schema version 2, and again after the second
-  remediation re-review (CT03-R2R1, CT03-R2R2); 2026-07-28 for CT-04A2a
-  schema version 3; 2026-09-24 for table rebuilds (R-H3)
+- **Amended:** 2026-07-24 for CT-03 schema version 2, and again after the second remediation re-review (CT03-R2R1, CT03-R2R2)
+- **Amended:** 2026-07-28 for CT-04A2a schema version 3
+- **Amended:** 2026-09-24 for table rebuilds (R-H3)
 
 ## Context
 

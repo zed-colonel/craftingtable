@@ -1,6 +1,9 @@
 # ADR-027: Persistent attention notifications
 
-Status: accepted. Date: 2026-09-10.
+- **Status:** partly superseded
+- **Date:** 2026-09-10
+- **Superseded in part by:** ADR-070 (occurrences, the outbox and when a push is sent: attention items, a delivery log and push gates); register item R-G9 (the Pushover credentials moved from the database to `credentials.json`)
+- **Amended:** 2026-09-22 (R-A1, R-A2): settle period, condition keys, storage hysteresis, one restart message
 
 ## Context
 

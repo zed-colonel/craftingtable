@@ -1,7 +1,7 @@
 # ADR-055: Repository policy and operator decisions across execution scopes
 
-Status: accepted
-Date: 2026-09-17
+- **Status:** accepted
+- **Date:** 2026-09-17
 
 Repository administration obligations occur in imported source plans, but worktree
 existence is not protection evidence and a release procedure cannot silently defer an

@@ -1,4 +1,4 @@
-# ADR-009 — Authentication, sessions, and CSRF
+# ADR-009: Authentication, sessions, and CSRF
 
 - **Status:** accepted
 - **Date:** 2026-07-24

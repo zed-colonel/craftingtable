@@ -1,8 +1,9 @@
-# ADR-022 — Codex backend and turn-per-process sessions
+# ADR-022: Codex backend and turn-per-process sessions
 
-- **Status:** transport, permissions and telemetry superseded by ADR-023; registry and storage decisions retained
+- **Status:** partly superseded
 - **Date:** 2026-09-09
 - **Supersedes:** ADR-005
+- **Superseded in part by:** ADR-023 (transport, permissions and telemetry; the registry and storage decisions stand)
 
 ## Context
 

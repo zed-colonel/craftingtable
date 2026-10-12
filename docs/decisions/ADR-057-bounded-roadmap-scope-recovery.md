@@ -1,6 +1,8 @@
 # ADR-057: Bounded roadmap recovery across independent review stages
 
-Status: Accepted
+- **Status:** accepted
+- **Date:** 2026-09-18
+- **Amended:** 2026-09-28 (R-C5): convergence and one typed escalation
 
 Independent verification and parent acceptance intentionally cannot edit source. Their
 findings previously required the operator to repeat the owning-slice repair, integration,

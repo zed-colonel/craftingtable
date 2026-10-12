@@ -1,7 +1,7 @@
-# ADR-048 — Cross-project supervision and explicit target scope
+# ADR-048: Cross-project supervision and explicit target scope
 
-- Status: accepted
-- Date: 2026-09-16
+- **Status:** accepted
+- **Date:** 2026-09-16
 
 An imported definition remains immutable. Schema 21 adds append-only operator adoption of
 its complete scheduling proposal set, bound to the exact plan-binding revision with an

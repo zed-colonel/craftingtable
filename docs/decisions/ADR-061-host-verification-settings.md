@@ -1,7 +1,7 @@
-# ADR-061 — Visible host verification capacity
+# ADR-061: Visible host verification capacity
 
-- Status: accepted
-- Date: 2026-09-22
+- **Status:** accepted
+- **Date:** 2026-09-22
 
 The verification pool is shared across workspaces and separate from development and roadmap
 in-flight limits. Expose its 1–32 capacity in Settings, alongside current reservations and

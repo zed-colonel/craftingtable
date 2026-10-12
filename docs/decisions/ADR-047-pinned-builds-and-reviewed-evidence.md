@@ -1,7 +1,8 @@
-# ADR-047 — Pinned builds and reviewed evidence
+# ADR-047: Pinned builds and reviewed evidence
 
-- Status: accepted
-- Date: 2026-09-16
+- **Status:** accepted
+- **Date:** 2026-09-16
+- **Amended:** 2026-09-28 (R-G4): the daemon runs build commands in a confined unit and records their receipts
 
 Keep immutable runtime generations separate from imported definitions and plan bindings.
 A generation names exact dependency commits, crate mappings, conformance identities and

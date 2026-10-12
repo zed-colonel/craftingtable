@@ -1,7 +1,7 @@
-# ADR-046 — Transition gates and resource reservations
+# ADR-046: Transition gates and resource reservations
 
-- Status: accepted
-- Date: 2026-09-16
+- **Status:** accepted
+- **Date:** 2026-09-16
 
 Evaluate slice requirements at start, merge and verification, and original work-item
 requirements at parent acceptance. Merge inherits start requirements; verification inherits

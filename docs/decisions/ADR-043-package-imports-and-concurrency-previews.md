@@ -1,8 +1,8 @@
-# ADR-043 — ZIP packages and bound concurrency-map drafts
+# ADR-043: ZIP packages and bound concurrency-map drafts
 
-- Status: accepted
-- Date: 2026-09-15
-- Amends: ADR-011 transport, limits and explicit active-version selection
+- **Status:** accepted
+- **Date:** 2026-09-15
+- **Supersedes:** ADR-011 in part (transport, limits and explicit active-version selection)
 
 ## Decision
 

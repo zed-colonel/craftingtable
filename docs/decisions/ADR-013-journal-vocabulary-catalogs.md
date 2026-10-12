@@ -1,4 +1,4 @@
-# ADR-013 — Journal vocabulary catalogs
+# ADR-013: Journal vocabulary catalogs
 
 - **Status:** accepted
 - **Date:** 2026-07-24

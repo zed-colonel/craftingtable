@@ -1,6 +1,8 @@
 # ADR-031: Worktree finalization and review housekeeping
 
-Status: accepted. Date: 2026-09-11.
+- **Status:** partly superseded
+- **Date:** 2026-09-11
+- **Superseded in part by:** ADR-034 (scratch retention); register item R-G5 (repository hooks no longer run for the checkpoint commit, or for any daemon Git command)
 
 ## Context
 

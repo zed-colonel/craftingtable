@@ -1,7 +1,9 @@
 # ADR-062: Bounded recovery from model-service failures
 
-Status: accepted
-Date: 2026-09-22
+- **Status:** accepted
+- **Date:** 2026-09-22
+- **Amended:** 2026-09-25 (R-C11): provider-side credential rejections
+- **Amended:** 2026-09-25 (R-C9): ending the session on a used-up allowance
 
 A temporary model-service failure is neither a source finding nor an invalid-report remediation.
 Adapters normalize trusted structured failure discriminants into a vendor-neutral optional turn

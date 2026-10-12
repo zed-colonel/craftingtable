@@ -1,7 +1,8 @@
 # ADR-042: Staged plan finalization
 
-Status: accepted, amended 2026-10-07 (R-C7 D5)  
-Date: 2026-09-15
+- **Status:** accepted
+- **Date:** 2026-09-15
+- **Amended:** 2026-10-07 (R-C7 D5): optional findings parked at a stage
 
 ## Context
 

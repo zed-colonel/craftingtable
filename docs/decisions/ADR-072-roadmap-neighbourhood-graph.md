@@ -1,8 +1,9 @@
 # ADR-072: A roadmap's neighbourhood graph
 
-Status: accepted (decided by the operator 2026-10-06, P3 design pass, R-E3b)
-Date: 2026-10-09
-Supersedes: the "No graph canvas" clause of [ADR-015](ADR-015-browser-navigation-and-planning-views.md)
+- **Status:** accepted
+- **Date:** 2026-10-09
+- **Supersedes:** ADR-015 in part (the "No graph canvas" clause)
+- **Amended:** 2026-10-09 (R-E4): the plan-level graph
 
 ## Context
 

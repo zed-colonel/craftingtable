@@ -1,7 +1,8 @@
-# ADR-054 — Managed native verification and workstation readiness
+# ADR-054: Managed native verification and workstation readiness
 
-- Status: accepted
-- Date: 2026-09-17
+- **Status:** accepted
+- **Date:** 2026-09-17
+- **Amended:** 2026-09-28 (R-G4): the daemon starts the approved native unit
 
 Treat missing execution adapters and environment approvals as actionable configuration,
 not occupied capacity. Notify for otherwise eligible verification steps, using durable

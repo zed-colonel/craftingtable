@@ -1,7 +1,7 @@
 # ADR-067: Typed attention declared by the controller
 
-Status: accepted
-Date: 2026-09-23
+- **Status:** accepted
+- **Date:** 2026-09-23
 
 ## Context
 

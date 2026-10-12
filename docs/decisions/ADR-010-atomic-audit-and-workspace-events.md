@@ -1,4 +1,4 @@
-# ADR-010 — Atomic audit and workspace-event writes
+# ADR-010: Atomic audit and workspace-event writes
 
 - **Status:** accepted
 - **Date:** 2026-07-24

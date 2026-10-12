@@ -1,7 +1,8 @@
 # ADR-064: Agent selection is operational delegation
 
-- Status: accepted
-- Date: 2026-09-22
+- **Status:** accepted
+- **Date:** 2026-09-22
+- **Amended:** 2026-09-28 (R-G5 follow-up): reasoning effort for Claude profiles too
 
 ## Context
 

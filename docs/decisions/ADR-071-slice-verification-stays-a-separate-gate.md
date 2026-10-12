@@ -1,7 +1,7 @@
 # ADR-071: Slice verification stays a separate gate
 
-Status: accepted
-Date: 2026-10-07
+- **Status:** accepted
+- **Date:** 2026-10-07
 
 ## Context
 

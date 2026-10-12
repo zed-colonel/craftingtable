@@ -1,7 +1,8 @@
-# ADR-006 — Local TLS deployment
+# ADR-006: Local TLS deployment
 
-- **Status:** superseded by ADR-020 (TLS served by the daemon; LAN binding requires it)
+- **Status:** superseded
 - **Date:** 2026-07-23
+- **Superseded by:** ADR-020 (TLS served by the daemon; LAN binding requires it)
 - **Reviewed:** 2026-07-24 for CT-02
 
 ## Context

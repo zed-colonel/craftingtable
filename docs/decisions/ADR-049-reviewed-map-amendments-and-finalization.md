@@ -1,7 +1,7 @@
-# ADR-049 — Reviewed amendments and cross-project finalization
+# ADR-049: Reviewed amendments and cross-project finalization
 
-- Status: accepted
-- Date: 2026-09-16
+- **Status:** accepted
+- **Date:** 2026-09-16
 
 Schema 22 records immutable planning proposals and one attributed apply/reject decision per
 proposal, with an exact impact digest and the previous roadmap/attempt snapshot. Proposing

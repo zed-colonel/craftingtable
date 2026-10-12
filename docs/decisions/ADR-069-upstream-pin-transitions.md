@@ -1,7 +1,7 @@
 # ADR-069: Map-declared upstream pin transitions
 
-Status: accepted
-Date: 2026-09-25
+- **Status:** accepted
+- **Date:** 2026-09-25
 
 ## Context
 

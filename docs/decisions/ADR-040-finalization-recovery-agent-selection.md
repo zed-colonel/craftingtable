@@ -1,6 +1,8 @@
 # ADR-040: Change the finalization agent at recovery
 
-Status: accepted. Refines ADR-033 and ADR-038.
+- **Status:** accepted
+- **Date:** 2026-09-15
+- **Refines:** ADR-033, ADR-038
 
 An owner/editor at an idle finalization checkpoint may select another backend/model with
 Resume, focused remediation, general remediation authorization, or nit deferral. The choice

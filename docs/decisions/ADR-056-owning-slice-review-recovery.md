@@ -1,7 +1,8 @@
 # ADR-056: Owning-slice remediation from independent reviews
 
-Status: accepted
-Date: 2026-09-17
+- **Status:** accepted
+- **Date:** 2026-09-17
+- **Amended:** 2026-09-25 (R-C5): finding history in the repair packet
 
 An independent verification or parent-acceptance review cannot implement its findings.
 Repeating the review is insufficient, and reopening its snapshot for implementation

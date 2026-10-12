@@ -1,7 +1,7 @@
-# ADR-044 — Return unstarted agenda items to Proposed
+# ADR-044: Return unstarted agenda items to Proposed
 
-- Status: accepted
-- Date: 2026-09-15
+- **Status:** accepted
+- **Date:** 2026-09-15
 
 Admission expresses intent to work, so an operator may reverse it before work starts.
 Add an item-level Remove from agenda command, with a version check and the existing

@@ -1,6 +1,8 @@
 # ADR-028: Roadmaps and Planning Studio boundaries
 
-Status: proposed. Date: 2026-09-11.
+- **Status:** accepted
+- **Date:** 2026-09-11
+- **Amended:** 2026-10-12 (R-I7): status corrected from "proposed". Its roadmap and execution boundaries were built (ADR-029, ADR-030, ADR-043 to ADR-050); its Planning Studio parts remain the direction for the Studio (register item R-F6)
 
 Implementation planning update (2026-09-15): the operator-approved
 [cross-project concurrency roadmap](../cross-project-roadmap.md) applies these boundaries

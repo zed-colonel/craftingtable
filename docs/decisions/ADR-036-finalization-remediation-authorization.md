@@ -1,6 +1,8 @@
 # ADR-036: Explicit additional finalization remediation
 
-Status: accepted. Refines ADR-033 and ADR-035 recovery.
+- **Status:** accepted
+- **Date:** 2026-09-13
+- **Refines:** ADR-033, ADR-035 (recovery)
 
 ## Decision
 

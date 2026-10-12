@@ -1,10 +1,11 @@
-# ADR-015 — Browser navigation and planning views
+# ADR-015: Browser navigation and planning views
 
-- **Status:** accepted
+- **Status:** partly superseded
 - **Date:** 2026-07-24
+- **Superseded in part by:** ADR-072 (the "No graph canvas" clause)
 - **Amended:** 2026-07-24 after independent review (CT03-R6)
-- **Amended:** 2026-07-24 after remediation re-review (CT03-RR4), and again after
-  the second re-review (CT03-R2R3, CT03-R2R4)
+- **Amended:** 2026-07-24 after remediation re-review (CT03-RR4), and again after the second re-review (CT03-R2R3, CT03-R2R4)
+- **Amended:** 2026-09-28 (R-E1): typed focus and one `Link`
 
 ## Context
 

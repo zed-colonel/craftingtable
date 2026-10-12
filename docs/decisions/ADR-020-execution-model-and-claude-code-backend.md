@@ -1,7 +1,8 @@
-# ADR-020 — Execution model and the Claude Code backend
+# ADR-020: Execution model and the Claude Code backend
 
 - **Status:** accepted
 - **Date:** 2026-09-04
+- **Supersedes:** ADR-004 (diff viewer), ADR-006 (local TLS), ADR-007 (the deferred agent seam)
 
 ## Context
 

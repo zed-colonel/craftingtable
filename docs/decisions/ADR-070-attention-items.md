@@ -1,7 +1,8 @@
 # ADR-070: Attention items, a delivery log and push gates
 
-Status: accepted
-Date: 2026-09-25
+- **Status:** accepted
+- **Date:** 2026-09-25
+- **Supersedes:** ADR-027 in part (occurrences, the outbox and push timing)
 
 ## Context
 

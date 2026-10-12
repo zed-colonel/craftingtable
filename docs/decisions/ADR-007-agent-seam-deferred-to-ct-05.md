@@ -1,7 +1,8 @@
-# ADR-007 — Agent execution boundary
+# ADR-007: Agent seam deferred to CT-05
 
-- **Status:** superseded by ADR-020
+- **Status:** superseded
 - **Date:** 2026-07-23
+- **Superseded by:** ADR-020 (the execution model and the agent backend seam)
 
 ## Context
 

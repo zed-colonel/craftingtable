@@ -1,7 +1,7 @@
 # ADR-060: Candidate checkpoint evidence and assigned baseline cases
 
-Status: accepted
-Date: 2026-09-20
+- **Status:** accepted
+- **Date:** 2026-09-20
 
 Contract checkpoints required before a slice merge must be reviewable against that
 candidate. Requiring the integration head creates a circular gate. Baseline matrices

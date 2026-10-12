@@ -1,6 +1,8 @@
 # ADR-041: Plan completion and optional integration branch cleanup
 
-Status: accepted. Extends ADR-026 and ADR-033.
+- **Status:** accepted
+- **Date:** 2026-09-15
+- **Refines:** ADR-026, ADR-033
 
 Completion belongs to a plan version and is derived from its completed finalization and durable
 merge evidence. Project summaries reflect the active version, while version history preserves

@@ -1,4 +1,4 @@
-# ADR-008 — Toolchain and quality gates
+# ADR-008: Toolchain and quality gates
 
 - **Status:** accepted
 - **Date:** 2026-07-23
@@ -6,8 +6,7 @@
 - **Amended:** 2026-07-24 for CT-02 native persistence and authenticated E2E
 - **Amended:** 2026-07-24 for CT-03 planning dependencies and DOM component tests
 - **Amended:** 2026-07-26 for CT-04A1 structural Git tests and protected-package verification
-- **Amended:** 2026-09-24: `command-runner.ts` was removed with the CT-04A1 inspector (R-B8);
-  the process authorities are the modules listed in `scripts/check-forbidden-scope.mjs`
+- **Amended:** 2026-09-24: `command-runner.ts` was removed with the CT-04A1 inspector (R-B8); the process authorities are the modules listed in `scripts/check-forbidden-scope.mjs`
 
 ## Context
 

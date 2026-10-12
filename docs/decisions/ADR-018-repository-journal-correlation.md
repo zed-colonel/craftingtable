@@ -1,7 +1,8 @@
-# ADR-018 — Repository journal correlation
+# ADR-018: Repository journal correlation
 
-- **Status:** superseded (2026-10-08, register item R-H6): the registry was removed by R-B8 (2026-09-23); R-H6 retired these kinds from the domain, contracts and browser, and migration 0040 rebuilt the journal without the correlation columns, their checks and foreign keys (ADR-013, amended)
+- **Status:** superseded
 - **Date:** 2026-07-29
+- **Superseded by:** register item R-H6 (2026-10-08): the registry was removed by R-B8 (2026-09-23); R-H6 retired these kinds from the domain, contracts and browser, and migration 0040 rebuilt the journal without the correlation columns, their checks and foreign keys
 
 ## Context
 

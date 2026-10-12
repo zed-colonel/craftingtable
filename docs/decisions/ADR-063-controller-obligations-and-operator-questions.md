@@ -1,6 +1,8 @@
 # ADR-063: Controller obligations and operator questions
 
-Status: accepted. Date: 2026-09-22.
+- **Status:** accepted
+- **Date:** 2026-09-22
+- **Amended:** 2026-09-27 (LIVE-02, R-I11): a slice cycle no roadmap owns
 
 ## Decision
 

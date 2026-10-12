@@ -1,7 +1,9 @@
-# ADR-058 — Reviewed dependency refresh and precise evidence reuse
+# ADR-058: Reviewed dependency refresh and precise evidence reuse
 
-- Status: accepted
-- Date: 2026-09-19
+- **Status:** accepted
+- **Date:** 2026-09-19
+- **Refines:** ADR-047, ADR-053 (evidence reuse), ADR-054 (approval applicability)
+- **Amended:** 2026-09-28 (LIVE-15): a moved pin is its own stop
 
 A provider integration merge can advance one pin without changing every consumer's inputs.
 Generation-wide invalidation forces unrelated parents and workstation approvals through unnecessary

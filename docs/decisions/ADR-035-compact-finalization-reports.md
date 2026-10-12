@@ -1,6 +1,8 @@
 # ADR-035: Compact finalization reports and scoped recovery guidance
 
-Status: accepted. Refines ADR-024 and ADR-033 for plan finalization.
+- **Status:** accepted
+- **Date:** 2026-09-13
+- **Refines:** ADR-024, ADR-033 (plan finalization)
 
 ## Decision
 

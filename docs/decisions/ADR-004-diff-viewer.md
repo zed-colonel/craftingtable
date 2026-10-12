@@ -1,7 +1,8 @@
-# ADR-004 — Diff viewer choice
+# ADR-004: Diff viewer choice
 
-- **Status:** decided in ADR-020 (unified `git diff` rendered as text, no library)
+- **Status:** superseded
 - **Date:** 2026-07-23
+- **Superseded by:** ADR-020 (unified `git diff` rendered as text, no library)
 
 ## Context
 

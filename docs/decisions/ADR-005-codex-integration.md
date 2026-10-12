@@ -1,7 +1,8 @@
-# ADR-005 — Codex integration path
+# ADR-005: Codex integration path
 
-- **Status:** superseded by ADR-022 (Codex exec/resume backend)
+- **Status:** superseded
 - **Date:** 2026-07-23
+- **Superseded by:** ADR-022 (Codex exec/resume backend)
 
 ## Context
 

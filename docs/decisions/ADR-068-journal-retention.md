@@ -1,8 +1,8 @@
-# ADR-068 — Journal retention: raw lines on failure only, tool-result bodies beside the run
+# ADR-068: Journal retention: raw lines on failure only, tool-result bodies beside the run
 
 - **Status:** accepted
 - **Date:** 2026-09-24
-- **Refines:** ADR-020 (raw lines "for diagnostics"), ADR-034 and ADR-039 (run retention)
+- **Refines:** ADR-020 (raw lines "for diagnostics"), ADR-034, ADR-039 (run retention)
 
 ## Context
 

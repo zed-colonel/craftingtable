@@ -1,4 +1,4 @@
-# ADR-001 — Server and web framework
+# ADR-001: Server and web framework
 
 - **Status:** accepted
 - **Date:** 2026-07-23

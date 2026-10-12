@@ -1,6 +1,8 @@
 # ADR-037: Bounded recovery of incomplete background work
 
-Status: accepted. Refines ADR-020, ADR-025 and ADR-033.
+- **Status:** accepted
+- **Date:** 2026-09-14
+- **Refines:** ADR-020, ADR-025, ADR-033
 
 ## Decision
 

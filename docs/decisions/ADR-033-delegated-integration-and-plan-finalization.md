@@ -1,6 +1,8 @@
 # ADR-033: Delegated integration and explicit plan finalization
 
-Status: accepted. Refines ADR-021, ADR-025, ADR-029 and ADR-032 merge authority.
+- **Status:** accepted
+- **Date:** 2026-09-12
+- **Refines:** ADR-021, ADR-025, ADR-029, ADR-032 (merge authority)
 
 ## Decision
 

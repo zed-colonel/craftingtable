@@ -1,8 +1,8 @@
-# ADR-023 — Codex app-server integration
+# ADR-023: Codex app-server integration
 
 - **Status:** accepted
 - **Date:** 2026-09-09
-- **Supersedes:** ADR-022 transport, permission mapping and telemetry decisions
+- **Supersedes:** ADR-022 in part (transport, permission mapping and telemetry)
 
 ## Context
 

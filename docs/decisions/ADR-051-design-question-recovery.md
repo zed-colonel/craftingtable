@@ -1,7 +1,7 @@
 # ADR-051: Bounded design-question recovery
 
-Status: accepted
-Date: 2026-09-17
+- **Status:** accepted
+- **Date:** 2026-09-17
 
 WI-01 and EXO-01 stopped at design questions mixing missing shared documents, repository
 administration decisions and historical measurements. Generic Resume re-evaluated the same

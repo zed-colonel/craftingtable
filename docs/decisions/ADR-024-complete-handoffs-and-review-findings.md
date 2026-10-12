@@ -1,7 +1,8 @@
-# ADR-024 — Complete handoffs and consolidated review findings
+# ADR-024: Complete handoffs and consolidated review findings
 
-- **Status:** accepted; amended 2026-10-08 (R-G6): the prompt carries a digest, not a preview
+- **Status:** accepted
 - **Date:** 2026-09-10
+- **Amended:** 2026-10-08 (R-G6): the prompt carries a digest of the parent, not a preview
 
 ## Context
 

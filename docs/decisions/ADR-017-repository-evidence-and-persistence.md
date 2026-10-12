@@ -1,7 +1,8 @@
-# ADR-017 — Repository evidence and persistence
+# ADR-017: Repository evidence and persistence
 
-- **Status:** superseded (2026-09-23, register item R-B8): the registry code was removed. Its three tables, kept empty while `workspace_events` foreign keys referenced them, were dropped by migration 0040 (2026-10-08, R-H6)
+- **Status:** superseded
 - **Date:** 2026-07-28
+- **Superseded by:** register item R-B8 (2026-09-23): the registry code was removed. Its three tables, kept empty while `workspace_events` foreign keys referenced them, were dropped by migration 0040 (2026-10-08, R-H6)
 
 ## Context
 

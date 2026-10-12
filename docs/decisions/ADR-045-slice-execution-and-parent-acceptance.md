@@ -1,7 +1,7 @@
-# ADR-045 — Slice execution and parent acceptance
+# ADR-045: Slice execution and parent acceptance
 
-- Status: accepted
-- Date: 2026-09-16
+- **Status:** accepted
+- **Date:** 2026-09-16
 
 Keep work items as the source-plan and dependency identities. A worktree and roadmap
 entry may additionally identify a slice by immutable map definition, binding revision

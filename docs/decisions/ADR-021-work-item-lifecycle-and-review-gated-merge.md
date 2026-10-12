@@ -1,4 +1,4 @@
-# ADR-021 — Work item lifecycle and the review-gated merge
+# ADR-021: Work item lifecycle and the review-gated merge
 
 - **Status:** accepted
 - **Date:** 2026-09-05

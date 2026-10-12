@@ -4926,6 +4926,35 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   6. **Archive completed planning documents:** `docs/finalization-roadmap.md`, `docs/cross-project-roadmap.md`, `docs/plans/`. DOC-05.
   7. **AGENTS.md rules:** the README is not updated per feature; commit bodies say what stop or need motivated the change (HIST-15); correct the claim that every superseded artifact is in `archive/` (REPO-03).
   8. **Remaining vocabulary, export and agent-seam drift** from DATA-15 and AGT-17.
+- **The rest, built 2026-10-12 on `remediation/p3` (P3 build order step 6), one commit per part:**
+  - **Part 1, the ADRs.**
+    - *Names.* The 19 files 033–050 and 057 gained the `ADR-` prefix; the three links to them
+      (ADR-011, the two roadmap documents) follow. ADR-007, the "agent execution boundary" that
+      only deferred the seam to CT-05 (AGT-17), is now `ADR-007-agent-seam-deferred-to-ct-05.md`.
+    - *One header.* Every ADR opens `# ADR-NNN: Title`, then `- **Status:**`, `- **Date:**` and
+      optional Supersedes, Superseded by, Superseded in part by, Refines, Amended and Reviewed fields,
+      in that order. Five header styles were in use (DOC-02). The nine ADRs without a date (033,
+      035–041, 057) take the date of the commit that added them. Amendment sections already in a body
+      are now listed in its header (002, 003, 015, 024, 027, 038, 039, 042, 047, 050, 053, 054, 056–059,
+      062–066, 072).
+    - *Statuses checked against the supersession records* (each header, its amendment sections, and
+      every register mention of an ADR as amended or superseded), and corrected: ADR-028 `proposed` →
+      `accepted` (its roadmap boundaries were built; the Studio parts stay R-F6's direction); ADR-004
+      ("decided in ADR-020") → `superseded`; ADR-022 (free text) → `partly superseded`; ADR-011 (by
+      ADR-043), ADR-015 (by ADR-072), ADR-027 (by ADR-070 and R-G9's credentials file) and ADR-031 (by
+      ADR-034's retention and R-G5's hookless daemon Git) → `partly superseded`. Supersession is
+      recorded at both ends: ADR-020 now names 004, 006 and 007; ADR-034 names 031; ADR-043 names
+      011; ADR-070 names 027.
+    - *Index.* `docs/decisions/README.md` lists all 72 (it listed 33) with title, status, date and
+      relations, the header format, and reading chains by topic (finalization, cross-project maps,
+      stops and recovery, …) instead of DOC-02's proposed topic pages.
+    - *Held structurally.* `scripts/check-docs.mjs`, run by `scripts/check-docs.test.mjs` in `pnpm
+      test`: every ADR file is `ADR-NNN-<slug>.md` with the header format and a closed status set,
+      `superseded`/`partly superseded` carry their field and only then, supersession names an
+      existing ADR at both ends, and the index table equals the rows rendered from the headers
+      (`node scripts/check-docs.mjs` prints them). The same module checks that every relative link
+      under `docs/` and in the top-level Markdown resolves, anchors included by GitHub's slug rule:
+      1,083 links in 104 files at this commit, none broken. A self-test covers each rule.
 
 ### R-I8
 

@@ -1,6 +1,8 @@
 # ADR-065: Future delegation and independent decision preparation
 
-Accepted: 2026-09-22
+- **Status:** accepted
+- **Date:** 2026-09-22
+- **Amended:** 2026-09-28 (R-C3b): preparation beside a running roadmap
 
 Started roadmap attempts retain immutable definitions. An explicit, authenticated grant may
 replace integration automation and reviewer responsibilities for named entries' future actions.

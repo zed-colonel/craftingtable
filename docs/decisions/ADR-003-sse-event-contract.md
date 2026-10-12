@@ -1,4 +1,4 @@
-# ADR-003 — Durable workspace SSE event contract
+# ADR-003: Durable workspace SSE event contract
 
 - **Status:** accepted
 - **Date:** 2026-07-23

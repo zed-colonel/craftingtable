@@ -1,4 +1,4 @@
-# ADR-012 — Planning domain and dependency semantics
+# ADR-012: Planning domain and dependency semantics
 
 - **Status:** accepted
 - **Date:** 2026-07-24

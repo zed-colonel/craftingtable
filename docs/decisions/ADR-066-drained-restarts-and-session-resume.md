@@ -1,7 +1,8 @@
 # ADR-066: Drained restarts and session resume
 
-Status: accepted
-Date: 2026-09-23
+- **Status:** accepted
+- **Date:** 2026-09-23
+- **Amended:** 2026-09-24: two changes after the phase 1 review
 
 ## Context
 

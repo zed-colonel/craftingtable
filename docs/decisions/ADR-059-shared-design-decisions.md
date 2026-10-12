@@ -1,6 +1,10 @@
 # ADR-059: Shared design decisions and bounded predecessor waits
 
-Accepted: 2026-09-19
+- **Status:** accepted
+- **Date:** 2026-09-19
+- **Amended:** 2026-09-25 (R-C3a): an answered investigation continues
+- **Amended:** 2026-10-02 (R-C16): investigating any question stop
+- **Amended:** 2026-10-05 (R-C16): the daemon checks that an investigation left the worktree unchanged
 
 Design recovery must distinguish approved facts, outstanding predecessor work, actual
 operator choices and planning conflicts. Each new design supplies a structured

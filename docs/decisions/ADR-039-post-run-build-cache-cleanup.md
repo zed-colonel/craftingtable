@@ -1,6 +1,9 @@
 # ADR-039: Clean build caches when runs end
 
-Status: accepted. Refines ADR-034 and ADR-037.
+- **Status:** accepted
+- **Date:** 2026-09-15
+- **Refines:** ADR-034, ADR-037
+- **Amended:** 2026-09-24 (R-G7): one build cache per worktree
 
 Recognized build caches no longer depend on merging a work item. Finished, failed and
 cancelled runs become eligible after an observed process exit is recorded and no session in

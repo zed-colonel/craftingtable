@@ -1,6 +1,9 @@
 # ADR-038: Explicit finalization finding decisions
 
-Status: accepted; nit deferral retired 2026-09-25 (see the amendment). Refines ADR-033 and ADR-036.
+- **Status:** accepted
+- **Date:** 2026-09-15
+- **Refines:** ADR-033, ADR-036
+- **Amended:** 2026-09-25 (R-B10): nit deferral retired with improvement rounds
 
 A paused finalization with a complete, successful current review can accept an explicit
 operator decision on selected findings, including at a questions checkpoint. The command

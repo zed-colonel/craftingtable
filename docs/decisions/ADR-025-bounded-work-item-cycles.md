@@ -1,7 +1,7 @@
 # ADR-025: Bounded work-item cycles with operator merge approval
 
-Status: accepted  
-Date: 2026-09-10
+- **Status:** accepted
+- **Date:** 2026-09-10
 
 ## Context
 

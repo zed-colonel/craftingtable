@@ -1,7 +1,9 @@
 # ADR-053: Scope-specific verification and local CI
 
-Status: accepted
-Date: 2026-09-17
+- **Status:** accepted
+- **Date:** 2026-09-17
+- **Amended:** 2026-09-22: independent parent acceptance
+- **Amended:** 2026-09-28 (R-G4): `ct-check` and `ct-act` are requests the daemon runs
 
 A repository-wide dependency generation describes the target stack; it must not force
 independent contract/domain slices to port legacy runtime code before their integration scope.

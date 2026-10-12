@@ -1,6 +1,7 @@
 # ADR-032: Delegated integration conflict resolution
 
-Status: accepted. Date: 2026-09-12.
+- **Status:** accepted
+- **Date:** 2026-09-12
 
 ## Context
 

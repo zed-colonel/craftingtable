@@ -1,7 +1,7 @@
 # ADR-026: Plan integration branches and review freshness
 
-Status: accepted  
-Date: 2026-09-10
+- **Status:** accepted
+- **Date:** 2026-09-10
 
 ## Context
 

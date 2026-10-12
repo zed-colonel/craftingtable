@@ -1,7 +1,7 @@
 # ADR-052: Controller-owned historical baseline preparation
 
-Status: accepted
-Date: 2026-09-17
+- **Status:** accepted
+- **Date:** 2026-09-17
 
 Early WI/EXO designs mixed genuine decisions with missing repository preparation and historical evidence.
 Their original dependencies differ from the current pinned runtime; routing characterization through the

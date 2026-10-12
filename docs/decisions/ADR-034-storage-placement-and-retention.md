@@ -1,6 +1,8 @@
 # ADR-034: Storage placement and retention
 
-Status: accepted. Date: 2026-09-12.
+- **Status:** accepted
+- **Date:** 2026-09-12
+- **Supersedes:** ADR-031 in part (scratch retention)
 
 ## Context
 

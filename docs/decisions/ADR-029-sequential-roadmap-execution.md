@@ -1,6 +1,7 @@
 # ADR-029: Sequential roadmap execution
 
-Status: accepted. Date: 2026-09-11.
+- **Status:** accepted
+- **Date:** 2026-09-11
 
 ## Context
 

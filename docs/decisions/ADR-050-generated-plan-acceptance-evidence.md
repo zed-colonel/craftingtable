@@ -1,7 +1,8 @@
-# ADR-050 — Generated saved-plan evidence and explicit operator review
+# ADR-050: Generated saved-plan evidence and explicit operator review
 
-- Status: accepted, amended 2026-10-08 (R-C6)
-- Date: 2026-09-17
+- **Status:** accepted
+- **Date:** 2026-09-17
+- **Amended:** 2026-10-08 (R-C6): bound to its inputs, carried by the operator's own commands
 
 Support an explicit evidence-generation command for the known `STACK-PLAN-ACCEPTED`
 setup contract. The daemon collects facts from validated imports, exact bindings,

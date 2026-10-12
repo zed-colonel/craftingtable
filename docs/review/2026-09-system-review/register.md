@@ -5049,6 +5049,53 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       denied reads (defect 1; it changes an agent sandbox, and Codex's read-only profile form needs
       checking against CLI 0.160.0 first); and whether to adopt the `__Host-` cookie prefix SEC-04
       suggested (it signs everyone out once at deploy), now a known limit.
+  - **Part 5, `docs/operations.md` rewritten as current state (DOC-03 #2, DOC-05).** 578 lines (649
+    before): data and settings locations, running the daemon (the unit and its three stop
+    settings, the single-daemon lock, running CLI commands from the deployed release), deploying
+    and rolling back as they stand after schemas 38–40, reaching the daemon (Tailscale, and the LAN
+    route now self-contained here: its certificate, environment, firewall and trust steps moved
+    from the README, which only points to it), agents on the workstation (CLIs, environment,
+    models, temporary directories, outside sources, Cargo), checks, storage and backups, Pushover,
+    shutdown and recovery, the forgotten password, deleting data, and the environment variables.
+    Operations says what the operator configures and does; what each boundary enforces is linked
+    to `security.md`. The roadmap guides moved to `docs/roadmaps.md` (part 3). The old file is
+    `archive/operations-2026-10.md`, verbatim under a superseded header.
+    - *Deploy notes, as the operator needs them after schemas 38–40:* reload every open page (R-H5's
+      paths changed without aliases); no rollback across 0038–0040 (the preflight refuses with
+      `unsupported-version`; the one pre-migration copy is the way back, and how to put it in place);
+      check Git ≥ 2.43.0 before deploying (see defect 2 below); adopt `.craftingtable/checks.json` in
+      every repository a roadmap runs in (`repository-checks-undeclared`, ActionQueue has none yet);
+      a review prepared without the adopted checks is refused at merge and how to get a fresh one;
+      `outside-sources.json` optional (absent means the `cargo` source).
+    - *The complete environment-variable list:* 75 rows in five tables (Daemon, Deploy, Tests, Set
+      by the daemon, Retired), each name with its reader, default, bounds and meaning, including the
+      standard variables `config.ts` and the deploy script read, the test switches, and the names
+      the daemon sets for agents and checks. Held by `scripts/check-docs.mjs` in `pnpm test`: every
+      `CRAFTINGTABLE_*` name any source, test or harness file mentions is listed and every listed one
+      occurs in source; every variable `config.ts` reads from `env` is in the Daemon table and every
+      one `deploy-daemon.mjs` reads in the Deploy table; the Retired table is exactly
+      `RETIRED_SETTINGS`; rows are one backticked name each. Self-tests cover each rule. Before this
+      list the README named 12 and the archived feature log 6 more.
+    - *Claims:* 131 checked (110 true, 10 new, 9 fixed, 2 about external tools: Tailscale, openssl),
+      plus the 75 rows, every one in the claims ledger. False or stale in the old doc: every run's
+      agent TMPDIR in `<data>/t` (only a sandboxed Claude process's); builds in the run's
+      `scratch/target` (the worktree's shared target, R-G7); "the three newest pre-migration
+      copies" (one); "Shutdown and recovery" killing agents and marking runs interrupted at the next
+      start (a stop drains and the next start resumes); 12–1,024-byte passwords for the CLI reset
+      (only the upper bound is checked); "`pnpm build` once" for Tailscale (the deploy builds); the
+      LAN pointer into the README; "Settings → Pushover notifications" (Settings → Notifications);
+      `--status` "prints the drop-in" (only when a stop setting is off); schema-15 history; and the
+      schema-11 and -12 restart notes and CLI-version history (dropped).
+    - *Code defects found, not fixed:* (2) **MEDIUM for the P3 deploy: the Git floor is checked
+      after the database is migrated.** `createRuntime` opens, and so migrates, storage before
+      `createServices` runs `gitVersionIssue` (`composition.ts`), so a release refused for a Git
+      below 2.43.0 has already migrated, the deploy's automatic rollback is then refused by the
+      preflight, and no daemon runs. The workstation's Git is newer; operations.md says to check
+      first. (3) LOW: the deploy's health check always speaks `http://` (`healthUrl` in
+      `deploy-daemon.mjs`), so a daemon serving TLS itself (the direct-LAN route) is rolled back
+      after 90 s unless `CRAFTINGTABLE_DEPLOY_HEALTH_URL` is set; the doc gives an untried
+      workaround. Noted: `CRAFTINGTABLE_RUN_NAMESPACE` is set for launchers and check units but
+      nothing reads it. (Defect 1, the CLI password bound, is under part 4.)
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

@@ -595,3 +595,273 @@ section), agent output truncation before storage, and the storage roots' device 
    needs Codex's read-only profile form to be verified against CLI 0.160.0 first.
 2. The session cookie still has no `__Host-` prefix (SEC-04 recommended it). Adopting it renames
    the cookie, which signs everyone out once at deploy. Listed as a known limit; adopt or leave?
+
+## Claims ledger: docs/operations.md (R-I7 part 5)
+
+Checked against remediation/p3 at 3a03927. 131 claims: 110 `true` (kept or reworded), 9 `fixed`,
+10 `new`, 2 `external`; plus the 75 environment-variable rows, checked mechanically (see that
+section). 12 false or stale statements of the old doc were fixed or dropped (list below).
+External tool behaviour (Tailscale, openssl, Pushover's service) is marked `external` and was not
+checked against code.
+
+### Data and settings locations
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 1 | Data dir: `CRAFTINGTABLE_DATA_DIR`, else `$XDG_DATA_HOME/craftingtable`, else `~/.local/share/craftingtable` | `apps/server/src/config.ts:177-187` | true |
+| 2 | `state/craftingtable.sqlite` is the database | `config.ts:868` (`databasePath`) | true |
+| 3 | `state/pre-migration/` holds the copy before the latest migration | `packages/storage/src/migrations.ts:205,243-267` | true |
+| 4 | `state/processes/<runId>.json` records each live run's group | `config.ts:875`; `agent-run-service.ts` `processRecords` | new |
+| 5 | `state/daemon.lock.<id>` is the lock | `apps/server/src/instance-lock.ts:68,86` | true |
+| 6 | Worktrees at `<worktree root>/<repo>/<item>-<id>` | `services/execution-service.ts:1191-1195` | true |
+| 7 | `runs/<runId>/` holds `brief.md`, `plan/`, `handoff/`, `checks/`, `tool-results/`, `scratch/` | `agent-run-service.ts:1445,1485,1636,1898`; `runtime-evidence-service.ts:2738`; `tool-result-store.ts:29` | true |
+| 8 | `runs/worktree-caches/<id>/` is each worktree's shared Cargo target | `agent-run-service.ts:3198-3220`; `storage-files.ts:95` | new |
+| 9 | `t/<12 hex>/` is a **sandboxed Claude** run's own TMPDIR | `claude-code/backend.ts:142-158`; `agent-run-service.ts:2546-2563` | fixed: said "each live run's agent process TMPDIR" |
+| 10 | `backups/database/` holds snapshots | `storage-service.ts:66,821` | true |
+| 11 | `check-logs/`, `cargo-home/`, `crates-io/`, `model-catalog/`, `git-identity.gitconfig` | `config.ts:387,391`; `composition.ts:217,253,319` | new |
+| 12 | Settings dir: `CRAFTINGTABLE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/craftingtable`, else `~/.config/craftingtable` | `config.ts:165-174` | true |
+| 13 | It holds `credentials.json` (0600 in 0700) and `outside-sources.json` | `security/credential-file.ts:46-55`; `config.ts:498` | true |
+| 14 | Dev daemon uses `craftingtable-dev` for both directories | `apps/server/src/dev-defaults.ts:14-23` | true |
+| 15 | The environment seeds worktree and runs roots once; Settings owns them after | `storage-service.ts:57-77` | true |
+
+### Running the daemon
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 16 | `pnpm dev` builds the packages and runs the dev daemon on 4601 and Vite on 5173 | `package.json` `dev`; `dev-defaults.ts:22`; `apps/web/vite.config.ts:19-26` | true |
+| 17 | `pnpm craftingtable:dev` runs the CLI against the dev state | `apps/server/package.json` `cli:dev`; `dev-cli.ts` | true |
+| 18 | The e2e suite uses ports 4610 and 5183 and its own data directories | `playwright.config.ts:12-13,142`; `test-data-root.ts` | true |
+| 19 | The unit file (WorkingDirectory `current`, `node apps/server/dist/index.js`, `KillMode=mixed`, `TimeoutStopSec=300`) | `scripts/deploy-daemon.mjs:134-153,630-639`; `apps/server/tsconfig.json` (`dist`) | true |
+| 20 | A first `--no-restart` deploy creates `current` with no unit check | `deploy-daemon.mjs:525` (`unitProblem` only when restarting) | true |
+| 21 | `TimeoutStopSec` must exceed the drain bound plus 30 s | `deploy-daemon.mjs:651-657` | true |
+| 22 | `--status` checks the three stop settings and prints `drain.conf` when one is off | `deploy-daemon.mjs:613-625,680-698` | fixed: "checks all three and prints the drop-in" (only when one fails) |
+| 23 | Git 2.43.0 or newer, else the daemon refuses to start | `packages/git/src/version.ts:8-30`; `composition.ts:192-196` | true |
+| 24 | With no Git found the daemon starts but cannot delegate | `composition.ts:187-196`; `execution-service.ts:451` | new |
+| 25 | Lock: socket file plus abstract socket on Linux, before database work | `instance-lock.ts:61-90`; `daemon-start.ts:17-27` | true |
+| 26 | A second daemon, also in another network namespace, exits naming the holder | `instance-lock.ts:68-74`; `index.ts:9-13` | true |
+| 27 | The agents' temporary root is locked the same way | `instance-lock.ts:92-110` | true |
+| 28 | `db migrate` and `db compact-journal` take the lock | `cli.ts:258-290` | true |
+| 29 | `admin bootstrap` and `reset-password` take it only with pending migrations | `cli.ts:299-316` | true |
+
+### Deploying and rolling back
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 30 | Flags: `--when-idle`, `--no-drain`, `--no-restart`, `--rollback`, `--status`, `--keep N`, `--yes` | `deploy-daemon.mjs:68-90` | true |
+| 31 | Confirmation unless `--yes`; refused without it off a terminal | `deploy-daemon.mjs:453-465` | true |
+| 32 | Deploy root default `$XDG_DATA_HOME/craftingtable-deploy`; `repo.git`, `releases/<time>-<commit>`, `current`, `deploys.jsonl` | `deploy-daemon.mjs:104-107,520-522,467-472` | true |
+| 33 | Fetches branches and tags of the clone it runs in; ref must be reachable; uncommitted changes not deployed | `deploy-daemon.mjs:496-519,530` | true |
+| 34 | `pnpm install --frozen-lockfile` and `pnpm build`; a failed build leaves `current` | `deploy-daemon.mjs:541-549` | true |
+| 35 | Preflight opens the live database read-only with the release's storage code | `deploy-daemon.mjs:226-301` | true |
+| 36 | Pending migrations pass; name/checksum mismatch or unknown migration refuses with the ledger code | `deploy-daemon.mjs:263-277`; `migrations.ts` `MigrationValidationError` | true |
+| 37 | A refusal records `preflight-refused`, removes the release, leaves the daemon | `deploy-daemon.mjs:316-325,550-554` | true |
+| 38 | The command prints the database checked, or that there was none | `deploy-daemon.mjs:304-315` | true |
+| 39 | Drain request file `drain-request.json`; no new admissions; bounded wait; interrupt; clean stop | `deploy-daemon.mjs:363-376`; `services/daemon-drain.ts:28,184-206` | true |
+| 40 | Ctrl-C, SIGHUP or SIGTERM withdraws the request | `deploy-daemon.mjs:377-387` | true |
+| 41 | A drained daemon with no restart exits 75 after two minutes | `daemon-drain.ts:105,163`; `index.ts:36-40` | true |
+| 42 | No answer within 15 s: restart without draining | `deploy-daemon.mjs:56,402-405,429-433` | true |
+| 43 | `current` switches in one rename | `deploy-daemon.mjs:121-126` | true |
+| 44 | Health check polls `/api/health` for 90 s; failure switches back | `deploy-daemon.mjs:55,343-356,557-580` | true |
+| 45 | The automatic rollback is refused when the new release migrated past the old | `deploy-daemon.mjs:565-574` | true |
+| 46 | `--keep` default 5, at least 2; current and previous always kept | `deploy-daemon.mjs:69,82-84,474-490` | true |
+| 47 | Data dir from `CRAFTINGTABLE_DEPLOY_DATA_DIR`, the unit's `CRAFTINGTABLE_DATA_DIR` (files over `Environment=`), XDG | `deploy-daemon.mjs:155-217` | true |
+| 48 | Health URL from the unit's host/port, 0.0.0.0 read as 127.0.0.1 | `deploy-daemon.mjs:343-350` | true |
+| 49 | `--rollback` takes the latest previous release on disk, no rebuild, same preflight | `deploy-daemon.mjs:587-606` | true |
+| 50 | A rollback across a migration is refused with `unsupported-version`, naming `pre-migration/` | `deploy-daemon.mjs:326-334` | true |
+| 51 | The daemon keeps only the newest pre-migration copy | `migrations.ts:205,264-266` | fixed: "the three newest copies are kept" |
+| 52 | Restoring the pre-migration copy before `--rollback` makes the preflight pass (the copy is at the old schema) | `migrations.ts:257`; `deploy-daemon.mjs:263-277` | new (procedure; not exercised) |
+| 53 | 0038: run environments without a runtime, for check-only manifests | `packages/storage/migrations/0038-check-only-run-environments.sql:1-7` | true |
+| 54 | 0039: evidence submission heads beside the records | `0039-evidence-submission-heads.sql:1-6` | new |
+| 55 | 0040: journal rebuilt without the registry columns; three empty tables dropped | `0040-journal-without-registry.sql:1-12` | new |
+| 56 | The pre-migration copy needs about the database's size free | `migrations.ts:257` (`VACUUM INTO`); `scheduler-replay.ts:497` | true |
+| 57 | The Git floor is checked after storage opened (and migrated) | `composition.ts:629` (`openDaemonStorage`) before `createDaemon` → `:194` | new (see code defect D2) |
+| 58 | Reload open pages: paths changed without aliases | `program.md:1055`; `docs/api-routes.md` | true |
+| 59 | A roadmap's cycle without an adoption stops as `repository-checks-undeclared` | `runtime-evidence-service.ts:2684-2712` | true |
+| 60 | ActionQueue has no `.craftingtable/checks.json` | `~/src/actionqueue` working tree (no `.craftingtable/`) | true (workstation fact) |
+| 61 | A review with no check-run record is refused at merge where an adoption exists, whenever prepared; the refusal names the exit | `runtime-evidence-service.ts:2787-2816` | true |
+| 62 | `outside-sources.json` absent means the `cargo` source | `config.ts:672-676` | true |
+
+### Reaching the daemon from another machine
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 63 | Non-loopback host needs TLS or an HTTPS public origin | `config.ts:818-822` | true |
+| 64 | CSRF and origin checks compare against the public origin; cookie `Secure` on HTTPS | `config.ts:870`; `routes/browser-security.ts` | true |
+| 65 | `http://localhost:4600` shows the app, but sign-in is refused; the error names the address | old doc; `auth` origin check (not re-traced) | true (carried; message text not re-read) |
+| 66 | Tailscale steps (`status --json`, `set --operator`, `serve --bg --https=443`, `serve status`, `--https=443 off`, `--accept-dns=false`, the warning) | — | external |
+| 67 | "Then `pnpm build` once, start the daemon" | — | fixed: the deploy builds the release; restart the unit |
+| 68 | The openssl command makes an EC cert with SANs | — | external (moved from README) |
+| 69 | Env lines for the LAN route; TLS cert and key absolute and together | `config.ts:809-817` | true |
+| 70 | `pnpm start` serves the built UI after `pnpm build` | `apps/server/package.json` `start`; `config.ts:340-344,826-828` | true |
+| 71 | The deploy health check is plain HTTP; a TLS daemon fails it | `deploy-daemon.mjs:343-350`; `server.ts:137-145` | new (code defect D3) |
+| 72 | The Host check admits the public origin's host and loopback names, not a wildcard listen address | `browser-security.ts:67-77` | true |
+| 73 | "Directly on the LAN" pointed at the README's "Using it from the couch" | — | fixed: the section is self-contained |
+
+### Agents on the workstation
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 74 | `claude`/`codex` found on PATH, then `~/.local/bin`; explicit paths override | `composition.ts:230-245`; `services/executables.ts:9-39` | true |
+| 75 | The daemon registers whichever backend it finds | `composition.ts:226-257` | true |
+| 76 | A sandboxed Claude run needs `bwrap` and `socat` on PATH, or stops as `agent-environment-unavailable` | `claude-code/backend.ts:322-335,160-168` | new |
+| 77 | Tools on the workstation reports availability, not login health | `RepositoriesPage.tsx:192`; old doc | true |
+| 78 | The agent environment allowlist (base, `LC_*`, proxy/CA, vendor login variables) | `packages/agents/src/child-environment.ts:7-32,35-63`; `claude-code/backend.ts:49-53`; `codex/session.ts:22` | true |
+| 79 | `CRAFTINGTABLE_AGENT_ENV_ALLOW` lets more names through | `config.ts:434-439`; `composition.ts:238,251` | true |
+| 80 | Catalogs read at start and hourly; Refresh models | `services/model-catalog-service.ts:6,23-27`; route `execution-status/refresh-models` | true |
+| 81 | Claude's catalog in `<CLAUDE_CONFIG_DIR or ~/.claude>/cache/model-catalog/`; aliases first | `claude-code/catalog.ts:18-31`; `claude-code/models.ts:8-20` | true |
+| 82 | `*_MODELS` replace a catalog; a misnamed model is not started (`agent-model-misnamed`) | `config.ts:448-462`; `claude-code/backend.ts:40`; `domain/src/execution.ts` | true |
+| 83 | Sandboxed Claude's own TMPDIR in the agents' root; commands use `scratch/` | `claude-code/backend.ts:143-158` | true |
+| 84 | Each run directory at most 60 bytes | `claude-code/backend.ts:315` | true |
+| 85 | Root refusals (`/`, `/tmp`, `/var/tmp`, `/dev/shm`, `/run`, `XDG_RUNTIME_DIR`, `TMPDIR`, home; overlaps) | `config.ts:306-322,398-428` | true |
+| 86 | A start removes run-named directories and logs anything else | `agent-run-service.ts:2775-2799` | true |
+| 87 | Outside sources file format, `cargo` only, hosts, caches | `config.ts:494-505,722-748`; `packages/agents/src/outside-sources.ts:22-40` | true |
+| 88 | `extraHosts`: exact lowercase, ≥3 labels, no wildcard/IP/port/trailing dot | `config.ts:505-506` (`EXACT_HOST`) | true |
+| 89 | No file: `cargo`; `"sources": []`: none | `config.ts:672-676` | true |
+| 90 | Invalid file refusals (JSON, keys, kind, host, non-regular, >64 KiB); cache link/overlap | `config.ts:603-670,680-716` | true |
+| 91 | Each run's journal notes what its commands may reach | `outsideSourcesNote` (`packages/agents/src/index.ts:40`) | true (carried) |
+| 92 | Codex 0.160.0 masks one existing file; more is refused as `environment-unavailable` | `codex/backend.ts:76-86` | true |
+| 93 | Agents use `<data>/cargo-home`, never `~/.cargo` | `config.ts:391`; `agent-run-service.ts:2100-2103` | true |
+| 94 | Seeding copies missing registry/git caches, one way, nothing replaced | `packages/agents/src/local-check.ts:2734-2752` (`--update=none`) | true |
+| 95 | Seed source `CARGO_HOME`, else `~/.cargo`; empty turns off | `config.ts:429-433` | true |
+| 96 | Checks build from a registry of their own; crates.io index read over HTTPS, kept in `crates-io/` | `services/crate-checksums.ts:4-16,36-60`; `composition.ts:319` | true |
+
+### Checks
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 97 | Check units named `craftingtable-check-<instance>-<request>` | `services/check-request-service.ts:210-211,499` | true |
+| 98 | `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs plain process groups | `config.ts:440-443` | true |
+| 99 | A start stops leftover check units | `check-request-service.ts:218-225`; `composition.ts:321` | true |
+| 100 | A merge in a repository with an adoption needs each check's daemon run on the reviewed commit | `runtime-evidence-service.ts:2787-2830` | true |
+| 101 | Rustup proxy (link, hard link, copy) → the commit's toolchain; a shim is a direct Cargo | `local-check.ts:1431-1460,1484-1530` | true |
+| 102 | Automatic installs off; a missing toolchain fails the check | `local-check.ts:1517-1528` (`RUSTUP_AUTO_INSTALL=0`) | true |
+| 103 | `CRAFTINGTABLE_ACT_CONFIG` file requirements | `local-check.ts:68-83` | true |
+| 104 | `CRAFTINGTABLE_KATA_READINESS` names a root-owned receipt shown in audits | `native-environment.ts:131-150`; `scripts/kata/README.md:22-26` | true |
+
+### Storage, backups and restore
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 105 | Storage needs an owner of every active workspace | `storage-service.ts:245-248`; route access `installation` | true |
+| 106 | At most one missing leaf is created; canonical path and device pinned | `storage-files.ts:23-62` | true |
+| 107 | Build caches found up to four levels into scratch, eligible after the run ends with no live sibling | `storage-files.ts:107-170`; `packages/storage/src/repositories/maintenance.ts:91-96` | true |
+| 108 | A worktree's shared target goes once merged or removed and idle | `agent-run-service.ts:3190-3196`; `storage-service.ts` `worktreeCacheCandidates` | true |
+| 109 | Scratch and tool-result bodies expire 30 days after the later of run end and removal, merged and removed, untouched | `maintenance.ts:91-93`; `storage-files.ts:174-200` | true |
+| 110 | "Both backends set CARGO_TARGET_DIR to the current run's scratch/target" | `agent-run-service.ts:2099` | fixed: the worktree's shared target; scratch only as fallback |
+| 111 | 5 GiB reserve; daily snapshot; seven kept; once a minute | `storage-service.ts:63-70,907-916,926-977` | true |
+| 112 | Backup: online API, 0700/0600, needs 2× (≥1 GiB), retention only this feature's in the current directory | `storage-service.ts:818-871` | true |
+| 113 | A symlinked move fails the root checks; no command rewrites them | `storage-files.ts:51-61` | true |
+| 114 | `db:verify` copies with the backup API into `TMPDIR`, migrates the copy, checks every record | `apps/server/src/db-verify.ts:8-40` | true |
+| 115 | Compaction: dry run default; refuses pending migrations; `--apply --vacuum`; `--bodies`; takes the lock | `cli.ts:24,55-73,186-230,256-275` | true |
+
+### Notifications, shutdown, password, deletion
+
+| # | Claim | Checked against | Result |
+|---|---|---|---|
+| 116 | Settings → Notifications (owner); labels Ready for merge, Needs attention, Enable notifications, Send test notification | `SettingsPage.tsx:15-21,94`; `NotificationPanel.tsx:106-180,255` | fixed: "Settings → Pushover notifications" |
+| 117 | Defaults America/Los_Angeles, 21:00 | `packages/domain/src/notification.ts:11-18` | true |
+| 118 | Settle 30 s; quiescence ≤ 2 min; presence grace 5 min; reminders wait while commanding | `notification-service.ts:36-45,395-418` | true |
+| 119 | Reminders +30…+360 min then daily; one overdue reminder after downtime | `domain/src/notification.ts:2,27-36` | true |
+| 120 | Retries 30 s, 1, 5, 15 min, then hourly; rate limit ≥ 1 h holds all; rejection until save or test | `notification-service.ts:532-547`; `notification-transport.ts:42-72`; `notification-service.ts:251,310` | true |
+| 121 | Fixed endpoint, normal priority | `notification-transport.ts:17-34` | true |
+| 122 | Links use the public origin | `notification-service.ts:505-512` | true |
+| 123 | False-alarm query columns | `migrations/0032-attention-items.sql:5-34` | true |
+| 124 | SIGTERM/SIGINT drain first, then listener, checks and database close | `server.ts:163-169`; `composition.ts:580-608`; `index.ts:20-31` | fixed: "closes the HTTP listener, terminates every live agent process group … marked interrupted" |
+| 125 | A second signal interrupts at once | `index.ts:22-27`; `daemon-drain.ts:136-139` | true |
+| 126 | After a crash: recorded groups ended, runs interrupted, explicit Resume | `agent-run-service.ts:2738-2800`; `restart-resume.ts:1-11` | true |
+| 127 | Removing a worktree whose directory is gone prunes Git's metadata and marks it removed | `packages/git/src/worktrees.ts:154-168`; `execution-service.ts:1475` | true |
+| 128 | `reset-password` refuses a missing database or inactive/unknown user; prompts twice; Ctrl-C/Ctrl-U | `cli.ts:110-130,295-297,325-331`; `password-reset-service.ts:18-26` | true |
+| 129 | "Passwords must be 12–1024 UTF-8 bytes" (for the CLI) | `auth-service.ts:22,245-249` vs `cli.ts:136-140` | fixed: only the browser enforces 12; the CLI enforces ≤ 1024 (code defect D1) |
+| 130 | Reset replaces the hash, revokes sessions, audits, in one transaction | `password-reset-service.ts:21-50` | true |
+| 131 | Deleting the data dir leaves worktrees listed until `git worktree prune` | Git behaviour | true (carried) |
+
+### Environment variables (mechanical check)
+
+75 rows, one name each. Checked with `grep`: every `CRAFTINGTABLE_*` token in `apps/server/src`,
+`packages/*/src`, `apps/web/src`, `scripts/*.mjs` and every tracked non-doc file (tests, harness,
+`package.json`) appears in a table; every `CRAFTINGTABLE_*` name in a table occurs in source; every
+name `config.ts` and `deploy-daemon.mjs` read as `env.X` is listed; `### Retired` equals
+`RETIRED_SETTINGS` in `config.ts`. Defaults and bounds were read from the reader named in
+`env-sources.txt`. Three standard names appear in two tables on purpose (`XDG_DATA_HOME` in Daemon
+and Deploy; `CARGO_HOME` and `TMPDIR` in Daemon and Set by the daemon).
+
+### False or stale in the old doc
+
+1. "`t/<12 hex>/` each live run's agent process TMPDIR" → only a sandboxed Claude run's process gets
+   it (`claude-code/backend.ts:143`); fixed in the locations table.
+2. "Both backends set CARGO_TARGET_DIR to the current run's scratch/target" → the worktree's shared
+   target in `runs/worktree-caches/` (R-G7), scratch only as a fallback (`agent-run-service.ts:2099`);
+   fixed under Storage.
+3. "A migration on start first copies the populated database to `state/pre-migration/` (the three
+   newest copies are kept)" → one, the newest (`migrations.ts:205`); fixed under Rolling back.
+4. Old "Shutdown and recovery": SIGTERM "terminates every live agent process group … On the next
+   start, runs that were live are marked `interrupted`" → a stop drains, interrupts for resume and
+   records a clean stop; the next start resumes (`server.ts:163-169`); rewritten.
+5. "Passwords must be 12–1024 UTF-8 bytes" for `reset-password` → the CLI enforces only ≤ 1024
+   bytes (an empty password is accepted); fixed, and code defect D1.
+6. Tailscale "Then `pnpm build` once, start the daemon" → the deploy builds the release; restart
+   the unit.
+7. "Directly on the LAN" pointed at the README's "Using it from the couch" → self-contained.
+8. "In workspace **Settings → Pushover notifications**" → **Settings → Notifications** (owner only).
+9. "`pnpm deploy:daemon --status` checks all three and prints the drop-in" → prints it only when a
+   setting is off.
+10. "After schema 15 has registered canonical root/device identities …" (schema history) → stated
+    as current: roots and run directories are pinned by canonical path and device.
+11. "restart the daemon to apply schema 11/12", "On upgrading to this recovery implementation,
+    restart the daemon to load its concurrent-login protection" → history; dropped.
+12. "Then `pnpm build` once" and "Codex app-server behavior was verified with CLI 0.153.4" →
+    version history; dropped.
+
+### Dropped
+
+- "Sequential roadmaps" and "Parallel roadmaps" usage guides → `docs/roadmaps.md` (agent C).
+- Per-agent sandbox mechanics (Claude's write list and `denyWrite`, Codex's profile, Git directory
+  grants, `untrusted-git-directory`, the residual of a person running Git in a worktree) and the
+  check units' isolation details (private clones, pinned checkouts, check Cargo homes,
+  current-upstream gate) → `security.md#agent-sandboxes`, `#the-daemons-own-git`,
+  `#checks-and-builds` (agent A); operations keeps what the operator configures and does.
+- Model catalog file format (version 2, entries needing a newer CLI) → code and ADR; not operator
+  procedure.
+- crates.io request budget (500 per ten minutes, ten-minute retry) → detail of
+  `crate-checksums.ts`, not operator procedure.
+- "Cleanup queues behind maintenance and holds that worktree's next automation step", partial
+  trees produce warnings, allocated blocks vs physical usage → behaviour detail, not procedure.
+- "Storage pressure/maintenance errors use the existing attention-notification preference" →
+  covered by "Alerts are the workspace's Needs you items".
+- The enumerated list of alerting stops and "Explicit cycle pause/stop does not nag" → replaced by
+  "Alerts are the workspace's Needs you items" (the push gates read attention items only,
+  `notification-service.ts:48-60`).
+- The 2026-09-23 compaction measurements (547 → 137 MB) → history.
+- Empty `-wal`/`-shm` files left by the preflight's read-only open → SQLite trivia.
+
+### Code defects
+
+- **D1 (low).** `admin reset-password` and `admin bootstrap` accept any password up to 1024 bytes,
+  including an empty one (Enter twice): `apps/server/src/cli.ts:319-331` checks only that the two
+  entries match, and `PasswordResetService.reset` / `BootstrapService.bootstrap` check no length.
+  The browser's change requires 12–1024 bytes (`services/auth-service.ts:22,245-249`), and login
+  requires at least one character (`packages/contracts/src/auth.ts:59`), so an empty password set
+  from the CLI locks the user out until the next reset.
+- **D2 (medium for the P3 deploy).** The Git version floor is checked in `createDaemon`
+  (`apps/server/src/composition.ts:192-196`) after `createRuntime` has opened, and so migrated, the
+  database (`composition.ts:629`). A release refused for a Git below 2.43.0 has already migrated
+  the database; the deploy's automatic rollback is then refused by the preflight, and no daemon
+  runs. The doc tells the operator to check Git first.
+- **D3 (low).** The deploy's health check (`scripts/deploy-daemon.mjs:343-350`) always uses
+  `http://`; a daemon serving TLS itself (`CRAFTINGTABLE_TLS_CERT`/`KEY`, `server.ts:137-145`)
+  never answers it, so every deploy is rolled back after 90 s unless
+  `CRAFTINGTABLE_DEPLOY_HEALTH_URL` is set and Node trusts the certificate. The doc gives the
+  workaround (not exercised).
+- **Observation.** `CRAFTINGTABLE_RUN_NAMESPACE` is set for runs with launchers and in check units
+  (`agent-run-service.ts:2107`, `check-request-service.ts:480`) but nothing in the repository reads
+  it; documented as such.
+
+### Questions for the operator
+
+None that change authority, UX or a persisted format. D1–D3 are code fixes for the coordinator to
+place.
+
+### Note for the coordinator
+
+`CONVENTIONS.md` names the retired list `RETIRED`; the constant in `config.ts` is
+`RETIRED_SETTINGS` (not exported; `retiredSettings()` is).

@@ -8,7 +8,10 @@ import {
   anchorsOf,
   checkAdrs,
   checkDocs,
+  checkEnvironmentList,
   checkLinks,
+  documentedVariables,
+  environmentReads,
   headingSlug,
   readAdrs,
 } from './check-docs.mjs';
@@ -30,7 +33,7 @@ const tree = (files) => {
 };
 
 describe('this checkout', () => {
-  it('has no broken relative link, malformed ADR or stale ADR index row', () => {
+  it('has no broken relative link, malformed ADR, stale ADR index row or unlisted variable', () => {
     expect(checkDocs()).toEqual([]);
   });
 });
@@ -246,6 +249,136 @@ describe('checkAdrs', () => {
     });
     expect(checkAdrs(root)).toEqual([
       `docs/decisions/README.md: no index table headed "${ADR_INDEX_HEADER}"`,
+    ]);
+  });
+});
+
+const operations = (tables) =>
+  [
+    '# Operations',
+    '## Environment variables',
+    ...Object.entries(tables).flatMap(([table, names]) => [
+      `### ${table}`,
+      '| Variable | Default | Meaning |',
+      '|---|---|---|',
+      ...names.map((name) => `| \`${name}\` | unset | What it does. |`),
+    ]),
+    '## Next',
+    '| `CRAFTINGTABLE_ELSEWHERE` | not in the section |',
+  ].join('\n');
+const config = (reads, retired) =>
+  `${reads.map((name) => `const a = env.${name};`).join('\n')}\nconst b = env['HOME'];\nconst RETIRED_SETTINGS = [\n${retired.map((name) => `  '${name}',`).join('\n')}\n] as const;\n`;
+const environment = (overrides = {}) => {
+  const files = {
+    'apps/server/src/config.ts': config(
+      ['CRAFTINGTABLE_PORT', 'XDG_DATA_HOME'],
+      ['CRAFTINGTABLE_OLD'],
+    ),
+    'scripts/deploy-daemon.mjs': 'const root = process.env.CRAFTINGTABLE_DEPLOY_ROOT;\n',
+    'apps/server/test/e2e/harness.ts': "process.env['CRAFTINGTABLE_TEST_ONLY'];\n",
+    'packages/agents/src/launch.ts': "const set = { CRAFTINGTABLE_RUN_ID: 'x' };\n",
+    'vitest.config.ts': 'process.env.CRAFTINGTABLE_SCALE;\n',
+    'node_modules/dep/index.js': 'CRAFTINGTABLE_IN_A_DEPENDENCY',
+    'apps/server/dist/config.js': 'CRAFTINGTABLE_IN_BUILD_OUTPUT',
+    'scripts/check-docs.test.mjs': 'CRAFTINGTABLE_FIXTURE_IN_THIS_TEST',
+    'docs/operations.md': operations({
+      Daemon: ['CRAFTINGTABLE_PORT', 'XDG_DATA_HOME', 'HOME'],
+      Deploy: ['CRAFTINGTABLE_DEPLOY_ROOT'],
+      Tests: ['CRAFTINGTABLE_TEST_ONLY', 'CRAFTINGTABLE_SCALE'],
+      'Set by the daemon': ['CRAFTINGTABLE_RUN_ID'],
+      Retired: ['CRAFTINGTABLE_OLD'],
+    }),
+    ...overrides,
+  };
+  return tree(files);
+};
+
+describe('checkEnvironmentList', () => {
+  it('accepts a list that covers the sources, the two programs and the retired settings', () => {
+    expect(checkEnvironmentList(environment())).toEqual([]);
+  });
+
+  it('refuses a name the sources mention but the list does not, and the reverse', () => {
+    const root = environment({
+      'packages/git/src/new.ts': 'env.CRAFTINGTABLE_NEW_SETTING',
+      'docs/operations.md': operations({
+        Daemon: ['CRAFTINGTABLE_PORT', 'XDG_DATA_HOME', 'HOME', 'CRAFTINGTABLE_GONE'],
+        Deploy: ['CRAFTINGTABLE_DEPLOY_ROOT'],
+        Tests: ['CRAFTINGTABLE_TEST_ONLY', 'CRAFTINGTABLE_SCALE'],
+        'Set by the daemon': ['CRAFTINGTABLE_RUN_ID'],
+        Retired: ['CRAFTINGTABLE_OLD'],
+      }),
+    });
+    expect(checkEnvironmentList(root)).toEqual([
+      'docs/operations.md: CRAFTINGTABLE_NEW_SETTING (in packages/git/src/new.ts) is not listed',
+      'docs/operations.md: CRAFTINGTABLE_GONE is listed, but no source mentions it',
+    ]);
+  });
+
+  it('requires what config.ts and the deploy script read in their own tables', () => {
+    const root = environment({
+      'docs/operations.md': operations({
+        Daemon: ['CRAFTINGTABLE_PORT', 'CRAFTINGTABLE_DEPLOY_ROOT'],
+        Deploy: ['XDG_DATA_HOME'],
+        Tests: ['CRAFTINGTABLE_TEST_ONLY', 'CRAFTINGTABLE_SCALE'],
+        'Set by the daemon': ['CRAFTINGTABLE_RUN_ID'],
+        Retired: ['CRAFTINGTABLE_OLD'],
+      }),
+    });
+    expect(checkEnvironmentList(root)).toEqual([
+      'docs/operations.md: HOME, which apps/server/src/config.ts reads, is not in the Daemon table',
+      'docs/operations.md: XDG_DATA_HOME, which apps/server/src/config.ts reads, is not in the Daemon table',
+      'docs/operations.md: CRAFTINGTABLE_DEPLOY_ROOT, which scripts/deploy-daemon.mjs reads, is not in the Deploy table',
+    ]);
+  });
+
+  it('requires the Retired table to equal RETIRED_SETTINGS', () => {
+    const root = environment({
+      'apps/server/src/config.ts': config(
+        ['CRAFTINGTABLE_PORT', 'XDG_DATA_HOME'],
+        ['CRAFTINGTABLE_OLD', 'CRAFTINGTABLE_OLDER'],
+      ),
+    });
+    expect(checkEnvironmentList(root)).toEqual([
+      'docs/operations.md: CRAFTINGTABLE_OLDER (in apps/server/src/config.ts) is not listed',
+      'docs/operations.md: the Retired table must list exactly RETIRED_SETTINGS: CRAFTINGTABLE_OLD, CRAFTINGTABLE_OLDER',
+    ]);
+  });
+
+  it('refuses malformed rows, unknown or missing tables and repeats', () => {
+    const text = [
+      '## Environment variables',
+      '| `CRAFTINGTABLE_A` | before any table |',
+      '### Daemon',
+      '| `CRAFTINGTABLE_A`, `CRAFTINGTABLE_B` | two names |',
+      '| `CRAFTINGTABLE_C` | x |',
+      '| `CRAFTINGTABLE_C` | x |',
+      '### Others',
+      '### Daemon',
+    ].join('\n');
+    const { tables, problems } = documentedVariables(text);
+    expect(tables.get('Daemon')).toEqual(['CRAFTINGTABLE_C', 'CRAFTINGTABLE_C']);
+    expect(problems).toEqual([
+      'docs/operations.md:2: a row must start with one backticked name, under a table heading',
+      'docs/operations.md:4: a row must start with one backticked name, under a table heading',
+      'docs/operations.md:6: CRAFTINGTABLE_C is listed twice in "Daemon"',
+      'docs/operations.md:7: "Others" is not one of Daemon, Deploy, Tests, Set by the daemon, Retired',
+      'docs/operations.md:8: a second "Daemon" table',
+      'docs/operations.md: no "### Deploy" table',
+      'docs/operations.md: no "### Tests" table',
+      'docs/operations.md: no "### Set by the daemon" table',
+      'docs/operations.md: no "### Retired" table',
+    ]);
+    expect(documentedVariables('# Nothing').problems).toEqual([
+      'docs/operations.md: no "## Environment variables" section',
+    ]);
+  });
+
+  it('reads literal env names, dotted or bracketed', () => {
+    expect([...environmentReads("env.A_B; process.env.C; env['D']; env[name]; myenv.E")]).toEqual([
+      'A_B',
+      'C',
+      'D',
     ]);
   });
 });

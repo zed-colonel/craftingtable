@@ -12,6 +12,12 @@
  *   optional relation fields). A superseded ADR names what superseded it, and supersession is
  *   recorded at both ends. The index's table lists every ADR exactly once, with the title,
  *   status, date and relations of its header; `adrIndexRows` renders the expected rows.
+ * - **Environment variables.** `docs/operations.md`'s "Environment variables" tables list every
+ *   `CRAFTINGTABLE_*` name the sources mention (production, tests and the harness; not this
+ *   check's own test, whose names are fixtures) and no other;
+ *   every variable `apps/server/src/config.ts` reads from `env` is in the Daemon table, every one
+ *   `scripts/deploy-daemon.mjs` reads in the Deploy table, and the Retired table is exactly
+ *   config.ts's `RETIRED_SETTINGS`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -303,9 +309,144 @@ export function checkAdrs(root) {
   return problems;
 }
 
+export const ENVIRONMENT_DOC = 'docs/operations.md';
+export const ENVIRONMENT_SECTION = '## Environment variables';
+/** The section's tables, by H3 heading. */
+export const ENVIRONMENT_TABLES = ['Daemon', 'Deploy', 'Tests', 'Set by the daemon', 'Retired'];
+const DAEMON_CONFIG = 'apps/server/src/config.ts';
+const DEPLOY_SCRIPT = 'scripts/deploy-daemon.mjs';
+/** Where sources live, and what a walk of them skips. */
+const SOURCE_ROOTS = ['apps', 'packages', 'scripts', 'e2e'];
+const SOURCE_FILE = /\.(?:[cm]?[jt]s|tsx|jsx|json)$/;
+const NOT_SOURCE = new Set(['node_modules', 'dist', 'test-results', '.git']);
+const VARIABLE = /\bCRAFTINGTABLE_[A-Z0-9_]+\b/g;
+/** This check's own test: the names in it are fixtures. */
+const SELF_TEST = 'scripts/check-docs.test.mjs';
+
+/**
+ * The variables `docs/operations.md` lists: `{ tables, problems }`, where `tables` maps each H3
+ * table of the "Environment variables" section to the names its rows start with.
+ */
+export function documentedVariables(text) {
+  const tables = new Map();
+  const problems = [];
+  const lines = text.split('\n');
+  const start = lines.indexOf(ENVIRONMENT_SECTION);
+  if (start === -1)
+    return { tables, problems: [`${ENVIRONMENT_DOC}: no "${ENVIRONMENT_SECTION}" section`] };
+  let table;
+  for (let at = start + 1; at < lines.length && !lines[at].startsWith('## '); at += 1) {
+    const line = lines[at];
+    const heading = /^### (.+)$/.exec(line);
+    if (heading !== null) {
+      table = heading[1].trim();
+      if (!ENVIRONMENT_TABLES.includes(table))
+        problems.push(
+          `${ENVIRONMENT_DOC}:${at + 1}: "${table}" is not one of ${ENVIRONMENT_TABLES.join(', ')}`,
+        );
+      else if (tables.has(table))
+        problems.push(`${ENVIRONMENT_DOC}:${at + 1}: a second "${table}" table`);
+      tables.set(table, tables.get(table) ?? []);
+      continue;
+    }
+    if (!line.startsWith('|') || /^\|\s*(?:Variable\s*\||:?-)/.test(line)) continue;
+    const name = /^\|\s*`([A-Z_][A-Z0-9_]*)`\s*\|/.exec(line);
+    if (name === null || table === undefined) {
+      problems.push(
+        `${ENVIRONMENT_DOC}:${at + 1}: a row must start with one backticked name, under a table heading`,
+      );
+      continue;
+    }
+    if (tables.get(table).includes(name[1]))
+      problems.push(`${ENVIRONMENT_DOC}:${at + 1}: ${name[1]} is listed twice in "${table}"`);
+    tables.get(table).push(name[1]);
+  }
+  for (const table of ENVIRONMENT_TABLES)
+    if (!tables.has(table)) problems.push(`${ENVIRONMENT_DOC}: no "### ${table}" table`);
+  return { tables, problems };
+}
+
+/** Every `CRAFTINGTABLE_*` name a source file mentions, with the files that do. */
+export function sourceVariables(root) {
+  const found = new Map();
+  const visit = (path) => {
+    for (const entry of readdirSync(join(root, path), { withFileTypes: true })) {
+      if (NOT_SOURCE.has(entry.name)) continue;
+      const child = path === '' ? entry.name : `${path}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (path !== '' || SOURCE_ROOTS.includes(entry.name)) visit(child);
+      } else if (entry.isFile() && SOURCE_FILE.test(entry.name) && child !== SELF_TEST) {
+        for (const [name] of readFileSync(join(root, child), 'utf8').matchAll(VARIABLE))
+          found.set(name, [...new Set([...(found.get(name) ?? []), child])]);
+      }
+    }
+  };
+  visit('');
+  return found;
+}
+
+/** The variables a module reads from `env` or `process.env` by a literal name. */
+export function environmentReads(text) {
+  const reads = new Set();
+  for (const match of text.matchAll(
+    /\benv(?:\.([A-Z_][A-Z0-9_]*)\b|\[\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*\])/g,
+  ))
+    reads.add(match[1] ?? match[2]);
+  return reads;
+}
+
+/** The names in config.ts's `RETIRED_SETTINGS` list. */
+export function retiredSettings(text) {
+  const list = /const RETIRED_SETTINGS = \[([^\]]*)\]/.exec(text);
+  return list === null
+    ? undefined
+    : [...list[1].matchAll(/'([A-Z_][A-Z0-9_]*)'/g)].map((m) => m[1]);
+}
+
+/** Problems with the environment-variable list in docs/operations.md. */
+export function checkEnvironmentList(root) {
+  const docPath = join(root, ENVIRONMENT_DOC);
+  if (!existsSync(docPath)) return [`${ENVIRONMENT_DOC}: missing`];
+  const { tables, problems } = documentedVariables(readFileSync(docPath, 'utf8'));
+  const listed = new Set([...tables.values()].flat());
+  const sources = sourceVariables(root);
+  for (const [name, files] of [...sources].sort())
+    if (!listed.has(name))
+      problems.push(
+        `${ENVIRONMENT_DOC}: ${name} (in ${files.slice(0, 3).join(', ')}) is not listed`,
+      );
+  for (const name of [...listed].sort())
+    if (name.startsWith('CRAFTINGTABLE_') && !sources.has(name))
+      problems.push(`${ENVIRONMENT_DOC}: ${name} is listed, but no source mentions it`);
+  for (const [program, table] of [
+    [DAEMON_CONFIG, 'Daemon'],
+    [DEPLOY_SCRIPT, 'Deploy'],
+  ]) {
+    const path = join(root, program);
+    if (!existsSync(path)) {
+      problems.push(`${program}: missing`);
+      continue;
+    }
+    for (const name of [...environmentReads(readFileSync(path, 'utf8'))].sort())
+      if (!(tables.get(table) ?? []).includes(name))
+        problems.push(
+          `${ENVIRONMENT_DOC}: ${name}, which ${program} reads, is not in the ${table} table`,
+        );
+  }
+  const retired = existsSync(join(root, DAEMON_CONFIG))
+    ? retiredSettings(readFileSync(join(root, DAEMON_CONFIG), 'utf8'))
+    : undefined;
+  if (retired === undefined) problems.push(`${DAEMON_CONFIG}: no RETIRED_SETTINGS list`);
+  else if ([...(tables.get('Retired') ?? [])].sort().join() !== [...retired].sort().join())
+    problems.push(
+      `${ENVIRONMENT_DOC}: the Retired table must list exactly RETIRED_SETTINGS: ${retired.join(', ')}`,
+    );
+  return problems;
+}
+
 /** Every check's problems for a checkout. */
 export function checkDocs(root = REPOSITORY_ROOT) {
-  return [...checkLinks(root), ...checkAdrs(root)];
+  return [...checkLinks(root), ...checkAdrs(root), ...checkEnvironmentList(root)];
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

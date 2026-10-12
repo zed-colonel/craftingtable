@@ -5,6 +5,7 @@
 - **Amended:** 2026-09-25 (R-C3a): an answered investigation continues
 - **Amended:** 2026-10-02 (R-C16): investigating any question stop
 - **Amended:** 2026-10-05 (R-C16): the daemon checks that an investigation left the worktree unchanged
+- **Amended:** 2026-10-12 (R-I7): a read-only Codex run gets a read-only permission profile with the sandboxed runs' denied reads, not Codex's legacy read-only sandbox
 
 Design recovery must distinguish approved facts, outstanding predecessor work, actual
 operator choices and planning conflicts. Each new design supplies a structured

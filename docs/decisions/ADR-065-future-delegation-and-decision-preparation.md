@@ -3,6 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-09-22
 - **Amended:** 2026-09-28 (R-C3b): preparation beside a running roadmap
+- **Amended:** 2026-10-12 (R-I7): a read-only Codex run gets a read-only permission profile with the sandboxed runs' denied reads, not Codex's legacy read-only sandbox
 
 Started roadmap attempts retain immutable definitions. An explicit, authenticated grant may
 replace integration automation and reviewer responsibilities for named entries' future actions.

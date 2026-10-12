@@ -494,6 +494,10 @@ describe('deploy:daemon health check (R-I7, operator decision 2026-10-12)', () =
     expect(healthCheck({}, { ...tls, CRAFTINGTABLE_HOST: '::1' }).url).toBe(
       'https://[::1]:4600/api/health',
     );
+    // A wildcard listener is asked on loopback.
+    expect(healthCheck({}, { ...tls, CRAFTINGTABLE_HOST: '::' }).url).toBe(
+      'https://127.0.0.1:4600/api/health',
+    );
     // An explicit address wins; an HTTPS one still trusts the unit's certificate.
     expect(
       healthCheck(
@@ -556,6 +560,77 @@ describe('deploy:daemon health check (R-I7, operator decision 2026-10-12)', () =
         expect(await askHealth({ url, certificate: other.cert })).toBe(false);
         expect(await askHealth({ url })).toBe(false);
         expect(await askHealth({ url, certificate: join(root, 'missing.pem') })).toBe(false);
+        // A leaf a private CA issued, its file holding only the leaf: still a trust anchor.
+        const ca = join(root, 'ca');
+        const madeCa = spawnSync('openssl', [
+          'req',
+          '-x509',
+          '-newkey',
+          'ec',
+          '-pkeyopt',
+          'ec_paramgen_curve:prime256v1',
+          '-nodes',
+          '-days',
+          '1',
+          '-subj',
+          '/CN=Private CA',
+          '-addext',
+          'basicConstraints=critical,CA:TRUE',
+          '-addext',
+          'keyUsage=critical,keyCertSign',
+          '-keyout',
+          `${ca}.key`,
+          '-out',
+          `${ca}.pem`,
+        ]);
+        expect(madeCa.status).toBe(0);
+        const leaf = join(root, 'leaf');
+        writeFileSync(`${leaf}.ext`, 'subjectAltName=DNS:workstation.lan\n');
+        const request = spawnSync('openssl', [
+          'req',
+          '-newkey',
+          'ec',
+          '-pkeyopt',
+          'ec_paramgen_curve:prime256v1',
+          '-nodes',
+          '-subj',
+          '/CN=workstation.lan',
+          '-keyout',
+          `${leaf}.key`,
+          '-out',
+          `${leaf}.csr`,
+        ]);
+        expect(request.status).toBe(0);
+        const signed = spawnSync('openssl', [
+          'x509',
+          '-req',
+          '-in',
+          `${leaf}.csr`,
+          '-CA',
+          `${ca}.pem`,
+          '-CAkey',
+          `${ca}.key`,
+          '-CAcreateserial',
+          '-days',
+          '1',
+          '-extfile',
+          `${leaf}.ext`,
+          '-out',
+          `${leaf}.pem`,
+        ]);
+        expect(signed.status).toBe(0);
+        const issued = createHttpsServer(
+          { key: readFileSync(`${leaf}.key`), cert: readFileSync(`${leaf}.pem`) },
+          (_request, response) => response.writeHead(200).end('{}'),
+        );
+        await new Promise((done) => issued.listen(0, '127.0.0.1', done));
+        try {
+          const issuedUrl = `https://127.0.0.1:${issued.address().port}/api/health`;
+          expect(await askHealth({ url: issuedUrl, certificate: `${leaf}.pem` })).toBe(true);
+          expect(await askHealth({ url: issuedUrl, certificate: other.cert })).toBe(false);
+        } finally {
+          await new Promise((done) => issued.close(done));
+        }
         expect(
           await askHealth({
             url: url.replace('/api/health', '/nothing'),

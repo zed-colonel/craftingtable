@@ -262,6 +262,17 @@ describe('checkAdrs', () => {
       'docs/decisions/ADR-001-a.md: superseded by ADR-002, whose Supersedes does not name ADR-001',
       'docs/decisions/ADR-003-c.md: superseded by ADR-004, whose Supersedes does not name ADR-003',
     ]);
+    // At the earlier end too: an ADR that names its superseder only under Refines.
+    expect(
+      checkAdrs(
+        decisions({
+          'ADR-001-a.md': ADR('001', 'A', [...accepted(), ['Refines', 'ADR-002']]),
+          'ADR-002-b.md': ADR('002', 'B', [...accepted(), ['Supersedes', 'ADR-001']]),
+        }),
+      ),
+    ).toEqual([
+      'docs/decisions/ADR-002-b.md: supersedes ADR-001, which does not say it is superseded by ADR-002',
+    ]);
   });
 
   it('requires the index to list every ADR once, as its header says, in order', () => {

@@ -363,7 +363,9 @@ export function healthCheck(env = process.env, unit = {}) {
 /**
  * One health request: whether the daemon answered with a 2xx status within three seconds. Over
  * HTTPS with the unit's certificate the chain is verified, not the name: the check asks a
- * loopback or listening address, which a certificate for the public name need not carry.
+ * loopback or listening address, which a certificate for the public name need not carry. The
+ * unit's certificate is a trust anchor even when a private CA issued it and the file holds only
+ * the leaf (`allowPartialTrustChain`).
  */
 export function askHealth({ url, certificate }) {
   if (certificate === undefined)
@@ -381,7 +383,7 @@ export function askHealth({ url, certificate }) {
     }
     const request = httpsRequest(
       url,
-      { ca, checkServerIdentity: () => undefined, timeout: 3_000 },
+      { ca, allowPartialTrustChain: true, checkServerIdentity: () => undefined, timeout: 3_000 },
       (response) => {
         response.resume();
         const status = response.statusCode ?? 0;

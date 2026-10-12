@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { asAgentRunId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
 import { rebuildBrief, replayBriefSizes } from '../src/brief-size-replay.js';
@@ -18,18 +20,48 @@ it('reads the runs since a moment through storage, oldest first, as stored (R-I7
   const first = await runToFinish(state, worktree.id, { instructions: 'First run.' });
   const second = await runToFinish(state, worktree.id, { instructions: 'Second run.' });
   const runs = state.context.storage.execution.runs;
+  const parent = runs.find(state.workspaceId, first);
+  if (parent === undefined) throw new Error('the first run is missing');
+  // A hand-off: the third run names its parent and the parent's work item.
+  const third = asAgentRunId(randomUUID());
+  runs.insert({
+    id: third,
+    workspaceId: parent.workspaceId,
+    worktreeId: parent.worktreeId,
+    repositoryId: parent.repositoryId,
+    projectId: parent.projectId,
+    ...(parent.workItemId === undefined ? {} : { workItemId: parent.workItemId }),
+    parentRunId: first,
+    backend: parent.backend,
+    role: 'review',
+    permissionMode: parent.permissionMode,
+    brief: 'Third run.',
+    createdAt: new Date(Date.parse(parent.createdAt) + 86_400_000).toISOString(),
+    createdByUserId: parent.createdByUserId,
+  });
   const all = runs.listBriefsSince('1970-01-01T00:00:00.000Z');
-  expect(all.map((run) => run.id)).toEqual([first, second]);
+  expect(all.map((run) => run.id)).toEqual([first, second, third]);
   expect(all[1]).toMatchObject({ workspaceId: state.workspaceId, worktreeId: worktree.id });
   expect(all[1]?.brief).toContain('Second run.');
+  expect(all[2]).toEqual({
+    id: third,
+    workspaceId: parent.workspaceId,
+    worktreeId: parent.worktreeId,
+    ...(parent.workItemId === undefined ? {} : { workItemId: parent.workItemId }),
+    parentRunId: first,
+    role: 'review',
+    brief: 'Third run.',
+  });
+  expect(parent.workItemId).toBeDefined();
+  expect(all[0]?.workItemId).toBe(parent.workItemId);
+  expect(all[0]?.parentRunId).toBeUndefined();
   const since = runs.find(state.workspaceId, second)?.createdAt as string;
-  expect(runs.listBriefsSince(since).map((run) => run.id)).toEqual([second]);
-  // The replay reads them the same way: each run is rebuilt or named as skipped.
+  expect(runs.listBriefsSince(since).map((run) => run.id)).toEqual([second, third]);
+  // The replay reads exactly those runs. It rebuilds briefs written in the format before R-G6
+  // (the cases below); a fixture's brief is named as skipped, with the part it lacks.
   const report = replayBriefSizes(state.context.storage, since);
-  expect([
-    ...report.runs.map((run) => run.runId),
-    ...report.skipped.map((run) => run.runId),
-  ]).toEqual([second]);
+  expect(report.runs).toEqual([]);
+  expect(report.skipped.map((run) => run.runId)).toEqual([second, third]);
 });
 
 /**

@@ -140,8 +140,8 @@ The data directory and health address come from the unit: `CRAFTINGTABLE_DEPLOY_
 the unit's `CRAFTINGTABLE_DATA_DIR` (its environment files override its `Environment=` lines),
 else the XDG default; `CRAFTINGTABLE_DEPLOY_HEALTH_URL`, else
 `http://<unit host, 0.0.0.0 read as 127.0.0.1>:<unit port>/api/health`, or `https://` when the unit
-sets `CRAFTINGTABLE_TLS_CERT` (the check then trusts that certificate and checks its chain, not
-its name, since it asks the unit's own address).
+sets `CRAFTINGTABLE_TLS_CERT` (the check then trusts that certificate, self-signed or a leaf a
+private CA issued, and checks its chain, not its name, since it asks the unit's own address).
 
 **Rolling back.** `--rollback` switches to the most recent previous release still on disk, with no
 rebuild, after the same preflight. An older release cannot open a database a newer one migrated,

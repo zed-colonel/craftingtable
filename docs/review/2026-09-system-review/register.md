@@ -5001,12 +5001,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *Comments corrected with the move:* `planning-labels.ts` no longer claims a bare "Ready" never
       appears, and `WorkspaceShell.tsx` no longer says navigation lives in the rail "and nowhere
       else".
-    - *Left for the operator:* (1) keep the project cards' "Ready" and "Blocked" count labels as the
-      documented abbreviation, or rename them "Ready for admission" and "Dependency-blocked" (a
-      label change); (2) the Roadmaps page's About text still says restarting the daemon requires an
-      explicit resume (`RoadmapsPage.tsx`), true only after a crash (a copy change). Noted, not
-      changed: the Projects page builds its header by hand instead of `PageHeader`
-      (`WorkspaceView.tsx`).
+    - *Asked of the operator, decided and built 2026-10-12 (decision 3 below; `a71c5c5`):* (1)
+      keep the project cards' "Ready" and "Blocked" count labels as the documented abbreviation,
+      or rename them "Ready for admission" and "Dependency-blocked" (a label change); (2) the
+      Roadmaps page's About text still says restarting the daemon requires an explicit resume
+      (`RoadmapsPage.tsx`), true only after a crash (a copy change). Noted, not changed: the
+      Projects page builds its header by hand instead of `PageHeader` (`WorkspaceView.tsx`).
     - Two of the new pages' links name sections that parts 4 and 5 add to `security.md` and
       `operations.md`; the docs check is green again from part 5's commit.
   - **Part 4, `docs/security.md` rewritten as current state (SEC-09, DOC-05).** 490 lines (757
@@ -5038,18 +5038,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       permission profile (`codex/arguments.ts`, `codexSandboxed` excludes `readOnly`; its test
       asserts the legacy sandbox), so its commands can read the daemon's database, backups and
       credentials file and the operator's `~/.ssh`, and the model sees what they print. A read-only
-      Claude run stays sandboxed with the denied reads. **Fixed after the operator's decision**
-      (below). (2)
+      Claude run has no commands, and its file tools are denied the daemon's protected paths (not
+      the whole list; a known limit). **Fixed after the operator's decision** (below). (2)
       *Withdrawn on checking:* "`admin bootstrap` and `admin reset-password` check only the
       1,024-byte bound". Their prompt does, but both hash with `Argon2PasswordHasher`, which
       refuses anything outside 12–1,024 bytes before hashing, and `password-reset-service.test.ts`
       asserts it; the docs say so. (3) LOW: the native environment's fixed version probes inherit the daemon's whole environment
       (`native-environment.ts`), not the named allowlist. (4) LOW: a stale path in
       `sandbox-real.test.ts`'s header comment.
-    - *Left for the operator:* whether read-only Codex runs get a read-only profile carrying the
-      denied reads (defect 1; it changes an agent sandbox, and Codex's read-only profile form needs
-      checking against CLI 0.160.0 first); and whether to adopt the `__Host-` cookie prefix SEC-04
-      suggested (it signs everyone out once at deploy), now a known limit.
+    - *Asked of the operator:* whether read-only Codex runs get a read-only profile carrying the
+      denied reads (defect 1; decided 2026-10-12, decision 1 below, built in `111140e`); and whether
+      to adopt the `__Host-` cookie prefix SEC-04 suggested (it signs everyone out once at deploy),
+      **still open**, a known limit.
   - **Part 5, `docs/operations.md` rewritten as current state (DOC-03 #2, DOC-05).** 578 lines (649
     before): data and settings locations, running the daemon (the unit and its three stop
     settings, the single-daemon lock, running CLI commands from the deployed release), deploying
@@ -5242,6 +5242,33 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     events put a definition id in `roadmap-changed`'s `roadmapId` (the browser only refreshes on
     it; changing it would change stored events); route parameters and storage lookups are branded
     only where a route already parses a schema, a natural follow-up.
+  - **Re-check 2026-10-12 (the same reviewer, at `53d08c8`):** 18 of the 19 findings closed and
+    L-13 partly; the new code faithful to the operator's decisions (the Git floor, the HTTPS check,
+    the read-only Codex profile, the labels and copy, `listBriefsSince`); for the branding, all 279
+    schemas equal to `20000a2`, 821 id fields giving identical results on 18 adversarial values
+    each (the 38 pinned persisted-record schemas among them), and no runtime change in the
+    type-stripped output. 48 mutants: 43 caught, 5 survived. Seven new LOW findings, settled:
+    - *R-1, read-only Claude runs' reads overstated* (security.md said the whole list applies):
+      reworded there, in the boundary table and above; Claude's file tools are denied the
+      protected paths only, as the known limit says. Giving them the whole list would tighten an
+      agent sandbox: **left for the operator** if wanted.
+    - *R-2, the HTTPS health check refused a leaf a private CA issued* unless the file carried the
+      CA: `askHealth` now sets `allowPartialTrustChain`, so the unit's certificate is a trust
+      anchor either way; a test builds a private CA and a leaf-only file, and fails without it.
+    - *R-3:* ADR-059 and ADR-065 gain an Amended line for the read-only profile.
+    - *R-4:* the daemon deletes merged item branches as well as integration branches, by
+      compare-and-delete; the resolution's own current run is exempt from the manual-control
+      refusal.
+    - *R-5:* the three "left for the operator" items decided on 2026-10-12 say so (the `__Host-`
+      cookie prefix stays open), and the branding question's counts agree with the branding block.
+    - *R-6, survivors:* C15 at the earlier end (an ADR naming its superseder only under `Refines`),
+      `listBriefsSince`'s `workItemId` and `parentRunId` (a hand-off run in the test, the replay's
+      runs named exactly), and the `::` listener read as loopback are now tested.
+    - *R-7 (optional), two branded casts naming an id the value is not:* recorded, not changed.
+      Both are behaviour from before the branding: the concurrency-import `roadmap-changed` event
+      puts a definition id in `roadmapId` (commented there; widening the event's type would ripple
+      through every reader), and a scope receipt with no local-development environment names
+      `''` as its environment.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts
@@ -5276,9 +5303,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       (`RunRoute.tsx`, `run-event-stream-service.ts`). The `STACK-PLAN-ACCEPTED` literal is gone from
       production code since R-F2: the plan checkpoint is the map's one `plan_approval` checkpoint the
       `stack` owns, whatever its id (`map-capabilities.ts`, `plan-acceptance-policy.ts`).
-    - *Left for the operator.* (1) **Branding the remaining ids** (DATA-15's "opportunistically"): of
-      140 `*Id: string` domain fields, 24 have a brand in `ids.ts`; branding even those failed
-      `tsc -b` in 11 files, and the deciding ones are contracts whose `equivalentSchema` pins on
+    - *Asked of the operator, decided and built 2026-10-12 (decision 4 below; the branding fix).* (1)
+      **Branding the remaining ids** (DATA-15's "opportunistically"): of the domain's `*Id` fields
+      held as `string` (140 by this first count; the branding counted 159 `*Id` and `*Ids` fields),
+      only those whose kind already had a brand in `ids.ts` (24) could be branded at once; even
+      those failed `tsc -b` in 11 files, and the deciding ones are contracts whose `equivalentSchema` pins on
       persisted records (run environments and receipts, protected-ref moves, attention items,
       evidence, amendments, check adoptions, cycle agent selections) validate the fields with
       `z.string()` or `z.uuid()`. A branded output means the id schemas (`isWellFormedId`), stricter

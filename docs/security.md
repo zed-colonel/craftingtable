@@ -26,7 +26,7 @@ typed commands, never commands to run.
 | Route authority | Every route's declared access, checked before its body is read; step-up for the commands that grant the most; one body schema per command | Services repeat their own role checks as a second line | `apps/server/test/route-access.test.ts`, `apps/server/test/route-inventory.test.ts`, `apps/server/test/server-auth-hardening.test.ts` (step-up) |
 | Browser input | Typed commands only; repository registration under configured roots; cleanup by daemon-held preview | — | `apps/server/test/server-execution-runs.test.ts`, `apps/server/test/storage-management.test.ts` |
 | Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only for agents, checks and daemon Git (not the native probes); process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
-| Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; denied reads, for read-only runs too; outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
+| Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; denied reads (for read-only Codex runs too); outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
 | The daemon's own Git | Git directories named explicitly; no hooks, fsmonitor, system or global configuration; untrusted Git directories refused | A repository's own configuration still applies; the ref watch detects moves, it does not prevent them | `packages/git/test/git-directory-pinning.test.ts`, `packages/git/test/adapter-robustness.test.ts`, `apps/server/test/services/ref-watch.test.ts` |
 | Checks and builds | Checks run by the daemon in confined units, on private clones, with offline Cargo homes; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts` |
 | Merge and promotion | The review gate at exact commits; protected destinations; final promotion only by an operator's session, with step-up | A review's verdict is the reviewer's assertion | `apps/server/test/server-execution-merge-gate.test.ts`, `apps/server/test/server-execution-integration.test.ts`, `apps/server/test/server-execution-finalization.test.ts` |
@@ -226,8 +226,9 @@ runtime directory (the rootless Docker socket and the session bus), the system D
 Claude Code's credentials file (for Codex, the whole of `~/.claude`), the registry tokens in the
 run's Cargo home, and the daemon's protected paths: the database directory (with its
 pre-migration copies and process records), the default and the configured backup directories,
-and the settings directory with the credentials file. The list applies to read-only runs of
-both agents too. Codex 0.160.0 can mask at most one existing file per sandbox, so a sandboxed or
+and the settings directory with the credentials file. A read-only Codex run's profile denies the
+whole list too; a read-only Claude run has no commands, and its Read, Glob and Grep are denied
+the daemon's protected paths only (see Known limits). Codex 0.160.0 can mask at most one existing file per sandbox, so a sandboxed or
 read-only Codex run that would need more is refused before it starts (`environment-unavailable`;
 a cycle stops as `agent-environment-unavailable`), naming the files.
 
@@ -271,9 +272,10 @@ Every daemon Git command runs through `packages/git/src/runner.ts` with:
 - an index file only when the daemon makes one for a single command (`GIT_INDEX_FILE`).
 
 A repository's own configuration still applies, including its identity, merge drivers, signing
-program and filters; sandboxed agents cannot write it. The daemon removes only merged
-integration branches, by compare-and-delete, so a branch that moved meanwhile stays; it creates
-baseline tags create-only and never moves or publishes one.
+program and filters; sandboxed agents cannot write it. The daemon deletes only merged branches
+(an item's branch after its merge, an integration branch after promotion), by compare-and-delete,
+so a branch that moved meanwhile stays; it creates baseline tags create-only and never moves or
+publishes one.
 
 The daemon records a run's repository's branches and tags when the run starts and compares them
 when it ends. A ref no managed worktree owns that moved, and that none of the daemon's own Git
@@ -386,7 +388,8 @@ evidence it accepts is a current review.
   daemon rechecks on every pass that the user is active and still an owner or editor of the
   workspace, and each cycle keeps its own launch checks. Signing out leaves deliberate
   delegation running; Pause and Stop are the controls. While a cycle runs or awaits merge, or an
-  integration resolution owns the worktree, a manual launch or a message to its agent is refused.
+  integration resolution owns the worktree, a manual launch or a message to its agent is refused
+  (the resolution's own current run excepted).
 - Controller reviews of a slice cycle (checkpoint, reassessment, the source-required security
   review) run on its roadmap's saved reviewer delegation. A cycle no roadmap owns still owes the
   security review, which the operator who started the cycle authorizes; a roadmap that owns a

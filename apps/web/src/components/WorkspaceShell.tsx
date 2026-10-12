@@ -16,9 +16,10 @@ export interface RailLink {
 /**
  * The application frame: a navigation rail on the left and one main column.
  *
- * Navigation lives in the rail and nowhere else. The rail also carries the
- * workspace picker, the live-connection badge, the theme toggle, and the
- * account link, so page bodies never repeat them.
+ * The rail is the one list of destinations: no page rebuilds a menu of pages
+ * (page bodies link only to the subject they name; docs/ui/information-architecture.md).
+ * The rail also carries the workspace picker, the live-connection badge, the
+ * theme toggle, and the account link, so page bodies never repeat them.
  */
 export function WorkspaceShell({
   username,

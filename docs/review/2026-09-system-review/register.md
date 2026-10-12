@@ -4971,6 +4971,44 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     history and not maintained, with its links re-pointed so they still resolve. ADR-028's link and
     ADR-038's mention follow; `archive/README.md` lists them and the README feature log. Nothing in
     code referred to them.
+  - **Part 3, `docs/ui-principles.md` split (UI-15, DOC-03 #7, DOC-05).** It becomes `docs/ui/`:
+    `README.md` (what each file holds, the read order, the tests that hold the rules),
+    `information-architecture.md` (decisions are made in Needs you and other pages link; one
+    component posts each decision command; the browser derives no stop; one vocabulary from codes;
+    navigation; the address holds the view; forms open from named actions; each rule says what
+    holds it: a test or review alone), `glossary.md`, `visual-language.md` (with page anatomy and
+    the copy rules) and `surfaces.md` (one short spec per page: route, parts in order, links, what
+    it posts). The cross-project import narrative and the per-slice paragraphs (old lines
+    238–483) are not carried over as UI rules: what is still true of the operator's flow is in a
+    new `docs/roadmaps.md`, written with operations.md's "Sequential roadmaps" and "Parallel
+    roadmaps" guides (moved out in part 5); decision placement is now the decision components'.
+    The old file is `archive/ui-principles-2026-10.md`, verbatim under a superseded header.
+    AGENTS.md's read order and walkthrough paragraph, the README, `docs/architecture.md` and six
+    source comments now point at `docs/ui/`.
+    - *Claims:* 171 checked against the code (136 true as kept or rewritten, 17 new, 18 fixed),
+      every one in [the claims ledger](r-i7-claims.md). Of the old claims, 26 were false or stale,
+      among them: "a bare Ready or Blocked never appears" (`ProjectCards.tsx` labels its counts
+      "Ready" and "Blocked"; the glossary now names that one abbreviation); "navigation appears
+      nowhere else" (resolved: the rail is the one list of destinations, bodies link to subjects);
+      "decisions are made only in the inbox" (setup steps and Repositories → Checks host the same
+      decision components, and a page renders one in place only when no item carries the stop); the
+      six merge-readiness labels (the daemon has 13); the five kinds of operator stop and three
+      controller waits (incomplete: `ENTRY_WAIT`); a remediate run role (remediation is an implement
+      run); the type scale "starting at 14px"; capacity "requiring renewed saved-plan acceptance"
+      (not an acceptance input); and, in the roadmap guides, merges from the item's form, maps "not
+      imported", "only operator merges release prerequisites", conflicts that "abort", and "restart
+      requires explicit resume" (a drained restart resumes).
+    - *Comments corrected with the move:* `planning-labels.ts` no longer claims a bare "Ready" never
+      appears, and `WorkspaceShell.tsx` no longer says navigation lives in the rail "and nowhere
+      else".
+    - *Left for the operator:* (1) keep the project cards' "Ready" and "Blocked" count labels as the
+      documented abbreviation, or rename them "Ready for admission" and "Dependency-blocked" (a
+      label change); (2) the Roadmaps page's About text still says restarting the daemon requires an
+      explicit resume (`RoadmapsPage.tsx`), true only after a crash (a copy change). Noted, not
+      changed: the Projects page builds its header by hand instead of `PageHeader`
+      (`WorkspaceView.tsx`).
+    - Two of the new pages' links name sections that parts 4 and 5 add to `security.md` and
+      `operations.md`; the docs check is green again from part 5's commit.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

@@ -147,7 +147,8 @@ deploy settings in [`scripts/deploy-daemon.mjs`](scripts/deploy-daemon.mjs); loc
 - [`docs/architecture.md`](docs/architecture.md): components, records and authority boundaries.
 - [`docs/security.md`](docs/security.md): the trust model.
 - [`docs/operations.md`](docs/operations.md): installing, deploying, backups, recovery, remote access.
-- [`docs/ui-principles.md`](docs/ui-principles.md): the browser app's visual language and page anatomy.
+- [`docs/ui/`](docs/ui/README.md): the browser app's visual language, information architecture,
+  glossary and pages.
 - [`docs/decisions/`](docs/decisions/): architecture decision records.
 - [`docs/review/2026-09-system-review/`](docs/review/2026-09-system-review/): the September 2026
   system review and its remediation register.

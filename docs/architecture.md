@@ -478,7 +478,7 @@ live stream from the last sequence. What needs the operator comes from one feed,
 pages and each roadmap read it, and no page derives it from cycle or roadmap state. No agent output
 is ever rendered as markup. Commands carry the
 daemon versions they were shown and are refused when stale. The visual language and page anatomy
-are in `docs/ui-principles.md`.
+are in `docs/ui/`.
 
 ## Installation storage and maintenance
 

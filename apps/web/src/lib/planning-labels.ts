@@ -1,9 +1,10 @@
 import type { WorkItemSummary } from '@craftingtable/contracts';
 
 /**
- * Planning vocabulary. A bare "Ready" or "Blocked" never appears: readiness
- * here is about the agenda, and merge readiness is a separate, reviewed
- * decision on a worktree (docs/ui-principles.md).
+ * Planning vocabulary. Readiness here is about the agenda; merge readiness is
+ * a separate, reviewed decision on a worktree. A bare "Ready" or "Blocked" is
+ * not a state label: the project cards' count row is the one abbreviation
+ * (docs/ui/glossary.md).
  */
 
 export type Readiness = WorkItemSummary['readiness'];

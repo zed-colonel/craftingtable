@@ -1,3 +1,8 @@
+> **Superseded; archived 2026-10-12 (R-I7 part 3, UI-15).** `docs/ui-principles.md` as it stood at
+> `3a03927`, kept verbatim as history. It is split into `docs/ui/` (visual language, information
+> architecture, glossary, per-surface specs) and `docs/roadmaps.md`; much of its per-slice text was
+> stale when archived. Where it and those or the code disagree, they win.
+
 # CraftingTable UI principles
 
 CraftingTable is a technical tool used for hours at a time, often from a laptop on

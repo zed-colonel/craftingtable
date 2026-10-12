@@ -11,7 +11,7 @@ import type {
 
 /**
  * Visible vocabulary for delegation. Every status is rendered as text, never
- * as colour alone (docs/ui-principles.md).
+ * as colour alone (docs/ui/visual-language.md).
  */
 
 export const RUN_STATUS_LABELS: Readonly<Record<AgentRunStatus, string>> = {

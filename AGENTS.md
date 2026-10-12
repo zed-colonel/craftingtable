@@ -23,7 +23,7 @@ Before changing code, read:
 2. `docs/architecture.md` for the package layout and dependency direction;
 3. `docs/security.md` for the trust model;
 4. relevant ADRs under `docs/decisions/`;
-5. `docs/ui-principles.md` when touching the browser app.
+5. `docs/ui/` (start at its `README.md`) when touching the browser app.
 
 `init/` holds the original product planning package. Treat it as background on intent
 and vocabulary, not as authority: where it conflicts with this file, the README, or the
@@ -44,7 +44,7 @@ is never required reading. Not everything superseded moves there: a superseded A
   captured version by hand. The images are written to a store outside the repository
   (see `docs/ui-walkthrough/README.md`) and must never be committed; commit only the row
   the harness appends to `docs/ui-walkthrough/INDEX.md`. The captures describe, they do not
-  prescribe: the code and `docs/ui-principles.md` remain the authority.
+  prescribe: the code and `docs/ui/` remain the authority.
 - The second exception is `docs/review/2026-09-system-review/`: an operator-requested
   whole-system review with a remediation register. When a change resolves or advances a
   register item (`R-…`), follow that item's "done when", respect `program.md`'s rules

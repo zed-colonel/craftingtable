@@ -1896,7 +1896,7 @@ button:disabled {
 
 /* ------------------------------------------------------------------------ */
 /* Page anatomy: header, status strip, sections, reasons, about, nav, actions */
-/* See docs/ui-principles.md "Page anatomy".                                 */
+/* See docs/ui/visual-language.md "Page anatomy".                           */
 /* ------------------------------------------------------------------------ */
 
 .page-header-main {
@@ -2959,7 +2959,7 @@ button:disabled {
   gap: var(--space-1) var(--space-3);
 }
 
-/* Touch: every board control is at least 44 px (ui-principles). */
+/* Touch: every board control is at least 44 px (docs/ui/visual-language.md). */
 @media (pointer: coarse), (max-width: 900px) {
   .board-gate,
   .board-chip:not(.board-chip-static),

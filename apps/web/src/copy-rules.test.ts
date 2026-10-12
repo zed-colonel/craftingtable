@@ -5,7 +5,7 @@ import { parseSync } from 'vite';
 import { expect, it } from 'vitest';
 
 /**
- * Copy rules from docs/ui-principles.md, "Copy" (R-E6, UI-11): headings stay short, and
+ * Copy rules from docs/ui/visual-language.md, "Copy" (R-E6, UI-11): headings stay short, and
  * explanatory prose lives in an `About` disclosure. The check reads every component's JSX:
  *
  * - a heading (`h1`–`h6`, `legend`, or the `title` of `Section` or `PageHeader`) has at most

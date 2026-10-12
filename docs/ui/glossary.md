@@ -68,10 +68,9 @@ In agenda              admitted; delegation happens from here
 Completed              merged through a reviewed worktree, or marked done by hand
 ```
 
-Use these names in statuses, filters and status cards. The one abbreviation is the project
-card's count row (`features/planning/ProjectCards.tsx`), whose `dl` labels the counts "Ready" and
-"Blocked" beside "In agenda", "Completed" and "Proposed"; nowhere else is a bare "Ready",
-"Blocked", "Approved" or "Verified" a state label.
+Use these names in statuses, filters, status cards and the project cards' counts. A bare
+"Ready", "Blocked", "Approved" or "Verified" is never a state label (`ProjectCards.test.tsx` and
+`planning-views.test.tsx` check the cards).
 
 ## Merge readiness
 

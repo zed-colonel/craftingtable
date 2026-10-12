@@ -166,6 +166,9 @@ it('lists roadmaps, active first and finished ones apart, and renders no roadmap
   expect(screen.queryByRole('group', { name: 'Roadmap controls' })).toBeNull();
   expect(CrossProjectPanel).not.toHaveBeenCalled();
   expect(RuntimeEvidencePanel).not.toHaveBeenCalled();
+  // A drained restart resumes by itself (ADR-066); only a crash needs Resume (R-I7).
+  expect(screen.getByText(/A drained restart resumes by itself; after a crash/)).toBeTruthy();
+  expect(screen.queryByText(/Restarting the daemon requires explicit resume/)).toBeNull();
 });
 
 it('shows the board with its controls and entries, and leaves setup and history to their pages', async () => {

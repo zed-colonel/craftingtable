@@ -48,11 +48,11 @@ export function ProjectCards({
                 <dd>{project.completedCount}</dd>
               </div>
               <div>
-                <dt>Ready</dt>
+                <dt>Ready for admission</dt>
                 <dd>{project.planningReadyCount}</dd>
               </div>
               <div>
-                <dt>Blocked</dt>
+                <dt>Dependency-blocked</dt>
                 <dd>{project.dependencyBlockedCount}</dd>
               </div>
               <div>

@@ -137,7 +137,7 @@ export function RoadmapsPage({
           starts eligible items in priority order, subject to dependencies, capacity, and exclusion
           groups. The daemon creates each item's branch and worktree when eligible, runs its
           automated cycle, and waits for you to merge. Closing the browser leaves scheduling active.
-          Restarting the daemon requires explicit resume.
+          A drained restart resumes by itself; after a crash, resume the roadmap yourself.
         </p>
       </About>
       {error && (

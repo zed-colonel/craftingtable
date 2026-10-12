@@ -777,14 +777,23 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
 describe('domain, contracts and storage export only what another module takes (rule 8, DATA-15)', () => {
   const unimported = (name, file) =>
     `\`${name}\` is exported by \`${file}\` but no other module imports it; drop the \`export\` (DATA-15)`;
+  const onlyReexported = (name, file, reexports) =>
+    `\`${name}\` is exported by \`${file}\` but no other module imports it, only re-exports it (${reexports.map((path) => `\`${path}\``).join(', ')}); drop the re-exports and the \`export\` (DATA-15)`;
   const kept = (name, file, what) => `\`${name}\` is kept exported by \`${file}\`${what} (DATA-15)`;
   const DOMAIN = {
     'packages/domain/package.json': JSON.stringify({
       name: '@craftingtable/domain',
-      exports: { '.': { source: './src/index.ts', default: './dist/index.js' } },
+      exports: {
+        '.': { types: './src/index.ts', source: './src/index.ts', default: './dist/index.js' },
+      },
     }),
-    'packages/domain/src/index.ts':
-      "export * from './vocabulary.js';\nexport { plumbed } from './plumbing.js';\n",
+    'packages/domain/src/index.ts': [
+      "export * from './vocabulary.js';",
+      "export * from './self.js';",
+      "export { plumbed } from './plumbing.js';",
+      "export * as nested from './nested.js';",
+      '',
+    ].join('\n'),
   };
 
   it('finds an export no other module takes, and counts each way another module takes one', () => {
@@ -803,35 +812,99 @@ describe('domain, contracts and storage export only what another module takes (r
         'export const viaReexport = 8;',
         'export const viaDynamic = 9;',
         'export type ViaImportType = number;',
+        'export const viaAwaited = 10;',
+        'export const viaDynamicNamespace = 11;',
+        'export const viaE2e = 12;',
+        'export const viaElementAccess = 13;',
+        'export const viaNamespaceDestructure = 14;',
+        'export const viaTypeofImport = 15;',
+        'export const viaImportEquals = 16;',
+        'export const viaRequire = 17;',
+        'export type ViaDeclarationFile = string;',
+        'export const viaOtherPackage = 18;',
+        'export const viaTypeofNamespace = 19;',
+        'export const shadowed = 27;',
         '',
       ].join('\n'),
       // Re-exported by name within its own package: barrel plumbing, not a use.
-      'packages/domain/src/plumbing.ts': 'export const plumbed = 10;\n',
+      'packages/domain/src/plumbing.ts': 'export const plumbed = 20;\n',
+      // A namespace re-exported whole (`export * as nested`): each name read of it is a use.
+      'packages/domain/src/nested.ts': [
+        'export const viaStarAs = 21;',
+        'export const viaStarAsChain = 22;',
+        'export const nestedUnused = 23;',
+        'export const viaDestructuredNamespace = 26;',
+        'export type ViaImportTypeChain = number;',
+        '',
+      ].join('\n'),
+      // Taken by its own module through the barrel: not another module's use.
+      'packages/domain/src/self.ts':
+        "import { selfOnly as again } from './index.js';\nexport const selfOnly = 24;\nvoid again;\n",
+      'packages/domain/src/default.ts': 'export default function viaDefault() {\n  return 25;\n}\n',
       // Production, through the package's barrel; a namespace used whole takes no name.
       'apps/server/src/index.ts': [
-        "import { aliased as renamed, viaBarrel } from '@craftingtable/domain';",
+        "import { aliased as renamed, nested, viaBarrel } from '@craftingtable/domain';",
         "import * as domain from '@craftingtable/domain';",
-        'export const a = [viaBarrel, renamed, domain.viaNamespace, Object.keys(domain)];',
+        "import viaDefault from '../../../packages/domain/src/default.js';",
+        "import { viaOtherPackage } from '@craftingtable/contracts';",
+        'export const a = [viaBarrel, renamed, domain.viaNamespace, Object.keys(domain), viaDefault];',
+        "export const b = [domain['viaElementAccess'], nested.viaStarAs, domain.nested.viaStarAsChain];",
+        'const { viaNamespaceDestructure, nested: inner } = domain;',
+        'export const d = [viaNamespaceDestructure, viaOtherPackage, inner.viaDestructuredNamespace];',
         "export type B = domain.ViaQualifiedName | import('@craftingtable/domain').ViaImportType;",
+        "export type C = import('@craftingtable/domain').nested.ViaImportTypeChain;",
+        "export type T = (typeof import('@craftingtable/domain'))['viaTypeofImport'];",
+        "export type U = (typeof domain)['viaTypeofNamespace'];",
+        // A parameter named like the namespace is not the namespace.
+        'export const f = (domain: { shadowed: number }) => domain.shadowed;',
         'export const c = async () => {',
         "  const { viaDynamic } = await import('@craftingtable/domain');",
-        '  return viaDynamic;',
+        "  const later = await import('@craftingtable/domain');",
+        "  return [viaDynamic, (await import('@craftingtable/domain')).viaAwaited, later.viaDynamicNamespace];",
         '};',
         '',
       ].join('\n'),
+      'apps/server/src/required.cts': [
+        "import domain = require('@craftingtable/domain');",
+        "export const r = [domain.viaImportEquals, require('@craftingtable/domain').viaRequire];",
+        '',
+      ].join('\n'),
+      'apps/server/src/ambient.d.ts':
+        "import type { ViaDeclarationFile } from '@craftingtable/domain';\nexport type X = ViaDeclarationFile;\n",
       'packages/domain/test/vocabulary.test.ts':
         "import { viaTest } from '../src/vocabulary.js';\nexport { viaTest };\n",
       'scripts/tool.mjs':
         "import { viaScript } from '@craftingtable/domain';\nexport { viaScript };\n",
-      // Another package's surface.
-      'packages/contracts/src/index.ts': "export { viaReexport } from '@craftingtable/domain';\n",
+      'e2e/flow.spec.ts': "import { viaE2e } from '@craftingtable/domain';\nexport { viaE2e };\n",
+      // Another package's surface: what is imported through it is used, what is only re-exported
+      // by it is not.
+      'packages/contracts/package.json': JSON.stringify({
+        name: '@craftingtable/contracts',
+        exports: { '.': { source: './src/index.ts', default: './dist/index.js' } },
+      }),
+      'packages/contracts/src/index.ts':
+        "export { viaOtherPackage, viaReexport } from '@craftingtable/domain';\n",
     });
+    // Linked as pnpm links the workspace, so the compiler resolves the contracts' re-export.
+    mkdirSync(join(root, 'packages/contracts/node_modules/@craftingtable'), { recursive: true });
+    symlinkSync(
+      '../../../domain',
+      join(root, 'packages/contracts/node_modules/@craftingtable/domain'),
+    );
     expect(runCheck(root).sort()).toEqual(
       [
         unimported('unused', 'packages/domain/src/vocabulary.ts'),
         unimported('ownOnly', 'packages/domain/src/vocabulary.ts'),
+        unimported('shadowed', 'packages/domain/src/vocabulary.ts'),
         unimported('onlyWholesale', 'packages/domain/src/vocabulary.ts'),
-        unimported('plumbed', 'packages/domain/src/plumbing.ts'),
+        unimported('nestedUnused', 'packages/domain/src/nested.ts'),
+        unimported('selfOnly', 'packages/domain/src/self.ts'),
+        onlyReexported('plumbed', 'packages/domain/src/plumbing.ts', [
+          'packages/domain/src/index.ts',
+        ]),
+        onlyReexported('viaReexport', 'packages/domain/src/vocabulary.ts', [
+          'packages/contracts/src/index.ts',
+        ]),
       ].sort(),
     );
   });

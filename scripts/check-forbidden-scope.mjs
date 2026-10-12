@@ -43,14 +43,23 @@
  *    (`startsWith('independent')`) pass it; the self-test pins each of these as a known miss.
  * 8. The domain, contracts and storage packages export only what another module uses (DATA-15):
  *    every export a production module of their `src` declares is taken by name by some other
- *    module (production, a test, test support, or a module under `scripts/` or `e2e/`): imported
- *    (`{ a }`, `import('x').A`, `const { a } = await import('x')`), re-exported by another package
- *    (`export { a } from`), or read as `ns.a` of a namespace it imports. The compiler resolves
- *    each name in the module it is taken from, through re-exports and barrels, to the
- *    declaration. A barrel's `export *` declares and takes nothing, and neither does a namespace
- *    used whole (`Object.entries(ns)`, a spread): it names no export. The only exceptions are
+ *    module (production, a test, test support, a module under `scripts/` or `e2e/`, or a
+ *    declaration file). It is imported (`{ a }`, a default, `import('x').A`), or read from a
+ *    namespace the module binds (`* as ns`, `import ns = require('x')`, the value of `import()` or
+ *    `require()`, a name exported as `export * as ns`): `ns.a`, `ns['a']`, the type `ns.A`,
+ *    `(typeof ns)['a']`, `const { a } = ns`, in a use the compiler resolves to that binding (a
+ *    parameter of the same name is not the namespace). The compiler resolves each name in the
+ *    module it is taken from, through re-exports and barrels, to the declaration. A re-export
+ *    (`export { a } from`, `export *`) takes nothing: a module importing the name through it takes
+ *    the declaration, and a finding names the modules that only re-export it. A namespace used
+ *    whole (`Object.entries(ns)`, a spread) names no export. The only exceptions are
  *    `EMITTED_EXPORTS`, each with its reason; one that is no longer an unimported export of its
- *    module is a finding too.
+ *    module is a finding too. Not read, so a use only in one of these forms is a false finding
+ *    (drop an `export` something needs, and the build fails), never a false pass: a namespace
+ *    bound to another name or passed on (`const n = ns`, `f(ns)`, `.then((m) => m.a)`), a
+ *    computed member (`ns[key]`), a nested destructure (`const { inner: { a } } = ns`), a
+ *    re-export the compiler cannot follow (a workspace package that is not linked), and a module
+ *    outside `apps/`, `packages/`, `scripts/` and `e2e/` (the root configs).
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -63,7 +72,8 @@
  * - **The imports** come from each module's syntax tree, resolved by the compiler: static
  *   imports and re-exports, `import()`, `require`, `import x = require()`, and `import('x')`
  *   types. No comment stripping and no quote-only patterns. Rule 8 also reads the modules Git
- *   lists under `scripts/` and `e2e/`, for what they import only.
+ *   lists under `scripts/` and `e2e/`, and every declaration file it lists, for what they import
+ *   only.
  * - **Tests** are what vitest runs: the `include`, `setupFiles` and `globalSetup` entries of
  *   `vitest.config.ts`, read from its syntax tree. **Test support** is every module that only
  *   tests reach on the resolved import graph. Everything else is production, whatever its name:
@@ -491,18 +501,72 @@ function globalLoad(node) {
   }
 }
 
-/** The text of the names a list of specifiers or binding elements takes (`a` of `a as b`). */
+/**
+ * The names a list of specifiers or binding elements takes (`a` of `a as b`), each with the
+ * identifier it is bound to (`b`).
+ */
 const takenNames = (elements) =>
   elements
     .filter((element) => !element.dotDotDotToken)
-    .map((element) => (element.propertyName ?? element.name).text)
-    .filter((name) => typeof name === 'string');
+    .map((element) => ({
+      name: (element.propertyName ?? element.name).text,
+      local: element.name.kind === SyntaxKind.Identifier ? element.name : undefined,
+    }))
+    .filter(({ name }) => typeof name === 'string');
+
+/** The node a namespace is read through: past parentheses, `await`, and `typeof` in a type. */
+function namespaceUse(node) {
+  let outer = node;
+  while (
+    outer.parent?.kind === SyntaxKind.ParenthesizedExpression ||
+    outer.parent?.kind === SyntaxKind.AwaitExpression ||
+    outer.parent?.kind === SyntaxKind.ParenthesizedType ||
+    (outer.parent?.kind === SyntaxKind.TypeQuery && outer.parent.exprName === outer)
+  )
+    outer = outer.parent;
+  return outer;
+}
+
+/**
+ * The names a read of a module's namespace takes (rule 8): `ns.a`, `ns['a']`, the type `ns.A`,
+ * `(typeof ns)['a']`, and `const { a } = ns`. Each comes with the node, or the binding, its value
+ * is read through, for a name that is a namespace itself (`export * as inner`, then
+ * `ns.inner.a`). A namespace used whole (`Object.entries(ns)`, a spread, an argument) names none.
+ */
+function namespaceReads(node) {
+  const outer = namespaceUse(node);
+  const parent = outer.parent;
+  switch (parent?.kind) {
+    case SyntaxKind.PropertyAccessExpression:
+      return parent.expression === outer ? [{ name: parent.name.text, node: parent }] : [];
+    case SyntaxKind.ElementAccessExpression:
+      return parent.expression === outer && isLiteral(parent.argumentExpression)
+        ? [{ name: parent.argumentExpression.text, node: parent }]
+        : [];
+    case SyntaxKind.QualifiedName:
+      return parent.left === outer ? [{ name: parent.right.text, node: parent }] : [];
+    case SyntaxKind.IndexedAccessType:
+      return parent.objectType === outer &&
+        parent.indexType.kind === SyntaxKind.LiteralType &&
+        isLiteral(parent.indexType.literal)
+        ? [{ name: parent.indexType.literal.text, node: parent }]
+        : [];
+    case SyntaxKind.VariableDeclaration:
+      return parent.initializer === outer && parent.name.kind === SyntaxKind.ObjectBindingPattern
+        ? takenNames(parent.name.elements)
+        : [];
+    default:
+      return [];
+  }
+}
 
 /**
  * What a module takes by name from a module it imports (rule 8): the names it imports
- * (`{ a, b as c }`, `default`, `import('x').A`, `const { a } = await import('x')`, `(await
- * import('x')).a`) or re-exports (`export { a } from`), and the local name of a namespace
- * (`* as ns`, `const ns = await import('x')`) whose members it may read as `ns.a`.
+ * (`{ a, b as c }`, `default`, `import('x').A`, `(typeof import('x'))['a']`, and the reads of an
+ * `import()` or `require()` value, `const { a } = await import('x')` or `(await import('x')).a`),
+ * and the binding of a namespace (`* as ns`, `const ns = await import('x')`,
+ * `import ns = require('x')`) whose reads (`namespaceMembers`) it takes too. A named re-export
+ * (`export { a } from`) takes nothing: it is recorded, so a finding can name it.
  */
 function taken(node) {
   switch (node.kind) {
@@ -511,66 +575,68 @@ function taken(node) {
       const bindings = clause?.namedBindings;
       return {
         names: [
-          ...(clause?.name ? ['default'] : []),
+          ...(clause?.name ? [{ name: 'default', local: clause.name }] : []),
           ...(bindings?.kind === SyntaxKind.NamedImports ? takenNames(bindings.elements) : []),
         ],
-        namespace: bindings?.kind === SyntaxKind.NamespaceImport ? bindings.name.text : undefined,
+        namespace: bindings?.kind === SyntaxKind.NamespaceImport ? bindings.name : undefined,
       };
     }
     case SyntaxKind.ExportDeclaration:
       return {
-        names:
+        reexports:
           node.exportClause?.kind === SyntaxKind.NamedExports
-            ? takenNames(node.exportClause.elements)
+            ? takenNames(node.exportClause.elements).map(({ name }) => name)
             : [],
-        reexport: true,
       };
+    case SyntaxKind.ImportEqualsDeclaration:
+      return { names: [], namespace: node.name };
     case SyntaxKind.ImportType: {
       let name = node.qualifier;
       while (name?.kind === SyntaxKind.QualifiedName) name = name.left;
-      return { names: name ? [name.text] : [] };
+      return { names: name ? [{ name: name.text, node: name }] : namespaceReads(node) };
     }
     default: {
-      // `import(…)`, awaited: its value is the module's namespace.
-      let outer = node;
-      while (
-        outer.parent?.kind === SyntaxKind.AwaitExpression ||
-        outer.parent?.kind === SyntaxKind.ParenthesizedExpression
-      )
-        outer = outer.parent;
+      // `import(…)` or `require(…)`: its value, awaited, is the module's namespace.
+      const outer = namespaceUse(node);
       const parent = outer.parent;
-      if (parent?.kind === SyntaxKind.PropertyAccessExpression && parent.expression === outer)
-        return { names: [parent.name.text] };
-      if (parent?.kind !== SyntaxKind.VariableDeclaration || parent.initializer !== outer)
-        return { names: [] };
-      if (parent.name.kind === SyntaxKind.ObjectBindingPattern)
-        return { names: takenNames(parent.name.elements) };
       return {
-        names: [],
-        namespace: parent.name.kind === SyntaxKind.Identifier ? parent.name.text : undefined,
+        names: namespaceReads(node),
+        namespace:
+          parent?.kind === SyntaxKind.VariableDeclaration &&
+          parent.initializer === outer &&
+          parent.name.kind === SyntaxKind.Identifier
+            ? parent.name
+            : undefined,
       };
     }
   }
 }
 
 /**
- * The members a module reads of each namespace it binds (rule 8), by its local name: `ns.a`, and
- * the type `ns.A`. A namespace used whole names none.
+ * The reads (`namespaceReads`) of each namespace binding a module declares (rule 8): of each use
+ * of its name the compiler resolves to that binding, so another binding of the same name (a
+ * parameter, a local, a member) is not read as the namespace.
  */
-function namespaceMembers(sourceFile, locals) {
-  const members = new Map(locals.map((local) => [local, new Set()]));
+function namespaceMembers(sourceFile, checker, bindings) {
+  const members = new Map(bindings.map((binding) => [binding, []]));
+  const names = new Set(bindings.map((binding) => binding.text));
+  const uses = [];
   const visit = (node) => {
-    const [left, right] =
-      node.kind === SyntaxKind.PropertyAccessExpression
-        ? [node.expression, node.name]
-        : node.kind === SyntaxKind.QualifiedName
-          ? [node.left, node.right]
-          : [];
-    if (left?.kind === SyntaxKind.Identifier && members.has(left.text))
-      members.get(left.text).add(right.text);
+    if (node.kind === SyntaxKind.Identifier && names.has(node.text) && !members.has(node))
+      uses.push(node);
     node.forEachChild(visit);
   };
   sourceFile.forEachChild(visit);
+  if (uses.length === 0) return members;
+  const symbols = checker.getSymbolAtLocation([...bindings, ...uses]);
+  const bound = new Map();
+  bindings.forEach((binding, index) => {
+    if (symbols[index] !== undefined) bound.set(symbols[index].id, binding);
+  });
+  uses.forEach((use, index) => {
+    const binding = bound.get(symbols[bindings.length + index]?.id);
+    if (binding !== undefined) members.get(binding).push(...namespaceReads(use));
+  });
   return members;
 }
 
@@ -626,7 +692,7 @@ function readModule(sourceFile) {
         break;
       case SyntaxKind.ImportEqualsDeclaration:
         if (node.moduleReference.kind === SyntaxKind.ExternalModuleReference)
-          reference(node.moduleReference.expression, 'require');
+          reference(node.moduleReference.expression, 'require', taken(node));
         break;
       case SyntaxKind.ImportType:
         if (node.argument?.kind === SyntaxKind.LiteralType && isLiteral(node.argument.literal))
@@ -1158,8 +1224,11 @@ function readWorkspace(root) {
   const listed = workspaceFiles(root);
   const isSource = (path) =>
     SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension)) && !isDeclarationFile(path);
+  // Rule 8's other readers: the scripts and the end-to-end tests, and every declaration file Git
+  // lists (rules 1-7 read none).
   const consumerFiles = listed.filter(
-    (path) => CONSUMER_GROUPS.includes(placeOf(root, path)) && isSource(path),
+    (path) =>
+      (CONSUMER_GROUPS.includes(placeOf(root, path)) && isSource(path)) || isDeclarationFile(path),
   );
   const files = listed.filter((path) => !CONSUMER_GROUPS.includes(placeOf(root, path)));
   // Every project, nested ones (`packages/storage/test/tsconfig.json`) included.
@@ -1221,7 +1290,8 @@ function readWorkspace(root) {
     }
     if (modules.size === 0)
       throw new CheckError('found no module to check under apps/ or packages/.');
-    // The scripts and the end-to-end tests, read in the project the compiler infers for them.
+    // The scripts, the end-to-end tests and the declaration files, read in the project the compiler
+    // gives each.
     const consumers = [];
     for (const file of consumerFiles) {
       const project = snapshot.getDefaultProjectForFile(file);
@@ -1253,7 +1323,11 @@ function readWorkspace(root) {
         const call = node.parent;
         if (call?.kind === SyntaxKind.CallExpression && call.expression === node) {
           if (isLiteral(call.arguments[0]))
-            module.references.push({ specifier: call.arguments[0].text, node: call.arguments[0] });
+            module.references.push({
+              specifier: call.arguments[0].text,
+              node: call.arguments[0],
+              ...taken(call),
+            });
           else module.loads.push({ node, what: 'require()' });
         } else module.loads.push({ node, what: 'require' });
       });
@@ -1289,21 +1363,32 @@ function readWorkspace(root) {
         if (target !== undefined && modules.has(target)) module.imports.add(target);
       }
     // Rule 8: what each module exports, resolved by the compiler through re-exports and barrels to
-    // the declaration (its source module and name), read once per module.
+    // the declaration (its source module and name), read once per module. A name that resolves to
+    // a module (`export * as inner`, or an imported namespace exported again) is that module's
+    // namespace, read by name in turn.
     const tables = new Map();
     const exportTable = (file) => {
       if (tables.has(file)) return tables.get(file);
-      const { checker } = modules.get(file).project;
       const table = new Map();
-      const symbol = checker.getSymbolAtLocation(modules.get(file).sourceFile);
+      tables.set(file, table);
+      const module = modules.get(file);
+      if (module === undefined) return table;
+      const { checker } = module.project;
+      const symbol = checker.getSymbolAtLocation(module.sourceFile);
       for (const exported of symbol === undefined ? [] : checker.getExportsOfModule(symbol)) {
         const declared =
           exported.flags & SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
-        const path = declared.declarations?.[0]?.path;
-        const source = path && (sourceModule(path, projects, modules) ?? path);
-        if (source) table.set(exported.name, { file: source, key: `${source}#${declared.name}` });
+        const declaration = declared.declarations?.[0];
+        const source =
+          declaration?.path &&
+          (sourceModule(declaration.path, projects, modules) ?? declaration.path);
+        if (source)
+          table.set(exported.name, {
+            file: source,
+            key: `${source}#${declared.name}`,
+            namespace: declaration.kind === SyntaxKind.SourceFile,
+          });
       }
-      tables.set(file, table);
       return table;
     };
     // What each module of the domain, contracts and storage packages declares and exports.
@@ -1316,21 +1401,45 @@ function readWorkspace(root) {
             .filter(([, declared]) => declared.file === file)
             .map(([name, declared]) => ({ name, key: declared.key })),
         );
-    // The declarations other modules take by name. A re-export within a package is its barrel's
-    // plumbing, not a use.
+    // The declarations other modules take by name. A named re-export (`export { a } from`) takes
+    // nothing: a module importing the name through it takes the declaration, which the compiler
+    // resolves through it. Who re-exports each one is kept for the finding.
     const consumed = new Set();
+    const reexported = new Map();
     for (const module of [...modules.values(), ...consumers]) {
-      const locals = module.references.map((ref) => ref.namespace).filter(Boolean);
-      const members = locals.length > 0 ? namespaceMembers(module.sourceFile, locals) : new Map();
+      // Each binding of a module's namespace, and that module.
+      const namespaces = new Map();
+      const take = (target, reads) => {
+        for (const { name, node, local } of reads) {
+          const declared = exportTable(target).get(name);
+          if (declared === undefined || declared.file === module.file) continue;
+          if (!declared.namespace) consumed.add(declared.key);
+          else {
+            if (node !== undefined) take(declared.file, namespaceReads(node));
+            if (local !== undefined) namespaces.set(local, declared.file);
+          }
+        }
+      };
       for (const ref of module.references) {
-        const names = [...(ref.names ?? []), ...(members.get(ref.namespace) ?? [])];
-        if (ref.target === undefined || names.length === 0) continue;
-        for (const name of names) {
+        if (ref.target === undefined) continue;
+        for (const name of ref.reexports ?? []) {
           const declared = exportTable(ref.target).get(name);
           if (declared === undefined || declared.file === module.file) continue;
-          if (ref.reexport && placeOf(root, declared.file) === placeOf(root, module.file)) continue;
-          consumed.add(declared.key);
+          if (!reexported.has(declared.key)) reexported.set(declared.key, new Set());
+          reexported.get(declared.key).add(posix(relative(root, module.file)));
         }
+        if (ref.namespace !== undefined) namespaces.set(ref.namespace, ref.target);
+        take(ref.target, ref.names ?? []);
+      }
+      // Read each namespace's names; one taken from it may be a namespace in turn
+      // (`const { inner } = ns`), read in another pass.
+      const read = new Set();
+      for (;;) {
+        const bindings = [...namespaces.keys()].filter((binding) => !read.has(binding));
+        if (bindings.length === 0) break;
+        for (const binding of bindings) read.add(binding);
+        const members = namespaceMembers(module.sourceFile, module.project.checker, bindings);
+        for (const [binding, reads] of members) take(namespaces.get(binding), reads);
       }
     }
     let tests = [];
@@ -1339,7 +1448,7 @@ function readWorkspace(root) {
       const sourceFile = project?.program.getSourceFile(vitestConfig);
       if (sourceFile) tests = vitestEntries(sourceFile);
     }
-    return { projects, modules, tests, exported, consumed };
+    return { projects, modules, tests, exported, consumed, reexported };
   } finally {
     api.close();
   }
@@ -1571,9 +1680,10 @@ function moduleFindings(root, module, production, vocabulary) {
 /**
  * Rule 8 (DATA-15): each export a production module of the domain, contracts and storage packages
  * declares is taken by another module, or kept by an exception that gives its reason. An exception
- * for a production module that does not export that name unimported is a finding too.
+ * for a production module that does not export that name unimported is a finding too. A finding
+ * names the modules that only re-export the name, which must go with the `export`.
  */
-function exportFindings(root, exported, consumed, production, exceptions) {
+function exportFindings(root, exported, consumed, reexported, production, exceptions) {
   const findings = [];
   const kept = new Set();
   for (const [file, declarations] of exported) {
@@ -1582,9 +1692,12 @@ function exportFindings(root, exported, consumed, production, exceptions) {
     for (const { name, key } of declarations) {
       if (consumed.has(key)) continue;
       const reason = exceptions.get(path)?.get(name);
+      const reexports = [...(reexported.get(key) ?? [])].sort().map((file) => `\`${file}\``);
       if (reason === undefined)
         findings.push(
-          `\`${name}\` is exported by \`${path}\` but no other module imports it; drop the \`export\` (DATA-15)`,
+          reexports.length === 0
+            ? `\`${name}\` is exported by \`${path}\` but no other module imports it; drop the \`export\` (DATA-15)`
+            : `\`${name}\` is exported by \`${path}\` but no other module imports it, only re-exports it (${reexports.join(', ')}); drop the re-exports and the \`export\` (DATA-15)`,
         );
       else {
         kept.add(`${path}#${name}`);
@@ -1614,12 +1727,19 @@ function exportFindings(root, exported, consumed, production, exceptions) {
 export function inspectWorkspace(root, exceptions = EMITTED_EXPORTS) {
   const absoluteRoot = realpathSync(resolve(root));
   const findings = manifestFindings(absoluteRoot);
-  const { projects, modules, tests, exported, consumed } = readWorkspace(absoluteRoot);
+  const { projects, modules, tests, exported, consumed, reexported } = readWorkspace(absoluteRoot);
   const built = builtModules(absoluteRoot, projects, modules);
   const classified = productionModules(absoluteRoot, projects, modules, tests, built);
   findings.push(...buildFindings(absoluteRoot, modules, classified, built));
   findings.push(
-    ...exportFindings(absoluteRoot, exported, consumed, classified.production, exceptions),
+    ...exportFindings(
+      absoluteRoot,
+      exported,
+      consumed,
+      reexported,
+      classified.production,
+      exceptions,
+    ),
   );
   // Rule 7 reads the vocabulary where it is declared; a workspace without the module has none.
   const vocabularyModule = [...modules.values()].find(

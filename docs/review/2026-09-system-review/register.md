@@ -5426,21 +5426,31 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     fails when `executeCheck` stops passing the socket (M-2).
   - *(4) The unconsumed-export guard, structural (DATA-15).* Rule 8 of `check:scope`: every symbol
     a production module of `packages/domain`, `contracts` or `storage` declares and exports must be
-    taken by name by another module (production, a test, test support, a script or an e2e file),
-    resolved by the compiler (`getExportsOfModule`, `getAliasedSymbol`) through barrels and
-    re-exports to the declaration: a named import, a default import, an `import()` type, a
-    destructured `import()`, `ns.a` on an imported namespace, or `export { a } from` in another
-    package. A namespace used whole (`Object.entries(contracts)`) names nothing and counts nothing.
-    The only exceptions are a map of seven types that declaration emit needs (a server function's
-    inferred return type names them), each with its reason; an exception without a reason, or one
-    no longer needed, is a finding. It found eight exports `f7db32a`'s name search had missed (a
-    same-named declaration elsewhere hid them): four lose `export`, three unused types are deleted,
-    and `ArchitectureDecision` joins the map. Built in a worktree and cherry-picked; self-tests on
-    throwaway workspaces cover each consumer form, each finding and the exception rules; adding an
-    unconsumed export to a domain file makes `check:scope` fail with the finding; it adds about 0.15
-    s. Known gaps, which can only let an unused export pass: a shadowed namespace name, `ns['a']`,
-    `import x = require()` and `.d.ts` consumers. Declaring those server functions' return types
-    would let the map go (not done).
+    taken by name by another module (production, a test, test support, a script, an e2e file or a
+    declaration file), resolved by the compiler (`getExportsOfModule`, `getAliasedSymbol`) through
+    barrels and re-exports to the declaration: a named or default import, an `import()` type, a
+    destructured `import()` or `require()`, or a member of a namespace bound to the module (`* as
+    ns`, `import ns = require()`, the value of `import()` or `require()`, `export * as inner`) read
+    as `ns.a`, `ns['a']`, the type `ns.A`, `(typeof ns)['a']` or `const { a } = ns`, where the
+    compiler resolves `ns` to that binding (a same-named local does not count). A re-export alone
+    (`export { a } from`) counts as nothing: whoever imports through it is credited to the
+    declaration, and a name only re-exported is a finding that says to drop the re-exports too. A
+    namespace used whole (`Object.entries(contracts)`) names nothing and counts nothing. The only
+    exceptions are a map of seven types that declaration emit needs (a server function's inferred
+    return type names them), each with its reason; an exception without a reason, or one whose name
+    is now imported or no longer exported, is a finding. (An exception made unneeded by an explicit
+    return type on the server function stays silent; declaring those return types would let the
+    map go, not done.) It found eight exports `f7db32a`'s name search had missed (a same-named
+    declaration elsewhere hid them): four lose `export`, three unused types are deleted, and
+    `ArchitectureDecision` joins the map. Built in worktrees and cherry-picked; self-tests on
+    throwaway workspaces cover each consumer form above, each finding and the exception rules;
+    adding an unconsumed export to a domain file makes `check:scope` fail with the finding; no
+    measurable time over the check before the rule's fixes (about 2.5 s). Forms not read, each a
+    false finding (it says to drop an `export` the build needs), never a false pass: a namespace
+    bound to another name or passed on (`const n = ns`, `f(ns)`, `import('x').then((m) => m.a)`),
+    a computed member (`ns[key]`), a nested destructure, a re-export the compiler cannot follow in
+    an unlinked package, and a module outside `apps/`, `packages/`, `scripts/` and `e2e/` (the root
+    `playwright.config.ts`). No false pass is known.
   - *(5) Route parameters and storage lookups:* the operator agreed with the suggestion the same day
     and placed it in P4 as [R-H7](#r-h7); nothing built here.
   - *(8) `packages/testing/`:* untracked and ignored build output (`dist/`, `node_modules/`, a

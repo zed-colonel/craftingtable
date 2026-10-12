@@ -4,6 +4,7 @@ import type {
   RoadmapStatusListResponse,
 } from '@craftingtable/contracts';
 import type { BoardModel } from './board-model.js';
+import { asRoadmapId } from '@craftingtable/domain';
 
 /**
  * A small map roadmap's board for tests (R-E3b): WI-01's slice waits on the architecture
@@ -127,7 +128,7 @@ const row = (
 });
 
 export const STATUS: RoadmapStatusListResponse = {
-  roadmapId: ROADMAP_ID,
+  roadmapId: asRoadmapId(ROADMAP_ID),
   name: 'Cross-project roadmap',
   status: 'running',
   reason: 'Scheduling.',

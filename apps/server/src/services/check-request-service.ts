@@ -12,7 +12,7 @@ import {
   stopCheckUnits,
   type VerificationManifest,
 } from '@craftingtable/agents';
-import { isTerminalAgentRunStatus, type WorkspaceId } from '@craftingtable/domain';
+import { type AgentRunId, isTerminalAgentRunStatus, type WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { CrateChecksumAuthority } from './crate-checksums.js';
 
@@ -80,7 +80,7 @@ export class WorkflowQueue {
 /** One run whose check launchers the daemon serves. */
 export interface CheckRunContext {
   readonly workspaceId: WorkspaceId;
-  readonly runId: string;
+  readonly runId: AgentRunId;
   readonly spoolDirectory: string;
   /** The daemon's own directory for answers, outside every writable root of the run. */
   readonly replyDirectory: string;
@@ -526,10 +526,7 @@ export class CheckRequestService {
   /** Records a finished check's receipt while its run is still live and unfrozen. */
   private record(context: CheckRunContext, receipt: Record<string, unknown>): boolean {
     return this.storage.transaction((tx) => {
-      const agentRun = tx.execution.runs.find(
-        context.workspaceId,
-        context.runId as import('@craftingtable/domain').AgentRunId,
-      );
+      const agentRun = tx.execution.runs.find(context.workspaceId, context.runId);
       if (
         !agentRun ||
         isTerminalAgentRunStatus(agentRun.status) ||

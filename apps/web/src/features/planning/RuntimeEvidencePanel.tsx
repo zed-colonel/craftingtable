@@ -13,7 +13,7 @@ import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import {
   configureRuntimeSchema,
-  type ConfigureRuntime,
+  type RequestInput,
   type RuntimeEvidenceView,
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
@@ -28,6 +28,9 @@ import {
 } from '../../lib/runtime-evidence-api.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
+
+/** The dependency environment's setup as this form drafts and sends it. */
+type RuntimeConfiguration = RequestInput<typeof configureRuntimeSchema>;
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 import type { AgentRunId } from '@craftingtable/domain';
@@ -64,7 +67,7 @@ export function RuntimeEvidencePanel({
   const key = queryKeys.runtime(workspaceId, definitionId);
   const runtime = useQuery(key, () => readRuntime(workspaceId, definitionId));
   const view = runtime.data;
-  const [config, setConfig] = useState<ConfigureRuntime>(),
+  const [config, setConfig] = useState<RuntimeConfiguration>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
@@ -75,7 +78,7 @@ export function RuntimeEvidencePanel({
   /** The setup form follows a view: its pins, consumers and environments. */
   const adoptDraft = useCallback((v: RuntimeEvidenceView) => {
     setRefs(Object.fromEntries(v.current?.pins.map((p) => [p.alias, p.ref]) ?? []));
-    const nextConfig: ConfigureRuntime = {
+    const nextConfig: RuntimeConfiguration = {
       bindingRevision: v.bindingRevision,
       expectedGeneration: v.current?.generation ?? 0,
       pins:
@@ -141,7 +144,7 @@ export function RuntimeEvidencePanel({
     }
   };
   /** Saving the dependency environment: configuration, not a decision (R-A6). */
-  const configure = (body: ConfigureRuntime) => configureRuntime(base, body, csrfToken);
+  const configure = (body: RuntimeConfiguration) => configureRuntime(base, body, csrfToken);
   const dependencyDirty =
     !!config &&
     (JSON.stringify(config) !== savedConfig ||

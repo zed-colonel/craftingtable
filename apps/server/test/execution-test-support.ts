@@ -27,7 +27,21 @@ import {
   workCycleResponseSchema,
   workItemViewSchema,
 } from '@craftingtable/contracts';
-import { type ExecutionScope, V03_VOCABULARY } from '@craftingtable/domain';
+import {
+  asConcurrencyDefinitionId,
+  asConcurrencyMapId,
+  asDeclaredCheckId,
+  asFinalizationStageId,
+  asMapWorkItemId,
+  asPlanningTargetId,
+  asQualificationEnvironmentId,
+  asRepositoryCheckDeclarationId,
+  asReviewFindingId,
+  asRoadmapEntryId,
+  asRoadmapId,
+  type ExecutionScope,
+  V03_VOCABULARY,
+} from '@craftingtable/domain';
 import {
   type AgentBackendKind,
   type AgentExitReason,
@@ -39,8 +53,8 @@ import {
   asWorkItemDependencyId,
   asWorkItemId,
   CHECK_DECLARATION_PATH,
-  CYCLE_STEPS,
   type CompletionPolicy,
+  CYCLE_STEPS,
   type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
   FINALIZATION_STAGE_KINDS,
@@ -1201,10 +1215,10 @@ export async function roadmapFixture(
   };
   return { state, root, repository, worktree, backend, second };
 }
-export const roadmapId = '00000000-0000-4000-8000-000000000010';
+export const roadmapId = asRoadmapId('00000000-0000-4000-8000-000000000010');
 export const entryIds = [
-  '00000000-0000-4000-8000-000000000011',
-  '00000000-0000-4000-8000-000000000012',
+  asRoadmapEntryId('00000000-0000-4000-8000-000000000011'),
+  asRoadmapEntryId('00000000-0000-4000-8000-000000000012'),
 ];
 /** Every step's permission mode, as a roadmap save sends it (R-E5b): `auto` throughout. */
 export const stepPermissions = Object.fromEntries(
@@ -1215,7 +1229,7 @@ export function roadmapInput(state: Ready, ids = [state.workItemId, asWorkItemId
     expectedVersion: 0,
     name: 'Queue roadmap',
     entries: ids.map((workItemId, index) => ({
-      id: entryIds[index] as string,
+      id: entryIds[index]!,
       workItemId,
       permissions: stepPermissions,
       policy: DEFAULT_COMPLETION_POLICY,
@@ -1373,7 +1387,7 @@ export async function parallelFixture(
     ...roadmapInput(state, [state.workItemId, fixture.second, third]),
     scheduling: parallelScheduling,
   };
-  present(input.entries[2]).id = '00000000-0000-4000-8000-000000000013';
+  present(input.entries[2]).id = asRoadmapEntryId('00000000-0000-4000-8000-000000000013');
   return { ...fixture, third, input };
 }
 export async function useIntegration(
@@ -1463,7 +1477,7 @@ export function stagedInput<T extends { readonly policy: CompletionPolicy }>(
     ...base,
     rounds: [],
     stages: FINALIZATION_STAGE_KINDS.map((kind) => ({
-      id: kind,
+      id: asFinalizationStageId(kind),
       kind,
       name: kind,
       instructions: `${kind} focus`,
@@ -1562,7 +1576,7 @@ export function finalizationReply(request: AgentLaunchRequest): ScriptedReply {
 /** An optional simplification idea a stage may select or leave as follow-up work. */
 export const stageIdea = {
   ...structuredFinding,
-  id: 'S-1',
+  id: asReviewFindingId('S-1'),
   category: 'simplification',
   severity: 'minor',
 };
@@ -1656,12 +1670,12 @@ export async function slicedFixture(
       `The fixture map was not imported: ${imported.attempt.diagnostics.map((d) => `${d.code} ${d.message}`).join('; ')}`,
     );
   const sealed = present(state.context.storage.imports.definition(state.workspaceId, sealedId));
-  const id = randomUUID();
+  const id = asConcurrencyDefinitionId(randomUUID());
   const stored = withoutScaffolding(sealed.source, local);
   state.context.storage.imports.addDefinition({
     ...sealed,
     id,
-    mapId: stored.map_id,
+    mapId: asConcurrencyMapId(stored.map_id),
     source: stored,
     digest: sourceRecordDigest(stored as unknown as import('@craftingtable/domain').JsonValue),
   });
@@ -1688,7 +1702,7 @@ export async function slicedFixture(
         workItems: definition.source.work_items
           .filter((p) => p.repository === 'local')
           .map((p) => ({
-            sourceId: p.id,
+            sourceId: asMapWorkItemId(p.id),
             workItemId: p.id === 'local/AQ-02' ? fixture.second : state.workItemId,
             sourceRecordDigest: p.source_record_sha256,
           })),
@@ -1738,7 +1752,11 @@ export function withoutDaemonChecks(state: Ready): void {
 export function declareFixtureChecks(
   state: SignedIn,
   checks: import('@craftingtable/domain').DeclaredCheck[] = [
-    { id: 'fixture', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: [] },
+    {
+      id: asDeclaredCheckId('fixture'),
+      argv: ['git', 'diff', '--check', 'HEAD'],
+      definitionPaths: [],
+    },
   ],
   definitionDigests: Record<string, string> = {},
 ) {
@@ -1747,7 +1765,7 @@ export function declareFixtureChecks(
     if (repository.status !== 'active') continue;
     if (tx.runtimeEvidence.checkDeclarations(state.workspaceId, repository.id).length) continue;
     tx.runtimeEvidence.addCheckDeclaration({
-      id: randomUUID(),
+      id: asRepositoryCheckDeclarationId(randomUUID()),
       workspaceId: state.workspaceId,
       repositoryId: repository.id,
       version: 1,
@@ -1779,7 +1797,7 @@ export function configureLocalRuntime(
       consumers: [{ alias: 'local', upstreams: [] }],
       environments: [
         {
-          id: 'local-tests',
+          id: asQualificationEnvironmentId('local-tests'),
           kind: 'local-development',
           identityDigest: 'a'.repeat(64),
           fixtureDigest: 'b'.repeat(64),
@@ -2100,7 +2118,7 @@ export async function supervisedMapFixture(
     {
       definitionId,
       bindingRevision: 1,
-      targetId: 'LOCAL',
+      targetId: asPlanningTargetId('LOCAL'),
       selection: 'target-only',
       parentAcceptance,
       defaults: {
@@ -2201,7 +2219,7 @@ export async function delegateLocalReviewers(
   });
   expect(adopted.statusCode, adopted.body).toBe(200);
   const base = roadmapInput(state, [state.workItemId]).entries[0]!;
-  const target = definition.source.planning_targets[0]!.id;
+  const target = asPlanningTargetId(definition.source.planning_targets[0]!.id);
   await useStepModels(state);
   state.context.services.crossProjectService.save(auth, ws, {
     roadmapId,

@@ -3,7 +3,17 @@ import {
   roadmapBoardSchema,
   roadmapGraphSchema,
 } from '@craftingtable/contracts';
-import { asWorkItemId, type RoadmapEntry, type RoadmapStatusList } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  asMapWorkItemId,
+  asPlanningTargetId,
+  asRoadmapEntryId,
+  asRoadmapId,
+  asWorkItemId,
+  type RoadmapEntry,
+  type RoadmapEntryId,
+  type RoadmapStatusList,
+} from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { slicesHeldBy, slicesWaitingOn } from '../src/services/decision-demand.js';
 import {
@@ -58,11 +68,13 @@ const bindings = [
   {
     alias: 'local',
     sourceArtifacts: [],
-    workItems: [{ sourceId: 'local/AQ-01', workItemId: workItem, sourceRecordDigest: 'x' }],
+    workItems: [
+      { sourceId: asMapWorkItemId('local/AQ-01'), workItemId: workItem, sourceRecordDigest: 'x' },
+    ],
   },
 ];
-const roadmapId = '00000000-0000-4000-8000-000000000001';
-const entryId = (n: number) => `00000000-0000-4000-8000-00000000001${n}`;
+const roadmapId = asRoadmapId('00000000-0000-4000-8000-000000000001');
+const entryId = (n: number) => asRoadmapEntryId(`00000000-0000-4000-8000-00000000001${n}`);
 
 function graph() {
   const s = source();
@@ -71,7 +83,7 @@ function graph() {
     revision: 3,
     source: s,
     bindings,
-    targetId: s.planning_targets[0]!.id,
+    targetId: asPlanningTargetId(s.planning_targets[0]!.id),
     selection: 'prioritize-full',
   });
 }
@@ -127,7 +139,7 @@ it("builds each node's state, roots and unblocked slices from the daemon's evalu
       executionScope: { kind: 'parent-acceptance', sourceId: 'local/AQ-01' },
     },
   ] as unknown as RoadmapEntry[];
-  const row = (id: string, actor: 'operator' | 'agent' | 'controller', runId?: string) => ({
+  const row = (id: RoadmapEntryId, actor: 'operator' | 'agent' | 'controller', runId?: string) => ({
     entryId: id,
     sourceId: 'x',
     scope: 'slice' as const,
@@ -135,7 +147,11 @@ it("builds each node's state, roots and unblocked slices from the daemon's evalu
     workItemId: workItem,
     state: 'running' as const,
     actor,
-    waitsOn: { source: 'progress' as const, reason: 'r', ...(runId ? { runId } : {}) },
+    waitsOn: {
+      source: 'progress' as const,
+      reason: 'r',
+      ...(runId ? { runId: asAgentRunId(runId) } : {}),
+    },
   });
   const status: RoadmapStatusList = {
     roadmapId,
@@ -397,7 +413,7 @@ it('counts only unfinished, selected slices, ranks gates, and attributes runs an
     { id: entryId(2), workItem: 'w1', executionScope: scope('s1') },
     { id: entryId(3), workItem: 'w2', executionScope: scope('s5') },
   ].map((e) => ({ ...e, workItemId: asWorkItemId(e.workItem) }));
-  const row = (id: string, actor: 'controller' | 'agent', runId: string) => ({
+  const row = (id: RoadmapEntryId, actor: 'controller' | 'agent', runId: string) => ({
     entryId: id,
     sourceId: id,
     scope: 'slice' as const,
@@ -405,7 +421,7 @@ it('counts only unfinished, selected slices, ranks gates, and attributes runs an
     workItemId: workItem,
     state: 'running' as const,
     actor,
-    waitsOn: { source: 'progress' as const, reason: 'r', runId },
+    waitsOn: { source: 'progress' as const, reason: 'r', runId: asAgentRunId(runId) },
   });
   const board = buildBoard({
     graph: g,
@@ -486,7 +502,7 @@ it('holds only selected slices, for an item and for the whole roadmap (R-E3b rev
     revision: 1,
     source: s,
     bindings,
-    targetId: s.planning_targets[0]!.id,
+    targetId: asPlanningTargetId(s.planning_targets[0]!.id),
     selection: 'target-only',
   });
   const unselected = g.nodes.filter((n) => !n.included && n.kind === 'slice');
@@ -521,7 +537,7 @@ it('serves any title and id the map format allows (R-E3b review L1)', () => {
     revision: 1,
     source: { ...s, work_items: s.work_items.map((w) => ({ ...w, title: long })) },
     bindings,
-    targetId: s.planning_targets[0]!.id,
+    targetId: asPlanningTargetId(s.planning_targets[0]!.id),
     selection: 'prioritize-full',
   });
   expect(roadmapGraphSchema.parse(g).nodes.some((n) => n.title === long)).toBe(true);

@@ -1,12 +1,11 @@
 import type {
   MergeGate,
-  MergeWorktreeRequest,
   RepositoryBranchesResponse,
   WorktreeSummary,
 } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import { useState } from 'react';
-import { mergeWorktree } from './merge-api.js';
+import { type MergeCommand, mergeWorktree } from './merge-api.js';
 import { loadRepositoryBranches } from '../../lib/execution-api.js';
 import { CheckAdoptionReview } from './CheckAdoptionReview.js';
 
@@ -41,7 +40,7 @@ export function MergeApproval({
   /** The check definitions a `check-adoption` merge adopts: their digest, and why (R-G13). */
   const [proposal, setProposal] = useState<{ digest: string; declarationId: string }>();
   const [adoptionRationale, setAdoptionRationale] = useState('');
-  const merge = (input: MergeWorktreeRequest) => {
+  const merge = (input: MergeCommand) => {
     setBusy(true);
     setError(undefined);
     void mergeWorktree(workspaceId, worktree.id as WorktreeId, input, csrfToken)

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   asAuditEventId,
   asEventId,
+  asEvidenceSubmissionId,
   type ConcurrencyDefinition,
   type EvidenceDecision,
   type EvidenceSubmission,
@@ -141,7 +142,7 @@ export function generatedPlanSubmission(
     }`,
   ].join('\n');
   return {
-    id: randomUUID(),
+    id: asEvidenceSubmissionId(randomUUID()),
     workspaceId: d.workspaceId,
     definitionId: d.id,
     bindingRevision: runtime.bindingRevision,

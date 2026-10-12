@@ -1,4 +1,4 @@
-import { asWorkspaceId } from '@craftingtable/domain';
+import { asRoadmapEntryId, asWorkspaceId } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { BoardList } from './BoardList.js';
@@ -76,7 +76,7 @@ it("opens a gate's slices under the gate", () => {
 it('starts a group of more than ten rows closed, unless it holds the selection', () => {
   const many = Array.from({ length: 11 }, (_, i) => ({
     ...MODEL.status.entries[1]!,
-    entryId: `00000000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`,
+    entryId: asRoadmapEntryId(`00000000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`),
   }));
   const model = { ...MODEL, status: { ...MODEL.status, entries: many } };
   render(<BoardList model={model} selected={undefined} onSelect={vi.fn()} links={links} />);
@@ -88,7 +88,7 @@ it('starts a group of more than ten rows closed, unless it holds the selection',
 it('keeps what needs the operator open however long it is', () => {
   const many = Array.from({ length: 11 }, (_, i) => ({
     ...MODEL.status.entries[0]!,
-    entryId: `00000000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`,
+    entryId: asRoadmapEntryId(`00000000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`),
   }));
   const model = { ...MODEL, status: { ...MODEL.status, entries: many } };
   render(<BoardList model={model} selected={undefined} onSelect={vi.fn()} links={links} />);

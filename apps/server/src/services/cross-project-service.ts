@@ -8,6 +8,8 @@ import { randomUUID } from 'node:crypto';
 import {
   asAuditEventId,
   asEventId,
+  asMapDecisionId,
+  asRoadmapEntryId,
   mapCapabilities,
   targetClosure,
   milestoneKey,
@@ -461,7 +463,7 @@ export class CrossProjectService {
     if (!d) throw new NotFoundError();
     const issues = bindingIssues(this.storage, ws, id, input.bindingRevision);
     if (issues.length) conflict(issues.join(' '));
-    const ids = d.source.decisions.map((d) => d.id);
+    const ids = d.source.decisions.map((d) => asMapDecisionId(d.id));
     if (
       ids.length !== input.decisionIds.length ||
       new Set(input.decisionIds).size !== ids.length ||
@@ -481,7 +483,7 @@ export class CrossProjectService {
           tx.imports.addAdoption({
             id: randomUUID(),
             workspaceId: ws,
-            definitionId: id,
+            definitionId: d.id,
             bindingRevision: input.bindingRevision,
             decisionIds: ids,
             rationale: input.rationale,
@@ -509,7 +511,7 @@ export class CrossProjectService {
         actorUserId: context.user.id,
         kind: 'runtime-evidence-changed',
         payload: {
-          definitionId: id,
+          definitionId: d.id,
           message: 'Scheduling proposals adopted. Checkpoint evidence and Start remain separate.',
         },
       });
@@ -637,7 +639,7 @@ export class CrossProjectService {
       const settings = started ? prior : effectiveMapSettings(c, n.repository, activity, r.id);
       entries.push({
         ...(settings.reviewerRoles ? { reviewerRoles: [...settings.reviewerRoles] } : {}),
-        id: prior?.id ?? randomUUID(),
+        id: prior?.id ?? asRoadmapEntryId(randomUUID()),
         workItemId,
         executionScope: scope,
         profiles: settings.profiles,

@@ -3,6 +3,7 @@ import {
   type ConcurrencyPlanBinding,
   type ConcurrencySource,
   milestoneKey,
+  type PlanningTargetId,
   type RoadmapEntry,
   type RoadmapStatusList,
   targetClosure,
@@ -23,7 +24,7 @@ export function mapGraph(input: {
   readonly revision: number;
   readonly source: ConcurrencySource;
   readonly bindings: readonly Pick<ConcurrencyPlanBinding, 'workItems'>[];
-  readonly targetId: string;
+  readonly targetId: PlanningTargetId;
   readonly selection: 'target-only' | 'prioritize-full';
 }): RoadmapGraph {
   const { source } = input;
@@ -33,7 +34,7 @@ export function mapGraph(input: {
   const index = new Map(all.map((n, i) => [n.key, i]));
   const lanes = source.repositories.map((r) => ({ key: r.id, label: r.repository }));
   const laneOf = new Map(lanes.map((lane, i) => [lane.key, i]));
-  const workItemIds = new Map(
+  const workItemIds = new Map<string, WorkItemId>(
     input.bindings.flatMap((b) => b.workItems).map((w) => [w.sourceId, w.workItemId]),
   );
   const checkpointKinds = new Map(source.checkpoints.map((c) => [c.id, c.kind]));

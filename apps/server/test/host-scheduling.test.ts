@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostSchedulingSchema } from '@craftingtable/contracts';
 import {
+  asRoadmapId,
   asUserId,
   asWorkspaceId,
   asWorkspaceMembershipId,
@@ -134,7 +135,7 @@ it('requires authentication, CSRF, valid capacity, and ownership of every active
 it('requires paused scheduling without silently resuming or revising a roadmap', async () => {
   const s = await fixture();
   const first = await s.get();
-  const id = randomUUID(),
+  const id = asRoadmapId(randomUUID()),
     at = new Date().toISOString();
   const roadmap: Roadmap = {
     id,

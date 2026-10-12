@@ -55,7 +55,7 @@ export function indexOfKey(model: BoardModel, key: string | undefined): number |
  * card's: its own and its selected slices', as the card shows them.
  */
 export function rowsOf(model: BoardModel, index: number): StatusRow[] {
-  const rows = new Map(model.status.entries.map((row) => [row.entryId, row]));
+  const rows = new Map<string, StatusRow>(model.status.entries.map((row) => [row.entryId, row]));
   const nodes = [
     index,
     ...(nodeAt(model, index).kind === 'work_item'
@@ -85,7 +85,7 @@ export function cardOf(model: BoardModel, card: { node: number; gates: number })
   const positions = [...new Set(all.flatMap((i) => model.board.nodes[i]?.entries ?? []))].sort(
     (a, b) => a - b,
   );
-  const rows = new Map(model.status.entries.map((row) => [row.entryId, row]));
+  const rows = new Map<string, StatusRow>(model.status.entries.map((row) => [row.entryId, row]));
   const headline = positions
     .map((p) => rows.get(model.entryIds[p] ?? ''))
     .find((row) => row !== undefined);

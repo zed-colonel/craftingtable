@@ -8,6 +8,10 @@ import { operatorDecisions } from './operator-decisions.js';
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { adoptedDecisions, mapAdopted, scopeReviewerRoles } from './map-adoption-policy.js';
 import {
+  type AcceptanceCaseId,
+  asAcceptanceCaseId,
+  asCheckpointId,
+  asSliceId,
   submissionHead,
   sameExecutionScope,
   executionScopeKey,
@@ -79,21 +83,20 @@ export function scopeRequirements(r: ResolvedScope) {
     ]),
   ];
 }
-export function scopeCases(r: ResolvedScope): readonly string[] {
-  if (!r.slice)
-    return [...new Set([...r.parent.source_profile_case_ids, ...r.parent.aq_baseline_case_ids])];
-  return [
-    ...new Set([
-      ...r.slice.aq_baseline_case_ids,
-      ...r.definition.source.acceptance_coverage
-        .filter((c) => c.producing_slices.includes(r.slice!.id))
-        .map((c) => c.id),
-    ]),
-  ];
+export function scopeCases(r: ResolvedScope): readonly AcceptanceCaseId[] {
+  const ids = r.slice
+    ? [
+        ...r.slice.aq_baseline_case_ids,
+        ...r.definition.source.acceptance_coverage
+          .filter((c) => c.producing_slices.includes(r.slice!.id))
+          .map((c) => c.id),
+      ]
+    : [...r.parent.source_profile_case_ids, ...r.parent.aq_baseline_case_ids];
+  return [...new Set(ids)].map(asAcceptanceCaseId);
 }
 /** Whether any of the scope's acceptance cases needs a Kata host: only then does a brief speak of Kata (AGT-55). */
 export function scopeNeedsKata(r: ResolvedScope): boolean {
-  const cases = new Set(scopeCases(r));
+  const cases = new Set<string>(scopeCases(r));
   return r.definition.source.acceptance_coverage.some(
     (c) => c.requires_kata_host && cases.has(c.id),
   );
@@ -304,7 +307,7 @@ function ownerFreePhaseBlockers(
             : 'checkpoint-evidence',
           'evidence',
           `Checkpoint ${requirement.id} must pass with current independently accepted evidence.`,
-          { checkpointId: requirement.id },
+          { checkpointId: asCheckpointId(requirement.id) },
         );
     } else if (requirement.kind === 'work_item') {
       const bound = tx.imports
@@ -358,7 +361,7 @@ function ownerFreePhaseBlockers(
           'slice-requirement',
           'dependency',
           `Slice ${requirement.id} must be ${requirement.state}.`,
-          { sliceId: requirement.id },
+          { sliceId: asSliceId(requirement.id) },
         );
     }
   }
@@ -387,7 +390,7 @@ function ownerFreePhaseBlockers(
       const merged = latestSliceMerge(tx, workspaceId, workItemId, target);
       if (!merged)
         add('required-slice-unmerged', 'evidence', `Required slice ${sliceId} has not merged.`, {
-          sliceId,
+          sliceId: asSliceId(sliceId),
         });
       else if (
         !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
@@ -405,7 +408,7 @@ function ownerFreePhaseBlockers(
           'required-slice-unverified',
           'evidence',
           `Required slice ${sliceId} has not been verified.`,
-          { sliceId },
+          { sliceId: asSliceId(sliceId) },
         );
     }
     if (

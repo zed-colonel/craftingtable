@@ -8,6 +8,7 @@ import {
 } from '@craftingtable/contracts';
 import type { PinnedCargoManifest } from '@craftingtable/agents';
 import type { ExecutionScope } from '@craftingtable/domain';
+import { asQualificationEnvironmentId } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect } from 'vitest';
 import {
@@ -135,7 +136,7 @@ async function transitionFixture() {
     consumers: [{ alias: 'local', upstreams: ['provider'] }],
     environments: [
       {
-        id: 'local',
+        id: asQualificationEnvironmentId('local'),
         kind: 'local-development' as const,
         identityDigest: '1'.repeat(64),
         fixtureDigest: '2'.repeat(64),

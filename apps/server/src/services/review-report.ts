@@ -70,7 +70,7 @@ export function assessReviewReport(
   if (finalVerdict(text) !== report.verdict) {
     issues.push('The final VERDICT line must agree with the structured report.');
   }
-  const ids = new Set(report.findings.map((finding) => finding.id));
+  const ids = new Set<string>(report.findings.map((finding) => finding.id));
   const missing = [...previousFindingIds].filter((id) => !ids.has(id));
   if (missing.length > 0) {
     // Dispositions for earlier findings need the reviewer's judgement, not a restatement.

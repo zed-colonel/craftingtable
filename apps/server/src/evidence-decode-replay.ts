@@ -7,6 +7,7 @@ import type {
   EvidenceSubmissionHead,
   WorkspaceId,
 } from '@craftingtable/domain';
+import { asEvidenceSubmissionId } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import {
   type CraftingTableStorage,
@@ -170,7 +171,7 @@ function insertCopies(storage: CraftingTableStorage, mapOf: Map<string, string>)
     const newest = storage.runtimeEvidence.submissions(ws, definitionId)[0];
     const record = newest && storage.runtimeEvidence.submission(ws, definitionId, newest.id);
     if (!record) continue;
-    const copy = { ...record, id: randomUUID() };
+    const copy = { ...record, id: asEvidenceSubmissionId(randomUUID()) };
     mapOf.set(copy.id, definitionId);
     storage.transaction((tx) => tx.runtimeEvidence.addSubmission(copy));
   }

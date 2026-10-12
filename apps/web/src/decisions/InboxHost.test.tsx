@@ -1,5 +1,11 @@
 import type { AttentionItemView, WorkspaceOverview } from '@craftingtable/contracts';
-import { asWorkspaceId } from '@craftingtable/domain';
+import {
+  asRoadmapId,
+  asWorkCycleId,
+  asWorkItemId,
+  asWorkspaceId,
+  asWorktreeId,
+} from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -197,9 +203,23 @@ function inApp(ui: ReactNode) {
     </QueryStoreProvider>,
   );
 }
-const item = (fields: Partial<AttentionItemView>) =>
-  ({ id: 'i', kind: 'attention', refs: {}, ...fields }) as AttentionItemView;
-const host = (fields: Partial<AttentionItemView>) =>
+/** The refs these tests name, as plain strings; branded as the contract types them. */
+type PlainRefs = {
+  readonly roadmapId?: string;
+  readonly cycleId?: string;
+  readonly worktreeId?: string;
+  readonly workItemId?: string;
+};
+type Fields = Partial<Omit<AttentionItemView, 'refs'>> & { readonly refs?: PlainRefs };
+const refsOf = (r: PlainRefs): AttentionItemView['refs'] => ({
+  ...(r.roadmapId === undefined ? {} : { roadmapId: asRoadmapId(r.roadmapId) }),
+  ...(r.cycleId === undefined ? {} : { cycleId: asWorkCycleId(r.cycleId) }),
+  ...(r.worktreeId === undefined ? {} : { worktreeId: asWorktreeId(r.worktreeId) }),
+  ...(r.workItemId === undefined ? {} : { workItemId: asWorkItemId(r.workItemId) }),
+});
+const item = ({ refs = {}, ...fields }: Fields) =>
+  ({ id: 'i', kind: 'attention', refs: refsOf(refs), ...fields }) as AttentionItemView;
+const host = (fields: Fields) =>
   inApp(<InboxHost item={item(fields)} attention={[]} workspaceCycles={[]} />);
 
 it("renders an architecture item's own card, not the step's other cards or batch approval", async () => {

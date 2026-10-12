@@ -34,9 +34,15 @@ import type {
 } from '@craftingtable/contracts';
 import { roadmapEntryFieldsSchema } from '@craftingtable/contracts';
 import {
+  asAgentAssignmentId,
   asAgentRunId,
   asAuditEventId,
+  asCheckpointId,
+  asDecisionPreparationId,
+  asDelegationAssignmentId,
   asEventId,
+  asRoadmapAttemptId,
+  asWorkCycleId,
   asWorktreeId,
   type AgentRunId,
   type AttentionItem,
@@ -45,6 +51,7 @@ import {
   type RoadmapAttempt,
   type RoadmapDefinition,
   type RoadmapEntry,
+  type RoadmapId,
   type RoadmapStatusEntry,
   type RoadmapStatusList,
   type RoadmapView,
@@ -536,7 +543,7 @@ export class RoadmapService {
         .flatMap((entry) => Object.entries(entryAgentSelections(old, entry).selections)),
     );
     const assignment = {
-      id: randomUUID(),
+      id: asAgentAssignmentId(randomUUID()),
       entryIds: input.entryIds,
       selections: input.selections,
       appliedAt: this.now().toISOString(),
@@ -738,11 +745,11 @@ export class RoadmapService {
         );
       const at = this.now();
       const p: import('@craftingtable/domain').DecisionPreparation = {
-        id: randomUUID(),
+        id: asDecisionPreparationId(randomUUID()),
         definitionId: d.id,
         bindingRevision: binding.revision,
         bindingDigest: decisionBindingDigest(this.storage, d, binding.revision),
-        checkpointId: checkpoint.id,
+        checkpointId: asCheckpointId(checkpoint.id),
         workspaceId: ws,
         ...owner,
         integrationSha: result.value,
@@ -947,7 +954,7 @@ export class RoadmapService {
             ...(old.delegationAssignments ?? []),
             {
               ...grant,
-              id: randomUUID(),
+              id: asDelegationAssignmentId(randomUUID()),
               appliedAt: this.now().toISOString(),
               appliedByUserId: context.user.id,
             },
@@ -1554,7 +1561,7 @@ export class RoadmapService {
   save(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: SaveRoadmapRequest,
   ): RoadmapView {
     const saved = this.storage.roadmaps.find(workspaceId, id)?.definition.entries ?? [];
@@ -1585,7 +1592,7 @@ export class RoadmapService {
   saveDefinition(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: RoadmapDefinitionInput,
     crossProject?: import('@craftingtable/domain').CrossProjectConfiguration,
     amendment?: { readonly retainAttemptIds: readonly string[] },
@@ -2911,11 +2918,11 @@ export class RoadmapService {
     this.cycles.validateSettings(entry);
     if (!attempt) {
       attempt = {
-        id: randomUUID(),
+        id: asRoadmapAttemptId(randomUUID()),
         entryId: entry.id,
         definitionRevision: roadmap.definition.revision,
         worktreeId: asWorktreeId(randomUUID()),
-        cycleId: randomUUID(),
+        cycleId: asWorkCycleId(randomUUID()),
         status: 'preparing',
         createdAt: this.now().toISOString(),
       };
@@ -2989,7 +2996,7 @@ export class RoadmapService {
     return openRecoveries(roadmap).get(entry.workItemId);
   }
   /** The review each of the work item's verification and parent entries last ran. */
-  private reviewRunIds(roadmap: Roadmap, entry: RoadmapEntry): Record<string, string> {
+  private reviewRunIds(roadmap: Roadmap, entry: RoadmapEntry): Record<string, AgentRunId> {
     return Object.fromEntries(
       roadmap.attempts.flatMap((a) => {
         const e = roadmap.definition.entries.find((e) => e.id === a.entryId);
@@ -3060,11 +3067,11 @@ export class RoadmapService {
         (c) => c.scope.sourceId === input.sourceId,
       )?.worktreeId;
       reserved = {
-        id: randomUUID(),
+        id: asRoadmapAttemptId(randomUUID()),
         entryId: owner.id,
         definitionRevision: ownerAttempt.definitionRevision,
         worktreeId: existing ?? asWorktreeId(randomUUID()),
-        cycleId: randomUUID(),
+        cycleId: asWorkCycleId(randomUUID()),
         status: 'preparing',
         createdAt: this.now().toISOString(),
         recovery: {
@@ -3198,7 +3205,7 @@ export class RoadmapService {
       );
       const report = turn?.kind === 'turn-completed' ? turn.payload.reviewReport : undefined;
       const round: RoadmapAttempt = {
-        id: randomUUID(),
+        id: asRoadmapAttemptId(randomUUID()),
         entryId: owner.id,
         definitionRevision: ownerAttempt.definitionRevision,
         worktreeId: cycle.worktreeId,
@@ -3324,11 +3331,11 @@ export class RoadmapService {
         return blockerWait(blocked, decision.owner.id);
       }
       attempt = {
-        id: randomUUID(),
+        id: asRoadmapAttemptId(randomUUID()),
         entryId: decision.owner.id,
         definitionRevision: ownerAttempt.definitionRevision,
         worktreeId: asWorktreeId(randomUUID()),
-        cycleId: randomUUID(),
+        cycleId: asWorkCycleId(randomUUID()),
         status: 'preparing',
         createdAt: this.now().toISOString(),
         recovery: {

@@ -1,5 +1,11 @@
 import type { AttentionItemView } from '@craftingtable/contracts';
-import { asWorkspaceId } from '@craftingtable/domain';
+import {
+  asRoadmapEntryId,
+  asRoadmapId,
+  asWorkCycleId,
+  asWorkItemId,
+  asWorkspaceId,
+} from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { NeedsYou } from '../../components/NeedsYou.js';
@@ -18,7 +24,7 @@ const item = (id: string, changes: Partial<AttentionItemView>): AttentionItemVie
   message: 'The backend failed without a recognized temporary service error.',
   path: `/workspaces/ws/work-items/${id}`,
   inboxPath: `/workspaces/ws/inbox/${id}`,
-  refs: { cycleId: id, workItemId: id },
+  refs: { cycleId: asWorkCycleId(id), workItemId: asWorkItemId(id) },
   blocks: 0,
   openedAt: '2026-09-25T11:00:00Z',
   pushedAt: null,
@@ -27,11 +33,14 @@ const item = (id: string, changes: Partial<AttentionItemView>): AttentionItemVie
 // The stops of 2026-09-25, as the daemon serves them, most blocking first.
 const items = [
   item('wi-02', { blocks: 4 }),
-  item('exo-03', { code: 'shared-decision-required', refs: { cycleId: 'c', roadmapId: 'r' } }),
+  item('exo-03', {
+    code: 'shared-decision-required',
+    refs: { cycleId: asWorkCycleId('c'), roadmapId: asRoadmapId('r') },
+  }),
   item('hold', {
     subjectKey: 'roadmap:r:entry:e',
     code: 'evidence-not-current',
-    refs: { roadmapId: 'r', entryId: 'e' },
+    refs: { roadmapId: asRoadmapId('r'), entryId: asRoadmapEntryId('e') },
     actions: ['reverify'],
   }),
   item('scope', { code: 'scope-review-open-questions' }),

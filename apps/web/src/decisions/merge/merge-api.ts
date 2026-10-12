@@ -1,7 +1,8 @@
 import {
-  type MergeWorktreeRequest,
+  type mergeWorktreeRequestSchema,
   type MergeWorktreeResponse,
   mergeWorktreeResponseSchema,
+  type RequestInput,
 } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
@@ -13,11 +14,14 @@ import { request } from '../../lib/api-client.js';
  */
 const encode = encodeURIComponent;
 
+/** A merge as the browser sends it. */
+export type MergeCommand = RequestInput<typeof mergeWorktreeRequestSchema>;
+
 /** `decisions/merge/MergeApproval`: a reviewed worktree's merge (R-A6). */
 export function mergeWorktree(
   workspaceId: WorkspaceId,
   worktreeId: WorktreeId,
-  input: MergeWorktreeRequest,
+  input: MergeCommand,
   csrfToken: string,
 ): Promise<MergeWorktreeResponse> {
   return request(

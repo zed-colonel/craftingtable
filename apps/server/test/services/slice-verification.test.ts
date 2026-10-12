@@ -1,11 +1,12 @@
 import type { ExecutionScope, ScopeReceipt } from '@craftingtable/domain';
+import { asConcurrencyDefinitionId } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { sliceVerification } from '../../src/services/execution-scope.js';
 
 /** R-C7 D7 (shown since R-E5b): which receipt's follow-ups a slice shows. */
 const scope: ExecutionScope = {
   kind: 'slice',
-  definitionId: 'map',
+  definitionId: asConcurrencyDefinitionId('map'),
   bindingRevision: 2,
   sourceId: 'wi/WI-01/domain',
 };

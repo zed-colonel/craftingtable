@@ -1,5 +1,16 @@
 import type { AttentionItemView } from '@craftingtable/contracts';
-import { ATTENTION_ITEM_CODES } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  asFinalizationId,
+  asPlanVersionId,
+  asProjectId,
+  asRoadmapEntryId,
+  asRoadmapId,
+  asWorkCycleId,
+  asWorkItemId,
+  asWorktreeId,
+  ATTENTION_ITEM_CODES,
+} from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { decisionsFor } from './registry.js';
 
@@ -14,7 +25,24 @@ const cycleRefs = {
   roadmapId: 'r',
   entryId: 'e',
 };
-const item = (changes: Partial<AttentionItemView>): AttentionItemView => ({
+type Refs = AttentionItemView['refs'];
+/** Refs as these tests write them: plain strings, branded as the contract types them. */
+type PlainRefs = { readonly [K in keyof Refs]?: string | undefined };
+const refsOf = (r: PlainRefs): Refs => ({
+  ...(r.cycleId === undefined ? {} : { cycleId: asWorkCycleId(r.cycleId) }),
+  ...(r.runId === undefined ? {} : { runId: asAgentRunId(r.runId) }),
+  ...(r.worktreeId === undefined ? {} : { worktreeId: asWorktreeId(r.worktreeId) }),
+  ...(r.workItemId === undefined ? {} : { workItemId: asWorkItemId(r.workItemId) }),
+  ...(r.projectId === undefined ? {} : { projectId: asProjectId(r.projectId) }),
+  ...(r.planVersionId === undefined ? {} : { planVersionId: asPlanVersionId(r.planVersionId) }),
+  ...(r.roadmapId === undefined ? {} : { roadmapId: asRoadmapId(r.roadmapId) }),
+  ...(r.entryId === undefined ? {} : { entryId: asRoadmapEntryId(r.entryId) }),
+  ...(r.finalizationId === undefined ? {} : { finalizationId: asFinalizationId(r.finalizationId) }),
+});
+const item = ({
+  refs = cycleRefs,
+  ...changes
+}: Partial<Omit<AttentionItemView, 'refs'>> & { refs?: PlainRefs }): AttentionItemView => ({
   id: 'item',
   subjectKey: 'cycle:c',
   code: 'service-failure-not-retryable',
@@ -23,7 +51,7 @@ const item = (changes: Partial<AttentionItemView>): AttentionItemView => ({
   message: 'Message',
   path: '/workspaces/ws/work-items/w',
   inboxPath: '/workspaces/ws/inbox/item',
-  refs: cycleRefs,
+  refs: refsOf(refs),
   blocks: 0,
   openedAt: '2026-09-25T11:00:00Z',
   pushedAt: null,

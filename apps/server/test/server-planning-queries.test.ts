@@ -13,6 +13,8 @@ import {
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
+  asRoadmapEntryId,
+  asRoadmapId,
   asSessionId,
   asWorkItemDependencyId,
   asSourceRepositoryId,
@@ -682,7 +684,7 @@ describe('work-item admission over HTTP', () => {
   it('requires delegated roadmaps to stop before withdrawing their queued item', async () => {
     const r = await removalFixture();
     const now = new Date().toISOString(),
-      id = randomUUID();
+      id = asRoadmapId(randomUUID());
     const profile = { backend: 'codex' as const, permissionMode: 'auto' as const };
     const roadmap: Roadmap = {
       id,
@@ -702,7 +704,7 @@ describe('work-item admission over HTTP', () => {
         createdByUserId: r.actor.user.id,
         entries: [
           {
-            id: randomUUID(),
+            id: asRoadmapEntryId(randomUUID()),
             workItemId: r.workItemId,
             projectId: r.imported.projectId,
             planVersionId: r.imported.planVersionId,

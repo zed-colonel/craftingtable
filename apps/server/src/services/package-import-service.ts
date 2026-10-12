@@ -3,8 +3,15 @@ import type { ConcurrencyDetail, SaveConcurrencyBindings } from '@craftingtable/
 import {
   type ArchiveImportAttempt,
   asAuditEventId,
+  asConcurrencyDefinitionId,
+  asConcurrencyMapId,
   asEventId,
+  asImportedArchiveId,
+  asMapSourceFileId,
+  asMapWorkItemId,
+  asRoadmapId,
   type ConcurrencyDefinition,
+  type ConcurrencyDefinitionId,
   type ConcurrencyPlanBinding,
   type ImportIssue,
   type PlanVersion,
@@ -284,13 +291,14 @@ export class PackageImportService {
             ? 'duplicate'
             : 'conflict'
           : 'succeeded';
-      const definitionId = existing?.id ?? (source ? randomUUID() : undefined);
+      const definitionId =
+        existing?.id ?? (source ? asConcurrencyDefinitionId(randomUUID()) : undefined);
       if (source && analysis.digest && outcome === 'succeeded')
         tx.imports.addDefinition({
-          id: definitionId as string,
+          id: definitionId!,
           workspaceId,
           archiveId: archive.id,
-          mapId: source.map_id,
+          mapId: asConcurrencyMapId(source.map_id),
           revision: source.revision,
           digest: analysis.digest,
           source,
@@ -406,7 +414,7 @@ export class PackageImportService {
           sourceArtifacts: d.source.source_files
             .filter((f) => f.repository === repo.id)
             .map((f) => ({
-              sourceId: f.id,
+              sourceId: asMapSourceFileId(f.id),
               artifactId: present(
                 artifacts.find(
                   (a) =>
@@ -419,7 +427,7 @@ export class PackageImportService {
           workItems: d.source.work_items
             .filter((p) => p.repository === repo.id)
             .map((p) => ({
-              sourceId: p.id,
+              sourceId: asMapWorkItemId(p.id),
               workItemId: present(workItems.find((w) => w.sourceId === p.source_item_id)).id,
               sourceRecordDigest: p.source_record_sha256,
             })),
@@ -431,7 +439,7 @@ export class PackageImportService {
       const at = this.now().toISOString();
       tx.imports.addBindings({
         workspaceId,
-        definitionId: id,
+        definitionId: d.id,
         revision: input.expectedRevision + 1,
         bindings,
         createdAt: at,
@@ -453,7 +461,7 @@ export class PackageImportService {
         tx,
         context,
         workspaceId,
-        id,
+        d.id,
         'Exact concurrency bindings recorded. Execution remains unavailable.',
         at,
       );
@@ -780,7 +788,7 @@ export class PackageImportService {
   ) {
     return tx.imports.addArchive(
       {
-        id: randomUUID(),
+        id: asImportedArchiveId(randomUUID()),
         workspaceId,
         filename: filename.replace(/[^A-Za-z0-9._()-]/g, '_').slice(0, 200) || 'package.zip',
         digest: sha256Hex(bytes),
@@ -855,7 +863,7 @@ export class PackageImportService {
     tx: StorageRepositories,
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    definitionId: ConcurrencyDefinitionId,
     reason: string,
     at: string,
   ) {
@@ -865,7 +873,9 @@ export class PackageImportService {
       workspaceId,
       actorUserId: context.user.id,
       kind: 'roadmap-changed',
-      payload: { roadmapId: id, status: 'draft', reason },
+      // The event has always named the definition in `roadmapId` (DATA-15 found it); the browser
+      // reads it only as a refresh signal, so the stored events keep that shape.
+      payload: { roadmapId: asRoadmapId(definitionId), status: 'draft', reason },
     });
   }
 }

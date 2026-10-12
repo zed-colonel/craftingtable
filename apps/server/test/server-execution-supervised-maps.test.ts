@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { asPlanVersionId, asWorkItemId, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import {
+  asConcurrencyDefinitionId,
+  asPlanningTargetId,
+  asPlanVersionId,
+  asQualificationEnvironmentId,
+  asSliceId,
+  asWorkItemId,
+  DEFAULT_COMPLETION_POLICY,
+} from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
 import { resolveScope, scopeEvidenceLedger } from '../src/services/execution-scope.js';
@@ -233,7 +241,7 @@ itNeedsCargo(
       runtimeId: f.runtime.current!.id,
       subject: spec.subject,
       subjectCommit: git(['rev-parse', 'revision'], f.root).trim(),
-      environmentId: 'local-tests',
+      environmentId: asQualificationEnvironmentId('local-tests'),
       executedBy: 'author',
       executedAt: new Date().toISOString(),
       reviewers: [
@@ -560,7 +568,7 @@ itNeedsCargo(
       candidate: {
         definitionId: f.parentScope.definitionId,
         bindingRevision: 1,
-        targetId: 'LOCAL',
+        targetId: asPlanningTargetId('LOCAL'),
         selection: 'prioritize-full',
       },
       summary: 'Scope changes must wait for finalization.',
@@ -619,7 +627,7 @@ itNeedsCargo(
     await roadmapControl(state, 'pause');
     const old = storage.imports.definition(ws, f.parentScope.definitionId)!,
       binding = storage.imports.bindings(ws, old.id)[0]!,
-      id = randomUUID();
+      id = asConcurrencyDefinitionId(randomUUID());
     storage.imports.addDefinition({
       ...old,
       id,
@@ -630,7 +638,7 @@ itNeedsCargo(
     const candidate = {
       definitionId: id,
       bindingRevision: 1,
-      targetId: 'LOCAL',
+      targetId: asPlanningTargetId('LOCAL'),
       selection: 'target-only' as const,
     };
     const proposed = await service.propose(f.auth, ws, roadmapId, {
@@ -646,7 +654,7 @@ itNeedsCargo(
       outcome: 'apply',
       impactDigest: impact.digest,
       rationale: 'Ancestry checked; no approval migration.',
-      reuseIntegrationIds: ['local/AQ-01/a'],
+      reuseIntegrationIds: [asSliceId('local/AQ-01/a')],
     });
     const view = f.service.view(f.auth, ws, candidate);
     expect(
@@ -700,7 +708,7 @@ it('activates only the reviewed replacement plan while preserving admitted histo
   storage.planning.workItems.insertMany([{ ...item, id: nextItem, planVersionId: revised.id }]);
   const settings = storage.execution.branchSettings.find(ws, original.id)!;
   storage.execution.branchSettings.save({ ...settings, planVersionId: revised.id, version: 1 }, 0);
-  const id = randomUUID();
+  const id = asConcurrencyDefinitionId(randomUUID());
   storage.imports.addDefinition({
     ...old,
     id,
@@ -722,7 +730,7 @@ it('activates only the reviewed replacement plan while preserving admitted histo
     candidate: {
       definitionId: id,
       bindingRevision: 1,
-      targetId: 'LOCAL',
+      targetId: asPlanningTargetId('LOCAL'),
       selection: 'target-only',
     },
     summary: 'Review revised plan before activation.',

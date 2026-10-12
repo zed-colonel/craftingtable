@@ -24,6 +24,7 @@ import {
   replaySchedulerSnapshot,
 } from '../src/scheduler-replay.js';
 import { testDataRoot } from './test-support.js';
+import { asRoadmapId } from '@craftingtable/domain';
 
 /**
  * The scheduler replay (R-I10) runs one real roadmap pass over a copy of a snapshot and
@@ -448,7 +449,7 @@ it('compares each status list’s header, and attention items as a multiset', ()
   // GR F-8: a roadmap's own status, reason or completed count, and a duplicated or dropped
   // inbox item, replayed as 0 changed.
   const list = {
-    roadmapId: 'r',
+    roadmapId: asRoadmapId('r'),
     name: 'Roadmap',
     status: 'running',
     reason: 'Parallel scheduling enabled.',

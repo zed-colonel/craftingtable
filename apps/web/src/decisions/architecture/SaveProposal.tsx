@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import type { ProposeArchitectureDecision, RuntimeEvidenceView } from '@craftingtable/contracts';
+import type {
+  proposeArchitectureDecisionSchema,
+  RequestInput,
+  RuntimeEvidenceView,
+} from '@craftingtable/contracts';
+
+/** A proposal as the daemon receives it. */
+type Proposal = RequestInput<typeof proposeArchitectureDecisionSchema>;
 import { runtimeAddress } from '../../lib/runtime-evidence-api.js';
 import { proposeDecision } from './architecture-api.js';
 
@@ -8,12 +15,7 @@ import { proposeDecision } from './architecture-api.js';
  * this module: a decision card's editor and the advanced staging form both save through
  * `SaveProposal`. Saving records a proposal; approving it is an evidence decision.
  */
-function propose(
-  workspaceId: string,
-  definitionId: string,
-  csrfToken: string,
-  input: ProposeArchitectureDecision,
-) {
+function propose(workspaceId: string, definitionId: string, csrfToken: string, input: Proposal) {
   return proposeDecision(runtimeAddress(workspaceId, definitionId), input, csrfToken);
 }
 
@@ -30,7 +32,7 @@ export function SaveProposal({
   workspaceId: string;
   definitionId: string;
   csrfToken: string;
-  proposal: ProposeArchitectureDecision;
+  proposal: Proposal;
   label: string;
   disabled?: boolean;
   onSaved: (view: RuntimeEvidenceView) => void | Promise<void>;

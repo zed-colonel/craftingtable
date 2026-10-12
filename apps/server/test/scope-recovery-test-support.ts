@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { asAgentRunId, type ExecutionScope } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  asRoadmapAttemptId,
+  asWorkCycleId,
+  type ExecutionScope,
+} from '@craftingtable/domain';
 import { afterEach, expect } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
 
@@ -381,10 +386,10 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
       const current = storedRoadmap(state);
       const round = {
         ...review,
-        id: randomUUID(),
-        cycleId: randomUUID(),
+        id: asRoadmapAttemptId(randomUUID()),
+        cycleId: asWorkCycleId(randomUUID()),
         recovery: {
-          sourceEntryId: heldEntryId,
+          sourceEntryId: review.entryId,
           sourceRunId: asAgentRunId('run'),
           sourceSequence: 1,
           findingFingerprint: 'f'.repeat(64),

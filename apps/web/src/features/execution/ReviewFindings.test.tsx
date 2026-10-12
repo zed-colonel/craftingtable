@@ -1,3 +1,4 @@
+import { asReviewFindingId } from '@craftingtable/domain';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ReviewFindings } from './ReviewFindings.js';
@@ -6,7 +7,7 @@ afterEach(cleanup);
 
 it('counts only open findings while retaining withdrawn findings and their reasons', () => {
   const finding = {
-    id: 'F-001',
+    id: asReviewFindingId('F-001'),
     severity: 'minor' as const,
     status: 'open' as const,
     title: 'Boundary coverage',
@@ -27,7 +28,7 @@ it('counts only open findings while retaining withdrawn findings and their reaso
             finding,
             {
               ...finding,
-              id: 'F-002',
+              id: asReviewFindingId('F-002'),
               severity: 'major',
               status: 'withdrawn',
               disposition: 'Existing coverage verified.',

@@ -6,6 +6,7 @@ import {
 } from '@craftingtable/contracts';
 import {
   asAuditEventId,
+  asRepositoryCheckDeclarationId,
   CARGO_FILE_PATTERN,
   CHECK_DECLARATION_PATH,
   type DeclaredCheck,
@@ -331,7 +332,7 @@ export class RepositoryChecksService {
       const latest = tx.runtimeEvidence.checkDeclarations(ws, repositoryId)[0];
       const at = this.now().toISOString();
       const record: RepositoryCheckDeclaration = {
-        id: randomUUID(),
+        id: asRepositoryCheckDeclarationId(randomUUID()),
         workspaceId: ws,
         repositoryId,
         version: (latest?.version ?? 0) + 1,

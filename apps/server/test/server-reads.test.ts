@@ -11,11 +11,13 @@ import {
   type AgentRunId,
   asAgentRunEventId,
   asAgentRunId,
+  asCycleInvestigationId,
   asPlanBundleId,
   asPlanVersionId,
   asProjectId,
   asSourceRepositoryId,
   asUserId,
+  asWorkCycleId,
   asWorkItemId,
   asWorkspaceMembershipId,
   asWorkspaceId,
@@ -174,7 +176,7 @@ async function fixture(options: Parameters<typeof createTestContext>[0] = {}) {
     extra: Partial<WorkCycle> = {},
   ): WorkCycle => {
     const value: WorkCycle = {
-      id: randomUUID(),
+      id: asWorkCycleId(randomUUID()),
       workspaceId,
       projectId,
       workItemId: items[tree],
@@ -478,7 +480,10 @@ describe('worktree lineage reads (R-C16)', () => {
       backend: 'claude-code',
       role: 'design',
       permissionMode: 'auto',
-      profileSelection: { purpose: 'investigation', investigationId: randomUUID() },
+      profileSelection: {
+        purpose: 'investigation',
+        investigationId: asCycleInvestigationId(randomUUID()),
+      },
       brief: 'Investigate the stop',
       createdAt: '2026-09-20T11:00:00.000Z',
       createdByUserId: f.user.id,
@@ -533,7 +538,7 @@ describe('worktree lineage reads (R-C16)', () => {
   it('says in one read whether a lineage run started in any of some worktrees (R-D7)', async () => {
     const f = await fixture();
     const runs = f.context.storage.execution.runs;
-    const investigationId = randomUUID();
+    const investigationId = asCycleInvestigationId(randomUUID());
     const started = (id: string, tree: 0 | 1, investigation: boolean) => {
       const runId = asAgentRunId(id);
       runs.insert({

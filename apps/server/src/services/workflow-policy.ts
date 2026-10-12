@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
   asAgentRunId,
+  asCheckpointId,
   effectiveCycleAttention,
   type AgentRun,
   type WorkCycle,
@@ -91,7 +92,7 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
         subject,
       );
       return {
-        id: checkpoint.id,
+        id: asCheckpointId(checkpoint.id),
         title: checkpoint.title,
         kind: checkpoint.kind,
         sharedDecision: supportsArchitectureDecision(scope.definition, checkpoint.id),
@@ -320,7 +321,7 @@ export function operatorQuestionRoutes(
   const ids =
     definition?.source.checkpoints
       .filter((c) => supportsArchitectureDecision(definition!, c.id) && section.includes(c.id))
-      .map((c) => c.id) ?? [];
+      .map((c) => asCheckpointId(c.id)) ?? [];
   return ids.length
     ? ids.map((checkpointId) => ({
         question: section.slice(0, 4000),

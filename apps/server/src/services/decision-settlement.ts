@@ -1,4 +1,5 @@
 import type { ConcurrencyDefinition, WorkspaceId } from '@craftingtable/domain';
+import { asSliceId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { approvedArchitectureDecisions } from './architecture-decision-policy.js';
 import { milestoneSatisfied } from './cross-project-service.js';
@@ -26,7 +27,7 @@ export function decisionSettlement(
     r.kind === 'checkpoint' && r.id === checkpointId;
   const slices = d.source.slices
     .filter((s) => [...s.start_requires, ...s.merge_requires, ...s.verify_requires].some(requires))
-    .map((s) => s.id);
+    .map((s) => asSliceId(s.id));
   const parents = d.source.work_items
     .filter((p) => p.acceptance_requires.some(requires))
     .map((p) => p.id);

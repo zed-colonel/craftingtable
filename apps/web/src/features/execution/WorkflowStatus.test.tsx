@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { WorkCycle, WorkspaceId } from '@craftingtable/domain';
+import { asCheckpointId } from '@craftingtable/domain';
 import { WorkflowStatus } from './WorkflowStatus.js';
 afterEach(cleanup);
 it('routes shared architecture and local questions to different named controls', () => {
@@ -131,7 +132,7 @@ it("shows the projection's routed questions in place of the recorded ones", () =
     {
       question: 'The routed question',
       destination: 'shared-decision' as const,
-      checkpointId: 'EXO-ADR-004',
+      checkpointId: asCheckpointId('EXO-ADR-004'),
     },
   ];
   const { unmount } = render(<WorkflowStatus cycle={cycle} questionRoutes={routed} />);

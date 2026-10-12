@@ -7,7 +7,10 @@ import {
   type AgentBackendKind,
   type AgentRun,
   agentSelections,
+  asAgentAssignmentId,
   asAgentRunId,
+  asRoadmapAttemptId,
+  asRoadmapEntryId,
   type CycleProfiles,
   type Roadmap,
   type WorkCycle,
@@ -297,8 +300,8 @@ describe('a cycle’s launch (startForCycle)', () => {
   it('a roadmap’s cycle: its latest assignment beats a service retry; only the assignment’s own choice names it', async () => {
     const { state, launch, design, stored } = await launchFixture();
     const assignment = {
-      id: randomUUID(),
-      entryIds: ['entry'],
+      id: asAgentAssignmentId(randomUUID()),
+      entryIds: [asRoadmapEntryId('entry')],
       selections: {
         ...agentSelections(stored.profiles),
         implement: {
@@ -326,8 +329,8 @@ describe('a cycle’s launch (startForCycle)', () => {
     );
     const owner = {
       roadmapId: roadmap.id,
-      attemptId: 'attempt',
-      entryId: 'entry',
+      attemptId: asRoadmapAttemptId('attempt'),
+      entryId: asRoadmapEntryId('entry'),
       definitionRevision: 1,
     };
     expect(await launch({ owner })).toEqual({
@@ -381,7 +384,7 @@ describe('a cycle’s launch (startForCycle)', () => {
     // attribution of the run it continues; this design run was launched before any owner).
     (roadmap.agentAssignments as unknown as (typeof assignment)[]).push({
       ...assignment,
-      id: randomUUID(),
+      id: asAgentAssignmentId(randomUUID()),
       selections: {
         ...assignment.selections,
         design: { backend: 'claude-code', model: 'design-model' },
@@ -407,8 +410,8 @@ describe('a cycle’s launch (startForCycle)', () => {
   it('a resumed session names the assignment its run named, until a newer one replaces it', async () => {
     const { state, launch, design, stored } = await launchFixture();
     const first = {
-      id: randomUUID(),
-      entryIds: ['entry'],
+      id: asAgentAssignmentId(randomUUID()),
+      entryIds: [asRoadmapEntryId('entry')],
       selections: agentSelections(stored.profiles),
       appliedAt: new Date().toISOString(),
       appliedByUserId: state.userId,
@@ -437,8 +440,8 @@ describe('a cycle’s launch (startForCycle)', () => {
     const resume = {
       owner: {
         roadmapId: roadmap.id,
-        attemptId: 'attempt',
-        entryId: 'entry',
+        attemptId: asRoadmapAttemptId('attempt'),
+        entryId: asRoadmapEntryId('entry'),
         definitionRevision: 1,
       },
       step: 'design',
@@ -454,7 +457,10 @@ describe('a cycle’s launch (startForCycle)', () => {
       agent: agent('design-model', 'auto'),
       provenance: { purpose: 'design', assignmentId: first.id },
     });
-    (roadmap.agentAssignments as unknown as (typeof first)[]).push({ ...first, id: randomUUID() });
+    (roadmap.agentAssignments as unknown as (typeof first)[]).push({
+      ...first,
+      id: asAgentAssignmentId(randomUUID()),
+    });
     expect(await launch(resume)).toEqual({
       agent: agent('design-model', 'auto'),
       provenance: { purpose: 'design' },

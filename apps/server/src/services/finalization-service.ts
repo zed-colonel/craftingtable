@@ -7,6 +7,8 @@ import type {
 import {
   asAuditEventId,
   asEventId,
+  asFinalizationId,
+  asWorkCycleId,
   asWorktreeId,
   type Finalization,
   type PlanVersionId,
@@ -161,7 +163,7 @@ export class FinalizationService {
           conflict(`${item.sourceId} needs integration commit evidence before plan finalization.`);
       }
       const finalization: Finalization = {
-        id: randomUUID(),
+        id: asFinalizationId(randomUUID()),
         ...(mapContext ? { mapContext } : {}),
         workspaceId,
         planVersionId,
@@ -172,7 +174,7 @@ export class FinalizationService {
         targetBranch: input.targetBranch,
         targetSha: target.value,
         worktreeId: asWorktreeId(randomUUID()),
-        cycleId: randomUUID(),
+        cycleId: asWorkCycleId(randomUUID()),
         rounds: [],
         stages: input.stages,
         finalReview: input.finalReview,

@@ -1,5 +1,6 @@
 import {
   type AgentRun,
+  asRoadmapEntryId,
   type Roadmap,
   type RoadmapEntry,
   type WorkCycle,
@@ -86,7 +87,9 @@ it('rejects unknown, future, wrong-entry and mismatched reviewer authorizations'
     { ...run, permissionMode: 'unrestricted' },
   ] as AgentRun[])
     expect(assignedReviewMatches(roadmap, entry, invalid)).toBe(false);
-  expect(assignedReviewMatches(roadmap, { ...entry, id: 'other' }, run)).toBe(false);
+  expect(assignedReviewMatches(roadmap, { ...entry, id: asRoadmapEntryId('other') }, run)).toBe(
+    false,
+  );
 });
 it('dispatches a specialist with the original review permissions and launch provenance', () => {
   const tx = { roadmaps: { list: () => [roadmap] } } as unknown as StorageRepositories;

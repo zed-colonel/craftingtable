@@ -4,7 +4,13 @@
  * finished. Found by the independent review of the live fixes (R-I11).
  */
 import { randomUUID } from 'node:crypto';
-import { type ExecutionScope, type RoadmapAttempt, roadmapAttention } from '@craftingtable/domain';
+import {
+  asRoadmapAttemptId,
+  asWorkCycleId,
+  type ExecutionScope,
+  type RoadmapAttempt,
+  roadmapAttention,
+} from '@craftingtable/domain';
 import { afterEach, expect, vi } from 'vitest';
 import { mapReadSnapshot } from '../src/services/map-read-snapshot.js';
 import {
@@ -89,11 +95,11 @@ itNeedsCargo(
     const { state, tx, parent, sourceEntry, ownerEntry } = await stoppedParentReview();
     const roadmap = storedRoadmap(state);
     const round = (requested: boolean, fingerprint: string): RoadmapAttempt => ({
-      id: randomUUID(),
+      id: asRoadmapAttemptId(randomUUID()),
       entryId: ownerEntry.id,
       definitionRevision: roadmap.definition.revision,
       worktreeId: randomUUID() as RoadmapAttempt['worktreeId'],
-      cycleId: randomUUID(),
+      cycleId: asWorkCycleId(randomUUID()),
       status: 'completed',
       createdAt: new Date().toISOString(),
       completedAt: new Date().toISOString(),
@@ -359,11 +365,11 @@ itNeedsCargo(
     const ownerAttempt = roadmap.attempts.find((a) => a.entryId === ownerEntry.id && !a.recovery)!;
     // What the request commits before it creates anything; the daemon then stopped.
     const reserved: RoadmapAttempt = {
-      id: randomUUID(),
+      id: asRoadmapAttemptId(randomUUID()),
       entryId: ownerEntry.id,
       definitionRevision: ownerAttempt.definitionRevision,
       worktreeId: randomUUID() as RoadmapAttempt['worktreeId'],
-      cycleId: randomUUID(),
+      cycleId: asWorkCycleId(randomUUID()),
       status: 'preparing',
       createdAt: new Date().toISOString(),
       recovery: {

@@ -5,6 +5,7 @@ import type {
   CycleView,
   WorkCycle,
 } from '@craftingtable/domain';
+import { asCheckpointId } from '@craftingtable/domain';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
@@ -192,7 +193,7 @@ async function prepareAndAccept(fx: Fixture, checkpointId: string) {
   const svc = f.state.context.services.runtimeEvidenceService;
   const proposed = await svc.proposeArchitectureDecision(f.auth, ws, p.definitionId, {
     bindingRevision: 1,
-    checkpointId,
+    checkpointId: asCheckpointId(checkpointId),
     sourceRunId: p.runId,
     sourceReportDigest: card.recommendation!.sourceReportDigest,
     coverage: 'full',

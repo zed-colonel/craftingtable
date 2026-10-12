@@ -15,6 +15,7 @@ import {
   RUN_RECORDS,
 } from '../../src/services/brief.js';
 import type { Finalization, ReviewBranchContext, WorkCycle } from '@craftingtable/domain';
+import { asConcurrencyDefinitionId } from '@craftingtable/domain';
 import {
   finalizationHasNoQuestions,
   finalizationStageOutput,
@@ -112,7 +113,7 @@ describe('composeBrief instruction provenance', () => {
 describe('composeBrief scoped review report', () => {
   const identity = {
     kind: 'slice',
-    definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+    definitionId: asConcurrencyDefinitionId('0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9'),
     bindingRevision: 4,
     sourceId: 'exo/EXO-18/instance-design',
   } as const;
@@ -165,7 +166,7 @@ describe('composeBrief output contracts, one module per role (R-G6, AGT-54)', ()
   const scope = {
     identity: {
       kind: 'slice',
-      definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+      definitionId: asConcurrencyDefinitionId('0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9'),
       bindingRevision: 1,
       sourceId: 'wi/WI-1/domain',
     },
@@ -361,7 +362,7 @@ describe('composeBrief skeleton: the task first (R-G6, AGT-50, AGT-58)', () => {
   const scope = {
     identity: {
       kind: 'slice',
-      definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+      definitionId: asConcurrencyDefinitionId('0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9'),
       bindingRevision: 4,
       sourceId: 'wi/WI-03/integration',
     },
@@ -769,7 +770,7 @@ describe('composeBrief size per role (R-G6, G6-5)', () => {
       executionScope: {
         identity: {
           kind: 'slice',
-          definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+          definitionId: asConcurrencyDefinitionId('0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9'),
           bindingRevision: 4,
           sourceId: 'wi/WI-04/integration',
         },
@@ -934,7 +935,7 @@ describe('composeBrief: code review fixes (R-G6)', () => {
         executionScope: {
           identity: {
             kind,
-            definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+            definitionId: asConcurrencyDefinitionId('0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9'),
             bindingRevision: 1,
             sourceId: kind === 'parent-acceptance' ? 'wi/WI-1' : 'wi/WI-1/domain',
           },
@@ -1068,7 +1069,7 @@ describe('composeBrief: what the parsers require is in the brief, not only the r
   const scope = {
     identity: {
       kind: 'slice',
-      definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+      definitionId: asConcurrencyDefinitionId('0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9'),
       bindingRevision: 1,
       sourceId: 'wi/WI-1/domain',
     },
@@ -1297,7 +1298,7 @@ describe('composeBrief: environment wording and owners (R-G6 review L2, L3, L4, 
         executionScope: {
           identity: {
             kind: 'parent-acceptance',
-            definitionId: '0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9',
+            definitionId: asConcurrencyDefinitionId('0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9'),
             bindingRevision: 1,
             sourceId: 'wi/WI-1',
           },

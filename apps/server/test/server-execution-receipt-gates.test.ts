@@ -16,6 +16,11 @@ import { deflateSync } from 'node:zlib';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, PinnedCargoManifest } from '@craftingtable/agents';
 import type { DeclaredCheck } from '@craftingtable/domain';
+import {
+  asDeclaredCheckId,
+  asQualificationEnvironmentId,
+  asRepositoryCheckDeclarationId,
+} from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   checkGate,
@@ -126,7 +131,7 @@ async function scopedRuntimeFixture(
     consumers: [{ alias: 'local', upstreams: [] }],
     environments: [
       {
-        id: 'local',
+        id: asQualificationEnvironmentId('local'),
         kind: 'local-development' as const,
         identityDigest: '1'.repeat(64),
         fixtureDigest: '2'.repeat(64),
@@ -203,8 +208,12 @@ itNeedsCargo(
   'the brief names each adopted check and the command that runs it, which the gate needs (LIVE-23, R-G13)',
   async () => {
     const f = await scopedRuntimeFixture([
-      { id: 'fixture', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: [] },
-      { id: 'lint', argv: ['git', 'status'], definitionPaths: [] },
+      {
+        id: asDeclaredCheckId('fixture'),
+        argv: ['git', 'diff', '--check', 'HEAD'],
+        definitionPaths: [],
+      },
+      { id: asDeclaredCheckId('lint'), argv: ['git', 'status'], definitionPaths: [] },
     ]);
     let prompt = '';
     f.backend.replyForRequest = (request) => {
@@ -263,9 +272,13 @@ itNeedsCargo(
   "the daemon runs a review's adopted checks before the reviewer starts, and they meet the gate without the agent (R-G13 increment 3, LIVE-23)",
   async () => {
     const f = await scopedRuntimeFixture([
-      { id: 'fixture', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: [] },
       {
-        id: 'broken',
+        id: asDeclaredCheckId('fixture'),
+        argv: ['git', 'diff', '--check', 'HEAD'],
+        definitionPaths: [],
+      },
+      {
+        id: asDeclaredCheckId('broken'),
         argv: ['git', 'rev-parse', '--verify', 'refs/heads/no-such-branch'],
         definitionPaths: [],
       },
@@ -310,7 +323,7 @@ itNeedsCargo(
     // The check waits on a gate, so it runs until the test opens it (R-I2, LF F4).
     const gate = checkGate();
     const f = await scopedRuntimeFixture([
-      { id: 'slow', argv: [...gate.command], definitionPaths: [] },
+      { id: asDeclaredCheckId('slow'), argv: [...gate.command], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const launched = () => f.backend.launches.length;
@@ -390,7 +403,7 @@ itNeedsCargo(
     // The check waits on a gate the test never opens (R-I2, LF F4).
     const gate = checkGate();
     const f = await scopedRuntimeFixture([
-      { id: 'slow', argv: [...gate.command], definitionPaths: [] },
+      { id: asDeclaredCheckId('slow'), argv: [...gate.command], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     f.backend.replyForRequest = async (request) => {
@@ -434,7 +447,7 @@ itNeedsCargo(
   'a restart ends a reviewer that launched during it, and records a review whose checks outlast its grace (R-G13 increment 3 verification)',
   async () => {
     const f = await scopedRuntimeFixture([
-      { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
+      { id: asDeclaredCheckId('quick'), argv: ['git', 'status'], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const services = f.state.context.services;
@@ -480,7 +493,7 @@ itNeedsCargo(
     // A check that never ends unless stopped: its gate is never opened (R-I2).
     const gate = checkGate();
     const f = await scopedRuntimeFixture([
-      { id: 'endless', argv: [...gate.command], definitionPaths: [] },
+      { id: asDeclaredCheckId('endless'), argv: [...gate.command], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const services = f.state.context.services;
@@ -509,7 +522,7 @@ itNeedsCargo(
     // The check ends when the test opens its gate, after the worktree is retired (R-I2).
     const gate = checkGate();
     const f = await scopedRuntimeFixture([
-      { id: 'slow', argv: [...gate.command], definitionPaths: [] },
+      { id: asDeclaredCheckId('slow'), argv: [...gate.command], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const before = f.backend.launches.length;
@@ -541,7 +554,7 @@ itNeedsCargo(
   'a drain counts only the reviews it stopped: one whose checks failed to run is not counted (R-G13 increment 3 verification)',
   async () => {
     const f = await scopedRuntimeFixture([
-      { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
+      { id: asDeclaredCheckId('quick'), argv: ['git', 'status'], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const services = f.state.context.services;
@@ -573,7 +586,7 @@ itNeedsCargo(
   'a drain waits for a manual review still preparing its launch, and no run starts after it (R-G13 increment 3 verification)',
   async () => {
     const f = await scopedRuntimeFixture([
-      { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
+      { id: asDeclaredCheckId('quick'), argv: ['git', 'status'], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const services = f.state.context.services;
@@ -624,7 +637,7 @@ itNeedsCargo(
   'a drain records a run whose launch outlasts its grace, and the session it gets is ended (R-G13 increment 3 verification)',
   async () => {
     const f = await scopedRuntimeFixture([
-      { id: 'quick', argv: ['git', 'status'], definitionPaths: [] },
+      { id: asDeclaredCheckId('quick'), argv: ['git', 'status'], definitionPaths: [] },
     ]);
     const storage = f.state.context.storage;
     const agentRuns = f.state.context.services.agentRunService;
@@ -679,7 +692,7 @@ itNeedsCargo(
     // The check reports where it ran; the launcher only relays the daemon's output.
     const f = await scopedRuntimeFixture([
       {
-        id: 'where',
+        id: asDeclaredCheckId('where'),
         argv: [
           'node',
           '-e',
@@ -1256,7 +1269,13 @@ itNeedsCargo(
   async () => {
     const adopted = '#!/bin/sh\necho adopted check\n';
     const f = await scopedRuntimeFixture(
-      [{ id: 'script', argv: ['scripts/check.sh'], definitionPaths: ['scripts/check.sh'] }],
+      [
+        {
+          id: asDeclaredCheckId('script'),
+          argv: ['scripts/check.sh'],
+          definitionPaths: ['scripts/check.sh'],
+        },
+      ],
       { 'scripts/check.sh': sha(adopted) },
     );
     const commitScript = (content: string) => {
@@ -1372,7 +1391,11 @@ itNeedsCargo(
   'a declared check runs on the reviewed commit: what the agent writes in its worktree, even hidden from Git, does not reach it (R-G13 review)',
   async () => {
     const f = await scopedRuntimeFixture([
-      { id: 'result', argv: ['grep', '-q', 'ok', 'result.txt'], definitionPaths: [] },
+      {
+        id: asDeclaredCheckId('result'),
+        argv: ['grep', '-q', 'ok', 'result.txt'],
+        definitionPaths: [],
+      },
     ]);
     commitFile(f.tree.path, 'result.txt', 'fail');
     let exit: number | undefined;
@@ -1434,7 +1457,13 @@ itNeedsCargo(
     const adopted = '#!/bin/sh\necho adopted check\n';
     const weakened = '#!/bin/sh\necho weakened check\n';
     const f = await scopedRuntimeFixture(
-      [{ id: 'script', argv: ['scripts/check.sh'], definitionPaths: ['scripts/check.sh'] }],
+      [
+        {
+          id: asDeclaredCheckId('script'),
+          argv: ['scripts/check.sh'],
+          definitionPaths: ['scripts/check.sh'],
+        },
+      ],
       { 'scripts/check.sh': sha(adopted) },
     );
     const commitScript = (cwd: string, content: string) => {
@@ -1481,7 +1510,7 @@ itNeedsCargo(
     )[0]!;
     storage.runtimeEvidence.addCheckDeclaration({
       ...current,
-      id: randomUUID(),
+      id: asRepositoryCheckDeclarationId(randomUUID()),
       version: 2,
       definitionDigests: { 'scripts/check.sh': sha(weakened) },
       rationale: 'The slice improved the check.',
@@ -1500,7 +1529,11 @@ itNeedsCargo(
   'a declared check refuses an object the agent rewrote in the shared store, which Git never re-hashes on read (R-G13 review)',
   async () => {
     const f = await scopedRuntimeFixture([
-      { id: 'result', argv: ['grep', '-q', 'ok', 'result.txt'], definitionPaths: [] },
+      {
+        id: asDeclaredCheckId('result'),
+        argv: ['grep', '-q', 'ok', 'result.txt'],
+        definitionPaths: [],
+      },
     ]);
     commitFile(f.tree.path, 'result.txt', 'fail');
     const common = git(

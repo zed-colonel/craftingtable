@@ -1,6 +1,7 @@
 import { roadmapPageSchema } from '@craftingtable/contracts';
 import {
   type AgentRunId,
+  asConcurrencyDefinitionId,
   type ExecutionScope,
   phaseBlockerCode,
   type Roadmap,
@@ -213,7 +214,7 @@ it('keys each read-snapshot memo by every input its answer reads (R-D8 review L3
   const ws = 'ws-1' as WorkspaceId;
   const scope: ExecutionScope = {
     kind: 'slice',
-    definitionId: 'map',
+    definitionId: asConcurrencyDefinitionId('map'),
     bindingRevision: 1,
     sourceId: 'a',
   };
@@ -227,7 +228,7 @@ it('keys each read-snapshot memo by every input its answer reads (R-D8 review L3
     { ...receipt, scope: { ...scope, bindingRevision: 2 } },
   ].map((r) => receiptCurrencyKey(ws, r));
   expect(new Set(receiptKeys).size).toBe(receiptKeys.length);
-  const d = { id: 'map', digest: 'd1' };
+  const d = { id: asConcurrencyDefinitionId('map'), digest: 'd1' };
   const requirement = { kind: 'slice' as const, id: 'a', state: 'merged' as const };
   const milestoneKeys = [
     milestoneMemoKey(ws, d, 1, requirement),
@@ -242,7 +243,7 @@ it('keys each read-snapshot memo by every input its answer reads (R-D8 review L3
     scopeDecisionsKey(ws, scope),
     scopeDecisionsKey(ws, { ...scope, sourceId: 'b' }),
     scopeDecisionsKey(ws, { ...scope, bindingRevision: 2 }),
-    scopeDecisionsKey(ws, { ...scope, definitionId: 'other' }),
+    scopeDecisionsKey(ws, { ...scope, definitionId: asConcurrencyDefinitionId('other') }),
     scopeDecisionsKey(ws, { ...scope, kind: 'parent-acceptance' }),
   ];
   expect(new Set(decisionKeys).size).toBe(decisionKeys.length);

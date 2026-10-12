@@ -4,6 +4,7 @@ import type {
   CycleProfiles,
   WorkspaceAgentProfile,
 } from '@craftingtable/domain';
+import { asAgentAssignmentId, asAgentRunId, asDelegationAssignmentId } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
 import {
   type AgentContext,
@@ -28,7 +29,7 @@ const profiles: CycleProfiles = {
   investigation: codex('p-investigation'),
 };
 const assignment = {
-  id: 'assignment',
+  id: asAgentAssignmentId('assignment'),
   selections: {
     design: codex('a-design'),
     implement: { ...codex('a-implement'), reasoningEffort: 'high' },
@@ -106,7 +107,7 @@ describe('workspace defaults, the lowest layer of a new choice', () => {
 });
 
 describe('a hand-off’s continued run (R-E5b)', () => {
-  const continued = { runId: 'run-1', profile: profile('continued', 'auto') };
+  const continued = { runId: asAgentRunId('run-1'), profile: profile('continued', 'auto') };
   it('beats the daemon default, with its own permissions', () => {
     expect(resolveAgent({ purpose: 'review', workspace: workspace(), continued })).toEqual({
       selection: codex('continued'),
@@ -169,7 +170,10 @@ describe('a cycle’s or a saved entry’s profiles', () => {
 });
 
 describe('a delegated integration resolution’s profile (conflict only)', () => {
-  const delegated = { id: 'grant', profile: profile('d-conflict', 'edit-only') };
+  const delegated = {
+    id: asDelegationAssignmentId('grant'),
+    profile: profile('d-conflict', 'edit-only'),
+  };
   it('beats the remediation profile conflict inherits', () => {
     expect(
       resolveAgent({ purpose: 'conflict', profiles: definition, delegation: delegated }),

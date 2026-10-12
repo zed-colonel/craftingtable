@@ -9,6 +9,7 @@ import {
   withoutScaffolding,
 } from './map-test-support.js';
 import { unverifiedRecords } from './test-support.js';
+import { asConcurrencyDefinitionId, asConcurrencyMapId } from '@craftingtable/domain';
 
 afterEach(cleanupExecutionFixtures);
 
@@ -101,8 +102,8 @@ describe('local scope map fixture (R-F3, FMT-15)', () => {
     const stored = storage.imports.definition(f.state.workspaceId, f.parentScope.definitionId)!;
     storage.imports.addDefinition({
       ...stored,
-      id: randomUUID(),
-      mapId: 'hand-built',
+      id: asConcurrencyDefinitionId(randomUUID()),
+      mapId: asConcurrencyMapId('hand-built'),
       source: {
         ...stored.source,
         map_id: 'hand-built',

@@ -1,5 +1,6 @@
 import { cycleProfilesSchema, type StepPermissions } from '@craftingtable/contracts';
 import {
+  type AgentAssignmentId,
   type AgentProfile,
   type AgentProfilePurpose,
   type AgentRun,
@@ -7,11 +8,13 @@ import {
   CYCLE_STEPS,
   type CycleProfiles,
   cycleProfilePurpose,
+  type DelegationAssignmentId,
   type EffectiveAgent,
   type Finalization,
   matchingAgent,
   type Roadmap,
   type RoadmapEntry,
+  type RoadmapEntryId,
   type WorkCycle,
   type WorkspaceAgentProfile,
 } from '@craftingtable/domain';
@@ -32,7 +35,7 @@ import { attemptDelegation, effectiveDelegation } from './roadmap-delegation-pol
  */
 
 /** The roadmap's latest ADR-064 assignment covering an entry: it applies whole. */
-export function latestAssignment(roadmap: Roadmap, entryId: string) {
+export function latestAssignment(roadmap: Roadmap, entryId: RoadmapEntryId) {
   return roadmap.agentAssignments?.findLast((a) => a.entryIds.includes(entryId));
 }
 /** The latest assignment as a resolution layer. */
@@ -134,8 +137,8 @@ export function cycleLaunchRecord(
   cycle: WorkCycle,
 ): {
   readonly purpose: AgentProfilePurpose;
-  readonly delegationId?: string;
-  readonly latestAssignmentId?: string;
+  readonly delegationId?: DelegationAssignmentId;
+  readonly latestAssignmentId?: AgentAssignmentId;
 } {
   const owner = cycleOwnership(tx, cycle);
   const grant = owner?.roadmap.delegationAssignments?.findLast((a) =>
@@ -392,7 +395,7 @@ export function operatorResolutionProfile(
 export function delegatedResolutionProfile(
   tx: StorageRepositories,
   cycle: WorkCycle,
-  delegation: { readonly id?: string; readonly profile?: AgentProfile },
+  delegation: { readonly id?: DelegationAssignmentId; readonly profile?: AgentProfile },
 ): AgentProfile {
   const { profile, id } = delegation;
   return launchProfile(

@@ -1,5 +1,11 @@
 import type { ScopeRepairPreview } from '@craftingtable/contracts';
-import { asAgentRunId, cycleAttention, type WorkCycle } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  asConcurrencyDefinitionId,
+  asReviewFindingId,
+  cycleAttention,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { delegateScopeRepair, previewScopeRepair } from './scope-repair-api.js';
@@ -14,7 +20,7 @@ afterEach(() => {
 });
 const scope = {
   kind: 'slice' as const,
-  definitionId: 'map',
+  definitionId: asConcurrencyDefinitionId('map'),
   bindingRevision: 4,
   sourceId: 'exo/EXO-01/domain',
 };
@@ -47,7 +53,7 @@ const preview: ScopeRepairPreview = {
       scope: cycle.executionScope!,
       findings: [
         {
-          id: 'R1.F-003',
+          id: asReviewFindingId('R1.F-003'),
           originalId: 'F-003',
           title: 'Contribution guidance',
           severity: 'major',
@@ -64,7 +70,7 @@ const preview: ScopeRepairPreview = {
       scope: { ...scope, kind: 'parent-acceptance' },
       findings: [
         {
-          id: 'R2.F-003',
+          id: asReviewFindingId('R2.F-003'),
           originalId: 'F-003',
           title: 'Semantic inventory',
           severity: 'major',

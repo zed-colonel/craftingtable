@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { analyzeConcurrencyArchive } from '@craftingtable/planning';
 import type { ConcurrencyDefinition, ExecutionScope } from '@craftingtable/domain';
+import { asConcurrencyDefinitionId } from '@craftingtable/domain';
 import { buildVerificationPolicy } from '../../src/services/build-verification-policy.js';
 const source = analyzeConcurrencyArchive(
   readFileSync(
@@ -16,7 +17,7 @@ function policy(id: string, kind: ExecutionScope['kind'] = 'slice') {
   return buildVerificationPolicy(definition, {
     kind,
     sourceId: id,
-    definitionId: 'definition',
+    definitionId: asConcurrencyDefinitionId('definition'),
     bindingRevision: 4,
   });
 }
@@ -54,7 +55,7 @@ it('does not waive explicit AQ case obligations under a domain label', () => {
     buildVerificationPolicy(d, {
       kind: 'slice',
       sourceId: 'exo/EXO-01/domain',
-      definitionId: 'definition',
+      definitionId: asConcurrencyDefinitionId('definition'),
       bindingRevision: 4,
     }).mode,
   ).toBe('current-upstream-build');
@@ -64,7 +65,7 @@ it('keeps nonlocal, unknown, unaccepted and explicit runtime obligations on curr
   const scope: ExecutionScope = {
     kind: 'parent-acceptance',
     sourceId: 'exo/EXO-02',
-    definitionId: 'definition',
+    definitionId: asConcurrencyDefinitionId('definition'),
     bindingRevision: 4,
   };
   const parent = source.work_items.find((w) => w.id === scope.sourceId)!;

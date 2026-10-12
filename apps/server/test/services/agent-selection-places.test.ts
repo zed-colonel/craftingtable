@@ -1,6 +1,9 @@
 import {
   type AgentRun,
   type AgentSelections,
+  asAgentAssignmentId,
+  asDelegationAssignmentId,
+  asRoadmapEntryId,
   asUserId,
   type CycleProfiles,
   type Roadmap,
@@ -66,8 +69,8 @@ const assigned: AgentSelections = {
   security: { backend: 'claude-code' as const, model: 'a-security' },
 };
 const assignment = (id: string, entryIds: string[], appliedAt: string, selections = assigned) => ({
-  id,
-  entryIds,
+  id: asAgentAssignmentId(id),
+  entryIds: entryIds.map(asRoadmapEntryId),
   selections,
   appliedAt,
   appliedByUserId: asUserId('operator'),
@@ -190,8 +193,8 @@ describe('a cycle’s next launch (cycleAgentSelection)', () => {
     const roadmap = roadmapWith({
       delegationAssignments: [
         {
-          id: 'grant',
-          entryIds: ['entry'],
+          id: asDelegationAssignmentId('grant'),
+          entryIds: [asRoadmapEntryId('entry')],
           automation: { integrationMerge: 'automatic', integrationConflicts: 'automatic' },
           reviewerRoles: [],
           rationale: 'r',

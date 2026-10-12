@@ -1,17 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { roadmapPath } from './roadmap-paths.js';
 import {
+  asAttentionItemId,
+  asRoadmapId,
   ATTENTION_FLAP_WINDOW_MS,
   type AttentionItem,
   type AttentionItemRefs,
   type AttentionResolution,
   asEventId,
+  type CycleOwner,
   DEFAULT_NOTIFICATION_PREFERENCES,
   designHasNoOpenQuestions,
   effectiveCycleAttention,
   effectiveRoadmapAttention,
   nextReminderAt,
   notificationText,
+  type RoadmapId,
   truncateUtf16,
   type Roadmap,
   type RoadmapEntryHold,
@@ -484,7 +488,7 @@ export class AttentionProjector implements WriteObserver {
       return touched;
     }
     if (family === 'roadmap') {
-      this.roadmapUnit(tx, workspaceId, id);
+      this.roadmapUnit(tx, workspaceId, asRoadmapId(id));
       return [];
     }
     if (family === 'finalization')
@@ -566,7 +570,7 @@ export class AttentionProjector implements WriteObserver {
       tx.notifications.settings(workspaceId)?.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
     return itemOf(
       {
-        id: randomUUID(),
+        id: asAttentionItemId(randomUUID()),
         workspaceId,
         scopeKey,
         openedAt: now,
@@ -854,7 +858,11 @@ export class AttentionProjector implements WriteObserver {
   }
 
   /** A roadmap's own stop and the operator steps it was paused for. */
-  private roadmapUnit(tx: StorageRepositories, workspaceId: WorkspaceId, roadmapId: string): void {
+  private roadmapUnit(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    roadmapId: RoadmapId,
+  ): void {
     const roadmap = tx.roadmaps.find(workspaceId, roadmapId);
     const scopeKey = `roadmap:${roadmapId}`;
     // The scheduler's derived sets hold only while it is running.
@@ -949,7 +957,7 @@ export class AttentionProjector implements WriteObserver {
   }
 }
 
-function ownerRefs(owner: { readonly roadmapId: string; readonly entryId: string }) {
+function ownerRefs(owner: Pick<CycleOwner, 'roadmapId' | 'entryId'>) {
   return { roadmapId: owner.roadmapId, entryId: owner.entryId };
 }
 

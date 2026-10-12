@@ -2,7 +2,8 @@ import {
   finalizationsResponseSchema,
   finalizationViewSchema,
   type ControlFinalizationRequest,
-  type StartFinalizationRequest,
+  type RequestInput,
+  type startFinalizationRequestSchema,
 } from '@craftingtable/contracts';
 import {
   FINALIZATION_DECISIONS,
@@ -20,10 +21,12 @@ const mutation = (csrf: string, body: unknown): RequestInit => ({
 });
 export const loadFinalizations = (workspaceId: WorkspaceId, planVersionId: PlanVersionId) =>
   request(url(workspaceId, planVersionId), finalizationsResponseSchema);
+/** A finalization's start as the browser sends it. */
+export type FinalizationStart = RequestInput<typeof startFinalizationRequestSchema>;
 export const startFinalization = (
   workspaceId: WorkspaceId,
   planVersionId: PlanVersionId,
-  input: StartFinalizationRequest,
+  input: FinalizationStart,
   csrf: string,
 ) => request(url(workspaceId, planVersionId), finalizationViewSchema, mutation(csrf, input));
 /**

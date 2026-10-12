@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type ConcurrencySource, submissionHead } from '@craftingtable/domain';
+import {
+  asCheckpointId,
+  asRuntimeGenerationId,
+  asSliceId,
+  type ConcurrencySource,
+  submissionHead,
+} from '@craftingtable/domain';
 import { observeDecodes } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
 import {
@@ -85,11 +91,13 @@ async function stagedFixture() {
   const propose = async (proposal: string) => {
     await svc.proposeArchitectureDecision(f.auth, ws, id, {
       bindingRevision: 1,
-      checkpointId: DECISION,
+      checkpointId: asCheckpointId(DECISION),
       coverage: 'clauses',
       proposal,
       sourceReferences: `Exact imported plan ${DECISION}`,
-      consumers: [{ sliceId: f.scopes[0]!.sourceId, phase: 'start', replacesFullCheckpoint: true }],
+      consumers: [
+        { sliceId: asSliceId(f.scopes[0]!.sourceId), phase: 'start', replacesFullCheckpoint: true },
+      ],
       retainedObligations: 'Implementation tests remain mandatory.',
     });
     return storage.runtimeEvidence.submissions(ws, id)[0]!.id;
@@ -257,7 +265,7 @@ it('previews a runtime refresh over accepted plan evidence with a staged decisio
   const current = activeRuntime(storage, ws, id, 1)!;
   const impact = runtimeRefreshImpact(storage, d, {
     ...current,
-    id: randomUUID(),
+    id: asRuntimeGenerationId(randomUUID()),
     generation: current.generation + 1,
   });
   expect(impact.evidence.some((e) => e.id === plan)).toBe(true);

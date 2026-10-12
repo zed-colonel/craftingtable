@@ -1,3 +1,4 @@
+import { asCheckpointId, asEvidenceProfileId, asMapResourceId } from '@craftingtable/domain';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import { MapCapabilities } from './MapCapabilities.js';
@@ -9,18 +10,22 @@ it('lists each typed gap in plain words, and every slice’s build classificatio
     <MapCapabilities
       capabilities={{
         gaps: [
-          { code: 'resource-adapter-missing', resourceId: 'kata-host' },
+          { code: 'resource-adapter-missing', resourceId: asMapResourceId('kata-host') },
           {
             code: 'resource-adapter-unusable',
-            resourceId: 'native-host',
+            resourceId: asMapResourceId('native-host'),
             adapter: 'native-test-host',
             fields: ['requires_hardware_virtualization'],
           },
-          { code: 'plan-contract-changed', checkpointId: 'PLAN-OK', fields: ['pass_criteria'] },
+          {
+            code: 'plan-contract-changed',
+            checkpointId: asCheckpointId('PLAN-OK'),
+            fields: ['pass_criteria'],
+          },
           {
             code: 'decision-contract-changed',
-            checkpointId: 'WI-ADR-012',
-            profileId: 'decision-review',
+            checkpointId: asCheckpointId('WI-ADR-012'),
+            profileId: asEvidenceProfileId('decision-review'),
             fields: ['reviewer_roles'],
           },
         ],

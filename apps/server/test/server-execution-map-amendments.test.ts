@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
+import { asConcurrencyDefinitionId, asPlanningTargetId } from '@craftingtable/domain';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -125,7 +126,7 @@ it('rebinds a reviewed replacement without carrying adoption or evidence and ret
   const saved = f.service.save(f.auth, ws, f.input);
   const old = storage.imports.definition(ws, f.parentScope.definitionId)!,
     binding = storage.imports.bindings(ws, old.id)[0]!;
-  const id = randomUUID();
+  const id = asConcurrencyDefinitionId(randomUUID());
   storage.transaction((tx) => {
     tx.imports.addDefinition({
       ...old,
@@ -138,7 +139,7 @@ it('rebinds a reviewed replacement without carrying adoption or evidence and ret
   const candidate = {
     definitionId: id,
     bindingRevision: 1,
-    targetId: 'LOCAL',
+    targetId: asPlanningTargetId('LOCAL'),
     selection: 'target-only' as const,
   };
   const v = await service.propose(f.auth, ws, roadmapId, {
@@ -192,7 +193,7 @@ itNeedsCargo(
       run = storage.execution.runs.find(ws, cycle.currentRunId)!;
     const original = storage.imports.definition(ws, f.parentScope.definitionId)!,
       binding = storage.imports.bindings(ws, original.id)[0]!,
-      id = randomUUID();
+      id = asConcurrencyDefinitionId(randomUUID());
     storage.imports.addDefinition({
       ...original,
       id,
@@ -205,7 +206,7 @@ itNeedsCargo(
       candidate: {
         definitionId: id,
         bindingRevision: 1,
-        targetId: 'LOCAL',
+        targetId: asPlanningTargetId('LOCAL'),
         selection: 'target-only',
       },
       summary: 'Explicit scope replacement after the current session.',
@@ -299,7 +300,7 @@ itNeedsCargo(
         candidate: {
           definitionId: f.parentScope.definitionId,
           bindingRevision: 1,
-          targetId: 'LOCAL',
+          targetId: asPlanningTargetId('LOCAL'),
           selection: 'target-only',
         },
         summary: 'Fresh acceptance under revised dependency environment.',

@@ -2,7 +2,13 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ArchitectureDecisionInbox, RuntimeEvidenceView } from '@craftingtable/contracts';
-import { asUserId, asWorkspaceId } from '@craftingtable/domain';
+import {
+  asCheckpointId,
+  asEvidenceSubmissionId,
+  asSliceId,
+  asUserId,
+  asWorkspaceId,
+} from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
 import { ArchitectureDecisions } from './ArchitectureDecisions.js';
 
@@ -59,7 +65,7 @@ export const decisionInbox: ArchitectureDecisionInbox = {
         answer: 'Recommend stable identity.',
         sources: ['plan.md §4'],
         brief: {
-          checkpointId: 'LOCAL-ADR-012',
+          checkpointId: asCheckpointId('LOCAL-ADR-012'),
           decisionText: 'Use stable provider identities.',
           why: 'Safe replay.',
           alternatives: [
@@ -100,7 +106,7 @@ it('collects references, reviews an immutable proposal, and requires explicit ap
     decision: {
       id: 'approval',
       workspaceId: asWorkspaceId('ws'),
-      submissionId: decisionRecord.id,
+      submissionId: asEvidenceSubmissionId(decisionRecord.id),
       outcome: 'accepted' as const,
       rationale: 'Fits replay needs.',
       decidedAt: '2026-09-20T00:00:00Z',
@@ -216,14 +222,18 @@ it('shows limited approval separately and keeps live scheduling blockers beside 
       ...decisionRecord.proposal,
       coverage: 'clauses' as const,
       consumers: [
-        { sliceId: 'local/WI-03/domain', phase: 'merge' as const, replacesFullCheckpoint: true },
+        {
+          sliceId: asSliceId('local/WI-03/domain'),
+          phase: 'merge' as const,
+          replacesFullCheckpoint: true,
+        },
       ],
       retainedObligations: 'Transport remains required.',
     },
     decision: {
       id: 'approval',
       workspaceId: asWorkspaceId('ws'),
-      submissionId: decisionRecord.id,
+      submissionId: asEvidenceSubmissionId(decisionRecord.id),
       outcome: 'accepted' as const,
       rationale: 'Identifiers only.',
       decidedAt: '2026-09-20T00:00:00Z',
@@ -444,7 +454,7 @@ const accepted = (record: typeof decisionRecord) => ({
   decision: {
     id: 'approval',
     workspaceId: asWorkspaceId('ws'),
-    submissionId: record.id,
+    submissionId: asEvidenceSubmissionId(record.id),
     outcome: 'accepted' as const,
     rationale: 'Approved.',
     decidedAt: '2026-09-20T00:00:00Z',
@@ -513,7 +523,9 @@ it('does not call a decision settled for a stopped slice by another slice’s cl
     proposal: {
       ...decisionRecord.proposal,
       coverage: 'clauses',
-      consumers: [{ sliceId: 'exo/EXO-03/domain', phase: 'merge', replacesFullCheckpoint: true }],
+      consumers: [
+        { sliceId: asSliceId('exo/EXO-03/domain'), phase: 'merge', replacesFullCheckpoint: true },
+      ],
     },
   });
   renderStopped(stoppedCard([otherSlice]));
@@ -563,7 +575,7 @@ it('says which slices a clause approval settles a decision for and which still n
       ...decisionRecord.proposal,
       coverage: 'clauses',
       consumers: settled.map((sliceId) => ({
-        sliceId,
+        sliceId: asSliceId(sliceId),
         phase: 'merge' as const,
         replacesFullCheckpoint: true,
       })),
@@ -589,7 +601,7 @@ it('offers a new brief when the only brief was limited to the slices already set
     ...decisionRecord.proposal,
     coverage: 'clauses' as const,
     consumers: settled.map((sliceId) => ({
-      sliceId,
+      sliceId: asSliceId(sliceId),
       phase: 'merge' as const,
       replacesFullCheckpoint: true,
     })),
@@ -600,7 +612,7 @@ it('offers a new brief when the only brief was limited to the slices already set
   const recommendation = {
     ...card.recommendation!,
     brief: {
-      checkpointId: 'EXO-ADR-037',
+      checkpointId: asCheckpointId('EXO-ADR-037'),
       decisionText: 'Limited to the instance design.',
       why: 'Only that slice asked.',
       alternatives: [],

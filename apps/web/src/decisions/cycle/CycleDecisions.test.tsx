@@ -1,6 +1,7 @@
 import type { ExecutionScopeChoice } from '@craftingtable/contracts';
 import {
   type AgentSelections,
+  asConcurrencyDefinitionId,
   type CycleProjection,
   type CycleView,
   cycleActions,
@@ -86,7 +87,7 @@ it('continues each stop the way the daemon allows (R-A6 review)', () => {
   const parent = {
     executionScope: {
       kind: 'parent-acceptance' as const,
-      definitionId: 'map',
+      definitionId: asConcurrencyDefinitionId('map'),
       bindingRevision: 1,
       sourceId: 'wi/WI-01',
     },
@@ -127,7 +128,7 @@ it('reviews a completed parent review again, with its instructions', async () =>
   vi.mocked(request).mockResolvedValue({});
   const scope = {
     kind: 'slice-verification' as const,
-    definitionId: 'map',
+    definitionId: asConcurrencyDefinitionId('map'),
     bindingRevision: 1,
     sourceId: 'wi/WI-01/domain',
   };
@@ -167,7 +168,7 @@ it('reviews a completed parent review again, with its instructions', async () =>
 // the field and in the stop's session draft, for each continuation that takes one.
 const parentScope = {
   kind: 'parent-acceptance' as const,
-  definitionId: 'map',
+  definitionId: asConcurrencyDefinitionId('map'),
   bindingRevision: 1,
   sourceId: 'wi/WI-01',
 };

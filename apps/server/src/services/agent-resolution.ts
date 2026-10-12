@@ -1,15 +1,18 @@
 import {
   AGENT_PROFILE_PURPOSES,
+  type AgentAssignmentId,
   type AgentPermissionMode,
   type AgentProfile,
   type AgentProfilePurpose,
   type AgentResolution,
+  type AgentRunId,
   type AgentSelection,
   type AgentSelections,
   type AgentSelectionSource,
   type CycleProfiles,
   CYCLE_STEPS,
   type CycleStep,
+  type DelegationAssignmentId,
   type EffectiveAgent,
   PROFILE_INHERITANCE,
   type SpecialistProfile,
@@ -56,7 +59,7 @@ export type AgentContext = {
   /** The profile an integration resolution in progress recorded. */
   readonly integrationResolution?: AgentProfile;
   /** The roadmap's latest ADR-064 assignment covering the entry, whole. */
-  readonly assignment?: { readonly id: string; readonly selections: AgentSelections };
+  readonly assignment?: { readonly id: AgentAssignmentId; readonly selections: AgentSelections };
   /** The retry profile a service retry recorded. */
   readonly serviceRetry?: AgentProfile;
   /** A cycle's own profiles, or a saved roadmap entry's (E5-1's lowest roadmap layer). */
@@ -68,12 +71,12 @@ export type AgentContext = {
    * A delegated integration resolution's profile: a grant's (with its id), or the saved
    * definition's automation. It applies to `conflict` only.
    */
-  readonly delegation?: { readonly id?: string; readonly profile: AgentProfile };
+  readonly delegation?: { readonly id?: DelegationAssignmentId; readonly profile: AgentProfile };
   /**
    * The run a hand-off continues (R-E5b): below the workspace's saved defaults, above the
    * daemon's, so a hand-off follows that run when no default is saved.
    */
-  readonly continued?: { readonly runId: string; readonly profile: AgentProfile };
+  readonly continued?: { readonly runId: AgentRunId; readonly profile: AgentProfile };
   /** The workspace's saved defaults, and the daemon's default for a role none covers. */
   readonly workspace?: {
     readonly profiles: readonly WorkspaceAgentProfile[];

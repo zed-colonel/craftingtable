@@ -12,7 +12,15 @@ import {
   workspaceCycleProfiles,
 } from './agent-profile-policy.js';
 import { resolveAgent, selectionSet } from './agent-resolution.js';
-import { mapCapabilities, V03_VOCABULARY } from '@craftingtable/domain';
+import {
+  asCycleInvestigationId,
+  asWorkCycleId,
+  type CheckpointId,
+  mapCapabilities,
+  type SourceRepositoryId,
+  V03_VOCABULARY,
+  type WorkCycleId,
+} from '@craftingtable/domain';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   AuthorizeWorkCycleRemediationRequest,
@@ -28,44 +36,44 @@ import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
   type AgentRun,
   asAgentRunId,
-  type CycleInvestigation,
-  type InvestigationWorktree,
-  type InvestigationWorktreeChange,
-  stopCode,
-  cycleActions,
   asAuditEventId,
   asEventId,
-  type CycleStep,
-  mergeAdoptsChecks,
+  type AttentionRefs,
   currentFinalizationStage,
+  cycleActions,
+  type CycleAttention,
+  cycleAttention,
+  type CycleAttentionCode,
+  type CycleInvestigation,
+  type CycleOwner,
+  type CycleProjection,
+  type CycleStep,
+  type CycleView,
   DEFAULT_ROADMAP_AUTOMATION,
   DEFAULT_ROADMAP_SCHEDULING,
+  effectiveCycleAttention,
   evaluateCycleCompletion,
   type FinalizationProgress,
-  isTerminalAgentRunStatus,
-  optionalFinding,
   heldOnlyByParkedNits,
-  parkedFollowUp,
-  stagedFollowUps,
+  type InvestigationWorktree,
+  type InvestigationWorktreeChange,
+  isTerminalAgentRunStatus,
+  mergeAdoptsChecks,
+  optionalFinding,
   OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
+  parkedFollowUp,
   type PhaseBlocker,
   remediationAllowance,
   remediationUsed,
+  resumeRedirect,
   sameExecutionScope,
-  type CycleProjection,
-  type CycleView,
+  stagedFollowUps,
+  stopCode,
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
   type Worktree,
-  type AttentionRefs,
-  type CycleAttention,
-  type CycleAttentionCode,
-  cycleAttention,
-  effectiveCycleAttention,
-  resumeRedirect,
-  type CycleOwner,
 } from '@craftingtable/domain';
 import type { GitOperations, WorktreeSnapshot } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -415,7 +423,7 @@ export class WorkCycleService {
     input: ScopeRepairRequest,
     delegation?: {
       worktreeId: import('@craftingtable/domain').WorktreeId;
-      cycleId: string;
+      cycleId: WorkCycleId;
       /** The recovery attempt the new repair cycle belongs to (R-B3). */
       owner: CycleOwner;
       profiles: WorkCycle['profiles'];
@@ -548,7 +556,7 @@ export class WorkCycleService {
             started,
             {
               step: 'remediate',
-              scopeRepair: { sourceCycleId: id, sources },
+              scopeRepair: { sourceCycleId: source.id, sources },
               reason:
                 'Implementing the pinned independent-review findings in the owning slice. Integration follows its recorded merge policy.',
             },
@@ -654,7 +662,7 @@ export class WorkCycleService {
       );
     const startedAt = this.now();
     const record: CycleInvestigation = {
-      id: randomUUID(),
+      id: asCycleInvestigationId(randomUUID()),
       runId: asAgentRunId(randomUUID()),
       sourceRunId: asked.sourceRunId,
       code,
@@ -1225,7 +1233,7 @@ export class WorkCycleService {
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
     input: StartWorkCycleRequest,
-    reservedId?: string,
+    reservedId?: WorkCycleId,
     allowScopeReview = false,
     owner: CycleOwner | null = null,
   ): WorkCycle {
@@ -1267,7 +1275,7 @@ export class WorkCycleService {
     }
     const occurredAt = this.now().toISOString();
     const cycle: WorkCycle = {
-      id: reservedId ?? randomUUID(),
+      id: reservedId ?? asWorkCycleId(randomUUID()),
       owner,
       workspaceId,
       workItemId,
@@ -3034,7 +3042,7 @@ export class WorkCycleService {
     cycle: WorkCycle,
     source: AgentRun,
     kind: 'reassessment' | 'security' | 'checkpoint',
-    checkpointId?: string,
+    checkpointId?: CheckpointId,
   ): Promise<void> {
     const context = workflowContext(this.storage, cycle);
     const delegation = workflowDelegation(this.storage, cycle);
@@ -4365,7 +4373,7 @@ export class WorkCycleService {
    * increment 5): the merge becomes a person's, with the definitions shown. This covers a
    * slice approved before the rule, or whose stored attention does not say so.
    */
-  leaveMergeToOperator(cycle: WorkCycle, repositoryId: string): void {
+  leaveMergeToOperator(cycle: WorkCycle, repositoryId: SourceRepositoryId): void {
     if (cycle.status !== 'awaiting-merge' || mergeAdoptsChecks(cycle.attention)) return;
     this.change(cycle, {
       status: 'awaiting-merge',

@@ -7,7 +7,13 @@ import {
   checkDefinitionDiagnosisSchema,
   repositoryCheckReceiptsSchema,
 } from '@craftingtable/contracts';
-import { CHECK_DECLARATION_PATH } from '@craftingtable/domain';
+import {
+  asDeclaredCheckId,
+  asQualificationEnvironmentId,
+  asRepositoryCheckDeclarationId,
+  asRoadmapId,
+  CHECK_DECLARATION_PATH,
+} from '@craftingtable/domain';
 import { afterEach, expect, vi } from 'vitest';
 import {
   adoptSupervisedMap,
@@ -115,7 +121,7 @@ async function adoptionFixture(
     consumers: [{ alias: 'local', upstreams: [] }],
     environments: [
       {
-        id: 'local',
+        id: asQualificationEnvironmentId('local'),
         kind: 'local-development' as const,
         identityDigest: '1'.repeat(64),
         fixtureDigest: '2'.repeat(64),
@@ -404,7 +410,7 @@ itNeedsCargo(
         },
         undefined,
         {
-          roadmapId: '00000000-0000-4000-8000-000000000001',
+          roadmapId: asRoadmapId('00000000-0000-4000-8000-000000000001'),
           definitionRevision: 1,
           check: () => {},
         },
@@ -418,7 +424,13 @@ itNeedsCargo(
     vi.spyOn(checks, 'proposalAt').mockImplementation(async (repository, at, ref) => {
       const proposal = await real(repository, at, ref);
       return ref.startsWith('merge ')
-        ? { ...proposal, checks: [...proposal.checks, { ...proposal.checks[0]!, id: 'planted' }] }
+        ? {
+            ...proposal,
+            checks: [
+              ...proposal.checks,
+              { ...proposal.checks[0]!, id: asDeclaredCheckId('planted') },
+            ],
+          }
         : proposal;
     });
     const merged = await x.merge({ adoptChecks: { proposalDigest: digest, rationale: 'x' } });
@@ -807,7 +819,7 @@ itNeedsCargo(
         const current = x.declarations()[0]!;
         x.storage.runtimeEvidence.addCheckDeclaration({
           ...current,
-          id: '44444444-4444-4444-8444-444444444444',
+          id: asRepositoryCheckDeclarationId('44444444-4444-4444-8444-444444444444'),
           version: current.version + 1,
           rationale: 'Adopted on the page meanwhile.',
         });
@@ -896,7 +908,7 @@ itNeedsCargo(
     const current = x.declarations()[0]!;
     x.storage.runtimeEvidence.addCheckDeclaration({
       ...current,
-      id: '55555555-5555-4555-8555-555555555555',
+      id: asRepositoryCheckDeclarationId('55555555-5555-4555-8555-555555555555'),
       version: current.version + 1,
       rationale: 'Adopted on the page after the diff was read.',
     });

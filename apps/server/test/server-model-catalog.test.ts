@@ -3,7 +3,7 @@ import {
   executionStatusResponseSchema,
   startAgentRunResponseSchema,
 } from '@craftingtable/contracts';
-import { agentSelections, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import { agentSelections, asRoadmapId, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MODEL_CATALOG_REFRESH_MS,
@@ -418,7 +418,7 @@ it('refuses a display name entered on a roadmap, and keeps one it already saved 
     ...cycleProfiles,
     design: { ...cycleProfiles.design, model: 'Scripted model' },
   });
-  const other = '00000000-0000-4000-8000-000000000099';
+  const other = asRoadmapId('00000000-0000-4000-8000-000000000099');
   const saved = await saveRoadmapRequest(
     state,
     { ...input, entries: [{ ...input.entries[0]!, id: '00000000-0000-4000-8000-000000000098' }] },

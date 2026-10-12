@@ -1,5 +1,5 @@
 import {
-  type ApplyRoadmapAgents,
+  type applyRoadmapAgentsSchema,
   decisionPreparationSettingsSchema,
   roadmapCapacitiesSchema,
   type saveRoadmapCapacitySchema,
@@ -8,7 +8,7 @@ import {
   type RoadmapAgentSettings,
   roadmapAgentSettingsSchema,
   roadmapGraphSchema,
-  type SaveRoadmapRequest,
+  type saveRoadmapRequestSchema,
   type ScopeRecoveryPolicyRequest,
   roadmapDefinitionSchema,
   roadmapPageSchema,
@@ -21,6 +21,10 @@ import {
 import type { Roadmap, WorkspaceId } from '@craftingtable/domain';
 import { request } from './api-client.js';
 const base = (workspaceId: string) => `/api/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
+/** A roadmap's save as the browser sends it. */
+export type RoadmapSave = RequestInput<typeof saveRoadmapRequestSchema>;
+/** An ADR-064 agent assignment as the browser sends it, without the version it applies at. */
+type AgentAssignment = Omit<RequestInput<typeof applyRoadmapAgentsSchema>, 'expectedVersion'>;
 const mutation = (csrfToken: string, body: unknown) => ({
   method: 'POST',
   headers: { 'x-craftingtable-csrf': csrfToken },
@@ -72,16 +76,13 @@ export async function applyRoadmapAgents(
   workspaceId: WorkspaceId,
   id: string,
   expectedVersion: number,
-  groups: readonly Omit<ApplyRoadmapAgents, 'expectedVersion'>[],
+  groups: readonly AgentAssignment[],
   csrfToken: string,
   /**
    * Told of each group as it is applied, with the roadmap's agents after it, so a caller whose
    * later group is refused knows what already took effect (review LOW-1).
    */
-  onApplied?: (
-    group: Omit<ApplyRoadmapAgents, 'expectedVersion'>,
-    latest: RoadmapAgentSettings,
-  ) => void,
+  onApplied?: (group: AgentAssignment, latest: RoadmapAgentSettings) => void,
 ) {
   let version = expectedVersion;
   let latest: RoadmapAgentSettings | undefined;
@@ -98,9 +99,9 @@ export async function applyRoadmapAgents(
 }
 /** Entries' agent drafts as assignments: the entries that chose the same set share one. */
 export function agentGroups(
-  drafts: ReadonlyMap<string, ApplyRoadmapAgents['selections']>,
-): Omit<ApplyRoadmapAgents, 'expectedVersion'>[] {
-  const groups = new Map<string, Omit<ApplyRoadmapAgents, 'expectedVersion'>>();
+  drafts: ReadonlyMap<string, AgentAssignment['selections']>,
+): AgentAssignment[] {
+  const groups = new Map<string, AgentAssignment>();
   for (const [entryId, selections] of drafts) {
     const key = JSON.stringify(selections);
     const group = groups.get(key);
@@ -114,7 +115,7 @@ export function agentGroups(
 export const saveRoadmap = (
   workspaceId: WorkspaceId,
   id: string,
-  input: SaveRoadmapRequest,
+  input: RoadmapSave,
   csrfToken: string,
 ) => request(`${base(workspaceId)}/${id}`, roadmapViewSchema, mutation(csrfToken, input));
 export const controlRoadmap = (

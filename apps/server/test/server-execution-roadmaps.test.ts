@@ -1,4 +1,4 @@
-import { agentSelections, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import { agentSelections, asRoadmapId, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -302,7 +302,7 @@ describe('sequential roadmaps', () => {
       url: `/api/workspaces/${state.workspaceId}/roadmaps`,
     });
     expect(unauthenticated.statusCode).toBe(401);
-    const other = '00000000-0000-4000-8000-000000000099';
+    const other = asRoadmapId('00000000-0000-4000-8000-000000000099');
     expect((await saveRoadmapRequest(state, input, other)).statusCode).toBe(200);
     await roadmapControl(state, 'start');
     const duplicate = await state.context.app.inject({

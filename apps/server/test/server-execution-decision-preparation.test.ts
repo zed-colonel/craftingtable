@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { attentionFeedSchema } from '@craftingtable/contracts';
-import { asAgentRunId, asWorktreeId, type ConcurrencySource } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  asCheckpointId,
+  asCycleInvestigationId,
+  asSliceId,
+  asWorktreeId,
+  type ConcurrencySource,
+} from '@craftingtable/domain';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
@@ -201,7 +208,7 @@ async function proposeAndAccept(
       p.definitionId,
       {
         bindingRevision: 1,
-        checkpointId,
+        checkpointId: asCheckpointId(checkpointId),
         sourceRunId: p.runId,
         sourceReportDigest: card.recommendation!.sourceReportDigest,
         coverage: 'full',
@@ -888,7 +895,7 @@ it('keeps holding when the operator rejected another proposal, not the one made 
   const evidence = f.state.context.services.runtimeEvidenceService;
   const proposed = await evidence.proposeArchitectureDecision(f.auth, ws, p.definitionId, {
     bindingRevision: 1,
-    checkpointId: 'LOCAL-ADR-01',
+    checkpointId: asCheckpointId('LOCAL-ADR-01'),
     coverage: 'full',
     proposal: 'A different boundary, written by hand.',
     sourceReferences: 'Exact imported plan LOCAL-ADR-01',
@@ -920,13 +927,15 @@ it('keeps holding when the rejected proposal from this brief was limited to anot
   const evidence = f.state.context.services.runtimeEvidenceService;
   const proposed = await evidence.proposeArchitectureDecision(f.auth, ws, p.definitionId, {
     bindingRevision: 1,
-    checkpointId: 'LOCAL-ADR-01',
+    checkpointId: asCheckpointId('LOCAL-ADR-01'),
     sourceRunId: p.runId,
     sourceReportDigest: card.recommendation!.sourceReportDigest,
     coverage: 'clauses',
     proposal: brief('LOCAL-ADR-01').decisionText,
     sourceReferences: card.sourceReferences,
-    consumers: [{ sliceId: f.scopes[1]!.sourceId, phase: 'merge', replacesFullCheckpoint: false }],
+    consumers: [
+      { sliceId: asSliceId(f.scopes[1]!.sourceId), phase: 'merge', replacesFullCheckpoint: false },
+    ],
     retainedObligations: brief('LOCAL-ADR-01').retainedObligations,
   });
   const submission = proposed.submissions.find(
@@ -994,7 +1003,10 @@ it('the narrow lookup keeps a brief past the recent runs and past a newer invest
     backend: run.backend,
     role: 'design',
     permissionMode: run.permissionMode,
-    profileSelection: { purpose: 'investigation', investigationId: randomUUID() },
+    profileSelection: {
+      purpose: 'investigation',
+      investigationId: asCycleInvestigationId(randomUUID()),
+    },
     brief: 'Investigate',
     createdAt: new Date(Date.parse(run.createdAt) + 60_000).toISOString(),
     createdByUserId: run.createdByUserId,
@@ -1149,13 +1161,13 @@ it('a decision approved for some slices says which it is settled for and which s
   const evidence = f.state.context.services.runtimeEvidenceService;
   const proposed = await evidence.proposeArchitectureDecision(f.auth, ws, p.definitionId, {
     bindingRevision: 1,
-    checkpointId: 'LOCAL-ADR-01',
+    checkpointId: asCheckpointId('LOCAL-ADR-01'),
     sourceRunId: p.runId,
     sourceReportDigest: card().recommendation!.sourceReportDigest,
     coverage: 'clauses',
     proposal: brief('LOCAL-ADR-01').decisionText,
     sourceReferences: card().sourceReferences,
-    consumers: [{ sliceId: first!, phase: 'start', replacesFullCheckpoint: true }],
+    consumers: [{ sliceId: asSliceId(first!), phase: 'start', replacesFullCheckpoint: true }],
     retainedObligations: brief('LOCAL-ADR-01').retainedObligations,
   });
   await evidence.decide(f.auth, ws, p.definitionId, {

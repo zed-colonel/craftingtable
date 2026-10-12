@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { roadmapCapacitiesSchema } from '@craftingtable/contracts';
 import {
+  asConcurrencyDefinitionId,
+  asPlanningTargetId,
+  asRoadmapAttemptId,
+  asRoadmapEntryId,
+  asRoadmapId,
+  asWorkCycleId,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_AUTOMATION,
   asWorkItemId,
@@ -24,8 +30,8 @@ async function fixture() {
   const auth = c.services.authService.authenticate(login.cookie.split('=').slice(1).join('='));
   const workspaceId = c.storage.workspaces.listAuthorized(auth.user.id)[0]!.workspace.id;
   const at = new Date().toISOString(),
-    id = randomUUID(),
-    entryId = randomUUID();
+    id = asRoadmapId(randomUUID()),
+    entryId = asRoadmapEntryId(randomUUID());
   const profile = {
     backend: 'codex' as const,
     model: 'test-model',
@@ -54,9 +60,9 @@ async function fixture() {
         maxIntegrationRefreshes: 7,
       },
       crossProject: {
-        definitionId: randomUUID(),
+        definitionId: asConcurrencyDefinitionId(randomUUID()),
         bindingRevision: 1,
-        targetId: 'ALL',
+        targetId: asPlanningTargetId('ALL'),
         selection: 'prioritize-full',
         parentAcceptance: 'manual',
         defaults: {
@@ -81,7 +87,7 @@ async function fixture() {
           policy: DEFAULT_COMPLETION_POLICY,
           instructions: 'Keep this',
           executionScope: {
-            definitionId: randomUUID(),
+            definitionId: asConcurrencyDefinitionId(randomUUID()),
             bindingRevision: 1,
             kind: 'slice',
             sourceId: 'exo/EXO-02/domain',
@@ -91,11 +97,11 @@ async function fixture() {
     },
     attempts: [
       {
-        id: randomUUID(),
+        id: asRoadmapAttemptId(randomUUID()),
         entryId,
         definitionRevision: 1,
         worktreeId: asWorktreeId(randomUUID()),
-        cycleId: randomUUID(),
+        cycleId: asWorkCycleId(randomUUID()),
         status: 'active',
         createdAt: at,
       },
@@ -187,7 +193,7 @@ it('evaluates the whole roadmap list in one read snapshot (PERF-08)', async () =
     entries: s.roadmap.definition.entries.map(({ executionScope: _scope, ...entry }) => entry),
   };
   s.c.storage.roadmaps.save({ ...s.roadmap, version: 2, definition }, 1);
-  const second = randomUUID();
+  const second = asRoadmapId(randomUUID());
   s.c.storage.roadmaps.save(
     {
       ...s.roadmap,

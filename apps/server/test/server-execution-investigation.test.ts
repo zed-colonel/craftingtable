@@ -11,6 +11,8 @@ import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import {
   asAgentRunEventId,
   asAgentRunId,
+  asCycleInvestigationId,
+  asMergeOperationId,
   cycleAttention,
   type WorkCycle,
 } from '@craftingtable/domain';
@@ -587,7 +589,10 @@ describe('question stop investigations (R-C16)', () => {
       backend: 'claude-code',
       role: 'design',
       permissionMode: 'edit-only',
-      profileSelection: { purpose: 'investigation', investigationId: randomUUID() },
+      profileSelection: {
+        purpose: 'investigation',
+        investigationId: asCycleInvestigationId(randomUUID()),
+      },
       brief: 'Investigate.',
       createdAt: now.toISOString(),
       createdByUserId: source.createdByUserId,
@@ -670,7 +675,7 @@ describe('question stop investigations (R-C16)', () => {
 
     // An integration merge reserved on the worktree owns it until it is recovered.
     const merge = {
-      id: randomUUID(),
+      id: asMergeOperationId(randomUUID()),
       workspaceId: state.workspaceId,
       worktreeId: f.worktree.id,
       status: 'reserved' as const,

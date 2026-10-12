@@ -1,4 +1,9 @@
 import type { GitFailure, GitFailureKind } from '@craftingtable/git';
+import type {
+  CheckpointId,
+  ConcurrencyDefinitionId,
+  SourceRepositoryId,
+} from '@craftingtable/domain';
 
 export class AuthenticationError extends Error {
   constructor() {
@@ -144,7 +149,7 @@ export interface MovedPin {
  */
 export class UpstreamPinMovedError extends ExecutionRequestError {
   constructor(
-    readonly definitionId: string,
+    readonly definitionId: ConcurrencyDefinitionId,
     readonly pins: readonly MovedPin[],
     message: string,
   ) {
@@ -160,7 +165,7 @@ export class UpstreamPinMovedError extends ExecutionRequestError {
  */
 export class CheckpointAttestationError extends ExecutionRequestError {
   constructor(
-    readonly checkpointId: string,
+    readonly checkpointId: CheckpointId,
     message: string,
   ) {
     super('conflict', message);
@@ -200,7 +205,7 @@ export class DaemonDrainingError extends ExecutionRequestError {
  */
 export class RepositoryChecksUndeclaredError extends ExecutionRequestError {
   constructor(
-    readonly repositoryId: string,
+    readonly repositoryId: SourceRepositoryId,
     repositoryName: string,
   ) {
     super(
@@ -217,7 +222,7 @@ export class RepositoryChecksUndeclaredError extends ExecutionRequestError {
  */
 export class CheckDefinitionChangedError extends ExecutionRequestError {
   constructor(
-    readonly repositoryId: string,
+    readonly repositoryId: SourceRepositoryId,
     readonly checkId: string,
     message: string,
   ) {
@@ -232,7 +237,7 @@ export class CheckDefinitionChangedError extends ExecutionRequestError {
  */
 export class CheckAdoptionRequiredError extends ExecutionRequestError {
   constructor(
-    readonly repositoryId: string,
+    readonly repositoryId: SourceRepositoryId,
     readonly proposalDigest: string,
     message: string,
   ) {

@@ -1,4 +1,10 @@
 import type { AttentionItem, PhaseBlocker, WorkCycle } from '@craftingtable/domain';
+import {
+  asAttentionItemId,
+  asCheckpointId,
+  asRoadmapId,
+  asWorkCycleId,
+} from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { scopeNext } from '../src/services/scope-next.js';
 
@@ -32,14 +38,14 @@ const phases = (merge: PhaseBlocker[], start: PhaseBlocker[] = []) => [
 ];
 
 it('is the operator’s, with its item, when an open item carries the slice’s cycle', () => {
-  for (const found of [item({ cycleId: 'cycle-1' }), item({}, 'cycle:cycle-1')])
+  for (const found of [item({ cycleId: asWorkCycleId('cycle-1') }), item({}, 'cycle:cycle-1')])
     expect(
       scopeNext({
         kind: 'slice',
         status: 'started',
         phases: phases([]),
         cycles: [cycle('needs-attention')],
-        items: [item({ cycleId: 'another' }), found],
+        items: [item({ cycleId: asWorkCycleId('another') }), found],
       }),
     ).toEqual({
       actor: 'operator',
@@ -122,7 +128,7 @@ it('without a live cycle, reads the next phase’s blockers by the board’s rul
         [],
         [
           blocker('decision-checkpoint-evidence', 'Approve WI-ADR-1.', {
-            checkpointId: 'WI-ADR-1',
+            checkpointId: asCheckpointId('WI-ADR-1'),
           }),
         ],
       ),
@@ -147,7 +153,7 @@ it('ignores ended cycles, and has nothing next once done', () => {
       status: 'started',
       phases: phases([]),
       cycles: [cycle('stopped'), cycle('completed')],
-      items: [item({ cycleId: 'cycle-1' })],
+      items: [item({ cycleId: asWorkCycleId('cycle-1') })],
     })?.actor,
   ).toBe('controller');
   expect(
@@ -169,14 +175,18 @@ it('is the operator’s when a checkpoint it needs has an item of its own, by th
     kind: 'slice' as const,
     status: 'not-started' as const,
     phases: phases(
-      [blocker('checkpoint-evidence', 'LOCAL-ADR-01 must pass.', { checkpointId: 'LOCAL-ADR-01' })],
+      [
+        blocker('checkpoint-evidence', 'LOCAL-ADR-01 must pass.', {
+          checkpointId: asCheckpointId('LOCAL-ADR-01'),
+        }),
+      ],
       [blocker('predecessor-not-accepted', 'Accept WI-00 first.')],
     ),
     cycles: [],
   };
   const decision = {
-    ...item({ roadmapId: 'roadmap-1' }, 'roadmap:roadmap-1:checkpoint:LOCAL-ADR-01'),
-    id: 'decision-item',
+    ...item({ roadmapId: asRoadmapId('roadmap-1') }, 'roadmap:roadmap-1:checkpoint:LOCAL-ADR-01'),
+    id: asAttentionItemId('decision-item'),
     message: 'Approve LOCAL-ADR-01.',
   };
   expect(scopeNext({ ...held, items: [decision] })).toEqual({

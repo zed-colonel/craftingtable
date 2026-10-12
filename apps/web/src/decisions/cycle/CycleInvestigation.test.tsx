@@ -3,6 +3,8 @@ import {
   AGENT_PROFILE_PURPOSES,
   type AgentSelections,
   agentSelections,
+  asCycleInvestigationId,
+  asWorkCycleId,
   type CycleAction,
   type CycleProjection,
   PROFILE_INHERITANCE,
@@ -282,13 +284,23 @@ it("keeps the operator's draft, and adds each investigation's proposals to it on
   const edited = field().value;
   // Another investigation runs, with the form hidden, and ends with new proposals.
   view.rerender(
-    decision({ ...base, investigation: { ...record, id: 'second' } }, ['end-investigation'], {
-      liveRuns: live,
-    }),
+    decision(
+      { ...base, investigation: { ...record, id: asCycleInvestigationId('second') } },
+      ['end-investigation'],
+      {
+        liveRuns: live,
+      },
+    ),
   );
   expect(screen.queryByLabelText('Answers and recovery guidance')).toBeNull();
   view.rerender(
-    decision({ ...base, investigation: { ...record, id: 'second', result: second } }, questions),
+    decision(
+      {
+        ...base,
+        investigation: { ...record, id: asCycleInvestigationId('second'), result: second },
+      },
+      questions,
+    ),
   );
   expect(field().value).toBe(edited);
   fireEvent.click(screen.getByRole('button', { name: 'Use proposed answers' }));
@@ -296,7 +308,10 @@ it("keeps the operator's draft, and adds each investigation's proposals to it on
   expect(field().value.match(/Use CSV\./g)).toHaveLength(1);
   // Another cycle has its own answer.
   view.rerender(
-    decision({ ...base, id: 'c2', investigation: { ...record, result: second } }, questions),
+    decision(
+      { ...base, id: asWorkCycleId('c2'), investigation: { ...record, result: second } },
+      questions,
+    ),
   );
   expect(field().value).toBe('');
   expect(vi.mocked(request)).not.toHaveBeenCalled();
@@ -512,7 +527,10 @@ it('keeps a stop draft across leaving and coming back, and clears it once sent',
   expect(screen.getByText('Added to your answer below. Edit it before you send it.')).toBeTruthy();
   cleanup();
   render(
-    decision({ ...at, investigation: { ...record, id: 'next', result: finished } }, questions),
+    decision(
+      { ...at, investigation: { ...record, id: asCycleInvestigationId('next'), result: finished } },
+      questions,
+    ),
   );
   expect(screen.queryByText(/Added to your answer below/)).toBeNull();
   expect(

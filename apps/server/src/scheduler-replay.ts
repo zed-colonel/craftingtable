@@ -14,6 +14,7 @@ import {
   effectiveHoldAttention,
   effectiveRoadmapAttention,
   phaseBlockerCode,
+  type RoadmapStatusEntry,
   startedAttempts,
   type Roadmap,
   type RoadmapEntry,
@@ -111,6 +112,18 @@ export interface CheckpointReadiness {
     readonly packetMissing: readonly string[];
   }[];
 }
+/**
+ * A status list as a golden records it: an entry's attention item is named by its subject
+ * (`subject:<key>`), since every copy rebuilds the items with fresh ids.
+ */
+type ReplayStatusEntry = Omit<RoadmapStatusEntry, 'waitsOn'> & {
+  readonly waitsOn?: Omit<NonNullable<RoadmapStatusEntry['waitsOn']>, 'attentionItemId'> & {
+    readonly attentionItemId?: string;
+  };
+};
+type ReplayStatusList = Omit<RoadmapStatusList, 'entries'> & {
+  readonly entries: readonly ReplayStatusEntry[];
+};
 export interface SchedulerReplay {
   /**
    * The golden's shape: 2 since R-I10's review pass, whose entries and roadmaps carry command
@@ -122,7 +135,7 @@ export interface SchedulerReplay {
   readonly entries: readonly SchedulerEntryDecision[];
   readonly cycles: readonly CheckpointReadiness[];
   /** Each roadmap's status list (R-E3a) as the pass leaves it. Absent in older goldens. */
-  readonly status?: readonly RoadmapStatusList[];
+  readonly status?: readonly ReplayStatusList[];
   /**
    * The inbox after the pass: the items each roadmap's pass projects, as if it were running
    * (LIVE-10, LIVE-11), and every other open item (LIVE-09). Absent in older goldens.
@@ -248,7 +261,8 @@ type FieldUses<P> = { readonly [K in keyof P]-?: Use };
 type ParameterUse<P> =
   NonNullable<P> extends (...args: never[]) => unknown
     ? 'dropped'
-    : NonNullable<P> extends readonly unknown[]
+    : // A branded id is a string, though its brand makes it an object to the type system.
+      NonNullable<P> extends string | readonly unknown[]
       ? Use
       : NonNullable<P> extends object
         ? FieldUses<NonNullable<P>> | 'recorded' | 'identity' | 'dropped'

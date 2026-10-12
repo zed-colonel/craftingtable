@@ -1,5 +1,5 @@
 import type { ExecutionScopeChoice } from '@craftingtable/contracts';
-import { asWorkItemId, asWorkspaceId } from '@craftingtable/domain';
+import { asConcurrencyDefinitionId, asWorkItemId, asWorkspaceId } from '@craftingtable/domain';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import { SliceStrip, sliceAnchor } from './SliceStrip.js';
@@ -21,7 +21,7 @@ function choice(
   next?: ExecutionScopeChoice['next'],
 ): ExecutionScopeChoice {
   return {
-    scope: { kind, definitionId: 'map-1', bindingRevision: 1, sourceId },
+    scope: { kind, definitionId: asConcurrencyDefinitionId('map-1'), bindingRevision: 1, sourceId },
     title: `${sourceId} title`,
     description: '',
     excludes: [],

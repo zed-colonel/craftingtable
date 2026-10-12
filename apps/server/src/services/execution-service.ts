@@ -17,7 +17,14 @@ interface CheckAdoptionAtMerge {
   readonly declarationId: string;
 }
 import { securityReviewCurrent } from './workflow-policy.js';
-import { asAgentRunId } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  asMergeOperationId,
+  asRepositoryCheckDeclarationId,
+  type DecisionPreparationId,
+  type FinalizationId,
+  type RoadmapId,
+} from '@craftingtable/domain';
 import { needsNativeVerification } from './native-verification-policy.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
@@ -45,7 +52,6 @@ import {
   asSourceRepositoryId,
   asWorktreeId,
   evaluateCycleCompletion,
-  verificationFollowUps,
   isInvestigationRun,
   isTerminalAgentRunStatus,
   mergeAdoptsChecks,
@@ -53,6 +59,7 @@ import {
   type RepositoryCheckDeclaration,
   type SourceRepository,
   type SourceRepositoryId,
+  verificationFollowUps,
   type WorkItemId,
   type WorkspaceId,
   type Worktree,
@@ -412,7 +419,7 @@ export class ExecutionService {
       return;
     }
     const record: RepositoryCheckDeclaration = {
-      id: randomUUID(),
+      id: asRepositoryCheckDeclarationId(randomUUID()),
       workspaceId: worktree.workspaceId,
       repositoryId: worktree.repositoryId,
       version: (declarations[0]?.version ?? 0) + 1,
@@ -1315,9 +1322,9 @@ export class ExecutionService {
 
   private async createPlanWorktree(
     context: CommandContext,
-    value: Pick<
+    /** A finalization's, or a decision preparation's: its id names the worktree's path and branch. */
+    value: { readonly id: FinalizationId | DecisionPreparationId } & Pick<
       import('@craftingtable/domain').Finalization,
-      | 'id'
       | 'workspaceId'
       | 'repositoryId'
       | 'worktreeId'
@@ -1626,7 +1633,7 @@ export class ExecutionService {
       };
     } = {},
     requestId?: string,
-    delegation?: { roadmapId: string; definitionRevision: number; check: () => void },
+    delegation?: { roadmapId: RoadmapId; definitionRevision: number; check: () => void },
     finalApproval?: {
       finalizationId: string;
       expectedHeadSha: string;
@@ -1880,7 +1887,7 @@ export class ExecutionService {
               );
             check();
             operation = {
-              id: randomUUID(),
+              id: asMergeOperationId(randomUUID()),
               workspaceId,
               worktreeId,
               status: 'reserved',

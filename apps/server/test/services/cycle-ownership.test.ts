@@ -1,4 +1,5 @@
 import type { Roadmap, WorkCycle } from '@craftingtable/domain';
+import { asRoadmapAttemptId, asRoadmapEntryId, asRoadmapId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { describe, expect, it, vi } from 'vitest';
 import { cycleOwnership } from '../../src/services/cycle-ownership.js';
@@ -39,16 +40,18 @@ describe('cycleOwnership (R-B3)', () => {
   it('reads the recorded owner with one lookup and never scans the roadmaps', () => {
     const { roadmaps, tx } = storage();
     const owner = {
-      roadmapId: 'roadmap-1',
-      attemptId: 'attempt-1',
-      entryId: 'entry-1',
+      roadmapId: asRoadmapId('roadmap-1'),
+      attemptId: asRoadmapAttemptId('attempt-1'),
+      entryId: asRoadmapEntryId('entry-1'),
       definitionRevision: 2,
     };
     expect(cycleOwnership(tx, cycle(owner))).toEqual({ roadmap, attempt });
     expect(roadmaps.find).toHaveBeenCalledWith('ws', 'roadmap-1');
     expect(roadmaps.list).not.toHaveBeenCalled();
     // An attempt that an amendment dropped no longer owns the cycle.
-    expect(cycleOwnership(tx, cycle({ ...owner, attemptId: 'dropped' }))).toBeUndefined();
+    expect(
+      cycleOwnership(tx, cycle({ ...owner, attemptId: asRoadmapAttemptId('dropped') })),
+    ).toBeUndefined();
   });
 
   it('treats a cycle recorded as unowned as manual work without reading roadmaps', () => {

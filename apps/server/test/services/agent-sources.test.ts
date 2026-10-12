@@ -1,4 +1,5 @@
 import type { Finalization, Roadmap, RoadmapEntry, WorkCycle } from '@craftingtable/domain';
+import { asAgentAssignmentId, asDelegationAssignmentId } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
 import { resolveAgent } from '../../src/services/agent-resolution.js';
 import type { StorageRepositories } from '@craftingtable/storage';
@@ -179,10 +180,13 @@ describe('which launches name the assignment (operator decision 2026-10-07)', ()
   const base = {
     purpose: 'review' as const,
     permissionMode: 'edit-only' as const,
-    assignment: { id: 'assignment', selections: { ...profiles, review: same } },
+    assignment: {
+      id: asAgentAssignmentId('assignment'),
+      selections: { ...profiles, review: same },
+    },
     profiles: { layer: 'saved-definition' as const, value: profiles },
   };
-  const recorded = { purpose: 'review' as const, delegationId: 'grant' };
+  const recorded = { purpose: 'review' as const, delegationId: asDelegationAssignmentId('grant') };
   it('a launch the assignment chose names it, a service retry it outranks included', () => {
     for (const context of [base, { ...base, serviceRetry: { ...stage('retry') } }])
       expect(launchProvenance(recorded, resolveAgent(context))).toEqual({
@@ -227,19 +231,25 @@ describe('which launches name the assignment (operator decision 2026-10-07)', ()
   it('a resumed session names the assignment exactly when the run it continues did', () => {
     const launch = resolveAgent({ ...base, resumed: { ...same, permissionMode: 'edit-only' } });
     expect(launch.source.layer).toBe('resumed-session');
-    const current = { ...recorded, latestAssignmentId: 'earlier' };
+    const current = { ...recorded, latestAssignmentId: asAgentAssignmentId('earlier') };
     expect(
-      launchProvenance(current, launch, { purpose: 'review', assignmentId: 'earlier' }),
+      launchProvenance(current, launch, {
+        purpose: 'review',
+        assignmentId: asAgentAssignmentId('earlier'),
+      }),
     ).toEqual({ purpose: 'review', delegationId: 'grant', assignmentId: 'earlier' });
     // Once a newer assignment replaced it, the resume names none and is held to the definition.
     expect(
-      launchProvenance({ ...recorded, latestAssignmentId: 'later' }, launch, {
+      launchProvenance({ ...recorded, latestAssignmentId: asAgentAssignmentId('later') }, launch, {
         purpose: 'review',
-        assignmentId: 'earlier',
+        assignmentId: asAgentAssignmentId('earlier'),
       }),
     ).toEqual({ purpose: 'review', delegationId: 'grant' });
     expect(
-      launchProvenance(recorded, launch, { purpose: 'review', assignmentId: 'earlier' }),
+      launchProvenance(recorded, launch, {
+        purpose: 'review',
+        assignmentId: asAgentAssignmentId('earlier'),
+      }),
     ).toEqual({ purpose: 'review', delegationId: 'grant' });
     expect(launchProvenance(recorded, launch, { purpose: 'review' })).toEqual({
       purpose: 'review',
@@ -255,10 +265,14 @@ describe('which launches name the assignment (operator decision 2026-10-07)', ()
       action: { layer: 'design-recovery', selection: same },
     });
     expect(
-      launchProvenance({ ...recorded, latestAssignmentId: 'earlier' }, recovery, {
-        purpose: 'review',
-        assignmentId: 'earlier',
-      }),
+      launchProvenance(
+        { ...recorded, latestAssignmentId: asAgentAssignmentId('earlier') },
+        recovery,
+        {
+          purpose: 'review',
+          assignmentId: asAgentAssignmentId('earlier'),
+        },
+      ),
     ).toEqual({ purpose: 'review', delegationId: 'grant' });
   });
   it('a review run that does not name the assignment is held to the saved definition', () => {

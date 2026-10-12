@@ -4,6 +4,9 @@ import type { AgentLaunchRequest } from '@craftingtable/agents';
 import type { StartFinalizationRequest } from '@craftingtable/contracts';
 import {
   type AgentRunId,
+  asFinalizationStageId,
+  asReviewFindingId,
+  asWorkItemSourceId,
   type CycleAttentionCode,
   type Finalization,
   type FindingSeverity,
@@ -188,11 +191,14 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
 
   /** The candidate's open findings: situations add them, implementation fixes required ones. */
   const open = new Map<string, ReviewFinding>();
-  const finding = (f: Pick<ReviewFinding, 'id' | 'severity' | 'category'>): ReviewFinding => ({
+  // The recorded findings name their ids as the golden holds them.
+  const finding = (
+    f: Pick<ReviewFinding, 'severity' | 'category'> & { readonly id: string },
+  ): ReviewFinding => ({
     ...structuredFinding,
     status: 'open',
     title: `${f.severity} ${f.category} finding`,
-    id: f.id,
+    id: asReviewFindingId(f.id),
     severity: f.severity,
     ...(f.category ? { category: f.category } : {}),
   });
@@ -292,7 +298,7 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
       (stage.kind === 'simplification' || stage.kind === 'polish') &&
       state?.status !== 'verifying'
     ) {
-      const idea = stage.kind === 'simplification' ? 'S-1' : 'P-1';
+      const idea = asReviewFindingId(stage.kind === 'simplification' ? 'S-1' : 'P-1');
       open.set(idea, finding({ id: idea, severity: 'minor', category: stage.kind }));
     }
     switch (stop?.kind) {
@@ -342,9 +348,9 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
     stages: [
       {
         ...present(correctness),
-        id: 'correctness-items',
+        id: asFinalizationStageId('correctness-items'),
         name: 'correctness by work item',
-        workItemSourceIds: ['AQ-01', 'AQ-02'],
+        workItemSourceIds: [asWorkItemSourceId('AQ-01'), asWorkItemSourceId('AQ-02')],
         policy: { ...present(correctness).policy, maxRemediationRounds: 2 },
       },
       {

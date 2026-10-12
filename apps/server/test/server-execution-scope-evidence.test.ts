@@ -7,6 +7,11 @@ import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
 import { resolveScope, scopeCases, scopeRequirements } from '../src/services/execution-scope.js';
 import { acceptedEvidence } from '../src/services/runtime-evidence-policy.js';
+import {
+  asDeclaredCheckId,
+  asNativeVerificationApprovalId,
+  asQualificationEnvironmentId,
+} from '@craftingtable/domain';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -115,7 +120,7 @@ async function checkpointCandidateFixture(
     consumers: [{ alias: 'local', upstreams: [] }],
     environments: [
       {
-        id: 'local',
+        id: asQualificationEnvironmentId('local'),
         kind: 'local-development' as const,
         identityDigest: '1'.repeat(64),
         fixtureDigest: '2'.repeat(64),
@@ -420,7 +425,7 @@ async function evidenceFixture(checkpointOwner = 'local') {
     consumers: [{ alias: 'local', upstreams: [] }],
     environments: [
       {
-        id: 'native',
+        id: asQualificationEnvironmentId('native'),
         kind: 'external-native' as const,
         identityDigest: '1'.repeat(64),
         fixtureDigest: '2'.repeat(64),
@@ -428,7 +433,7 @@ async function evidenceFixture(checkpointOwner = 'local') {
         authorization: 'Local fixture operator authorizes isolated test fixtures.',
       },
       {
-        id: 'kata',
+        id: asQualificationEnvironmentId('kata'),
         kind: 'external-kata' as const,
         identityDigest: '4'.repeat(64),
         fixtureDigest: '2'.repeat(64),
@@ -448,7 +453,7 @@ async function evidenceFixture(checkpointOwner = 'local') {
     runtimeId: view.current!.id,
     subject: spec.subject,
     subjectCommit: head,
-    environmentId: 'kata',
+    environmentId: asQualificationEnvironmentId('kata'),
     executedBy: 'implementation-author',
     executedAt: new Date().toISOString(),
     reviewers: [
@@ -499,7 +504,9 @@ it('requires independently reviewed exact case coverage and distinguishes native
     'independent review',
   );
   const { kata: _kata, ...native } = f.submission;
-  await expect(submit({ ...native, environmentId: 'native' })).rejects.toThrow('Actual Kata');
+  await expect(
+    submit({ ...native, environmentId: asQualificationEnvironmentId('native') }),
+  ).rejects.toThrow('Actual Kata');
   const submitted = await submit(f.submission);
   const s = submitted.submissions[0]!;
   expect(s.decision).toBeUndefined();
@@ -794,7 +801,7 @@ it('previews exact dependency refreshes, rejects stale approval and retains unch
     consumers: [{ alias: 'local', upstreams: ['provider'] }],
     environments: [
       {
-        id: 'local',
+        id: asQualificationEnvironmentId('local'),
         kind: 'local-development',
         identityDigest: 'a'.repeat(64),
         fixtureDigest: 'b'.repeat(64),
@@ -806,7 +813,7 @@ it('previews exact dependency refreshes, rejects stale approval and retains unch
   const old = configured.current!;
   const { nativeHostDigest } = await import('@craftingtable/agents');
   const native = {
-    id: randomUUID(),
+    id: asNativeVerificationApprovalId(randomUUID()),
     workspaceId: ws,
     definitionId: id,
     bindingRevision: 2,
@@ -886,7 +893,11 @@ it('previews exact dependency refreshes, rejects stale approval and retains unch
       ' ',
     ),
   ).toContain('already current');
-  tx.runtimeEvidence.addNativeApproval({ ...native, id: randomUUID(), approved: false });
+  tx.runtimeEvidence.addNativeApproval({
+    ...native,
+    id: asNativeVerificationApprovalId(randomUUID()),
+    approved: false,
+  });
   expect((await svc.view(f.auth, ws, id)).nativeVerification.current).toBe(false);
   mkdirSync(join(provider, 'examples/extra'), { recursive: true });
   commitFile(
@@ -1067,7 +1078,7 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
       consumers: [{ alias: 'local', upstreams: ['provider'] }],
       environments: [
         {
-          id: 'local',
+          id: asQualificationEnvironmentId('local'),
           kind: 'local-development' as const,
           identityDigest: '1'.repeat(64),
           fixtureDigest: '2'.repeat(64),
@@ -1081,7 +1092,7 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
     withoutDaemonChecks(f.state);
     declareFixtureChecks(f.state, [
       {
-        id: 'fixture',
+        id: asDeclaredCheckId('fixture'),
         argv: [
           'node',
           '-e',

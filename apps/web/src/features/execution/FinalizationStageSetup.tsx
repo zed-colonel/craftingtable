@@ -1,4 +1,4 @@
-import type { ExecutionStatusResponse, StartFinalizationRequest } from '@craftingtable/contracts';
+import type { ExecutionStatusResponse } from '@craftingtable/contracts';
 import {
   type AgentProfile,
   DEFAULT_COMPLETION_POLICY,
@@ -11,11 +11,12 @@ import { useState } from 'react';
 import { AgentProfileFields } from './AgentProfileFields.js';
 import { EffectiveAgentText } from './EffectiveAgentText.js';
 import { About } from '../../components/About.js';
+import type { FinalizationStart } from '../../lib/finalization-api.js';
 
-type Stages = NonNullable<StartFinalizationRequest['stages']>;
+type Stages = NonNullable<FinalizationStart['stages']>;
 export function defaultFinalizationStages(
-  review: StartFinalizationRequest['finalReview'],
-  implement: StartFinalizationRequest['finalReview'],
+  review: FinalizationStart['finalReview'],
+  implement: FinalizationStart['finalReview'],
 ): Stages {
   return FINALIZATION_STAGE_KINDS.map((kind) => ({
     id: kind,
@@ -315,7 +316,7 @@ function SourceIdsInput({
   disabled,
   onChange,
 }: {
-  value: string[];
+  value: readonly string[];
   disabled: boolean;
   onChange: (ids: string[]) => void;
 }) {

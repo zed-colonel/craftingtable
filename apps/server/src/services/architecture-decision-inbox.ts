@@ -10,6 +10,8 @@ import {
 } from '@craftingtable/contracts';
 import {
   type AgentRun,
+  asCheckpointId,
+  type CheckpointId,
   type ConcurrencyDefinition,
   type ExecutionScope,
   isInvestigationRun,
@@ -157,7 +159,7 @@ type DecisionRecord = Pick<
 
 /** The part of an inbox card a roadmap's decision hold reads (R-C3b, R-D7). */
 export interface DecisionBrief {
-  readonly checkpointId: string;
+  readonly checkpointId: CheckpointId;
   readonly recommendation: Recommendation;
   readonly blockers: readonly string[];
   readonly records: readonly DecisionRecord[];
@@ -188,7 +190,7 @@ export function decisionBriefs(
     const recommendation = recommendations.get(c.id);
     if (!recommendation?.brief) continue;
     briefs.set(c.id, {
-      checkpointId: c.id,
+      checkpointId: asCheckpointId(c.id),
       recommendation,
       blockers: prerequisiteIssues(tx, d, revision, { kind: 'checkpoint', sourceId: c.id }),
       records: decisionRecords(

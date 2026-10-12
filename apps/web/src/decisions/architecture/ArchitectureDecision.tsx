@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type {
   ArchitectureDecisionInbox,
-  ProposeArchitectureDecision,
+  proposeArchitectureDecisionSchema,
+  RequestInput,
   RuntimeEvidenceView,
 } from '@craftingtable/contracts';
 import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
@@ -16,7 +17,9 @@ import { SaveProposal } from './SaveProposal.js';
 type Card = ArchitectureDecisionInbox['decisions'][number];
 type Brief = NonNullable<Card['recommendation']>['brief'];
 type Record = Card['records'][number];
-type Consumer = ProposeArchitectureDecision['consumers'][number];
+/** A proposal as this form drafts and sends it. */
+type Proposal = RequestInput<typeof proposeArchitectureDecisionSchema>;
+type Consumer = Proposal['consumers'][number];
 type Slice = NonNullable<RuntimeEvidenceView['architectureDecisions']>['slices'][number];
 
 /**
@@ -128,7 +131,7 @@ function DecisionCard({
   const accepted = current.find((r) => r.proposal.coverage === 'full') ?? current[0];
   const fullApproval = accepted?.proposal.coverage === 'full';
   const pending = saved ?? card.records.find((r) => !r.decision && !r.issues.length);
-  const [draft, setDraft] = useState<ProposeArchitectureDecision>();
+  const [draft, setDraft] = useState<Proposal>();
   const locked = disabled;
   const designRuns =
     view.architectureDecisions?.designRuns.filter((r) => r.checkpointIds.includes(checkpointId)) ??

@@ -19,7 +19,7 @@ import type {
   WorkspaceId,
   PhaseBlocker,
 } from '@craftingtable/domain';
-import { consumerUpstreams, executionScopeKey } from '@craftingtable/domain';
+import { asAcceptanceCaseId, consumerUpstreams, executionScopeKey } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 export function activeRuntime(
   tx: StorageRepositories,
@@ -66,7 +66,7 @@ export function subjectRequirements(
             : c.owner_work_item === subject.sourceId,
       )
       .map((c) => ({
-        id: c.id,
+        id: asAcceptanceCaseId(c.id),
         sourceRecordDigest: c.source_record_sha256,
         requiresKata: c.requires_kata_host,
       })),
@@ -78,7 +78,11 @@ export function subjectRequirements(
             ? c.producing_slice === subject.sourceId
             : c.owner_work_item === subject.sourceId,
       )
-      .map((c) => ({ id: c.id, sourceRecordDigest: c.source_record_sha256, requiresKata: false })),
+      .map((c) => ({
+        id: asAcceptanceCaseId(c.id),
+        sourceRecordDigest: c.source_record_sha256,
+        requiresKata: false,
+      })),
   ];
   return {
     subject,

@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import type { AgentRun, Roadmap, RoadmapEntry, RoadmapDefinition } from '@craftingtable/domain';
+import { asRoadmapEntryId } from '@craftingtable/domain';
 import {
   effectiveDelegation,
   historicalReviewerRoles,
@@ -35,7 +36,9 @@ it('keeps original or explicitly granted review authority despite later grants, 
   expect(historicalReviewerRoles(roadmap, entry, legacy)).toEqual(['original']);
   expect(historicalReviewerRoles(roadmap, entry, granted)).toEqual(['profile-owner']);
   expect(effectiveDelegation(roadmap, entry, definition).reviewerRoles).toEqual([]);
-  expect(historicalReviewerRoles(roadmap, { ...entry, id: 'other' }, granted)).toEqual([]);
+  expect(
+    historicalReviewerRoles(roadmap, { ...entry, id: asRoadmapEntryId('other') }, granted),
+  ).toEqual([]);
   expect(
     historicalReviewerRoles(roadmap, entry, { ...granted, createdAt: '2026-09-22T09:00:00Z' }),
   ).toEqual([]);

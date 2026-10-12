@@ -1,4 +1,5 @@
 import type { PhaseBlocker, RoadmapEntry } from '@craftingtable/domain';
+import { asCheckpointId, asRoadmapId } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { operatorSetupItem } from '../src/services/operator-setup-item.js';
 
@@ -20,7 +21,7 @@ const setupPath = (section: string) => `/setup#runtime-evidence-roadmap-r${secti
 
 it("lists entries held on upstream pins and opens the dependency step (the walkthrough's two slices)", () => {
   const item = operatorSetupItem({
-    roadmapId: 'r',
+    roadmapId: asRoadmapId('r'),
     name: 'Cross-project roadmap',
     setupPath,
     entries: [
@@ -49,7 +50,7 @@ it("lists entries held on upstream pins and opens the dependency step (the walkt
 
 it('keeps reviewers and environments on the verification step, and raises nothing otherwise', () => {
   const reviewers = operatorSetupItem({
-    roadmapId: 'r',
+    roadmapId: asRoadmapId('r'),
     name: 'Map',
     setupPath,
     entries: [
@@ -62,7 +63,7 @@ it('keeps reviewers and environments on the verification step, and raises nothin
   expect(reviewers?.path).toBe('/setup#runtime-evidence-roadmap-r-native');
   expect(
     operatorSetupItem({
-      roadmapId: 'r',
+      roadmapId: asRoadmapId('r'),
       name: 'Map',
       setupPath,
       entries: [
@@ -75,7 +76,7 @@ it('keeps reviewers and environments on the verification step, and raises nothin
               kind: 'evidence',
               code: 'decision-checkpoint-evidence',
               message: 'Approve ADR-1.',
-              refs: { checkpointId: 'ADR-1' },
+              refs: { checkpointId: asCheckpointId('ADR-1') },
             },
           ],
         },
@@ -87,7 +88,7 @@ it('keeps reviewers and environments on the verification step, and raises nothin
 it("leaves the operator's stops to their own items (R-E3b review M2)", () => {
   expect(
     operatorSetupItem({
-      roadmapId: 'r',
+      roadmapId: asRoadmapId('r'),
       name: 'Map',
       setupPath,
       entries: [

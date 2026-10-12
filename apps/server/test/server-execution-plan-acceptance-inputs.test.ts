@@ -2,8 +2,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts';
 import {
   agentSelections,
+  asCheckpointId,
+  asEvidenceSubmissionId,
+  asQualificationEnvironmentId,
+  asRoadmapId,
+  asRuntimeGenerationId,
+  asSliceId,
   type ConcurrencySource,
   type EvidenceSubmission,
+  type EvidenceSubmissionId,
   PLAN_ACCEPTANCE_INPUTS,
   asUserId,
   asWorkspaceMembershipId,
@@ -82,7 +89,7 @@ async function acceptedPlan(
     const submissionId = view.planAcceptance!.roadmaps[0]!.submissionId!;
     return view.submissions.find((s) => s.submission.id === submissionId)!.submission;
   };
-  const accept = (submissionId: string) =>
+  const accept = (submissionId: EvidenceSubmissionId) =>
     svc.decide(f.auth, ws, id, {
       submissionId,
       outcome: 'accepted',
@@ -215,7 +222,7 @@ it('keeps STACK-PLAN-ACCEPTED accepted across saves, generations and capacities 
   const branch = storage.imports.bindings(ws, id)[0]!.bindings[0]!.integrationBranch!;
   const next: RuntimeGeneration = {
     ...runtime,
-    id: randomUUID(),
+    id: asRuntimeGenerationId(randomUUID()),
     generation: runtime.generation + 1,
     digest: 'd'.repeat(64),
     pins: [
@@ -252,13 +259,13 @@ it('keeps a v2 acceptance across a generation with other environments', async ()
   const runtime = storage.runtimeEvidence.generations(ws, id, 1)[0]!;
   storage.runtimeEvidence.addGeneration({
     ...runtime,
-    id: randomUUID(),
+    id: asRuntimeGenerationId(randomUUID()),
     generation: runtime.generation + 1,
     digest: 'e'.repeat(64),
     environments: [
       {
         ...runtime.environments[0]!,
-        id: 'another-environment',
+        id: asQualificationEnvironmentId('another-environment'),
         toolchainDigest: 'f'.repeat(64),
         authorization: 'Another authorization.',
       },
@@ -364,11 +371,13 @@ it('carries the acceptance when the operator approves decision clauses', async (
     });
   await svc.proposeArchitectureDecision(f.auth, ws, id, {
     bindingRevision: 1,
-    checkpointId: DECISION,
+    checkpointId: asCheckpointId(DECISION),
     coverage: 'clauses',
     proposal: 'Use the documented boundary.',
     sourceReferences: `Exact imported plan ${DECISION}`,
-    consumers: [{ sliceId: f.scopes[0]!.sourceId, phase: 'start', replacesFullCheckpoint: true }],
+    consumers: [
+      { sliceId: asSliceId(f.scopes[0]!.sourceId), phase: 'start', replacesFullCheckpoint: true },
+    ],
     retainedObligations: 'Implementation tests remain mandatory.',
   });
   const staged = storage.runtimeEvidence.submissions(ws, id)[0]!.id;
@@ -628,7 +637,7 @@ it('never carries across a new binding revision, even with its setup complete', 
     const runtime = tx.runtimeEvidence.generations(ws, id, 1)[0]!;
     tx.runtimeEvidence.addGeneration({
       ...runtime,
-      id: randomUUID(),
+      id: asRuntimeGenerationId(randomUUID()),
       bindingRevision: 2,
       generation: 1,
     });
@@ -678,7 +687,7 @@ it('never carries a package that would not validate', async () => {
   const { f, ws, id, storage, first, accepted } = plan;
   const issues = carryDirectly(plan, (tx) => {
     const roadmap = tx.roadmaps.find(ws, f.input.roadmapId)!;
-    const other = randomUUID();
+    const other = asRoadmapId(randomUUID());
     tx.roadmaps.save(
       {
         ...roadmap,
@@ -770,7 +779,7 @@ async function acceptedV1() {
   const hash = (text: string) => createHash('sha256').update(text).digest('hex');
   const guide = 'The daemon collected these saved setup facts.';
   const v1: EvidenceSubmission = {
-    id: randomUUID(),
+    id: asEvidenceSubmissionId(randomUUID()),
     workspaceId: ws,
     definitionId: id,
     bindingRevision: 1,

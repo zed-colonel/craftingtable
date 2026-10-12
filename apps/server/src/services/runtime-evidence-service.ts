@@ -76,29 +76,37 @@ import {
   type PinnedCargoManifest,
 } from '@craftingtable/agents';
 import {
-  proposeArchitectureDecisionSchema,
-  checkpointRecoverySchema,
-  type ProposeArchitectureDecision,
-  configureRuntimeSchema,
-  evidenceSubmissionRequestSchema,
-  type ConfigureRuntime,
-  type EvidenceSubmissionRequest,
-  type RuntimePinStatus,
-  type RuntimeRefreshPreview,
   type ApplyRuntimeRefresh,
   type CheckpointRecovery,
+  checkpointRecoverySchema,
+  type ConfigureRuntime,
+  configureRuntimeSchema,
+  type EvidenceSubmissionRequest,
+  evidenceSubmissionRequestSchema,
+  type ProposeArchitectureDecision,
+  proposeArchitectureDecisionSchema,
+  type RuntimePinStatus,
+  type RuntimeRefreshPreview,
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
+  asEvidenceSubmissionId,
+  asNativeVerificationApprovalId,
+  asQualificationEnvironmentId,
+  asRuntimeGenerationId,
+  asSliceId,
+  asUpstreamTransitionRecordId,
   asWorktreeId,
   asAuditEventId,
   asEventId,
   canonicalDefinition,
   type ConcurrencyBindingRevision,
   type ConcurrencyDefinition,
+  type ConcurrencyDefinitionId,
   type EvidenceSubmission,
   type EvidenceSubmissionHead,
   type EvidenceSubject,
+  type EvidenceSubmissionId,
   type ManifestDeclaredChecks,
   type RepositoryCheckDeclaration,
   type RunEnvironment,
@@ -307,7 +315,7 @@ export class RuntimeEvidenceService {
     input: import('@craftingtable/contracts').NativeApprovalRequest,
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
-    this.definition(ws, id);
+    const d = this.definition(ws, id);
     const audit = input.approved ? await auditNativeEnvironment() : undefined;
     if (audit && (!audit.ready || audit.auditDigest !== input.auditDigest))
       conflict('Workstation audit changed or is incomplete. Audit again before approving.');
@@ -324,9 +332,9 @@ export class RuntimeEvidenceService {
       if (!audit && !prior) conflict('No native approval to revoke.');
       const at = this.now().toISOString();
       tx.runtimeEvidence.addNativeApproval({
-        id: randomUUID(),
+        id: asNativeVerificationApprovalId(randomUUID()),
         workspaceId: ws,
-        definitionId: id,
+        definitionId: d.id,
         bindingRevision: input.bindingRevision,
         runtimeId: runtime.id,
         approved: input.approved,
@@ -341,7 +349,7 @@ export class RuntimeEvidenceService {
         tx,
         context,
         ws,
-        id,
+        d.id,
         'runtime.configured',
         input.approved
           ? 'Managed native verification approved. No test results or Kata authority granted.'
@@ -378,9 +386,9 @@ export class RuntimeEvidenceService {
       if (issues.length) conflict(issues.map((i) => i.message).join(' '));
       const at = this.now().toISOString();
       tx.runtimeEvidence.addUpstreamTransitions({
-        id: randomUUID(),
+        id: asUpstreamTransitionRecordId(randomUUID()),
         workspaceId: ws,
-        definitionId: id,
+        definitionId: d.id,
         transitions: input.transitions,
         rationale: input.rationale,
         createdAt: at,
@@ -390,7 +398,7 @@ export class RuntimeEvidenceService {
         tx,
         context,
         ws,
-        id,
+        d.id,
         'runtime.configured',
         `Upstream transitions declared: ${input.transitions
           .map((t) => `${t.consumer}→${t.upstream} at ${t.slice}`)
@@ -630,7 +638,7 @@ export class RuntimeEvidenceService {
     const candidate: RuntimeGeneration = {
       ...current,
       ...data,
-      id: '00000000-0000-4000-8000-000000000000',
+      id: asRuntimeGenerationId('00000000-0000-4000-8000-000000000000'),
       generation: current.generation + 1,
       digest: hash(canonicalDefinition(data)),
     };
@@ -908,9 +916,9 @@ export class RuntimeEvidenceService {
       )
         conflict('The dependency refresh impact changed during save. Preview and review it again.');
       const generation: RuntimeGeneration = {
-        id: randomUUID(),
+        id: asRuntimeGenerationId(randomUUID()),
         workspaceId: ws,
-        definitionId: id,
+        definitionId: d.id,
         bindingRevision: input.bindingRevision,
         generation: input.expectedGeneration + 1,
         digest: hash(JSON.stringify(data)),
@@ -940,7 +948,7 @@ export class RuntimeEvidenceService {
         tx,
         context,
         ws,
-        id,
+        d.id,
         'runtime.configured',
         'Pinned dependency environment configured.',
         at,
@@ -1369,7 +1377,7 @@ export class RuntimeEvidenceService {
       },
     ].map((a) => ({ ...a, digest: hash(a.content) }));
     return {
-      id: randomUUID(),
+      id: asEvidenceSubmissionId(randomUUID()),
       workspaceId: d.workspaceId,
       definitionId: d.id,
       bindingRevision: tree.executionScope!.bindingRevision,
@@ -1381,7 +1389,9 @@ export class RuntimeEvidenceService {
         ? [{ alias, commitSha: branch.headSha }]
         : [],
       subjectCommit: branch.headSha,
-      environmentId: runtime.environments.find((e) => e.kind === 'local-development')?.id ?? '',
+      environmentId:
+        runtime.environments.find((e) => e.kind === 'local-development')?.id ??
+        asQualificationEnvironmentId(''),
       executedBy: `review-run:${runId}`,
       executedAt: run.finishedAt!,
       reviewers: [],
@@ -1399,8 +1409,8 @@ export class RuntimeEvidenceService {
       candidateCheckpoint: {
         kind: 'reviewed-candidate-v1',
         worktreeId: tree.id,
-        sliceId: tree.executionScope!.sourceId,
-        runId,
+        sliceId: asSliceId(tree.executionScope!.sourceId),
+        runId: run.id,
         reportDigest: checkpointDigest(payload),
         buildDigest: build.digest,
         headSha: branch.headSha,
@@ -1622,7 +1632,7 @@ export class RuntimeEvidenceService {
         tx,
         context,
         ws,
-        id,
+        d.id,
         'evidence.submitted',
         `Prepared ${input.checkpointId} from retained candidate review.`,
         submission.createdAt,
@@ -1702,9 +1712,9 @@ export class RuntimeEvidenceService {
       ...(testedCode.length === 1 ? { subjectCommit: testedCode[0]!.commitSha } : {}),
       ...source,
       ...(sliceMergeSha ? { sliceMergeSha } : {}),
-      id: randomUUID(),
+      id: asEvidenceSubmissionId(randomUUID()),
       workspaceId: ws,
-      definitionId: id,
+      definitionId: d.id,
       bindingRevision: runtime.bindingRevision,
       artifacts: input.artifacts.map((a) => ({ ...a, digest: hash(a.content) })),
       createdAt: this.now().toISOString(),
@@ -1724,7 +1734,7 @@ export class RuntimeEvidenceService {
         tx,
         context,
         ws,
-        id,
+        d.id,
         'evidence.submitted',
         `Evidence submitted for ${s.subject.sourceId}.`,
         s.createdAt,
@@ -1738,7 +1748,7 @@ export class RuntimeEvidenceService {
     ws: WorkspaceId,
     id: string,
     input: {
-      submissionId: string;
+      submissionId: EvidenceSubmissionId;
       outcome: 'accepted' | 'rejected';
       rationale: string;
       checkpointReviewRoles?: readonly string[];
@@ -1801,7 +1811,7 @@ export class RuntimeEvidenceService {
           tx,
           context,
           ws,
-          id,
+          d.id,
           'evidence.decided',
           `${s.subject.sourceId} evidence ${input.outcome}.`,
           at,
@@ -1911,9 +1921,9 @@ export class RuntimeEvidenceService {
       artifacts.unshift({ name: 'decision-review-packet', content, digest: hash(content) });
       const at = this.now().toISOString();
       const submission: EvidenceSubmission = {
-        id: randomUUID(),
+        id: asEvidenceSubmissionId(randomUUID()),
         workspaceId: ws,
-        definitionId: id,
+        definitionId: d.id,
         bindingRevision: input.bindingRevision,
         runtimeId: runtime.id,
         environmentId: runtime.environments[0]!.id,
@@ -1939,7 +1949,7 @@ export class RuntimeEvidenceService {
         tx,
         context,
         ws,
-        id,
+        d.id,
         'evidence.submitted',
         `${input.checkpointId} ${input.coverage} proposal saved for operator review.`,
         at,
@@ -2034,7 +2044,7 @@ export class RuntimeEvidenceService {
         tx,
         context,
         ws,
-        id,
+        d.id,
         'evidence.submitted',
         'Saved plan evidence generated; independent operator acceptance is still required.',
         at,
@@ -2245,7 +2255,7 @@ export class RuntimeEvidenceService {
         !!binding &&
         !!nativeApproval(snapshot, ws, {
           kind: 'slice',
-          definitionId: id,
+          definitionId: d.id,
           bindingRevision: binding.revision,
           sourceId: '',
         });
@@ -3090,7 +3100,7 @@ export class RuntimeEvidenceService {
       error = e instanceof Error ? e.message : 'Build record unavailable.';
     }
     tx.runtimeEvidence.addBuild({
-      runId,
+      runId: env.runId,
       workspaceId: ws,
       // A check-only run has none (R-G13 increment 4).
       ...(env.runtimeId ? { runtimeId: env.runtimeId } : {}),
@@ -3264,7 +3274,7 @@ export class RuntimeEvidenceService {
     tx: StorageRepositories,
     context: CommandContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     action: 'runtime.configured' | 'evidence.submitted' | 'evidence.decided',
     message: string,
     at: string,

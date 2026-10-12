@@ -3,7 +3,6 @@ import type {
   ExecutionStatusResponse,
   RoadmapAgentSettings,
   RunProfilesResponse,
-  SaveRoadmapRequest,
   StepPermissions,
   WorkspaceWorkItemListResponse,
 } from '@craftingtable/contracts';
@@ -27,6 +26,7 @@ import {
   agentGroups,
   applyRoadmapAgents,
   loadRoadmapAgents,
+  type RoadmapSave,
   saveRoadmap,
 } from '../../lib/roadmap-api.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
@@ -36,7 +36,7 @@ import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
 
-export type Draft = SaveRoadmapRequest & { id: string };
+export type Draft = RoadmapSave & { id: string };
 
 /**
  * What the roadmap editor offers: the workspace's work items, backends and the permissions a new
@@ -208,7 +208,7 @@ export function RoadmapEditor({
       current.attempts.some((a) => a.entryId === e.id),
     ) ?? -1;
   const parallel = draft.scheduling?.mode === 'parallel';
-  const updateEntry = (index: number, changes: Partial<SaveRoadmapRequest['entries'][number]>) =>
+  const updateEntry = (index: number, changes: Partial<RoadmapSave['entries'][number]>) =>
     setDraft({
       ...draft,
       entries: draft.entries.map((entry, i) => (i === index ? { ...entry, ...changes } : entry)),

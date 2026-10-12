@@ -1,4 +1,5 @@
-import type { ConcurrencyDefinition } from '@craftingtable/domain';
+import type { CheckpointId, ConcurrencyDefinition } from '@craftingtable/domain';
+import { asCheckpointId } from '@craftingtable/domain';
 import { supportsArchitectureDecision } from './architecture-decision-policy.js';
 
 /** The map milestones a roadmap's cross-project view reports (`crossProjectState(...).nodes`). */
@@ -67,7 +68,7 @@ export function slicesHeldBy(nodes: readonly DemandNode[], keys: readonly string
 export function neededDecisions(
   definition: ConcurrencyDefinition,
   nodes: readonly DemandNode[],
-): readonly { readonly checkpointId: string; readonly slices: number }[] {
+): readonly { readonly checkpointId: CheckpointId; readonly slices: number }[] {
   return nodes
     .filter(
       (n) =>
@@ -76,7 +77,10 @@ export function neededDecisions(
         !n.satisfied &&
         supportsArchitectureDecision(definition, n.sourceId),
     )
-    .map((n) => ({ checkpointId: n.sourceId, slices: slicesWaitingOn(nodes, n.key) }))
+    .map((n) => ({
+      checkpointId: asCheckpointId(n.sourceId),
+      slices: slicesWaitingOn(nodes, n.key),
+    }))
     .filter((d) => d.slices > 0)
     .sort((a, b) => b.slices - a.slices || a.checkpointId.localeCompare(b.checkpointId));
 }

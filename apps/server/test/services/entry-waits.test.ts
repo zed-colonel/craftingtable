@@ -1,4 +1,6 @@
 import {
+  asRoadmapEntryId,
+  asWorkCycleId,
   cycleAttention,
   ENTRY_WAIT,
   type RoadmapEntryWait,
@@ -33,22 +35,24 @@ describe('the wait a cycle the scheduler leaves alone implies', () => {
     [
       'the operator paused it',
       cycle('paused', cycleAttention('scope-review-recovery')),
-      waiting('cycle-paused', 'Cycle is paused.', { cycleId: 'cycle-1' }),
+      waiting('cycle-paused', 'Cycle is paused.', { cycleId: asWorkCycleId('cycle-1') }),
     ],
     [
       'it stopped for the operator',
       cycle('needs-attention', cycleAttention('controller-error')),
-      waiting('cycle-attention', 'Cycle is needs-attention.', { cycleId: 'cycle-1' }),
+      waiting('cycle-attention', 'Cycle is needs-attention.', {
+        cycleId: asWorkCycleId('cycle-1'),
+      }),
     ],
     [
       'it awaits the operator’s merge',
       cycle('awaiting-merge', cycleAttention('merge-approval')),
-      waiting('cycle-attention', 'Cycle is awaiting-merge.', { cycleId: 'cycle-1' }),
+      waiting('cycle-attention', 'Cycle is awaiting-merge.', { cycleId: asWorkCycleId('cycle-1') }),
     ],
     [
       'it waits on its own controller',
       cycle('awaiting-merge', cycleAttention('controller-wait')),
-      waiting('cycle-waiting', 'Cycle is awaiting-merge.', { cycleId: 'cycle-1' }),
+      waiting('cycle-waiting', 'Cycle is awaiting-merge.', { cycleId: asWorkCycleId('cycle-1') }),
     ],
     [
       'automation claims its stop',
@@ -56,17 +60,17 @@ describe('the wait a cycle the scheduler leaves alone implies', () => {
         'needs-attention',
         cycleAttention('review-needs-attention', undefined, { claim: 'roadmap-merge' }),
       ),
-      waiting('cycle-waiting', 'Cycle is needs-attention.', { cycleId: 'cycle-1' }),
+      waiting('cycle-waiting', 'Cycle is needs-attention.', { cycleId: asWorkCycleId('cycle-1') }),
     ],
     [
       'the operator stopped it',
       cycle('stopped'),
-      waiting('cycle-ended', 'Cycle is stopped.', { cycleId: 'cycle-1' }),
+      waiting('cycle-ended', 'Cycle is stopped.', { cycleId: asWorkCycleId('cycle-1') }),
     ],
     [
       'it completed without the entry completing',
       cycle('completed'),
-      waiting('cycle-ended', 'Cycle is completed.', { cycleId: 'cycle-1' }),
+      waiting('cycle-ended', 'Cycle is completed.', { cycleId: asWorkCycleId('cycle-1') }),
     ],
   ])('%s', (_name, input, expected) => {
     expect(cycleStep(input)).toEqual(expected);
@@ -77,9 +81,9 @@ describe('the waits the scheduler’s own gates imply', () => {
   it.each(['dependency-blocked', 'capacity-blocked', 'exclusion-blocked'] as const)(
     'a %s blocker names the entry it blocks',
     (kind) => {
-      expect(blockerWait({ kind, reason: 'Held.', needsAttention: false }, 'owner')).toEqual(
-        waiting(kind, 'Held.', { entryId: 'owner' }),
-      );
+      expect(
+        blockerWait({ kind, reason: 'Held.', needsAttention: false }, asRoadmapEntryId('owner')),
+      ).toEqual(waiting(kind, 'Held.', { entryId: asRoadmapEntryId('owner') }));
     },
   );
 
@@ -98,9 +102,17 @@ describe('the waits the scheduler’s own gates imply', () => {
 
   it('a stopped review a round carries waits on what holds the round, or on the round', () => {
     const held = waiting('capacity-blocked', 'No slot.');
-    expect(roundStep(held, 'Roadmap recovery.', { entryId: 'owner' })).toBe(held);
-    expect(roundStep(MOVED, 'Roadmap recovery.', { entryId: 'owner', cycleId: 'repair' })).toEqual(
-      waiting('recovery-round', 'Roadmap recovery.', { entryId: 'owner', cycleId: 'repair' }),
+    expect(roundStep(held, 'Roadmap recovery.', { entryId: asRoadmapEntryId('owner') })).toBe(held);
+    expect(
+      roundStep(MOVED, 'Roadmap recovery.', {
+        entryId: asRoadmapEntryId('owner'),
+        cycleId: asWorkCycleId('repair'),
+      }),
+    ).toEqual(
+      waiting('recovery-round', 'Roadmap recovery.', {
+        entryId: asRoadmapEntryId('owner'),
+        cycleId: asWorkCycleId('repair'),
+      }),
     );
   });
 
@@ -120,8 +132,13 @@ describe('the waits a pass records', () => {
   const since = '2026-09-27T01:00:00.000Z';
   const now = '2026-09-27T02:00:00.000Z';
   const prior: Record<string, RoadmapEntryWait> = {
-    a: { code: 'capacity-blocked', reason: 'Two slots used.', since, refs: { entryId: 'owner' } },
-    b: { code: 'cycle-waiting', reason: 'Waiting.', since, refs: { cycleId: 'c' } },
+    a: {
+      code: 'capacity-blocked',
+      reason: 'Two slots used.',
+      since,
+      refs: { entryId: asRoadmapEntryId('owner') },
+    },
+    b: { code: 'cycle-waiting', reason: 'Waiting.', since, refs: { cycleId: asWorkCycleId('c') } },
   };
 
   it.each<[string, Map<string, EntryStep | 'keep'>, Record<string, RoadmapEntryWait> | undefined]>([
@@ -132,25 +149,39 @@ describe('the waits a pass records', () => {
     ],
     [
       'an unchanged wait keeps its since and takes the current reason',
-      new Map([['a', waiting('capacity-blocked', 'Three slots used.', { entryId: 'owner' })]]),
+      new Map([
+        [
+          'a',
+          waiting('capacity-blocked', 'Three slots used.', { entryId: asRoadmapEntryId('owner') }),
+        ],
+      ]),
       { a: { ...prior.a!, reason: 'Three slots used.' } },
     ],
     [
       'a different code starts again',
-      new Map([['a', waiting('dependency-blocked', 'Needs a.', { entryId: 'owner' })]]),
+      new Map([
+        ['a', waiting('dependency-blocked', 'Needs a.', { entryId: asRoadmapEntryId('owner') })],
+      ]),
       {
         a: {
           code: 'dependency-blocked',
           reason: 'Needs a.',
           since: now,
-          refs: { entryId: 'owner' },
+          refs: { entryId: asRoadmapEntryId('owner') },
         },
       },
     ],
     [
       'a different subject starts again',
-      new Map([['b', waiting('cycle-waiting', 'Waiting.', { cycleId: 'd' })]]),
-      { b: { code: 'cycle-waiting', reason: 'Waiting.', since: now, refs: { cycleId: 'd' } } },
+      new Map([['b', waiting('cycle-waiting', 'Waiting.', { cycleId: asWorkCycleId('d') })]]),
+      {
+        b: {
+          code: 'cycle-waiting',
+          reason: 'Waiting.',
+          since: now,
+          refs: { cycleId: asWorkCycleId('d') },
+        },
+      },
     ],
     ['an entry that moved loses its wait', new Map([['a', MOVED]]), undefined],
     ['a transient retry keeps the last wait', new Map([['b', 'keep' as const]]), { b: prior.b! }],

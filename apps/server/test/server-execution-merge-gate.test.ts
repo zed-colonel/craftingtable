@@ -16,6 +16,7 @@ import {
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
+  asCycleInvestigationId,
   asPlanVersionId,
   asProjectId,
   asWorkItemDependencyId,
@@ -485,7 +486,10 @@ it("holds the merge while a stop's investigation is live, and is not superseded 
     role: 'design' as const,
     verdict: undefined,
     createdAt: new Date(Date.parse(review.createdAt) + 1000).toISOString(),
-    profileSelection: { purpose: 'investigation' as const, investigationId: randomUUID() },
+    profileSelection: {
+      purpose: 'investigation' as const,
+      investigationId: asCycleInvestigationId(randomUUID()),
+    },
   };
   expect(mergeGateFor(storedWorktree, [{ ...investigation, status: 'running' }, review])).toEqual({
     mergeable: false,

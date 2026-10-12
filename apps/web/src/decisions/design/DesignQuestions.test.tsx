@@ -1,6 +1,7 @@
 import type { DesignRecoveryPreview } from '@craftingtable/contracts';
 import {
   AGENT_PROFILE_PURPOSES,
+  asEvidenceSubmissionId,
   asUserId,
   asWorkspaceId,
   CYCLE_STEPS,
@@ -205,7 +206,7 @@ it('shows accepted shared decisions after discovery without resuming or requirin
               decision: {
                 id: 'approval',
                 workspaceId: asWorkspaceId('ws'),
-                submissionId: 'proposal',
+                submissionId: asEvidenceSubmissionId('proposal'),
                 outcome: 'accepted',
                 rationale: 'Meets my requirements.',
                 decidedAt: '2026-09-20T00:00:00Z',

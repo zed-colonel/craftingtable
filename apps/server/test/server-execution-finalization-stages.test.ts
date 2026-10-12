@@ -5,6 +5,7 @@ import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { finalizationsResponseSchema } from '@craftingtable/contracts';
 import {
   asAgentRunEventId,
+  asFinalizationStageId,
   asPlanVersionId,
   evaluateCycleCompletion,
   FINALIZATION_STAGE_KINDS,
@@ -1478,7 +1479,10 @@ describe('staged finalization', () => {
       ...reused,
       report: {
         ...reused.report,
-        finalization: { ...reused.report.finalization, stageId: 'conformance' },
+        finalization: {
+          ...reused.report.finalization,
+          stageId: asFinalizationStageId('conformance'),
+        },
       },
     };
     expect(assessStageReport(value, conformanceCycle, outsideFinal, baseline).status).toBe(

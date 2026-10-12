@@ -5,6 +5,7 @@ import type {
   ExecutionPhase,
   ExecutionScope,
 } from '@craftingtable/domain';
+import { asConcurrencyDefinitionId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { expect, it } from 'vitest';
 import { supportsArchitectureDecision } from '../../src/services/architecture-decision-policy.js';
@@ -124,7 +125,7 @@ it('blocks a renamed native resource as unsupported, leaving externally reviewed
   const scope: ExecutionScope = {
     kind: 'slice',
     sourceId: slice.id,
-    definitionId: 'definition',
+    definitionId: asConcurrencyDefinitionId('definition'),
     bindingRevision: 1,
   };
   expect(needsNativeVerification(definition(s), scope)).toBe(false);
@@ -191,7 +192,7 @@ it('builds against the current pins once a parent stops leading its maturity wit
   const scope: ExecutionScope = {
     kind: 'slice',
     sourceId: 'wi/WI-01/implementation',
-    definitionId: 'definition',
+    definitionId: asConcurrencyDefinitionId('definition'),
     bindingRevision: 1,
   };
   expect(buildVerificationPolicy(definition(source), scope).mode).toBe('scoped-checks');

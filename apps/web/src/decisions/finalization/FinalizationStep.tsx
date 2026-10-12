@@ -1,8 +1,4 @@
-import type {
-  ControlFinalizationRequest,
-  ExecutionStatusResponse,
-  FinalizationView,
-} from '@craftingtable/contracts';
+import type { ExecutionStatusResponse, FinalizationView } from '@craftingtable/contracts';
 import {
   currentPlanChanges,
   type AgentSelection,
@@ -12,7 +8,7 @@ import {
 } from '@craftingtable/domain';
 import { useState } from 'react';
 import type { WorkspaceId } from '@craftingtable/domain';
-import { decideFinalizationStep as decide } from './finalization-api.js';
+import { decideFinalizationStep as decide, type FinalizationCommand } from './finalization-api.js';
 import { About } from '../../components/About.js';
 import { FinalizationCheckpoint } from './FinalizationCheckpoint.js';
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
@@ -21,7 +17,7 @@ type Props = {
   view: FinalizationView;
   busy: boolean;
   backends: ExecutionStatusResponse['backends'];
-  onDecide: (input: ControlFinalizationRequest) => void;
+  onDecide: (input: FinalizationCommand) => void;
 };
 
 /**
@@ -48,7 +44,7 @@ export function FinalizationStep({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const actions = view.actions ?? [];
-  const onDecide = (input: ControlFinalizationRequest) => {
+  const onDecide = (input: FinalizationCommand) => {
     setBusy(true);
     setError(undefined);
     void decide(workspaceId, view.finalization.id, input, csrfToken)

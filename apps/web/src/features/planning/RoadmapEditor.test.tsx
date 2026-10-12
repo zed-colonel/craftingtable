@@ -2,6 +2,7 @@ import type { RoadmapAgentSettings, RunProfilesResponse } from '@craftingtable/c
 import {
   AGENT_PROFILE_PURPOSES,
   type AgentSelections,
+  asAgentAssignmentId,
   asWorkspaceId,
   CYCLE_STEPS,
   DEFAULT_COMPLETION_POLICY,
@@ -122,7 +123,11 @@ const saved: RoadmapAgentSettings = {
       projectId: 'project-1' as never,
       projectName: 'Project',
       selections: selections('opus'),
-      agents: agentsAt({ layer: 'roadmap-assignment', slot: 'design', assignmentId: 'a-1' }),
+      agents: agentsAt({
+        layer: 'roadmap-assignment',
+        slot: 'design',
+        assignmentId: asAgentAssignmentId('a-1'),
+      }),
       permissions: { design: 'auto', implement: 'auto', review: 'auto', remediate: 'auto' },
       started: false,
     },

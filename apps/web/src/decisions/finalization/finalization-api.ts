@@ -1,4 +1,8 @@
-import { type ControlFinalizationRequest, finalizationViewSchema } from '@craftingtable/contracts';
+import {
+  type controlFinalizationRequestSchema,
+  finalizationViewSchema,
+  type RequestInput,
+} from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
 
@@ -9,6 +13,9 @@ import { request } from '../../lib/api-client.js';
  * boundary structural in R-H5's review, 2026-10-11).
  */
 const encode = encodeURIComponent;
+
+/** A finalization command as the browser sends it. */
+export type FinalizationCommand = RequestInput<typeof controlFinalizationRequestSchema>;
 
 /** `decisions/finalization/FinalPromotion`: the final promotion, a finalization's merge (R-A6). */
 export function promoteFinalization(
@@ -38,7 +45,7 @@ export function promoteFinalization(
 export function decideFinalizationStep(
   workspaceId: WorkspaceId,
   finalizationId: string,
-  input: ControlFinalizationRequest,
+  input: FinalizationCommand,
   csrfToken: string,
 ) {
   return request(

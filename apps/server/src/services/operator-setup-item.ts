@@ -4,6 +4,7 @@ import {
   type PhaseBlockerCode,
   phaseBlockerCode,
   type RoadmapEntry,
+  type RoadmapId,
 } from '@craftingtable/domain';
 import type { ProjectedItem } from './attention-projector.js';
 
@@ -20,7 +21,7 @@ const DEPENDENCY_SETUP: ReadonlySet<PhaseBlockerCode> = new Set([
  * is a dependency environment's, else verification. The operator's stops have their own items.
  */
 export function operatorSetupItem(input: {
-  readonly roadmapId: string;
+  readonly roadmapId: RoadmapId;
   readonly name: string;
   readonly entries: readonly {
     readonly entry: Pick<RoadmapEntry, 'id' | 'sourceId' | 'executionScope'>;

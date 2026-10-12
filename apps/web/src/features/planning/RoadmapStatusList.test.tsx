@@ -1,5 +1,12 @@
 import type { RoadmapStatusListResponse } from '@craftingtable/contracts';
-import { asWorkItemId, type Roadmap } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  asAttentionItemId,
+  asRoadmapEntryId,
+  asRoadmapId,
+  asWorkItemId,
+  type Roadmap,
+} from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
@@ -18,7 +25,7 @@ const entry = (
   sourceId: string,
   rest: Partial<RoadmapStatusListResponse['entries'][number]>,
 ): RoadmapStatusListResponse['entries'][number] => ({
-  entryId: id,
+  entryId: asRoadmapEntryId(id),
   sourceId,
   scope: 'slice-verification',
   title: sourceId,
@@ -30,7 +37,7 @@ const entry = (
 
 it('groups open entries by who acts next and links each reason to its record (R-E3a)', async () => {
   vi.mocked(request).mockResolvedValue({
-    roadmapId: 'roadmap',
+    roadmapId: asRoadmapId('roadmap'),
     name: 'Cross-project roadmap',
     status: 'running',
     reason: 'Parallel scheduling enabled.',
@@ -44,13 +51,17 @@ it('groups open entries by who acts next and links each reason to its record (R-
           code: 'shared-decision-required',
           reason: 'EXO-18 · Needs attention',
           since: '2026-09-27T03:57:16.863Z',
-          attentionItemId: 'item-1',
+          attentionItemId: asAttentionItemId('item-1'),
         },
       }),
       entry('b', 'exo/EXO-02/domain', {
         state: 'running',
         actor: 'agent',
-        waitsOn: { source: 'progress', reason: 'Roadmap recovery: repair.', runId: 'run-1' },
+        waitsOn: {
+          source: 'progress',
+          reason: 'Roadmap recovery: repair.',
+          runId: asAgentRunId('run-1'),
+        },
       }),
       entry('c', 'exo/EXO-04/domain', {
         state: 'running',
@@ -95,7 +106,7 @@ it('groups open entries by who acts next and links each reason to its record (R-
 
 it('says when the roadmap itself is not running', async () => {
   vi.mocked(request).mockResolvedValue({
-    roadmapId: 'roadmap',
+    roadmapId: asRoadmapId('roadmap'),
     name: 'Cross-project roadmap',
     status: 'paused',
     reason: 'Paused by operator.',
@@ -110,7 +121,7 @@ it('says when the roadmap itself is not running', async () => {
 
 it("re-reads on its own roadmap's events and its cycles' and runs', never another roadmap's (R-D4)", async () => {
   vi.mocked(request).mockResolvedValue({
-    roadmapId: 'roadmap',
+    roadmapId: asRoadmapId('roadmap'),
     name: 'Cross-project roadmap',
     status: 'running',
     reason: 'Parallel scheduling enabled.',

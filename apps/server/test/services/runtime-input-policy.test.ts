@@ -2,6 +2,9 @@ import { expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { analyzeConcurrencyArchive } from '@craftingtable/planning';
 import {
+  asConcurrencyDefinitionId,
+  asQualificationEnvironmentId,
+  asRuntimeGenerationId,
   asWorkspaceId,
   asSourceRepositoryId,
   asUserId,
@@ -16,9 +19,9 @@ import { evidenceInputs } from '../../src/services/runtime-evidence-policy.js';
 
 function generation(): RuntimeGeneration {
   return {
-    id: 'generation-1',
+    id: asRuntimeGenerationId('generation-1'),
     workspaceId: asWorkspaceId('workspace'),
-    definitionId: 'map',
+    definitionId: asConcurrencyDefinitionId('map'),
     bindingRevision: 1,
     generation: 1,
     digest: 'a'.repeat(64),
@@ -39,7 +42,7 @@ function generation(): RuntimeGeneration {
     ],
     environments: [
       {
-        id: 'local',
+        id: asQualificationEnvironmentId('local'),
         kind: 'local-development',
         identityDigest: 'a'.repeat(64),
         fixtureDigest: 'b'.repeat(64),
@@ -86,7 +89,7 @@ it('retains WI evidence but requires EXO re-verification when the WI pin advance
   const before = generation();
   const after = {
     ...before,
-    id: 'generation-2',
+    id: asRuntimeGenerationId('generation-2'),
     generation: 2,
     pins: before.pins.map((p) => (p.alias === 'wi' ? { ...p, commitSha: 'c'.repeat(40) } : p)),
   };
@@ -139,7 +142,7 @@ it('ignores ordering and ref labels but rejects lost bindings or dependency rela
   expect(
     runtimeInputChanges(before, {
       ...before,
-      id: 'next',
+      id: asRuntimeGenerationId('next'),
       pins: [...before.pins].reverse().map((p) => ({ ...p, ref: p.commitSha })),
       consumers: [...before.consumers]
         .reverse()
@@ -161,7 +164,11 @@ it('qualification evidence freezes its named environment rather than an unrelate
     ...before,
     environments: [
       ...before.environments,
-      { ...before.environments[0]!, id: 'new-qualified-host', kind: 'external-native' as const },
+      {
+        ...before.environments[0]!,
+        id: asQualificationEnvironmentId('new-qualified-host'),
+        kind: 'external-native' as const,
+      },
     ],
   };
   expect(runtimeInputChanges(before, after, { consumers: ['wi'], environmentId: 'local' })).toEqual(

@@ -5,7 +5,11 @@ import {
   asAuditEventId,
   asEventId,
   asAgentRunId,
+  asMapAmendmentId,
+  asSliceId,
   compareConcurrencyDefinitions,
+  type MapAmendmentId,
+  type RoadmapId,
   scopeDefinitionFingerprint,
   targetClosure,
   canonicalDefinition,
@@ -51,17 +55,17 @@ export class MapAmendmentService {
     private readonly git: GitOperations | undefined,
     private readonly notifier: WorkspaceEventNotifier,
   ) {}
-  private roadmap(ws: WorkspaceId, id: string) {
+  private roadmap(ws: WorkspaceId, id: RoadmapId) {
     const r = this.storage.roadmaps.find(ws, id);
     if (!r?.definition.crossProject) throw new NotFoundError();
     return r;
   }
-  private proposal(ws: WorkspaceId, roadmapId: string, id: string) {
+  private proposal(ws: WorkspaceId, roadmapId: RoadmapId, id: MapAmendmentId) {
     const a = this.storage.amendments.list(ws, roadmapId).find((a) => a.id === id);
     if (!a) throw new NotFoundError();
     return a;
   }
-  view(context: AuthContext, ws: WorkspaceId, id: string) {
+  view(context: AuthContext, ws: WorkspaceId, id: RoadmapId) {
     this.workspaces.requireAuthorized(context, ws);
     const r = this.roadmap(ws, id),
       history = this.storage.amendments.list(ws, id),
@@ -84,12 +88,12 @@ export class MapAmendmentService {
       }),
     };
   }
-  finalization(context: AuthContext, ws: WorkspaceId, id: string) {
+  finalization(context: AuthContext, ws: WorkspaceId, id: RoadmapId) {
     this.workspaces.requireAuthorized(context, ws);
     const c = this.roadmap(ws, id).definition.crossProject!;
     return { projects: mapProjectReadiness(this.storage, ws, c.definitionId, c.bindingRevision) };
   }
-  preview(context: AuthContext, ws: WorkspaceId, id: string, candidate: MapSelection) {
+  preview(context: AuthContext, ws: WorkspaceId, id: RoadmapId, candidate: MapSelection) {
     this.workspaces.requireAuthorized(context, ws);
     return this.impact(ws, this.roadmap(ws, id), candidate);
   }
@@ -270,7 +274,7 @@ export class MapAmendmentService {
     const integrations = closure.nodes
       .filter((n) => n.requirement.kind === 'slice' && n.requirement.state === 'merged')
       .flatMap((n) => {
-        const id = n.requirement.id,
+        const id = asSliceId(n.requirement.id),
           source = prior.bindings
             .flatMap((p) => p.workItems)
             .find(
@@ -450,7 +454,7 @@ export class MapAmendmentService {
               t.executionScope.bindingRevision === old.bindingRevision)),
       );
   }
-  async propose(context: AuthContext, ws: WorkspaceId, id: string, input: ProposeMapAmendment) {
+  async propose(context: AuthContext, ws: WorkspaceId, id: RoadmapId, input: ProposeMapAmendment) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const r = this.roadmap(ws, id);
     if (r.version !== input.expectedVersion) conflict('Roadmap changed; refresh before proposing.');
@@ -473,7 +477,7 @@ export class MapAmendmentService {
     }
     const at = new Date().toISOString(),
       a: MapAmendment = {
-        id: randomUUID(),
+        id: asMapAmendmentId(randomUUID()),
         workspaceId: ws,
         roadmapId: id,
         baseRevision: r.definition.revision,
@@ -512,7 +516,7 @@ export class MapAmendmentService {
     }
     return this.view(context, ws, id);
   }
-  async decide(context: AuthContext, ws: WorkspaceId, id: string, input: DecideMapAmendment) {
+  async decide(context: AuthContext, ws: WorkspaceId, id: RoadmapId, input: DecideMapAmendment) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const a = this.proposal(ws, id, input.amendmentId);
     if (a.decision) conflict('This amendment already has a decision.');
@@ -670,8 +674,8 @@ export class MapAmendmentService {
     tx: StorageRepositories,
     context: AuthContext,
     ws: WorkspaceId,
-    roadmapId: string,
-    id: string,
+    roadmapId: RoadmapId,
+    id: MapAmendmentId,
     operation: string,
     at: string,
   ) {

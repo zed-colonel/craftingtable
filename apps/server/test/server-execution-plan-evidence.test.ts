@@ -9,7 +9,10 @@ import {
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
+  asNativeVerificationApprovalId,
   asPlanVersionId,
+  asRoadmapId,
+  asRuntimeGenerationId,
   cycleAttention,
   DEFAULT_COMPLETION_POLICY,
   PLAN_ACCEPTANCE_INPUTS,
@@ -309,7 +312,7 @@ it('refuses Start for a roadmap whose plan acceptance was generated for another 
   });
   const other = f.service.save(f.auth, ws, {
     ...f.input,
-    roadmapId: randomUUID(),
+    roadmapId: asRoadmapId(randomUUID()),
     expectedVersion: 0,
     name: 'Another saved roadmap',
   }).roadmap;
@@ -547,7 +550,7 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
     ws = state.workspaceId,
     scope = f.scopes[0]!;
   const runtime = {
-    id: randomUUID(),
+    id: asRuntimeGenerationId(randomUUID()),
     workspaceId: ws,
     definitionId: scope.definitionId,
     bindingRevision: 1,
@@ -563,7 +566,7 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
   const resolved = resolveScope(tx, ws, state.workItemId, scope);
   expect(phaseResources(tx, resolved, 'verify').blockers[0]?.kind).toBe('authorization');
   const approval = {
-    id: randomUUID(),
+    id: asNativeVerificationApprovalId(randomUUID()),
     workspaceId: ws,
     definitionId: scope.definitionId,
     bindingRevision: 1,
@@ -593,7 +596,11 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
       reviewRunId: asAgentRunId('missing'),
     } as import('@craftingtable/domain').ScopeReceipt),
   ).toBe(false);
-  tx.runtimeEvidence.addNativeApproval({ ...approval, id: randomUUID(), approved: false });
+  tx.runtimeEvidence.addNativeApproval({
+    ...approval,
+    id: asNativeVerificationApprovalId(randomUUID()),
+    approved: false,
+  });
   expect(phaseResources(tx, resolved, 'verify').blockers[0]?.kind).toBe('authorization');
   // The HTTP boundary requires CSRF before an audit/approval can run.
   const denied = await state.context.app.inject({
@@ -699,7 +706,7 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
         runtimeId: runtime.id,
         manifestPath: '/unused',
         manifestDigest,
-        nativeApprovalId: randomUUID(),
+        nativeApprovalId: asNativeVerificationApprovalId(randomUUID()),
       });
       expect(currentScopeReceipt(tx, ws, parentReceipt)).toBe(false);
       const tree = {
@@ -716,7 +723,10 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
       ).not.toThrow();
       receipt = {
         ...receipt,
-        nativeVerification: { ...receipt.nativeVerification, approvalId: randomUUID() },
+        nativeVerification: {
+          ...receipt.nativeVerification,
+          approvalId: asNativeVerificationApprovalId(randomUUID()),
+        },
       };
       expect(() => state.context.services.runtimeEvidenceService.assertRun(tree, runId)).toThrow(
         'successful ct-native',
@@ -807,7 +817,7 @@ it('alerts for an eligible missing native environment, not future dependency wai
   expect(alerts()[0]?.state).toBe('open');
   expect(alerts()[0]?.message).toContain('controlled-native-test-host');
   const { nativeHostDigest } = await import('@craftingtable/agents');
-  const runtimeId = randomUUID();
+  const runtimeId = asRuntimeGenerationId(randomUUID());
   tx.runtimeEvidence.addGeneration({
     id: runtimeId,
     workspaceId: ws,
@@ -822,7 +832,7 @@ it('alerts for an eligible missing native environment, not future dependency wai
     createdByUserId: state.userId,
   });
   tx.runtimeEvidence.addNativeApproval({
-    id: randomUUID(),
+    id: asNativeVerificationApprovalId(randomUUID()),
     workspaceId: ws,
     definitionId: f.parentScope.definitionId,
     bindingRevision: 1,

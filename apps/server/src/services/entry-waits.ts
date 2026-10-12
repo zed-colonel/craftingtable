@@ -2,8 +2,10 @@ import {
   type EntryWaitCode,
   effectiveCycleAttention,
   phaseBlockerCode,
+  type RoadmapEntryId,
   type RoadmapEntryWait,
   type WorkCycle,
+  type WorkCycleId,
 } from '@craftingtable/domain';
 import type { PhaseGateError } from './phase-resources.js';
 
@@ -35,7 +37,7 @@ export function waiting(
   return { wait: { code, reason: reason.slice(0, 4000), ...(refs ? { refs } : {}) } };
 }
 
-export function blockerWait(blocker: EntryBlocker, entryId?: string): EntryStep {
+export function blockerWait(blocker: EntryBlocker, entryId?: RoadmapEntryId): EntryStep {
   return waiting(blocker.kind, blocker.reason, entryId ? { entryId } : undefined);
 }
 
@@ -73,7 +75,7 @@ export function cycleStep(cycle: WorkCycle): EntryStep {
 export function roundStep(
   inner: EntryStep,
   reason: string,
-  refs: { readonly entryId?: string; readonly cycleId?: string },
+  refs: { readonly entryId?: RoadmapEntryId; readonly cycleId?: WorkCycleId },
 ): EntryStep {
   return 'wait' in inner ? inner : waiting('recovery-round', reason, refs);
 }

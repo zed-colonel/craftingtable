@@ -4,6 +4,7 @@ import { startAgentRunResponseSchema } from '@craftingtable/contracts';
 import {
   asPlanVersionId,
   asProjectId,
+  asQualificationEnvironmentId,
   asWorkItemDependencyId,
   asWorkItemId,
   type ExecutionScope,
@@ -933,7 +934,7 @@ it('refuses to record a merged slice once integration has moved past it, even wi
     runtimeId: runtime.current!.id,
     subject: spec.subject,
     subjectCommit: git(['rev-parse', integration], root).trim(),
-    environmentId: 'local-tests',
+    environmentId: asQualificationEnvironmentId('local-tests'),
     executedBy: 'implementation-author',
     executedAt: new Date().toISOString(),
     reviewers: [{ identity: 'reviewer', roles: spec.reviewerRoles, artifact: 'review' }],

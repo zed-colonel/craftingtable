@@ -12,6 +12,8 @@ import type {
 import {
   AGENT_PROFILE_PURPOSES,
   agentSelections,
+  asConcurrencyDefinitionId,
+  asWorkCycleId,
   CYCLE_STEPS,
   type CycleProfiles,
   type CycleProjection,
@@ -1253,7 +1255,7 @@ describe('automated cycle controls', () => {
       branchName: 'ct/aq-01-b',
     };
     const stopped = (id: string, tree: WorktreeSummary, reason: string): WorkCycle => ({
-      id,
+      id: asWorkCycleId(id),
       workspaceId: worktree.workspaceId,
       projectId: worktree.projectId,
       workItemId: worktree.workItemId,
@@ -1502,7 +1504,7 @@ describe('automated cycle controls', () => {
   });
   it('keeps merge approval with the operator and exposes explicit pause/stop controls', async () => {
     const cycle: WorkCycle = {
-      id: 'aab388ca-d51a-41c9-9da6-e12a21c5fb25',
+      id: asWorkCycleId('aab388ca-d51a-41c9-9da6-e12a21c5fb25'),
       workspaceId: worktree.workspaceId,
       projectId: worktree.projectId,
       workItemId: worktree.workItemId,
@@ -1689,7 +1691,7 @@ describe('automated cycle controls', () => {
     expect(screen.getByRole('button', { name: 'Continue with guidance' })).toBeTruthy();
     const sibling = {
       ...cycle,
-      id: 'second-cycle',
+      id: asWorkCycleId('second-cycle'),
       worktreeId: siblingTree.id,
       reason: 'Sibling awaiting acceptance.',
     };
@@ -1716,7 +1718,12 @@ describe('automated cycle controls', () => {
     await waitFor(() => expect(posted().at(-1)).toEqual(controlled(sibling, { action: 'stop' })));
     view.unmount();
     for (const kind of ['parent-acceptance', 'slice-verification'] as const) {
-      const scope = { kind, definitionId: 'map', bindingRevision: 4, sourceId: 'wi/WI-01' };
+      const scope = {
+        kind,
+        definitionId: asConcurrencyDefinitionId('map'),
+        bindingRevision: 4,
+        sourceId: 'wi/WI-01',
+      };
       const reviewTree = { ...siblingTree, executionScope: scope };
       const reviewCycle = {
         ...sibling,
@@ -1848,7 +1855,7 @@ it('offers only an independent review on a parent acceptance worktree with revie
             ...worktree,
             executionScope: {
               kind: 'parent-acceptance',
-              definitionId: 'map',
+              definitionId: asConcurrencyDefinitionId('map'),
               bindingRevision: 1,
               sourceId: 'AQ-01',
             },

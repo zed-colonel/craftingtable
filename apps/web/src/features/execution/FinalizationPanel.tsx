@@ -3,7 +3,6 @@ import type {
   AgentRunDetailResponse,
   ExecutionStatusResponse,
   FinalizationView,
-  StartFinalizationRequest,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
 import {
@@ -29,6 +28,7 @@ import {
 import {
   controlFinalization,
   type FinalizationControl,
+  type FinalizationStart,
   loadFinalizations,
   startFinalization,
 } from '../../lib/finalization-api.js';
@@ -82,7 +82,7 @@ export function FinalizationPanel({
   /** After a command: the plan's finalizations and branches are read again at once. */
   const reload = () => store.refreshNow([finalizationsKey, branchesKey]);
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
-  const [draft, setDraft] = useState<StartFinalizationRequest>();
+  const [draft, setDraft] = useState<FinalizationStart>();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [commandError, setError] = useState<string>();

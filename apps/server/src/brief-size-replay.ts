@@ -3,7 +3,9 @@ import {
   type AgentRun,
   type AgentRunId,
   type AgentRunRole,
+  asAcceptanceCaseId,
   asAgentRunId,
+  asCheckpointId,
   mapCapabilities,
   truncateUtf8Bytes,
   type WorkItem,
@@ -161,11 +163,11 @@ function parseActive(text: string): ActiveReview | undefined {
   const claims = /Required claims: (\[.*?\])\. Required cases: (\[.*?\])\./.exec(text);
   return {
     kind: head[1] as NonNullable<ActiveReview>['kind'],
-    sourceRunId: head[2]!,
+    sourceRunId: asAgentRunId(head[2]!),
     roles: head[3] ? head[3].split(', ') : [],
-    ...(checkpoint ? { checkpointId: checkpoint } : {}),
+    ...(checkpoint ? { checkpointId: asCheckpointId(checkpoint) } : {}),
     requirements: claims ? (JSON.parse(claims[1]!) as string[]) : [],
-    caseIds: claims ? (JSON.parse(claims[2]!) as string[]) : [],
+    caseIds: claims ? (JSON.parse(claims[2]!) as string[]).map(asAcceptanceCaseId) : [],
     contextDigest: '',
   };
 }

@@ -5,13 +5,10 @@ import type {
   AmendmentImpact,
   MapAmendmentsView,
   CrossProjectFinalizationView,
+  mapSelectionSchema,
+  RequestInput,
 } from '@craftingtable/contracts';
-import {
-  asAgentRunId,
-  type Roadmap,
-  type MapSelection,
-  type WorkspaceId,
-} from '@craftingtable/domain';
+import { asAgentRunId, type Roadmap, type WorkspaceId } from '@craftingtable/domain';
 import { loadFinalizationReadiness, roadmapAddress } from '../../lib/roadmap-api.js';
 import {
   decideAmendment,
@@ -21,6 +18,9 @@ import {
 } from './amendment-api.js';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
+/** An amendment's candidate binding and target, as this form sends it. */
+type Candidate = RequestInput<typeof mapSelectionSchema>;
+
 export function AmendmentDecision({
   workspaceId,
   roadmap,
@@ -35,7 +35,7 @@ export function AmendmentDecision({
   const base = roadmapAddress(workspaceId, roadmap.id);
   const [view, setView] = useState<MapAmendmentsView>(),
     [readiness, setReadiness] = useState<CrossProjectFinalizationView>(),
-    [candidate, setCandidate] = useState<MapSelection>(() => {
+    [candidate, setCandidate] = useState<Candidate>(() => {
       const c = roadmap.definition.crossProject!;
       return {
         definitionId: c.definitionId,
@@ -88,7 +88,7 @@ export function AmendmentDecision({
     (c) =>
       c.definitionId === candidate.definitionId && c.bindingRevision === candidate.bindingRevision,
   );
-  const change = (next: MapSelection) => {
+  const change = (next: Candidate) => {
     setCandidate(next);
     setImpact(undefined);
     setReuse([]);
@@ -209,7 +209,7 @@ export function AmendmentDecision({
             <select
               value={candidate.selection}
               onChange={(e) =>
-                change({ ...candidate, selection: e.target.value as MapSelection['selection'] })
+                change({ ...candidate, selection: e.target.value as Candidate['selection'] })
               }
             >
               <option value="target-only">Selected target only</option>

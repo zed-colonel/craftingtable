@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { NotificationStatus, SaveNotificationsRequest } from '@craftingtable/contracts';
 import {
+  asNotificationRecordId,
   type AttentionItem,
   asEventId,
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -313,7 +314,7 @@ export class NotificationService {
       });
       const now = this.now().toISOString();
       tx.notifications.saveRecord({
-        id: randomUUID(),
+        id: asNotificationRecordId(randomUUID()),
         workspaceId,
         sourceKey: `test:${randomUUID()}`,
         kind: 'test',

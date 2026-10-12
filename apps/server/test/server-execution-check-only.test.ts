@@ -12,6 +12,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, CheckOnlyManifest } from '@craftingtable/agents';
 import type { AgentRunId, WorktreeId } from '@craftingtable/domain';
+import {
+  asDeclaredCheckId,
+  asRepositoryCheckDeclarationId,
+  asRoadmapId,
+} from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { DeclaredChecksMissingError } from '../src/services/errors.js';
 import {
@@ -310,7 +315,11 @@ it('refuses a delegated merge of a check-only review without a daemon receipt of
       worktree.id,
       {},
       undefined,
-      { roadmapId: '00000000-0000-4000-8000-000000000001', definitionRevision: 1, check: () => {} },
+      {
+        roadmapId: asRoadmapId('00000000-0000-4000-8000-000000000001'),
+        definitionRevision: 1,
+        check: () => {},
+      },
     ),
   ).rejects.toBeInstanceOf(DeclaredChecksMissingError);
   expect(
@@ -328,7 +337,11 @@ async function expectBothMergesRefused(state: State, worktreeId: WorktreeId) {
       worktreeId,
       {},
       undefined,
-      { roadmapId: '00000000-0000-4000-8000-000000000001', definitionRevision: 1, check: () => {} },
+      {
+        roadmapId: asRoadmapId('00000000-0000-4000-8000-000000000001'),
+        definitionRevision: 1,
+        check: () => {},
+      },
     ),
   ).rejects.toBeInstanceOf(DeclaredChecksMissingError);
   expect(await mergeGate(state, worktreeId)).toMatchObject({
@@ -381,7 +394,7 @@ it.each([
       // The daemon's own run of the adopted check, before the reviewer: it fails.
       declareFixtureChecks(state, [
         {
-          id: 'fixture',
+          id: asDeclaredCheckId('fixture'),
           argv: ['git', 'rev-parse', '--verify', 'refs/heads/no-such-branch'],
           definitionPaths: [],
         },
@@ -457,7 +470,11 @@ it("a run is held to its repository's current adoption, not an earlier one (R-G1
     state.workspaceId,
     worktree.repositoryId,
   )[0]!;
-  storage.runtimeEvidence.addCheckDeclaration({ ...first, id: randomUUID(), version: 2 });
+  storage.runtimeEvidence.addCheckDeclaration({
+    ...first,
+    id: asRepositoryCheckDeclarationId(randomUUID()),
+    version: 2,
+  });
   const current = storage.runtimeEvidence.checkDeclarations(
     state.workspaceId,
     worktree.repositoryId,

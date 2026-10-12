@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { operatorWaitReportSchema } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
+import { asWorkCycleId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCycleFixture, storedCycle } from './cycle-test-support.js';
@@ -108,9 +109,12 @@ describe('operator wait (R-C1)', () => {
 
   it('recovers the kind of an older awaiting-merge record from the cycle it belongs to', () => {
     const cycles: Record<string, Partial<WorkCycle>> = {
-      scope: { id: 'scope', executionScope: { kind: 'slice-verification' } as never },
-      final: { id: 'final', finalizationId: 'f-1' as never },
-      item: { id: 'item' },
+      scope: {
+        id: asWorkCycleId('scope'),
+        executionScope: { kind: 'slice-verification' } as never,
+      },
+      final: { id: asWorkCycleId('final'), finalizationId: 'f-1' as never },
+      item: { id: asWorkCycleId('item') },
     };
     const at = (hour: number) => new Date(Date.UTC(2026, 8, 20, hour)).toISOString();
     const storage = {

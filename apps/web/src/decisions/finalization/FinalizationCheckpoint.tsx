@@ -1,15 +1,12 @@
-import type {
-  ControlFinalizationRequest,
-  ExecutionStatusResponse,
-  FinalizationView,
-} from '@craftingtable/contracts';
+import type { ExecutionStatusResponse, FinalizationView } from '@craftingtable/contracts';
 import { type AgentSelection, remediationAllowance, remediationUsed } from '@craftingtable/domain';
 import { useId, useState } from 'react';
 
+import type { FinalizationCommand } from './finalization-api.js';
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
 
 type CheckpointAction = Extract<
-  ControlFinalizationRequest['action'],
+  FinalizationCommand['action'],
   'remediate-findings' | 'authorize-remediation' | 'resume'
 >;
 
@@ -23,7 +20,7 @@ export function FinalizationCheckpoint({
   view: FinalizationView;
   busy: boolean;
   backends?: ExecutionStatusResponse['backends'];
-  onDecide: (input: ControlFinalizationRequest) => void;
+  onDecide: (input: FinalizationCommand) => void;
   /** The decisions the daemon offers, offered exactly (R-A6 2b). */
   actions: readonly string[];
 }) {

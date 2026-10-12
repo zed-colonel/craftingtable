@@ -5,11 +5,22 @@ import { attentionFeedSchema, notificationStatusSchema } from '@craftingtable/co
 import {
   asAgentRunEventId,
   asAgentRunId,
+  asCheckpointId,
+  asConcurrencyDefinitionId,
+  asDecisionPreparationId,
+  asDelegationAssignmentId,
+  asFinalizationId,
+  asMergeOperationId,
+  asNotificationRecordId,
   asPlanBundleId,
   asPlanVersionId,
   asProjectId,
+  asRoadmapAttemptId,
+  asRoadmapEntryId,
+  asRoadmapId,
   asSourceRepositoryId,
   asUserId,
+  asWorkCycleId,
   asWorkItemId,
   asWorkspaceId,
   asWorkspaceMembershipId,
@@ -158,7 +169,7 @@ async function fixture(
   });
   const profile = { backend: 'claude-code' as const, permissionMode: 'auto' as const };
   let cycle: WorkCycle = {
-    id: randomUUID(),
+    id: asWorkCycleId(randomUUID()),
     workspaceId,
     projectId,
     workItemId,
@@ -279,7 +290,7 @@ function restartedService(
   );
 }
 function roadmapFixture(f: Fixture, changes: Partial<Roadmap> = {}): Roadmap {
-  const id = randomUUID();
+  const id = asRoadmapId(randomUUID());
   return {
     id,
     workspaceId: f.workspaceId,
@@ -943,7 +954,7 @@ it('repeats roadmap preparation alerts and resolves on pause', async () => {
 it('retains parallel item reminder timing while siblings progress and resolves an item hold on pause', async () => {
   const f = await fixture();
   f.setCycle('paused');
-  const entryId = randomUUID();
+  const entryId = asRoadmapEntryId(randomUUID());
   const cycle = f.context.storage.execution.cycles.listForWorkspace(f.workspaceId)[0];
   if (!cycle) throw new Error('Missing fixture cycle');
   const base = roadmapFixture(f);
@@ -1024,7 +1035,7 @@ it('retains parallel item reminder timing while siblings progress and resolves a
       version: 4,
       attempts: [
         {
-          id: randomUUID(),
+          id: asRoadmapAttemptId(randomUUID()),
           entryId,
           definitionRevision: 1,
           cycleId: cycle.id,
@@ -1252,8 +1263,8 @@ describe('notification noise controls (R-A1, R-A2)', () => {
   it('honours a delegation grant that makes integration merge manual', async () => {
     const f = await fixture();
     const cycle = f.cycle();
-    const id = randomUUID();
-    const entryId = randomUUID();
+    const id = asRoadmapId(randomUUID());
+    const entryId = asRoadmapEntryId(randomUUID());
     const definition: RoadmapDefinition = {
       roadmapId: id,
       revision: 1,
@@ -1289,7 +1300,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
       delegatedByUserId: f.auth.user.id,
       attempts: [
         {
-          id: randomUUID(),
+          id: asRoadmapAttemptId(randomUUID()),
           entryId,
           definitionRevision: 1,
           cycleId: cycle.id,
@@ -1317,7 +1328,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
         version: 2,
         delegationAssignments: [
           {
-            id: randomUUID(),
+            id: asDelegationAssignmentId(randomUUID()),
             entryIds: [entryId],
             automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
             reviewerRoles: [],
@@ -1440,11 +1451,11 @@ describe('durable attention items (R-A4)', () => {
         ...running,
         decisionPreparations: [
           {
-            id: randomUUID(),
-            definitionId: randomUUID(),
+            id: asDecisionPreparationId(randomUUID()),
+            definitionId: asConcurrencyDefinitionId(randomUUID()),
             bindingRevision: 1,
             bindingDigest: 'd'.repeat(64),
-            checkpointId: 'AQ-ADR-003',
+            checkpointId: asCheckpointId('AQ-ADR-003'),
             workspaceId: f.workspaceId,
             repositoryId: f.repositoryId,
             projectId: f.projectId,
@@ -1602,7 +1613,7 @@ describe('durable attention items (R-A4)', () => {
     f.setCycle('stopped');
     const codes = () => openItems(f).map((item) => item.code);
     const operation = {
-      id: randomUUID(),
+      id: asMergeOperationId(randomUUID()),
       workspaceId: f.workspaceId,
       worktreeId: f.worktreeId,
       status: 'reserved' as const,
@@ -1637,7 +1648,7 @@ describe('durable attention items (R-A4)', () => {
     ) as { finalization: Finalization };
     const finalization: Finalization = {
       ...recorded.finalization,
-      id: randomUUID(),
+      id: asFinalizationId(randomUUID()),
       workspaceId: f.workspaceId,
       projectId: f.projectId,
       planVersionId: asPlanVersionId('plan-1'),
@@ -1780,9 +1791,9 @@ describe('durable attention items (R-A4)', () => {
   it('lists every stop kind of 2026-09-25 in the inbox feed with the refs its controls need', async () => {
     const f = await fixture();
     const owner = {
-      roadmapId: randomUUID(),
-      attemptId: randomUUID(),
-      entryId: randomUUID(),
+      roadmapId: asRoadmapId(randomUUID()),
+      attemptId: asRoadmapAttemptId(randomUUID()),
+      entryId: asRoadmapEntryId(randomUUID()),
       definitionRevision: 1,
     };
     for (const code of [
@@ -2126,7 +2137,7 @@ describe('durable attention items (R-A4)', () => {
     f.advance(11);
     const sentAt = new Date(f.now().getTime() - 10 * 60_000).toISOString();
     f.context.storage.notifications.saveRecord({
-      id: randomUUID(),
+      id: asNotificationRecordId(randomUUID()),
       workspaceId: f.workspaceId,
       sourceKey: `cycle:${f.cycle().id}:awaiting-merge`,
       kind: 'merge',
@@ -2273,7 +2284,7 @@ describe('attention items: review fixes (R-A4)', () => {
     await f.service.tick();
     const sentAt = new Date(f.now().getTime() - 5 * 60_000).toISOString();
     f.context.storage.notifications.saveRecord({
-      id: randomUUID(),
+      id: asNotificationRecordId(randomUUID()),
       workspaceId: f.workspaceId,
       sourceKey: 'storage:volumes',
       kind: 'attention',
@@ -2326,13 +2337,13 @@ describe('attention items: review fixes (R-A4)', () => {
   });
   it('re-derives a roadmap stop when its cycle item resolves through the worktree, and supersedes item-for-item', async () => {
     const f = await fixture();
-    const entryId = randomUUID();
+    const entryId = asRoadmapEntryId(randomUUID());
     const base = roadmapFixture(f);
     const roadmap: Roadmap = {
       ...base,
       attempts: [
         {
-          id: randomUUID(),
+          id: asRoadmapAttemptId(randomUUID()),
           entryId,
           definitionRevision: 1,
           cycleId: f.cycle().id,
@@ -2365,7 +2376,7 @@ describe('attention items: review fixes (R-A4)', () => {
   });
   it('a review whose automatic recovery stopped converging is one item carrying the rounds (R-C5)', async () => {
     const f = await fixture();
-    const entryId = randomUUID();
+    const entryId = asRoadmapEntryId(randomUUID());
     const base = roadmapFixture(f);
     const { attention: _none, ...running } = base;
     const roadmap: Roadmap = {
@@ -2373,7 +2384,7 @@ describe('attention items: review fixes (R-A4)', () => {
       status: 'running',
       attempts: [
         {
-          id: randomUUID(),
+          id: asRoadmapAttemptId(randomUUID()),
           entryId,
           definitionRevision: 1,
           cycleId: f.cycle().id,
@@ -2448,14 +2459,14 @@ describe('attention items: review fixes (R-A4)', () => {
   });
   it('replaces a roadmap hold with its cycle\u2019s own stop, as superseded', async () => {
     const f = await fixture();
-    const entryId = randomUUID();
+    const entryId = asRoadmapEntryId(randomUUID());
     const base = roadmapFixture(f);
     const { attention: _none, ...roadmap } = {
       ...base,
       status: 'running' as const,
       attempts: [
         {
-          id: randomUUID(),
+          id: asRoadmapAttemptId(randomUUID()),
           entryId,
           definitionRevision: 1,
           cycleId: f.cycle().id,

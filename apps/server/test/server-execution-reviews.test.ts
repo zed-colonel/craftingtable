@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
-import { agentSelections, asAgentRunId, asWorktreeId } from '@craftingtable/domain';
+import {
+  agentSelections,
+  asAgentRunId,
+  asCheckpointId,
+  asDecisionPreparationId,
+  asPlanningTargetId,
+  asQualificationEnvironmentId,
+  asSliceId,
+  asWorktreeId,
+} from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   acceptedEvidence,
@@ -110,7 +119,7 @@ itNeedsCargo(
       consumers: [{ alias: 'local', upstreams: [] }],
       environments: [
         {
-          id: 'local',
+          id: asQualificationEnvironmentId('local'),
           kind: 'local-development',
           identityDigest: '1'.repeat(64),
           fixtureDigest: '2'.repeat(64),
@@ -164,7 +173,7 @@ itNeedsCargo(
     const input = {
       sourceRunId,
       sourceReportDigest: inbox.decisions[0]!.recommendation!.sourceReportDigest,
-      checkpointId: 'LOCAL-ADR-01',
+      checkpointId: asCheckpointId('LOCAL-ADR-01'),
       bindingRevision: 1,
       coverage: 'clauses' as const,
       proposal: 'Approve identifiers for the domain slice only.',
@@ -172,7 +181,11 @@ itNeedsCargo(
       retainedObligations:
         'The later slice still requires transport, credential and live-provider decisions.',
       consumers: [
-        { sliceId: 'local/AQ-01/a', phase: 'merge' as const, replacesFullCheckpoint: true },
+        {
+          sliceId: asSliceId('local/AQ-01/a'),
+          phase: 'merge' as const,
+          replacesFullCheckpoint: true,
+        },
       ],
     };
     await expect(
@@ -253,7 +266,7 @@ itNeedsCargo(
     const projected = crossProjectState(tx, ws, {
       definitionId: id,
       bindingRevision: 1,
-      targetId: 'LOCAL',
+      targetId: asPlanningTargetId('LOCAL'),
       selection: 'prioritize-full',
     });
     const early = projected.nodes.find(
@@ -271,7 +284,10 @@ itNeedsCargo(
     await expect(
       svc.proposeArchitectureDecision(f.auth, ws, id, {
         ...input,
-        consumers: [...input.consumers, { ...input.consumers[0]!, sliceId: 'local/AQ-01/b' }],
+        consumers: [
+          ...input.consumers,
+          { ...input.consumers[0]!, sliceId: asSliceId('local/AQ-01/b') },
+        ],
       }),
     ).rejects.toThrow('Retain at least one later slice');
     await expect(
@@ -1559,7 +1575,7 @@ itNeedsCargo(
       f.parentScope.definitionId,
       {
         bindingRevision: f.scopes[0]!.bindingRevision,
-        checkpointId: 'LOCAL-ADR-01',
+        checkpointId: asCheckpointId('LOCAL-ADR-01'),
         sourceRunId: cycle.currentRunId,
         sourceReportDigest: adr.recommendation!.sourceReportDigest,
         coverage: 'full',
@@ -1876,7 +1892,7 @@ it('prepares a decision before gated development, keeps it proposal-only, and bi
   // Rebinding makes prior preparation unavailable for new proposals without discarding history.
   const reservation = {
     ...prep,
-    id: randomUUID(),
+    id: asDecisionPreparationId(randomUUID()),
     runId: asAgentRunId(randomUUID()),
     worktreeId: asWorktreeId(randomUUID()),
   };
@@ -1975,7 +1991,7 @@ itNeedsCargo(
     const preview = f.service.view(f.auth, f.state.workspaceId, {
       definitionId: f.parentScope.definitionId,
       bindingRevision: 1,
-      targetId: 'LOCAL',
+      targetId: asPlanningTargetId('LOCAL'),
       selection: 'target-only',
     });
     expect(preview.nodes.find((n) => n.sourceId === 'LOCAL-PROFILE')?.reviewerRoles).toContain(

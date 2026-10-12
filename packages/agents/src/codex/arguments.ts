@@ -11,17 +11,52 @@ import { CLAUDE_CREDENTIALS_FILE, sandboxDeniedReads } from '../sandbox-reads.js
  */
 export const CODEX_PERMISSION_PROFILE = 'craftingtable';
 
-/** Whether the run's commands are sandboxed: every posture but unrestricted, and read-only. */
+/**
+ * The permission profile a read-only run's commands get (R-I7, operator decision 2026-10-12),
+ * defined and selected as the sandboxed profile is. A read-only run is a decision preparation or
+ * a question stop's investigation, whatever its posture.
+ */
+export const CODEX_READ_ONLY_PROFILE = 'craftingtable-read-only';
+
+/**
+ * Whether the run's commands are sandboxed with the writable profile: every posture but
+ * unrestricted, and not read-only (a read-only run gets `CODEX_READ_ONLY_PROFILE` instead).
+ */
 export function codexSandboxed(request: AgentLaunchRequest): boolean {
   return !request.readOnly && request.permissionMode !== 'unrestricted';
 }
 
 /**
- * The run's permission profile (R-G14; the route the step-1 experiment found). Commands may write
- * the worktree and the temporary directories (`:workspace`, as the legacy workspace-write
- * sandbox), the run's directories and the outside sources' caches. They reach no network but the
- * sources' exact hosts, through Codex's own proxy, which refuses any other host and cuts a direct
- * connection. With no source, the network stays off.
+ * The profile the run's commands get, by id: the read-only one for a read-only run, the
+ * writable one for any other run but an unrestricted one, which has no sandbox and no profile.
+ */
+function codexProfileId(request: AgentLaunchRequest): string | undefined {
+  if (request.readOnly) return CODEX_READ_ONLY_PROFILE;
+  return codexSandboxed(request) ? CODEX_PERMISSION_PROFILE : undefined;
+}
+
+/**
+ * A read-only run's profile (R-I7; the route the 2026-10-12 experiment found on Codex 0.160.0).
+ * Commands may read what the account can, as under the legacy read-only sandbox it replaces, but
+ * not `codexDeniedReads`, the same list as a sandboxed run's; they write nothing (the worktree,
+ * the run's directories, `/tmp` and `$TMPDIR` included, as before) and reach no network. The
+ * legacy sandbox denied no reads, so a decision preparation's or an investigation's commands
+ * could read the daemon's database, backups and credentials file and the operator's `~/.ssh`.
+ */
+function codexReadOnlyProfile(request: AgentLaunchRequest): Record<string, unknown> {
+  return {
+    extends: ':read-only',
+    filesystem: Object.fromEntries(codexDeniedReads(request).map((path) => [path, 'deny'])),
+    network: { enabled: false },
+  };
+}
+
+/**
+ * A sandboxed run's permission profile (R-G14; the route the step-1 experiment found). Commands
+ * may write the worktree and the temporary directories (`:workspace`, as the legacy
+ * workspace-write sandbox), the run's directories and the outside sources' caches. They reach no
+ * network but the sources' exact hosts, through Codex's own proxy, which refuses any other host
+ * and cuts a direct connection. With no source, the network stays off.
  */
 function codexPermissionProfile(request: AgentLaunchRequest): Record<string, unknown> {
   const sources = launchOutsideSources(request);
@@ -84,11 +119,12 @@ function throughLinks(path: string): string {
 }
 
 /**
- * What a sandboxed run's commands may not read (R-G14, operator decision 2026-10-08): the list
- * Claude's sandbox denies (`sandboxDeniedReads`), in the form Codex 0.160.0 can apply. It masks
- * any number of directories and paths that do not exist, but more than one existing file makes
- * every command fail, so the whole of `~/.claude` is denied in place of its credentials file, and
- * each path is taken through its links and listed once (the Docker socket has two names).
+ * What a sandboxed or read-only run's commands may not read (R-G14, operator decision
+ * 2026-10-08; read-only runs since R-I7): the list Claude's sandbox denies (`sandboxDeniedReads`),
+ * in the form Codex 0.160.0 can apply. It masks any number of directories and paths that do not
+ * exist, but more than one existing file makes every command fail, so the whole of `~/.claude` is
+ * denied in place of its credentials file, and each path is taken through its links and listed
+ * once (the Docker socket has two names).
  */
 export function codexDeniedReads(
   request: AgentLaunchRequest,
@@ -127,9 +163,14 @@ export function unmaskableDeniedFiles(paths: readonly string[]): string[] | unde
   return files.length > 1 ? files : undefined;
 }
 
-/** For a sandboxed run, the denied reads its profile could not mask; undefined otherwise. */
+/**
+ * For a run with a profile (sandboxed or read-only), the denied reads it could not mask;
+ * undefined otherwise.
+ */
 export function codexUnmaskableFiles(request: AgentLaunchRequest): string[] | undefined {
-  return codexSandboxed(request) ? unmaskableDeniedFiles(codexDeniedReads(request)) : undefined;
+  return codexProfileId(request) === undefined
+    ? undefined
+    : unmaskableDeniedFiles(codexDeniedReads(request));
 }
 
 /** The outside sources' caches a sandboxed run may write, which the backend creates first. */
@@ -139,16 +180,23 @@ export function codexSourceCaches(request: AgentLaunchRequest): string[] {
     : [];
 }
 
-/** Permission overrides are explicit on both new and resumed threads. */
+/**
+ * Permission overrides are explicit on both new and resumed threads. A sandboxed or read-only
+ * run's profile is defined here, in the thread's configuration, and selected by id; only an
+ * unrestricted run has the legacy `danger-full-access` sandbox.
+ */
 export function codexThreadParams(request: AgentLaunchRequest): Record<string, unknown> {
-  const sandboxed = codexSandboxed(request);
-  const profile = sandboxed ? codexPermissionProfile(request) : undefined;
+  const id = codexProfileId(request);
+  const profile =
+    id === undefined
+      ? undefined
+      : id === CODEX_READ_ONLY_PROFILE
+        ? codexReadOnlyProfile(request)
+        : codexPermissionProfile(request);
   return {
     cwd: request.cwd,
     ...CODEX_APPROVAL,
-    ...(profile
-      ? { permissions: CODEX_PERMISSION_PROFILE }
-      : { sandbox: request.readOnly ? 'read-only' : 'danger-full-access' }),
+    ...(id === undefined ? { sandbox: 'danger-full-access' } : { permissions: id }),
     ...(request.model === undefined ? {} : { model: request.model }),
     ...(request.appendSystemPrompt === undefined
       ? {}
@@ -161,7 +209,7 @@ export function codexThreadParams(request: AgentLaunchRequest): Record<string, u
             ...((profile.network as { enabled: boolean }).enabled
               ? { 'features.network_proxy': true }
               : {}),
-            [`permissions.${CODEX_PERMISSION_PROFILE}`]: profile,
+            [`permissions.${id}`]: profile,
           }
         : {
             'sandbox_workspace_write.writable_roots': request.additionalDirectories ?? [],
@@ -178,16 +226,14 @@ export function codexThreadParams(request: AgentLaunchRequest): Record<string, u
  */
 const CODEX_APPROVAL = { approvalPolicy: 'never', approvalsReviewer: 'user' } as const;
 
+/** Every turn selects the thread's profile again, or the unrestricted run's legacy policy. */
 export function codexTurnParams(request: AgentLaunchRequest): Record<string, unknown> {
+  const id = codexProfileId(request);
   return {
     ...(request.reasoningEffort ? { effort: request.reasoningEffort } : {}),
     cwd: request.cwd,
     ...CODEX_APPROVAL,
-    ...(codexSandboxed(request)
-      ? { permissions: CODEX_PERMISSION_PROFILE }
-      : {
-          sandboxPolicy: request.readOnly ? { type: 'readOnly' } : { type: 'dangerFullAccess' },
-        }),
+    ...(id === undefined ? { sandboxPolicy: { type: 'dangerFullAccess' } } : { permissions: id }),
     ...(request.model === undefined ? {} : { model: request.model }),
   };
 }

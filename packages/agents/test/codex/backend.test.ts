@@ -413,14 +413,68 @@ it('refuses to launch a sandboxed run whose denied reads would need more than on
   });
   await expect(refused).rejects.toThrow(files[0]);
   await expect(refused).rejects.toThrow(files[1]);
-  // A read-only run gets no profile, so nothing stops it.
-  const readOnly = await launch('', {
+  // A read-only run denies the same reads (R-I7), so it is refused the same way.
+  const readOnly = launch('', {
     readOnly: true,
     deniedReads: files,
     environment: { CARGO_HOME: home },
   });
-  readOnly.session.end();
-  await readOnly.done;
+  await expect(readOnly).rejects.toMatchObject({
+    name: 'AgentLaunchError',
+    reason: 'environment-unavailable',
+  });
+  await expect(readOnly).rejects.toThrow(files[1]);
+  // An unrestricted run has no sandbox, so nothing stops it.
+  const unrestricted = await launch('', {
+    permissionMode: 'unrestricted',
+    deniedReads: files,
+    environment: { CARGO_HOME: home },
+  });
+  unrestricted.session.end();
+  await unrestricted.done;
+});
+
+it("selects a read-only run's profile, with the denied reads, on new and resumed threads and every turn (R-I7)", async () => {
+  const home = mkdtempSync(join(tmpdir(), 'craftingtable-codex-reads-'));
+  directories.push(home);
+  for (const resume of [false, true]) {
+    const { session, items, done, messages } = await launch('', {
+      readOnly: true,
+      ...(resume ? { resumeSessionId: 'resume-id' } : {}),
+      deniedReads: [join(home, 'state')],
+      outsideSources: [{ kind: 'cargo', hosts: ['index.crates.io'], caches: [] }],
+    });
+    await waitFor(() => turns(items).length === 1);
+    session.send('again');
+    await waitFor(() => turns(items).length === 2);
+    session.end();
+    await done;
+    const thread = messages().find(
+      (msg) => msg.method === (resume ? 'thread/resume' : 'thread/start'),
+    )?.params as unknown as Record<string, unknown>;
+    expect(thread).toMatchObject({
+      permissions: 'craftingtable-read-only',
+      approvalPolicy: 'never',
+    });
+    expect(thread).not.toHaveProperty('sandbox');
+    expect(thread.config).toMatchObject({
+      'permissions.craftingtable-read-only': {
+        extends: ':read-only',
+        filesystem: { [join(home, 'state')]: 'deny' },
+        network: { enabled: false },
+      },
+    });
+    expect(thread.config).not.toHaveProperty('features.network_proxy');
+    const starts = messages().filter((msg) => msg.method === 'turn/start');
+    expect(starts).toHaveLength(2);
+    for (const start of starts) {
+      expect(start.params).toMatchObject({
+        permissions: 'craftingtable-read-only',
+        approvalPolicy: 'never',
+      });
+      expect(start.params).not.toHaveProperty('sandboxPolicy');
+    }
+  }
 });
 
 it('passes missing files through to the profile and launches (R-G14, operator decision 2026-10-08)', async () => {
@@ -458,24 +512,30 @@ it.each(['cost', 'usage-timeout', 'duplicate'])(
   },
 );
 
-it('responds to server requests without granting permissions or inventing user input', async () => {
-  const { session, items, done, messages } = await launch('requests');
-  session.end();
-  await done;
-  expect(
-    messages()
-      .filter((msg) => String(msg.id).startsWith('server-'))
-      .map((msg) => msg.result ?? msg.error),
-  ).toEqual([
-    { decision: 'decline' },
-    { decision: 'decline' },
-    { permissions: {}, scope: 'turn' },
-    { answers: {} },
-    { action: 'decline', content: null, _meta: null },
-    { code: -32601, message: 'Client request is not supported by CraftingTable' },
-  ]);
-  expect(items.at(-1)).toMatchObject({ exitCode: 0 });
-});
+it.each([
+  ['a sandboxed', {}],
+  ['a read-only', { readOnly: true }],
+])(
+  'responds to server requests in %s run without granting permissions or inventing user input',
+  async (_kind, overrides) => {
+    const { session, items, done, messages } = await launch('requests', overrides);
+    session.end();
+    await done;
+    expect(
+      messages()
+        .filter((msg) => String(msg.id).startsWith('server-'))
+        .map((msg) => msg.result ?? msg.error),
+    ).toEqual([
+      { decision: 'decline' },
+      { decision: 'decline' },
+      { permissions: {}, scope: 'turn' },
+      { answers: {} },
+      { action: 'decline', content: null, _meta: null },
+      { code: -32601, message: 'Client request is not supported by CraftingTable' },
+    ]);
+    expect(items.at(-1)).toMatchObject({ exitCode: 0 });
+  },
+);
 
 it.each(['hold', 'ignore-term'])(
   'interrupts active work and reaps the process, escalating when needed: %s',

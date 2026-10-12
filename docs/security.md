@@ -26,7 +26,7 @@ typed commands, never commands to run.
 | Route authority | Every route's declared access, checked before its body is read; step-up for the commands that grant the most; one body schema per command | Services repeat their own role checks as a second line | `apps/server/test/route-access.test.ts`, `apps/server/test/route-inventory.test.ts` |
 | Browser input | Typed commands only; repository registration under configured roots; cleanup by daemon-held preview | — | `apps/server/test/server-execution-runs.test.ts`, `apps/server/test/storage-management.test.ts` |
 | Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only; process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
-| Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profile; denied reads; outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
+| Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; denied reads, for read-only runs too; outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
 | The daemon's own Git | Git directories named explicitly; no hooks, fsmonitor, system or global configuration; untrusted Git directories refused | A repository's own configuration still applies; the ref watch detects moves, it does not prevent them | `packages/git/test/git-directory-pinning.test.ts`, `packages/git/test/adapter-robustness.test.ts`, `apps/server/test/services/ref-watch.test.ts` |
 | Checks and builds | Checks run by the daemon in confined units, on private clones, with offline Cargo homes; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts` |
 | Merge and promotion | The review gate at exact commits; protected destinations; final promotion only by an operator's session, with step-up | A review's verdict is the reviewer's assertion | `apps/server/test/server-execution-merge-gate.test.ts`, `apps/server/test/server-execution-integration.test.ts`, `apps/server/test/server-execution-finalization.test.ts` |
@@ -213,8 +213,8 @@ commit, only the common directory's `objects/`, `refs/` and `logs/` and the run'
 directory are writable, with `objects/info`, `commondir` and `gitdir` read-only; the rest of the
 common directory, `config`, `hooks/` and `info/` included, stays read-only. The daemon resolves
 these directories before launch and grants them only when they are the primary checkout's own; a
-repository that enables `extensions.worktreeConfig` gets no Git grant. Verified with Codex CLI
-0.160.0.
+repository that enables `extensions.worktreeConfig` gets no Git grant. A read-only Codex run
+gets a profile of its own (`craftingtable-read-only`, below). Verified with Codex CLI 0.160.0.
 
 **Denied reads.** Both sandboxes deny commands the same list (`sandboxDeniedReads`): the user's
 runtime directory (the rootless Docker socket and the session bus), the system Docker socket,
@@ -222,9 +222,10 @@ runtime directory (the rootless Docker socket and the session bus), the system D
 Claude Code's credentials file (for Codex, the whole of `~/.claude`), the registry tokens in the
 run's Cargo home, and the daemon's protected paths: the database directory (with its
 pre-migration copies and process records), the default and the configured backup directories,
-and the settings directory with the credentials file. Codex 0.160.0 can mask at most one existing
-file per sandbox, so a sandboxed Codex run that would need more is refused before it starts
-(`environment-unavailable`; a cycle stops as `agent-environment-unavailable`), naming the files.
+and the settings directory with the credentials file. The list applies to read-only runs of
+both agents too. Codex 0.160.0 can mask at most one existing file per sandbox, so a sandboxed or
+read-only Codex run that would need more is refused before it starts (`environment-unavailable`;
+a cycle stops as `agent-environment-unavailable`), naming the files.
 
 **Outside sources.** The only hosts a sandboxed command may reach beyond loopback, and the only
 caches it may write beside its worktree and run, are the operator's outside sources, named in
@@ -236,9 +237,11 @@ write, or would put a cache over its own files. Read-only runs get no sources; `
 runs are not limited by them. Each run's journal notes at launch what its commands may reach.
 Configuration is in [Agents on the workstation](operations.md#agents-on-the-workstation).
 
-**Read-only runs.** A decision preparation or a question stop's investigation runs read-only:
-Claude restricted to Read, Glob and Grep, Codex in its read-only sandbox, both with escalation
-denied. The daemon records the worktree when an investigation starts and compares it once the
+**Read-only runs.** A decision preparation or a question stop's investigation runs read-only,
+whatever its posture, with escalation denied. Claude is restricted to Read, Glob and Grep, which
+are denied the protected paths. Codex's commands get a read-only permission profile defined for
+the run (`craftingtable-read-only`): they read what the account can except the denied reads,
+write nothing (not the worktree, `/tmp` or `$TMPDIR`) and reach no network. The daemon records the worktree when an investigation starts and compares it once the
 run has ended; a change stops it as `worktree-changed`, and the stop's commands are refused
 until the operator acknowledges it or the tree matches again.
 
@@ -468,9 +471,6 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Claude Code's own tools** are not sandboxed commands. Its file tools are denied only the
   daemon's protected paths and otherwise follow the posture's permission checks; WebFetch and
   WebSearch reach any host.
-- **Read-only Codex runs** (decision preparations and investigations) use Codex's read-only
-  sandbox without the denied-reads profile, so their commands can read whatever the account can,
-  the daemon's database and credentials file included.
 - **External Git.** The daemon's guards serialize its own Git work. A person or tool running Git
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;
   check it before running Git there by hand. External changes are detected by commit and

@@ -75,7 +75,8 @@ export class CodexBackend implements AgentBackend {
         new AgentLaunchError('invalid-request', 'The run deadline is not a valid time'),
       );
     // Codex 0.160.0 masks only one existing file per sandbox; with more, every command of the
-    // run would fail, and dropping a denial would let commands read it (R-G14).
+    // run would fail, and dropping a denial would let commands read it (R-G14). Read-only runs
+    // deny the same reads, so they are refused the same way (R-I7).
     const files = codexUnmaskableFiles(request);
     if (files !== undefined)
       return Promise.reject(

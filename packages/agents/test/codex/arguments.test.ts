@@ -2,10 +2,16 @@ import { expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { codexDeniedReads, codexThreadParams, codexTurnParams } from '../../src/codex/arguments.js';
+import {
+  codexDeniedReads,
+  codexThreadParams,
+  codexTurnParams,
+  codexUnmaskableFiles,
+} from '../../src/codex/arguments.js';
 import { cargoOutsideSource } from '../../src/outside-sources.js';
 
 const PROFILE = 'craftingtable';
+const READ_ONLY_PROFILE = 'craftingtable-read-only';
 
 it.each(['auto', 'edit-only', 'unrestricted'] as const)(
   'applies %s permissions to new/resumed threads and every turn, never letting a command escalate',
@@ -156,7 +162,7 @@ it("without named sources, reaches the `cargo` source in the run's Cargo home, a
   });
 });
 
-it('gives read-only and unrestricted runs no sources and no profile (R-G14)', () => {
+it('gives read-only and unrestricted runs no sources, and unrestricted runs no profile (R-G14)', () => {
   const sources = [{ kind: 'cargo' as const, hosts: ['index.crates.io'], caches: ['/c/registry'] }];
   for (const request of [
     { permissionMode: 'auto' as const, readOnly: true },
@@ -165,11 +171,20 @@ it('gives read-only and unrestricted runs no sources and no profile (R-G14)', ()
     const full = { cwd: '/work/x', prompt: 'Go', outsideSources: sources, ...request };
     const thread = codexThreadParams(full);
     const config = thread.config as Record<string, unknown>;
-    expect(thread).not.toHaveProperty('permissions');
-    expect(codexTurnParams(full)).not.toHaveProperty('permissions');
-    expect(Object.keys(config).filter((key) => /permissions|network_proxy/.test(key))).toEqual([]);
+    expect(config).not.toHaveProperty('features.network_proxy');
     expect(JSON.stringify(thread)).not.toContain('index.crates.io');
+    expect(JSON.stringify(thread)).not.toContain('/c/registry');
   }
+  const unrestricted = {
+    cwd: '/work/x',
+    prompt: 'Go',
+    outsideSources: sources,
+    permissionMode: 'unrestricted' as const,
+  };
+  const config = codexThreadParams(unrestricted).config as Record<string, unknown>;
+  expect(codexThreadParams(unrestricted)).not.toHaveProperty('permissions');
+  expect(codexTurnParams(unrestricted)).not.toHaveProperty('permissions');
+  expect(Object.keys(config).filter((key) => /permissions/.test(key))).toEqual([]);
 });
 
 it('sets explicit effort on thread creation and every turn without changing the model or permissions', () => {
@@ -190,21 +205,112 @@ it('sets explicit effort on thread creation and every turn without changing the 
   expect(codexThreadParams(inherit).config).not.toHaveProperty('model_reasoning_effort');
 });
 
-it('restricts decision preparation to read-only with no escalation on every turn', () => {
-  const request = {
-    cwd: '/work/x',
-    prompt: 'Prepare a decision',
-    permissionMode: 'unrestricted' as const,
-    readOnly: true,
-  };
-  expect(codexThreadParams(request)).toMatchObject({
-    sandbox: 'read-only',
-    approvalPolicy: 'never',
-  });
-  expect(codexTurnParams(request)).toMatchObject({
-    sandboxPolicy: { type: 'readOnly' },
-    approvalPolicy: 'never',
-  });
+it.each(['auto', 'edit-only', 'unrestricted'] as const)(
+  'restricts a read-only run (%s) to the read-only profile on new/resumed threads and every turn, with no escalation (R-I7)',
+  (permissionMode) => {
+    // A decision preparation or an investigation is read-only whatever its posture.
+    for (const resume of [{}, { resumeSessionId: 'thread-1' }]) {
+      const request = {
+        cwd: '/work/x',
+        prompt: 'Prepare a decision',
+        permissionMode,
+        readOnly: true,
+        ...resume,
+      };
+      const thread = codexThreadParams(request);
+      const turn = codexTurnParams(request);
+      expect(thread).toMatchObject({
+        permissions: READ_ONLY_PROFILE,
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
+      });
+      expect(turn).toMatchObject({
+        permissions: READ_ONLY_PROFILE,
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
+      });
+      // Not the legacy read-only sandbox, which denies no reads, nor the writable profile.
+      expect(thread).not.toHaveProperty('sandbox');
+      expect(turn).not.toHaveProperty('sandboxPolicy');
+      const config = thread.config as Record<string, unknown>;
+      expect(config).toHaveProperty([`permissions.${READ_ONLY_PROFILE}`]);
+      expect(config).not.toHaveProperty([`permissions.${PROFILE}`]);
+      expect(config).not.toHaveProperty('sandbox_workspace_write.writable_roots');
+    }
+  },
+);
+
+it("denies a read-only run's commands the sandboxed runs' reads, and grants no write and no network (R-I7, operator decision 2026-10-12)", () => {
+  const git = gitLayout();
+  try {
+    const request = {
+      cwd: '/work/x',
+      prompt: 'Investigate',
+      permissionMode: 'auto' as const,
+      readOnly: true,
+      environment: { CARGO_HOME: '/nowhere/cargo-home' },
+      deniedReads: ['/data/state', '/data/backups', '/home/op/.config/craftingtable'],
+      // What a sandboxed run would be granted: none of it may reach the read-only profile.
+      additionalDirectories: ['/runs/r1'],
+      outsideSources: [
+        { kind: 'cargo' as const, hosts: ['index.crates.io'], caches: ['/data/cargo-home/git'] },
+      ],
+      gitDirectories: git.gitDirectories,
+    };
+    const config = codexThreadParams(request).config as Record<string, unknown>;
+    const profile = config[`permissions.${READ_ONLY_PROFILE}`];
+    expect(profile).toEqual({
+      // Reads as the account can, writes nothing, the temporary directories included.
+      extends: ':read-only',
+      // Exactly the sandboxed runs' list, each path denied, and nothing granted.
+      filesystem: Object.fromEntries(codexDeniedReads(request).map((path) => [path, 'deny'])),
+      network: { enabled: false },
+    });
+    const denied = Object.keys((profile as { filesystem: Record<string, string> }).filesystem);
+    expect(denied).toEqual(
+      expect.arrayContaining([
+        `/run/user/${process.getuid?.()}`,
+        join(homedir(), '.ssh'),
+        join(homedir(), '.codex'),
+        join(homedir(), '.claude'),
+        '/data/state',
+        '/data/backups',
+        '/home/op/.config/craftingtable',
+        '/nowhere/cargo-home/credentials.toml',
+      ]),
+    );
+    // The same list a sandboxed run with the same request denies.
+    const { readOnly: _readOnly, ...sandboxed } = request;
+    expect(denied).toEqual(profileOf(sandboxed).denied);
+    expect(config).not.toHaveProperty('features.network_proxy');
+  } finally {
+    rmSync(git.root, { recursive: true, force: true });
+  }
+});
+
+it('refuses a read-only run whose denied reads would need more than one existing file masked, as a sandboxed one (R-I7)', () => {
+  const home = mkdtempSync(join(tmpdir(), 'craftingtable-codex-reads-'));
+  try {
+    const files = [join(home, 'a.db'), join(home, 'b.json')];
+    for (const file of files) writeFileSync(file, '');
+    const request = {
+      cwd: '/work/x',
+      prompt: 'Investigate',
+      environment: { CARGO_HOME: home },
+      deniedReads: files,
+    };
+    for (const permissionMode of ['auto', 'edit-only', 'unrestricted'] as const)
+      expect(codexUnmaskableFiles({ ...request, permissionMode, readOnly: true })).toEqual(
+        expect.arrayContaining(files),
+      );
+    expect(codexUnmaskableFiles({ ...request, permissionMode: 'auto' })).toEqual(
+      expect.arrayContaining(files),
+    );
+    // An unrestricted run has no sandbox, so nothing needs masking.
+    expect(codexUnmaskableFiles({ ...request, permissionMode: 'unrestricted' })).toBeUndefined();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 /** A repository's Git directories as Git lays them out for a linked worktree, on disk. */
@@ -347,13 +453,11 @@ it("denies a sandboxed run's commands the reads Claude's sandbox denies, in the 
   // All of `~/.claude`, in place of its credentials file: Codex 0.160.0 masks only one file.
   expect(denied).toContain(join(home, '.claude'));
   expect(denied.some((path) => path.endsWith('.credentials.json'))).toBe(false);
-  // Nothing is denied twice, and only sandboxed runs get the list.
+  // Nothing is denied twice, and an unrestricted run, with no sandbox, gets no list.
   expect(new Set(denied).size).toBe(denied.length);
-  for (const other of [
-    { ...request, readOnly: true },
-    { ...request, permissionMode: 'unrestricted' as const },
-  ])
-    expect(JSON.stringify(codexThreadParams(other))).not.toContain('/data/state');
+  expect(
+    JSON.stringify(codexThreadParams({ ...request, permissionMode: 'unrestricted' as const })),
+  ).not.toContain('/data/state');
 });
 
 it('denies the Docker socket once, resolved through links (R-G14, operator decision 2026-10-08)', () => {

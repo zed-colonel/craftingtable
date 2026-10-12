@@ -1204,3 +1204,6 @@ paragraph (in operations.md, "Forgotten password").
   opened), D3 (the deploy's health check speaks HTTPS to a daemon that serves TLS itself), the
   Roadmaps page's About text, and the project cards' "Ready"/"Blocked" labels; the docs describe
   the fixed behaviour. See the register entry.
+- **Fixed after the operator's decision: read-only Codex runs** now get the denied reads, through
+  a read-only permission profile (`packages/agents/src/codex/arguments.ts`,
+  `codexReadOnlyProfile`); the security section's code defect 1 and its known limit are closed.

@@ -288,9 +288,9 @@ They are read from `outside-sources.json` in the settings directory at start; ed
   or a cache that is a link or overlaps a daemon root stops the start, naming the problem.
 - Tools on the workstation shows the effective list; each run's journal notes at launch what its
   commands may reach. Read-only runs get none; `unrestricted` runs have no sandbox.
-- A sandboxed Codex run can mask at most one existing file in Codex 0.160.0; one that would need
-  more (for example Cargo registry tokens left in `<data>/cargo-home`) is refused before it starts
-  as `agent-environment-unavailable`, naming the files: move all but one away.
+- A sandboxed or read-only Codex run can mask at most one existing file in Codex 0.160.0; one that
+  would need more (for example Cargo registry tokens left in `<data>/cargo-home`) is refused
+  before it starts as `agent-environment-unavailable`, naming the files: move all but one away.
 
 **Cargo.** Agents use the daemon's own Cargo home, `<data>/cargo-home`, never `~/.cargo`. Each
 start copies into it, one way, the `registry` and `git` caches of the operator's Cargo home that it

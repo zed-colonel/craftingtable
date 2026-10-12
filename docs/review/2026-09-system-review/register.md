@@ -5038,7 +5038,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       permission profile (`codex/arguments.ts`, `codexSandboxed` excludes `readOnly`; its test
       asserts the legacy sandbox), so its commands can read the daemon's database, backups and
       credentials file and the operator's `~/.ssh`, and the model sees what they print. A read-only
-      Claude run stays sandboxed with the denied reads. In `security.md`'s known limits. (2)
+      Claude run stays sandboxed with the denied reads. **Fixed after the operator's decision**
+      (below). (2)
       *Withdrawn on checking:* "`admin bootstrap` and `admin reset-password` check only the
       1,024-byte bound". Their prompt does, but both hash with `Argon2PasswordHasher`, which
       refuses anything outside 12–1,024 bytes before hashing, and `password-reset-service.test.ts`
@@ -5143,6 +5144,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       "Dependency-blocked". The glossary drops its one exception, and `planning-labels.ts`'s rule
       holds again. Tests: `ProjectCards.test.tsx` (new) and `RoadmapsPage.test.tsx` fail on the old
       text. No walkthrough capture: no page's structure changes, only two labels and a sentence.
+  - **Fix from decision (1): read-only Codex runs deny the sandboxed runs' reads.** Built in a
+    worktree by a builder, reviewed, and cherry-picked. The experiment came first (codex-cli
+    0.160.0, model-free through `codex sandbox -P` and the app-server's `command/exec`, scratch
+    files only): the legacy read-only sandbox listed a denied directory and read a denied file; a
+    profile extending `:read-only` with the denied paths as `deny` and the network off refused both,
+    still read the worktree and system files, refused every write (the worktree and Git included;
+    `/tmp` and `$TMPDIR` were already read-only), and two existing denied files made every command
+    fail, as R-G14 found. So a read-only run now gets a per-run profile, `craftingtable-read-only`,
+    defined in the thread's configuration and selected on thread start, resume and every turn in
+    place of the legacy sandbox; `codexDeniedReads` is the sandboxed runs' list, and a read-only run
+    that would need more than one existing file masked is refused before launch
+    (`environment-unavailable`), as a sandboxed run is. *Behaviour change to know:* on a host with
+    two or more existing files on the list (say `~/.git-credentials` beside the Docker socket),
+    decision preparations and investigations on Codex now stop as `agent-environment-unavailable`
+    where they used to start. Tests in `codex/arguments.test.ts` and `codex/backend.test.ts` (the
+    profile on every thread and turn, its denies equal to a sandboxed run's, no write, no network,
+    no proxy; the refusal; requests still declined), seven of which failed before the change.
+    `security.md` describes it, and its known limit is gone.
   - **Part 7, AGENTS.md: the three rule edits, and no others.** (a) The README is the operator guide
     and is not updated per feature (DOC-01). (b) Every commit message has a body saying what stop,
     finding or need motivated the change (HIST-15). (c) The archive claim: CT-01..03's artifacts

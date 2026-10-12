@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { operatorOwnsAll, operatorSetupOnly } from '../src/operator-blockers.js';
+import { asCheckpointId } from '../src/ids.js';
 
 /**
  * R-E3b (R-A6 handoff e): one rule says when only the operator can move an entry by its
@@ -28,7 +29,7 @@ describe('operatorOwnsAll', () => {
           kind: 'evidence',
           code: 'decision-checkpoint-evidence',
           message: 'Approve.',
-          refs: { checkpointId: 'ADR-1' },
+          refs: { checkpointId: asCheckpointId('ADR-1') },
         },
       ]),
     ).toBe(false);
@@ -65,7 +66,7 @@ describe('operatorSetupOnly (R-E3b review M2)', () => {
           kind: 'evidence',
           code: 'upstream-pin-missing',
           message: 'Pin.',
-          refs: { checkpointId: 'X' },
+          refs: { checkpointId: asCheckpointId('X') },
         },
       ]),
     ).toBe(false);

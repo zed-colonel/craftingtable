@@ -1,19 +1,28 @@
 import type { CrossProjectConfiguration } from './cross-project.js';
 import type { Roadmap } from './roadmap.js';
 import type { ExecutionScope } from './execution-scope.js';
-import type { WorkspaceId, UserId, WorktreeId, WorkItemId } from './ids.js';
+import type {
+  AgentRunId,
+  MapAmendmentId,
+  RoadmapId,
+  SliceId,
+  WorkspaceId,
+  UserId,
+  WorktreeId,
+  WorkItemId,
+} from './ids.js';
 export type MapSelection = Pick<
   CrossProjectConfiguration,
   'definitionId' | 'bindingRevision' | 'targetId' | 'selection'
 >;
 export interface MapAmendment {
-  readonly id: string;
+  readonly id: MapAmendmentId;
   readonly workspaceId: WorkspaceId;
-  readonly roadmapId: string;
+  readonly roadmapId: RoadmapId;
   readonly baseRevision: number;
   readonly candidate: MapSelection;
   readonly summary: string;
-  readonly sourceRunId?: string;
+  readonly sourceRunId?: AgentRunId;
   readonly createdAt: string;
   readonly createdByUserId: UserId;
   readonly decision?: {
@@ -24,13 +33,13 @@ export interface MapAmendment {
     readonly impactDigest: string;
     readonly previous: Roadmap;
     readonly resultingRevision?: number;
-    readonly reusedIntegrationIds: readonly string[];
+    readonly reusedIntegrationIds: readonly SliceId[];
   };
 }
 /** Code provenance only. Never transfers review, parent acceptance or checkpoint approval. */
 export interface ScopeIntegrationReuse {
   readonly id: string;
-  readonly amendmentId: string;
+  readonly amendmentId: MapAmendmentId;
   readonly workspaceId: WorkspaceId;
   readonly workItemId: WorkItemId;
   readonly scope: ExecutionScope;

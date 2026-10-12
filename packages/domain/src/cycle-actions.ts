@@ -1,6 +1,7 @@
 import type { CycleAttentionCode } from './attention.js';
 import { effectiveCycleAttention } from './attention-legacy.js';
 import type { WorkCycle } from './work-cycle.js';
+import type { AgentRunId } from './ids.js';
 
 /**
  * The operator actions that can make progress on a cycle (R-A7, CTRL-04).
@@ -94,7 +95,7 @@ const RESOLUTION: Partial<Record<CycleAttentionCode, readonly [CycleAction, stri
 /** The action and message that replace a plain Resume for this stop, if any. */
 export function resumeRedirect(
   cycle: Parameters<typeof effectiveCycleAttention>[0] & Pick<WorkCycle, 'currentRunId'>,
-  latestRunId?: string,
+  latestRunId?: AgentRunId,
 ): { readonly action: CycleAction; readonly message: string } | undefined {
   // A pause taken at a stop keeps that stop's attention; resuming it faces the same stop.
   const code =
@@ -148,7 +149,7 @@ export function cycleActions(
       /** The shared decisions the stop still waits on (the projection's, LIVE-18). */
       readonly unsettledDecisions?: readonly string[];
     },
-  latestRunId?: string,
+  latestRunId?: AgentRunId,
   /**
    * The current review asks for remediation and the allowance is spent. Guidance alone cannot
    * start a round then, so a question stop, stopped or paused, offers the grant (LIVE-33).

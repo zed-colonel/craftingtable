@@ -1,5 +1,11 @@
 import type { AgentProfile } from './agent-profiles.js';
-import type { AgentRunId, UserId } from './ids.js';
+import type {
+  AgentRunId,
+  FinalizationStageId,
+  ReviewFindingId,
+  UserId,
+  WorkItemSourceId,
+} from './ids.js';
 import type { ReviewFinding, ReviewReportAssessment } from './review.js';
 import type { CompletionPolicy, WorkCycle } from './work-cycle.js';
 
@@ -19,11 +25,11 @@ export const FINALIZATION_STAGE_LABELS: Record<FinalizationStageKind, string> = 
   'final-review': 'Final independent review',
 };
 export interface FinalizationStage {
-  readonly id: string;
+  readonly id: FinalizationStageId;
   readonly kind: FinalizationStageKind;
   readonly name: string;
   /** Empty means the whole plan; slices use imported work-item source IDs. */
-  readonly workItemSourceIds: readonly string[];
+  readonly workItemSourceIds: readonly WorkItemSourceId[];
   readonly instructions: string;
   readonly review: AgentProfile;
   readonly implement: AgentProfile;
@@ -40,14 +46,14 @@ interface ObligationReport {
   readonly id: string;
   readonly source?: string;
   readonly requirement?: string;
-  readonly workItemSourceId?: string;
+  readonly workItemSourceId?: WorkItemSourceId;
   readonly status: 'met' | 'gap' | 'change-requested';
   readonly evidence: string;
   readonly proposedRequirement?: string;
   readonly reusedFromRunId?: AgentRunId;
 }
 export interface StageReviewReport {
-  readonly stageId: string;
+  readonly stageId: FinalizationStageId;
   readonly fullChecks: boolean;
   readonly checks: readonly {
     readonly name: string;
@@ -71,11 +77,11 @@ interface FinalizationObligation extends Omit<ObligationReport, 'status'> {
   };
 }
 interface FinalizationStageState {
-  readonly id: string;
+  readonly id: FinalizationStageId;
   readonly status: 'pending' | 'reviewing' | 'selecting' | 'verifying' | 'completed';
   readonly remediationRounds: number;
   readonly additionalRemediationRounds: number;
-  readonly selectedFindingIds: readonly string[];
+  readonly selectedFindingIds: readonly ReviewFindingId[];
   readonly completedRunId?: AgentRunId;
   readonly headSha?: string;
   readonly targetSha?: string;
@@ -86,9 +92,9 @@ export interface FinalizationProgress {
   readonly obligations: readonly FinalizationObligation[];
   readonly followUps: readonly ReviewFinding[];
   readonly decisions: readonly {
-    readonly stageId: string;
+    readonly stageId: FinalizationStageId;
     readonly runId: AgentRunId;
-    readonly selectedIds: readonly string[];
+    readonly selectedIds: readonly ReviewFindingId[];
     readonly rationale: string;
     readonly userId: UserId;
     readonly createdAt: string;

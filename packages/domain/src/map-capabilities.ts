@@ -1,4 +1,12 @@
 import type { ConcurrencySource } from './concurrency-source.js';
+import {
+  asCheckpointId,
+  asEvidenceProfileId,
+  asMapResourceId,
+  type CheckpointId,
+  type EvidenceProfileId,
+  type MapResourceId,
+} from './ids.js';
 
 type Checkpoint = ConcurrencySource['checkpoints'][number];
 type EvidenceProfile = ConcurrencySource['evidence_profiles'][number];
@@ -83,42 +91,45 @@ type ResourceProfileField =
  */
 export type MapCapabilityGap =
   /** More than one stack-owned plan approval: none is taken as the plan checkpoint. */
-  | { readonly code: 'plan-checkpoint-ambiguous'; readonly checkpointIds: readonly string[] }
+  | { readonly code: 'plan-checkpoint-ambiguous'; readonly checkpointIds: readonly CheckpointId[] }
   /** A plan approval the stack does not own: it is not taken as the plan checkpoint. */
   | {
       readonly code: 'plan-owner-unrecognized';
-      readonly checkpointId: string;
+      readonly checkpointId: CheckpointId;
       readonly owner: string;
     }
   /** The plan checkpoint's contract is not the one the generator attests. */
   | {
       readonly code: 'plan-contract-changed';
-      readonly checkpointId: string;
+      readonly checkpointId: CheckpointId;
       readonly fields: readonly PlanContractField[];
     }
   /** An architecture decision whose review contract is not the decision-owner one. */
   | {
       readonly code: 'decision-contract-changed';
-      readonly checkpointId: string;
-      readonly profileId: string;
+      readonly checkpointId: CheckpointId;
+      readonly profileId: EvidenceProfileId;
       readonly fields: readonly DecisionContractField[];
     }
   /** No evidence profile names the security reviewer, so no roadmap can delegate that review. */
   | { readonly code: 'security-role-undeclared' }
   /** Contract checkpoints the operator cannot recover without a delegated review. */
-  | { readonly code: 'recovery-profile-unrecognized'; readonly checkpointIds: readonly string[] }
+  | {
+      readonly code: 'recovery-profile-unrecognized';
+      readonly checkpointIds: readonly CheckpointId[];
+    }
   /** A resource no daemon adapter runs. */
-  | { readonly code: 'resource-adapter-missing'; readonly resourceId: string }
+  | { readonly code: 'resource-adapter-missing'; readonly resourceId: MapResourceId }
   /** A resource whose adapter is known but whose profile asks for what it cannot provide. */
   | {
       readonly code: 'resource-adapter-unusable';
-      readonly resourceId: string;
+      readonly resourceId: MapResourceId;
       readonly adapter: ResourceAdapter;
       readonly fields: readonly ResourceProfileField[];
     };
 
 interface MapResourceCapability {
-  readonly resourceId: string;
+  readonly resourceId: MapResourceId;
   /** The adapter for this id, whatever the profile declares. */
   readonly adapter?: ResourceAdapter;
   /** Whether the declared profile lets the adapter run it. */
@@ -128,12 +139,12 @@ interface MapResourceCapability {
 /** What the controller can automate for a map, and what it cannot (R-F2). */
 export interface MapCapabilities {
   /** The plan checkpoint: the single plan approval the stack owns, whatever its id. */
-  readonly planCheckpoint?: string;
+  readonly planCheckpoint?: CheckpointId;
   /** Present when the plan checkpoint's contract is the one the generator attests. */
-  readonly planAcceptance?: { readonly checkpointId: string; readonly reviewerRole: string };
+  readonly planAcceptance?: { readonly checkpointId: CheckpointId; readonly reviewerRole: string };
   /** Architecture decisions whose review contract is the decision-owner one. */
   readonly architectureDecisions: readonly {
-    readonly checkpointId: string;
+    readonly checkpointId: CheckpointId;
     readonly reviewerRole: string;
   }[];
   /** The security reviewer role, when an evidence profile names it. */
@@ -200,13 +211,24 @@ function evaluate(s: ConcurrencySource): MapCapabilities {
   // The plan checkpoint is found by what it is, so its id carries no meaning.
   const plans = s.checkpoints.filter((c) => c.kind === 'plan_approval' && c.owner === 'stack');
   for (const c of s.checkpoints.filter((c) => c.kind === 'plan_approval' && c.owner !== 'stack'))
-    gaps.push({ code: 'plan-owner-unrecognized', checkpointId: c.id, owner: c.owner });
+    gaps.push({
+      code: 'plan-owner-unrecognized',
+      checkpointId: asCheckpointId(c.id),
+      owner: c.owner,
+    });
   if (plans.length > 1)
-    gaps.push({ code: 'plan-checkpoint-ambiguous', checkpointIds: plans.map((c) => c.id) });
+    gaps.push({
+      code: 'plan-checkpoint-ambiguous',
+      checkpointIds: plans.map((c) => asCheckpointId(c.id)),
+    });
   const plan = plans.length === 1 ? plans[0] : undefined;
   const planFields = plan ? planContract(s, plan, profile(plan.evidence_profile)) : [];
   if (plan && planFields.length)
-    gaps.push({ code: 'plan-contract-changed', checkpointId: plan.id, fields: planFields });
+    gaps.push({
+      code: 'plan-contract-changed',
+      checkpointId: asCheckpointId(plan.id),
+      fields: planFields,
+    });
 
   const architectureDecisions: MapCapabilities['architectureDecisions'][number][] = [];
   for (const c of s.checkpoints.filter((c) => c.kind === 'architecture_decision')) {
@@ -214,13 +236,13 @@ function evaluate(s: ConcurrencySource): MapCapabilities {
     if (fields.length)
       gaps.push({
         code: 'decision-contract-changed',
-        checkpointId: c.id,
-        profileId: c.evidence_profile,
+        checkpointId: asCheckpointId(c.id),
+        profileId: asEvidenceProfileId(c.evidence_profile),
         fields,
       });
     else
       architectureDecisions.push({
-        checkpointId: c.id,
+        checkpointId: asCheckpointId(c.id),
         reviewerRole: V03_VOCABULARY.decisionReview.reviewerRole,
       });
   }
@@ -233,7 +255,7 @@ function evaluate(s: ConcurrencySource): MapCapabilities {
   const recoverable = profile(V03_VOCABULARY.operatorRecoverableProfile)?.id;
   const unrecoverable = s.checkpoints
     .filter((c) => c.kind === 'contract' && c.evidence_profile !== recoverable)
-    .map((c) => c.id);
+    .map((c) => asCheckpointId(c.id));
   if (unrecoverable.length)
     gaps.push({ code: 'recovery-profile-unrecognized', checkpointIds: unrecoverable });
 
@@ -249,7 +271,8 @@ function evaluate(s: ConcurrencySource): MapCapabilities {
       ]),
     ]),
   ];
-  for (const resourceId of ids) {
+  for (const id of ids) {
+    const resourceId = asMapResourceId(id);
     const p = s.resource_profiles.find((p) => p.id === resourceId);
     const adapter: ResourceAdapter | undefined =
       resourceId === developmentWorkspace
@@ -279,11 +302,11 @@ function evaluate(s: ConcurrencySource): MapCapabilities {
   }
 
   return {
-    ...(plan ? { planCheckpoint: plan.id } : {}),
+    ...(plan ? { planCheckpoint: asCheckpointId(plan.id) } : {}),
     ...(plan && !planFields.length
       ? {
           planAcceptance: {
-            checkpointId: plan.id,
+            checkpointId: asCheckpointId(plan.id),
             reviewerRole: V03_VOCABULARY.planAcceptance.reviewerRole,
           },
         }

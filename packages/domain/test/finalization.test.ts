@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { finalizationProfile } from '../src/finalization.js';
 import { FINALIZATION_STAGE_KINDS, staysFollowUp } from '../src/finalization-stages.js';
+import { asFinalizationStageId, asReviewFindingId } from '../src/ids.js';
 
 const review = {
   backend: 'claude-code' as const,
@@ -10,7 +11,7 @@ const review = {
 const implement = { ...review, permissionMode: 'auto' as const, model: 'implement-model' };
 const finalReview = { ...review, model: 'final-model' };
 const stages = FINALIZATION_STAGE_KINDS.map((kind) => ({
-  id: kind,
+  id: asFinalizationStageId(kind),
   kind,
   name: kind,
   workItemSourceIds: [],
@@ -62,7 +63,7 @@ it.each([
   ['optional idea, now a correctness nit', 'polish', 'minor', 'correctness', 'nit', false],
 ] as const)('%s', (_, parkedCategory, parkedSeverity, category, severity, stays) => {
   const finding = (c: string, s: typeof severity) => ({
-    id: 'F-1',
+    id: asReviewFindingId('F-1'),
     severity: s,
     status: 'open' as const,
     title: 'Finding',

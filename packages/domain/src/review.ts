@@ -1,4 +1,5 @@
 import type { AgentRunVerdict } from './execution.js';
+import type { ReviewFindingId } from './ids.js';
 
 export const FINDING_SEVERITIES = ['blocking', 'major', 'minor', 'nit'] as const;
 export type FindingSeverity = (typeof FINDING_SEVERITIES)[number];
@@ -7,7 +8,7 @@ export type FindingStatus = (typeof FINDING_STATUSES)[number];
 
 /** Identity is stable within a worktree's review lineage, including closed findings. */
 export interface ReviewFinding {
-  readonly id: string;
+  readonly id: ReviewFindingId;
   readonly severity: FindingSeverity;
   readonly category?: Exclude<
     import('./finalization-stages.js').FinalizationStageKind,

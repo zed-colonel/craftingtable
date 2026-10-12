@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { type CycleTransitionRecord, summarizeOperatorWait } from '../src/operator-wait.js';
+import { asWorkCycleId } from '../src/ids.js';
 
+const cycleA = asWorkCycleId('a');
+const cycleB = asWorkCycleId('b');
 const at = (hour: number) => new Date(Date.UTC(2026, 8, 20, hour)).toISOString();
 const window = { from: new Date(at(0)), to: new Date(at(24)) };
 const operator = (code: 'merge-approval' | 'design-open-questions') => ({
@@ -11,17 +14,22 @@ const operator = (code: 'merge-approval' | 'design-open-questions') => ({
 describe('operator wait (R-C1)', () => {
   it('counts wall time a cycle waits on the operator, and the part with no agent running', () => {
     const transitions: CycleTransitionRecord[] = [
-      { cycleId: 'a', at: at(2), status: 'running' },
+      { cycleId: cycleA, at: at(2), status: 'running' },
       {
-        cycleId: 'a',
+        cycleId: cycleA,
         at: at(4),
         status: 'needs-attention',
         attention: operator('design-open-questions'),
       },
-      { cycleId: 'a', at: at(10), status: 'running' },
+      { cycleId: cycleA, at: at(10), status: 'running' },
       // A second cycle overlaps the first stop: wall time counts once, cycle-hours twice.
-      { cycleId: 'b', at: at(6), status: 'awaiting-merge', attention: operator('merge-approval') },
-      { cycleId: 'b', at: at(12), status: 'completed' },
+      {
+        cycleId: cycleB,
+        at: at(6),
+        status: 'awaiting-merge',
+        attention: operator('merge-approval'),
+      },
+      { cycleId: cycleB, at: at(12), status: 'completed' },
     ];
     const report = summarizeOperatorWait(
       transitions,
@@ -42,13 +50,13 @@ describe('operator wait (R-C1)', () => {
     const report = summarizeOperatorWait(
       [
         {
-          cycleId: 'a',
+          cycleId: cycleA,
           at: at(1),
           status: 'needs-attention',
           attention: { code: 'scheduling-held', owner: 'controller' },
         },
-        { cycleId: 'a', at: at(3), status: 'paused' },
-        { cycleId: 'a', at: at(5), status: 'running' },
+        { cycleId: cycleA, at: at(3), status: 'paused' },
+        { cycleId: cycleA, at: at(5), status: 'running' },
       ],
       [],
       window,
@@ -62,21 +70,21 @@ describe('operator wait (R-C1)', () => {
       [
         // Opened before the window: its hours count, the stop itself does not.
         {
-          cycleId: 'a',
+          cycleId: cycleA,
           at: at(-6),
           status: 'needs-attention',
           attention: operator('merge-approval'),
         },
-        { cycleId: 'a', at: at(3), status: 'running' },
+        { cycleId: cycleA, at: at(3), status: 'running' },
         {
-          cycleId: 'b',
+          cycleId: cycleB,
           at: at(20),
           status: 'needs-attention',
           attention: operator('merge-approval'),
         },
         // A bookkeeping write that keeps the same stop is not a second stop.
         {
-          cycleId: 'b',
+          cycleId: cycleB,
           at: at(21),
           status: 'needs-attention',
           attention: operator('merge-approval'),
@@ -93,26 +101,26 @@ describe('operator wait (R-C1)', () => {
     const report = summarizeOperatorWait(
       [
         {
-          cycleId: 'a',
+          cycleId: cycleA,
           at: at(2),
           status: 'needs-attention',
           attention: operator('merge-approval'),
         },
         // Written in the same millisecond: the first record has no duration.
         {
-          cycleId: 'a',
+          cycleId: cycleA,
           at: at(2),
           status: 'needs-attention',
           attention: operator('merge-approval'),
         },
         // A roadmap claims the merge: the controller owns it from here.
         {
-          cycleId: 'a',
+          cycleId: cycleA,
           at: at(4),
           status: 'needs-attention',
           attention: { code: 'merge-approval', owner: 'controller' },
         },
-        { cycleId: 'a', at: at(6), status: 'running' },
+        { cycleId: cycleA, at: at(6), status: 'running' },
       ],
       [],
       window,

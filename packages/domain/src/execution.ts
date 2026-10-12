@@ -1,8 +1,12 @@
 import type { AgentProfile } from './agent-profiles.js';
 import type { JsonValue } from './audit.js';
 import type {
+  AgentAssignmentId,
   AgentRunEventId,
   AgentRunId,
+  CycleInvestigationId,
+  DecisionPreparationId,
+  DelegationAssignmentId,
   PlanVersionId,
   ProjectId,
   SourceRepositoryId,
@@ -232,14 +236,14 @@ export interface AgentRun {
   /** Frozen controller selection; public launch requests cannot provide this provenance. */
   readonly profileSelection?: {
     readonly purpose: import('./agent-profiles.js').AgentProfilePurpose;
-    readonly assignmentId?: string;
-    readonly delegationId?: string;
-    readonly preparationId?: string;
+    readonly assignmentId?: AgentAssignmentId;
+    readonly delegationId?: DelegationAssignmentId;
+    readonly preparationId?: DecisionPreparationId;
     /**
      * A question stop's read-only investigation (R-C16): the run works beside its cycle, so
      * the worktree's lineage reads leave it out.
      */
-    readonly investigationId?: string;
+    readonly investigationId?: CycleInvestigationId;
   };
   readonly id: AgentRunId;
   readonly workspaceId: WorkspaceId;

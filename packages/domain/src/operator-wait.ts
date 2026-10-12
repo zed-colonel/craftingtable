@@ -1,5 +1,6 @@
 import type { AttentionOwner, CycleAttentionCode } from './attention.js';
 import type { CycleStatus } from './work-cycle.js';
+import type { WorkCycleId } from './ids.js';
 
 /**
  * Operator wait as a first-class metric (R-C1, HIST-02).
@@ -13,7 +14,7 @@ import type { CycleStatus } from './work-cycle.js';
 
 /** One recorded cycle transition: the state the cycle entered at `at`. */
 export interface CycleTransitionRecord {
-  readonly cycleId: string;
+  readonly cycleId: WorkCycleId;
   readonly at: string;
   readonly status: CycleStatus;
   /** The stop's declared (or, for older records, recovered) attention. */

@@ -1,11 +1,12 @@
 import type { ConcurrencySource, ConcurrencyRequirement } from './concurrency-source.js';
+import { asMapWorkItemId, type MapWorkItemId } from './ids.js';
 export const milestoneKey = (r: ConcurrencyRequirement): string => `${r.kind}:${r.id}:${r.state}`;
 interface ConcurrencyMilestone {
   readonly key: string;
   readonly requirement: ConcurrencyRequirement;
   readonly repository: string;
   readonly title: string;
-  readonly parentId?: string;
+  readonly parentId?: MapWorkItemId;
   readonly requires: readonly string[];
 }
 /** Source milestones, including retained parent and evidence-producer obligations. */
@@ -24,7 +25,7 @@ export function concurrencyMilestones(s: ConcurrencySource): readonly Concurrenc
       repository,
       title,
       requires: [...new Set(requirements.map(milestoneKey))],
-      ...(parentId ? { parentId } : {}),
+      ...(parentId ? { parentId: asMapWorkItemId(parentId) } : {}),
     });
   for (const p of s.work_items) {
     const producers = [

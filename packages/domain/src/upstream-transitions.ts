@@ -1,7 +1,12 @@
 import { concurrencyMilestones, milestoneKey } from './concurrency-graph.js';
 import type { ConcurrencySource } from './concurrency-source.js';
 import type { ExecutionScope } from './execution-scope.js';
-import type { UserId, WorkspaceId } from './ids.js';
+import type {
+  ConcurrencyDefinitionId,
+  UpstreamTransitionRecordId,
+  UserId,
+  WorkspaceId,
+} from './ids.js';
 import { independentWorkItem } from './map-capabilities.js';
 
 /** The consumer slice whose merge moves one consumer→upstream link to the current pin (ADR-069). */
@@ -15,9 +20,9 @@ export interface UpstreamTransition {
  * Immutable; it applies to this definition only.
  */
 export interface UpstreamTransitionRecord {
-  readonly id: string;
+  readonly id: UpstreamTransitionRecordId;
   readonly workspaceId: WorkspaceId;
-  readonly definitionId: string;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly transitions: readonly UpstreamTransition[];
   readonly rationale: string;
   readonly createdAt: string;
@@ -153,7 +158,7 @@ function predecessorsOf(s: ConcurrencySource) {
 export function effectiveUpstreamTransitions(
   s: ConcurrencySource,
   records: readonly Pick<UpstreamTransitionRecord, 'id' | 'transitions'>[],
-): readonly (UpstreamTransition & { readonly recordId?: string })[] {
+): readonly (UpstreamTransition & { readonly recordId?: UpstreamTransitionRecordId })[] {
   return [
     ...(s.upstream_transitions ?? []),
     ...records.flatMap((r) => r.transitions.map((t) => ({ ...t, recordId: r.id }))),

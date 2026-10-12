@@ -1,5 +1,6 @@
 import type { AgentBackendKind, AgentPermissionMode, AgentRun } from './execution.js';
 import type { CycleStep, WorkCycle } from './work-cycle.js';
+import type { AgentAssignmentId, AgentRunId, DelegationAssignmentId } from './ids.js';
 
 export const SPECIALIST_PROFILES = [
   'security',
@@ -81,16 +82,16 @@ export type AgentSelectionSource = {
    */
   readonly slot?: AgentProfilePurpose;
   /** The ADR-064 assignment, for `roadmap-assignment`. */
-  readonly assignmentId?: string;
+  readonly assignmentId?: AgentAssignmentId;
   /**
    * The delegation grant, for `roadmap-delegation`; `roadmap-automation` is the saved
    * definition's own integration automation, without a grant.
    */
-  readonly delegationId?: string;
+  readonly delegationId?: DelegationAssignmentId;
   /** The finalization stage, for `finalization-stage` and `finalization-recovery`. */
   readonly stageIndex?: number;
   /** The run a hand-off continues, for `continued-run`. */
-  readonly runId?: string;
+  readonly runId?: AgentRunId;
 };
 /** A selection and where it came from. */
 export type AgentResolution = {

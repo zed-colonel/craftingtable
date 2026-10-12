@@ -5,7 +5,20 @@ import {
   ROADMAP_ATTENTION,
   type RoadmapAttentionCode,
 } from './attention.js';
-import type { WorkspaceId } from './ids.js';
+import type {
+  AgentRunId,
+  AttentionItemId,
+  FinalizationId,
+  NotificationRecordId,
+  PlanVersionId,
+  ProjectId,
+  RoadmapEntryId,
+  RoadmapId,
+  WorkCycleId,
+  WorkItemId,
+  WorkspaceId,
+  WorktreeId,
+} from './ids.js';
 
 /**
  * Durable attention items (review item R-A4, ADR-070).
@@ -75,15 +88,15 @@ export const INSTALLATION_ATTENTION_CODES: ReadonlySet<AttentionItemCode> = new 
 export type AttentionResolution = 'operator' | 'automation' | 'superseded';
 
 export interface AttentionItemRefs {
-  readonly cycleId?: string;
-  readonly runId?: string;
-  readonly worktreeId?: string;
-  readonly workItemId?: string;
-  readonly projectId?: string;
-  readonly planVersionId?: string;
-  readonly roadmapId?: string;
-  readonly entryId?: string;
-  readonly finalizationId?: string;
+  readonly cycleId?: WorkCycleId;
+  readonly runId?: AgentRunId;
+  readonly worktreeId?: WorktreeId;
+  readonly workItemId?: WorkItemId;
+  readonly projectId?: ProjectId;
+  readonly planVersionId?: PlanVersionId;
+  readonly roadmapId?: RoadmapId;
+  readonly entryId?: RoadmapEntryId;
+  readonly finalizationId?: FinalizationId;
 }
 
 /** Controls an item offers besides its subject's own form. */
@@ -108,7 +121,7 @@ interface AttentionItemDelivery {
 }
 
 export interface AttentionItem {
-  readonly id: string;
+  readonly id: AttentionItemId;
   readonly workspaceId: WorkspaceId;
   /** The projection unit that owns the item: `worktree:<id>`, `roadmap:<id>`, … */
   readonly scopeKey: string;
@@ -135,7 +148,7 @@ export interface AttentionItem {
   readonly resolvedAt?: string;
   readonly resolvedBy?: AttentionResolution;
   /** The earlier occurrence of the same subject and code this one reopened within the flap window. */
-  readonly continues?: string;
+  readonly continues?: AttentionItemId;
   readonly delivery: AttentionItemDelivery;
 }
 
@@ -144,11 +157,11 @@ export interface NotificationDelivery {
   readonly id: string;
   readonly workspaceId: WorkspaceId;
   readonly attemptedAt: string;
-  readonly itemIds: readonly string[];
+  readonly itemIds: readonly AttentionItemId[];
   /** The subset of `itemIds` that had been sent before: reminders. */
-  readonly reminderItemIds: readonly string[];
+  readonly reminderItemIds: readonly AttentionItemId[];
   /** Set for an operator-requested test push instead of items. */
-  readonly testId?: string;
+  readonly testId?: NotificationRecordId;
   readonly title: string;
   readonly message: string;
   readonly result: 'accepted' | 'retry' | 'blocked';

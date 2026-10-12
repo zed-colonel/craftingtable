@@ -1,9 +1,13 @@
 import type { AgentProfile } from './agent-profiles.js';
 import type {
+  ConcurrencyDefinitionId,
+  FinalizationId,
   PlanVersionId,
   ProjectId,
+  RuntimeGenerationId,
   SourceRepositoryId,
   UserId,
+  WorkCycleId,
   WorkspaceId,
   WorktreeId,
 } from './ids.js';
@@ -15,19 +19,19 @@ interface FinalizationRound {
 }
 /** Recorded promotion of one immutable plan version, independent of branch retention. */
 export interface PlanCompletion {
-  readonly finalizationId: string;
+  readonly finalizationId: FinalizationId;
   readonly targetBranch: string;
   readonly mergeSha: string;
   readonly completedAt: string;
 }
 export interface Finalization {
   readonly mapContext?: {
-    readonly definitionId: string;
+    readonly definitionId: ConcurrencyDefinitionId;
     readonly bindingRevision: number;
-    readonly runtimeId: string;
+    readonly runtimeId: RuntimeGenerationId;
     readonly alias: string;
   };
-  readonly id: string;
+  readonly id: FinalizationId;
   readonly workspaceId: WorkspaceId;
   readonly planVersionId: PlanVersionId;
   readonly projectId: ProjectId;
@@ -37,7 +41,7 @@ export interface Finalization {
   readonly targetBranch: string;
   readonly targetSha: string;
   readonly worktreeId: WorktreeId;
-  readonly cycleId: string;
+  readonly cycleId: WorkCycleId;
   readonly rounds: readonly FinalizationRound[];
   readonly stages?: readonly import('./finalization-stages.js').FinalizationStage[];
   readonly finalReview: AgentProfile;

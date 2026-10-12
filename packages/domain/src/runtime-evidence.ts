@@ -1,12 +1,27 @@
-import type { WorkspaceId, UserId, SourceRepositoryId } from './ids.js';
+import type {
+  AgentRunId,
+  ConcurrencyDefinitionId,
+  EvidenceSubmissionId,
+  NativeVerificationApprovalId,
+  QualificationEnvironmentId,
+  RepositoryCheckDeclarationId,
+  RoadmapId,
+  RuntimeGenerationId,
+  SliceId,
+  WorkCycleId,
+  WorkspaceId,
+  UserId,
+  SourceRepositoryId,
+  WorktreeId,
+} from './ids.js';
 import { utf8ByteLength } from './bounded-text.js';
 /** Approval grants bounded local fixture execution, never a test pass or Kata authority. */
 export interface NativeVerificationApproval {
-  readonly id: string;
+  readonly id: NativeVerificationApprovalId;
   readonly workspaceId: WorkspaceId;
-  readonly definitionId: string;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly bindingRevision: number;
-  readonly runtimeId: string;
+  readonly runtimeId: RuntimeGenerationId;
   readonly approved: boolean;
   readonly hostDigest: string;
   readonly auditDigest: string;
@@ -29,7 +44,7 @@ interface DependencyPin {
   }[];
 }
 interface QualificationEnvironment {
-  readonly id: string;
+  readonly id: QualificationEnvironmentId;
   readonly kind: 'local-development' | 'external-native' | 'external-kata';
   readonly identityDigest: string;
   readonly fixtureDigest: string;
@@ -44,9 +59,9 @@ interface QualificationEnvironment {
   };
 }
 export interface RuntimeGeneration {
-  readonly id: string;
+  readonly id: RuntimeGenerationId;
   readonly workspaceId: WorkspaceId;
-  readonly definitionId: string;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly bindingRevision: number;
   readonly generation: number;
   readonly digest: string;
@@ -97,14 +112,14 @@ export const PLAN_ACCEPTANCE_INPUT_LABELS: Readonly<Record<PlanAcceptanceInput, 
 /** Frozen: bound to a digest of every saved fact and to the definition revision. */
 export interface GeneratedPlanEvidenceV1 {
   readonly kind: 'saved-plan-v1';
-  readonly roadmapId: string;
+  readonly roadmapId: RoadmapId;
   readonly definitionRevision: number;
   readonly snapshotDigest: string;
 }
 /** Bound to the plan-acceptance inputs only (R-C6 D3); an older release cannot read it. */
 export interface GeneratedPlanEvidenceV2 {
   readonly kind: 'saved-plan-v2';
-  readonly roadmapId: string;
+  readonly roadmapId: RoadmapId;
   /** The saved revision it was generated from; informational, never checked. */
   readonly definitionRevision: number;
   /** SHA-256 of the inputs' canonical JSON (sorted keys). */
@@ -121,14 +136,14 @@ export interface EvidenceSubmission {
   readonly candidateCheckpoint?: {
     readonly kind: 'reviewed-candidate-v1';
     readonly delegatedReview?: {
-      readonly cycleId: string;
-      readonly roadmapId: string;
+      readonly cycleId: WorkCycleId;
+      readonly roadmapId: RoadmapId;
       readonly definitionRevision: number;
       readonly roles: readonly string[];
     };
-    readonly worktreeId: string;
-    readonly sliceId: string;
-    readonly runId: string;
+    readonly worktreeId: WorktreeId;
+    readonly sliceId: SliceId;
+    readonly runId: AgentRunId;
     readonly reportDigest: string;
     readonly buildDigest: string;
     readonly headSha: string;
@@ -140,16 +155,16 @@ export interface EvidenceSubmission {
   readonly architectureDecision?: ArchitectureDecision;
   /** Daemon-collected setup facts; the separate operator decision supplies plan review. */
   readonly generatedPlan?: GeneratedPlanEvidence;
-  readonly id: string;
+  readonly id: EvidenceSubmissionId;
   readonly workspaceId: WorkspaceId;
-  readonly definitionId: string;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly bindingRevision: number;
-  readonly runtimeId: string;
+  readonly runtimeId: RuntimeGenerationId;
   readonly subject: EvidenceSubject;
   readonly subjectCommit?: string;
   readonly testedCode?: readonly { readonly alias: string; readonly commitSha: string }[];
   readonly sliceMergeSha?: string;
-  readonly environmentId: string;
+  readonly environmentId: QualificationEnvironmentId;
   readonly executedBy: string;
   readonly executedAt: string;
   readonly reviewers: readonly {
@@ -165,7 +180,7 @@ export interface EvidenceSubmission {
     readonly artifact: string;
   }[];
   readonly artifacts: readonly EvidenceArtifact[];
-  readonly sourceRunId?: string;
+  readonly sourceRunId?: AgentRunId;
   readonly sourceRunDigest?: string;
   readonly sourceRunCommit?: string;
   readonly kata?: {
@@ -216,7 +231,7 @@ export interface EvidenceDecision {
   readonly checkpointReviewRoles?: readonly string[];
   readonly id: string;
   readonly workspaceId: WorkspaceId;
-  readonly submissionId: string;
+  readonly submissionId: EvidenceSubmissionId;
   readonly outcome: 'accepted' | 'rejected';
   readonly rationale: string;
   readonly decidedAt: string;
@@ -230,15 +245,15 @@ export interface EvidenceDecision {
 }
 export interface RunEnvironment {
   readonly architectureDecisionDigest?: string;
-  readonly nativeApprovalId?: string;
-  readonly runId: string;
+  readonly nativeApprovalId?: NativeVerificationApprovalId;
+  readonly runId: AgentRunId;
   readonly workspaceId: WorkspaceId;
   /**
    * The pinned dependency environment the run was prepared with. Absent on a check-only run
    * (R-G13 increment 4): one with no pinned environment, held to its repository's adopted checks,
    * so it always names `checkDeclarationId`. A release before schema 38 cannot read such a record.
    */
-  readonly runtimeId?: string;
+  readonly runtimeId?: RuntimeGenerationId;
   readonly manifestPath: string;
   readonly manifestDigest: string;
   /**
@@ -259,12 +274,12 @@ export interface RunEnvironment {
    * before declared checks, on current-upstream runs prepared before increment 2, and on runs
    * without a pinned environment prepared before increment 4, which keep the earlier rule.
    */
-  readonly checkDeclarationId?: string;
+  readonly checkDeclarationId?: RepositoryCheckDeclarationId;
 }
 
 /** One check the daemon ran for a run and recorded as it finished (R-G4). Immutable. */
 export interface RunCheckReceipt {
-  readonly runId: string;
+  readonly runId: AgentRunId;
   readonly workspaceId: WorkspaceId;
   /** 1, 2, ... in the order the checks finished. */
   readonly sequence: number;
@@ -282,17 +297,17 @@ export interface ArchitectureDecision {
   readonly retainedObligations: string;
   /** Clause staging changes only these named slices; the full checkpoint remains open. */
   readonly consumers: readonly {
-    readonly sliceId: string;
+    readonly sliceId: SliceId;
     readonly phase: 'start' | 'merge';
     readonly replacesFullCheckpoint: boolean;
   }[];
 }
 
 export interface RunBuildRecord {
-  readonly runId: string;
+  readonly runId: AgentRunId;
   readonly workspaceId: WorkspaceId;
   /** The run environment's; absent for a check-only run (R-G13 increment 4). */
-  readonly runtimeId?: string;
+  readonly runtimeId?: RuntimeGenerationId;
   readonly manifestDigest: string;
   readonly receipts: string;
   readonly digest: string;

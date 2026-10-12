@@ -5,9 +5,10 @@ import {
   designHasNoOpenQuestions,
   evaluateCompletion,
 } from '../src/work-cycle.js';
+import { asReviewFindingId } from '../src/ids.js';
 
 const finding: ReviewFinding = {
-  id: 'F-1',
+  id: asReviewFindingId('F-1'),
   severity: 'minor',
   status: 'open',
   title: 'Boundary',
@@ -36,7 +37,11 @@ describe('completion policy', () => {
     },
   );
   it('allows exactly the configured nit count and ignores closed findings', () => {
-    const nits = [1, 2, 3].map((id) => ({ ...finding, id: `N-${id}`, severity: 'nit' as const }));
+    const nits = [1, 2, 3].map((id) => ({
+      ...finding,
+      id: asReviewFindingId(`N-${id}`),
+      severity: 'nit' as const,
+    }));
     expect(
       evaluateCompletion(
         DEFAULT_COMPLETION_POLICY,

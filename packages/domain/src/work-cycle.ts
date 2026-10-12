@@ -4,7 +4,21 @@ import {
   parkedFollowUp,
   stagedFollowUps,
 } from './finalization-stages.js';
-import type { AgentRunId, ProjectId, UserId, WorkItemId, WorkspaceId, WorktreeId } from './ids.js';
+import type {
+  AgentRunId,
+  CycleInvestigationId,
+  FinalizationId,
+  ImportedArchiveId,
+  ProjectId,
+  RoadmapAttemptId,
+  RoadmapEntryId,
+  RoadmapId,
+  UserId,
+  WorkCycleId,
+  WorkItemId,
+  WorkspaceId,
+  WorktreeId,
+} from './ids.js';
 import type { FindingSeverity, ReviewFinding, ReviewReportAssessment } from './review.js';
 
 export const CYCLE_STEPS = ['design', 'implement', 'review', 'remediate'] as const;
@@ -59,7 +73,7 @@ export function ownsIntegrationResolution(cycle: WorkCycle | undefined): boolean
 export interface DesignRecoverySource {
   readonly planVersionId: import('./ids.js').PlanVersionId;
   readonly artifactId?: import('./ids.js').PlanArtifactId;
-  readonly archiveId?: string;
+  readonly archiveId?: ImportedArchiveId;
   readonly archiveDigest?: string;
   readonly name: string;
   readonly digest: string;
@@ -135,7 +149,7 @@ export interface InvestigationWorktreeChange {
  */
 export interface CycleInvestigation {
   /** The run's `profileSelection.investigationId`, which keeps it out of the cycle's lineage. */
-  readonly id: string;
+  readonly id: CycleInvestigationId;
   readonly runId: AgentRunId;
   /** The run whose report asked the questions. */
   readonly sourceRunId: AgentRunId;
@@ -195,9 +209,9 @@ export interface BaselinePreparation {
 }
 /** The roadmap attempt that created a cycle (R-B3), fixed when the cycle is created. */
 export interface CycleOwner {
-  readonly roadmapId: string;
-  readonly attemptId: string;
-  readonly entryId: string;
+  readonly roadmapId: RoadmapId;
+  readonly attemptId: RoadmapAttemptId;
+  readonly entryId: RoadmapEntryId;
   /** The definition revision the attempt was scheduled under. */
   readonly definitionRevision: number;
 }
@@ -220,7 +234,7 @@ export interface WorkCycle {
 
   /** Explicit repair delegation, with immutable journal turns from related scope reviews. */
   readonly scopeRepair?: {
-    readonly sourceCycleId: string;
+    readonly sourceCycleId: WorkCycleId;
     readonly sources: readonly {
       readonly runId: AgentRunId;
       readonly sequence: number;
@@ -233,14 +247,18 @@ export interface WorkCycle {
   readonly investigation?: CycleInvestigation;
 
   readonly executionScope?: import('./execution-scope.js').ExecutionScope;
-  readonly id: string;
+  readonly id: WorkCycleId;
   readonly workspaceId: WorkspaceId;
   readonly workItemId?: WorkItemId;
-  readonly finalizationId?: string;
+  readonly finalizationId?: FinalizationId;
   readonly finalizationProgress?: import('./finalization-stages.js').FinalizationProgress;
   readonly planVersionId?: import('./ids.js').PlanVersionId;
   readonly polishRound?: number;
   readonly polishPhase?: 'assess' | 'polish' | 'verify' | 'final-review';
+  /**
+   * The label the cycle is shown by: its work item's source id, its scope's source id, or
+   * `Finalization` for a plan finalization.
+   */
   readonly workItemSourceId: string;
   readonly workItemTitle: string;
   readonly projectId: ProjectId;

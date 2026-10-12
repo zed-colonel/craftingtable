@@ -1,6 +1,7 @@
 import { currentFinalizationStage } from './finalization-stages.js';
 import type { Finalization } from './finalization.js';
 import type { WorkCycle } from './work-cycle.js';
+import type { AgentRunId } from './ids.js';
 
 /**
  * The plan adjustments a finalization's current review proposes: the only ones
@@ -11,10 +12,10 @@ export function currentPlanChanges<
   O extends {
     readonly status: string;
     readonly proposedRequirement?: string;
-    readonly runId?: string;
+    readonly runId?: AgentRunId;
   },
 >(cycle: {
-  readonly currentRunId?: string;
+  readonly currentRunId?: AgentRunId;
   readonly finalizationProgress?: { readonly obligations: readonly O[] };
 }): O[] {
   return (

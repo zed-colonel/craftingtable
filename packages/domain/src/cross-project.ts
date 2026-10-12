@@ -1,13 +1,19 @@
 import type { CycleProfiles } from './agent-profiles.js';
 import type { CompletionPolicy } from './work-cycle.js';
 import type { RoadmapAutomation } from './roadmap.js';
-import type { UserId, WorkspaceId } from './ids.js';
+import type {
+  ConcurrencyDefinitionId,
+  MapDecisionId,
+  PlanningTargetId,
+  UserId,
+  WorkspaceId,
+} from './ids.js';
 export interface MapAdoption {
   readonly id: string;
   readonly workspaceId: WorkspaceId;
-  readonly definitionId: string;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly bindingRevision: number;
-  readonly decisionIds: readonly string[];
+  readonly decisionIds: readonly MapDecisionId[];
   readonly rationale: string;
   readonly createdAt: string;
   readonly createdByUserId: UserId;
@@ -21,9 +27,9 @@ export interface MapActivitySettings {
   readonly automation: RoadmapAutomation;
 }
 export interface CrossProjectConfiguration {
-  readonly definitionId: string;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly bindingRevision: number;
-  readonly targetId: string;
+  readonly targetId: PlanningTargetId;
   readonly selection: 'target-only' | 'prioritize-full';
   readonly parentAcceptance: 'manual' | 'automatic';
   readonly defaults: MapActivitySettings;

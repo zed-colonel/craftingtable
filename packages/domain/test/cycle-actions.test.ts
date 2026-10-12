@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cycleAttention } from '../src/attention.js';
 import { cycleActions, resumeRedirect } from '../src/cycle-actions.js';
 import type { WorkCycle } from '../src/work-cycle.js';
+import { asAgentRunId } from '../src/ids.js';
 
 const cycle = (status: WorkCycle['status'], code?: Parameters<typeof cycleAttention>[0]) =>
   ({ status, reason: '', ...(code ? { attention: cycleAttention(code) } : {}) }) as WorkCycle;
@@ -56,7 +57,7 @@ describe('cycle actions (R-A7)', () => {
     expect(
       cycleActions(
         { ...cycle('needs-attention', 'work-item-questions'), currentRunId: 'run-1' } as WorkCycle,
-        'run-2',
+        asAgentRunId('run-2'),
         true,
       ),
     ).toEqual(['resume', 'stop']);
@@ -99,8 +100,8 @@ describe('cycle actions (R-A7)', () => {
       ...cycle('needs-attention', 'design-open-questions'),
       currentRunId: 'r1',
     } as WorkCycle;
-    expect(cycleActions(stopped, 'r1')).toEqual(['resolve-design', 'stop']);
-    expect(cycleActions(stopped, 'manual-r2')).toEqual(['resume', 'stop']);
+    expect(cycleActions(stopped, asAgentRunId('r1'))).toEqual(['resolve-design', 'stop']);
+    expect(cycleActions(stopped, asAgentRunId('manual-r2'))).toEqual(['resume', 'stop']);
   });
 
   it('names the merge-boundary action from the gate', () => {

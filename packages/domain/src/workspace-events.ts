@@ -1,12 +1,16 @@
 import type { AgentBackendKind, AgentRunRole, AgentRunStatus } from './execution.js';
 import type {
   AgentRunId,
+  ConcurrencyDefinitionId,
   EventId,
   PlanVersionId,
   ProjectId,
+  RoadmapId,
   SourceRepositoryId,
   UserId,
+  WorkCycleId,
   WorkItemId,
+  WorkItemSourceId,
   WorkspaceId,
   WorktreeId,
 } from './ids.js';
@@ -141,7 +145,7 @@ interface WorkItemAdmittedEvent extends WorkspaceEventBase {
     readonly projectId: ProjectId;
     readonly planVersionId: PlanVersionId;
     readonly workItemId: WorkItemId;
-    readonly sourceWorkItemId: string;
+    readonly sourceWorkItemId: WorkItemSourceId;
   };
 }
 
@@ -239,7 +243,7 @@ interface WorkItemCompletedEvent extends WorkspaceEventBase {
   readonly payload: {
     readonly projectId: ProjectId;
     readonly workItemId: WorkItemId;
-    readonly sourceWorkItemId: string;
+    readonly sourceWorkItemId: WorkItemSourceId;
     readonly worktreeId?: WorktreeId;
     readonly mergeSha?: string;
   };
@@ -267,7 +271,7 @@ interface WorkCycleChangedEvent extends WorkspaceEventBase {
   readonly runId?: never;
   readonly payload: {
     readonly planVersionId?: PlanVersionId;
-    readonly cycleId: string;
+    readonly cycleId: WorkCycleId;
     readonly status: import('./work-cycle.js').CycleStatus;
     readonly step: import('./work-cycle.js').CycleStep;
     readonly reason: string;
@@ -308,7 +312,7 @@ interface RoadmapChangedEvent extends WorkspaceEventBase {
   readonly workItemId?: never;
   readonly runId?: never;
   readonly payload: {
-    readonly roadmapId: string;
+    readonly roadmapId: RoadmapId;
     readonly status: import('./roadmap.js').RoadmapStatus;
     readonly reason: string;
   };
@@ -332,7 +336,7 @@ interface ScopeSchedulingAuthorizedEvent
 }
 interface RuntimeEvidenceChangedEvent extends Omit<ScopeEvidenceRecordedEvent, 'kind' | 'payload'> {
   readonly kind: 'runtime-evidence-changed';
-  readonly payload: { readonly definitionId: string; readonly message: string };
+  readonly payload: { readonly definitionId: ConcurrencyDefinitionId; readonly message: string };
 }
 export type WorkspaceEvent =
   | RuntimeEvidenceChangedEvent

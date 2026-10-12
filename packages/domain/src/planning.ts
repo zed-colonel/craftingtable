@@ -9,6 +9,7 @@ import type {
   UserId,
   WorkItemDependencyId,
   WorkItemId,
+  WorkItemSourceId,
   WorkspaceId,
   WorktreeId,
 } from './ids.js';
@@ -164,7 +165,7 @@ export interface PlanImportDiagnostic {
   readonly code: string;
   readonly artifactName?: string;
   readonly path?: string;
-  readonly workItemSourceId?: string;
+  readonly workItemSourceId?: WorkItemSourceId;
   readonly message: string;
 }
 
@@ -174,7 +175,7 @@ export interface WorkItem {
   readonly projectId: ProjectId;
   readonly planVersionId: PlanVersionId;
   /** Unique within a plan version only; never a primary key. */
-  readonly sourceId: string;
+  readonly sourceId: WorkItemSourceId;
   readonly ordinal: number;
   readonly title: string;
   readonly status: WorkItemStatus;

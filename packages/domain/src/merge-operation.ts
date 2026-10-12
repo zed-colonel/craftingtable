@@ -1,8 +1,15 @@
-import type { AgentRunId, UserId, WorkspaceId, WorktreeId } from './ids.js';
+import type {
+  AgentRunId,
+  MergeOperationId,
+  RoadmapId,
+  UserId,
+  WorkspaceId,
+  WorktreeId,
+} from './ids.js';
 
 /** A reviewed merge reservation, recorded before Git and reconciled before cleanup. */
 export interface MergeOperation {
-  readonly id: string;
+  readonly id: MergeOperationId;
   readonly workspaceId: WorkspaceId;
   readonly worktreeId: WorktreeId;
   readonly status: 'reserved' | 'failed' | 'merged' | 'cleaned';
@@ -12,7 +19,7 @@ export interface MergeOperation {
   readonly reviewRunId: AgentRunId;
   readonly createdAt: string;
   readonly authorizedByUserId: UserId;
-  readonly roadmapId?: string;
+  readonly roadmapId?: RoadmapId;
   readonly definitionRevision?: number;
   readonly mergeSha?: string;
   readonly cleanupError?: string;

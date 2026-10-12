@@ -1,4 +1,13 @@
-import type { SourceRepositoryId, UserId, WorkspaceId } from './ids.js';
+import type {
+  AgentRunId,
+  DeclaredCheckId,
+  MergeOperationId,
+  RepositoryCheckDeclarationId,
+  SourceRepositoryId,
+  UserId,
+  WorkspaceId,
+  WorktreeId,
+} from './ids.js';
 
 /**
  * Declared per-repository checks (R-G13, operator decision 2026-09-29). A repository proposes
@@ -11,7 +20,7 @@ export const CHECK_DECLARATION_PATH = '.craftingtable/checks.json';
 
 /** One declared check: its name, the command the daemon runs, and the files that define it. */
 export interface DeclaredCheck {
-  readonly id: string;
+  readonly id: DeclaredCheckId;
   /** The command and its arguments; the first is a program on PATH or a repository path. */
   readonly argv: readonly string[];
   /** Repository files whose contents define the check, such as its script. */
@@ -19,7 +28,7 @@ export interface DeclaredCheck {
 }
 
 export interface RepositoryCheckDeclaration {
-  readonly id: string;
+  readonly id: RepositoryCheckDeclarationId;
   readonly workspaceId: WorkspaceId;
   readonly repositoryId: SourceRepositoryId;
   /** 1 for the first adoption in the repository, then one more for each. */
@@ -38,9 +47,9 @@ export interface RepositoryCheckDeclaration {
    * (R-G13 increment 5): which merge, of which worktree, reviewed by which run.
    */
   readonly adoptedAtMerge?: {
-    readonly operationId: string;
-    readonly worktreeId: string;
-    readonly reviewRunId: string;
+    readonly operationId: MergeOperationId;
+    readonly worktreeId: WorktreeId;
+    readonly reviewRunId: AgentRunId;
   };
 }
 
@@ -49,7 +58,7 @@ export interface RepositoryCheckDeclaration {
  * and each check with the digests its definition files must still have.
  */
 export interface ManifestDeclaredChecks {
-  readonly declarationId: string;
+  readonly declarationId: RepositoryCheckDeclarationId;
   readonly version: number;
   readonly checks: readonly (DeclaredCheck & {
     readonly definitionDigests: Readonly<Record<string, string>>;

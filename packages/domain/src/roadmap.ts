@@ -1,6 +1,18 @@
 import type { AgentProfile, CycleProfiles } from './agent-profiles.js';
 import type { CompletionPolicy } from './work-cycle.js';
 import type {
+  AgentAssignmentId,
+  AgentRunId,
+  AttentionItemId,
+  CheckpointId,
+  ConcurrencyDefinitionId,
+  DecisionPreparationId,
+  DelegationAssignmentId,
+  RoadmapAttemptId,
+  RoadmapEntryId,
+  RoadmapId,
+  RuntimeGenerationId,
+  WorkCycleId,
   WorkspaceId,
   WorkItemId,
   ProjectId,
@@ -55,15 +67,15 @@ export interface RoadmapEntryWait {
   readonly reason: string;
   readonly since: string;
   readonly refs?: {
-    readonly cycleId?: string;
-    readonly entryId?: string;
+    readonly cycleId?: WorkCycleId;
+    readonly entryId?: RoadmapEntryId;
     readonly blockers?: readonly import('./attention.js').PhaseBlockerCode[];
   };
 }
 export interface RoadmapEntry {
   readonly reviewerRoles?: readonly string[];
   readonly executionScope?: import('./execution-scope.js').ExecutionScope;
-  readonly id: string;
+  readonly id: RoadmapEntryId;
   readonly workItemId: WorkItemId;
   readonly projectId: ProjectId;
   readonly planVersionId: PlanVersionId;
@@ -80,7 +92,7 @@ export interface RoadmapEntry {
 /** Immutable adopted definition; draft changes also create new revisions. */
 export interface RoadmapDefinition {
   readonly crossProject?: import('./cross-project.js').CrossProjectConfiguration;
-  readonly roadmapId: string;
+  readonly roadmapId: RoadmapId;
   readonly revision: number;
   readonly name: string;
   readonly entries: readonly RoadmapEntry[];
@@ -93,7 +105,7 @@ export interface RoadmapDefinition {
 export interface RoadmapAttempt {
   /** One fresh review explicitly queued by a reviewed dependency refresh; no source repair. */
   readonly dependencyRefresh?: {
-    readonly runtimeId: string;
+    readonly runtimeId: RuntimeGenerationId;
     readonly generation: number;
     readonly sourceRunId: import('./ids.js').AgentRunId;
   };
@@ -108,12 +120,12 @@ export interface RoadmapAttempt {
   };
   /** Additional owning-slice attempt; the original entry and reviewer assignments stay intact. */
   readonly recovery?: {
-    readonly sourceEntryId: string;
+    readonly sourceEntryId: RoadmapEntryId;
     readonly sourceRunId: import('./ids.js').AgentRunId;
     readonly sourceSequence: number;
     readonly findingFingerprint: string;
     readonly phase: 'repair' | 'verification' | 'parent-review' | 'completed';
-    readonly reviewRunIds: Readonly<Record<string, string>>;
+    readonly reviewRunIds: Readonly<Record<string, AgentRunId>>;
     readonly reviewRestarts?: Readonly<Record<string, number>>;
     /**
      * Set when the operator delegated this repair from the work item. The roadmap carries the
@@ -122,11 +134,11 @@ export interface RoadmapAttempt {
      */
     readonly requestedByUserId?: UserId;
   };
-  readonly id: string;
-  readonly entryId: string;
+  readonly id: RoadmapAttemptId;
+  readonly entryId: RoadmapEntryId;
   readonly definitionRevision: number;
   readonly worktreeId: WorktreeId;
-  readonly cycleId: string;
+  readonly cycleId: WorkCycleId;
   readonly status: 'preparing' | 'active' | 'completed';
   readonly createdAt: string;
   readonly completedAt?: string;
@@ -138,11 +150,11 @@ export interface RetiredRoadmapAttempt extends RoadmapAttempt {
   readonly reason: string;
 }
 export interface DecisionPreparation {
-  readonly id: string;
-  readonly definitionId: string;
+  readonly id: DecisionPreparationId;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly bindingRevision: number;
   readonly bindingDigest: string;
-  readonly checkpointId: string;
+  readonly checkpointId: CheckpointId;
   readonly workspaceId: WorkspaceId;
   readonly repositoryId: SourceRepositoryId;
   readonly projectId: ProjectId;
@@ -162,8 +174,8 @@ export interface Roadmap {
   readonly decisionPreparations?: readonly DecisionPreparation[];
   /** Explicit operational authority for future actions; adopted definitions remain immutable. */
   readonly delegationAssignments?: readonly {
-    readonly id: string;
-    readonly entryIds: readonly string[];
+    readonly id: DelegationAssignmentId;
+    readonly entryIds: readonly RoadmapEntryId[];
     readonly automation: RoadmapAutomation;
     readonly reviewerRoles: readonly string[];
     readonly rationale: string;
@@ -172,8 +184,8 @@ export interface Roadmap {
   }[];
   /** Append-only model choices, independent of plan authority and definition revisions. */
   readonly agentAssignments?: readonly {
-    readonly id: string;
-    readonly entryIds: readonly string[];
+    readonly id: AgentAssignmentId;
+    readonly entryIds: readonly RoadmapEntryId[];
     readonly selections: import('./agent-profiles.js').AgentSelections;
     readonly appliedAt: string;
     readonly appliedByUserId: UserId;
@@ -199,7 +211,7 @@ export interface Roadmap {
     readonly grantedByUserId: UserId;
     readonly grantedAt: string;
   };
-  readonly id: string;
+  readonly id: RoadmapId;
   readonly workspaceId: WorkspaceId;
   readonly version: number;
   readonly definition: RoadmapDefinition;
@@ -223,7 +235,7 @@ export interface RoadmapEntryProgress {
   readonly effectiveAutomation?: RoadmapAutomation;
   /** The entry's evidence is not current and its review has ended: Re-verify is offered. */
   readonly reverifiable?: true;
-  readonly entryId: string;
+  readonly entryId: RoadmapEntryId;
   readonly status:
     | 'queued'
     | 'dependency-blocked'
@@ -244,7 +256,7 @@ export type RoadmapActor = 'operator' | 'controller' | 'agent' | 'none';
  * hold, a scheduler wait, the entry's progress), never derived again.
  */
 export interface RoadmapStatusEntry {
-  readonly entryId: string;
+  readonly entryId: RoadmapEntryId;
   readonly sourceId: string;
   readonly scope: 'item' | import('./execution-scope.js').ExecutionScope['kind'];
   readonly title: string;
@@ -257,16 +269,16 @@ export interface RoadmapStatusEntry {
     readonly code?: string;
     readonly reason: string;
     readonly since?: string;
-    readonly attentionItemId?: string;
-    readonly cycleId?: string;
-    readonly runId?: string;
-    readonly entryId?: string;
+    readonly attentionItemId?: AttentionItemId;
+    readonly cycleId?: WorkCycleId;
+    readonly runId?: AgentRunId;
+    readonly entryId?: RoadmapEntryId;
     /** The phase blocker codes behind a wait, where it has them. */
     readonly blockers?: readonly import('./attention.js').PhaseBlockerCode[];
   };
 }
 export interface RoadmapStatusList {
-  readonly roadmapId: string;
+  readonly roadmapId: RoadmapId;
   readonly name: string;
   readonly status: RoadmapStatus;
   readonly reason: string;

@@ -1,22 +1,25 @@
+import type { AcceptanceCaseId, ConcurrencyDefinitionId } from './ids.js';
 /** Frozen source identity. Whole-item execution has no additional scope. */
 export interface ExecutionScope {
   readonly kind: 'slice' | 'slice-verification' | 'parent-acceptance';
-  readonly definitionId: string;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly bindingRevision: number;
   readonly sourceId: string;
 }
-export function executionScopeKey(scope?: ExecutionScope): string {
+/** What a scope's key reads: a scope, or its wire form, whose definition id is a plain string. */
+type ScopeKeyParts = Omit<ExecutionScope, 'definitionId'> & { readonly definitionId: string };
+export function executionScopeKey(scope?: ScopeKeyParts): string {
   return scope
     ? `${scope.definitionId}:${scope.bindingRevision}:${scope.kind}:${scope.sourceId}`
     : 'whole-item';
 }
-export function sameExecutionScope(a?: ExecutionScope, b?: ExecutionScope): boolean {
+export function sameExecutionScope(a?: ScopeKeyParts, b?: ScopeKeyParts): boolean {
   return executionScopeKey(a) === executionScopeKey(b);
 }
 export interface ScopeReviewEvidence {
   readonly scope: ExecutionScope;
   readonly requirements: readonly { readonly requirement: string; readonly evidence: string }[];
-  readonly caseIds: readonly string[];
+  readonly caseIds: readonly AcceptanceCaseId[];
 }
 /** Scope evidence as its receipt records it. */
 export interface RecordedScopeEvidence extends ScopeReviewEvidence {

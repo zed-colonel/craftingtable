@@ -15,6 +15,7 @@ import {
 } from '../src/attention-legacy.js';
 import type { PhaseBlocker } from '../src/phase-scheduling.js';
 import type { WorkCycle } from '../src/work-cycle.js';
+import { asFinalizationId } from '../src/ids.js';
 
 const stopped = (status: WorkCycle['status'], reason: string, extra: Partial<WorkCycle> = {}) =>
   ({ status, reason, ...extra }) as WorkCycle;
@@ -71,7 +72,7 @@ describe('typed attention (R-A3)', () => {
     const gate = (extra: Partial<WorkCycle>, reason = 'Review meets the completion policy.') =>
       effectiveCycleAttention(stopped('awaiting-merge', reason, extra))?.code;
     expect(gate({})).toBe('merge-approval');
-    expect(gate({ finalizationId: 'final-1' })).toBe('final-promotion');
+    expect(gate({ finalizationId: asFinalizationId('final-1') })).toBe('final-promotion');
     expect(
       gate({
         executionScope: {

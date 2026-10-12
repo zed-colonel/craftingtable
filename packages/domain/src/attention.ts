@@ -8,6 +8,14 @@
  * controller resolves itself and is never pushed as a notification.
  */
 
+import type {
+  CheckpointId,
+  ConcurrencyDefinitionId,
+  RoadmapEntryId,
+  SourceRepositoryId,
+  WorkCycleId,
+} from './ids.js';
+
 export type AttentionOwner = 'operator' | 'controller';
 
 /** Stops a cycle's controller declares. The value is the owner. */
@@ -163,14 +171,17 @@ export type EntryWaitCode = keyof typeof ENTRY_WAIT;
 export const ENTRY_WAIT_CODES = Object.keys(ENTRY_WAIT) as EntryWaitCode[];
 
 export interface AttentionRefs {
-  readonly checkpointId?: string;
-  readonly cycleId?: string;
-  readonly entryId?: string;
+  readonly checkpointId?: CheckpointId;
+  readonly cycleId?: WorkCycleId;
+  readonly entryId?: RoadmapEntryId;
   /** The concurrency definition whose dependency environment an `upstream-pin-moved` names. */
-  readonly definitionId?: string;
+  readonly definitionId?: ConcurrencyDefinitionId;
   /** The repository whose declared checks a `repository-checks-*` or `check-definition-*` stop names. */
-  readonly repositoryId?: string;
-  /** The declared check whose definition changed. */
+  readonly repositoryId?: SourceRepositoryId;
+  /**
+   * The declared check whose definition changed, or the declaration's own id where the stop names
+   * no single check.
+   */
   readonly checkId?: string;
   /** The pins that moved, for the operator and for automation that may refresh them later. */
   readonly pins?: readonly {

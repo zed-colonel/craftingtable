@@ -1,5 +1,10 @@
 import type { ConcurrencySource } from './concurrency-source.js';
 import type {
+  ConcurrencyDefinitionId,
+  ConcurrencyMapId,
+  ImportedArchiveId,
+  MapSourceFileId,
+  MapWorkItemId,
   PlanArtifactId,
   PlanVersionId,
   ProjectId,
@@ -15,7 +20,7 @@ export interface ImportIssue {
   readonly path?: string;
 }
 export interface ImportedArchive {
-  readonly id: string;
+  readonly id: ImportedArchiveId;
   readonly workspaceId: WorkspaceId;
   readonly filename: string;
   readonly digest: string;
@@ -25,20 +30,20 @@ export interface ImportedArchive {
 export interface ArchiveImportAttempt {
   readonly id: string;
   readonly workspaceId: WorkspaceId;
-  readonly archiveId: string;
+  readonly archiveId: ImportedArchiveId;
   readonly kind: 'plan' | 'concurrency';
   readonly outcome: 'succeeded' | 'duplicate' | 'failed-validation' | 'conflict';
   readonly createdAt: string;
   readonly createdByUserId: UserId;
   readonly diagnostics: readonly ImportIssue[];
-  readonly definitionId?: string;
+  readonly definitionId?: ConcurrencyDefinitionId;
   readonly planVersionId?: PlanVersionId;
 }
 export interface ConcurrencyDefinition {
-  readonly id: string;
+  readonly id: ConcurrencyDefinitionId;
   readonly workspaceId: WorkspaceId;
-  readonly archiveId: string;
-  readonly mapId: string;
+  readonly archiveId: ImportedArchiveId;
+  readonly mapId: ConcurrencyMapId;
   readonly revision: string;
   readonly digest: string;
   readonly source: ConcurrencySource;
@@ -55,18 +60,18 @@ export interface ConcurrencyPlanBinding {
   readonly integrationBranch?: string;
   readonly branchSettingsVersion?: number;
   readonly sourceArtifacts: readonly {
-    readonly sourceId: string;
+    readonly sourceId: MapSourceFileId;
     readonly artifactId: PlanArtifactId;
     readonly sha256: string;
   }[];
   readonly workItems: readonly {
-    readonly sourceId: string;
+    readonly sourceId: MapWorkItemId;
     readonly workItemId: WorkItemId;
     readonly sourceRecordDigest: string;
   }[];
 }
 export interface ConcurrencyBindingRevision {
-  readonly definitionId: string;
+  readonly definitionId: ConcurrencyDefinitionId;
   readonly workspaceId: WorkspaceId;
   readonly revision: number;
   readonly createdAt: string;
@@ -76,7 +81,7 @@ export interface ConcurrencyBindingRevision {
 export interface PlanArchiveLink {
   readonly workspaceId: WorkspaceId;
   readonly planVersionId: PlanVersionId;
-  readonly archiveId: string;
+  readonly archiveId: ImportedArchiveId;
   readonly implementationPlan: string;
   readonly workBreakdown: string;
   readonly selectedPaths: readonly string[];

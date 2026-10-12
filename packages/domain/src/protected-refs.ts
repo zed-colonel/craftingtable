@@ -1,4 +1,4 @@
-import type { AgentRunId, UserId, WorkspaceId, WorktreeId } from './ids.js';
+import type { AgentRunId, SourceRepositoryId, UserId, WorkspaceId, WorktreeId } from './ids.js';
 
 /**
  * A protected ref (a branch no managed worktree owns, or a tag) that moved during a run by
@@ -8,7 +8,7 @@ import type { AgentRunId, UserId, WorkspaceId, WorktreeId } from './ids.js';
 export interface ProtectedRefMove {
   readonly id: string;
   readonly workspaceId: WorkspaceId;
-  readonly repositoryId: string;
+  readonly repositoryId: SourceRepositoryId;
   readonly runId: AgentRunId;
   readonly worktreeId: WorktreeId;
   readonly detectedAt: string;

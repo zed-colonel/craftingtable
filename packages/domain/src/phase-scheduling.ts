@@ -1,3 +1,4 @@
+import type { CheckpointId, SliceId, WorkspaceId, WorktreeId } from './ids.js';
 export type ExecutionPhase = 'start' | 'merge' | 'verify' | 'accept';
 export interface PhaseBlocker {
   readonly kind: 'dependency' | 'evidence' | 'review' | 'authorization' | 'resource';
@@ -6,15 +7,15 @@ export interface PhaseBlocker {
   /** Absent only on blockers stored before R-A3; read through `phaseBlockerCode`. */
   readonly code?: import('./attention.js').PhaseBlockerCode;
   readonly refs?: {
-    readonly checkpointId?: string;
-    readonly sliceId?: string;
+    readonly checkpointId?: CheckpointId;
+    readonly sliceId?: SliceId;
     readonly resourceKey?: string;
   };
 }
 export interface PhaseReservation {
   readonly id: string;
-  readonly workspaceId: string;
-  readonly worktreeId: string;
+  readonly workspaceId: WorkspaceId;
+  readonly worktreeId: WorktreeId;
   readonly ownerId: string;
   readonly phase: ExecutionPhase;
   readonly resourceKey: string;

@@ -343,6 +343,22 @@ export interface GitOperations {
     readonly mergedInto: string;
     readonly expectedHeadSha?: string;
   }): Promise<GitResult<undefined>>;
+  /**
+   * Deletes a branch by compare-and-swap at `expectedTipSha` while `keeper` (a full ref and the
+   * commit pinned for it) keeps its commits; one checked out anywhere is refused (R-B11).
+   */
+  deleteContainedBranch(input: {
+    readonly repositoryPath: string;
+    readonly branchName: string;
+    readonly expectedTipSha: string;
+    readonly keeper: { readonly ref: string; readonly pinnedSha: string };
+  }): Promise<GitResult<'deleted' | 'absent'>>;
+  /** Keeps a commit under a new local tag `<repository>/parked/<name>`, never moved (R-B11). */
+  preserveRef(input: {
+    readonly repositoryPath: string;
+    readonly tag: string;
+    readonly commitSha: string;
+  }): Promise<GitResult<'created' | 'existing'>>;
 }
 
 export interface MergeResult {

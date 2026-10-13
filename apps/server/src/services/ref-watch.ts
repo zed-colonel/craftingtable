@@ -21,6 +21,9 @@ const MOVING_OPERATIONS = new Set<keyof GitOperations>([
   'createWorktree',
   'removeWorktree',
   'ensureBaselineTag',
+  // A roadmap's cleanup (R-B11): a contained branch deleted, unmerged work kept in a parked tag.
+  'deleteContainedBranch',
+  'preserveRef',
 ]);
 
 /** A ref one daemon operation moved, and where it left it. */

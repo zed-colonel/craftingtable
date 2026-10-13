@@ -49,6 +49,29 @@ it('flags a protected ref that moved during a run, unless the daemon moved it (R
   expect(await watch.unexplainedMoves('run-2', daemonGit, ['ct/run'])).toEqual([]);
 });
 
+it('credits the parked tag and branch deletion of a cleanup to the daemon (R-B11)', async () => {
+  const { refs, git } = fakeRepository();
+  refs['refs/heads/ct/old'] = 'old-tip';
+  const cleanup = {
+    ...git,
+    preserveRef: async () => {
+      refs['refs/tags/repo/parked/old'] = 'old-tip';
+      return { ok: true, value: 'created' };
+    },
+    deleteContainedBranch: async () => {
+      delete refs['refs/heads/ct/old'];
+      return { ok: true, value: 'deleted' };
+    },
+  } as unknown as GitOperations;
+  const watch = new RefWatch();
+  const daemonGit = watch.wrap(cleanup);
+  // A run elsewhere in the repository is in progress while a roadmap is cleaned up.
+  await watch.snapshot('run-4', daemonGit, '/repo');
+  await daemonGit.preserveRef({ repositoryPath: '/repo' } as never);
+  await daemonGit.deleteContainedBranch({ repositoryPath: '/repo' } as never);
+  expect(await watch.unexplainedMoves('run-4', daemonGit, ['ct/run'])).toEqual([]);
+});
+
 it('does not credit a move to a daemon operation that did not make it (R-G5 review)', async () => {
   const { refs, git } = fakeRepository();
   const watch = new RefWatch();

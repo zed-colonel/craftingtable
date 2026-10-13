@@ -312,6 +312,158 @@ export async function commitOf(
   return { ok: true, value: resolved.value.stdout.toString('utf8').trim() };
 }
 
+const FULL_SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+const PARKED_TAG = /^[A-Za-z0-9._-]+\/parked\/[A-Za-z0-9._-]+$/;
+
+/** The commit a full ref names now, or undefined when it does not exist. */
+async function exactRef(
+  ctx: GitRunner,
+  repository: string,
+  ref: string,
+): Promise<GitResult<string | undefined>> {
+  const shown = await ctx.run(['show-ref', '--verify', '--hash', ref], repository);
+  if (!shown.ok) return shown;
+  if (shown.value.exitCode !== 0) return { ok: true, value: undefined };
+  const commit = await ctx.runOk(
+    [
+      'rev-parse',
+      '--verify',
+      '--end-of-options',
+      `${shown.value.stdout.toString('utf8').trim()}^{commit}`,
+    ],
+    repository,
+  );
+  if (!commit.ok) return commit;
+  return { ok: true, value: commit.value.stdout.toString('utf8').trim() };
+}
+
+async function ancestor(
+  ctx: GitRunner,
+  repository: string,
+  older: string,
+  newer: string,
+): Promise<GitResult<boolean>> {
+  const result = await ctx.run(['merge-base', '--is-ancestor', older, newer], repository);
+  if (!result.ok) return result;
+  if (result.value.exitCode !== 0 && result.value.exitCode !== 1)
+    return fail('git-failed', 'Could not verify commit ancestry');
+  return { ok: true, value: result.value.exitCode === 0 };
+}
+
+/**
+ * Deletes a branch by compare-and-swap at its expected tip, only while a keeper keeps its commits
+ * (R-B11, ADR-073). The keeper is an integration branch at a pinned commit that is an ancestor of
+ * its live head, or a tag that still names its pinned commit; the tip must be an ancestor of the
+ * pin. Every name is checked by its full ref, never a short name Git would resolve otherwise.
+ */
+export async function deleteContainedBranch(
+  ctx: GitRunner,
+  input: {
+    readonly repositoryPath: string;
+    readonly branchName: string;
+    readonly expectedTipSha: string;
+    readonly keeper: { readonly ref: string; readonly pinnedSha: string };
+  },
+): Promise<GitResult<'deleted' | 'absent'>> {
+  const repository = await canonicalDirectory(input.repositoryPath);
+  if (!repository.ok) return repository;
+  const keeperName = input.keeper.ref.startsWith('refs/heads/')
+    ? input.keeper.ref.slice('refs/heads/'.length)
+    : input.keeper.ref.startsWith('refs/tags/')
+      ? input.keeper.ref.slice('refs/tags/'.length)
+      : undefined;
+  if (
+    !isSafeBranchName(input.branchName) ||
+    keeperName === undefined ||
+    !isSafeBranchName(keeperName) ||
+    !FULL_SHA.test(input.expectedTipSha) ||
+    !FULL_SHA.test(input.keeper.pinnedSha)
+  )
+    return fail('invalid-path', 'Branch, keeper and commits must be well formed and exact');
+  const branchRef = `refs/heads/${input.branchName}`;
+  if (input.keeper.ref === branchRef)
+    return fail('invalid-path', 'A branch cannot keep its own commits');
+  const tip = await exactRef(ctx, repository.value, branchRef);
+  if (!tip.ok) return tip;
+  if (tip.value === undefined) return { ok: true, value: 'absent' };
+  if (tip.value !== input.expectedTipSha)
+    return fail(
+      'target-moved',
+      `Branch ${input.branchName} moved since the plan was made; it was kept`,
+    );
+  const keeper = await exactRef(ctx, repository.value, input.keeper.ref);
+  if (!keeper.ok) return keeper;
+  if (keeper.value === undefined)
+    return fail('target-moved', `${keeperName} no longer exists; ${input.branchName} was kept`);
+  // A tag keeps exactly its commit; a branch keeps its pin while the pin is still in its history.
+  const pinHeld = input.keeper.ref.startsWith('refs/tags/')
+    ? { ok: true as const, value: keeper.value === input.keeper.pinnedSha }
+    : await ancestor(ctx, repository.value, input.keeper.pinnedSha, keeper.value);
+  if (!pinHeld.ok) return pinHeld;
+  if (!pinHeld.value)
+    return fail(
+      'target-moved',
+      `${keeperName} moved away from its pinned commit; ${input.branchName} was kept`,
+    );
+  const contained = await ancestor(
+    ctx,
+    repository.value,
+    input.expectedTipSha,
+    input.keeper.pinnedSha,
+  );
+  if (!contained.ok) return contained;
+  if (!contained.value)
+    return fail('target-moved', `${keeperName} does not keep ${input.branchName}; it was kept`);
+  const worktrees = await listWorktrees(ctx, repository.value);
+  if (!worktrees.ok) return worktrees;
+  if (worktrees.value.some((tree) => tree.branch === input.branchName))
+    return fail(
+      'target-checked-out',
+      `Branch ${input.branchName} is checked out in a worktree; it was kept`,
+    );
+  const deleted = await ctx.runOk(
+    ['update-ref', '--no-deref', '-d', branchRef, input.expectedTipSha],
+    repository.value,
+  );
+  if (!deleted.ok) return deleted;
+  return { ok: true, value: 'deleted' };
+}
+
+/**
+ * Keeps an exact commit under the local tag `<repository>/parked/<name>` (R-B11, ADR-073), as the
+ * baseline tags keep theirs: created by compare-and-swap from nothing, never moved.
+ */
+export async function preserveRef(
+  ctx: GitRunner,
+  input: { readonly repositoryPath: string; readonly tag: string; readonly commitSha: string },
+): Promise<GitResult<'created' | 'existing'>> {
+  const repository = await canonicalDirectory(input.repositoryPath);
+  if (!repository.ok) return repository;
+  if (
+    !isSafeBranchName(input.tag) ||
+    !PARKED_TAG.test(input.tag) ||
+    !FULL_SHA.test(input.commitSha)
+  )
+    return fail('invalid-path', 'Only <repository>/parked/<name> tags at exact commits are kept');
+  const ref = `refs/tags/${input.tag}`;
+  const existing = await exactRef(ctx, repository.value, ref);
+  if (!existing.ok) return existing;
+  if (existing.value !== undefined)
+    return existing.value === input.commitSha
+      ? { ok: true, value: 'existing' }
+      : fail('target-moved', `Tag ${input.tag} already names another commit; it will not be moved`);
+  const resolved = await resolveCommit(ctx, repository.value, input.commitSha);
+  if (!resolved.ok) return resolved;
+  if (resolved.value.commitSha !== input.commitSha)
+    return fail('invalid-path', 'The commit to keep must be named exactly');
+  const created = await ctx.runOk(
+    ['update-ref', ref, input.commitSha, '0'.repeat(input.commitSha.length)],
+    repository.value,
+  );
+  if (!created.ok) return created;
+  return { ok: true, value: 'created' };
+}
+
 /** The operations of this module, bound to one runner, as `createGitOperations` spreads them. */
 export const refOperations = (
   ctx: GitRunner,
@@ -328,6 +480,8 @@ export const refOperations = (
   | 'exactBranchCommit'
   | 'listBaselineTags'
   | 'ensureBaselineTag'
+  | 'deleteContainedBranch'
+  | 'preserveRef'
 > => ({
   listBranches: listBranches.bind(undefined, ctx),
   branchHeads: branchHeads.bind(undefined, ctx),
@@ -340,4 +494,6 @@ export const refOperations = (
   exactBranchCommit: exactBranchCommit.bind(undefined, ctx),
   listBaselineTags: listBaselineTags.bind(undefined, ctx),
   ensureBaselineTag: ensureBaselineTag.bind(undefined, ctx),
+  deleteContainedBranch: deleteContainedBranch.bind(undefined, ctx),
+  preserveRef: preserveRef.bind(undefined, ctx),
 });

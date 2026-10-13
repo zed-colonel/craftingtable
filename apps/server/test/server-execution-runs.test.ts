@@ -6,6 +6,8 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -623,6 +625,34 @@ describe('agent runs', () => {
     expect(launch?.prompt).toContain(
       `CARGO_TARGET_DIR points to ${launch?.buildCacheDirectory}, this worktree’s build cache`,
     );
+    // The daemon makes it before the launch, private to the operator: a sandbox can make only
+    // an existing directory writable, and its parent is read-only to the agent (live
+    // 2026-10-13: WIP-01's runs could not build).
+    const cache = statSync(launch!.buildCacheDirectory!);
+    expect(cache.isDirectory()).toBe(true);
+    expect(cache.mode & 0o777).toBe(0o700);
+    // A cache Storage cleaned away is made again for the worktree's next run.
+    const first = startAgentRunResponseSchema.parse(started.json()).run.id;
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, first)?.status === 'waiting',
+      'turn',
+    );
+    await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/runs/${first}/control`,
+      headers: mutationHeaders(state),
+      payload: { action: 'end' },
+    });
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, first)?.status === 'finished',
+      'finish',
+    );
+    rmSync(launch!.buildCacheDirectory!, { recursive: true });
+    await runToFinish(state, worktree.id, { role: 'implement' });
+    expect(state.backend.launches.at(-1)?.buildCacheDirectory).toBe(launch?.buildCacheDirectory);
+    expect(statSync(launch!.buildCacheDirectory!).isDirectory()).toBe(true);
   });
 
   it("names Cargo's build directory for a Cargo manifest one directory down too (R-G6 review)", async () => {

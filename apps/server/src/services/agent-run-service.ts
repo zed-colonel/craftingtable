@@ -1464,7 +1464,10 @@ export class AgentRunService {
       // Made with the scratch, before the run's record: a failure here fails the launch as a
       // scratch failure does, never leaves a run starting (LIVE-31 review).
       const processTemporaryDirectory = this.processTemporaryDirectory(runId);
-      const buildCacheDirectory = this.worktreeBuildCache(prepared.worktree);
+      const buildCacheDirectory = this.worktreeBuildCache(
+        prepared.worktree,
+        buildsWithCargo(prepared.worktree.path),
+      );
       // A read-only investigation runs no commands: no pinned build environment or checks.
       const pinned = investigation
         ? undefined
@@ -3212,20 +3215,26 @@ export class AgentRunService {
    * removed and nothing runs in it (ADR-039). Without a usable location the run builds in
    * its own scratch, as before.
    */
-  private worktreeBuildCache(worktree: Worktree): string | undefined {
+  private worktreeBuildCache(worktree: Worktree, create: boolean): string | undefined {
     try {
+      // For a worktree that builds with Cargo the daemon makes the directory before the launch:
+      // a sandbox can make only an existing directory writable, and its parent is read-only to
+      // the agent, so Cargo could not create it (live 2026-10-13: an off-map run's builds all
+      // failed). Storage may have cleaned a recorded cache away; it is made again where it was
+      // recorded. A worktree that never builds Rust still leaves nothing.
       const recorded = this.storage.maintenance.worktreeCache(worktree.id);
       if (recorded) {
+        if (create) mkdirSync(recorded.path, { recursive: true, mode: 0o700 });
+        else if (!existsSync(recorded.path)) return recorded.path;
         const usable =
-          !existsSync(recorded.path) ||
-          (lstatSync(recorded.path).isDirectory() &&
-            statSync(recorded.path).dev === recorded.device);
+          lstatSync(recorded.path).isDirectory() && statSync(recorded.path).dev === recorded.device;
         return usable ? recorded.path : undefined;
       }
       const parent = join(this.config.runsRoot, WORKTREE_CACHES_DIRECTORY);
       mkdirSync(parent, { recursive: true, mode: 0o700 });
       const root = realpathSync(parent);
       const path = join(root, worktree.id);
+      if (create) mkdirSync(path, { recursive: true, mode: 0o700 });
       this.storage.maintenance.registerWorktreeCache({
         worktreeId: worktree.id,
         workspaceId: worktree.workspaceId,

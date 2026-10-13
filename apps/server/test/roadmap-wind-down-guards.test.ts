@@ -273,6 +273,22 @@ describe('what a wind-down refuses (R-B11 review F3)', () => {
     expect(incomplete()).toBe(asked);
     expect(record(state)).toEqual(stuck);
     expect(notifier.workflowGeneration).toBe(generation);
+    // Minutes later the same cause refreshes its message and time, still without asking again.
+    const aged = new Date(Date.now() - 10 * 60_000).toISOString();
+    state.context.storage.transaction((tx) =>
+      tx.windDowns.replace(
+        {
+          ...stuck,
+          version: stuck.version + 1,
+          incomplete: { ...present(stuck.incomplete), at: aged, message: 'An older message.' },
+        },
+        stuck.version,
+      ),
+    );
+    await roadmaps.tick();
+    expect(record(state).incomplete?.at).not.toBe(aged);
+    expect(record(state).incomplete?.message).toMatch(/cannot be retired now/);
+    expect(incomplete()).toBe(asked);
     // The merge ends; the next pass retires the version.
     state.context.storage.transaction((tx) =>
       tx.execution.merges.save({ ...merge, status: 'failed' }),

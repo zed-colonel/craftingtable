@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createGitOperations } from '../src/operations.js';
@@ -221,5 +221,23 @@ describe('preserveRef (R-B11)', () => {
       expect(refused.ok, name).toBe(false);
     }
     expect(run('tag', '--list')).toBe(tag);
+  });
+});
+
+describe('worktreeHead (R-B11 review N6)', () => {
+  it('reads what Git records for a worktree whose checkout is gone, through a symlinked root', async () => {
+    const { repo, path, run } = repository();
+    const real = mkdtempSync(join(repo.root, 'real-'));
+    const link = join(repo.root, 'link');
+    symlinkSync(real, link);
+    run('branch', 'ct/kept');
+    run('worktree', 'add', join(link, 'on-branch'), 'ct/kept');
+    run('worktree', 'add', '--detach', join(link, 'detached'), 'main');
+    for (const name of ['on-branch', 'detached']) rmSync(join(real, name), { recursive: true });
+    const head = (name: string) =>
+      git.worktreeHead({ repositoryPath: path, worktreePath: join(link, name) });
+    expect(await head('on-branch')).toEqual({ ok: true, value: { branch: 'ct/kept' } });
+    expect(await head('detached')).toEqual({ ok: true, value: {} });
+    expect(await head('never')).toEqual({ ok: true, value: undefined });
   });
 });

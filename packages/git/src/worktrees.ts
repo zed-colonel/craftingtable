@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { GitResult, RepositoryIdentity, GitOperations } from './operations.js';
 import type { GitRunner } from './runner.js';
 import { fail, SHA_PATTERN, splitNul, canonicalDirectory, CHANGED_PATH_LIMIT } from './support.js';
@@ -205,6 +205,17 @@ export async function listWorktrees(
   return { ok: true, value: entries };
 }
 
+/** `path` with its nearest existing ancestor resolved to its real path, and the rest appended. */
+async function resolvedThroughAncestor(path: string): Promise<string> {
+  const missing: string[] = [];
+  for (let head = path; ; head = dirname(head)) {
+    const resolved = await realpath(head).catch(() => undefined);
+    if (resolved !== undefined) return join(resolved, ...missing.reverse());
+    if (dirname(head) === head) return path;
+    missing.push(basename(head));
+  }
+}
+
 /**
  * The branch Git records for a linked worktree's HEAD, even once its checkout is gone (R-B11
  * review N6): `{}` when detached, undefined when Git no longer lists the worktree.
@@ -217,7 +228,10 @@ export async function worktreeHead(
   if (!repository.ok) return repository;
   const listed = await listWorktrees(ctx, repository.value);
   if (!listed.ok) return listed;
-  const entry = listed.value.find((e) => e.path === input.worktreePath);
+  // Git lists a worktree by its real path; the record may name it through a symlink, and the
+  // checkout itself may be gone, so its nearest existing ancestor is resolved.
+  const real = await resolvedThroughAncestor(input.worktreePath);
+  const entry = listed.value.find((e) => e.path === input.worktreePath || e.path === real);
   return {
     ok: true,
     value: entry && (entry.branch === undefined ? {} : { branch: entry.branch }),

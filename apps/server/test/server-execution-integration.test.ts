@@ -497,7 +497,7 @@ it('abandons an owned resolution whose item no longer passes its readiness gate 
   expect(git(['status', '--porcelain'], worktree.path)).toBe('');
 });
 
-it('lets an editor abandon a resolution whose creator can no longer act (R-B11 review N2)', async () => {
+it('lets an editor abandon a resolution whose creator can no longer act and whose binding changed (R-B11 review N2)', async () => {
   const { state, worktree, cycle } = await ownedStoppedResolution();
   const editor = addMember(state, 'editor');
   const db = openDatabase(state.context.storage.databasePath);
@@ -508,6 +508,18 @@ it('lets an editor abandon a resolution whose creator can no longer act (R-B11 r
   } finally {
     db.close();
   }
+  // The worktree's integration binding changed too: aborting the owned merge needs neither.
+  const bound = present(
+    state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id),
+  );
+  expect(
+    state.context.storage.execution.worktrees.setIntegrationBranch({
+      workspaceId: state.workspaceId,
+      worktreeId: worktree.id,
+      integrationBranch: 'elsewhere',
+      expectedVersion: bound.version,
+    }),
+  ).toBeDefined();
   const current = currentCycle(state, cycle);
   const abandoned = await state.context.services.workCycleService.resolveIntegration(
     editor,

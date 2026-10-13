@@ -30,6 +30,7 @@ import { SqliteScopeReceiptRepository } from './repositories/scope-receipts.js';
 import { SqliteSessionRepository } from './repositories/sessions.js';
 import { SqliteUserRepository } from './repositories/users.js';
 import { SqliteWorkspaceEventRepository } from './repositories/workspace-events.js';
+import { SqliteWindDownRepository } from './repositories/wind-downs.js';
 import { SqliteWorkspaceRepository } from './repositories/workspaces.js';
 import type {
   CraftingTableStorage,
@@ -47,6 +48,7 @@ function repositories(
     amendments: new SqliteMapAmendmentRepository(database, guard),
     runtimeEvidence: new SqliteRuntimeEvidenceRepository(database, guard),
     protectedRefs: new SqliteProtectedRefRepository(database, guard),
+    windDowns: new SqliteWindDownRepository(database, guard),
     phaseScheduling: new SqlitePhaseSchedulingRepository(database),
     scopeReceipts: new SqliteScopeReceiptRepository(database, guard),
     imports: new SqliteImportRepository(database, guard),
@@ -68,6 +70,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   readonly amendments;
   readonly runtimeEvidence;
   readonly protectedRefs;
+  readonly windDowns;
   readonly phaseScheduling;
   readonly scopeReceipts;
   readonly imports;
@@ -106,6 +109,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     this.amendments = repos.amendments;
     this.runtimeEvidence = repos.runtimeEvidence;
     this.protectedRefs = repos.protectedRefs;
+    this.windDowns = repos.windDowns;
     this.phaseScheduling = repos.phaseScheduling;
     this.scopeReceipts = repos.scopeReceipts;
     this.imports = repos.imports;

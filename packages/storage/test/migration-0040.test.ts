@@ -82,7 +82,7 @@ function temporaryPath(name = 'state.sqlite'): string {
   return join(directory, name);
 }
 
-const migrations = discoverMigrations();
+const migrations = discoverMigrations().slice(0, 40);
 const toSchema39 = migrations.filter((migration) => migration.version <= 39);
 
 /**

@@ -24,6 +24,10 @@ export function describeEvent(event: WorkspaceEventEnvelope): string {
       return `Workspace renamed: ${event.payload.name}`;
     case 'project-created':
       return `Project created: ${event.payload.name}`;
+    case 'plan-version-retired':
+      return `Plan version retired as ${event.payload.disposition}`;
+    case 'repository-cleanup-changed':
+      return `Repository cleanup ${event.payload.status === 'done' ? 'finished' : 'in progress'}`;
     case 'plan-version-imported':
       return `Plan version ${event.payload.versionNumber} imported: ${event.payload.document} (${event.payload.itemCount} work items, ${event.payload.requiredDependencyCount} required dependencies)`;
     case 'work-item-removed-from-agenda':

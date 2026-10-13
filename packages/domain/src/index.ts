@@ -12,6 +12,7 @@ export * from './notification.js';
 export * from './planning.js';
 export * from './review.js';
 export * from './roadmap.js';
+export * from './roadmap-wind-down.js';
 export * from './cross-project.js';
 export * from './map-amendment.js';
 export * from './concurrency-amendment.js';

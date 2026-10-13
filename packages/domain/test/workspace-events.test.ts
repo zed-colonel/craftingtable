@@ -29,6 +29,8 @@ describe('workspace event vocabulary', () => {
       'scope-scheduling-authorized',
       'runtime-evidence-changed',
       'attention-changed',
+      'plan-version-retired',
+      'repository-cleanup-changed',
     ]);
     expect(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA).toEqual({
       'workspace-created': 1,
@@ -52,6 +54,8 @@ describe('workspace event vocabulary', () => {
       'scope-scheduling-authorized': 19,
       'runtime-evidence-changed': 20,
       'attention-changed': 32,
+      'plan-version-retired': 41,
+      'repository-cleanup-changed': 41,
     });
     expect(Object.keys(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA)).toEqual(WORKSPACE_EVENT_KINDS);
   });

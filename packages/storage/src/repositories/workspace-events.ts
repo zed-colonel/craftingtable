@@ -130,12 +130,14 @@ function assertStructuralShape(
     case 'roadmap-changed':
     case 'notifications-changed':
     case 'attention-changed':
+    case 'repository-cleanup-changed':
     case 'workspace-updated':
       if (row.project_id !== null || row.work_item_id !== null || row.run_id !== null) {
         invalidStructural(row);
       }
       return;
     case 'branches-changed':
+    case 'plan-version-retired':
       if (row.project_id === null || row.work_item_id !== null || row.run_id !== null)
         invalidStructural(row);
       return;
@@ -193,6 +195,8 @@ function assertPayloadCorrelations(
     case 'roadmap-changed':
     case 'notifications-changed':
     case 'attention-changed':
+    case 'plan-version-retired':
+    case 'repository-cleanup-changed':
     case 'workspace-updated':
       return;
     case 'worktree-created':
@@ -348,6 +352,19 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
       return { ...commonFields(base), kind, payload: mapPayload<'notifications-changed'>(payload) };
     case 'attention-changed':
       return { ...commonFields(base), kind, payload: mapPayload<'attention-changed'>(payload) };
+    case 'plan-version-retired':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        payload: mapPayload<'plan-version-retired'>(payload),
+      };
+    case 'repository-cleanup-changed':
+      return {
+        ...commonFields(base),
+        kind,
+        payload: mapPayload<'repository-cleanup-changed'>(payload),
+      };
     case 'workspace-updated':
       return {
         ...commonFields(base),

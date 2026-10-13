@@ -75,6 +75,11 @@ export const AUDIT_ACTIONS = [
   'agent-run.protected-ref-moved',
   'protected-refs.acknowledged',
   'repository-checks.adopted',
+  /* Winding down a roadmap (schema 41, R-B11). */
+  'roadmap.wind-down',
+  'plan.version-retired',
+  'repository-cleanup.updated',
+  'repository-cleanup.action',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -133,6 +138,10 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'evidence.submitted': 20,
   'evidence.decided': 20,
   'plan.version-activated': 16,
+  'roadmap.wind-down': 41,
+  'plan.version-retired': 41,
+  'repository-cleanup.updated': 41,
+  'repository-cleanup.action': 41,
 } as const satisfies Readonly<
   Record<
     AuditAction,
@@ -160,6 +169,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
     | 35
     | 36
     | 37
+    | 41
   >
 >;
 

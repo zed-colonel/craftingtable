@@ -192,6 +192,7 @@ it("re-reads each page's data on the events that change it, and on nothing else"
   const summary = [
     'project-created',
     'plan-version-imported',
+    'plan-version-retired',
     'work-item-admitted',
     'work-item-removed-from-agenda',
     'work-item-completed',
@@ -227,7 +228,10 @@ it("re-reads each page's data on the events that change it, and on nothing else"
     agenda: summary,
     project: summary,
     cycles: [
-      ...summary.filter((kind) => !['project-created', 'plan-version-imported'].includes(kind)),
+      ...summary.filter(
+        (kind) =>
+          !['project-created', 'plan-version-imported', 'plan-version-retired'].includes(kind),
+      ),
       'runtime-evidence-changed',
       'roadmap-changed',
     ],

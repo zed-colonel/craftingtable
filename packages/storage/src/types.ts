@@ -231,6 +231,7 @@ export interface StorageRepositories {
   readonly amendments: import('./repositories/map-amendments.js').MapAmendmentRepository;
   readonly runtimeEvidence: import('./repositories/runtime-evidence.js').RuntimeEvidenceRepository;
   readonly protectedRefs: import('./repositories/protected-refs.js').ProtectedRefRepository;
+  readonly windDowns: import('./repositories/wind-downs.js').WindDownRepository;
   readonly phaseScheduling: import('./repositories/phase-reservations.js').PhaseSchedulingRepository;
   readonly scopeReceipts: import('./repositories/scope-receipts.js').ScopeReceiptRepository;
   readonly imports: import('./repositories/imports.js').ImportRepository;

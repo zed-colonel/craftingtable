@@ -114,9 +114,9 @@ it.skipIf(SNAPSHOT === undefined)(
     const lastSeen = sequences.at(-RESUMED - 1) ?? 0;
     const expected = sequences.filter((sequence) => sequence > lastSeen);
 
-    // The daemon opens it: migration 0040 runs here, under the contract guard.
+    // The daemon opens it: migrations 0040 and 0041 run here, under the contract guard.
     const storage = openDaemonStorage(path);
-    expect(storage.migrationStatus.currentVersion).toBe(40);
+    expect(storage.migrationStatus.currentVersion).toBe(41);
     const config = configFromEnv({
       CRAFTINGTABLE_DATA_DIR: directory,
       CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),

@@ -56,9 +56,9 @@ interface PinnedMigration {
  * migration is a new migration. Rows are only ever appended, by moving them unchanged from
  * `PENDING_MIGRATIONS` in the commit that records the deploy which applied them.
  *
- * Deployed through schema 36: e0d33b8 applied 0036 on 2026-09-30 at 00:31 UTC (program.md,
- * post-deploy batch 2026-09-30), and no later deploy changed a migration. The rows match the live
- * daemon's ledger as of 2026-10-02.
+ * Deployed through schema 40: the operator's deploy of P3's release, a8a4c11, applied 0037-0040 at
+ * 2026-10-12 23:33 UTC. The rows match the live daemon's ledger, read from an immutable snapshot on
+ * 2026-10-13 (R-B11); 0036 and earlier matched it as of 2026-10-02.
  */
 // biome-ignore format: one row per migration, appended in order.
 const DEPLOYED_MIGRATIONS: readonly PinnedMigration[] = [
@@ -98,6 +98,10 @@ const DEPLOYED_MIGRATIONS: readonly PinnedMigration[] = [
   { version: 34, name: 'protected-ref-moves', checksum: '571fb0b274910edc0085c57262c6f582ec84ae989531c2caff415e1e525a8bb2' },
   { version: 35, name: 'protected-ref-flags', checksum: '1415fc510cec99c02e256b43dfdd8ad9138c3a74c3912d6f37cbeb2d29043291' },
   { version: 36, name: 'repository-check-declarations', checksum: '0af2441a2ab015ac5d284c169da1f2912bf7383a3d1b88c76288cce04c1090d2' },
+  { version: 37, name: 'authentication-hardening', checksum: 'd6de10ea4b993dd1aa50b899adb64fda3d253bcace4a2330abb630c5e074c0f9' },
+  { version: 38, name: 'check-only-run-environments', checksum: '35a6a857b4667b24a12c1cd8b431ca1bde87a0113a71d6e675bc0e92d4e0a35a' },
+  { version: 39, name: 'evidence-submission-heads', checksum: 'be68520f5f6dc32d037cfb7406c8ca8050f9847cc9c3d7979f8cb0b7f1b979dd' },
+  { version: 40, name: 'journal-without-registry', checksum: '8b4bfb875768c5d734dac8803d99b25ab9a01a508e47bc7857932a118cc4c147' },
 ];
 
 /**
@@ -107,10 +111,7 @@ const DEPLOYED_MIGRATIONS: readonly PinnedMigration[] = [
  */
 // biome-ignore format: one row per migration, appended in order.
 const PENDING_MIGRATIONS: readonly PinnedMigration[] = [
-  { version: 37, name: 'authentication-hardening', checksum: 'd6de10ea4b993dd1aa50b899adb64fda3d253bcace4a2330abb630c5e074c0f9' },
-  { version: 38, name: 'check-only-run-environments', checksum: '35a6a857b4667b24a12c1cd8b431ca1bde87a0113a71d6e675bc0e92d4e0a35a' },
-  { version: 39, name: 'evidence-submission-heads', checksum: 'be68520f5f6dc32d037cfb7406c8ca8050f9847cc9c3d7979f8cb0b7f1b979dd' },
-  { version: 40, name: 'journal-without-registry', checksum: '8b4bfb875768c5d734dac8803d99b25ab9a01a508e47bc7857932a118cc4c147' },
+  { version: 41, name: 'roadmap-wind-downs', checksum: '9a82f9411612cf73159a70e4b762b871b9bee36e931113892aca05c1b81c5134' },
 ];
 
 const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];
@@ -210,7 +211,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(40);
+    ).toBe(41);
     second.close();
   });
 
@@ -232,7 +233,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(40);
+    ).toBe(41);
     database.close();
   });
 
@@ -292,10 +293,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 40,
+      supportedVersion: 41,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
       ],
     });
 
@@ -311,10 +312,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 40,
+      supportedVersion: 41,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
       ],
     });
     expect(existsSync(path)).toBe(false);

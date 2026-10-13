@@ -19,9 +19,11 @@ import {
   type PlanBranchSettings,
   type PlanVersion,
   type ProtectedRefMove,
+  type RepositoryCleanup,
   type RepositoryPolicy,
   type Roadmap,
   type RoadmapDefinition,
+  type RoadmapWindDown,
   type RepositoryCheckDeclaration,
   type UpstreamTransitionRecord,
   type RunBuildRecord,
@@ -92,6 +94,10 @@ export interface PersistedRecords {
   readonly 'scope-integration-reuse': ScopeIntegrationReuse;
   readonly 'plan-version': PlanVersion;
   readonly 'work-item': WorkItem;
+  /** A roadmap's settlement record (R-B11, ADR-073). */
+  readonly 'roadmap-wind-down': RoadmapWindDown;
+  /** A roadmap's repository cleanup: its pinned plan and each action's state (R-B11). */
+  readonly 'repository-cleanup': RepositoryCleanup;
 }
 
 export type PersistedRecordKind = keyof PersistedRecords;
@@ -232,6 +238,8 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
     'scope-integration-reuse': [],
     'plan-version': [],
     'work-item': [],
+    'roadmap-wind-down': [],
+    'repository-cleanup': [],
   };
 
 /** Told about each upcaster that changed a record, so `db:verify` can count them. */

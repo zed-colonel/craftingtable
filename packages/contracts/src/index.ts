@@ -22,6 +22,7 @@ export * from './request-input.js';
 export * from './review.js';
 export * from './roadmap.js';
 export * from './roadmap-board.js';
+export * from './roadmap-wind-down.js';
 export * from './runtime-evidence.js';
 export * from './snapshot.js';
 export * from './storage-policy.js';

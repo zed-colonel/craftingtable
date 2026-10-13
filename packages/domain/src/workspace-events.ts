@@ -58,6 +58,9 @@ export const WORKSPACE_EVENT_KINDS = [
   'runtime-evidence-changed',
   /* Attention items (schema 32). */
   'attention-changed',
+  /* Winding down a roadmap (schema 41, R-B11). */
+  'plan-version-retired',
+  'repository-cleanup-changed',
 ] as const;
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];
 
@@ -83,8 +86,10 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'scope-scheduling-authorized': 19,
   'runtime-evidence-changed': 20,
   'attention-changed': 32,
+  'plan-version-retired': 41,
+  'repository-cleanup-changed': 41,
 } as const satisfies Readonly<
-  Record<WorkspaceEventKind, 1 | 2 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18 | 19 | 20 | 32>
+  Record<WorkspaceEventKind, 1 | 2 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18 | 19 | 20 | 32 | 41>
 >;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
@@ -338,7 +343,35 @@ interface RuntimeEvidenceChangedEvent extends Omit<ScopeEvidenceRecordedEvent, '
   readonly kind: 'runtime-evidence-changed';
   readonly payload: { readonly definitionId: ConcurrencyDefinitionId; readonly message: string };
 }
+/** A plan version was retired by a roadmap's wind-down (R-B11, ADR-073). */
+interface PlanVersionRetiredEvent extends WorkspaceEventBase {
+  readonly kind: 'plan-version-retired';
+  readonly projectId: ProjectId;
+  readonly workItemId?: never;
+  readonly runId?: never;
+  readonly payload: {
+    readonly planVersionId: PlanVersionId;
+    readonly roadmapId: RoadmapId;
+    readonly disposition: import('./roadmap-wind-down.js').RetirementDisposition;
+  };
+}
+
+/** A roadmap's repository cleanup changed: planned, an action's state, or finished (R-B11). */
+interface RepositoryCleanupChangedEvent extends WorkspaceEventBase {
+  readonly kind: 'repository-cleanup-changed';
+  readonly projectId?: never;
+  readonly workItemId?: never;
+  readonly runId?: never;
+  readonly payload: {
+    readonly roadmapId: RoadmapId;
+    readonly cleanupId: import('./ids.js').RepositoryCleanupId;
+    readonly status: 'running' | 'done';
+  };
+}
+
 export type WorkspaceEvent =
+  | PlanVersionRetiredEvent
+  | RepositoryCleanupChangedEvent
   | RuntimeEvidenceChangedEvent
   | ScopeSchedulingAuthorizedEvent
   | ScopeEvidenceRecordedEvent

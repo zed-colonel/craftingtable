@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Roadmap } from '@craftingtable/domain';
-import { asRoadmapId } from '@craftingtable/domain';
+import type { Roadmap, RoadmapWindDown } from '@craftingtable/domain';
+import { asRoadmapId, asRoadmapWindDownId } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SEED_NOW, seedWorkspace } from '../../../packages/storage/test/planning-test-support.js';
@@ -131,6 +131,58 @@ describe("the daemon's record guard (R-H3, TS-M5)", () => {
         roadmaps: before.roadmaps + 1,
         definitions: before.definitions + 1,
       });
+    } finally {
+      storage.close();
+    }
+  });
+
+  it('refuses a wind-down whose status and settled time disagree (R-B11)', () => {
+    const { storage, seed } = daemonStorage();
+    try {
+      const id = asRoadmapId(randomUUID());
+      storage.transaction((tx) =>
+        tx.roadmaps.save(
+          {
+            id,
+            workspaceId: seed.workspaceId,
+            version: 1,
+            status: 'stopped',
+            reason: 'Stopped',
+            createdAt: SEED_NOW,
+            updatedAt: SEED_NOW,
+            createdByUserId: seed.userId,
+            attempts: [],
+            definition: {
+              roadmapId: id,
+              revision: 1,
+              name: 'Queue',
+              entries: [],
+              createdAt: SEED_NOW,
+              createdByUserId: seed.userId,
+            },
+          },
+          0,
+        ),
+      );
+      const record: RoadmapWindDown = {
+        id: asRoadmapWindDownId(randomUUID()),
+        workspaceId: seed.workspaceId,
+        roadmapId: id,
+        version: 1,
+        status: 'settled',
+        retire: [],
+        abandonResolutions: [],
+        previewDigest: 'c'.repeat(64),
+        requestedAt: SEED_NOW,
+        requestedByUserId: seed.userId,
+        startedAt: SEED_NOW,
+      };
+      expect(() => storage.transaction((tx) => tx.windDowns.insert(record))).toThrow(
+        InvalidRecordError,
+      );
+      expect(storage.windDowns.find(seed.workspaceId, id)).toBeUndefined();
+      storage.transaction((tx) => tx.windDowns.insert({ ...record, settledAt: SEED_NOW }));
+      expect(storage.windDowns.find(seed.workspaceId, id)?.status).toBe('settled');
     } finally {
       storage.close();
     }

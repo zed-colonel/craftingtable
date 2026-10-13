@@ -19,6 +19,12 @@ export const queryKeys = {
    */
   roadmapPage: (workspaceId: string, roadmapId: string) =>
     ['roadmap-page', workspaceId, roadmapId] as const,
+  /** A roadmap's wind-down: its settlement record and what winding it down would do (R-B11). */
+  roadmapWindDown: (workspaceId: string, roadmapId: string) =>
+    ['roadmap-wind-down', workspaceId, roadmapId] as const,
+  /** A roadmap's repository cleanup: the running one, the latest, or its preview (R-B11). */
+  roadmapCleanup: (workspaceId: string, roadmapId: string) =>
+    ['roadmap-cleanup', workspaceId, roadmapId] as const,
   /** One revision of a roadmap's definition: it never changes, so no event reads it again. */
   roadmapDefinition: (workspaceId: string, roadmapId: string, revision: string) =>
     ['roadmap-definition', workspaceId, roadmapId, revision] as const,
@@ -179,7 +185,10 @@ function pageKeys(event: WorkspaceEventEnvelope): QueryKey[] {
       return [audit];
     case 'project-created':
     case 'plan-version-imported':
+    case 'plan-version-retired':
       return [...summary, audit];
+    case 'repository-cleanup-changed':
+      return [audit];
     case 'work-item-admitted':
     case 'work-item-removed-from-agenda':
     case 'scope-scheduling-authorized':
@@ -236,9 +245,11 @@ function panelKeys(event: WorkspaceEventEnvelope): QueryKey[] {
     case 'project-created':
     case 'notifications-changed':
     case 'attention-changed':
+    case 'repository-cleanup-changed':
       return [];
-    // A new plan version leaves the earlier one's slices inactive.
+    // A new plan version leaves the earlier one's slices inactive, and a retired one its items.
     case 'plan-version-imported':
+    case 'plan-version-retired':
       return [all('work-item', ws)];
     // A work item's view lists the workspace's repositories for its launch forms (R-D5).
     case 'source-repository-registered':
@@ -317,9 +328,20 @@ function roadmapAndPlanKeys(event: WorkspaceEventEnvelope): QueryKey[] {
       return [
         queryKeys.roadmaps(ws),
         queryKeys.roadmapStatus(ws, event.payload.roadmapId),
+        queryKeys.roadmapWindDown(ws, event.payload.roadmapId),
+        queryKeys.roadmapCleanup(ws, event.payload.roadmapId),
         all('runtime', ws),
         all('cross-project', ws),
       ];
+    // A retired version frees what it held: capacity, the active pointer, the other roadmaps.
+    case 'plan-version-retired':
+      return [
+        ...roadmapViews(ws),
+        all('roadmap-wind-down', ws),
+        ...plan(event.payload.planVersionId),
+      ];
+    case 'repository-cleanup-changed':
+      return [queryKeys.roadmapCleanup(ws, event.payload.roadmapId)];
     case 'attention-changed':
       return [...roadmapViews(ws), queryKeys.notifications(ws)];
     case 'notifications-changed':

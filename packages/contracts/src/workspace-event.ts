@@ -3,6 +3,8 @@ import {
   AGENT_RUN_ROLES,
   AGENT_RUN_STATUSES,
   type ConcurrencyDefinitionId,
+  RETIREMENT_DISPOSITIONS,
+  type RepositoryCleanupId,
   type RoadmapId,
   type WorkCycleId,
   type WorkItemSourceId,
@@ -341,7 +343,33 @@ const scopeEvidenceRecordedEventSchema = workspaceEventBaseSchema.extend({
     parentAccepted: z.boolean(),
   }),
 });
+const planVersionRetiredEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('plan-version-retired'),
+  projectId: projectIdSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  payload: z.strictObject({
+    planVersionId: planVersionIdSchema,
+    roadmapId: branded<RoadmapId>(z.string().uuid()),
+    disposition: z.enum(RETIREMENT_DISPOSITIONS),
+  }),
+});
+
+const repositoryCleanupChangedEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('repository-cleanup-changed'),
+  projectId: forbiddenCorrelationSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  payload: z.strictObject({
+    roadmapId: branded<RoadmapId>(z.string().uuid()),
+    cleanupId: branded<RepositoryCleanupId>(z.uuid()),
+    status: z.enum(['running', 'done']),
+  }),
+});
+
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
+  planVersionRetiredEventSchema,
+  repositoryCleanupChangedEventSchema,
   scopeEvidenceRecordedEventSchema.extend({
     kind: z.literal('runtime-evidence-changed'),
     payload: z.strictObject({

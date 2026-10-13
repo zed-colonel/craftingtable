@@ -200,6 +200,25 @@ const validEvents = {
     kind: 'attention-changed',
     payload: { open: 2 },
   },
+  'plan-version-retired': {
+    ...base,
+    kind: 'plan-version-retired',
+    projectId: 'project-1',
+    payload: {
+      planVersionId: 'plan-version-1',
+      roadmapId: '9e4b1a32-4a59-4a8b-a8a0-0f2c3c1b7d11',
+      disposition: 'parked',
+    },
+  },
+  'repository-cleanup-changed': {
+    ...base,
+    kind: 'repository-cleanup-changed',
+    payload: {
+      roadmapId: '9e4b1a32-4a59-4a8b-a8a0-0f2c3c1b7d11',
+      cleanupId: '2a6f0c51-7a5e-4f4b-9d1d-5e0d8f2c6b10',
+      status: 'running',
+    },
+  },
   'worktree-merged': {
     ...base,
     projectId: 'project-1',

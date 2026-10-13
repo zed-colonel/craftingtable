@@ -21,9 +21,11 @@ import {
   planVersionRecordSchema,
   protectedRefMoveSchema,
   repositoryCheckDeclarationSchema,
+  repositoryCleanupSchema,
   repositoryPolicySchema,
   roadmapDefinitionSchema,
   roadmapSchema,
+  roadmapWindDownSchema,
   runBuildRecordSchema,
   runCheckReceiptSchema,
   runEnvironmentSchema,
@@ -108,6 +110,8 @@ export const PERSISTED_RECORD_SCHEMAS = {
   'scope-integration-reuse': pin('scope-integration-reuse')(scopeIntegrationReuseSchema),
   'plan-version': pin('plan-version')(planVersionRecordSchema),
   'work-item': pin('work-item')(workItemRecordSchema),
+  'roadmap-wind-down': pin('roadmap-wind-down')(roadmapWindDownSchema),
+  'repository-cleanup': pin('repository-cleanup')(repositoryCleanupSchema),
 } satisfies { readonly [K in PersistedRecordKind]: RecordSchema };
 
 /**

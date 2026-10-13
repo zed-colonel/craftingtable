@@ -175,6 +175,8 @@ const SOURCES: readonly Source[] = [
     sql: 'SELECT *, id AS scan_key FROM plan_versions ORDER BY rowid',
     read: (row: PlanVersionRow) => mapVersion(row),
   },
+  documents('roadmap-wind-down', 'roadmap_wind_downs', 'id'),
+  documents('repository-cleanup', 'repository_cleanups', 'id'),
   {
     kind: 'work-item',
     table: 'work_items',
@@ -216,6 +218,7 @@ export const RELATIONAL_TABLES: Readonly<Record<string, string>> = {
   scope_scheduling_authorizations: 'relational',
   retired_scope_worktrees: 'relational',
   superseded_map_bindings: 'relational',
+  retired_plan_versions: 'relational; immutable retirements (R-B11)',
 };
 
 /** The table behind each scanned record kind. */

@@ -206,6 +206,25 @@ describe('what a cleanup never moves (R-B11 review F3)', () => {
     f.release();
   });
 
+  it('cleans a worktree of the retired version that a roadmap which has ended still names', async () => {
+    const f = await cleanupFixture();
+    const { state, auth, release } = f;
+    const ws = state.workspaceId;
+    const roadmaps = state.context.services.roadmapService;
+    release();
+    const other = present(state.context.storage.roadmaps.find(ws, OTHER));
+    await roadmaps.control(auth, ws, OTHER, 'stop', other.version);
+    await roadmaps.windDown(auth, ws, roadmapId, {
+      expectedDigest: roadmaps.windDownView(auth, ws, roadmapId).preview.digest,
+      retire: [{ planVersionId: asPlanVersionId('version-1'), disposition: 'superseded' }],
+    });
+    // The stopped roadmap holds nothing: its worktree of the retired version is cleaned too.
+    const otherTree = present(f.otherTree);
+    expect(removalAction((await preview(f)).actions, otherTree)).toMatchObject({
+      state: 'planned',
+    });
+  });
+
   it('keeps a worktree a live run or an active cycle holds', async () => {
     const f = await cleanupFixture({ withOther: false });
     const { state, first, third, root } = f;

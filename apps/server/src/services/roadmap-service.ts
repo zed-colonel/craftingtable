@@ -5,7 +5,7 @@ import {
 } from './architecture-decision-policy.js';
 import { roadmapPath } from './roadmap-paths.js';
 import { RoadmapSettlement, type SettlementObserver } from './roadmap-settlement.js';
-import { inRetiredVersion, retiredVersionIds } from './retired-versions.js';
+import { inRetiredVersion, retiredOrRetiring, retiredVersionIds } from './retired-versions.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
 import { predecessorGate } from './transition-gate.js';
 import {
@@ -1692,10 +1692,10 @@ export class RoadmapService {
         conflict('Reviewer role assignments require the explicit cross-project settings form.');
       const item = this.storage.planning.workItems.find(workspaceId, entry.workItemId);
       if (!item) throw new NotFoundError();
-      if (this.storage.windDowns.retirement(workspaceId, item.planVersionId))
+      if (retiredOrRetiring(this.storage, workspaceId, item.planVersionId))
         windDownRefused(
           'plan-version-retired',
-          `${item.sourceId} belongs to a retired plan version. Plan its work from a current version.`,
+          `${item.sourceId} belongs to a plan version that is retired or being retired. Plan its work from a current version.`,
         );
       const scoped = entry.executionScope
         ? resolveScope(this.storage, workspaceId, entry.workItemId, entry.executionScope)
@@ -1896,12 +1896,12 @@ export class RoadmapService {
         conflict('This workspace already has a delegated roadmap. Stop or finish it first.');
       // A draft saved before its version was retired cannot run it (R-B11).
       const retiredEntry = roadmap.definition.entries.find((e) =>
-        this.storage.windDowns.retirement(workspaceId, e.planVersionId),
+        retiredOrRetiring(this.storage, workspaceId, e.planVersionId),
       );
       if (retiredEntry)
         windDownRefused(
           'plan-version-retired',
-          `${retiredEntry.sourceId} belongs to a retired plan version. Edit the roadmap's entries first.`,
+          `${retiredEntry.sourceId} belongs to a plan version that is retired or being retired. Edit the roadmap's entries first.`,
         );
       if (roadmap.definition.crossProject) {
         const preview = crossProjectState(

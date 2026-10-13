@@ -28,3 +28,21 @@ export function inRetiredVersion(
 ): boolean {
   return retired.size > 0 && retired.has(worktreeVersion(tx, tree) ?? '');
 }
+
+/**
+ * Whether no new work may name a version: it is retired, or a wind-down still settling chose to
+ * retire it (review N1). Saving a roadmap and starting one ask this; capacity and the other gates
+ * release a version only once its retirement is written.
+ */
+export function retiredOrRetiring(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  planVersionId: string,
+): boolean {
+  return (
+    tx.windDowns.retirement(ws, planVersionId) !== undefined ||
+    tx.windDowns
+      .settling()
+      .some((r) => r.workspaceId === ws && r.retire.some((c) => c.planVersionId === planVersionId))
+  );
+}

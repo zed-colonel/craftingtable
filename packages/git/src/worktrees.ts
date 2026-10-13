@@ -205,6 +205,25 @@ export async function listWorktrees(
   return { ok: true, value: entries };
 }
 
+/**
+ * The branch Git records for a linked worktree's HEAD, even once its checkout is gone (R-B11
+ * review N6): `{}` when detached, undefined when Git no longer lists the worktree.
+ */
+export async function worktreeHead(
+  ctx: GitRunner,
+  input: { readonly repositoryPath: string; readonly worktreePath: string },
+): Promise<GitResult<{ readonly branch?: string } | undefined>> {
+  const repository = await canonicalDirectory(input.repositoryPath);
+  if (!repository.ok) return repository;
+  const listed = await listWorktrees(ctx, repository.value);
+  if (!listed.ok) return listed;
+  const entry = listed.value.find((e) => e.path === input.worktreePath);
+  return {
+    ok: true,
+    value: entry && (entry.branch === undefined ? {} : { branch: entry.branch }),
+  };
+}
+
 /** Where a branch is held: checked out, or being rebased or bisected, in a worktree. */
 export interface BranchHolder {
   readonly path: string;
@@ -269,8 +288,12 @@ export async function branchHolder(
 /** The operations of this module, bound to one runner, as `createGitOperations` spreads them. */
 export const worktreeOperations = (
   ctx: GitRunner,
-): Pick<GitOperations, 'inspectRepository' | 'createWorktree' | 'removeWorktree'> => ({
+): Pick<
+  GitOperations,
+  'inspectRepository' | 'createWorktree' | 'removeWorktree' | 'worktreeHead'
+> => ({
   inspectRepository: inspectRepository.bind(undefined, ctx),
+  worktreeHead: worktreeHead.bind(undefined, ctx),
   createWorktree: createWorktree.bind(undefined, ctx),
   removeWorktree: removeWorktree.bind(undefined, ctx),
 });

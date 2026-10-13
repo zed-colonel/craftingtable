@@ -9,8 +9,10 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
+import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RepositoryMutationBusyError } from '../src/services/branch-service.js';
+import { addMember } from './cleanup-test-support.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -414,7 +416,8 @@ it('stop during resolution preparation preserves ownership and supports explicit
   expect((await controlCycle(state, currentCycle(state, cycle), 'stop')).status).toBe('stopped');
 });
 
-it('abandons an owned resolution whose item no longer passes its readiness gate (R-B11 review F16)', async () => {
+/** A cycle that owns an integration resolution, stopped during its preparation (R-B11). */
+async function ownedStoppedResolution() {
   const real = createGitOperations({ gitExecutable: 'git' });
   let enter: (() => void) | undefined;
   let release: (() => void) | undefined;
@@ -424,7 +427,7 @@ it('abandons an owned resolution whose item no longer passes its readiness gate 
   const barrier = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const { state, worktree, root, cycle } = await resolutionFixture(
+  const fixture = await resolutionFixture(
     {
       ...real,
       prepareIntegrationResolution: async (input) => {
@@ -436,6 +439,7 @@ it('abandons an owned resolution whose item no longer passes its readiness gate 
     },
     { workers: true },
   );
+  const { state, root, cycle } = fixture;
   expect(
     (await resolutionCommand(state, currentCycle(state, cycle), { action: 'start' })).statusCode,
   ).toBe(200);
@@ -449,6 +453,11 @@ it('abandons an owned resolution whose item no longer passes its readiness gate 
     () => !state.context.services.executionService.branches.repositoryBusy(root),
     'stopped preparation',
   );
+  return fixture;
+}
+
+it('abandons an owned resolution whose item no longer passes its readiness gate (R-B11 review F16)', async () => {
+  const { state, worktree, cycle } = await ownedStoppedResolution();
   // The item gains a required predecessor that has not completed: starting anything is refused.
   const gate = asWorkItemId('resolution-gate');
   state.context.storage.transaction((tx) => {
@@ -485,6 +494,28 @@ it('abandons an owned resolution whose item no longer passes its readiness gate 
   });
   expect(abandoned.statusCode, abandoned.body).toBe(200);
   expect(currentCycle(state, cycle).integrationResolution?.status).toBe('abandoned');
+  expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+});
+
+it('lets an editor abandon a resolution whose creator can no longer act (R-B11 review N2)', async () => {
+  const { state, worktree, cycle } = await ownedStoppedResolution();
+  const editor = addMember(state, 'editor');
+  const db = openDatabase(state.context.storage.databasePath);
+  try {
+    db.prepare(
+      "UPDATE workspace_memberships SET role = 'viewer' WHERE workspace_id = ? AND user_id = ?",
+    ).run(state.workspaceId, state.userId);
+  } finally {
+    db.close();
+  }
+  const current = currentCycle(state, cycle);
+  const abandoned = await state.context.services.workCycleService.resolveIntegration(
+    editor,
+    state.workspaceId,
+    cycle.id,
+    { action: 'abandon', expectedVersion: current.version },
+  );
+  expect(abandoned.integrationResolution?.status).toBe('abandoned');
   expect(git(['status', '--porcelain'], worktree.path)).toBe('');
 });
 

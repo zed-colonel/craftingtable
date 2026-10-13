@@ -348,10 +348,7 @@ export class RepositoryCleanupService {
         );
         continue;
       }
-      // A checkout already gone holds nothing: only its record is removed.
-      const risk = existsSync(tree.path)
-        ? removalRisk(tree, await git.inspectRepository(tree.path))
-        : undefined;
+      const risk = await this.checkoutRisk(git, repository, tree);
       if (risk) {
         staying.add(tree.branchName);
         actions.push(removal(tree, 'kept', risk.code, risk.note));
@@ -507,6 +504,33 @@ export class RepositoryCleanupService {
     ]);
   }
 
+  /**
+   * What removing a worktree could lose (review F1, N6): its checkout, inspected; or with the
+   * checkout gone, the HEAD Git still records for it, which a removal's prune would drop.
+   */
+  private async checkoutRisk(
+    git: GitOperations,
+    repository: SourceRepository,
+    tree: Worktree,
+  ): Promise<Pick<RemovalAction, 'code' | 'note'> | undefined> {
+    if (existsSync(tree.path)) return removalRisk(tree, await git.inspectRepository(tree.path));
+    const recorded = await git.worktreeHead({
+      repositoryPath: repository.rootPath,
+      worktreePath: tree.path,
+    });
+    if (!recorded.ok)
+      return {
+        code: 'git-failed',
+        note: `Its worktree could not be read: ${recorded.failure.message}`.slice(0, 4000),
+      };
+    if (recorded.value && recorded.value.branch !== tree.branchName)
+      return {
+        code: 'ref-moved',
+        note: `Its checkout is gone, and Git records its HEAD off ${tree.branchName}; removing it would drop that commit.`,
+      };
+    return undefined;
+  }
+
   /** Other roadmaps that have not ended, in any workspace, keep what they name (review F2, F5). */
   private othersNamed(roadmapId: string): OthersNamed {
     const trees = new Set<string>();
@@ -606,9 +630,7 @@ export class RepositoryCleanupService {
             code: 'in-use',
             note: 'Another roadmap, an active cycle or a live run holds it.',
           };
-        const risk = existsSync(tree.path)
-          ? removalRisk(tree, await git.inspectRepository(tree.path))
-          : undefined;
+        const risk = await this.checkoutRisk(git, repository, tree);
         // Changes go only where the plan found them and the operator chose to discard them.
         if (risk && !(risk.code === 'dirty' && cleanup.discardDirty && action.code === 'dirty'))
           return { state: 'kept', ...risk };

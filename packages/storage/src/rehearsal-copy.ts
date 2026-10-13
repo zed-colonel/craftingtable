@@ -18,7 +18,9 @@ export function copyDatabaseImmutably(source: string, destination: string): void
   } finally {
     live.close();
   }
-  // An immutable read while the daemon checkpoints can be torn: the copy must be whole.
+  // A file SQLite could not rebuild whole is refused here. An immutable read during a checkpoint
+  // can still mix moments into a consistent file; the rehearsal runs db:verify on the copy for
+  // that, and a checkpointed (idle) database avoids it.
   const copy = new DatabaseSync(destination, { readOnly: true });
   try {
     const checked = copy.prepare('PRAGMA integrity_check').all() as { integrity_check: string }[];

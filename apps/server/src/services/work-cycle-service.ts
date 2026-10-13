@@ -4420,13 +4420,14 @@ export class WorkCycleService {
     });
   }
 
-  private resolutionContext(cycle: WorkCycle) {
+  /** The owned merge's worktree; aborting it needs no binding, only the worktree (R-B11 N2). */
+  private resolutionContext(cycle: WorkCycle, forAbort = false) {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     const resolution = cycle.integrationResolution;
     if (
       tree?.status !== 'active' ||
       !resolution ||
-      tree.integrationBranch !== resolution.targetBranch
+      (!forAbort && tree.integrationBranch !== resolution.targetBranch)
     )
       throw new ExecutionRequestError(
         'conflict',
@@ -4439,9 +4440,15 @@ export class WorkCycleService {
       targetSha: resolution.targetSha,
     };
   }
+  /**
+   * Runs a resolution change under the repository's merge lock. Whoever the change acts for must
+   * still be an owner or editor: the cycle's creator for work done on their behalf, or for an
+   * abandon, which only discards, the user abandoning (R-B11 review N2).
+   */
   private async resolutionMutation<T>(
     cycle: WorkCycle,
     operation: (check: () => void) => Promise<T>,
+    actingFor: WorkCycle['createdByUserId'] = cycle.createdByUserId,
   ): Promise<T> {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     const repository =
@@ -4449,11 +4456,8 @@ export class WorkCycleService {
     if (!tree || !repository || !this.branches || !this.git) throw new NotFoundError();
     const check = () => {
       const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      const user = this.storage.users.findById(cycle.createdByUserId);
-      const access = this.storage.workspaces.findAuthorized(
-        cycle.createdByUserId,
-        cycle.workspaceId,
-      );
+      const user = this.storage.users.findById(actingFor);
+      const access = this.storage.workspaces.findAuthorized(actingFor, cycle.workspaceId);
       if (
         this.abort.signal.aborted ||
         saved?.version !== cycle.version ||
@@ -4508,7 +4512,10 @@ export class WorkCycleService {
       if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
       else finalizationForCycle(this.storage, cycle);
     }
-    return this.resolutionMutation(cycle, async (checkOwned) => {
+    const actingFor = input.action === 'abandon' ? context.user.id : cycle.createdByUserId;
+    const mutation = <T>(operation: (checkOwned: () => void) => Promise<T>) =>
+      this.resolutionMutation(cycle, operation, actingFor);
+    return mutation(async (checkOwned) => {
       const check = () => {
         checkOwned();
         delegatedCheck?.();
@@ -4567,7 +4574,7 @@ export class WorkCycleService {
             'No pending integration resolution to abandon',
           );
         if (ownsIntegrationResolution(cycle)) {
-          const result = await git.abortIntegrationResolution(this.resolutionContext(cycle));
+          const result = await git.abortIntegrationResolution(this.resolutionContext(cycle, true));
           if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
         }
         check();

@@ -1,14 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import {
+  asMergeOperationId,
   asPlanVersionId,
+  asSourceRepositoryId,
+  asWorkspaceId,
   asWorktreeId,
   type CleanupAction,
   DEFAULT_COMPLETION_POLICY,
   type Worktree,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
+import { RepositoryMutationBusyError } from '../src/services/branch-service.js';
+import { ExecutionRequestError } from '../src/services/errors.js';
 import { parkedTag } from '../src/services/repository-cleanup.js';
 import { addMember, cleanupFixture, OTHER } from './cleanup-test-support.js';
 import {
@@ -364,7 +369,59 @@ describe('what a cleanup never moves (R-B11 review F3)', () => {
     expect(
       state.context.storage.windDowns.retirement(state.workspaceId, 'version-1'),
     ).toBeDefined();
-    for (const branch of ['release', 'loose']) git(['branch', branch, 'main'], root);
+    for (const branch of ['release', 'loose', 'merge-target', 'base-target', 'other-default'])
+      git(['branch', branch, 'main'], root);
+    // Two unmerged branches whose parked tags would share a name (review F8).
+    for (const branch of ['ct/x/same', 'ct/y/same']) {
+      const commit = git(
+        ['commit-tree', 'main^{tree}', '-p', 'main', '-m', `only on ${branch}`],
+        root,
+      ).trim();
+      git(['branch', branch, commit], root);
+      versionTree(f, branch);
+    }
+    // A merge pending into `merge-target`, a worktree from before branch configuration based on
+    // `base-target`, and another workspace's registration of the checkout defaulting to
+    // `other-default`.
+    const merging = versionTree(f, 'loose-2');
+    state.context.storage.transaction((tx) =>
+      tx.execution.merges.save({
+        id: asMergeOperationId(randomUUID()),
+        workspaceId: state.workspaceId,
+        worktreeId: merging.id,
+        status: 'reserved',
+        sourceSha: 'a'.repeat(40),
+        targetSha: 'b'.repeat(40),
+        targetBranch: 'merge-target',
+        reviewRunId: present(
+          state.context.storage.execution.runs.listForWorktree(state.workspaceId, f.first.id)[0],
+        ).id,
+        createdAt: new Date().toISOString(),
+        authorizedByUserId: state.userId,
+      }),
+    );
+    versionTree(f, 'base-holder', { integrationBranch: undefined, baseBranch: 'base-target' });
+    const elsewhere = asWorkspaceId(randomUUID());
+    state.context.storage.transaction((tx) => {
+      tx.workspaces.insert({
+        id: elsewhere,
+        name: 'Elsewhere',
+        slug: 'elsewhere',
+        createdByUserId: state.userId,
+        occurredAt: new Date().toISOString(),
+      });
+      tx.execution.sourceRepositories.insert({
+        id: asSourceRepositoryId(randomUUID()),
+        workspaceId: elsewhere,
+        displayName: 'Same checkout',
+        rootPath: root,
+        defaultBranch: 'other-default',
+        registeredHeadSha: git(['rev-parse', 'main'], root).trim(),
+        registeredAt: new Date().toISOString(),
+        registeredByUserId: state.userId,
+      });
+    });
+    for (const branch of ['merge-target', 'base-target', 'other-default']) versionTree(f, branch);
     // Records of the retired version that name an operator branch, a branch another worktree
     // merges into, and one nothing protects.
     versionTree(f, 'craftingtable/checks');
@@ -372,12 +429,75 @@ describe('what a cleanup never moves (R-B11 review F3)', () => {
     // An active worktree merges into `release`: it is protected while that worktree stands.
     versionTree(f, 'loose', { integrationBranch: 'release' });
     const planned = await preview(f);
-    for (const branch of ['craftingtable/checks', 'release'])
+    for (const branch of [
+      'craftingtable/checks',
+      'release',
+      'merge-target',
+      'base-target',
+      'other-default',
+    ])
       expect(branchAction(planned.actions, branch), branch).toMatchObject({
         state: 'kept',
         code: 'protected',
       });
+    // One of the two branches is kept in the tag; the other is refused before anything moves.
+    expect(
+      ['ct/x/same', 'ct/y/same'].map((b) => {
+        const action = present(branchAction(planned.actions, b));
+        return `${action.state}${action.code ? `:${action.code}` : ''}`;
+      }),
+    ).toEqual(['planned', 'refused:tag-exists']);
     expect(branchAction(planned.actions, 'loose')).toMatchObject({ state: 'planned' });
+  });
+
+  it('keeps a worktree whose checkout is gone while Git records its HEAD off its branch (N6)', async () => {
+    const f = await cleanupFixture({ withOther: false });
+    const { root, first, third } = f;
+    git(['checkout', '--quiet', '--detach'], first.path);
+    writeFileSync(join(first.path, 'detached.txt'), 'only here');
+    git(['add', 'detached.txt'], first.path);
+    git(['commit', '--no-gpg-sign', '-m', 'only on a detached HEAD'], first.path);
+    for (const tree of [first, third]) rmSync(tree.path, { recursive: true, force: true });
+    const planned = await preview(f);
+    expect(removalAction(planned.actions, first)).toMatchObject({
+      state: 'kept',
+      code: 'ref-moved',
+    });
+    // A checkout gone while on its branch holds nothing more than its branch.
+    expect(removalAction(planned.actions, third)).toMatchObject({ state: 'planned' });
+    await clean(f, planned.digest);
+    expect(git(['worktree', 'list', '--porcelain'], root)).toContain(first.path);
+  });
+
+  it('leaves a cleanup to resume when the repository is busy, and keeps a removal Git refuses (F7)', async () => {
+    const f = await cleanupFixture({ withOther: false });
+    const { state, first, third } = f;
+    const execution = state.context.services.executionService;
+    const remove = execution.removeWorktree.bind(execution);
+    let busy = true;
+    execution.removeWorktree = async (context, ws, worktreeId, requestId, options) => {
+      if (worktreeId === first.id && busy) throw new RepositoryMutationBusyError();
+      if (worktreeId === third.id)
+        throw new ExecutionRequestError('conflict', 'Could not remove worktree');
+      return remove(context, ws, worktreeId, requestId, options);
+    };
+    try {
+      const planned = await preview(f);
+      const interrupted = await clean(f, planned.digest);
+      // Busy: nothing final was recorded for it, and the cleanup asks to be repeated.
+      expect(interrupted.running?.incomplete).toBeDefined();
+      expect(removalAction(present(interrupted.running).actions, first)?.state).toBe('authorized');
+      busy = false;
+      const done = await clean(f, planned.digest);
+      expect(done.latest?.status).toBe('done');
+      expect(removalAction(present(done.latest).actions, first)?.state).toBe('done');
+      expect(removalAction(present(done.latest).actions, third)).toMatchObject({
+        state: 'kept',
+        code: 'git-failed',
+      });
+    } finally {
+      execution.removeWorktree = remove;
+    }
   });
 
   it('refuses a roadmap that ended without a wind-down record', async () => {

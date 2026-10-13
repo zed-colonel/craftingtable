@@ -6,7 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  statSync,
+  lstatSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -41,8 +41,9 @@ import {
   relocateRehearsalCopy,
 } from '@craftingtable/storage';
 import { createServices } from './composition.js';
+import { verifyDatabase } from './db-verify.js';
 import { configFromEnv } from './config.js';
-import { openDaemonStorage } from './persisted-records.js';
+import { openDaemonStorage, verified } from './persisted-records.js';
 import type { AuthContext } from './services/auth-service.js';
 import { ExecutionRequestError } from './services/errors.js';
 
@@ -221,6 +222,13 @@ async function main(): Promise<void> {
   const copy = join(dataDir, 'state', 'craftingtable.sqlite');
   const started = new Date().toISOString();
   copyDatabaseImmutably(o.database, copy);
+  // An immutable read during a checkpoint can mix moments: the copy must pass db:verify's record,
+  // integrity and foreign-key checks (review N4). A checkpointed database copies whole.
+  const verification = await verifyDatabase(copy);
+  if (!verified(verification))
+    throw new Error(
+      `The copy fails db:verify (${verification.invalid.length} invalid, ${verification.unreadable.length} unreadable, ${verification.integrity.join('; ') || 'integrity ok'}); copy it again`,
+    );
 
   // What to copy, read from the copy itself.
   const first = openDaemonStorage(copy);
@@ -256,8 +264,10 @@ async function main(): Promise<void> {
       if (!repo) continue;
       const root = join(o.out, 'repositories', basename(repo.rootPath));
       copyTree(repo.rootPath, root);
-      // A registered checkout that is itself a linked worktree shares a live Git directory.
-      if (!statSync(join(root, '.git')).isDirectory())
+      // A checkout whose Git directory is a link, a file (itself a linked worktree) or shares a
+      // common directory would reach the live repository: refused (review N4).
+      const gitDir = join(root, '.git');
+      if (!lstatSync(gitDir).isDirectory() || existsSync(join(gitDir, 'commondir')))
         throw new Error(`${repo.rootPath} has no Git directory of its own; it cannot be copied`);
       repositories.push({ id, rootPath: root });
       // Every managed worktree of the repository, other roadmaps' too, relinked to the copy.

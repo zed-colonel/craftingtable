@@ -281,6 +281,11 @@ export interface GitOperations {
     targetSha: string;
   }): Promise<GitResult<{ mergeSha: string }>>;
   inspectRepository(path: string): Promise<GitResult<RepositoryIdentity>>;
+  /** A linked worktree's recorded HEAD branch, `{}` detached, even with its checkout gone. */
+  worktreeHead(input: {
+    repositoryPath: string;
+    worktreePath: string;
+  }): Promise<GitResult<{ readonly branch?: string } | undefined>>;
   createWorktree(input: {
     readonly recoverExisting?: boolean;
     readonly repositoryPath: string;

@@ -59,6 +59,7 @@ it('composes one plain object with every operation, as test doubles and proxies 
       'snapshotWorktree',
       'updateWorktree',
       'worktreeDiff',
+      'worktreeHead',
     ].sort(),
   );
   expect(Object.values(copy).every((value) => typeof value === 'function')).toBe(true);

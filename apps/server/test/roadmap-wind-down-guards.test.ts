@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
   asMergeOperationId,
+  asRoadmapEntryId,
+  DEFAULT_COMPLETION_POLICY,
   ownsIntegrationResolution,
   asPlanVersionId,
   asProjectId,
@@ -9,12 +11,14 @@ import {
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AuthContext } from '../src/services/auth-service.js';
-import { addMember, cleanupFixture, OTHER, startOther } from './cleanup-test-support.js';
+import { addMember, cleanupFixture, FOURTH, OTHER } from './cleanup-test-support.js';
 import {
   cleanupExecutionFixtures,
   commitFile,
   cycleProfiles,
+  beginFinalization,
   designDone,
+  finalizationFixture,
   git,
   implementationDone,
   parallelFixture,
@@ -22,6 +26,7 @@ import {
   reviewText,
   roadmapControl,
   saveRoadmapRequest,
+  stepPermissions,
   useIntegration,
   waitFor,
   type Ready,
@@ -180,12 +185,35 @@ describe('what a wind-down refuses (R-B11 review F3)', () => {
     ).toMatchObject({ disposition: 'parked', activeCleared: true });
   });
 
-  it('checks a retirement again where it is written, asks once, and finishes when the cause clears (F4, F10)', async () => {
-    const f = await cleanupFixture({ withOther: false });
+  it('refuses to retire a version with an open finalization', async () => {
+    const fixture = await finalizationFixture();
+    const { state } = fixture;
+    await beginFinalization(fixture);
+    expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+    const auth = authOf(state);
+    const roadmaps = state.context.services.roadmapService;
+    const view = roadmaps.windDownView(auth, state.workspaceId, roadmapId);
+    expect(view.preview.versions.find((v) => v.planVersionId === V1)?.refusal?.code).toBe(
+      'finalization-active',
+    );
+    await expect(
+      roadmaps.windDown(auth, state.workspaceId, roadmapId, {
+        expectedDigest: view.preview.digest,
+        retire: [{ planVersionId: V1, disposition: 'parked' }],
+      }),
+    ).rejects.toMatchObject({ detail: { reason: 'finalization-active' } });
+  });
+
+  it('checks a retirement again where it is written, refuses new work of it meanwhile, asks once, and finishes when the cause clears (F4, F10, N1)', async () => {
+    const f = await cleanupFixture();
     const { state, release } = f;
     const auth = authOf(state);
     const ws = state.workspaceId;
     const roadmaps = state.context.services.roadmapService;
+    // The other roadmap ends; its worktree of the version stays.
+    release();
+    const other = present(state.context.storage.roadmaps.find(ws, OTHER));
+    await roadmaps.control(auth, ws, OTHER, 'stop', other.version);
     crashAfterCycles(state);
     await roadmaps.windDown(auth, ws, roadmapId, {
       expectedDigest: roadmaps.windDownView(auth, ws, roadmapId).preview.digest,
@@ -193,8 +221,43 @@ describe('what a wind-down refuses (R-B11 review F3)', () => {
     });
     roadmaps.observeSettlement(undefined);
     expect(record(state)).toMatchObject({ status: 'settling', incomplete: { step: 'cycles' } });
-    // Meanwhile another roadmap starts work of the version.
-    await startOther(state);
+    // While it settles, no roadmap may plan the version's work.
+    const planned = await saveRoadmapRequest(
+      state,
+      {
+        expectedVersion: 0,
+        name: 'Planned meanwhile',
+        entries: [
+          {
+            id: asRoadmapEntryId('00000000-0000-4000-8000-000000000051'),
+            workItemId: FOURTH,
+            permissions: stepPermissions,
+            policy: DEFAULT_COMPLETION_POLICY,
+            instructions: '',
+          },
+        ],
+      },
+      asRoadmapId('00000000-0000-4000-8000-000000000050'),
+    );
+    expect(planned.statusCode, planned.body).toBe(409);
+    expect(planned.json()).toMatchObject({ error: { reason: 'plan-version-retired' } });
+    // A merge is reserved on the other roadmap's worktree of the version.
+    const otherTree = present(f.otherTree);
+    const merge = {
+      id: asMergeOperationId(randomUUID()),
+      workspaceId: ws,
+      worktreeId: otherTree.id,
+      status: 'reserved' as const,
+      sourceSha: 'a'.repeat(40),
+      targetSha: 'b'.repeat(40),
+      targetBranch: 'main',
+      reviewRunId: present(
+        state.context.storage.execution.runs.listForWorktree(ws, otherTree.id)[0],
+      ).id,
+      createdAt: new Date().toISOString(),
+      authorizedByUserId: state.userId,
+    };
+    state.context.storage.transaction((tx) => tx.execution.merges.save(merge));
     await stepDaemon(state.context.services);
     expect(record(state)).toMatchObject({ status: 'settling', incomplete: { step: 'settle' } });
     expect(record(state).incomplete?.message).toMatch(/cannot be retired now/);
@@ -202,13 +265,18 @@ describe('what a wind-down refuses (R-B11 review F3)', () => {
     const incomplete = () =>
       windDownAudit(state).filter((e) => e.metadata.phase === 'incomplete').length;
     const asked = incomplete();
-    // Another pass on the same cause records nothing new.
-    await stepDaemon(state.context.services);
+    const stuck = record(state);
+    // Another pass on the same cause records nothing new, and wakes nothing (N7).
+    const notifier = state.context.services.workspaceEventNotifier;
+    const generation = notifier.workflowGeneration;
+    await roadmaps.tick();
     expect(incomplete()).toBe(asked);
-    // The other roadmap ends; the next pass retires the version.
-    release();
-    const other = present(state.context.storage.roadmaps.find(ws, OTHER));
-    await roadmaps.control(auth, ws, OTHER, 'stop', other.version);
+    expect(record(state)).toEqual(stuck);
+    expect(notifier.workflowGeneration).toBe(generation);
+    // The merge ends; the next pass retires the version.
+    state.context.storage.transaction((tx) =>
+      tx.execution.merges.save({ ...merge, status: 'failed' }),
+    );
     await stepDaemon(state.context.services);
     expect(record(state).status).toBe('settled');
     expect(state.context.storage.windDowns.retirement(ws, V1)).toMatchObject({
@@ -217,10 +285,26 @@ describe('what a wind-down refuses (R-B11 review F3)', () => {
   });
 
   it('refuses a stale command, a stale preview, another retirement and other commands while settling; a repeat once settled changes nothing', async () => {
-    const { state, release } = await settleFixture();
+    const { state, release, first } = await settleFixture();
     const auth = authOf(state);
     const ws = state.workspaceId;
     const roadmaps = state.context.services.roadmapService;
+    // A claim that a finished run of the roadmap still holds is released by the settle.
+    const finished = present(
+      state.context.storage.execution.runs
+        .listForWorktree(ws, first.worktreeId)
+        .find((r) => r.status === 'finished'),
+    );
+    state.context.storage.phaseScheduling.acquire({
+      id: 'orphaned-claim',
+      workspaceId: ws,
+      worktreeId: first.worktreeId,
+      ownerId: finished.id,
+      phase: 'start',
+      resourceKey: 'local-development',
+      capacity: 2,
+      acquiredAt: new Date().toISOString(),
+    });
     const before = roadmaps.windDownView(auth, ws, roadmapId).preview.digest;
     const stale = await stop(state, storedRoadmap(state).version - 1);
     expect(stale.statusCode).toBe(409);
@@ -253,6 +337,9 @@ describe('what a wind-down refuses (R-B11 review F3)', () => {
     await stepDaemon(state.context.services);
     const settled = record(state);
     expect(settled.status).toBe('settled');
+    expect(
+      state.context.storage.phaseScheduling.active().some((r) => r.id === 'orphaned-claim'),
+    ).toBe(false);
     const audits = windDownAudit(state).length;
     await roadmaps.windDown(auth, ws, roadmapId, {
       expectedDigest: roadmaps.windDownView(auth, ws, roadmapId).preview.digest,

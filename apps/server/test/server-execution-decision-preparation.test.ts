@@ -252,6 +252,35 @@ it('prepares a decision while the roadmap runs, through the roadmap’s own writ
   expect(storedRoadmap(f.state).status).toBe('running');
 });
 
+it('a Stop ends a live preparation run, and once settled its preparations ask nobody (R-B11)', async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx, hold } = fixture;
+  await roadmapControl(f.state, 'start');
+  // One preparation finishes with its questions; another is still running.
+  expect((await prepare(fixture, 'LOCAL-ADR-02')).statusCode).toBe(200);
+  const answered = preparation(fixture, 'LOCAL-ADR-02')!;
+  await waitFor(
+    () => tx.execution.runs.find(ws, answered.runId)?.status === 'finished',
+    'the first preparation finishes',
+  );
+  const questions = () =>
+    tx.attention.open(ws).filter((i) => i.code === 'decision-preparation-questions');
+  expect(questions()).not.toEqual([]);
+  const release = hold('LOCAL-ADR-01');
+  expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
+  const live = preparation(fixture, 'LOCAL-ADR-01')!;
+  expect(tx.execution.runs.find(ws, live.runId)?.status).not.toBe('finished');
+  await roadmapControl(f.state, 'stop');
+  await waitFor(
+    () => tx.windDowns.find(ws, fixture.saved.id)?.status === 'settled',
+    'the roadmap settles',
+  );
+  expect(storedRoadmap(f.state).status).toBe('stopped');
+  expect(tx.execution.runs.find(ws, live.runId)?.status).toBe('cancelled');
+  expect(questions()).toEqual([]);
+  release();
+});
+
 it('approves one decision while another is still being prepared (R-C3b)', async () => {
   const fixture = await decisionFixture();
   const { ws, tx } = fixture;

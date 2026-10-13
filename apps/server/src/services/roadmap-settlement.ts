@@ -57,6 +57,8 @@ export type SettlementObserver = (roadmapId: string, step: WindDownStep) => void
 
 /** How long a step may wait for cancelled sessions to end before it counts as failed. */
 const SESSION_WAIT_LIMIT_MS = 10 * 60_000;
+/** How often a step that keeps failing on the same cause refreshes its message (review N3). */
+const INCOMPLETE_REFRESH_MS = 5 * 60_000;
 const STOPPED_REASON = 'Roadmap stopped. Existing worktrees remain available for manual work.';
 const WOUND_DOWN_REASON =
   'Roadmap wound down. Its retired plan versions hold nothing; worktrees remain until the repositories are cleaned up.';
@@ -242,15 +244,16 @@ export class RoadmapSettlement {
               code: 'version-in-use',
               message: `The roadmap ${user.definition.name} still runs this version.`,
             }
-          : outside
+          : // An open finalization runs its own cycle: named as itself, before other live work.
+            finalization
             ? {
-                code: 'version-in-use',
-                message: `Work outside this roadmap is live on ${outside.branchName}.`,
+                code: 'finalization-active',
+                message: 'A finalization of this version is open. Stop or finish it first.',
               }
-            : finalization
+            : outside
               ? {
-                  code: 'finalization-active',
-                  message: 'A finalization of this version is open. Stop or finish it first.',
+                  code: 'version-in-use',
+                  message: `Work outside this roadmap is live on ${outside.branchName}.`,
                 }
               : reserved
                 ? {
@@ -409,6 +412,7 @@ export class RoadmapSettlement {
   private async settle(record: RoadmapWindDown, context?: AuthContext): Promise<void> {
     if (this.busy.has(record.roadmapId)) return;
     this.busy.add(record.roadmapId);
+    const before = this.storage.windDowns.find(record.workspaceId, record.roadmapId)?.version;
     try {
       for (const step of WIND_DOWN_STEPS) {
         try {
@@ -423,7 +427,10 @@ export class RoadmapSettlement {
       }
     } finally {
       this.busy.delete(record.roadmapId);
-      this.notifier.notify();
+      // Only a change wakes the scheduler: a pass that changed nothing must not start the next
+      // one at once, or a settle that cannot finish would spin (review N7).
+      if (this.storage.windDowns.find(record.workspaceId, record.roadmapId)?.version !== before)
+        this.notifier.notify();
     }
   }
 
@@ -704,7 +711,14 @@ export class RoadmapSettlement {
       this.storage.transaction((tx) => {
         const current = tx.windDowns.find(record.workspaceId, record.roadmapId);
         if (current?.status !== 'settling') return;
-        if (current.incomplete?.step === step && this.recorded.get(record.roadmapId) === cause)
+        // The same step failing on the same cause is asked about once; its message is refreshed
+        // at most every few minutes, so it never goes stale for long (review F10, N3).
+        const repeated =
+          current.incomplete?.step === step && this.recorded.get(record.roadmapId) === cause;
+        if (
+          repeated &&
+          this.now().getTime() - Date.parse(current.incomplete?.at ?? '') < INCOMPLETE_REFRESH_MS
+        )
           return;
         const next: RoadmapWindDown = {
           ...current,
@@ -712,7 +726,11 @@ export class RoadmapSettlement {
           incomplete: { step, at: this.now().toISOString(), message: message || 'Failed.' },
         };
         if (!tx.windDowns.replace(next, current.version)) return;
-        this.audit(tx, next, 'incomplete', undefined, { step, message: next.incomplete!.message });
+        if (!repeated)
+          this.audit(tx, next, 'incomplete', undefined, {
+            step,
+            message: next.incomplete!.message,
+          });
         this.recorded.set(record.roadmapId, cause);
       });
     } catch {

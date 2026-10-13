@@ -393,14 +393,15 @@ contract or schema change. A failing record is a defect, or a historical shape t
 upcaster in `packages/storage/src/records.ts`.
 
 **Rehearsing a wind-down.** Before winding down and cleaning up a roadmap on the daemon, run it on
-copies (R-B11): `pnpm rehearse:wind-down --database <data dir>/state/craftingtable.sqlite --out
-<new directory> --roadmap <id> [--retire <plan version>=superseded|parked]...`. It reads the live
-database only immutably (a write not yet checkpointed is not in the copy; a copy that is not whole
-is refused), copies the repositories the roadmap's records name with their managed worktrees into
-`<out>`, points every other repository and worktree record at a path that does not exist, and runs
-the real wind-down and cleanup there with Git and no agent. `<out>/report.json` gives every figure
-and every ref that moved; run the `git fsck` lines it lists. Nothing it does reaches the live
-database or a live checkout.
+copies (R-B11): `pnpm rehearse:wind-down --database <data dir>/state/craftingtable.sqlite --out <new
+directory> --roadmap <id> [--retire <plan version>=superseded|parked]...`. It reads the live
+database only immutably (a write not yet checkpointed is not in the copy; a read during a checkpoint
+can mix moments, so the copy must pass `db:verify`'s checks, and an idle daemon gives a clean copy),
+refuses a checkout whose Git directory is not its own, copies the repositories the roadmap's records
+name with their managed worktrees into `<out>`, points every other repository and worktree record at
+a path that does not exist, and runs the real wind-down and cleanup there with Git and no agent.
+`<out>/report.json` gives every figure and every ref that moved; run the `git fsck` lines it lists.
+Nothing it does reaches the live database or a live checkout.
 
 **Compacting the journal.** Runs journaled before raw vendor lines stopped being stored keep their
 old rows until compacted, with the daemon stopped:

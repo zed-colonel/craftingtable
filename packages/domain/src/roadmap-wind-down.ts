@@ -224,3 +224,22 @@ export interface RepositoryCleanup {
   /** The latest attempt stopped here; raises `wind-down-incomplete`. */
   readonly incomplete?: { readonly at: string; readonly message: string };
 }
+
+/**
+ * What a cleanup would do now (ADR-073), with its digest. A dirty worktree is `kept` with code
+ * `dirty`; the command's discard choice removes it, and frees its branch, instead.
+ */
+export interface CleanupPreview {
+  readonly roadmapId: RoadmapId;
+  readonly digest: string;
+  readonly actions: readonly CleanupAction[];
+  readonly refusals: readonly WindDownRefusalDetail[];
+}
+
+export interface RepositoryCleanupView {
+  /** A cleanup still running: repeating the command resumes it. */
+  readonly running?: RepositoryCleanup;
+  readonly latest?: RepositoryCleanup;
+  /** Absent while a cleanup is running. */
+  readonly preview?: CleanupPreview;
+}

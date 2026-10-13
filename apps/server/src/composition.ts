@@ -55,6 +55,7 @@ import { PackageImportService } from './services/package-import-service.js';
 import { PlanImportService } from './services/plan-import-service.js';
 import { PlanningQueryService } from './services/planning-query-service.js';
 import { RoadmapService } from './services/roadmap-service.js';
+import { RepositoryCleanupService } from './services/repository-cleanup.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { CheckRequestService } from './services/check-request-service.js';
 import { GitFacts } from './services/git-facts.js';
@@ -86,6 +87,8 @@ export interface ServiceSet {
   readonly operatorWaitService: OperatorWaitService;
   readonly attentionService: AttentionService;
   readonly roadmapService: RoadmapService;
+  /** A wound-down roadmap's repository cleanup (R-B11, ADR-073). */
+  readonly repositoryCleanupService: RepositoryCleanupService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
   /** The attention projection and the gates pushes wait on (R-A4). */
@@ -386,6 +389,16 @@ export async function createServices(
   );
   roadmapService.attachAttention(attention, controllerPasses);
   if (recovering) roadmapService.recoverInterrupted({ cleanStop });
+  const repositoryCleanupService = new RepositoryCleanupService(
+    storage,
+    workspaceService,
+    executionService,
+    gitOperations,
+    notifier,
+    now,
+  );
+  // A cleanup interrupted by the restart asks the operator to resume it (R-B11).
+  if (recovering) repositoryCleanupService.recoverInterrupted();
   // Anything written while the daemon was down, or before items existed, is projected now.
   attention.rebuild();
   const crossProjectService = new CrossProjectService(
@@ -445,6 +458,7 @@ export async function createServices(
       now,
     ),
     roadmapService,
+    repositoryCleanupService,
     notificationService: new NotificationService(
       storage,
       workspaceService,

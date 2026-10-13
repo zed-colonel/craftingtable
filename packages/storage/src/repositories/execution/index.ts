@@ -397,6 +397,14 @@ class SqliteWorktreeRepository implements WorktreeRepository {
     return (rows as WorktreeRow[]).map(mapWorktree);
   }
 
+  listForWorkspace(workspaceId: WorkspaceId): readonly Worktree[] {
+    return (
+      this.database
+        .prepare('SELECT * FROM worktrees WHERE workspace_id = ? ORDER BY rowid')
+        .all(workspaceId) as WorktreeRow[]
+    ).map(mapWorktree);
+  }
+
   mergedIntoAfter(
     workspaceId: WorkspaceId,
     repositoryId: Worktree['repositoryId'],

@@ -220,6 +220,12 @@ export class AttentionProjector implements WriteObserver {
           this.mark(windDown.workspaceId, `worktree:${p.worktreeId}`);
         return;
       }
+      case 'repository-cleanup': {
+        // A cleanup that stopped asks the operator through its roadmap's one item (R-B11).
+        const cleanup = record as PersistedRecords['repository-cleanup'];
+        this.mark(cleanup.workspaceId, `roadmap:${cleanup.roadmapId}`);
+        return;
+      }
       case 'evidence-decision': {
         // Accepting a decision settles its preparation's questions (LIVE-09).
         const decision = record as PersistedRecords['evidence-decision'];
@@ -910,8 +916,10 @@ export class AttentionProjector implements WriteObserver {
           refs,
         });
     }
-    // A wind-down step that could not finish asks the operator once (R-B11, rule 1).
+    // A wind-down step, or a cleanup, that could not finish asks the operator once (R-B11,
+    // rule 1). A settle resumes on its own; a cleanup only when the operator repeats it.
     const windDown = tx.windDowns.find(workspaceId, roadmapId);
+    const cleanup = tx.windDowns.runningCleanup(workspaceId, roadmapId);
     if (windDown?.status === 'settling' && windDown.incomplete)
       items.push({
         subjectKey: `roadmap:${roadmapId}:wind-down`,
@@ -919,6 +927,16 @@ export class AttentionProjector implements WriteObserver {
         kind: 'attention',
         title: `${name} · Wind-down incomplete`,
         message: `${windDown.incomplete.message} It resumes on its own once the cause clears; winding down again retries now.`,
+        path,
+        refs,
+      });
+    else if (cleanup?.incomplete)
+      items.push({
+        subjectKey: `roadmap:${roadmapId}:wind-down`,
+        code: 'wind-down-incomplete',
+        kind: 'attention',
+        title: `${name} · Repository cleanup incomplete`,
+        message: `${cleanup.incomplete.message} Clean up again to resume the recorded plan.`,
         path,
         refs,
       });

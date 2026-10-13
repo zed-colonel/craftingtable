@@ -158,6 +158,8 @@ export interface WorktreeRepository {
   find(workspaceId: WorkspaceId, worktreeId: WorktreeId): Worktree | undefined;
   listForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): readonly Worktree[];
   listActive(workspaceId?: WorkspaceId): readonly Worktree[];
+  /** Every worktree record of the workspace, removed ones included, oldest first (R-B11). */
+  listForWorkspace(workspaceId: WorkspaceId): readonly Worktree[];
   /** Whether the controller merged another worktree into this branch after `mergedAt`. */
   mergedIntoAfter(
     workspaceId: WorkspaceId,

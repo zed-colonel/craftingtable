@@ -39,7 +39,7 @@ import {
 } from './cross-project-service.js';
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { activeRuntime, currentScopeReceipt, acceptedEvidence } from './runtime-evidence-policy.js';
-import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { ExecutionRequestError, NotFoundError, windDownRefused } from './errors.js';
 const hash = (value: unknown) =>
   createHash('sha256').update(canonicalDefinition(value)).digest('hex');
 function conflict(message: string): never {
@@ -457,6 +457,7 @@ export class MapAmendmentService {
   async propose(context: AuthContext, ws: WorkspaceId, id: RoadmapId, input: ProposeMapAmendment) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const r = this.roadmap(ws, id);
+    this.requireNotEnded(r);
     if (r.version !== input.expectedVersion) conflict('Roadmap changed; refresh before proposing.');
     if (this.storage.amendments.list(ws).some((a) => !a.decision))
       conflict('Decide the existing workspace proposal first.');
@@ -516,8 +517,23 @@ export class MapAmendmentService {
     }
     return this.view(context, ws, id);
   }
+  /**
+   * An amendment saves its roadmap paused, so one on a stopped, completed or settling roadmap
+   * would start it again (R-B11): proposing or applying one there is refused by code.
+   */
+  private requireNotEnded(r: Roadmap): void {
+    if (
+      ['stopped', 'completed'].includes(r.status) ||
+      this.storage.windDowns.find(r.workspaceId, r.id)?.status === 'settling'
+    )
+      windDownRefused(
+        'roadmap-ended',
+        'This roadmap has ended. Plan what remains in a new roadmap instead of amending it.',
+      );
+  }
   async decide(context: AuthContext, ws: WorkspaceId, id: RoadmapId, input: DecideMapAmendment) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    if (input.outcome === 'apply') this.requireNotEnded(this.roadmap(ws, id));
     const a = this.proposal(ws, id, input.amendmentId);
     if (a.decision) conflict('This amendment already has a decision.');
     const r = this.roadmap(ws, id),

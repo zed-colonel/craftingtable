@@ -500,3 +500,45 @@ itNeedsCargo.each(['manual', 'roadmap'] as const)(
     ).toEqual(implementations);
   },
 );
+it('rejects a pending amendment as moot when the roadmap stops, and refuses one on an ended roadmap (R-B11)', async () => {
+  const f = await supervisedMapFixture(true),
+    ws = f.state.workspaceId;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input);
+  const candidate = { ...f.input.configuration, selection: 'prioritize-full' as const };
+  const selection = {
+    definitionId: candidate.definitionId,
+    bindingRevision: 1,
+    targetId: candidate.targetId,
+    selection: candidate.selection,
+  };
+  const proposed = await amendmentCommand(f, '', {
+    expectedVersion: saved.roadmap.version,
+    candidate: selection,
+    summary: 'Include retained work after the initial proof.',
+  });
+  expect(proposed.statusCode, proposed.body).toBe(200);
+  expect(storedRoadmap(f.state).status).toBe('paused');
+  // Stop settles the roadmap: the pending amendment is rejected as moot, and its item resolves.
+  expect((await roadmapControl(f.state, 'stop')).statusCode).toBe(200);
+  const [amendment] = f.state.context.storage.amendments.list(ws, roadmapId);
+  expect(amendment?.decision).toMatchObject({ outcome: 'rejected', reusedIntegrationIds: [] });
+  expect(amendment?.decision?.rationale).toMatch(/^Moot/);
+  expect(
+    f.state.context.storage.attention
+      .recent(ws, 100)
+      .filter((item) => item.code === 'amendment-decision'),
+  ).toMatchObject([{ state: 'resolved' }]);
+  const stopped = storedRoadmap(f.state);
+  expect(stopped.status).toBe('stopped');
+  // An amendment would save the stopped roadmap paused again: it is refused by code.
+  const again = await amendmentCommand(f, '', {
+    expectedVersion: stopped.version,
+    candidate: selection,
+    summary: 'Try to amend a stopped roadmap.',
+  });
+  expect(again.statusCode, again.body).toBe(409);
+  expect(again.json()).toMatchObject({ error: { reason: 'roadmap-ended' } });
+  expect(storedRoadmap(f.state)).toEqual(stopped);
+  expect(f.state.context.storage.amendments.list(ws, roadmapId)).toHaveLength(1);
+});

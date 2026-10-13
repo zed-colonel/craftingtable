@@ -79,6 +79,7 @@ export interface ServerDependencies {
   readonly operatorWaitService: OperatorWaitService;
   readonly attentionService: import('./services/attention-service.js').AttentionService;
   readonly roadmapService: RoadmapService;
+  readonly repositoryCleanupService: import('./services/repository-cleanup.js').RepositoryCleanupService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
   readonly authService: AuthService;
@@ -178,7 +179,7 @@ export function buildServer(
   registerOperatorWaitRoutes(app, deps.operatorWaitService);
   registerAttentionRoutes(app, deps.attentionService);
   registerFinalizationRoutes(app, deps.finalizationService);
-  registerRoadmapRoutes(app, deps.roadmapService);
+  registerRoadmapRoutes(app, deps.roadmapService, deps.repositoryCleanupService);
   registerNotificationRoutes(app, deps.notificationService);
   registerWorkCycleRoutes(app, deps.workCycleService, deps.roadmapService);
   registerHealthRoute(app);

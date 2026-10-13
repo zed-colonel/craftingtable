@@ -586,6 +586,7 @@ export async function createDaemon(
       finalizationService: services.finalizationService,
       notificationService: services.notificationService,
       roadmapService: services.roadmapService,
+      repositoryCleanupService: services.repositoryCleanupService,
       runEventStreamService: services.runEventStreamService,
       executionStatus: services.executionStatus,
       pageViews: services.pageViews,

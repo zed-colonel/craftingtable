@@ -123,7 +123,10 @@ need **step-up**, the operator's password again within the last 10 minutes
 - a control that starts or resumes agent work (anything but pause, stop or abandon) on a
   roadmap, cycle or finalization whose stored settings grant `unrestricted` anywhere;
 - a final promotion: a finalization's `merge`, or a worktree merge into its repository's default
-  branch.
+  branch;
+- winding a roadmap down when it retires a plan version, and every cleanup of a wound-down
+  roadmap's repositories, which only an owner may run
+  ([ADR-073](decisions/ADR-073-winding-down-a-roadmap.md)).
 
 Without it the command answers 403 with reason `step-up-required`; the browser asks for the
 password once for every command waiting, steps the session up and sends each again, and declining
@@ -281,10 +284,13 @@ Every daemon Git command runs through `packages/git/src/runner.ts` with:
 - an index file only when the daemon makes one for a single command (`GIT_INDEX_FILE`).
 
 A repository's own configuration still applies, including its identity, merge drivers, signing
-program and filters; sandboxed agents cannot write it. The daemon deletes only merged branches
-(an item's branch after its merge, an integration branch after promotion), by compare-and-delete,
-so a branch that moved meanwhile stays; it creates baseline tags create-only and never moves or
-publishes one.
+program and filters; sandboxed agents cannot write it. The daemon deletes only branches whose
+commits are kept: merged ones (an item's branch after its merge, an integration branch after
+promotion), and a wound-down roadmap's branches on the owner's cleanup, each contained in its
+integration branch at a pinned commit or in a new parked tag. Every deletion is a
+compare-and-delete, so a branch that moved meanwhile stays. It creates baseline and parked tags
+create-only and never moves or publishes one; a `git push --tags` by the operator would publish
+them.
 
 The daemon records a run's repository's branches and tags when the run starts and compares them
 when it ends. A ref no managed worktree owns that moved, and that none of the daemon's own Git
@@ -373,6 +379,12 @@ evidence it accepts is a current review.
   explicitly staged new files on the managed item branch, bound to a reserved content
   fingerprint, parent commit and path list, with hooks off; drift stops the step. See
   [ADR-031](decisions/ADR-031-worktree-finalization-and-review-housekeeping.md).
+- **Repository cleanup.** Only an owner's command, with step-up, on a wound-down roadmap removes
+  its worktrees and branches, selected by the roadmap's records, never by a branch pattern. A
+  branch is deleted only by compare-and-swap at the tip the plan recorded, while its integration
+  branch at a pinned commit, or a new parked tag created from nothing, keeps its commits; default,
+  integration and target branches, existing tags and `craftingtable/*` branches are never touched.
+  See [ADR-073](decisions/ADR-073-winding-down-a-roadmap.md).
 - **Final promotion.** Only an authenticated operator command from a browser session, with
   step-up, carrying the exact reviewed candidate and destination commits, promotes a finalization;
   no stage, roadmap policy, question or exhausted budget relaxes it. Every finalization is staged

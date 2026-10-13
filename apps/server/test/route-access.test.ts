@@ -15,6 +15,7 @@ import type { FastifyRequest } from 'fastify';
 import {
   contextOf,
   declaredRouteAccess,
+  declaredRoutes,
   type RouteAccess,
   routeAccessProblem,
 } from '../src/routes/route-access.js';
@@ -373,11 +374,17 @@ describe('route authorization sweep', () => {
       const at = AT[access];
       if (at !== undefined && !streaming(url)) {
         const admitted = await request(f, route, { caller: await f.signIn(at) });
+        // A route that always asks for the password again admits the role, then asks (R-B11).
+        const steppingUp =
+          admitted.statusCode === 403 &&
+          (admitted.json() as { error?: { reason?: string } }).error?.reason ===
+            'step-up-required' &&
+          declaredRoutes(f.context.app).get(key)?.stepUpRule === 'always';
         check(
           key,
           `${at} (admitted)`,
           admitted.statusCode,
-          ![401, 403].includes(admitted.statusCode),
+          steppingUp || ![401, 403].includes(admitted.statusCode),
           admitted.body,
         );
       }

@@ -1,20 +1,34 @@
 import {
-  type CleanupAction,
+  type AttentionItemId,
   CLEANUP_CODES,
+  type CleanupAction,
+  type CleanupPreview,
+  CYCLE_STATUSES,
+  type DecisionPreparationId,
+  type MapAmendmentId,
   RETIREMENT_DISPOSITIONS,
   type RepositoryCleanup,
   type RepositoryCleanupId,
+  type RepositoryCleanupView,
+  ROADMAP_STATUSES,
+  type RoadmapEntryId,
   type RoadmapWindDown,
   type RoadmapWindDownId,
+  type RoadmapWindDownView,
   type SourceRepositoryId,
+  WIND_DOWN_REFUSALS,
   WIND_DOWN_STEPS,
+  type WindDownPreview,
   type WorkCycleId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
+import { attentionItemCodeSchema } from './attention.js';
 import { gitBranchNameSchema } from './execution.js';
 import {
+  agentRunIdSchema,
   branded,
   planVersionIdSchema,
+  projectIdSchema,
   userIdSchema,
   workspaceIdSchema,
   worktreeIdSchema,
@@ -134,3 +148,103 @@ export const repositoryCleanupSchema = equivalentSchema<RepositoryCleanup>()(
       'A finished cleanup has no action left to do.',
     ),
 );
+
+const refusalSchema = z.strictObject({ code: z.enum(WIND_DOWN_REFUSALS), message });
+const id = <T extends string>() => branded<T>(z.string().min(1).max(200));
+
+/** What a wind-down would do now, with its digest (ADR-073). */
+const windDownPreviewSchema = equivalentSchema<WindDownPreview>()(
+  z.strictObject({
+    roadmapId: roadmapIdSchema,
+    status: z.enum(ROADMAP_STATUSES),
+    digest,
+    cycles: z
+      .array(
+        z.strictObject({
+          cycleId: id<WorkCycleId>(),
+          entryId: id<RoadmapEntryId>().optional(),
+          label: z.string().max(200),
+          status: z.enum(CYCLE_STATUSES),
+          liveRunId: agentRunIdSchema.optional(),
+          investigation: z.boolean(),
+          abandonsResolution: z.boolean(),
+          reservedMerge: z.boolean(),
+        }),
+      )
+      .max(5000),
+    preparations: z
+      .array(
+        z.strictObject({
+          preparationId: id<DecisionPreparationId>(),
+          checkpointId: z.string().min(1).max(200),
+          runId: agentRunIdSchema,
+          live: z.boolean(),
+        }),
+      )
+      .max(5000),
+    amendmentId: id<MapAmendmentId>().optional(),
+    attention: z
+      .array(
+        z.strictObject({
+          itemId: id<AttentionItemId>(),
+          code: attentionItemCodeSchema,
+          title: z.string().max(400),
+        }),
+      )
+      .max(5000),
+    versions: z
+      .array(
+        z.strictObject({
+          planVersionId: planVersionIdSchema,
+          projectId: projectIdSchema,
+          projectName: z.string().max(300),
+          versionNumber: z.number().int().positive(),
+          active: z.boolean(),
+          admittedItems: z.number().int().nonnegative(),
+          activeWorktrees: z.number().int().nonnegative(),
+          retired: z.enum(RETIREMENT_DISPOSITIONS).optional(),
+          refusal: refusalSchema.optional(),
+        }),
+      )
+      .max(500),
+    refusals: z.array(refusalSchema).max(20),
+  }),
+);
+
+/** A roadmap's settlement record and what winding it down would do now (R-B11). */
+export const roadmapWindDownViewSchema = equivalentSchema<RoadmapWindDownView>()(
+  z.strictObject({
+    record: roadmapWindDownSchema.optional(),
+    preview: windDownPreviewSchema,
+  }),
+);
+
+/** Wind down a roadmap: the preview's digest and the versions to retire (R-B11, decision 5). */
+export const windDownRequestSchema = z.strictObject({
+  expectedDigest: digest,
+  retire: retirementChoicesSchema,
+});
+
+const cleanupPreviewSchema = equivalentSchema<CleanupPreview>()(
+  z.strictObject({
+    roadmapId: roadmapIdSchema,
+    digest,
+    actions: z.array(cleanupActionSchema).max(5000),
+    refusals: z.array(refusalSchema).max(20),
+  }),
+);
+
+/** A roadmap's running or latest cleanup, or what one would do now (R-B11). */
+export const repositoryCleanupViewSchema = equivalentSchema<RepositoryCleanupView>()(
+  z.strictObject({
+    running: repositoryCleanupSchema.optional(),
+    latest: repositoryCleanupSchema.optional(),
+    preview: cleanupPreviewSchema.optional(),
+  }),
+);
+
+/** Clean up a wound-down roadmap's repositories: the plan's digest and the discard choice. */
+export const cleanupRequestSchema = z.strictObject({
+  expectedDigest: digest,
+  discardDirty: z.boolean(),
+});

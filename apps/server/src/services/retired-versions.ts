@@ -8,10 +8,7 @@ import type { StorageRepositories } from '@craftingtable/storage';
  */
 
 /** The versions wind-downs retired, in one workspace or in every one. */
-export function retiredVersionIds(
-  tx: StorageRepositories,
-  ws?: WorkspaceId,
-): ReadonlySet<string> {
+export function retiredVersionIds(tx: StorageRepositories, ws?: WorkspaceId): ReadonlySet<string> {
   return new Set(tx.windDowns.retirements(ws).map((r) => r.planVersionId));
 }
 

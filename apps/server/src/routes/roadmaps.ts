@@ -1,4 +1,8 @@
 import {
+  cleanupRequestSchema,
+  repositoryCleanupViewSchema,
+  roadmapWindDownViewSchema,
+  windDownRequestSchema,
   applyRoadmapAgentsSchema,
   applyRoadmapDelegationSchema,
   controlRoadmapRequestSchema,
@@ -23,10 +27,106 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
+import type { RepositoryCleanupService } from '../services/repository-cleanup.js';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import { noStore, sendApiError } from './http.js';
 import { type BodyOf, contextOf, stepUpForStoredWork } from './route-access.js';
-export function registerRoadmapRoutes(app: FastifyInstance, roadmaps: RoadmapService): void {
+export function registerRoadmapRoutes(
+  app: FastifyInstance,
+  roadmaps: RoadmapService,
+  cleanups: RepositoryCleanupService,
+): void {
+  // Winding down (R-B11, ADR-073): `control` routes, so R-A6's decision boundary is unchanged.
+  app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/wind-down',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = contextOf(request),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        roadmapWindDownViewSchema.parse(roadmaps.windDownView(context, ws.data, id.data)),
+      );
+    },
+  );
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof windDownRequestSchema>;
+  }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/wind-down',
+    {
+      config: {
+        access: 'editor',
+        tag: 'control',
+        body: windDownRequestSchema,
+        invalidBody: 'Choose the preview you reviewed and the plan versions to retire.',
+        // Retiring a plan version asks for the password again (R-B11 decision 5).
+        stepUpRule: 'retiring a plan version',
+        stepUp: (body) =>
+          typeof body === 'object' &&
+          body !== null &&
+          Array.isArray((body as { readonly retire?: unknown }).retire) &&
+          (body as { readonly retire: readonly unknown[] }).retire.length > 0,
+      },
+    },
+    async (request, reply) => {
+      const context = contextOf(request),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        roadmapWindDownViewSchema.parse(
+          await roadmaps.windDown(context, ws.data, id.data, request.body),
+        ),
+      );
+    },
+  );
+  app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/cleanup',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = contextOf(request),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        repositoryCleanupViewSchema.parse(await cleanups.view(context, ws.data, id.data)),
+      );
+    },
+  );
+  app.post<{
+    Params: { workspaceId: string; roadmapId: string };
+    Body: BodyOf<typeof cleanupRequestSchema>;
+  }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/cleanup',
+    {
+      config: {
+        access: 'owner',
+        tag: 'control',
+        body: cleanupRequestSchema,
+        invalidBody: 'Choose the cleanup plan you reviewed.',
+        // It deletes branches and worktrees: always the password again (R-B11 decision 5).
+        stepUpRule: 'always',
+        stepUp: () => true,
+      },
+    },
+    async (request, reply) => {
+      const context = contextOf(request),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        repositoryCleanupViewSchema.parse(
+          await cleanups.clean(context, ws.data, id.data, request.body),
+        ),
+      );
+    },
+  );
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations',
     { config: { access: 'member' } },

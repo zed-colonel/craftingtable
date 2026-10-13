@@ -15,7 +15,7 @@ decision boundary test reads each `decision` route from it.
 - **Body** is the shared contract the daemon parses a command's body with before its handler
   runs; for a multipart upload, its text fields.
 
-**133 routes:** 62 GET, 71 POST; 62 read, 29 decision, 17 control, 25 config.
+**137 routes:** 64 GET, 73 POST; 64 read, 29 decision, 19 control, 25 config.
 
 | Method | Path (under `/api/`) | Access | Tag | Step-up | Body |
 |---|---|---|---|---|---|
@@ -110,6 +110,8 @@ decision boundary test reads each `decision` route from it.
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments/decision` | editor | decision |  | `decideMapAmendmentSchema` |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments/preview` | editor | decision |  | `mapSelectionSchema` |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/capacity` | editor | config |  | `saveRoadmapCapacitySchema` |
+| GET | `workspaces/:workspaceId/roadmaps/:roadmapId/cleanup` | member | read |  |  |
+| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/cleanup` | owner | control | always | `cleanupRequestSchema` |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/control` | editor | control | an action that starts or resumes work under stored settings granting unrestricted | `controlRoadmapRequestSchema` |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparation-grant` | editor | decision |  | `decisionPreparationGrantRequestSchema` |
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations` | member | read |  |  |
@@ -122,6 +124,8 @@ decision boundary test reads each `decision` route from it.
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/scope-recovery` | editor | config |  | `scopeRecoveryPolicyRequestSchema` |
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/status` | member | read |  |  |
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/view` | member | read |  |  |
+| GET | `workspaces/:workspaceId/roadmaps/:roadmapId/wind-down` | member | read |  |  |
+| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/wind-down` | editor | control | retiring a plan version | `windDownRequestSchema` |
 | GET | `workspaces/:workspaceId/roadmaps/capacities` | member | read |  |  |
 | GET | `workspaces/:workspaceId/roadmaps/summaries` | member | read |  |  |
 | GET | `workspaces/:workspaceId/run-profiles` | member | read |  |  |

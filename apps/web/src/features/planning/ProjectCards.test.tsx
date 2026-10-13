@@ -34,3 +34,21 @@ it('labels its counts with the glossary states, never a bare Ready or Blocked (R
   expect(counts.queryByText('Ready')).toBeNull();
   expect(counts.queryByText('Blocked')).toBeNull();
 });
+
+it('shows a project whose newest version a wind-down retired as Parked or Retired (R-B11)', () => {
+  render(
+    <ProjectCards
+      projects={[
+        { ...project, retired: 'parked' },
+        { ...project, id: 'project-2' as ProjectId, name: 'WorldInterface', retired: 'superseded' },
+        { ...project, id: 'project-3' as ProjectId, name: 'Current' },
+      ]}
+      onOpen={() => {}}
+      onImport={() => {}}
+    />,
+  );
+  const cards = screen.getAllByRole('listitem');
+  expect(within(cards[0]!).getByText('Parked')).toBeTruthy();
+  expect(within(cards[1]!).getByText('Retired')).toBeTruthy();
+  expect(within(cards[2]!).queryByText(/^(Parked|Retired)$/)).toBeNull();
+});

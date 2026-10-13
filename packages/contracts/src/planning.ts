@@ -2,6 +2,7 @@ import {
   DIAGNOSTIC_SEVERITIES,
   type FinalizationId,
   PLAN_ARTIFACT_ROLES,
+  RETIREMENT_DISPOSITIONS,
   WORK_ITEM_READINESS,
   WORK_ITEM_RISKS,
   WORK_ITEM_STATUSES,
@@ -122,6 +123,7 @@ export const projectSummarySchema = planningStatusCountsSchema.extend({
   document: z.string().max(300).optional(),
   versionCount: z.number().int().nonnegative().safe(),
   warningCount: z.number().int().nonnegative().safe(),
+  retired: z.enum(RETIREMENT_DISPOSITIONS).optional(),
   createdAt: z.iso.datetime(),
 });
 

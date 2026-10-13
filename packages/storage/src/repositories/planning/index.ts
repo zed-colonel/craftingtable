@@ -857,6 +857,12 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
                   AS version_count,
                 (SELECT COALESCE(SUM(a.warning_count), 0) FROM plan_import_attempts a
                    WHERE a.project_id = pr.id) AS warning_count,
+                (SELECT r.disposition FROM retired_plan_versions r
+                   WHERE pr.active_plan_version_id IS NULL
+                     AND r.plan_version_id = (SELECT pv.id FROM plan_versions pv
+                       WHERE pv.project_id = pr.id
+                       ORDER BY pv.version_number DESC, pv.created_at DESC LIMIT 1))
+                  AS retired,
                 ${STATUS_AGGREGATES}
          FROM projects pr
          LEFT JOIN plan_versions v ON v.id = pr.active_plan_version_id
@@ -875,6 +881,7 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
       document: string | null;
       version_count: number;
       warning_count: number;
+      retired: 'superseded' | 'parked' | null;
       completion_json: string | null;
     })[];
     return rows.map((row) => ({
@@ -887,6 +894,7 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
       ...(row.document === null ? {} : { document: row.document }),
       versionCount: row.version_count,
       warningCount: row.warning_count,
+      ...(row.retired === null ? {} : { retired: row.retired }),
       createdAt: row.created_at,
       ...toStatusCounts(row),
       ...completionFields(row.completion_json),

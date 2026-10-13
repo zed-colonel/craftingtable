@@ -218,6 +218,11 @@ export interface ProjectSummaryRow extends PlanningStatusCounts {
   readonly document?: string;
   readonly versionCount: number;
   readonly warningCount: number;
+  /**
+   * With no active version, its newest version's retirement (R-B11): the project shows
+   * "Parked" or "Retired".
+   */
+  readonly retired?: import('@craftingtable/domain').RetirementDisposition;
   readonly createdAt: string;
 }
 

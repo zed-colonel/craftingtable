@@ -140,3 +140,32 @@ describe('wind-down storage (R-B11)', () => {
     expect(storage.windDowns.latestCleanup(seed.workspaceId, OTHER_ROADMAP)).toBeUndefined();
   });
 });
+
+describe('project summaries (R-B11)', () => {
+  it('name a project whose newest version is retired and that has no active version', () => {
+    const { storage, seed, plan, record } = fixture();
+    const summary = () =>
+      storage.planning.queries
+        .projectSummaries(seed.workspaceId, 10)
+        .find((p) => p.id === plan.projectId);
+    storage.transaction((tx) => {
+      tx.windDowns.insert(record);
+      tx.windDowns.retire({
+        workspaceId: seed.workspaceId,
+        planVersionId: plan.planVersionId,
+        disposition: 'parked',
+        windDownId: record.id,
+        retiredAt: SEED_NOW,
+        retiredByUserId: seed.userId,
+      });
+    });
+    // Still the active version: no label.
+    if (summary()?.activePlanVersionId === plan.planVersionId)
+      expect(summary()?.retired).toBeUndefined();
+    storage.transaction((tx) =>
+      tx.imports.deactivatePlan(seed.workspaceId, plan.projectId, plan.planVersionId),
+    );
+    expect(summary()?.activePlanVersionId).toBeUndefined();
+    expect(summary()?.retired).toBe('parked');
+  });
+});

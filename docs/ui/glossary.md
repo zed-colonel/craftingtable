@@ -32,6 +32,13 @@ Finalization         the staged whole-plan review and polish of an integration b
 Promotion            the operator-approved merge of the final candidate into its destination
 Capacity             how many runs the workstation admits at once, for development and for
                      independent verification
+Wind down            stop a roadmap and settle what it ran, optionally retiring its plan
+                     versions; a Stop is a wind-down that retires nothing
+Retired              a plan version a wind-down released: superseded (replaced by other work)
+                     or parked (resumed later from a revised version); a project whose newest
+                     version is retired shows "Retired" or "Parked"
+Clean up             remove a wound-down roadmap's worktrees and branches, keeping unmerged work
+                     in parked tags (<repository>/parked/<name>)
 ```
 
 ## Stops and who moves them

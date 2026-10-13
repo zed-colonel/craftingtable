@@ -36,6 +36,10 @@ export function ProjectCards({
                 {project.name}
               </button>
               <span className="hint">{project.document ?? 'no active plan'}</span>
+              {/* Its newest version was retired by a roadmap's wind-down (R-B11). */}
+              {project.retired && (
+                <span className="badge">{project.retired === 'parked' ? 'Parked' : 'Retired'}</span>
+              )}
             </div>
             <PlanCompletion completion={project.completion} compact />
             <dl className="card-counts">

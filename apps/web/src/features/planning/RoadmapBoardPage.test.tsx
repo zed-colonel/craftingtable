@@ -44,6 +44,19 @@ vi.mock('../../lib/roadmap-api.js', async () => {
     loadRoadmapGraph: vi.fn(async () => board.GRAPH),
     loadRoadmapHistory: vi.fn(),
     controlRoadmap: vi.fn(),
+    loadRoadmapWindDown: vi.fn(async () => ({
+      preview: {
+        roadmapId: roadmap.id,
+        status: 'running',
+        digest: '0'.repeat(64),
+        cycles: [],
+        preparations: [],
+        attention: [],
+        versions: [],
+        refusals: [],
+      },
+    })),
+    loadRoadmapCleanup: vi.fn(async () => ({})),
   };
 });
 

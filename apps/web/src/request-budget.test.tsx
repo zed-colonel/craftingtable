@@ -438,6 +438,8 @@ const BUDGET: Record<string, Record<string, number>> = {
     'worktree-merged': 4,
     'work-cycle-changed': 4,
     'branches-changed': 4,
+    'plan-version-retired': 3,
+    'repository-cleanup-changed': 1,
   },
   workItem: {
     'runtime-evidence-changed': 4,
@@ -461,6 +463,8 @@ const BUDGET: Record<string, Record<string, number>> = {
     'worktree-merged': 5,
     'work-cycle-changed': 3,
     'branches-changed': 4,
+    'plan-version-retired': 3,
+    'repository-cleanup-changed': 0,
   },
   ownWorkItem: {
     'runtime-evidence-changed': 4,
@@ -484,6 +488,8 @@ const BUDGET: Record<string, Record<string, number>> = {
     'worktree-merged': 5,
     'work-cycle-changed': 4,
     'branches-changed': 5,
+    'plan-version-retired': 3,
+    'repository-cleanup-changed': 0,
   },
   settings: {
     'runtime-evidence-changed': 3,
@@ -507,6 +513,8 @@ const BUDGET: Record<string, Record<string, number>> = {
     'worktree-merged': 3,
     'work-cycle-changed': 3,
     'branches-changed': 3,
+    'plan-version-retired': 2,
+    'repository-cleanup-changed': 0,
   },
   roadmaps: {
     'runtime-evidence-changed': 4,
@@ -530,6 +538,8 @@ const BUDGET: Record<string, Record<string, number>> = {
     'worktree-merged': 4,
     'work-cycle-changed': 4,
     'branches-changed': 4,
+    'plan-version-retired': 3,
+    'repository-cleanup-changed': 0,
   },
   repositories: {
     'runtime-evidence-changed': 3,
@@ -553,6 +563,8 @@ const BUDGET: Record<string, Record<string, number>> = {
     'worktree-merged': 5,
     'work-cycle-changed': 5,
     'branches-changed': 3,
+    'plan-version-retired': 2,
+    'repository-cleanup-changed': 0,
   },
 };
 

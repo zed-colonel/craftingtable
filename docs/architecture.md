@@ -260,6 +260,18 @@ Capacity is layered: workstation pools for development and for verification/acce
 saved setting, 1–32 each, ADR-061) and per-roadmap in-flight and per-repository ceilings. These
 coordinate daemon work, not host CPU or isolation.
 
+**Stopping and winding down.** Stop and wind-down are one path (`services/roadmap-settlement.ts`,
+ADR-073): a preflight refuses by typed code, then the roadmap's `roadmap_wind_downs` row is
+written `settling`, which the scheduler and the cycle worker honour as a hold, and idempotent steps
+stop each owned cycle (audit code `roadmap-wound-down`), end preparation runs, reject a pending
+amendment as moot, and in one transaction stop the roadmap, write `retired_plan_versions` rows,
+clear a retired version's active pointer and mark the row `settled`. Every scheduler pass resumes
+a row still settling. Activation, capacity, ADR-041's settings check and repository policy ignore
+retired versions (`services/retired-versions.ts`). The owner's cleanup
+(`services/repository-cleanup.ts`) selects a wound-down roadmap's worktrees by record, persists
+its plan in `repository_cleanups`, and deletes branches only by compare-and-swap while their
+integration branch at a pinned commit, or a new parked tag, keeps their commits.
+
 **The board.** A roadmap's page read (`RoadmapService.page`, `GET roadmaps/:id/view`) returns its
 view, status list and board from one transaction, one map snapshot and one evaluation of the map.
 The board (`services/roadmap-board.ts`, R-E3b) is a pure read model: the roadmap's static graph

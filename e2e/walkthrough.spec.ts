@@ -1220,7 +1220,31 @@ test('captures every page of the app on desktop and phone viewports', async ({
     await sendCommand(page, review.getByRole('button', { name: 'Accept evidence', exact: true }));
     await navigate(page, 'Roadmaps');
     await openRoadmap(page, 'AQ sequential');
-    await sendCommand(page, page.getByRole('button', { name: 'Stop roadmap', exact: true }));
+    // Stop is the wind-down with nothing retired (R-B11): its preview, then the stop.
+    const openWindDown = async (p: Page) => {
+      await p.getByRole('button', { name: 'Stop or wind down…', exact: true }).click();
+    };
+    await walk.capture(
+      'roadmap-wind-down',
+      'Roadmap · stop or wind down',
+      region('Stop or wind down'),
+      openWindDown,
+    );
+    await sendCommand(
+      page,
+      page
+        .getByRole('region', { name: 'Stop or wind down', exact: true })
+        .getByRole('button', { name: 'Stop roadmap', exact: true }),
+    );
+    // A stopped roadmap is wound down: its repositories' cleanup is planned, not run, here.
+    await walk.capture(
+      'roadmap-cleanup',
+      'Roadmap · clean up repositories',
+      region('Clean up repositories'),
+      async (p) => {
+        await p.getByRole('button', { name: 'Clean up repositories…', exact: true }).click();
+      },
+    );
     await page.goto(crossProjectSetup.replace(/\/setup$/, ''));
     await sendCommand(page, page.getByRole('button', { name: 'Start roadmap', exact: true }));
     const board = page.getByRole('region', { name: 'Lane exo', exact: true });

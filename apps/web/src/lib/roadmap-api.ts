@@ -1,4 +1,8 @@
 import {
+  type cleanupRequestSchema,
+  repositoryCleanupViewSchema,
+  roadmapWindDownViewSchema,
+  type windDownRequestSchema,
   type applyRoadmapAgentsSchema,
   decisionPreparationSettingsSchema,
   roadmapCapacitiesSchema,
@@ -161,4 +165,35 @@ export const loadDecisionPreparations = (workspaceId: string, roadmapId: string)
   request(
     `${roadmapAddress(workspaceId, roadmapId)}/decision-preparations`,
     decisionPreparationSettingsSchema,
+  );
+
+/** A roadmap's settlement record and what winding it down would do now (R-B11, ADR-073). */
+export const loadRoadmapWindDown = (workspaceId: string, roadmapId: string) =>
+  request(`${roadmapAddress(workspaceId, roadmapId)}/wind-down`, roadmapWindDownViewSchema);
+/** Stops or winds the roadmap down; retiring a version asks for the password again. */
+export const windDownRoadmap = (
+  workspaceId: string,
+  roadmapId: string,
+  input: RequestInput<typeof windDownRequestSchema>,
+  csrfToken: string,
+) =>
+  request(
+    `${roadmapAddress(workspaceId, roadmapId)}/wind-down`,
+    roadmapWindDownViewSchema,
+    mutation(csrfToken, input),
+  );
+/** A wound-down roadmap's cleanup: running, latest, or what one would do now (R-B11). */
+export const loadRoadmapCleanup = (workspaceId: string, roadmapId: string) =>
+  request(`${roadmapAddress(workspaceId, roadmapId)}/cleanup`, repositoryCleanupViewSchema);
+/** Cleans up the repositories, or resumes the cleanup running; always asks for the password. */
+export const cleanUpRoadmap = (
+  workspaceId: string,
+  roadmapId: string,
+  input: RequestInput<typeof cleanupRequestSchema>,
+  csrfToken: string,
+) =>
+  request(
+    `${roadmapAddress(workspaceId, roadmapId)}/cleanup`,
+    repositoryCleanupViewSchema,
+    mutation(csrfToken, input),
   );

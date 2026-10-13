@@ -62,7 +62,8 @@ and who acts" before it shows a form:
 
 ## Projects and plan versions
 
-`/projects`: the project cards. `/projects/:projectId`: the active plan's completion, Repository &
+`/projects`: the project cards; a project whose newest version a wind-down retired, with no active
+version, is labelled "Retired" or "Parked". `/projects/:projectId`: the active plan's completion, Repository &
 branches, summary tiles, its work items, risk, plan versions, source artifacts and import
 diagnostics.
 
@@ -105,9 +106,16 @@ the imported maps, each linking to its page.
 `/roadmaps/:roadmapId[/setup|/history]`: the roadmap's name and progress, then `PageTabs`:
 
 - **Board:** the scheduler's reason, the roadmap's own Needs you items, its status, mode and the
-  workstation's shared slots (with **Manage capacity**), the controls (Start, Pause, Resume, Stop,
-  and **Edit queued entries** on a roadmap without a map while it is a draft, paused or needs
-  attention), then the board, graph or list, and the entries with their individual controls. The
+  workstation's shared slots (with **Manage capacity**), the controls (Start, Pause, Resume, and
+  **Edit queued entries** on a roadmap without a map while it is a draft, paused or needs
+  attention), then **Stop or wind down…** (**Wind down…** once it has ended) and, on a wound-down
+  roadmap, **Clean up repositories…**, then the board, graph or list, and the entries with their
+  individual controls. `RoadmapWindDown` owns both forms: the daemon's preview (what stops, the
+  resolutions it abandons, the items that resolve, each plan version with Keep or Retire as
+  superseded or parked, or why it cannot be retired), the progress of a settling record, typed
+  refusals, and the cleanup's plan (worktrees to remove, branches to delete or keep in parked
+  tags, what stays and why) with a discard choice for dirty worktrees. Cleaning up is an owner's.
+  An incomplete wind-down's inbox item opens these controls. The
   board (R-E3b): a status strip (Needs you, Agents at work, Waiting, Done), a Gates strip of the
   unsatisfied checkpoints slices wait on, one lane per map repository (a project for a roadmap
   without a map) whose cards are work items, and a selection panel with each open entry's wait

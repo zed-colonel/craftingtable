@@ -64,7 +64,7 @@ export function WorkspaceView({
   route: Route;
   projection: WorkspaceProjectionState;
 }): ReactElement {
-  const { workspaceId, canMutate } = useWorkspaceScope();
+  const { workspaceId, canMutate, isOwner } = useWorkspaceScope();
   const { csrfToken } = useSession();
   const go = useGo();
   // Read once the snapshot has seeded the stream, never alongside it (TS-H4).
@@ -150,6 +150,7 @@ export function WorkspaceView({
               {...(route.select ? { select: route.select } : {})}
               csrfToken={csrfToken}
               canMutate={canMutate}
+              isOwner={isOwner}
               onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
               attention={attention}
               onOpenAttention={(itemId) => go({ name: 'inbox', workspaceId, itemId })}

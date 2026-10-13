@@ -44,6 +44,7 @@ import { AmendmentDecision } from '../../decisions/amendment/AmendmentDecision.j
 import { runtimeScope } from '../../decisions/roadmap-runtime.js';
 import { ATTENTION_CODE_LABELS } from '../../lib/attention-labels.js';
 import { RoadmapStatusList } from './RoadmapStatusList.js';
+import { RoadmapWindDown } from './RoadmapWindDown.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
 import { Link, useNavigation } from '../../lib/navigation.js';
@@ -185,6 +186,7 @@ export function RoadmapPage({
   tab,
   csrfToken,
   canMutate,
+  isOwner = false,
   onOpenWorkItem,
   attention = [],
   onOpenAttention,
@@ -198,6 +200,8 @@ export function RoadmapPage({
   tab: RoadmapTab | 'all';
   csrfToken: string;
   canMutate: boolean;
+  /** An owner of the workspace, who alone cleans up a wound-down roadmap (R-B11). */
+  isOwner?: boolean;
   onOpenWorkItem: (id: WorkItemId) => void;
   /** The workspace's open attention items; the roadmap lists its own (R-A5). */
   attention?: readonly AttentionItemView[];
@@ -417,16 +421,6 @@ export function RoadmapPage({
                 Edit queued entries
               </button>
             )}
-          {!['completed', 'stopped'].includes(roadmap.status) && (
-            <button
-              type="button"
-              className="secondary-button danger"
-              disabled={busy || !!draft}
-              onClick={() => void command(roadmap, 'stop')}
-            >
-              Stop roadmap
-            </button>
-          )}
         </>
       )}
     </ActionBar>
@@ -584,6 +578,18 @@ export function RoadmapPage({
         </p>
       )}
       {actionBar}
+      {/* Stop, wind down and clean up: the roadmap's lifecycle control (R-B11, ADR-073). An
+          inbox item for an incomplete wind-down shows it with the roadmap's controls. */}
+      {!draft && (
+        <RoadmapWindDown
+          roadmap={roadmap}
+          workspaceId={workspaceId}
+          csrfToken={csrfToken}
+          canMutate={canMutate}
+          isOwner={isOwner}
+          onChanged={reload}
+        />
+      )}
       {draft && (
         <RoadmapEditor
           workspaceId={workspaceId}

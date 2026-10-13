@@ -445,6 +445,7 @@ export function InboxHost({
             part={decision.part}
             csrfToken={csrfToken}
             canMutate={canMutate}
+            isOwner={isOwner}
             onOpenWorkItem={(id) => go({ name: 'work-item', workspaceId, workItemId: id })}
             attention={attention}
             onOpenAttention={(id) => go({ name: 'inbox', workspaceId, itemId: id })}

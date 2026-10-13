@@ -51,5 +51,22 @@ export function roadmapApiFromList() {
     loadRoadmapDefinition: vi.fn(
       async (workspaceId: string, id: string) => (await find(workspaceId, id)).roadmap.definition,
     ),
+    // A roadmap nothing would stop and that was never wound down (R-B11).
+    loadRoadmapWindDown: vi.fn(async (workspaceId: string, id: string) => {
+      const { roadmap } = await find(workspaceId, id);
+      return {
+        preview: {
+          roadmapId: roadmap.id,
+          status: roadmap.status,
+          digest: '0'.repeat(64),
+          cycles: [],
+          preparations: [],
+          attention: [],
+          versions: [],
+          refusals: [],
+        },
+      };
+    }),
+    loadRoadmapCleanup: vi.fn(async () => ({})),
   };
 }

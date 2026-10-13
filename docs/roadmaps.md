@@ -56,8 +56,30 @@ The scheduling mode cannot change while attempts are in flight; lowering a limit
   waiting, and you can merge it while paused. Nothing new starts until **Resume roadmap**.
 - **Pause item** and **Resume item** (a running parallel roadmap) hold one entry; other eligible
   entries carry on, and individually paused entries stay paused when the roadmap resumes.
-- **Stop roadmap** ends the roadmap and its cycles and leaves their worktrees for manual work. A
-  stopped or completed roadmap is history; create a new one for what remains.
+- **Stop or wind down…** shows what stopping would do: the cycles it stops (and any integration
+  resolution it abandons), the decision preparations it ends, a pending amendment it rejects as
+  moot, the Needs you items that resolve, and each plan version of the roadmap. **Stop roadmap**
+  ends the roadmap and its cycles and leaves their worktrees for manual work. A stopped or
+  completed roadmap is history; create a new one for what remains. Stop is refused, with its
+  reason, before anything changes while one of the roadmap's merges is reserved: recover the
+  merge from its item first ([ADR-073](decisions/ADR-073-winding-down-a-roadmap.md)).
+- **Wind down** also retires plan versions, and asks for your password again. Retire a version
+  as **superseded** when other work replaces it, or **parked** when its work resumes later from a
+  revised version on the same integration branch. A retired version's admitted items keep their
+  status and history, but no longer hold the project (a fresh plan can be made active), its
+  worktrees hold no repository capacity, its repository policy freezes nothing, and no roadmap can
+  name it again; importing its exact files again is refused. A version another roadmap runs, or
+  with an open finalization, cannot be retired. Winding down an already stopped roadmap finishes
+  what the stop left and retires what you choose.
+- **Clean up repositories…** (an owner, on a wound-down roadmap, always with your password)
+  removes the worktrees the roadmap made and deletes their branches: a branch whose work is in its
+  integration branch is deleted; any other is first kept in a local tag
+  `<repository>/parked/<branch>`. A worktree with uncommitted changes stays unless you choose to
+  discard them. Default and integration branches, existing tags and `craftingtable/checks` are
+  never touched, and neither is anything another roadmap uses. Repeating the command resumes a
+  cleanup that stopped. The tags are local; `git push --tags` would publish them.
+- A wind-down or cleanup step that cannot finish shows as **Wind-down incomplete** in Needs you.
+  A wind-down resumes on its own once the cause clears; a cleanup resumes when you repeat it.
 - **Edit queued entries** (draft, paused or needing attention): started entries keep their work
   item, settings and, in a sequential roadmap, their place at the front. Each save is a new
   revision, listed on the roadmap's **History**; new attempts bind it, started ones keep theirs.

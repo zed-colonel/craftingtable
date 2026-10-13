@@ -43,6 +43,8 @@ Some decisions are spread over several records. Read the latest first:
 - **Work items and merges:** ADR-021 (lifecycle and the review-gated merge; ADR-014 before it),
   ADR-025 (cycles), ADR-026 (integration branches), ADR-033 (delegated integration merges and
   explicit finalization), ADR-032 (conflict resolution).
+- **Roadmaps:** ADR-029 and ADR-030 (sequential and parallel execution), ADR-073 (stopping,
+  winding down and cleaning up).
 - **Finalization:** ADR-042 (every finalization is staged) over ADR-033, refined by ADR-035, 036,
   038, 040 and 041; ADR-049 (cross-project finalization) and ADR-050 (saved-plan evidence).
 - **Cross-project maps:** ADR-028 (boundaries), ADR-043 (imports), ADR-045 (slices and parent
@@ -133,3 +135,4 @@ Some decisions are spread over several records. Read the latest first:
 | [ADR-070](ADR-070-attention-items.md) | Attention items, a delivery log and push gates | accepted | 2026-09-25 | supersedes ADR-027 |
 | [ADR-071](ADR-071-slice-verification-stays-a-separate-gate.md) | Slice verification stays a separate gate | accepted | 2026-10-07 |  |
 | [ADR-072](ADR-072-roadmap-neighbourhood-graph.md) | A roadmap's neighbourhood graph | accepted | 2026-10-09 | supersedes ADR-015 |
+| [ADR-073](ADR-073-winding-down-a-roadmap.md) | Winding down a roadmap | accepted | 2026-10-13 | refines ADR-029, ADR-041, ADR-049 |

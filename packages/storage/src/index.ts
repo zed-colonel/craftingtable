@@ -4,3 +4,4 @@ export * from './record-scan.js';
 export * from './records.js';
 export * from './storage.js';
 export * from './types.js';
+export * from './rehearsal-copy.js';

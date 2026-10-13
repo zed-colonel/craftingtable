@@ -11,7 +11,8 @@
     "cli:dev": "tsx src/dev-cli.ts",
     "e2e:start": "tsx test/e2e/e2e-entry.ts",
     "replay": "tsx src/controller-replay.ts",
-    "db-verify": "tsx src/db-verify.ts"
+    "db-verify": "tsx src/db-verify.ts",
+    "rehearse-wind-down": "tsx src/wind-down-rehearsal.ts"
   },
   "dependencies": {
     "@craftingtable/agents": "workspace:*",

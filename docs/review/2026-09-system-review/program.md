@@ -1100,6 +1100,26 @@ clear by itself, and which stay the operator's). R-H7 (added by the operator 202
 parameters declared and parsed once, and branded ids through services and storage, early in P4
 and before R-B7.
 
+**P4 opening, re-prioritized by the operator 2026-10-13.** WorldInterface now outranks Exoskeleton (the
+operator's revenue work, Slopinator, will consume WI's embedded worker), and ActionQueue 0.2.0 is on
+crates.io. P4 therefore opens with the work that lets Slopinator P0 and a single-application WI run in
+parallel, before the controller-kernel items:
+
+1. **R-B11** (wind down a roadmap; designed and decided 2026-10-13): settle and retire, then clean up.
+   The WI path does not wait for it: the cross-project roadmap is stopped with today's Stop (safe at the
+   time: no reserved merges, live runs or dirty worktrees) and WI's two slice worktrees are removed by
+   hand; WI restarts as a new project on a branch created from `wi-fabric-2`. R-B11 then retires both
+   old versions, parks EXO and cleans the repositories.
+2. **Python support for CraftingTable** (from the external "CraftingTable Slopinator support" plan,
+   CT-SLP-01 to 03, built through this register as one item with three increments): toolchain
+   profiles, a `pypi` outside-source kind whose checks use daemon-verified wheels only (R-G14's rule),
+   and adopted Python checks in private offline environments (CT-PYTHON-READY). Design pass pending;
+   researched 2026-10-13. Slopinator runs in its own workspace (R-B11 decision 7).
+3. **Managed Mac verification** (CT-SLP-04 to 06): only after Slopinator's P0-04R fixes the inference
+   service protocol; until then Slopinator records operator-run, exact-candidate Mac evidence.
+4. Then the controller-kernel items below. R-B7 rewrites files the Python item touches lightly, so
+   schedule them apart.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.
@@ -1128,6 +1148,8 @@ finishes it; when it is done, record the result in its register item and strike 
   cross-project roadmap with a grant set, count design stops per started slice against the 10-of-11
   baseline, and check that decisions show "unblocks N slices". Record the figure in R-C3's entry. It is
   done when that rate is well below the baseline, or the operator decides what to do if it is not.
+  *Restated 2026-10-13:* the cross-project roadmap this was to be measured on is being wound down
+  (R-B11). Measure on the next map roadmap that runs with a standing preparation grant.
 
 ## Dependencies worth knowing
 

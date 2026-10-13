@@ -210,6 +210,16 @@ export class AttentionProjector implements WriteObserver {
         this.mark(move.workspaceId, `protected-refs:${move.repositoryId}`);
         return;
       }
+      case 'roadmap-wind-down': {
+        // A wind-down ends its roadmap's preparations and may record a step it could not finish
+        // (R-B11): the roadmap and every worktree it made are derived again.
+        const windDown = record as PersistedRecords['roadmap-wind-down'];
+        this.mark(windDown.workspaceId, `roadmap:${windDown.roadmapId}`);
+        const roadmap = this.storage.roadmaps.find(windDown.workspaceId, windDown.roadmapId);
+        for (const p of roadmap?.decisionPreparations ?? [])
+          this.mark(windDown.workspaceId, `worktree:${p.worktreeId}`);
+        return;
+      }
       case 'evidence-decision': {
         // Accepting a decision settles its preparation's questions (LIVE-09).
         const decision = record as PersistedRecords['evidence-decision'];
@@ -720,6 +730,9 @@ export class AttentionProjector implements WriteObserver {
         refs: mergeRefs,
       });
     if (tree.status !== 'active' || item === undefined) return items;
+    // A wound-down roadmap's preparations have ended: their questions ask nobody (R-B11).
+    if (preparing && tx.windDowns.find(workspaceId, preparing.roadmap.id)?.status === 'settled')
+      return items;
     const cycle = tx.execution.cycles.latestForWorktree(workspaceId, tree.id);
     // A stopped cycle waits for the operator even when its work item already completed,
     // e.g. a re-verification of a slice of an accepted item.
@@ -897,6 +910,18 @@ export class AttentionProjector implements WriteObserver {
           refs,
         });
     }
+    // A wind-down step that could not finish asks the operator once (R-B11, rule 1).
+    const windDown = tx.windDowns.find(workspaceId, roadmapId);
+    if (windDown?.status === 'settling' && windDown.incomplete)
+      items.push({
+        subjectKey: `roadmap:${roadmapId}:wind-down`,
+        code: 'wind-down-incomplete',
+        kind: 'attention',
+        title: `${name} · Wind-down incomplete`,
+        message: `${windDown.incomplete.message} It resumes on its own once the cause clears; winding down again retries now.`,
+        path,
+        refs,
+      });
     if (tx.amendments.pending(workspaceId, roadmapId))
       items.push({
         subjectKey: `roadmap:${roadmapId}:amendment`,

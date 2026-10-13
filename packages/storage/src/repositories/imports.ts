@@ -42,6 +42,12 @@ export interface ImportRepository {
     planVersionId: PlanVersionId,
     expectedVersion: number,
   ): boolean;
+  /** Clears the project's active version while it is still `planVersionId` (R-B11). */
+  deactivatePlan(
+    workspaceId: WorkspaceId,
+    projectId: ProjectId,
+    planVersionId: PlanVersionId,
+  ): boolean;
 }
 export class SqliteImportRepository implements ImportRepository {
   constructor(
@@ -208,6 +214,15 @@ export class SqliteImportRepository implements ImportRepository {
           'UPDATE projects SET active_plan_version_id = ?, version = version + 1 WHERE workspace_id = ? AND id = ? AND version = ?',
         )
         .run(planVersionId, workspaceId, projectId, expectedVersion).changes === 1
+    );
+  }
+  deactivatePlan(workspaceId: WorkspaceId, projectId: ProjectId, planVersionId: PlanVersionId) {
+    return (
+      this.db
+        .prepare(
+          'UPDATE projects SET active_plan_version_id = NULL, version = version + 1 WHERE workspace_id = ? AND id = ? AND active_plan_version_id = ?',
+        )
+        .run(workspaceId, projectId, planVersionId).changes === 1
     );
   }
 }

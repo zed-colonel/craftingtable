@@ -58,6 +58,9 @@ const ITEM_ATTENTION = {
   'storage-maintenance-failed': 'operator',
   // A protected branch or tag moved during a run, not by the daemon; open until acknowledged.
   'protected-ref-moved': 'operator',
+  // A roadmap's wind-down or cleanup step could not finish (R-B11): repeating the command
+  // resumes it once the cause is fixed.
+  'wind-down-incomplete': 'operator',
 } as const satisfies Record<string, AttentionOwner>;
 type ItemAttentionCode = keyof typeof ITEM_ATTENTION;
 

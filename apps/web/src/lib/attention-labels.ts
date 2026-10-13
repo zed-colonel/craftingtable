@@ -98,4 +98,5 @@ export const ATTENTION_CODE_LABELS: Readonly<Record<AttentionItemCode, string>> 
   'storage-pressure': 'Storage',
   'storage-maintenance-failed': 'Storage maintenance',
   'protected-ref-moved': 'Protected branch moved',
+  'wind-down-incomplete': 'Wind-down incomplete',
 };

@@ -3,6 +3,7 @@ import type {
   CheckpointId,
   ConcurrencyDefinitionId,
   SourceRepositoryId,
+  WindDownRefusal,
 } from '@craftingtable/domain';
 
 export class AuthenticationError extends Error {
@@ -82,7 +83,9 @@ export interface ExecutionErrorDetail {
     | 'worktree-has-changes'
     | 'investigation-worktree-changed'
     | 'repository-outside-roots'
-    | GitRefusal;
+    | GitRefusal
+    | WindDownRefusal
+    | 'roadmap-ended';
   readonly paths?: readonly string[];
   readonly pathCount?: number;
 }
@@ -111,6 +114,11 @@ export function gitRefusalDetail(failure: GitFailure): ExecutionErrorDetail | un
     ...(failure.changedPaths === undefined ? {} : { paths: failure.changedPaths }),
     ...(failure.changedPathCount === undefined ? {} : { pathCount: failure.changedPathCount }),
   };
+}
+
+/** A wind-down, Stop or cleanup refused before anything was written, by code (R-B11). */
+export function windDownRefused(code: WindDownRefusal | 'roadmap-ended', message: string): never {
+  throw new ExecutionRequestError('conflict', message, { reason: code });
 }
 
 export class ExecutionRequestError extends Error {

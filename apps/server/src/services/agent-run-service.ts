@@ -868,6 +868,23 @@ export class AgentRunService {
     );
   }
 
+  /**
+   * Ends a decision preparation's run because its roadmap is wound down (R-B11): the run is
+   * read-only and its preparation will never be read, so nothing is lost.
+   */
+  cancelPreparation(workspaceId: WorkspaceId, runId: AgentRunId, message: string): void {
+    const run = this.storage.execution.runs.find(workspaceId, runId);
+    if (!run?.profileSelection?.preparationId || isTerminalAgentRunStatus(run.status)) return;
+    const liveRun = this.liveRun(workspaceId, runId);
+    if (liveRun !== undefined) {
+      liveRun.cancelRequested = true;
+      liveRun.cancelMessage = message;
+      liveRun.session.kill();
+      return;
+    }
+    this.finalize(workspaceId, runId, 'cancelled', { message });
+  }
+
   /** Ends an investigation its cycle no longer holds; the run is read-only, so nothing is lost. */
   cancelInvestigation(workspaceId: WorkspaceId, runId: AgentRunId, message: string): void {
     const run = this.storage.execution.runs.find(workspaceId, runId);

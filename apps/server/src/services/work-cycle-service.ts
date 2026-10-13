@@ -1841,6 +1841,38 @@ export class WorkCycleService {
     });
   }
 
+  /**
+   * Stops a cycle because its roadmap is being wound down or stopped (R-B11, ADR-073); the stop's
+   * audit action is the code `roadmap-wound-down`. The settlement abandons an owned integration
+   * resolution first and refuses a reserved merge before it starts; meeting either here is a
+   * conflict, and an ended cycle is left as it is.
+   */
+  windDownStop(context: CommandContext | undefined, cycle: WorkCycle): WorkCycle {
+    const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+    if (!current || ['stopped', 'completed'].includes(current.status)) return current ?? cycle;
+    if (
+      this.storage.execution.merges.latest(current.workspaceId, current.worktreeId)?.status ===
+      'reserved'
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Recover the pending merge before stopping this cycle.',
+      );
+    if (ownsIntegrationResolution(current))
+      throw new ExecutionRequestError(
+        'conflict',
+        'Abandon the integration resolution before stopping this cycle.',
+      );
+    const stopped = this.change(
+      current,
+      { status: 'stopped', reason: 'Roadmap stopped. Manual flow is available.' },
+      'roadmap-wound-down',
+      context,
+    );
+    this.runs.finishCycleTurn(stopped, true);
+    return stopped;
+  }
+
   async control(
     context: CommandContext,
     workspaceId: WorkspaceId,
@@ -2334,11 +2366,16 @@ export class WorkCycleService {
     // Attention depends only on stored state, so refresh it when that state has changed.
     if (this.notifier.workflowGeneration !== this.attentionGeneration) this.declareAttention();
     const snapshot = mapReadSnapshot(this.storage);
+    // A roadmap being settled holds its cycles: its settle stops them (R-B11, ADR-073).
+    const held = new Set<string>(
+      this.storage.windDowns.settling().map((record) => record.roadmapId),
+    );
     for (const cycle of prioritizeRoadmapCycles(
       this.storage.execution.cycles.listActive(),
       (cycle) => cycleOwnership(snapshot, cycle),
     )) {
       if (this.abort.signal.aborted) break;
+      if (held.size && held.has(cycleOwnership(snapshot, cycle)?.roadmap.id ?? '')) continue;
       try {
         await this.reconcile(cycle);
       } catch (error) {

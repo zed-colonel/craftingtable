@@ -1,4 +1,4 @@
-import { SESSION_STATUSES, USER_STATUSES } from '@craftingtable/domain';
+import { SESSION_STATUSES, USER_STATUSES, WIND_DOWN_REFUSALS } from '@craftingtable/domain';
 import { z } from 'zod';
 import { sessionIdSchema, userIdSchema } from './ids.js';
 
@@ -40,6 +40,10 @@ const apiErrorReasonSchema = z.enum([
   'checkout-dirty',
   /** A promotion would overwrite files the primary checkout does not track, in `paths` (R-G10). */
   'checkout-would-overwrite',
+  /** A wind-down, Stop or cleanup refused before anything was written (R-B11, ADR-073). */
+  ...WIND_DOWN_REFUSALS,
+  /** An amendment proposed on a roadmap that has ended or is being wound down (R-B11). */
+  'roadmap-ended',
 ]);
 
 export const apiErrorResponseSchema = z.strictObject({

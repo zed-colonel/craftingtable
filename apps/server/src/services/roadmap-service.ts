@@ -4,6 +4,7 @@ import {
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
 import { roadmapPath } from './roadmap-paths.js';
+import { RoadmapSettlement, type SettlementObserver } from './roadmap-settlement.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
 import { predecessorGate } from './transition-gate.js';
 import {
@@ -106,6 +107,7 @@ import {
   DeclaredChecksMissingError,
   ExecutionRequestError,
   NotFoundError,
+  windDownRefused,
 } from './errors.js';
 import {
   requireScopeOwnership,
@@ -430,7 +432,47 @@ export class RoadmapService {
     private readonly runtimeEvidence?: import('./runtime-evidence-service.js').RuntimeEvidenceService,
     private readonly agents?: import('./agent-run-service.js').AgentRunService,
     private readonly git?: import('@craftingtable/git').GitOperations,
-  ) {}
+  ) {
+    this.settlement = new RoadmapSettlement(
+      storage,
+      workspaces,
+      cycles,
+      agents,
+      notifier,
+      now,
+      (tx, roadmap, expectedVersion, action, context) =>
+        this.persist(tx, roadmap, expectedVersion, action, context),
+    );
+  }
+  /** Stop and wind-down's one path (R-B11, ADR-073). */
+  private readonly settlement: RoadmapSettlement;
+  /** Test seam: told after each settle step; a test injects a crash by throwing. */
+  observeSettlement(observer: SettlementObserver | undefined): void {
+    this.settlement.observe(observer);
+  }
+  /** A roadmap's settlement record and what winding it down would do now (R-B11). */
+  windDownView(context: AuthContext, workspaceId: WorkspaceId, id: string) {
+    return this.settlement.view(context, workspaceId, id);
+  }
+  /** Winds a roadmap down: settles it and retires the chosen plan versions (R-B11, ADR-073). */
+  async windDown(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: Parameters<RoadmapSettlement['windDown']>[3],
+  ) {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    if (this.controlling.has(id))
+      windDownRefused('wind-down-in-progress', 'A roadmap command is already in progress.');
+    this.controlling.add(id);
+    try {
+      await this.settlement.windDown(context, workspaceId, id, input);
+    } finally {
+      this.controlling.delete(id);
+      this.notifier.notify();
+    }
+    return this.settlement.view(context, workspaceId, id);
+  }
 
   /**
    * The stored roadmap, for the access guard's step-up check (R-G9): read only after the caller's
@@ -1815,9 +1857,17 @@ export class RoadmapService {
   ): Promise<RoadmapView> {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     let roadmap = this.find(workspaceId, id);
+    // Stop is the wind-down's settle path with nothing retired (R-B11 decision 4): refused by
+    // code before any write, held and resumable once begun.
+    if (action === 'stop') {
+      await this.settlement.stop(context, workspaceId, id, expectedVersion);
+      return this.view(this.find(workspaceId, id));
+    }
     if (roadmap.version !== expectedVersion)
       conflict('Roadmap changed; refresh before issuing this command.');
     if (ended(roadmap)) conflict('This roadmap has ended.');
+    if (this.storage.windDowns.find(workspaceId, id)?.status === 'settling')
+      windDownRefused('wind-down-in-progress', 'This roadmap is being stopped.');
     if (action === 'pause' && roadmap.status === 'draft')
       conflict('Start the roadmap before pausing it.');
     if (
@@ -1939,31 +1989,16 @@ export class RoadmapService {
       roadmap = this.change(
         roadmap,
         {
-          status: action === 'pause' ? 'paused' : 'stopped',
-          reason:
-            action === 'pause'
-              ? 'Roadmap paused. Manual work is available; no next item will start.'
-              : 'Roadmap stopped. Existing worktrees remain available for manual work.',
+          status: 'paused',
+          reason: 'Roadmap paused. Manual work is available; no next item will start.',
         },
         action,
         context,
       );
+      // A pause leaves its stops' investigations (R-C16) and every cycle not running.
       for (const attempt of roadmap.attempts.filter((a) => a.status !== 'completed')) {
-        let cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
-        // Stopping the roadmap ends its stops' investigations (R-C16); a pause leaves them.
-        if (cycle && action === 'stop' && investigationLive(cycle))
-          cycle = await this.cycles.endInvestigation(
-            context,
-            workspaceId,
-            cycle.id,
-            cycle.version,
-            true,
-          );
-        if (
-          cycle &&
-          !['stopped', 'completed'].includes(cycle.status) &&
-          (action === 'stop' || cycle.status === 'running')
-        )
+        const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
+        if (cycle?.status === 'running')
           await this.cycles.control(context, workspaceId, cycle.id, action, cycle.version);
       }
     }
@@ -2254,8 +2289,10 @@ export class RoadmapService {
 
     const stopped: string[] = [];
     if (options.cleanStop) return stopped;
+    // A roadmap being settled resumes its settle on the first pass instead (R-B11).
+    const settling = this.settlement.held();
     for (const roadmap of this.storage.roadmaps.list())
-      if (roadmap.status === 'running') {
+      if (roadmap.status === 'running' && !settling.has(roadmap.id)) {
         this.change(roadmap, {
           status: 'needs-attention',
           attention: roadmapAttention('restart-resume'),
@@ -2304,9 +2341,16 @@ export class RoadmapService {
     const pass = this.passes?.started();
     this.passInboxes = new Map();
     try {
+      // A record still settling is the hold: its settle resumes here, on every pass, and the
+      // scheduler does not advance its roadmap (R-B11, ADR-073).
+      for (const record of this.storage.windDowns.settling()) {
+        if (this.abort.signal.aborted || this.controlling.has(record.roadmapId)) continue;
+        await this.settlement.resume(record).catch(() => undefined);
+      }
+      const held = this.settlement.held();
       for (const roadmap of this.storage.roadmaps.list()) {
         if (this.abort.signal.aborted) break;
-        if (this.controlling.has(roadmap.id)) continue;
+        if (this.controlling.has(roadmap.id) || held.has(roadmap.id)) continue;
         // A paused roadmap adopts open repairs too; its pause holds their controller reviews.
         if (['paused', 'needs-attention'].includes(roadmap.status)) {
           try {
@@ -2366,7 +2410,8 @@ export class RoadmapService {
     if (
       roadmap.status !== 'running' ||
       this.controlling.has(roadmap.id) ||
-      this.storage.amendments.pending(roadmap.workspaceId, roadmap.id)
+      this.storage.amendments.pending(roadmap.workspaceId, roadmap.id) ||
+      this.storage.windDowns.find(roadmap.workspaceId, roadmap.id)?.status === 'settling'
     )
       return;
     if (roadmap.definition.crossProject) {

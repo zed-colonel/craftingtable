@@ -1,6 +1,13 @@
+import type { AttentionItemCode } from './attention-item.js';
 import type {
+  AgentRunId,
+  AttentionItemId,
+  DecisionPreparationId,
+  MapAmendmentId,
   PlanVersionId,
+  ProjectId,
   RepositoryCleanupId,
+  RoadmapEntryId,
   RoadmapId,
   RoadmapWindDownId,
   SourceRepositoryId,
@@ -9,6 +16,8 @@ import type {
   WorkspaceId,
   WorktreeId,
 } from './ids.js';
+import type { RoadmapStatus } from './roadmap.js';
+import type { CycleStatus } from './work-cycle.js';
 
 /**
  * Winding down a roadmap (R-B11, ADR-073): settling it (a Stop is a wind-down that retires
@@ -19,7 +28,7 @@ import type {
 export const RETIREMENT_DISPOSITIONS = ['superseded', 'parked'] as const;
 export type RetirementDisposition = (typeof RETIREMENT_DISPOSITIONS)[number];
 
-interface RetirementChoice {
+export interface RetirementChoice {
   readonly planVersionId: PlanVersionId;
   readonly disposition: RetirementDisposition;
 }
@@ -34,7 +43,7 @@ export interface PlanVersionRetirement extends RetirementChoice {
 
 /** The settle steps, in order. A step that cannot finish is recorded by its name. */
 export const WIND_DOWN_STEPS = ['cycles', 'preparations', 'amendment', 'settle'] as const;
-type WindDownStep = (typeof WIND_DOWN_STEPS)[number];
+export type WindDownStep = (typeof WIND_DOWN_STEPS)[number];
 
 /**
  * A roadmap's settlement record, one per roadmap. `settling` is the hold the scheduler and the
@@ -63,6 +72,82 @@ export interface RoadmapWindDown {
     readonly at: string;
     readonly message: string;
   };
+}
+
+/** Why a wind-down or a cleanup is refused before anything is written. */
+export const WIND_DOWN_REFUSALS = [
+  'merge-in-flight',
+  'finalization-active',
+  'version-in-use',
+  'preview-stale',
+  'version-conflict',
+  'wind-down-in-progress',
+  'roadmap-not-wound-down',
+] as const;
+export type WindDownRefusal = (typeof WIND_DOWN_REFUSALS)[number];
+
+export interface WindDownRefusalDetail {
+  readonly code: WindDownRefusal;
+  readonly message: string;
+}
+
+/** What settling would do to one of the roadmap's cycles. */
+export interface WindDownCycle {
+  readonly cycleId: WorkCycleId;
+  readonly entryId?: RoadmapEntryId;
+  readonly label: string;
+  readonly status: CycleStatus;
+  readonly liveRunId?: AgentRunId;
+  readonly investigation: boolean;
+  /** The cycle owns an integration resolution, which settling abandons. */
+  readonly abandonsResolution: boolean;
+  readonly reservedMerge: boolean;
+}
+
+/** One of the roadmap's plan versions, as a candidate for retirement. */
+export interface WindDownVersion {
+  readonly planVersionId: PlanVersionId;
+  readonly projectId: ProjectId;
+  readonly projectName: string;
+  readonly versionNumber: number;
+  readonly active: boolean;
+  readonly admittedItems: number;
+  readonly activeWorktrees: number;
+  readonly retired?: RetirementDisposition;
+  /** Why it cannot be retired now; it can still be kept. */
+  readonly refusal?: WindDownRefusalDetail;
+}
+
+/**
+ * What a wind-down would do now, read from stored state (ADR-073). `digest` covers everything
+ * the command would act on; the POST recomputes it and refuses `preview-stale` on a difference.
+ */
+export interface WindDownPreview {
+  readonly roadmapId: RoadmapId;
+  readonly status: RoadmapStatus;
+  readonly digest: string;
+  readonly cycles: readonly WindDownCycle[];
+  readonly preparations: readonly {
+    readonly preparationId: DecisionPreparationId;
+    readonly checkpointId: string;
+    readonly runId: AgentRunId;
+    readonly live: boolean;
+  }[];
+  readonly amendmentId?: MapAmendmentId;
+  /** The open attention items settling resolves. */
+  readonly attention: readonly {
+    readonly itemId: AttentionItemId;
+    readonly code: AttentionItemCode;
+    readonly title: string;
+  }[];
+  readonly versions: readonly WindDownVersion[];
+  /** Why the whole command is refused now, if it is. */
+  readonly refusals: readonly WindDownRefusalDetail[];
+}
+
+export interface RoadmapWindDownView {
+  readonly record?: RoadmapWindDown;
+  readonly preview: WindDownPreview;
 }
 
 /** Why a cleanup action keeps something, or what refused it. */

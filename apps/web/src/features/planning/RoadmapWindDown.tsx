@@ -188,8 +188,9 @@ function WindDownForm({
           {refusal.message}
         </p>
       ))}
+      {!ended(roadmap) && <h4>What stops</h4>}
       {!ended(roadmap) && (
-        <ul aria-label="What stops" className="plain-list">
+        <ul aria-label="What stops" className="compact-list">
           {preview.cycles.map((cycle) => (
             <li key={cycle.cycleId}>
               <span className="mono">{cycle.label}</span> · {cycle.status}
@@ -214,8 +215,9 @@ function WindDownForm({
           abandoned; edits stay in the worktree.
         </p>
       )}
+      {preview.attention.length > 0 && <h4>Resolves in Needs you</h4>}
       {preview.attention.length > 0 && (
-        <ul aria-label="Needs you items that resolve" className="plain-list">
+        <ul aria-label="Needs you items that resolve" className="compact-list">
           {preview.attention.map((item) => (
             <li key={item.itemId}>{item.title}</li>
           ))}
@@ -379,7 +381,8 @@ function CleanupForm({
       ))}
       {preview && (
         <>
-          <ul aria-label="Planned changes" className="plain-list">
+          <h4>Planned</h4>
+          <ul aria-label="Planned changes" className="compact-list">
             {planned.map((action) => (
               <li key={`${action.kind}:${action.branchName}`} className="mono">
                 {action.kind === 'remove-worktree' ? 'Remove ' : 'Delete '}
@@ -388,8 +391,9 @@ function CleanupForm({
             ))}
             {planned.length === 0 && <li>Nothing to clean up</li>}
           </ul>
+          {held.length > 0 && <h4>Kept</h4>}
           {held.length > 0 && (
-            <ul aria-label="Kept" className="plain-list">
+            <ul aria-label="Kept" className="compact-list">
               {held.map((action) => (
                 <li key={`${action.kind}:${action.branchName}`} className="mono">
                   Keep {actionLine(action)}

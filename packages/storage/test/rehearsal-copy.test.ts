@@ -2,9 +2,9 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, expect, it } from 'vitest';
-import type { SourceRepositoryId } from '@craftingtable/domain';
+import type { SourceRepositoryId, WorktreeId } from '@craftingtable/domain';
 import { copyDatabaseImmutably, relocateRehearsalCopy } from '../src/rehearsal-copy.js';
-import { SEED_NOW, seedWorkspace } from './planning-test-support.js';
+import { SEED_NOW, seedPlan, seedWorkspace } from './planning-test-support.js';
 import { temporaryStorage } from './test-support.js';
 
 /** The rehearsal's copy (R-B11): read immutably, relocated only as a closed copy. */
@@ -17,7 +17,7 @@ afterEach(() => {
 
 function source() {
   const fixture = temporaryStorage();
-  const seed = seedWorkspace(fixture.storage);
+  const seed = seedPlan(fixture.storage, seedWorkspace(fixture.storage));
   for (const [id, rootPath] of [
     ['r1', '/live/one'],
     ['r2', '/live/two'],
@@ -31,6 +31,20 @@ function source() {
       registeredHeadSha: 'a'.repeat(40),
       registeredAt: SEED_NOW,
       registeredByUserId: seed.userId,
+    });
+  for (const id of ['w1', 'w2'])
+    fixture.storage.execution.worktrees.insert({
+      id: id as WorktreeId,
+      workspaceId: seed.workspaceId,
+      repositoryId: 'r1' as SourceRepositoryId,
+      projectId: seed.projectId,
+      planVersionId: seed.planVersionId,
+      branchName: `ct/${id}`,
+      baseSha: 'a'.repeat(40),
+      baseBranch: 'main',
+      path: `/live/worktrees/${id}`,
+      createdAt: SEED_NOW,
+      createdByUserId: seed.userId,
     });
   directories.push(fixture.directory);
   return { directory: fixture.directory, path: fixture.databasePath, database: fixture.storage };
@@ -55,7 +69,7 @@ it('copies a database it opens only immutably, and relocates the closed copy alo
   expect(() => copyDatabaseImmutably(live.path, copy)).toThrow(/already exists/);
   relocateRehearsalCopy(copy, {
     repositories: [{ id: 'r1', rootPath: '/copy/one' }],
-    worktrees: [],
+    worktrees: [{ id: 'w1', path: '/copy/worktrees/w1' }],
     absentRoot: '/copy/absent',
   });
   const read = new Database(copy, { readonly: true });
@@ -67,6 +81,11 @@ it('copies a database it opens only immutably, and relocates the closed copy alo
         { id: 'r2', root_path: '/copy/absent/r2' },
       ],
     );
+    // A worktree not copied points nowhere a live checkout is, either.
+    expect(read.prepare('SELECT id, path FROM worktrees ORDER BY id').all()).toEqual([
+      { id: 'w1', path: '/copy/worktrees/w1' },
+      { id: 'w2', path: '/copy/absent/worktrees/w2' },
+    ]);
   } finally {
     read.close();
   }

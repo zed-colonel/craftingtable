@@ -142,6 +142,15 @@ function request(
   });
 }
 
+/** An API error's typed reason, if the body carries one. */
+function reasonOf(body: string): string | undefined {
+  try {
+    return (JSON.parse(body) as { error?: { reason?: string } }).error?.reason;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Routes that stream until the client leaves; only their refusals are requested. */
 const streaming = (url: string) => url.endsWith('/events');
 
@@ -369,17 +378,23 @@ describe('route authorization sweep', () => {
       check(key, 'non-member', outsider.statusCode, outsider.statusCode === 404, outsider.body);
       for (const role of BELOW[access]) {
         const below = await request(f, route, { caller: await f.signIn(role) });
-        check(key, role, below.statusCode, below.statusCode === 403, below.body);
+        // Refused for the role, before any step-up is asked (R-B11 review F14).
+        check(
+          key,
+          role,
+          below.statusCode,
+          below.statusCode === 403 && reasonOf(below.body) !== 'step-up-required',
+          below.body,
+        );
       }
       const at = AT[access];
       if (at !== undefined && !streaming(url)) {
         const admitted = await request(f, route, { caller: await f.signIn(at) });
-        // A route that always asks for the password again admits the role, then asks (R-B11).
+        // A route that declares step-up admits the role, then asks for the password (R-B11).
         const steppingUp =
           admitted.statusCode === 403 &&
-          (admitted.json() as { error?: { reason?: string } }).error?.reason ===
-            'step-up-required' &&
-          declaredRoutes(f.context.app).get(key)?.stepUpRule === 'always';
+          reasonOf(admitted.body) === 'step-up-required' &&
+          declaredRoutes(f.context.app).get(key)?.stepUp !== undefined;
         check(
           key,
           `${at} (admitted)`,

@@ -18,6 +18,17 @@ export function copyDatabaseImmutably(source: string, destination: string): void
   } finally {
     live.close();
   }
+  // An immutable read while the daemon checkpoints can be torn: the copy must be whole.
+  const copy = new DatabaseSync(destination, { readOnly: true });
+  try {
+    const checked = copy.prepare('PRAGMA integrity_check').all() as { integrity_check: string }[];
+    if (checked.length !== 1 || checked[0]?.integrity_check !== 'ok')
+      throw new Error(
+        `The copy of ${source} is not whole (${checked.map((r) => r.integrity_check).join('; ')}); copy it again`,
+      );
+  } finally {
+    copy.close();
+  }
 }
 
 interface RehearsalMoves {
@@ -25,7 +36,7 @@ interface RehearsalMoves {
   readonly repositories: readonly { readonly id: string; readonly rootPath: string }[];
   /** Each copied worktree's new directory. */
   readonly worktrees: readonly { readonly id: string; readonly path: string }[];
-  /** Where every repository not copied points instead: a path that does not exist. */
+  /** Where every repository and worktree not copied points instead: a path that does not exist. */
   readonly absentRoot: string;
 }
 
@@ -48,8 +59,11 @@ export function relocateRehearsalCopy(copy: string, moves: RehearsalMoves): void
           database
             .prepare('UPDATE source_repositories SET root_path=? WHERE id=?')
             .run(`${moves.absentRoot}/${row.id}`, row.id);
-      for (const w of moves.worktrees)
-        database.prepare('UPDATE worktrees SET path=? WHERE id=?').run(w.path, w.id);
+      const moved = new Map(moves.worktrees.map((w) => [w.id, w.path]));
+      for (const row of database.prepare('SELECT id FROM worktrees').all() as { id: string }[])
+        database
+          .prepare('UPDATE worktrees SET path=? WHERE id=?')
+          .run(moved.get(row.id) ?? `${moves.absentRoot}/worktrees/${row.id}`, row.id);
     })();
   } finally {
     database.close();

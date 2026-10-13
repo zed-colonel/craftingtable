@@ -160,6 +160,13 @@ migrations store, so the preflight refuses any rollback across them:
 - 0040 rebuilds the workspace journal without the retired repository registry's columns and drops
   its three empty tables. Allow free space for the pre-migration copy (about the database's size).
 
+**Upgrading to schema 41.** 0041 adds the wind-down, retired-version and repository-cleanup
+records (R-B11, ADR-073), empty at upgrade, with their audit actions and event kinds. A release
+from before schema 41 cannot open the migrated database, so the preflight refuses a rollback across
+it; the pre-migration copy is the only way back and loses every wind-down, retirement and cleanup
+recorded since. Refs a cleanup deleted are not restored by any rollback: their commits are in their
+integration branch or in a local `<repository>/parked/<branch>` tag.
+
 The release needs Git 2.43.0 or newer. One refused for an older Git stops before it opens the
 database, so the deploy's automatic rollback restores the previous release. After deploying:
 
@@ -384,6 +391,16 @@ an absent volume cannot start a fresh database on the OS disk.
 integrity and foreign-key checks. Point it at a snapshot, never the live file, before deploying a
 contract or schema change. A failing record is a defect, or a historical shape that needs an
 upcaster in `packages/storage/src/records.ts`.
+
+**Rehearsing a wind-down.** Before winding down and cleaning up a roadmap on the daemon, run it on
+copies (R-B11): `pnpm rehearse:wind-down --database <data dir>/state/craftingtable.sqlite --out
+<new directory> --roadmap <id> [--retire <plan version>=superseded|parked]...`. It reads the live
+database only immutably (a write not yet checkpointed is not in the copy; a copy that is not whole
+is refused), copies the repositories the roadmap's records name with their managed worktrees into
+`<out>`, points every other repository and worktree record at a path that does not exist, and runs
+the real wind-down and cleanup there with Git and no agent. `<out>/report.json` gives every figure
+and every ref that moved; run the `git fsck` lines it lists. Nothing it does reaches the live
+database or a live checkout.
 
 **Compacting the journal.** Runs journaled before raw vendor lines stopped being stored keep their
 old rows until compacted, with the daemon stopped:

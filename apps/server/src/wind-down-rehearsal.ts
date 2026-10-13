@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -255,6 +256,9 @@ async function main(): Promise<void> {
       if (!repo) continue;
       const root = join(o.out, 'repositories', basename(repo.rootPath));
       copyTree(repo.rootPath, root);
+      // A registered checkout that is itself a linked worktree shares a live Git directory.
+      if (!statSync(join(root, '.git')).isDirectory())
+        throw new Error(`${repo.rootPath} has no Git directory of its own; it cannot be copied`);
       repositories.push({ id, rootPath: root });
       // Every managed worktree of the repository, other roadmaps' too, relinked to the copy.
       const linked = new Set<string>();
@@ -409,7 +413,7 @@ async function rehearse(
       },
     );
     const probePlan = 'plan' in imported ? imported.plan : undefined;
-    if (!probePlan || probePlan.outcome !== 'succeeded')
+    if (probePlan?.outcome !== 'succeeded')
       throw new Error(
         `The revised probe plan was not imported: ${JSON.stringify(probePlan ?? imported.attempt)}`,
       );

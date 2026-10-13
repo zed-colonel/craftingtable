@@ -1,4 +1,4 @@
-import { listWorktrees } from './worktrees.js';
+import { branchHolder, listWorktrees } from './worktrees.js';
 import type { GitResult, BranchListing, GitOperations } from './operations.js';
 import type { GitRunner } from './runner.js';
 import { fail, SHA_PATTERN, isSafeBranchName, canonicalDirectory } from './support.js';
@@ -321,16 +321,30 @@ async function exactRef(
   repository: string,
   ref: string,
 ): Promise<GitResult<string | undefined>> {
+  const shown = await rawRef(ctx, repository, ref);
+  if (!shown.ok || shown.value === undefined) return shown;
+  return peeled(ctx, repository, shown.value);
+}
+
+/** The object a full ref stores (a tag object for an annotated tag), or undefined. */
+async function rawRef(
+  ctx: GitRunner,
+  repository: string,
+  ref: string,
+): Promise<GitResult<string | undefined>> {
   const shown = await ctx.run(['show-ref', '--verify', '--hash', ref], repository);
   if (!shown.ok) return shown;
   if (shown.value.exitCode !== 0) return { ok: true, value: undefined };
+  return { ok: true, value: shown.value.stdout.toString('utf8').trim() };
+}
+
+async function peeled(
+  ctx: GitRunner,
+  repository: string,
+  object: string,
+): Promise<GitResult<string>> {
   const commit = await ctx.runOk(
-    [
-      'rev-parse',
-      '--verify',
-      '--end-of-options',
-      `${shown.value.stdout.toString('utf8').trim()}^{commit}`,
-    ],
+    ['rev-parse', '--verify', '--end-of-options', `${object}^{commit}`],
     repository,
   );
   if (!commit.ok) return commit;
@@ -391,10 +405,13 @@ export async function deleteContainedBranch(
       'target-moved',
       `Branch ${input.branchName} moved since the plan was made; it was kept`,
     );
-  const keeper = await exactRef(ctx, repository.value, input.keeper.ref);
-  if (!keeper.ok) return keeper;
-  if (keeper.value === undefined)
+  // The keeper is read once: what is checked below is what the deletion verifies.
+  const keeperRaw = await rawRef(ctx, repository.value, input.keeper.ref);
+  if (!keeperRaw.ok) return keeperRaw;
+  if (keeperRaw.value === undefined)
     return fail('target-moved', `${keeperName} no longer exists; ${input.branchName} was kept`);
+  const keeper = await peeled(ctx, repository.value, keeperRaw.value);
+  if (!keeper.ok) return keeper;
   // A tag keeps exactly its commit; a branch keeps its pin while the pin is still in its history.
   const pinHeld = input.keeper.ref.startsWith('refs/tags/')
     ? { ok: true as const, value: keeper.value === input.keeper.pinnedSha }
@@ -414,18 +431,31 @@ export async function deleteContainedBranch(
   if (!contained.ok) return contained;
   if (!contained.value)
     return fail('target-moved', `${keeperName} does not keep ${input.branchName}; it was kept`);
-  const worktrees = await listWorktrees(ctx, repository.value);
-  if (!worktrees.ok) return worktrees;
-  if (worktrees.value.some((tree) => tree.branch === input.branchName))
+  // Checked out, or being rebased or bisected, in any worktree: kept, as `git branch -D` would.
+  const holder = await branchHolder(ctx, repository.value, input.branchName);
+  if (!holder.ok) return holder;
+  if (holder.value)
     return fail(
       'target-checked-out',
-      `Branch ${input.branchName} is checked out in a worktree; it was kept`,
+      `Branch ${input.branchName} is ${holder.value.how} in a worktree; it was kept`,
     );
-  const deleted = await ctx.runOk(
-    ['update-ref', '--no-deref', '-d', branchRef, input.expectedTipSha],
-    repository.value,
-  );
+  // One ref transaction: the keeper still at what was checked, the branch at its tip.
+  const deleted = await ctx.run(['update-ref', '--no-deref', '--stdin'], repository.value, {
+    input: [
+      'start',
+      `verify ${input.keeper.ref} ${keeperRaw.value}`,
+      `delete ${branchRef} ${input.expectedTipSha}`,
+      'prepare',
+      'commit',
+      '',
+    ].join('\n'),
+  });
   if (!deleted.ok) return deleted;
+  if (deleted.value.exitCode !== 0)
+    return fail(
+      'target-moved',
+      `Branch ${input.branchName} or its keeper moved while it was deleted; it was kept`,
+    );
   return { ok: true, value: 'deleted' };
 }
 

@@ -140,6 +140,49 @@ describe('deleteContainedBranch (R-B11)', () => {
     ).toEqual({ ok: true, value: 'deleted' });
     expect(run('rev-parse', 'refs/tags/repository/parked/unmerged')).toBe(tip);
     expect(run('fsck', '--no-progress')).toBe('');
+    // A tag that names another commit than the pin keeps nothing: the branch stays.
+    run('checkout', '-b', 'ct/again');
+    const again = commit('again.txt');
+    run('checkout', 'main');
+    run('tag', 'repository/parked/again', 'main');
+    const moved = await git.deleteContainedBranch({
+      repositoryPath: path,
+      branchName: 'ct/again',
+      expectedTipSha: again,
+      keeper: { ref: 'refs/tags/repository/parked/again', pinnedSha: again },
+    });
+    expect(!moved.ok && moved.failure.kind).toBe('target-moved');
+    expect(run('rev-parse', 'refs/heads/ct/again')).toBe(again);
+  });
+
+  it('keeps a branch a linked worktree is rebasing, as `git branch -D` would (review F6)', async () => {
+    const { path, run, commit } = repository();
+    run('checkout', '-b', 'ct/rebased');
+    const tip = commit('rebased.txt');
+    run('checkout', 'main');
+    run('merge', '--no-ff', '--no-edit', 'ct/rebased');
+    const pinned = run('rev-parse', 'main');
+    // The worktree stops mid-rebase: HEAD is detached, and the branch is being rewritten.
+    const checkout = join(path, '..', 'rebasing');
+    run('worktree', 'add', checkout, 'ct/rebased');
+    runFixtureGit([
+      '-C',
+      checkout,
+      '-c',
+      'sequence.editor=sed -i 1s/^pick/edit/',
+      'rebase',
+      '-i',
+      'HEAD~1',
+    ]);
+    expect(run('-C', checkout, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD');
+    const held = await git.deleteContainedBranch({
+      repositoryPath: path,
+      branchName: 'ct/rebased',
+      expectedTipSha: tip,
+      keeper: { ref: 'refs/heads/main', pinnedSha: pinned },
+    });
+    expect(!held.ok && held.failure.kind).toBe('target-checked-out');
+    expect(run('rev-parse', 'refs/heads/ct/rebased')).toBe(tip);
   });
 });
 

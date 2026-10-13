@@ -32,7 +32,8 @@ import {
 } from '@craftingtable/planning';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
-import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { ExecutionRequestError, NotFoundError, windDownRefused } from './errors.js';
+import { retiredVersionIds } from './retired-versions.js';
 import type { PlanImportService } from './plan-import-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -217,17 +218,31 @@ export class PackageImportService {
     this.notifier.notify();
     return result;
   }
+  /**
+   * Changing a project's active plan needs it idle, by typed code (R-B11): no admitted item, no
+   * unmerged worktree, no delegated roadmap and no open finalization. A retired version's items
+   * and worktrees no longer count: retirement is what releases them.
+   */
   private requireIdleProject(
     tx: StorageRepositories,
     workspaceId: WorkspaceId,
     projectId: ProjectId,
   ) {
-    const versions = tx.planning.versions.listForProject(workspaceId, projectId);
-    const versionIds = new Set(versions.map((v) => v.id));
+    const retired = retiredVersionIds(tx, workspaceId);
+    const versions = tx.planning.versions
+      .listForProject(workspaceId, projectId)
+      .filter((v) => !retired.has(v.id));
+    const versionIds = new Set<string>(versions.map((v) => v.id));
     const items = versions.flatMap((v) => tx.planning.workItems.listForVersion(workspaceId, v.id));
-    const itemIds = new Set(items.map((i) => i.id));
+    const itemIds = new Set<string>(items.map((i) => i.id));
+    const refuse = (code: Parameters<typeof windDownRefused>[0], why: string): never =>
+      windDownRefused(
+        code,
+        `${why} Import with “Make active” unchecked, then remove unstarted items from the agenda, or finish, stop or wind down the work before changing its active plan.`,
+      );
+    if (items.some((i) => i.status === 'admitted'))
+      refuse('project-has-admitted-work', 'This project has admitted work.');
     if (
-      items.some((i) => i.status === 'admitted') ||
       tx.execution.worktrees
         .listActive(workspaceId)
         .some(
@@ -235,23 +250,27 @@ export class PackageImportService {
             !w.mergedAt &&
             ((w.workItemId && itemIds.has(w.workItemId)) ||
               (w.planVersionId && versionIds.has(w.planVersionId))),
-        ) ||
+        )
+    )
+      refuse('project-has-unmerged-worktrees', 'This project has unmerged worktrees.');
+    if (
       tx.roadmaps
         .list(workspaceId)
         .some(
           (r) =>
             !['draft', 'completed', 'stopped'].includes(r.status) &&
-            r.definition.entries.some((e) => e.projectId === projectId),
-        ) ||
+            r.definition.entries.some((e) => versionIds.has(e.planVersionId)),
+        )
+    )
+      refuse('project-has-delegated-roadmap', 'A roadmap delegates this project’s work.');
+    if (
       tx.execution.finalizations
         .list(workspaceId)
         .some(
           (f) => versionIds.has(f.planVersionId) && !['completed', 'stopped'].includes(f.status),
         )
     )
-      conflict(
-        'This project has admitted work or delegated execution. Import with “Make active” unchecked, then remove unstarted items from the agenda or finish/stop existing work before changing its active plan.',
-      );
+      refuse('project-has-open-finalization', 'A finalization of this project is open.');
   }
   importConcurrency(
     context: AuthContext,

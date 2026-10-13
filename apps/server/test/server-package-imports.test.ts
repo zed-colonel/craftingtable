@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { zipFixture } from '../../../packages/planning/test/archive-test-support.js';
 import { buildMultipartBody } from './multipart-test-support.js';
 import { openDaemonStorage } from '../src/persisted-records.js';
+import { retireVersion } from './retirement-test-support.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 const contexts: TestContext[] = [];
@@ -335,6 +336,8 @@ describe('package import HTTP flow', () => {
       expectedActivePlanVersionId: first.planVersionId,
     });
     expect(blocked.statusCode, blocked.body).toBe(409);
+    // Typed, not prose (R-B11, rule 4).
+    expect(blocked.json()).toMatchObject({ error: { reason: 'project-has-admitted-work' } });
     expect(
       r.context.storage.planning.versions.listForProject(r.workspaceId, first.projectId),
     ).toHaveLength(1);
@@ -510,5 +513,43 @@ describe('package import HTTP flow', () => {
       error: { code: 'invalid-request', message: 'Concurrency import accepts the archive only.' },
     });
     expect(r.context.storage.imports.attempts(r.workspaceId, 'concurrency')).toHaveLength(0);
+  });
+});
+
+describe('a retired plan version and imports (R-B11)', () => {
+  it('no longer holds its project, and its identical bundle is refused by code', async () => {
+    const r = await setup();
+    const first = (await importPlan(r, planNames[0]!)).json().plan;
+    const user = r.context.storage.users.findByNormalizedUsername('test-user')!;
+    const item = r.context.storage.planning.workItems.listForVersion(
+      r.workspaceId,
+      first.planVersionId,
+    )[0]!;
+    r.context.storage.planning.workItems.admit({
+      workspaceId: r.workspaceId,
+      workItemId: item.id,
+      admittedAt: new Date().toISOString(),
+      admittedByUserId: user.id,
+    });
+    retireVersion(r.context.storage, r.workspaceId, user.id, first.planVersionId);
+    // The retired version's admitted item no longer blocks making a fresh plan active.
+    const fresh = await importPlan(r, planNames[1]!, {
+      projectId: first.projectId,
+      activate: 'true',
+      expectedActivePlanVersionId: first.planVersionId,
+    });
+    expect(fresh.statusCode, fresh.body).toBe(200);
+    expect(fresh.json().plan.isActiveVersion).toBe(true);
+    // The item keeps its status and history.
+    expect(r.context.storage.planning.workItems.find(r.workspaceId, item.id)?.status).toBe(
+      'admitted',
+    );
+    // Its exact files are not answered with the retired version again.
+    const again = await importPlan(r, planNames[0]!, { projectId: first.projectId });
+    expect(again.statusCode, again.body).toBe(409);
+    expect(again.json()).toMatchObject({ error: { reason: 'plan-version-retired' } });
+    expect(
+      r.context.storage.planning.versions.listForProject(r.workspaceId, first.projectId),
+    ).toHaveLength(2);
   });
 });

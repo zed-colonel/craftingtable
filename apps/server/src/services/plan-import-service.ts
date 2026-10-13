@@ -25,7 +25,7 @@ import {
 } from '@craftingtable/planning';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
-import { NotFoundError } from './errors.js';
+import { NotFoundError, windDownRefused } from './errors.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 
@@ -231,6 +231,13 @@ export class PlanImportService {
     // probe is needed and no duplicate version can slip through.
     return this.storage.transaction((tx): PlanImportResult => {
       const existing = tx.planning.versions.findByDigest(input.workspaceId, digest.hex);
+      // A retired version is never answered again as this import's result (R-B11): resuming its
+      // work needs a revised plan, a new version.
+      if (existing !== undefined && tx.windDowns.retirement(input.workspaceId, existing.id))
+        windDownRefused(
+          'plan-version-retired',
+          'These exact plan files are a retired version. Import a revised plan to resume this work.',
+        );
       if (existing !== undefined) {
         const project = tx.planning.projects.find(input.workspaceId, existing.projectId);
         if (project === undefined) {

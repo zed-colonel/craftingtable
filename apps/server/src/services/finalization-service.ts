@@ -21,6 +21,7 @@ import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { retiredVersionIds } from './retired-versions.js';
 import type { ExecutionService } from './execution-service.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -404,6 +405,8 @@ export class FinalizationService {
             repo.rootPath,
             value.integrationBranch,
           );
+          // A retired plan uses nothing any more (R-B11 decision 8).
+          const retired = retiredVersionIds(this.storage);
           if (
             this.storage.execution.branchSettings
               .list()
@@ -411,6 +414,7 @@ export class FinalizationService {
                 (settings) =>
                   sameRepo(settings.workspaceId, settings.repositoryId) &&
                   settings.integrationBranch === value.integrationBranch &&
+                  !retired.has(settings.planVersionId) &&
                   (settings.workspaceId !== value.workspaceId ||
                     settings.planVersionId !== value.planVersionId),
               )

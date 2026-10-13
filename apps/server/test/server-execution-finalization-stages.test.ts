@@ -6,6 +6,7 @@ import { finalizationsResponseSchema } from '@craftingtable/contracts';
 import {
   asAgentRunEventId,
   asFinalizationStageId,
+  asPlanBundleId,
   asPlanVersionId,
   evaluateCycleCompletion,
   FINALIZATION_STAGE_KINDS,
@@ -19,6 +20,7 @@ import {
   stagedPromotionIssue,
 } from '../src/services/finalization-stage-policy.js';
 import { requiredFindingIds } from '../src/services/run-handoff.js';
+import { retireVersion } from './retirement-test-support.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -516,6 +518,61 @@ describe('completed plan and integration branch cleanup', () => {
     expect(git(['branch', '--list', 'revision'], root).trim()).toBe('');
     expect(git(['rev-parse', 'main'], root)).toBe(main);
     expect(merges).toBe(1);
+  });
+
+  it('removes the integration branch past a retired plan on it, as ADR-041 allows (R-B11)', async () => {
+    const { state, value, root, approval } = await reviewForPromotion();
+    // Another plan of the project uses the same integration branch.
+    const other = asPlanVersionId('version-other');
+    state.context.storage.transaction((tx) => {
+      tx.planning.bundles.insert({
+        id: asPlanBundleId('bundle-other'),
+        workspaceId: state.workspaceId,
+        projectId: value.projectId,
+        logicalName: 'other',
+        createdAt: new Date().toISOString(),
+      });
+      tx.planning.versions.insert({
+        id: other,
+        workspaceId: state.workspaceId,
+        projectId: value.projectId,
+        bundleId: asPlanBundleId('bundle-other'),
+        versionNumber: 1,
+        contentDigest: 'c'.repeat(64),
+        digestAlgorithm: 'sha-256',
+        digestFormatVersion: 1,
+        sourceProfile: 'exo-work-breakdown-v1',
+        document: 'other.md',
+        normalizedSource: { document: 'other.md' },
+        itemCount: 0,
+        requiredDependencyCount: 0,
+        createdAt: new Date().toISOString(),
+        createdByUserId: state.userId,
+      });
+    });
+    const settings = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/plan-versions/${other}/branch-settings`,
+      headers: mutationHeaders(state),
+      payload: {
+        repositoryId: value.repositoryId,
+        integrationBranch: value.integrationBranch,
+        expectedVersion: 0,
+      },
+    });
+    expect(settings.statusCode, settings.body).toBe(200);
+    const merged = await finalizationCommand(state, value, 'merge', {
+      ...approval,
+      removeIntegrationBranch: true,
+    });
+    expect(merged.statusCode, merged.body).toBe(200);
+    expect(merged.json().finalization.integrationCleanup).toMatchObject({ status: 'blocked' });
+    expect(git(['branch', '--list', value.integrationBranch], root).trim()).not.toBe('');
+    // Retired, that plan uses nothing any more.
+    retireVersion(state.context.storage, state.workspaceId, state.userId, other);
+    const retry = await finalizationCommand(state, value, 'remove-integration-branch');
+    expect(retry.json().finalization.integrationCleanup.status).toBe('removed');
+    expect(git(['branch', '--list', value.integrationBranch], root).trim()).toBe('');
   });
 
   it('retries cleanup after deletion but before its acknowledgement without redoing promotion', async () => {

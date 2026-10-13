@@ -1,4 +1,9 @@
-import { SESSION_STATUSES, USER_STATUSES, WIND_DOWN_REFUSALS } from '@craftingtable/domain';
+import {
+  RETIREMENT_REFUSALS,
+  SESSION_STATUSES,
+  USER_STATUSES,
+  WIND_DOWN_REFUSALS,
+} from '@craftingtable/domain';
 import { z } from 'zod';
 import { sessionIdSchema, userIdSchema } from './ids.js';
 
@@ -44,6 +49,8 @@ const apiErrorReasonSchema = z.enum([
   ...WIND_DOWN_REFUSALS,
   /** An amendment proposed on a roadmap that has ended or is being wound down (R-B11). */
   'roadmap-ended',
+  /** Activation, a roadmap's save or start, or an import refused around retired versions (R-B11). */
+  ...RETIREMENT_REFUSALS,
 ]);
 
 export const apiErrorResponseSchema = z.strictObject({

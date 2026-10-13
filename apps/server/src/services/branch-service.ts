@@ -27,6 +27,7 @@ import type { GitOperations, GitResult } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { retiredVersionIds } from './retired-versions.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -714,7 +715,10 @@ export class BranchService {
   ): void {
     if (finalPromotion) return;
     const root = this.repository(workspaceId, repositoryId).rootPath;
+    // A retired version's policy freezes nothing (R-B11 decision 8).
+    const retired = retiredVersionIds(this.storage);
     for (const settings of this.storage.execution.branchSettings.list()) {
+      if (retired.has(settings.planVersionId)) continue;
       const other = this.storage.execution.sourceRepositories.find(
         settings.workspaceId,
         settings.repositoryId,

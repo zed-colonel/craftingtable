@@ -91,6 +91,20 @@ export interface WindDownRefusalDetail {
   readonly message: string;
 }
 
+/**
+ * Why activating a plan, saving or starting a roadmap, or importing a bundle is refused around
+ * retired versions (R-B11, ADR-073). A retired version is ignored by the activation gate, so its
+ * started items and worktrees no longer hold the project.
+ */
+export const RETIREMENT_REFUSALS = [
+  'plan-version-retired',
+  'project-has-admitted-work',
+  'project-has-unmerged-worktrees',
+  'project-has-delegated-roadmap',
+  'project-has-open-finalization',
+] as const;
+export type RetirementRefusal = (typeof RETIREMENT_REFUSALS)[number];
+
 /** What settling would do to one of the roadmap's cycles. */
 export interface WindDownCycle {
   readonly cycleId: WorkCycleId;

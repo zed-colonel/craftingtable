@@ -5,6 +5,7 @@ import {
 } from './architecture-decision-policy.js';
 import { roadmapPath } from './roadmap-paths.js';
 import { RoadmapSettlement, type SettlementObserver } from './roadmap-settlement.js';
+import { inRetiredVersion, retiredVersionIds } from './retired-versions.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
 import { predecessorGate } from './transition-gate.js';
 import {
@@ -1691,6 +1692,11 @@ export class RoadmapService {
         conflict('Reviewer role assignments require the explicit cross-project settings form.');
       const item = this.storage.planning.workItems.find(workspaceId, entry.workItemId);
       if (!item) throw new NotFoundError();
+      if (this.storage.windDowns.retirement(workspaceId, item.planVersionId))
+        windDownRefused(
+          'plan-version-retired',
+          `${item.sourceId} belongs to a retired plan version. Plan its work from a current version.`,
+        );
       const scoped = entry.executionScope
         ? resolveScope(this.storage, workspaceId, entry.workItemId, entry.executionScope)
         : undefined;
@@ -1888,6 +1894,15 @@ export class RoadmapService {
           .some((r) => r.id !== id && r.status !== 'draft' && !ended(r))
       )
         conflict('This workspace already has a delegated roadmap. Stop or finish it first.');
+      // A draft saved before its version was retired cannot run it (R-B11).
+      const retiredEntry = roadmap.definition.entries.find((e) =>
+        this.storage.windDowns.retirement(workspaceId, e.planVersionId),
+      );
+      if (retiredEntry)
+        windDownRefused(
+          'plan-version-retired',
+          `${retiredEntry.sourceId} belongs to a retired plan version. Edit the roadmap's entries first.`,
+        );
       if (roadmap.definition.crossProject) {
         const preview = crossProjectState(
           this.storage,
@@ -3937,13 +3952,16 @@ export class RoadmapService {
     const preparing = new Set(
       tx.roadmaps.list().flatMap((r) => (r.decisionPreparations ?? []).map((p) => p.worktreeId)),
     );
+    // A retired version's worktrees hold no capacity: its work can never run again (R-B11).
+    const retired = retiredVersionIds(tx);
     const trees = tx.execution.worktrees
       .listActive()
       .filter(
         (t) =>
           !tx.amendments.retired(t.workspaceId, t.id) &&
           !preparing.has(t.id) &&
-          (!t.executionScope || t.executionScope.kind === 'slice'),
+          (!t.executionScope || t.executionScope.kind === 'slice') &&
+          !inRetiredVersion(tx, t, retired),
       );
     if (
       trees.some(

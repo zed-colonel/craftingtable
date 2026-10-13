@@ -2,6 +2,7 @@ import type { GitFailure, GitFailureKind } from '@craftingtable/git';
 import type {
   CheckpointId,
   ConcurrencyDefinitionId,
+  RetirementRefusal,
   SourceRepositoryId,
   WindDownRefusal,
 } from '@craftingtable/domain';
@@ -85,6 +86,7 @@ export interface ExecutionErrorDetail {
     | 'repository-outside-roots'
     | GitRefusal
     | WindDownRefusal
+    | RetirementRefusal
     | 'roadmap-ended';
   readonly paths?: readonly string[];
   readonly pathCount?: number;
@@ -116,8 +118,14 @@ export function gitRefusalDetail(failure: GitFailure): ExecutionErrorDetail | un
   };
 }
 
-/** A wind-down, Stop or cleanup refused before anything was written, by code (R-B11). */
-export function windDownRefused(code: WindDownRefusal | 'roadmap-ended', message: string): never {
+/**
+ * A command refused before anything was written, by code (R-B11): a wind-down, Stop or cleanup,
+ * an amendment on an ended roadmap, or a gate around retired plan versions.
+ */
+export function windDownRefused(
+  code: WindDownRefusal | RetirementRefusal | 'roadmap-ended',
+  message: string,
+): never {
   throw new ExecutionRequestError('conflict', message, { reason: code });
 }
 

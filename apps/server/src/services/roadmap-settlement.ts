@@ -18,7 +18,6 @@ import {
   type WindDownStep,
   type WindDownVersion,
   type WorkspaceId,
-  type Worktree,
   type WorktreeId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -73,14 +72,6 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 
 /** A step that waits for something that ends by itself, such as a cancelled session. */
 class StepWaiting extends Error {}
-
-/** The plan version a worktree belongs to: its own, or its work item's. */
-export function worktreeVersion(tx: StorageRepositories, tree: Worktree): string | undefined {
-  if (tree.planVersionId) return tree.planVersionId;
-  return tree.workItemId
-    ? tx.planning.workItems.find(tree.workspaceId, tree.workItemId)?.planVersionId
-    : undefined;
-}
 
 export class RoadmapSettlement {
   /** Roadmaps a command or pass is settling in this process. */

@@ -1121,8 +1121,9 @@ parallel, before the controller-kernel items:
    schedule them apart.
 
 Found live 2026-10-13, while WorldInterface's first off-map item ran: two rule-7 fixes, deployed from
-`fix/` branches cut from this line and still to be integrated into it (R-G7: create a Cargo worktree's
-build cache before the launch; R-G13: a run's adopted checks run one at a time in its build directory),
+`fix/` branches cut from this line and integrated into it after R-B11 (R-G7, f57cf37: create a Cargo
+worktree's build cache before the launch; R-G13, dcf0733: a run's adopted checks run one at a time in
+its build directory),
 and **R-G16** (Claude Code's Git grant leaves placeholder files in the shared Git directory), which
 awaits the operator's decision. It is small; schedule it beside item 2.
 

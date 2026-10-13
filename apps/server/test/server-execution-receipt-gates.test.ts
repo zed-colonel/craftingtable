@@ -1083,6 +1083,96 @@ itNeedsCargo(
 );
 
 itNeedsCargo(
+  "a run's adopted checks run one at a time in its build directory, beside its own commands (live 2026-10-13)",
+  async () => {
+    // Each kind waits on its own gate, so the test sees which kind runs (R-I2).
+    const declared = checkGate();
+    const own = checkGate();
+    const f = await scopedRuntimeFixture(
+      ['a', 'b', 'c'].map((id) => ({
+        id: asDeclaredCheckId(id),
+        argv: [...declared.command],
+        definitionPaths: [],
+      })),
+    );
+    const checks = f.state.context.services.checkRequestService;
+    let spool = '';
+    f.backend.replyForRequest = (request) => {
+      spool = join(request.buildEnvironment!.binDirectory, '../requests');
+      // Two counted reruns first, then three of the agent's own commands.
+      const requests = [
+        { version: 1, tool: 'ct-check', args: ['--declared', 'a'] },
+        { version: 1, tool: 'ct-check', args: ['--declared', 'b'] },
+        ...Array.from({ length: 3 }, () => ({
+          version: 1,
+          tool: 'ct-check',
+          args: ['--', ...own.command],
+        })),
+      ];
+      for (const [i, body] of requests.entries())
+        writeFileSync(
+          join(spool, `00000000-0000-4000-8000-${String(i).padStart(12, '0')}.request`),
+          JSON.stringify(body),
+        );
+      return { resultText: 'Checks requested.' };
+    };
+    const started = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+      headers: mutationHeaders(f.state),
+      payload: { worktreeId: f.tree.id, role: 'review' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const run = started.json().run.id as string;
+    const status = () =>
+      f.state.context.storage.execution.runs.find(f.state.workspaceId, run as never)?.status;
+    // Before the reviewer starts, the daemon runs the three adopted checks one after another:
+    // the queue decides what starts in one pass, so a second would be running already.
+    for (let n = 1; n <= 3; n++) {
+      await waitUntil(() => declared.pids().length === n, `adopted check ${n} running`);
+      expect(checks.inFlight(run)).toHaveLength(1);
+      declared.open(1);
+    }
+    await waitFor(() => status() === 'waiting', 'the reviewer started after its checks');
+    // The agent's requests: one rerun runs and the other waits, while its own commands run
+    // beside it up to the per-run bound.
+    await waitUntil(
+      () => !readdirSync(spool).some((name) => name.endsWith('.request')),
+      'every request claimed',
+    );
+    await waitUntil(
+      () => declared.pids().length === 4 && own.pids().length === 3,
+      'the first rerun and the commands running',
+    );
+    expect(checks.inFlight(run)).toHaveLength(4);
+    declared.open(1);
+    await waitUntil(() => declared.pids().length === 5, 'the second rerun running');
+    expect(checks.inFlight(run)).toHaveLength(4);
+    own.open(3);
+    declared.open(1);
+    const replies = join(f.state.context.config.execution.checkLogRoot, run, 'replies');
+    await waitUntil(() => {
+      try {
+        return readdirSync(replies).filter((name) => name.endsWith('.exit')).length === 5;
+      } catch {
+        return false;
+      }
+    }, 'every request answered');
+    await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/runs/${run}/control`,
+      headers: mutationHeaders(f.state),
+      payload: { action: 'end' },
+    });
+    await waitFor(() => status() === 'finished', 'finish');
+    // Three adopted checks before the reviewer, and its five requests.
+    expect(
+      f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run),
+    ).toHaveLength(8);
+  },
+);
+
+itNeedsCargo(
   'the daemon runs at most four checks of a run at once and refuses more than 32 waiting (R-G4 review)',
   async () => {
     const f = await scopedRuntimeFixture();

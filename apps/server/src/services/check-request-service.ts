@@ -108,6 +108,8 @@ export interface DeclaredCheckResult {
 
 interface InFlight {
   readonly tool: CheckRequest['tool'];
+  /** Whether it builds in the run's shared build directory (`buildsInRunTarget`). */
+  readonly sharedBuild: boolean;
   readonly controller: AbortController;
   readonly reply: Reply;
   readonly done: Promise<void>;
@@ -118,6 +120,20 @@ interface Waiting {
   readonly request: CheckRequest;
   readonly reply: Reply;
   readonly origin: CheckOrigin;
+}
+
+/**
+ * Whether a check builds in its run's shared build directory, `declared-target`: a declared
+ * check and a pinned Cargo build, each on a daemon-private clone of the reviewed commit. Cargo
+ * locks that directory only while it compiles, so a second build there can replace the files a
+ * first one's tests are still running from (live 2026-10-13: a review's doc-tests lost their
+ * crates, and a test that re-ran its own binary found it gone). These run one at a time per
+ * run; the agent's own commands keep the per-run bound.
+ */
+function buildsInRunTarget(request: CheckRequest): boolean {
+  return (
+    request.tool === 'cargo' || (request.tool === 'ct-check' && request.args[0] === '--declared')
+  );
 }
 
 interface ServedRun {
@@ -396,22 +412,36 @@ export class CheckRequestService {
     }
   }
 
-  /** Starts waiting checks, oldest first, within the per-run and daemon bounds. */
+  /**
+   * Starts waiting checks, oldest first, within the per-run and daemon bounds. A run's checks
+   * that build in its shared build directory run one at a time (`buildsInRunTarget`); while
+   * one waits for that, later checks of other kinds may start.
+   */
   private pump(): void {
     let running = [...this.runs.values()].reduce((n, r) => n + r.inFlight.size, 0);
     for (const run of this.runs.values())
       while (
-        run.waiting.length &&
         run.inFlight.size < this.limits.runningPerRun &&
         running < this.limits.runningInDaemon
       ) {
-        const { id, request, reply, origin } = run.waiting.shift()!;
+        const building = [...run.inFlight.values()].some((check) => check.sharedBuild);
+        const next = run.waiting.findIndex(
+          (waiting) => !building || !buildsInRunTarget(waiting.request),
+        );
+        if (next < 0) break;
+        const { id, request, reply, origin } = run.waiting.splice(next, 1)[0]!;
         const controller = new AbortController();
         const done = this.run(run, id, request, reply, controller.signal, origin).finally(() => {
           run.inFlight.delete(id);
           this.pump();
         });
-        run.inFlight.set(id, { tool: request.tool, controller, reply, done });
+        run.inFlight.set(id, {
+          tool: request.tool,
+          sharedBuild: buildsInRunTarget(request),
+          controller,
+          reply,
+          done,
+        });
         running += 1;
       }
   }

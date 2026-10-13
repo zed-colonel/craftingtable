@@ -271,6 +271,32 @@ describe('what a cleanup never moves (R-B11 review F3)', () => {
     expect(git(['rev-parse', first.branchName], root).trim()).toBe(f.firstTip);
   });
 
+  it('keeps a worktree a run took up while the cleanup stood interrupted (F2)', async () => {
+    const f = await cleanupFixture({ withOther: false });
+    const { state, first } = f;
+    const { digest } = await crashAt(f, 'remove-worktree', first.branchName, 'authorized');
+    const run = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${first.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: first.id, instructions: 'Manual work.' },
+    });
+    expect(run.statusCode, run.body).toBe(200);
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.liveForWorktree(state.workspaceId, first.id).length >
+        0,
+      'the manual run live',
+    );
+    const done = await clean(f, digest);
+    expect(done.latest?.status).toBe('done');
+    expect(removalAction(present(done.latest).actions, first)).toMatchObject({
+      state: 'kept',
+      code: 'in-use',
+    });
+    expect(existsSync(first.path)).toBe(true);
+  });
+
   it('keeps a worktree whose checkout left its branch, at the plan and when it resumes, even discarding (F1)', async () => {
     const f = await cleanupFixture({ withOther: false });
     const { root, first, third } = f;

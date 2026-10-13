@@ -403,6 +403,32 @@ describe('what a wind-down refuses (R-B11 review F3)', () => {
     });
   });
 
+  it('starts nothing on a roadmap a settling record holds', async () => {
+    const { state } = await parallelFixture({ independentThird: true });
+    expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+    await roadmapControl(state, 'start');
+    expect(storedRoadmap(state).attempts).toEqual([]);
+    // A Stop stands interrupted before any pass ran; its requester can no longer act.
+    const viewer = addMember(state, 'viewer');
+    state.context.storage.transaction((tx) =>
+      tx.windDowns.insert({
+        id: asRoadmapWindDownId(randomUUID()),
+        workspaceId: state.workspaceId,
+        roadmapId: asRoadmapId(roadmapId),
+        version: 1,
+        status: 'settling',
+        retire: [],
+        abandonResolutions: [],
+        previewDigest: 'd'.repeat(64),
+        requestedAt: new Date().toISOString(),
+        requestedByUserId: viewer.user.id,
+        startedAt: new Date().toISOString(),
+      }),
+    );
+    for (let i = 0; i < 2; i++) await state.context.services.roadmapService.tick();
+    expect(storedRoadmap(state)).toMatchObject({ status: 'running', attempts: [] });
+  });
+
   it('settles as its requester only while they may act, holding the roadmap meanwhile', async () => {
     const { state, release } = await settleFixture();
     const auth = authOf(state);

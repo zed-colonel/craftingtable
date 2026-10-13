@@ -119,6 +119,14 @@ describe('a retired plan version (R-B11)', () => {
     const first = await awaitRoadmapMerge(state, 0);
     await secondVersion(state, repository.id);
     expect((await saveRoadmapRequest(state, draftInput, DRAFT)).statusCode).toBe(200);
+    // A draft of the first plan, saved before its version is retired.
+    const early = asRoadmapId('00000000-0000-4000-8000-000000000031');
+    const saved = await saveRoadmapRequest(
+      state,
+      { ...roadmapInput(state, [state.workItemId]), name: 'Saved before' },
+      early,
+    );
+    expect(saved.statusCode, saved.body).toBe(200);
     // The first plan's unmerged worktree holds the repository's one sequential slot.
     expect(await draftProgress(state)).toBe('capacity-blocked');
     // Stopping alone keeps it holding the slot; retiring the version releases it.
@@ -156,6 +164,15 @@ describe('a retired plan version (R-B11)', () => {
     );
     expect(named.statusCode, named.body).toBe(409);
     expect(named.json()).toMatchObject({ error: { reason: 'plan-version-retired' } });
+    // The draft saved before cannot start the retired version's work.
+    const refused = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/roadmaps/${early}/control`,
+      headers: mutationHeaders(state),
+      payload: { action: 'start', expectedVersion: 1 },
+    });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json()).toMatchObject({ error: { reason: 'plan-version-retired' } });
     // The new plan's roadmap starts and its first entry gets a worktree.
     const started = await state.context.app.inject({
       method: 'POST',

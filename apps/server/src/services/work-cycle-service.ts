@@ -4502,8 +4502,12 @@ export class WorkCycleService {
     const git = this.git;
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
     if (!git || !tree?.integrationBranch || tree.status !== 'active') throw new NotFoundError();
-    if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
-    else finalizationForCycle(this.storage, cycle);
+    // Abandoning only discards the owned merge: no readiness gate holds it, so a wind-down can
+    // always end a resolution (R-B11 review F16).
+    if (input.action !== 'abandon') {
+      if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
+      else finalizationForCycle(this.storage, cycle);
+    }
     return this.resolutionMutation(cycle, async (checkOwned) => {
       const check = () => {
         checkOwned();

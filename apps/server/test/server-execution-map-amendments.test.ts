@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
-import { asConcurrencyDefinitionId, asPlanningTargetId } from '@craftingtable/domain';
+import {
+  asConcurrencyDefinitionId,
+  asPlanningTargetId,
+  asRoadmapId,
+  asRoadmapWindDownId,
+} from '@craftingtable/domain';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -519,6 +524,41 @@ it('rejects a pending amendment as moot when the roadmap stops, and refuses one 
   });
   expect(proposed.statusCode, proposed.body).toBe(200);
   expect(storedRoadmap(f.state).status).toBe('paused');
+  // While a stop settles it, no amendment is proposed or applied: either would pause it again.
+  const pending = f.state.context.storage.amendments.pending(ws, roadmapId)!;
+  const settling = new Date().toISOString();
+  f.state.context.storage.transaction((tx) =>
+    tx.windDowns.insert({
+      id: asRoadmapWindDownId(randomUUID()),
+      workspaceId: ws,
+      roadmapId: asRoadmapId(roadmapId),
+      version: 1,
+      status: 'settling',
+      retire: [],
+      abandonResolutions: [],
+      previewDigest: 'd'.repeat(64),
+      requestedAt: settling,
+      requestedByUserId: f.auth.user.id,
+      startedAt: settling,
+    }),
+  );
+  const amendments = f.state.context.services.mapAmendmentService;
+  await expect(
+    amendments.propose(f.auth, ws, roadmapId, {
+      expectedVersion: storedRoadmap(f.state).version,
+      candidate: selection,
+      summary: 'Amend a settling roadmap.',
+    }),
+  ).rejects.toMatchObject({ detail: { reason: 'roadmap-ended' } });
+  await expect(
+    amendments.decide(f.auth, ws, roadmapId, {
+      amendmentId: pending.id,
+      outcome: 'apply',
+      impactDigest: '0'.repeat(64),
+      rationale: 'Apply while settling.',
+      reuseIntegrationIds: [],
+    }),
+  ).rejects.toMatchObject({ detail: { reason: 'roadmap-ended' } });
   // Stop settles the roadmap: the pending amendment is rejected as moot, and its item resolves.
   expect((await roadmapControl(f.state, 'stop')).statusCode).toBe(200);
   const [amendment] = f.state.context.storage.amendments.list(ws, roadmapId);

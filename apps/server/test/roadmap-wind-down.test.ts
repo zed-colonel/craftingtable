@@ -5,11 +5,17 @@ import {
   asRoadmapWindDownId,
   type Roadmap,
   WIND_DOWN_STEPS,
-  type WorkCycle,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  awaitRoadmapMerge,
+  auditLog,
+  cycleOf,
+  itemAt,
+  settleFixture,
+  stop,
+  windDownAudit,
+} from './wind-down-test-support.js';
+import {
   cleanupExecutionFixtures,
   designDone,
   implementationDone,
@@ -17,7 +23,6 @@ import {
   parallelFixture,
   parallelScheduling,
   present,
-  type Ready,
   reviewText,
   roadmapControl,
   roadmapId,
@@ -35,74 +40,6 @@ import {
  */
 
 afterEach(cleanupExecutionFixtures);
-
-/**
- * A parallel roadmap with its first item awaiting merge and an independent third item whose
- * design run is held live until `release` is called.
- */
-async function settleFixture() {
-  const fixture = await parallelFixture({ independentThird: true });
-  const { state, backend, input } = fixture;
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  backend.replyForRequest = (request) =>
-    request.model === 'design-model'
-      ? itemAt(state, request.cwd) === fixture.third
-        ? { ...designDone, release: held }
-        : designDone
-      : request.model === 'review-model'
-        ? { resultText: reviewText([]) }
-        : implementationDone;
-  const thirdEntry = present(input.entries[2]).id;
-  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
-  await roadmapControl(state, 'start');
-  const first = await awaitRoadmapMerge(state, 0);
-  await waitFor(
-    () =>
-      storedRoadmap(state).attempts.some(
-        (a) =>
-          a.entryId === thirdEntry &&
-          state.context.storage.execution.runs.liveForWorktree(state.workspaceId, a.worktreeId)
-            .length > 0,
-      ),
-    'the third item running',
-  );
-  const third = present(storedRoadmap(state).attempts.find((a) => a.entryId === thirdEntry));
-  return { ...fixture, first, third, release: () => release() };
-}
-
-/** The work item whose worktree a launch runs in. */
-function itemAt(state: Ready, cwd: string) {
-  return state.context.storage.execution.worktrees
-    .listActive(state.workspaceId)
-    .find((tree) => tree.path === cwd)?.workItemId;
-}
-
-function cycleOf(state: Ready, id: string): WorkCycle {
-  return present(state.context.storage.execution.cycles.find(state.workspaceId, id as never));
-}
-
-async function stop(state: Ready, expectedVersion = storedRoadmap(state).version) {
-  return state.context.app.inject({
-    method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/control`,
-    headers: mutationHeaders(state),
-    payload: { action: 'stop', expectedVersion },
-  });
-}
-
-/** The workspace's audit log, oldest first. */
-function auditLog(state: Ready) {
-  return [
-    ...state.context.storage.audit.listWorkspace({ workspaceId: state.workspaceId, limit: 1000 }),
-  ].reverse();
-}
-
-function windDownAudit(state: Ready) {
-  return auditLog(state).filter((e) => e.action === 'roadmap.wind-down');
-}
 
 describe('settling a roadmap (R-B11)', () => {
   it('refuses a Stop before any write while one attempt holds a reserved merge and another runs', async () => {

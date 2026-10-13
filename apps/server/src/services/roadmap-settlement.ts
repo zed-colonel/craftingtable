@@ -73,9 +73,17 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 /** A step that waits for something that ends by itself, such as a cancelled session. */
 class StepWaiting extends Error {}
 
+/** What a step failed on, by type and code, never by its text (review F10). */
+const causeOf = (step: WindDownStep, error: unknown) =>
+  error instanceof ExecutionRequestError
+    ? `${step}:${error.code}:${error.detail?.reason ?? ''}`
+    : `${step}:${error instanceof Error ? error.name : typeof error}`;
+
 export class RoadmapSettlement {
   /** Roadmaps a command or pass is settling in this process. */
   private readonly busy = new Set<string>();
+  /** The cause each roadmap's incomplete step last recorded, so a pass repeats no audit. */
+  private readonly recorded = new Map<string, string>();
   private observer: SettlementObserver | undefined;
 
   constructor(
@@ -344,6 +352,24 @@ export class RoadmapSettlement {
           'wind-down-in-progress',
           'This roadmap is already settling. Wait for it to finish, then choose again.',
         );
+      // Someone else finishes another user's retirements only by choosing them again, which asks
+      // for the password as retiring does (decision 5; review F9).
+      const pending = record.retire.filter(
+        (r) => !this.storage.windDowns.retirement(ws, r.planVersionId),
+      );
+      if (
+        context.user.id !== record.requestedByUserId &&
+        pending.some(
+          (p) =>
+            !retire.some(
+              (c) => c.planVersionId === p.planVersionId && c.disposition === p.disposition,
+            ),
+        )
+      )
+        windDownRefused(
+          'wind-down-in-progress',
+          'Another user chose to retire plan versions in this wind-down. To finish it yourself, wind down again choosing the same versions.',
+        );
       await this.settle(record, context);
       return;
     }
@@ -572,6 +598,23 @@ export class RoadmapSettlement {
             `${cycle.workItemSourceId} is still ${cycle.status}; its cycle is stopped next.`,
           );
       }
+      // A version chosen at the request may have come into use since: checked again here, in the
+      // transaction that retires it (review F4). The step stays incomplete until the cause clears.
+      const unwritten = current.retire.filter((c) => !tx.windDowns.retirement(ws, c.planVersionId));
+      if (unwritten.length) {
+        const owned = new Set<string>([
+          ...startedAttempts(roadmap).map((a) => a.worktreeId),
+          ...(roadmap.decisionPreparations ?? []).map((p) => p.worktreeId),
+        ]);
+        const refused = this.versions(tx, roadmap, owned).find(
+          (v) => v.refusal && unwritten.some((c) => c.planVersionId === v.planVersionId),
+        );
+        if (refused?.refusal)
+          windDownRefused(
+            refused.refusal.code,
+            `Version ${refused.versionNumber} of ${refused.projectName} cannot be retired now. ${refused.refusal.message}`,
+          );
+      }
       const retiring = current.retire.length > 0;
       if (!ended(roadmap)) {
         const { attention: _cleared, ...unattended } = roadmap;
@@ -610,7 +653,8 @@ export class RoadmapSettlement {
           occurredAt: at,
           workspaceId: ws,
           actorKind: context ? 'user' : 'system',
-          actorUserId: current.requestedByUserId,
+          // Whoever finished it, with their session; the record keeps who chose it (review F9).
+          actorUserId: context?.user.id ?? current.requestedByUserId,
           ...(context ? { sessionId: context.session.id } : {}),
           action: 'plan.version-retired',
           targetType: 'plan-version',
@@ -628,7 +672,7 @@ export class RoadmapSettlement {
           id: asEventId(randomUUID()),
           occurredAt: at,
           workspaceId: ws,
-          actorUserId: current.requestedByUserId,
+          actorUserId: context?.user.id ?? current.requestedByUserId,
           projectId: version.projectId,
           kind: 'plan-version-retired',
           payload: {
@@ -655,11 +699,13 @@ export class RoadmapSettlement {
   /** Records the step that could not finish; the record's item asks the operator. */
   private incomplete(record: RoadmapWindDown, step: WindDownStep, error: unknown): void {
     const message = (error instanceof Error ? error.message : 'The step failed.').slice(0, 4000);
+    const cause = causeOf(step, error);
     try {
       this.storage.transaction((tx) => {
         const current = tx.windDowns.find(record.workspaceId, record.roadmapId);
         if (current?.status !== 'settling') return;
-        if (current.incomplete?.step === step && current.incomplete.message === message) return;
+        if (current.incomplete?.step === step && this.recorded.get(record.roadmapId) === cause)
+          return;
         const next: RoadmapWindDown = {
           ...current,
           version: current.version + 1,
@@ -667,6 +713,7 @@ export class RoadmapSettlement {
         };
         if (!tx.windDowns.replace(next, current.version)) return;
         this.audit(tx, next, 'incomplete', undefined, { step, message: next.incomplete!.message });
+        this.recorded.set(record.roadmapId, cause);
       });
     } catch {
       // A record that cannot be written now is retried on the next pass.

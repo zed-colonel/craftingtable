@@ -414,6 +414,80 @@ it('stop during resolution preparation preserves ownership and supports explicit
   expect((await controlCycle(state, currentCycle(state, cycle), 'stop')).status).toBe('stopped');
 });
 
+it('abandons an owned resolution whose item no longer passes its readiness gate (R-B11 review F16)', async () => {
+  const real = createGitOperations({ gitExecutable: 'git' });
+  let enter: (() => void) | undefined;
+  let release: (() => void) | undefined;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { state, worktree, root, cycle } = await resolutionFixture(
+    {
+      ...real,
+      prepareIntegrationResolution: async (input) => {
+        const result = await real.prepareIntegrationResolution(input);
+        enter?.();
+        await barrier;
+        return result;
+      },
+    },
+    { workers: true },
+  );
+  expect(
+    (await resolutionCommand(state, currentCycle(state, cycle), { action: 'start' })).statusCode,
+  ).toBe(200);
+  try {
+    await entered;
+    await controlCycle(state, currentCycle(state, cycle), 'stop');
+  } finally {
+    release?.();
+  }
+  await waitFor(
+    () => !state.context.services.executionService.branches.repositoryBusy(root),
+    'stopped preparation',
+  );
+  // The item gains a required predecessor that has not completed: starting anything is refused.
+  const gate = asWorkItemId('resolution-gate');
+  state.context.storage.transaction((tx) => {
+    tx.planning.workItems.insertMany([
+      {
+        id: gate,
+        workspaceId: state.workspaceId,
+        projectId: asProjectId('project-1'),
+        planVersionId: asPlanVersionId('version-1'),
+        sourceId: 'AQ-GATE',
+        ordinal: 5,
+        title: 'A predecessor added later',
+        risk: 'low',
+        primaryAreas: [],
+        exitGate: 'done',
+        sourceFields: {},
+      },
+    ]);
+    tx.planning.dependencies.insertMany([
+      {
+        id: asWorkItemDependencyId('resolution-gate-edge'),
+        workspaceId: state.workspaceId,
+        planVersionId: asPlanVersionId('version-1'),
+        predecessorWorkItemId: gate,
+        successorWorkItemId: state.workItemId,
+        kind: 'required',
+        ordinal: 0,
+      },
+    ]);
+  });
+  // Abandoning only discards the owned merge, so the gate does not hold it.
+  const abandoned = await resolutionCommand(state, currentCycle(state, cycle), {
+    action: 'abandon',
+  });
+  expect(abandoned.statusCode, abandoned.body).toBe(200);
+  expect(currentCycle(state, cycle).integrationResolution?.status).toBe('abandoned');
+  expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+});
+
 it('automatically integrates sequential entries while preserving a per-item manual checkpoint', async () => {
   const fixture = await roadmapFixture();
   const { state, backend, root } = fixture;

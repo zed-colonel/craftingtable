@@ -27,7 +27,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743, efd7369) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | [R-B10](#r-b10) | P1 | S-M | done (0e4eb04, adeb4cf, f32b407, 6ea1fae, 2bd6e40) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
-| [R-B11](#r-b11) | P4 | L | done 2026-10-13 on `remediation/p4` (706f1dd..70257ff, ADR-073; independently reviewed; not merged or deployed) | Wind down a roadmap: settle it, retire its plan versions, clean up its repositories |
+| [R-B11](#r-b11) | P4 | L | done 2026-10-13 on `remediation/p4` (706d166..70257ff, ADR-073; independently reviewed; not merged or deployed) | Wind down a roadmap: settle it, retire its plan versions, clean up its repositories |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |

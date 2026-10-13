@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import {
   asAuditEventId,
@@ -15,7 +16,7 @@ import {
   type WorkspaceId,
   type Worktree,
 } from '@craftingtable/domain';
-import type { GitFailure, GitOperations } from '@craftingtable/git';
+import type { GitFailure, GitOperations, GitResult, RepositoryIdentity } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
 import { RepositoryMutationBusyError } from './branch-service.js';
@@ -27,6 +28,7 @@ import {
 } from './errors.js';
 import type { ExecutionService } from './execution-service.js';
 import { worktreeVersion } from './retired-versions.js';
+import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 
@@ -112,6 +114,36 @@ function removal(
     ...(code ? { code } : {}),
     ...(note ? { note } : {}),
   };
+}
+
+/**
+ * Why removing a worktree's checkout could lose work (review F1): it cannot be inspected, its
+ * HEAD is off its branch (a rebase or a detached checkout holds commits no branch has), or it has
+ * changes. Only the last is something the operator may choose to discard.
+ */
+function removalRisk(
+  tree: Worktree,
+  inspected: GitResult<RepositoryIdentity>,
+): Pick<RemovalAction, 'code' | 'note'> | undefined {
+  if (!inspected.ok)
+    return {
+      code: 'git-failed',
+      note: `It could not be inspected: ${inspected.failure.message}`.slice(0, 4000),
+    };
+  if (inspected.value.branch !== tree.branchName)
+    return {
+      code: 'ref-moved',
+      note: `Its checkout is not on ${tree.branchName} (a rebase or a detached HEAD); commits only it holds would be lost.`,
+    };
+  if (!inspected.value.clean)
+    return { code: 'dirty', note: 'It has uncommitted or untracked changes.' };
+  return undefined;
+}
+
+/** What other roadmaps still name: their worktrees, and those worktrees' branches by checkout. */
+interface OthersNamed {
+  readonly trees: ReadonlySet<string>;
+  readonly branches: ReadonlySet<string>;
 }
 
 /** How a Git refusal leaves a branch action. */
@@ -221,6 +253,9 @@ export class RepositoryCleanupService {
       requestedByUserId: context.user.id,
     };
     this.storage.transaction((tx) => {
+      // Two commands that both previewed: the second finds the first's plan (review F15).
+      if (tx.windDowns.runningCleanup(ws, roadmapId))
+        windDownRefused('wind-down-in-progress', 'This cleanup is already running.');
       tx.windDowns.insertCleanup(cleanup);
       this.audit(tx, cleanup, context, 'repository-cleanup.updated', {
         phase: 'requested',
@@ -253,7 +288,10 @@ export class RepositoryCleanupService {
       };
     const git = this.git;
     if (!git) throw new ExecutionRequestError('unavailable', 'Git is unavailable.');
-    const { trees, inUse } = this.storage.readTransaction((tx) => this.selected(tx, roadmap));
+    const others = this.othersNamed(roadmap.id);
+    const { trees, inUse } = this.storage.readTransaction((tx) =>
+      this.selected(tx, roadmap, others),
+    );
     const byRepository = new Map<string, Worktree[]>();
     for (const tree of trees)
       byRepository.set(tree.repositoryId, [...(byRepository.get(tree.repositoryId) ?? []), tree]);
@@ -265,7 +303,7 @@ export class RepositoryCleanupService {
         repoTrees[0]!.repositoryId,
       );
       if (repository?.status !== 'active') continue;
-      actions.push(...(await this.repositoryPlan(git, repository, repoTrees, inUse)));
+      actions.push(...(await this.repositoryPlan(git, repository, repoTrees, inUse, others)));
     }
     return {
       roadmapId: roadmap.id,
@@ -281,6 +319,7 @@ export class RepositoryCleanupService {
     repository: SourceRepository,
     trees: readonly Worktree[],
     inUse: ReadonlySet<string>,
+    others: OthersNamed,
   ): Promise<CleanupAction[]> {
     const heads = await git.branchHeads(repository.rootPath);
     if (!heads.ok)
@@ -291,6 +330,8 @@ export class RepositoryCleanupService {
     const refs = heads.value.heads;
     const protectedBranches = this.protectedBranches(repository);
     const actions: CleanupAction[] = [];
+    // A parked tag this plan already gives another branch.
+    const tagged = new Set<string>();
     // A worktree that stays keeps its branch checked out.
     const staying = new Set<string>();
     for (const tree of [...trees].sort((a, b) => a.id.localeCompare(b.id))) {
@@ -307,10 +348,13 @@ export class RepositoryCleanupService {
         );
         continue;
       }
-      const inspected = await git.inspectRepository(tree.path);
-      if (inspected.ok && !inspected.value.clean) {
+      // A checkout already gone holds nothing: only its record is removed.
+      const risk = existsSync(tree.path)
+        ? removalRisk(tree, await git.inspectRepository(tree.path))
+        : undefined;
+      if (risk) {
         staying.add(tree.branchName);
-        actions.push(removal(tree, 'kept', 'dirty', 'It has uncommitted or untracked changes.'));
+        actions.push(removal(tree, 'kept', risk.code, risk.note));
       } else actions.push(removal(tree, 'planned'));
     }
     const named = new Map<string, Worktree>();
@@ -338,12 +382,9 @@ export class RepositoryCleanupService {
         branch: integration,
         pinnedSha: pinned ?? tip,
       };
-      if (protectedBranches.has(branch) || branch.startsWith(OPERATOR_BRANCH_PREFIX)) {
-        action(integrationKeeper, {
-          state: 'kept',
-          code: 'protected',
-          note: 'A default, integration or operator branch is never cleaned up.',
-        });
+      const guarded = this.branchGuard(repository, branch, others, protectedBranches);
+      if (guarded) {
+        action(integrationKeeper, { state: 'kept', ...guarded });
         continue;
       }
       let contained = false;
@@ -369,14 +410,15 @@ export class RepositoryCleanupService {
         ? integrationKeeper
         : { kind: 'parked-tag', tag: tag! };
       const existing = tag && !contained ? refs[`refs/tags/${tag}`] : undefined;
-      if (existing !== undefined && existing !== tip) {
+      if ((existing !== undefined && existing !== tip) || (tag && !contained && tagged.has(tag))) {
         action(keeper, {
           state: 'refused',
           code: 'tag-exists',
-          note: `Tag ${tag} already names another commit.`,
+          note: `Tag ${tag} already names another commit, or another branch of this plan.`,
         });
         continue;
       }
+      if (tag && !contained) tagged.add(tag);
       action(
         keeper,
         staying.has(branch)
@@ -391,7 +433,7 @@ export class RepositoryCleanupService {
    * The worktrees this roadmap's records name: its attempts', its preparations' and the retired
    * versions'. One another roadmap still owns, or with an active cycle or a live run, stays.
    */
-  private selected(tx: StorageRepositories, roadmap: Roadmap) {
+  private selected(tx: StorageRepositories, roadmap: Roadmap, others: OthersNamed) {
     const ws = roadmap.workspaceId;
     const record = tx.windDowns.find(ws, roadmap.id);
     const retired = new Set<string>(record?.retire.map((r) => r.planVersionId) ?? []);
@@ -402,20 +444,11 @@ export class RepositoryCleanupService {
     const trees = tx.execution.worktrees
       .listForWorkspace(ws)
       .filter((t) => named.has(t.id) || retired.has(worktreeVersion(tx, t) ?? ''));
-    const others = new Set<string>(
-      tx.roadmaps
-        .list(ws)
-        .filter((r) => r.id !== roadmap.id && !ended(r))
-        .flatMap((r) => [
-          ...startedAttempts(r).map((a) => a.worktreeId),
-          ...(r.decisionPreparations ?? []).map((p) => p.worktreeId),
-        ]),
-    );
     const inUse = new Set<string>(
       trees
         .filter(
           (t) =>
-            others.has(t.id) ||
+            others.trees.has(t.id) ||
             tx.execution.cycles.activeForWorktree(ws, t.id) !== undefined ||
             tx.execution.runs.liveForWorktree(ws, t.id).length > 0,
         )
@@ -424,26 +457,93 @@ export class RepositoryCleanupService {
     return { trees, inUse };
   }
 
-  /** Branches no cleanup touches: the default, every plan's integration and target branches. */
+  /**
+   * Branches no cleanup touches, in any workspace that registers this checkout: its default
+   * branches; every plan's integration and manual merge branches; every roadmap's integration
+   * branches; active worktrees' integration (or, before branch configuration, base) branches;
+   * finalizations' integration and target branches; and pending merges' targets (review F12).
+   */
   private protectedBranches(repository: SourceRepository): ReadonlySet<string> {
+    const execution = this.storage.execution;
     const sameRoot = (ws: WorkspaceId, id: string) =>
-      this.storage.execution.sourceRepositories.find(ws, id as SourceRepository['id'])?.rootPath ===
+      execution.sourceRepositories.find(ws, id as SourceRepository['id'])?.rootPath ===
       repository.rootPath;
+    const treeHere = (ws: WorkspaceId, id: string) => {
+      const tree = execution.worktrees.find(ws, id as Worktree['id']);
+      return tree !== undefined && sameRoot(ws, tree.repositoryId);
+    };
     return new Set<string>([
       repository.defaultBranch,
-      ...this.storage.execution.branchSettings
+      ...execution.sourceRepositories
+        .listAll()
+        .filter((r) => r.rootPath === repository.rootPath)
+        .map((r) => r.defaultBranch),
+      ...execution.branchSettings
         .list()
         .filter((s) => sameRoot(s.workspaceId, s.repositoryId))
         .flatMap((s) => [s.integrationBranch, ...(s.manualMergeBranches ?? [])]),
-      ...this.storage.execution.worktrees
+      ...this.storage.roadmaps
+        .list()
+        .flatMap((r) => [
+          ...r.definition.entries
+            .filter((e) => sameRoot(r.workspaceId, e.repositoryId))
+            .map((e) => e.integrationBranch),
+          ...(r.decisionPreparations ?? [])
+            .filter((p) => sameRoot(r.workspaceId, p.repositoryId))
+            .map((p) => p.integrationBranch),
+        ]),
+      ...execution.worktrees
         .listActive()
         .filter((t) => sameRoot(t.workspaceId, t.repositoryId))
-        .flatMap((t) => (t.integrationBranch ? [t.integrationBranch] : [])),
-      ...this.storage.execution.finalizations
+        .map((t) => t.integrationBranch ?? t.baseBranch),
+      ...execution.finalizations
         .list()
         .filter((f) => sameRoot(f.workspaceId, f.repositoryId))
-        .map((f) => f.integrationBranch),
+        .flatMap((f) => [f.integrationBranch, f.targetBranch]),
+      ...execution.merges
+        .pending()
+        .filter((m) => treeHere(m.workspaceId, m.worktreeId))
+        .map((m) => m.targetBranch),
     ]);
+  }
+
+  /** Other roadmaps that have not ended, in any workspace, keep what they name (review F2, F5). */
+  private othersNamed(roadmapId: string): OthersNamed {
+    const trees = new Set<string>();
+    const branches = new Set<string>();
+    for (const r of this.storage.roadmaps.list()) {
+      if (r.id === roadmapId || ended(r)) continue;
+      for (const id of [
+        ...startedAttempts(r).map((a) => a.worktreeId),
+        ...(r.decisionPreparations ?? []).map((p) => p.worktreeId),
+      ]) {
+        trees.add(id);
+        const tree = this.storage.execution.worktrees.find(r.workspaceId, id);
+        const root =
+          tree &&
+          this.storage.execution.sourceRepositories.find(r.workspaceId, tree.repositoryId)
+            ?.rootPath;
+        if (tree && root) branches.add(`${root}\0${tree.branchName}`);
+      }
+    }
+    return { trees, branches };
+  }
+
+  /** Why a branch stays whatever the plan said: protected, or another roadmap names it. */
+  private branchGuard(
+    repository: SourceRepository,
+    branch: string,
+    others: OthersNamed,
+    protectedBranches = this.protectedBranches(repository),
+  ): Pick<BranchAction, 'code' | 'note'> | undefined {
+    if (protectedBranches.has(branch) || branch.startsWith(OPERATOR_BRANCH_PREFIX))
+      return {
+        code: 'protected',
+        note: 'A default, integration, target or operator branch is never cleaned up.',
+      };
+    if (others.branches.has(`${repository.rootPath}\0${branch}`))
+      return { code: 'in-use', note: 'Another roadmap that has not ended names it.' };
+    return undefined;
   }
 
   /** Each action in order, from its persisted state; a finished one is never repeated. */
@@ -488,7 +588,31 @@ export class RepositoryCleanupService {
     );
     if (repository?.status !== 'active')
       return { state: 'refused', code: 'git-failed', note: 'The repository is unavailable.' };
+    const git = this.git;
+    if (!git) throw new ExecutionRequestError('unavailable', 'Git is unavailable.');
+    // What the plan said is checked again now: a resumed plan never moves what a fresh preview
+    // would keep (review F2).
+    const others = this.othersNamed(cleanup.roadmapId);
     if (action.kind === 'remove-worktree') {
+      const tree = this.storage.execution.worktrees.find(cleanup.workspaceId, action.worktreeId);
+      if (tree?.status === 'active') {
+        if (
+          others.trees.has(tree.id) ||
+          this.storage.execution.cycles.activeForWorktree(cleanup.workspaceId, tree.id) ||
+          this.storage.execution.runs.liveForWorktree(cleanup.workspaceId, tree.id).length
+        )
+          return {
+            state: 'kept',
+            code: 'in-use',
+            note: 'Another roadmap, an active cycle or a live run holds it.',
+          };
+        const risk = existsSync(tree.path)
+          ? removalRisk(tree, await git.inspectRepository(tree.path))
+          : undefined;
+        // Changes go only where the plan found them and the operator chose to discard them.
+        if (risk && !(risk.code === 'dirty' && cleanup.discardDirty && action.code === 'dirty'))
+          return { state: 'kept', ...risk };
+      }
       try {
         await this.whenFree(() =>
           this.execution.removeWorktree(
@@ -504,14 +628,20 @@ export class RepositoryCleanupService {
         );
         return { state: 'done' };
       } catch (error) {
-        if (!(error instanceof ExecutionRequestError)) throw error;
+        // A busy repository or worktree leaves the cleanup to resume (review F7).
+        if (
+          !(error instanceof ExecutionRequestError) ||
+          error instanceof RepositoryMutationBusyError ||
+          error instanceof WorktreeMutationBusyError
+        )
+          throw error;
         if (error.detail?.reason === 'worktree-has-changes')
           return { state: 'kept', code: 'dirty', note: error.message.slice(0, 4000) };
-        return { state: 'kept', code: 'in-use', note: error.message.slice(0, 4000) };
+        return { state: 'kept', code: 'git-failed', note: error.message.slice(0, 4000) };
       }
     }
-    const git = this.git;
-    if (!git) throw new ExecutionRequestError('unavailable', 'Git is unavailable.');
+    const guarded = this.branchGuard(repository, action.branchName, others);
+    if (guarded) return { state: 'kept', ...guarded };
     const result = await this.whenFree(() =>
       this.execution.branches.duringMerge(repository.rootPath, async () => {
         if (action.keeper.kind === 'parked-tag') {
@@ -534,10 +664,9 @@ export class RepositoryCleanupService {
       }),
     );
     if (result.ok) return { state: 'done' };
-    // A refusal by the repository's state is final for this action; anything else may pass.
-    if (['target-moved', 'target-checked-out', 'invalid-path'].includes(result.failure.kind))
-      return refusedBy(result.failure);
-    throw new ExecutionRequestError('conflict', result.failure.message);
+    // Git's refusal keeps the branch and ends this action; the cleanup goes on, and a later one
+    // plans the branch again (review F8). A busy repository threw above, to resume.
+    return refusedBy(result.failure);
   }
 
   /** Runs a repository mutation, waiting a little while another one holds the repository. */

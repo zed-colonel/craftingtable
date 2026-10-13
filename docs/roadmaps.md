@@ -75,7 +75,8 @@ The scheduling mode cannot change while attempts are in flight; lowering a limit
   removes the worktrees the roadmap made and deletes their branches: a branch whose work is in its
   integration branch is deleted; any other is first kept in a local tag
   `<repository>/parked/<branch>`. A worktree with uncommitted changes stays unless you choose to
-  discard them. Default and integration branches, existing tags and `craftingtable/checks` are
+  discard them; one whose checkout has left its branch (a rebase, a detached HEAD) always stays.
+  Default, integration and merge-target branches, existing tags and `craftingtable/checks` are
   never touched, and neither is anything another roadmap uses. Repeating the command resumes a
   cleanup that stopped. The tags are local; `git push --tags` would publish them.
 - A wind-down or cleanup step that cannot finish shows as **Wind-down incomplete** in Needs you.

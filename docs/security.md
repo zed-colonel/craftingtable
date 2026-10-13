@@ -382,9 +382,13 @@ evidence it accepts is a current review.
 - **Repository cleanup.** Only an owner's command, with step-up, on a wound-down roadmap removes
   its worktrees and branches, selected by the roadmap's records, never by a branch pattern. A
   branch is deleted only by compare-and-swap at the tip the plan recorded, while its integration
-  branch at a pinned commit, or a new parked tag created from nothing, keeps its commits; default,
-  integration and target branches, existing tags and `craftingtable/*` branches are never touched.
-  See [ADR-073](decisions/ADR-073-winding-down-a-roadmap.md).
+  branch at a pinned commit, or a new parked tag created from nothing, keeps its commits. Never
+  touched: every registration's default branch; every plan's integration and manual merge
+  branches; every roadmap's integration branches; active worktrees' integration branches;
+  finalizations' integration and target branches; pending merges' targets; `craftingtable/*`
+  branches; existing tags; and whatever another roadmap that has not ended names. A worktree whose
+  checkout left its branch, or cannot be inspected, stays. Each of these is checked again when an
+  interrupted cleanup resumes. See [ADR-073](decisions/ADR-073-winding-down-a-roadmap.md).
 - **Final promotion.** Only an authenticated operator command from a browser session, with
   step-up, carrying the exact reviewed candidate and destination commits, promotes a finalization;
   no stage, roadmap policy, question or exhausted budget relaxes it. Every finalization is staged

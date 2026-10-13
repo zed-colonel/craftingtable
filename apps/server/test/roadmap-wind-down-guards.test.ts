@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   asMergeOperationId,
+  ownsIntegrationResolution,
   asPlanVersionId,
   asProjectId,
   asRoadmapId,
@@ -11,7 +12,18 @@ import type { AuthContext } from '../src/services/auth-service.js';
 import { addMember, cleanupFixture, OTHER, startOther } from './cleanup-test-support.js';
 import {
   cleanupExecutionFixtures,
+  commitFile,
+  cycleProfiles,
+  designDone,
+  git,
+  implementationDone,
+  parallelFixture,
   present,
+  reviewText,
+  roadmapControl,
+  saveRoadmapRequest,
+  useIntegration,
+  waitFor,
   type Ready,
   mutationHeaders,
   roadmapId,
@@ -45,6 +57,64 @@ function crashAfterCycles(state: Ready) {
 }
 
 describe('what a wind-down refuses (R-B11 review F3)', () => {
+  it('abandons an owned integration resolution once its session ends, waiting without asking meanwhile', async () => {
+    const fixture = await parallelFixture();
+    const { state, backend, input } = fixture;
+    await useIntegration(fixture);
+    let releaseResolution: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseResolution = resolve;
+    });
+    backend.onLaunch = (request) => {
+      if (request.model === 'implement-model')
+        commitFile(request.cwd, 'README.md', `behavior ${request.cwd}\n`);
+    };
+    backend.replyForRequest = (request) =>
+      request.model === 'design-model'
+        ? designDone
+        : request.model === 'resolution-auto'
+          ? { resultText: 'Combined checks passed.\n\n## Resolution status\nready', release: held }
+          : request.model === 'review-model'
+            ? { resultText: reviewText([]) }
+            : implementationDone;
+    await saveRoadmapRequest(state, {
+      ...input,
+      automation: {
+        integrationMerge: 'automatic',
+        integrationConflicts: 'automatic',
+        resolutionProfile: { ...cycleProfiles.remediate, model: 'resolution-auto' },
+      },
+    });
+    await roadmapControl(state, 'start');
+    const ws = state.workspaceId;
+    const owning = () =>
+      state.context.storage.execution.cycles
+        .listForWorkspace(ws)
+        .find(
+          (c) =>
+            ownsIntegrationResolution(c) &&
+            state.context.storage.execution.runs.liveForWorktree(ws, c.worktreeId).length > 0,
+        );
+    await waitFor(() => owning() !== undefined, 'a resolution session live');
+    const owner = present(owning());
+    // Stop asks the session to end; while it ends, the settle waits and asks nobody.
+    expect((await stop(state)).statusCode).toBe(200);
+    expect(record(state).abandonResolutions).toEqual([owner.id]);
+    if (record(state).status === 'settling') expect(record(state).incomplete).toBeUndefined();
+    expect(
+      state.context.storage.attention.open(ws).filter((i) => i.code === 'wind-down-incomplete'),
+    ).toEqual([]);
+    releaseResolution();
+    await state.context.services.agentRunService.quiesce();
+    await stepDaemon(state.context.services);
+    expect(record(state).status).toBe('settled');
+    const stopped = present(state.context.storage.execution.cycles.find(ws, owner.id));
+    expect(stopped.status).toBe('stopped');
+    expect(stopped.integrationResolution?.status).toBe('abandoned');
+    const tree = present(state.context.storage.execution.worktrees.find(ws, owner.worktreeId));
+    expect(git(['status', '--porcelain'], tree.path)).toBe('');
+  });
+
   it('refuses a version another roadmap runs or an outside merge holds, and clears its active pointer once retired', async () => {
     const f = await cleanupFixture();
     const { state, release } = f;

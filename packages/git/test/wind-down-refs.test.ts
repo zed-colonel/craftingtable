@@ -115,6 +115,12 @@ describe('deleteContainedBranch (R-B11)', () => {
       const refused = await attempt({ keeper });
       expect(!refused.ok && refused.failure.kind).toBe('invalid-path');
     }
+    // So is a tip that is not a full commit id.
+    const short = await attempt({
+      expectedTipSha: tip.slice(0, 12),
+      keeper: { ref: 'refs/heads/main', pinnedSha: pinned },
+    });
+    expect(!short.ok && short.failure.kind).toBe('invalid-path');
   });
 
   it('deletes a branch against the parked tag that keeps it, and never a tag that moved', async () => {

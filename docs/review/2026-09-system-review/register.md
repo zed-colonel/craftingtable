@@ -27,7 +27,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743, efd7369) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | [R-B10](#r-b10) | P1 | S-M | done (0e4eb04, adeb4cf, f32b407, 6ea1fae, 2bd6e40) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
-| [R-B11](#r-b11) | P4 | L | in progress (building 2026-10-13, ADR-073) | Wind down a roadmap: settle it, retire its plan versions, clean up its repositories |
+| [R-B11](#r-b11) | P4 | L | done 2026-10-13 on `remediation/p4` (706f1dd..70257ff, ADR-073; independently reviewed; not merged or deployed) | Wind down a roadmap: settle it, retire its plan versions, clean up its repositories |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
@@ -696,7 +696,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B11
 
-**Wind down a roadmap: settle it, retire its plan versions, clean up its repositories** · Phase P4 (first) · Effort L · Status: in progress (designed 2026-10-13; operator decisions below; building on `remediation/p4`, ADR-073)
+**Wind down a roadmap: settle it, retire its plan versions, clean up its repositories** · Phase P4 (first) · Effort L · Status: done 2026-10-13 on `remediation/p4` (ADR-073; independently reviewed and re-checked; not merged or deployed; the operator runs the live wind-down after deploying)
 
 - **Added 2026-10-13** (operator). WorldInterface is now the priority over Exoskeleton (the operator's revenue work, Slopinator, will consume WI's embedded worker), and ActionQueue 0.2.0 is on crates.io (2026-10-13), so WI no longer needs the cross-project map's pinned AQ. The live cross-project roadmap (b81d5f92, 171 entries) is to be retired: WI restarts as ordinary single-application work from a fresh plan, EXO is parked, and the repositories are cleaned. CraftingTable cannot do this today.
 - **Today (verified at a8a4c11, live data 2026-10-12/13):**
@@ -787,6 +787,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Defence in depth: `windDownStop`'s refusal of a reserved merge (the preflight's `merge-in-flight`, caught, refuses first); finalizations' integration and target branches and roadmap entries' integration branches in the protected set (each equals a plan's settings or a default branch when written).
     - Display only: the stopped roadmap's reason text.
     - Untested, recorded: abandoning a resolution started after the preview (the hold keeps automation from starting one; only a manual resolution command racing the settle reaches it); ending a live investigation (R-C16's fixture not reused here); the ten-minute session-wait limit (needs a controlled clock).
+- **Gate and replays (2026-10-13, at 70257ff).** `pnpm check` alone, in the gate worktree with nothing else running (`CRAFTINGTABLE_TEST_DATA_ROOT` and `TMPDIR` as usual): green, 524 s; 386 test files passed (2 skipped), 3,226 tests passed (4 skipped); e2e 23 passed and the walkthrough rehearsal passed; the scope check passed. `pnpm replays`: 31 of 56 comparisons report 0 changed, 25 differ only as expected, 0 failed (exactly as at 4037bca: R-B11 changes no controller decision); 209 s. No UI changed after the after capture (`2026-10-13-rb11-after`, 03624f6, with d63684a's list labels, which are not visible), so no further capture.
+- **Deploy (operator).** Migration 0041 runs at the new release's start; the preflight lists it as pending. Rollback: a release before schema 41 cannot open the migrated database, so `--rollback` across it is refused, and the pre-migration copy is the only way back (losing every wind-down, retirement and cleanup since). No rollback restores refs a cleanup deleted; their commits stay in their integration branch or in a local `<repository>/parked/<branch>` tag. After deploying, the live roadmap b81d5f92 ("Cross-project roadmap", stopped) is wound down from its board: **Wind down…**, retire WorldInterface - WI-FABRIC-2 version 2 as superseded and Exoskeleton - EXO-V3 version 2 as parked, **Retire versions** (password); then **Clean up repositories…**, discard left unchecked, **Clean up repositories** (password). The rehearsal's figures are what to expect; anything the plan keeps is listed with its reason.
 - **Sequencing:** first in P4. R-B4 absorbs the `roadmap-wound-down` stop code; R-B5's kernel consumes the persisted hold; R-B6 reuses it as its per-roadmap drain; the R-C10 follow-up shares one "settling or ended, or retired" predicate. The open to-do measuring R-C3b loses its premise (the cross-project roadmap) and is restated in program.md.
 
 ## Workstream C — Operator-wait reduction (the vision: minimum operator input)

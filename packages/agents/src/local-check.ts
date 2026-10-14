@@ -1113,6 +1113,10 @@ export function confinedCheckArguments(
     'NoNewPrivileges=yes',
     '-p',
     'KillMode=control-group',
+    // A stop gives the unit's processes 5 s after SIGTERM, not systemd's 90, before SIGKILL: a
+    // build that ignores SIGTERM cannot hold a cancel (R-G19 review NIT 5).
+    '-p',
+    'TimeoutStopSec=5',
     '-p',
     `RuntimeMaxSec=${Math.max(1, Math.ceil(timeoutSeconds))}`,
     '-p',
@@ -1259,8 +1263,9 @@ function captureCheck(
     child.stdout.on('data', (d: Buffer) => {
       if (stdout.length < 32 * 1024 * 1024) stdout += d.toString();
     });
+    // The end of the error output, where a tool names the cause (R-G19 review LOW-1).
     child.stderr.on('data', (d: Buffer) => {
-      if (stderr.length < 64 * 1024) stderr += d.toString();
+      stderr = `${stderr}${d.toString()}`.slice(-64 * 1024);
     });
     child.once('error', (error) => {
       clearTimeout(timer);

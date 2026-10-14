@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { type CrateChecksumAuthority, CratesIoChecksums } from './services/crate-checksums.js';
@@ -338,6 +338,10 @@ export async function createServices(
     overrides.crateChecksums ?? new CratesIoChecksums(join(config.dataDir, 'crates-io')),
   );
   checkRequests.stopLeftoverUnits();
+  // uv's cache for Python checks' installs keeps every check's build of its project (each from a
+  // clone of its own), which `uv cache prune` does not reclaim: it starts empty, as no check runs
+  // yet (R-G19 review LOW-2).
+  rmSync(join(config.execution.uvHome, 'checks'), { recursive: true, force: true });
   // Every source's caches exist, so a sandbox can make them writable (the `pypi` source's uv
   // cache, R-G17; Cargo's are seeded at start too).
   for (const source of config.execution.outsideSources)

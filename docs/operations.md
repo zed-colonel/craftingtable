@@ -395,9 +395,9 @@ previous daemon left.
 - **Python checks** (R-G17, R-G19; [ADR-076](decisions/ADR-076-python-checks-install-with-uv-sync.md)).
   With the profile configured, an adopted check of a commit with a root `uv.lock` runs in a fresh
   venv that an install step builds first with `uv sync --locked`, from PyPI, with the network;
-  the check itself then runs offline. uv's cache for these installs is `<data>/uv/checks`: remove
-  it, or run `uv cache prune` with `UV_CACHE_DIR` set to it, while no check runs, to reclaim space.
-  A daemon from before R-G19 left `<data>/pypi-wheels/`, which nothing reads; delete it. For a
+  the check itself then runs offline. uv's cache for these installs is `<data>/uv/checks`; it grows
+  with every check (each builds its project anew), and the daemon empties it at each start. A
+  daemon from before R-G19 left `<data>/pypi-wheels/`, which nothing reads; delete it. For a
   repository to adopt such checks, its `.craftingtable/checks.json` must:
   - list, in every check's `definitionPaths`, each Python environment file the commit tracks at
     any depth (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, `pytest.ini`,
@@ -412,8 +412,11 @@ previous daemon left.
   install; console scripts are installed) or virtual (`tool.uv.package = false`). The lock may
   name PyPI packages, with wheels or only a source distribution (built in the install), the
   project itself, workspace members and paths inside the repository; a Git, URL or other-index
-  source, or a path outside the repository, is refused by name. The install takes uv's default
-  groups (`dev`, or the project's `tool.uv.default-groups`), not extras. Changing a listed file,
+  source, or a path outside the repository, is refused by name. The install ignores the project's
+  uv settings (`UV_NO_CONFIG`) but passes uv the resolver options the lock records
+  (`exclude-newer`, `resolution`, `prerelease`, `fork-strategy`), and takes uv's default groups
+  (`dev`, or the project's `tool.uv.default-groups`), not extras. Its `PATH` is `/usr/bin:/bin`,
+  so a source distribution whose build needs another tool (rustup's Cargo, Go) fails there. Changing a listed file,
   `uv.lock` included, stops the slice as `check-definition-changed` until the checks are adopted
   again. Agents should `uv sync` first; their brief says so.
 - **Local CI** (`ct-act`) needs `CRAFTINGTABLE_ACT_CONFIG`, a private JSON file naming act, Docker,

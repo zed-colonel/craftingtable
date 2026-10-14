@@ -362,7 +362,7 @@ function declaredChecksBrief(
   const pythonText =
     python === 'none'
       ? ''
-      : `Python: CraftingTable runs each of these checks in a fresh environment it installs from the adopted uv.lock with \`uv sync --locked\` (PyPI and the repository only; the project and its console scripts included), then runs the check itself offline: the tests cannot download anything. ${
+      : `Python: CraftingTable runs each of these checks in a fresh environment it installs from the adopted uv.lock with \`uv sync --locked\` (the lock may name only PyPI and the repository; the project and its console scripts are installed), then runs the check itself offline: the tests cannot download anything. ${
           python === 'sync'
             ? "Run `uv sync` first to get the same packages in your worktree (the uv on PATH is the operator's, and reaches PyPI only)."
             : 'Your commands reach no PyPI on this workstation (no `pypi` outside source), so packages the lock names cannot be installed in your worktree.'

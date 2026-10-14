@@ -83,6 +83,26 @@ export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
  */
 const GIT_COMMIT_WRITES = new Set(['objects', 'refs', 'reftable', 'logs', 'worktrees']);
 
+/**
+ * Names Git creates and removes on its own in the common directory: the primary checkout's state
+ * of an operation in progress (Git 2.55's names, as R-G16 review M-2 listed them from its source,
+ * less `ORIG_HEAD`, which stays), rerere's `MERGE_RR`, locks and `git gc`'s files. One present at
+ * launch may be gone before a later command, and Claude Code would then hold the deny with an
+ * empty placeholder, which Git reads as a lock or an operation in progress (R-G19 review
+ * MEDIUM-1), so none is denied.
+ */
+const TRANSIENT_GIT_STATE =
+  /^(?:rebase-merge|rebase-apply|sequencer|MERGE_HEAD|MERGE_MSG|MERGE_MODE|MERGE_RR|MERGE_AUTOSTASH|AUTO_MERGE|CHERRY_PICK_HEAD|REVERT_HEAD|REBASE_HEAD|SQUASH_MSG|CHECKOUT_AUTOSTASH_HEAD|BISECT_\w+|NOTES_MERGE_\w+|gc\.pid|gc\.log|.*\.lock)$/;
+
+/** Whether a path is a directory (a worktree's entry is one), not following a link. */
+function isDirectory(path: string): boolean {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** A directory's entries, or none when it cannot be listed. */
 function entriesOf(directory: string): string[] {
   try {
@@ -115,28 +135,31 @@ function presentAtLaunch(path: string): boolean {
  * - what says where the repository and its configuration are (R-G14 review MEDIUM-1): the
  *   common directory's `commondir`, `config.worktree` and `objects/info` (alternates), every
  *   other worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`.
- * Only what exists at launch is denied (R-G19, ADR-075): Claude Code holds a denied path that does
- * not exist with an empty placeholder while a command runs, and a `commondir` placeholder made Git
- * in the primary checkout and the daemon's clone refuse meanwhile. A name an agent creates later
- * is an accepted risk; the daemon's own Git still refuses a planted `commondir` or a non-empty
- * `config.worktree` (`packages/git`). Claude Code's own empty `config.worktree` files, made before
- * it mounts, are its own. `worktrees/` as a whole cannot be denied: the run's own entry, which a
- * commit writes, lies in it, and a deny would win.
+ * Only what exists at launch is denied (R-G19, ADR-075), and none of Git's transient names
+ * (`TRANSIENT_GIT_STATE`): Claude Code checks each denied path before every sandboxed command and
+ * holds one that does not exist with an empty placeholder, and a `commondir` placeholder made Git
+ * in the primary checkout and the daemon's clone refuse meanwhile. Another worktree's entry the
+ * daemon removes during the run is still held so, until the command ends: Git ignores a file
+ * there. A name an agent creates later is an accepted risk; the daemon's own Git still refuses a
+ * planted `commondir` or a non-empty `config.worktree` (`packages/git`). Claude Code's own empty
+ * `config.worktree` files, made before it mounts, are its own. `worktrees/` as a whole cannot be
+ * denied: the run's own entry, which a commit writes, lies in it, and a deny would win.
  */
 function gitDeniedWrites(git: NonNullable<AgentLaunchRequest['gitDirectories']>): string[] {
   const common = git.gitCommonDirectory;
   return [
     ...new Set([
       ...entriesOf(common)
-        .filter((entry) => !GIT_COMMIT_WRITES.has(entry))
+        .filter((entry) => !GIT_COMMIT_WRITES.has(entry) && !TRANSIENT_GIT_STATE.test(entry))
         .map((entry) => join(common, entry)),
       join(common, 'info'),
       join(common, 'commondir'),
       join(common, 'config.worktree'),
       join(common, 'objects', 'info'),
+      // A file there is no worktree's entry, but a placeholder a killed run left behind.
       ...entriesOf(join(common, 'worktrees'))
         .map((entry) => join(common, 'worktrees', entry))
-        .filter((entry) => entry !== git.gitDirectory),
+        .filter((entry) => entry !== git.gitDirectory && isDirectory(entry)),
       join(git.gitDirectory, 'commondir'),
       join(git.gitDirectory, 'gitdir'),
       join(git.gitDirectory, 'config.worktree'),

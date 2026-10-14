@@ -103,7 +103,10 @@ const SLOW_DEPENDENCY: Readonly<Record<string, string>> = {
   ].join('\n'),
 };
 
-/** Locks the project in `directory` with the operator's uv, offline, with no configuration. */
+/**
+ * Locks the project in `directory` with the operator's uv, offline, as an agent's `uv lock` does:
+ * the project's own uv settings apply (none of the operator's: the home is a scratch one).
+ */
 export function lockProject(directory: string): void {
   const cache = mkdtempSync(join(tmpdir(), 'ct-python-lock-cache-'));
   try {
@@ -114,7 +117,6 @@ export function lockProject(directory: string): void {
         PATH: '/usr/bin:/bin',
         HOME: cache,
         UV_CACHE_DIR: cache,
-        UV_NO_CONFIG: '1',
         UV_PYTHON_DOWNLOADS: 'never',
       },
     });
@@ -126,12 +128,17 @@ export function lockProject(directory: string): void {
 
 /**
  * The fixture project copied into `directory`: its dependency `ctfix-pkg` (VALUE = `value`)
- * built into `vendor/`, `extra` files added, and, with `slow`, a dependency whose build never
- * ends; then locked. Returns the wheel.
+ * built into `vendor/`, `extra` files added, with `slow` a dependency whose build never ends,
+ * and with `uvSettings` lines under `[tool.uv]`, which the lock records; then locked. Returns the
+ * wheel.
  */
 export function writePythonProject(
   directory: string,
-  options: { readonly value?: number; readonly slow?: boolean } = {},
+  options: {
+    readonly value?: number;
+    readonly slow?: boolean;
+    readonly uvSettings?: readonly string[];
+  } = {},
 ): FixtureWheel {
   cpSync(FIXTURE_PROJECT, directory, { recursive: true });
   const wheel = buildWheel(join(directory, 'vendor'), 'ctfix-pkg', '1.0', {
@@ -148,6 +155,13 @@ export function writePythonProject(
       readFileSync(pyproject, 'utf8')
         .replace('dependencies = ["ctfix-pkg"]', 'dependencies = ["ctfix-pkg", "ctslow"]')
         .replace('[tool.uv.sources]\n', '[tool.uv.sources]\nctslow = { path = "slow" }\n'),
+    );
+  }
+  if (options.uvSettings) {
+    const pyproject = join(directory, 'pyproject.toml');
+    writeFileSync(
+      pyproject,
+      `${readFileSync(pyproject, 'utf8')}\n[tool.uv]\n${options.uvSettings.join('\n')}\n`,
     );
   }
   lockProject(directory);

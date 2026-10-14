@@ -287,6 +287,7 @@ function pythonCheck(
     readonly argv?: readonly string[];
     readonly value?: number;
     readonly slow?: boolean;
+    readonly uvSettings?: readonly string[];
     readonly extraFiles?: Readonly<Record<string, string>>;
     /** Replaces the lock the fixture's uv wrote. */
     readonly lock?: string;
@@ -302,6 +303,7 @@ function pythonCheck(
   const wheel = writePythonProject(workspacePath, {
     ...(options.value === undefined ? {} : { value: options.value }),
     ...(options.slow ? { slow: true } : {}),
+    ...(options.uvSettings ? { uvSettings: options.uvSettings } : {}),
   });
   for (const [path, content] of Object.entries(options.extraFiles ?? {})) {
     mkdirSync(join(workspacePath, path, '..'), { recursive: true });
@@ -436,6 +438,26 @@ itPython(
 );
 
 itPython(
+  "installs a project whose uv settings the lock records, which the install's `UV_NO_CONFIG` would otherwise drop (R-G19 review HIGH-1)",
+  async () => {
+    const f = pythonCheck({
+      uvSettings: [
+        'exclude-newer = "2026-01-01T00:00:00Z"',
+        'resolution = "lowest-direct"',
+        'prerelease = "allow"',
+        'exclude-newer-package = { ctfix-pkg = "2026-02-01T00:00:00Z" }',
+      ],
+    });
+    expect(readFileSync(join(f.workspacePath, 'uv.lock'), 'utf8')).toContain(
+      'resolution-mode = "lowest-direct"',
+    );
+    const result = await f.execute();
+    expect(result.exitCode, result.output + result.diagnostic).toBe(0);
+    expect(result.output).toContain('FROM-SCRIPT CTFIX-APP 42');
+  },
+);
+
+itPython(
   "fails, with uv's reason, when a file of the tree does not match the lock's hash",
   async () => {
     const f = pythonCheck();
@@ -481,6 +503,12 @@ itPython(
       `sdist = { url = "https://mirror.example.org/mirrored-1.0.tar.gz", hash = "sha256:${'a'.repeat(64)}" }`,
       '',
       '[[package]]',
+      'name = "sdist-elsewhere"',
+      'version = "1.0"',
+      'source = { registry = "https://pypi.org/simple" }',
+      `sdist = { url = "https://example.org/sdist-elsewhere-1.0.tar.gz", hash = "sha256:${'b'.repeat(64)}" }`,
+      '',
+      '[[package]]',
       'name = "outside"',
       'version = "1.0"',
       'source = { directory = "../outside" }',
@@ -493,6 +521,8 @@ itPython(
     expect(result.output).not.toContain('uv sync --locked');
     expect(result.diagnostic).toContain('from-git comes from Git');
     expect(result.diagnostic).toContain('mirrored comes from an index other than PyPI');
+    // Read from the lock's sdist entry (mutation round 1, P13).
+    expect(result.diagnostic).toContain('sdist-elsewhere comes from an index other than PyPI');
     expect(result.diagnostic).toContain('outside lies outside the repository');
   },
 );
@@ -573,12 +603,16 @@ itPython('ends within seconds when cancelled during the install', async () => {
   const f = pythonCheck({ slow: true });
   const controller = new AbortController();
   let cancelled = 0;
+  let installing = false;
   setTimeout(() => {
+    // uv made the venv before it started building the slow dependency (review NIT 1).
+    installing = existsSync(join(f.privateDirectory, 'python', 'venv', 'pyvenv.cfg'));
     cancelled = Date.now();
     controller.abort();
-  }, 1_500);
+  }, 2_500);
   const result = await f.execute({ signal: controller.signal });
   expect(result.exitCode).toBe(1);
+  expect(installing).toBe(true);
   expect(cancelled).toBeGreaterThan(0);
   expect(Date.now() - cancelled).toBeLessThan(5_000);
   expect(result.output).not.toContain('CTFIX');
@@ -588,8 +622,13 @@ itPython('ends within seconds when cancelled during the install', async () => {
 itPython('ends at the check time limit during the install', async () => {
   const f = pythonCheck({ slow: true, checkTimeoutMs: 3_000 });
   const started = Date.now();
+  let installing = false;
+  setTimeout(() => {
+    installing = existsSync(join(f.privateDirectory, 'python', 'venv', 'pyvenv.cfg'));
+  }, 2_500);
   const result = await f.execute();
   expect(result.exitCode).toBe(1);
+  expect(installing).toBe(true);
   expect(Date.now() - started).toBeLessThan(10_000);
   expect(result.diagnostic).toContain('time limit');
   expect(result.output).not.toContain('CTFIX');
@@ -800,6 +839,8 @@ describe("a Python check's helper steps (R-G17 increment 3 review L1–L4; R-G19
       }),
     );
     expect(set).toContain('PrivateNetwork=no');
+    // A stop ends a build that ignores SIGTERM within seconds, not systemd's 90 (review NIT 5).
+    expect(set).toContain('TimeoutStopSec=5');
     expect(set.filter((p) => p.startsWith('ReadWritePaths='))).toEqual([
       'ReadWritePaths=-/data/private/python',
       'ReadWritePaths=-/data/private/clone',
@@ -936,6 +977,67 @@ describe("a Python check's helper steps (R-G17 increment 3 review L1–L4; R-G19
       expect(Date.now() - started).toBeLessThan(12_000);
       expect(unitState()).not.toBe('active');
     },
+  );
+
+  it("keeps the end of a step's error output, where uv names the cause, past 64 KiB (R-G19 review LOW-1)", async () => {
+    const run = pythonStepRunner({
+      ...confinement,
+      confinement: 'none',
+      signal: new AbortController().signal,
+    });
+    const result = await run(
+      '/usr/bin/bash',
+      [
+        '-c',
+        'for i in $(seq 1 20000); do echo "noise line $i" >&2; done; echo FINAL-CAUSE >&2; exit 1',
+      ],
+      { cwd: '/', env: { PATH: '/usr/bin:/bin' }, timeoutMs: 60_000, install: false },
+    );
+    expect(result.code).toBe(1);
+    expect(result.stderr.trimEnd().endsWith('FINAL-CAUSE')).toBe(true);
+    expect(result.stderr.length).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it.skipIf(!['running', 'degraded'].includes(userManager ?? ''))(
+    'stops a confined step whose processes ignore SIGTERM within seconds of a cancel (R-G19 review NIT 5)',
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), 'ct-python-step-'));
+      roots.push(root);
+      const unitName = `craftingtable-check-test-${process.pid}-${Date.now()}`;
+      const controller = new AbortController();
+      const run = pythonStepRunner({
+        ...confinement,
+        unitName,
+        directory: root,
+        tree: root,
+        cache: root,
+        hiddenRoots: [],
+        inaccessible: [],
+        home: homedir(),
+        confinement: 'systemd',
+        signal: controller.signal,
+      });
+      let cancelled = 0;
+      setTimeout(() => {
+        cancelled = Date.now();
+        controller.abort();
+      }, 1_000);
+      // A build that ignores SIGTERM: only SIGKILL ends it.
+      const result = await run('/usr/bin/bash', ['-c', "trap '' TERM; while :; do sleep 1; done"], {
+        cwd: root,
+        env: { PATH: '/usr/bin:/bin' },
+        timeoutMs: 120_000,
+        install: false,
+      });
+      expect(result.code).toBeNull();
+      expect(Date.now() - cancelled).toBeLessThan(15_000);
+      expect(
+        spawnSync('systemctl', ['--user', 'is-active', `${unitName}-python-1`], {
+          encoding: 'utf8',
+        }).stdout.trim(),
+      ).not.toBe('active');
+    },
+    60_000,
   );
 
   itPython(

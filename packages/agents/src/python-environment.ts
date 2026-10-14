@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type LockedPackage, type LockRefusal, lockRefusals } from './python-lock.js';
+import {
+  type LockedPackage,
+  type LockOptions,
+  type LockRefusal,
+  lockOptionArguments,
+  lockRefusals,
+} from './python-lock.js';
 import type { PythonToolchain } from './toolchains.js';
 
 /**
@@ -71,7 +77,8 @@ const REFUSALS: Readonly<Record<LockRefusal, string>> = {
 
 /**
  * Reads the lock with the profile's interpreter and its standard `tomllib`: each package's name,
- * version, source, wheels (URL or file name, and hash) and source distribution, as JSON.
+ * version, source, wheels (URL or file name, and hash) and source distribution, and the resolver
+ * options the lock was made with, as JSON.
  */
 const LOCK_READER = [
   'import json, sys, tomllib',
@@ -86,34 +93,43 @@ const LOCK_READER = [
   '                "source": {k: v for k, v in source.items() if isinstance(v, str)},',
   '                "wheels": [file(w) for w in p.get("wheels", []) if isinstance(w, dict)],',
   '                "sdist": file(sdist) if isinstance(sdist, dict) else None})',
-  'print(json.dumps(out))',
+  'options = lock.get("options")',
+  'print(json.dumps({"packages": out, "options": options if isinstance(options, dict) else {}}, default=str))',
 ].join('\n');
 
 /** Variables a check of a Python project may never inherit: they choose code or its sources. */
 const INHERITED = /^(PYTHON|UV_|PIP_|VIRTUAL_ENV$|CONDA|PYENV|PDM_|POETRY_)/;
 
-function lockedPackages(stdout: string): LockedPackage[] {
+function readLock(stdout: string): {
+  readonly packages: LockedPackage[];
+  readonly options: LockOptions;
+} {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
   } catch {
     throw new Error('The uv.lock could not be read as a uv lock.');
   }
-  if (!Array.isArray(parsed)) throw new Error('The uv.lock could not be read as a uv lock.');
+  const read = parsed as { packages?: unknown; options?: unknown } | null;
+  if (!read || !Array.isArray(read.packages) || typeof read.options !== 'object' || !read.options)
+    throw new Error('The uv.lock could not be read as a uv lock.');
   const file = (entry: Record<string, unknown>) => ({
     ...(typeof entry.url === 'string' ? { url: entry.url } : {}),
     ...(typeof entry.filename === 'string' ? { filename: entry.filename } : {}),
     ...(typeof entry.hash === 'string' ? { hash: entry.hash } : {}),
   });
-  return parsed.map((entry: Record<string, unknown>) => ({
-    name: String(entry.name),
-    ...(typeof entry.version === 'string' ? { version: entry.version } : {}),
-    source: (entry.source ?? {}) as Record<string, string>,
-    wheels: Array.isArray(entry.wheels) ? entry.wheels.map(file) : [],
-    ...(entry.sdist && typeof entry.sdist === 'object'
-      ? { sdist: file(entry.sdist as Record<string, unknown>) }
-      : {}),
-  }));
+  return {
+    packages: read.packages.map((entry: Record<string, unknown>) => ({
+      name: String(entry.name),
+      ...(typeof entry.version === 'string' ? { version: entry.version } : {}),
+      source: (entry.source ?? {}) as Record<string, string>,
+      wheels: Array.isArray(entry.wheels) ? entry.wheels.map(file) : [],
+      ...(entry.sdist && typeof entry.sdist === 'object'
+        ? { sdist: file(entry.sdist as Record<string, unknown>) }
+        : {}),
+    })),
+    options: read.options as LockOptions,
+  };
 }
 
 /** The tail of a step's output, for the check's log or diagnostic. */
@@ -166,22 +182,26 @@ export async function preparePythonEnvironment(
     directory,
     { env: base, timeoutMs: Math.min(10 * 60_000, input.remainingMs()), install: false },
   );
-  const refused = lockRefusals(lockedPackages(read.stdout));
+  const lock = readLock(read.stdout);
+  const refused = lockRefusals(lock.packages);
   if (refused.length)
     throw new Error(
       `The uv.lock names what a Python check cannot install: ${refused
         .map(({ name, reason }) => `${name} ${REFUSALS[reason]}`)
         .join('; ')}. Python checks install from PyPI and the repository only.`,
     );
+  // The resolver options the lock was made with, which `UV_NO_CONFIG` would otherwise drop.
+  const options = lockOptionArguments(lock.options);
+  if ('problem' in options) throw new Error(`${options.problem}.`);
 
   // The install: uv checks every file against the lock's hashes and builds what needs building
   // (the project, source distributions), with the profile's interpreter, no configuration of the
-  // tree's or the operator's, and copies, not links, into the venv. It may take what is left of
-  // the check's time limit.
+  // tree's or the operator's but the resolver options the lock records, and copies, not links,
+  // into the venv. It may take what is left of the check's time limit.
   const installed = await step(
     'uv sync --locked',
     profile.uv.path,
-    ['sync', '--locked', '--python', profile.interpreter],
+    ['sync', '--locked', '--python', profile.interpreter, ...options.arguments],
     input.tree,
     {
       env: {

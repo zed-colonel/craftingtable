@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -33,6 +33,34 @@ describe('service composition', () => {
       expect(services.authService).toBeDefined();
       expect(services.planningQueryService).toBeDefined();
       expect(services.workCycleService).toBeDefined();
+      await services.daemonDrain.drain(0);
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("clears uv's cache for Python checks at start, which grows with every check's own build (R-G19 review LOW-2)", async () => {
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
+    directories.push(directory);
+    const checks = join(directory, 'uv', 'checks');
+    mkdirSync(join(checks, 'builds-v0', 'leftover'), { recursive: true });
+    writeFileSync(join(checks, 'builds-v0', 'leftover', 'wheel'), 'x');
+    const agents = join(directory, 'uv', 'cache');
+    mkdirSync(agents, { recursive: true });
+    writeFileSync(join(agents, 'kept'), 'x');
+    const storage = openDaemonStorage(join(directory, 'state.sqlite'));
+    try {
+      const services = await createServices(
+        storage,
+        configFromEnv({
+          CRAFTINGTABLE_DATA_DIR: directory,
+          CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+        }),
+        { passwordHasher: new FastTestPasswordHasher(), gitOperations: null },
+      );
+      expect(existsSync(join(checks, 'builds-v0'))).toBe(false);
+      // The agents' cache is theirs, and kept.
+      expect(existsSync(join(agents, 'kept'))).toBe(true);
       await services.daemonDrain.drain(0);
     } finally {
       storage.close();

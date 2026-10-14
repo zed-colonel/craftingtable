@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { type LockedPackage, lockRefusals } from '../src/python-lock.js';
+import { type LockedPackage, lockOptionArguments, lockRefusals } from '../src/python-lock.js';
 
 /**
  * R-G19 (ADR-076): what a Python check's install step may take from the adopted lock. PyPI's
@@ -95,4 +95,62 @@ it("refuses a PyPI file the lock gives no SHA-256 for, so uv checks every one ag
     { name: 'md5-wheel', reason: 'unhashed-file' },
     { name: 'unhashed-sdist', reason: 'unhashed-file' },
   ]);
+});
+
+it('refuses a SHA-256 that is not 64 hexadecimal digits (mutation round 1, L9)', () => {
+  expect(
+    lockRefusals([
+      pypi('short-hash', {
+        wheels: [{ url: `${FILES}/x-1.0-py3-none-any.whl`, hash: 'sha256:abc' }],
+      }),
+      pypi('upper-hash', {
+        sdist: { url: `${FILES}/x-1.0.tar.gz`, hash: `sha256:${'A'.repeat(64)}` },
+      }),
+    ]),
+  ).toEqual([
+    { name: 'short-hash', reason: 'unhashed-file' },
+    { name: 'upper-hash', reason: 'unhashed-file' },
+  ]);
+});
+
+it("passes the lock's resolver options to uv, so `uv sync --locked` agrees with the lock without the project's configuration (R-G19 review HIGH-1)", () => {
+  expect(lockOptionArguments({})).toEqual({ arguments: [] });
+  expect(
+    lockOptionArguments({
+      'resolution-mode': 'lowest-direct',
+      'prerelease-mode': 'allow',
+      'fork-strategy': 'fewest',
+      'exclude-newer': '2026-01-01T00:00:00Z',
+      'exclude-newer-package': { 'ctfix-pkg': '2026-02-01T00:00:00Z', other_pkg: '2026-03-01' },
+    }),
+  ).toEqual({
+    arguments: [
+      '--resolution=lowest-direct',
+      '--prerelease=allow',
+      '--fork-strategy=fewest',
+      '--exclude-newer=2026-01-01T00:00:00Z',
+      '--exclude-newer-package=ctfix-pkg=2026-02-01T00:00:00Z',
+      '--exclude-newer-package=other_pkg=2026-03-01',
+    ],
+  });
+  // A relative exclude-newer: uv records its span, and a placeholder date it ignores.
+  expect(
+    lockOptionArguments({ 'exclude-newer': '0001-01-01T00:00:00Z', 'exclude-newer-span': 'P1W' }),
+  ).toEqual({ arguments: ['--exclude-newer=P1W'] });
+});
+
+it('refuses, by name, a resolver option it does not know or a value it cannot pass (R-G19 review HIGH-1)', () => {
+  for (const [options, named] of [
+    [{ 'new-option': 'x' }, 'new-option'],
+    [{ 'resolution-mode': 'newest' }, 'resolution-mode'],
+    [{ 'prerelease-mode': '--index-url=https://example.org' }, 'prerelease-mode'],
+    [{ 'fork-strategy': 3 }, 'fork-strategy'],
+    [{ 'exclude-newer': 'yesterday' }, 'exclude-newer'],
+    [{ 'exclude-newer-span': 'P1W; rm' }, 'exclude-newer-span'],
+    [{ 'exclude-newer-package': { 'bad name': '2026-01-01' } }, 'exclude-newer-package'],
+    [{ 'exclude-newer-package': 'x' }, 'exclude-newer-package'],
+  ] as const) {
+    const result = lockOptionArguments(options as Record<string, unknown>);
+    expect('problem' in result && result.problem, JSON.stringify(options)).toContain(named);
+  }
 });

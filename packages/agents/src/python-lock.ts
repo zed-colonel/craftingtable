@@ -70,3 +70,82 @@ export function lockRefusals(
     return reason ? [{ name: locked.name, reason }] : [];
   });
 }
+
+/** The resolver options uv records in a lock's `[options]`, as `tomllib` reads them. */
+export type LockOptions = Readonly<Record<string, unknown>>;
+
+const RESOLUTIONS = new Set(['highest', 'lowest', 'lowest-direct']);
+const PRERELEASES = new Set([
+  'disallow',
+  'allow',
+  'if-necessary',
+  'explicit',
+  'if-necessary-or-explicit',
+]);
+const FORK_STRATEGIES = new Set(['fewest', 'requires-python']);
+/** A date, or a date and time with an optional offset, as uv writes them (RFC 3339). */
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+/** An ISO 8601 duration, as uv records a relative `exclude-newer` (`P1W`, `P3DT12H`). */
+const SPAN = /^P(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+(?:\.\d+)?S)?)?$/;
+const PACKAGE_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
+/**
+ * The flags that give `uv sync --locked` the resolver options the lock was made with (R-G19
+ * review HIGH-1). The install runs with `UV_NO_CONFIG`, so a project's `[tool.uv]` or `uv.toml`
+ * settings such as `exclude-newer` would not apply, and uv would find the lock out of date; the
+ * lock itself records them, adopted with it. A key or value this cannot pass is refused by name,
+ * rather than left to uv's "run `uv lock`", which the agent could not act on.
+ */
+export function lockOptionArguments(
+  options: LockOptions,
+): { readonly arguments: readonly string[] } | { readonly problem: string } {
+  const args: string[] = [];
+  const refuse = (key: string) => ({
+    problem: `uv.lock records the resolver option ${key} with a value Python checks cannot pass to uv`,
+  });
+  const choice = (key: string, flag: string, allowed: ReadonlySet<string>) => {
+    const value = options[key];
+    if (value === undefined) return true;
+    if (typeof value !== 'string' || !allowed.has(value)) return false;
+    args.push(`--${flag}=${value}`);
+    return true;
+  };
+  for (const key of Object.keys(options))
+    if (
+      ![
+        'resolution-mode',
+        'prerelease-mode',
+        'fork-strategy',
+        'exclude-newer',
+        'exclude-newer-span',
+        'exclude-newer-package',
+      ].includes(key)
+    )
+      return {
+        problem: `uv.lock records the resolver option ${key}, which Python checks do not know how to pass to uv`,
+      };
+  if (!choice('resolution-mode', 'resolution', RESOLUTIONS)) return refuse('resolution-mode');
+  if (!choice('prerelease-mode', 'prerelease', PRERELEASES)) return refuse('prerelease-mode');
+  if (!choice('fork-strategy', 'fork-strategy', FORK_STRATEGIES)) return refuse('fork-strategy');
+  // A relative `exclude-newer` is recorded as its span, beside a placeholder date uv ignores.
+  const span = options['exclude-newer-span'];
+  const newer = options['exclude-newer'];
+  if (span !== undefined) {
+    if (typeof span !== 'string' || !SPAN.test(span)) return refuse('exclude-newer-span');
+    args.push(`--exclude-newer=${span}`);
+  } else if (newer !== undefined) {
+    if (typeof newer !== 'string' || !TIMESTAMP.test(newer)) return refuse('exclude-newer');
+    args.push(`--exclude-newer=${newer}`);
+  }
+  const packages = options['exclude-newer-package'];
+  if (packages !== undefined) {
+    if (typeof packages !== 'object' || packages === null || Array.isArray(packages))
+      return refuse('exclude-newer-package');
+    for (const [name, value] of Object.entries(packages)) {
+      if (!PACKAGE_NAME.test(name) || typeof value !== 'string' || !TIMESTAMP.test(value))
+        return refuse('exclude-newer-package');
+      args.push(`--exclude-newer-package=${name}=${value}`);
+    }
+  }
+  return { arguments: args };
+}

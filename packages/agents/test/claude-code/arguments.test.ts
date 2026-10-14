@@ -350,7 +350,7 @@ it('keeps every entry of the common Git directory that exists at launch read-onl
       mkdirSync(join(common, directory), { recursive: true });
     // The primary checkout's own files: Claude Code binds the whole common directory itself, so
     // today a sandboxed command could switch the operator's branch or rewrite packed refs.
-    for (const file of ['HEAD', 'config', 'packed-refs', 'index', 'description', 'MERGE_RR'])
+    for (const file of ['HEAD', 'config', 'packed-refs', 'index', 'description', 'FETCH_HEAD'])
       writeFileSync(join(common, file), '');
     for (const file of ['commondir', 'gitdir', 'HEAD', 'index']) writeFileSync(join(own, file), '');
     const args = claudeCodeArguments({
@@ -371,7 +371,7 @@ it('keeps every entry of the common Git directory that exists at launch read-onl
       'packed-refs',
       'index',
       'description',
-      'MERGE_RR',
+      'FETCH_HEAD',
       'rr-cache',
       'branches',
       'hooks',
@@ -458,6 +458,79 @@ it('denies no Git name missing at launch, so Claude Code makes no placeholder fo
     rmSync(join(own, 'gitdir'));
     expect(denied()).not.toContain(join(own, 'commondir'));
     expect(denied()).not.toContain(join(own, 'gitdir'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("denies none of Git's transient names even when present at launch, since Claude Code would hold one with a placeholder once Git removes it (R-G19 review MEDIUM-1)", () => {
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-claude-git-'));
+  try {
+    const common = join(root, 'repo', '.git');
+    const own = join(common, 'worktrees', 'wt-1');
+    for (const directory of [
+      'objects/pack',
+      'refs/heads',
+      'logs',
+      'worktrees/wt-1',
+      'worktrees/other',
+      'rebase-merge',
+      'rebase-apply',
+      'sequencer',
+      'NOTES_MERGE_WORKTREE',
+    ])
+      mkdirSync(join(common, directory), { recursive: true });
+    const transient = [
+      'MERGE_HEAD',
+      'MERGE_MSG',
+      'MERGE_MODE',
+      'MERGE_RR',
+      'MERGE_AUTOSTASH',
+      'AUTO_MERGE',
+      'CHERRY_PICK_HEAD',
+      'REVERT_HEAD',
+      'REBASE_HEAD',
+      'SQUASH_MSG',
+      'CHECKOUT_AUTOSTASH_HEAD',
+      'BISECT_LOG',
+      'BISECT_START',
+      'BISECT_TERMS',
+      'NOTES_MERGE_PARTIAL',
+      'NOTES_MERGE_REF',
+      'index.lock',
+      'HEAD.lock',
+      'packed-refs.lock',
+      'config.lock',
+      'gc.pid',
+      'gc.log',
+    ];
+    const stable = ['HEAD', 'index', 'packed-refs', 'ORIG_HEAD', 'FETCH_HEAD', 'COMMIT_EDITMSG'];
+    for (const file of [...transient, ...stable]) writeFileSync(join(common, file), '');
+    for (const file of ['commondir', 'gitdir']) writeFileSync(join(own, file), '');
+    // A file among the worktree entries is no worktree: a placeholder a killed run left behind.
+    writeFileSync(join(common, 'worktrees', 'left-behind'), '');
+    const args = claudeCodeArguments({
+      cwd: '/work/x',
+      prompt: 'Go',
+      permissionMode: 'auto',
+      gitDirectories: { gitDirectory: own, gitCommonDirectory: common, worktreeConfig: false },
+    });
+    const denied = (
+      JSON.parse(args[args.indexOf('--settings') + 1]!) as {
+        sandbox: { filesystem: { denyWrite: string[] } };
+      }
+    ).sandbox.filesystem.denyWrite;
+    for (const name of [
+      ...transient,
+      'rebase-merge',
+      'rebase-apply',
+      'sequencer',
+      'NOTES_MERGE_WORKTREE',
+    ])
+      expect(denied, name).not.toContain(join(common, name));
+    for (const name of stable) expect(denied, name).toContain(join(common, name));
+    expect(denied).toContain(join(common, 'worktrees', 'other'));
+    expect(denied).not.toContain(join(common, 'worktrees', 'left-behind'));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

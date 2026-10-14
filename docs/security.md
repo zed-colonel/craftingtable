@@ -34,7 +34,7 @@ typed commands, never commands to run.
 | Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only for agents, checks and daemon Git (not the native probes); process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
 | Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; one denied-reads list for commands, Claude's file tools and read-only runs; outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
 | The daemon's own Git | Git directories named explicitly; no hooks, fsmonitor, system or global configuration; untrusted Git directories refused | A repository's own configuration still applies; the ref watch detects moves, it does not prevent them | `packages/git/test/git-directory-pinning.test.ts`, `packages/git/test/adapter-robustness.test.ts`, `apps/server/test/services/ref-watch.test.ts` |
-| Checks and builds | Checks run by the daemon in confined, capped units, on private clones, with offline Cargo homes and a root-owned Python toolchain; Python installs from PyPI and the tree only; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts; a Python install's network | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `packages/agents/test/toolchains.test.ts`, `packages/agents/test/python-checks.test.ts`, `packages/agents/test/python-lock.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts`, `apps/server/test/server-execution-toolchains.test.ts` |
+| Checks and builds | Checks run by the daemon in confined, capped units, on private clones, with offline Cargo homes and a root-owned Python toolchain; a Python install's locked packages from PyPI and the tree only; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts; a Python install's network | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `packages/agents/test/toolchains.test.ts`, `packages/agents/test/python-checks.test.ts`, `packages/agents/test/python-lock.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts`, `apps/server/test/server-execution-toolchains.test.ts` |
 | Merge and promotion | The review gate at exact commits; protected destinations; final promotion only by an operator's session, with step-up | A review's verdict is the reviewer's assertion | `apps/server/test/server-execution-merge-gate.test.ts`, `apps/server/test/server-execution-integration.test.ts`, `apps/server/test/server-execution-finalization.test.ts` |
 | Delegated work | Authority from a recorded, rechecked owner or editor; pause and stop are commands | — | `apps/server/test/server-execution-roadmaps.test.ts`, `apps/server/test/server-execution-decision-preparation.test.ts` |
 | Untrusted input | Bounded parsers; ZIPs read in memory, never extracted; text rendered as text; reports validated | A valid report is still an assertion | `packages/planning/test/archive.test.ts`, `apps/server/test/server-package-imports.test.ts`, `apps/server/test/services/review-report.test.ts` |
@@ -219,9 +219,14 @@ that exists at launch but `objects/`, `refs/`, `logs/`, `reftable/` and `worktre
 checkout's `HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the
 rest, a `commondir` or `config.worktree` left there included), the common directory's
 `objects/info`, every other worktree's entry, and the run's own `commondir`, `gitdir` and
-`config.worktree`, each when it exists at launch. No name missing at launch is denied (R-G19):
-Claude Code would hold it with an empty placeholder while a command runs, and a `commondir`
-placeholder made Git in the primary checkout fail. A name created after launch, such as a new
+`config.worktree`, each when it exists at launch. Claude Code checks each denied path before every
+sandboxed command and holds a missing one with an empty placeholder, so the adapter denies no name
+missing at launch and none of the names Git creates and removes on its own (an operation's
+in-progress state such as `MERGE_HEAD` or `rebase-merge/`, rerere's `MERGE_RR`, `*.lock`,
+`gc.pid` and `gc.log`), present or not (R-G19): a `commondir` placeholder made Git in the
+primary checkout fail, and an `index.lock` or `rebase-merge` one would. Another worktree's entry
+that the daemon removes while the run lives is still held with a placeholder file during the
+run's later commands; Git ignores a file there. A name created after launch, such as a new
 worktree entry, a `commondir` or Git's in-progress state for the primary checkout, is an accepted
 risk (Known limits); the daemon's own Git still refuses a planted `commondir` or a non-empty
 `config.worktree`.
@@ -370,8 +375,12 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   which no agent writes), and sees nothing else agents write, no Docker socket and nothing of the
   user's runtime directory. uv refuses a lock that no longer matches the project and checks every
   file against the lock's hashes; it builds the project (its console scripts included) and any
-  source distribution there, and fetches build requirements, which the lock does not pin, from
-  PyPI. The check itself then runs with no network, the venv first on PATH and read-only, uv
+  source distribution there. The install passes uv the resolver options the lock records
+  (`exclude-newer`, `resolution`, `prerelease`, `fork-strategy`), which `UV_NO_CONFIG` would
+  otherwise drop, and refuses one it cannot pass by name. Build requirements are not in the lock:
+  uv resolves them at install time, from PyPI unless the project's `[build-system] requires`
+  names a direct URL or its `tool.uv.sources` names another source for one, which uv follows,
+  unhashed. The check itself then runs with no network, the venv first on PATH and read-only, uv
   offline and frozen, and no Python or uv setting inherited; it never reads the agents' uv cache
   or reuses a venv. Its receipt names the tools, the profile and the lock. Python environment and
   tool configuration files (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, pytest's
@@ -574,14 +583,20 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Claude Code's own tools** are not sandboxed commands. Its file tools are held by permission
   rules (the denied-reads list, or on `unrestricted` the daemon's protected paths, then the
   posture's checks), not by the OS sandbox; WebFetch and WebSearch reach any host.
-- **Claude Code's own placeholders.** Claude Code 2.1.288 makes empty `config.worktree` files in
-  the common directory and each worktree entry when it starts, and holds its own deny of a missing
-  `config.lock` with an empty file while a sandboxed command runs. The adapter denies no missing
-  name (R-G19), so it adds none, and Git in the primary checkout works while agents run commands.
+- **Claude Code's placeholders.** Claude Code 2.1.288 makes empty `config.worktree` files in the
+  common directory and each worktree entry when it starts, holds its own deny of a missing
+  `config.lock` with an empty file while a sandboxed command runs, and holds any denied path that
+  has gone missing since launch the same way. The adapter denies no name missing at launch and
+  none of Git's transient names (R-G19), so Git in the primary checkout works while agents run
+  commands. One case remains, accepted: another worktree's entry the daemon removes while a Claude
+  run lives gets an empty placeholder file during that run's later commands, which Git ignores and
+  `git worktree prune` removes.
 - **A Python install's network (accepted, ADR-076).** A check's install step has the network,
-  because a systemd user unit cannot narrow it to PyPI's hosts. uv fetches only from PyPI, but a
-  build it runs (the project's build backend, a `setup.py`, a source distribution's) can reach any
-  host, as it can in an agent's own `uv sync`. The check itself has no network.
+  because a systemd user unit cannot narrow it to PyPI's hosts. uv fetches the lock's packages only
+  from PyPI and the tree, and build requirements from PyPI unless the project names a direct URL
+  or another source for one; a build it runs (the project's build backend, a `setup.py`, a source
+  distribution's) can reach any host, as it can in an agent's own `uv sync`. The check itself has
+  no network.
 - **Git state an agent can plant (accepted, ADR-075).** Agents share the checkout's Git
   directory: Claude Code binds a linked worktree's whole common directory writable, and both
   agents' commits write `refs/`, `objects/` and `logs/`. An agent deliberately working against the

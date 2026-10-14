@@ -4311,7 +4311,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - *No network:* `test_offline` passed in every daemon run of the check. *`ct-check -- true`:* above.
     - **Bullet 5 holds:** the fixture's one check builds the Cargo binary and runs pytest against it, the venv beside the check's fresh Cargo home (review 11da2506; also `python-checks.test.ts`).
     - **Bullet 6 holds as built ([R-G16](#r-g16)):** Claude runs committed in their worktrees; afterwards the fixture's common directory held no `commondir` and host Git worked; while a Claude command ran, a check of the reviewed commit refused (the known limit).
-
+  - *Gate and replays (2026-10-14, at 40a5955).* `pnpm check` alone, in the gate worktree with nothing else running (`CRAFTINGTABLE_TEST_DATA_ROOT` and `TMPDIR` as usual; the dev daemon stopped, no mutation run): green, 551 s; 394 test files passed (2 skipped), 3,342 tests passed (6 skipped); e2e 23 passed and the walkthrough rehearsal passed; the scope check passed. The first run, at 355593d, failed one test: the docs check requires every `CRAFTINGTABLE_*` name in the code to be listed in `operations.md`, and a probe test planted `CRAFTINGTABLE_PROBE_LEAK`; renamed `PLANTED_PROBE_LEAK` (40a5955), then green. `pnpm replays`: 31 of 56 comparisons report 0 changed, 25 differ only as expected, 0 failed; 217 s. The table is identical, row for row, to R-B11's at 70257ff: no change beyond R-B11's close. No UI changed after the after capture (`2026-10-14-rg17-after`, 1eaab09).
+  - **Done-when:** every bullet holds (the live campaign above; R-G16's as built). Open for the operator: R-G16's review finding M-2.
 
 ### R-H1
 

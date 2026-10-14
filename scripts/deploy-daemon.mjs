@@ -681,17 +681,17 @@ TimeoutStopSec=300
 `;
 
 /**
- * What keeps a stop outside `pnpm deploy:daemon` from draining, for the unit's current
- * settings: a wrapper that may not forward SIGTERM, a kill mode that signals the agents
- * directly, or a stop timeout shorter than the drain bound.
- */
-/**
  * What a stop takes after its drain's bound: interrupting what is still live, the last
  * notifications, up to 30 s for running requests that change state, and the server's close
  * (R-B9 review re-check R-L3).
  */
 const STOP_AFTER_DRAIN_SECONDS = 90;
 
+/**
+ * What keeps a stop outside `pnpm deploy:daemon` from draining, for the unit's current
+ * settings: a wrapper that may not forward SIGTERM, a kill mode that signals the agents
+ * directly, or a stop timeout that does not cover the drain bound and what follows it.
+ */
 export function unitStopProblems({ killMode, timeoutStop, execStart, drainSeconds = 180 }) {
   const problems = [];
   if (/\bpnpm\b/.test(execStart ?? ''))

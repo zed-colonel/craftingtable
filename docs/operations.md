@@ -526,7 +526,7 @@ SELECT count(*) FROM attention_items i WHERE resolved_by = 'automation' AND EXIS
 
 `SIGTERM` or `SIGINT` (a `systemctl stop` or restart, a reboot) drains as a deploy does: no new
 work starts, live turns get up to the drain bound to finish, what is still live is interrupted for
-resume, and a clean stop is recorded. Pages keep working meanwhile; only launches are refused.
+resume, and a clean stop is recorded. Pages keep working meanwhile; launches and the storage page's manual commands are refused.
 Then requests that change state are answered 503 ("stopping"), those still running get up to 30
 seconds to finish, and the HTTP listener, the daemon's checks and the database close. A second
 signal interrupts live turns at once. After a clean stop the next start resumes on

@@ -161,14 +161,8 @@ export function buildServer(
     deps.storageService.startWorker();
     deps.daemonDrain.startWatching();
   });
-  // A stop drains live agent turns before the HTTP server closes, so the browser keeps
-  // showing progress; the drain then records a clean stop for automatic resume (R-B9).
-  app.addHook('preClose', async () => {
-    deps.daemonDrain.stopWatching();
-    await deps.storageService.shutdown();
-    await deps.daemonDrain.drain(config.drainTimeoutMs, app.log);
-    await deps.notificationService.shutdown();
-  });
+  // The daemon's stop (the drain, the workers) is its runtime's close, before the server closes
+  // (`createDaemon`): a close hook still running after Fastify's plugin timeout fails the stop.
   registerPackageImportRoutes(app, deps.packageImportService);
   registerCrossProjectRoutes(app, deps.crossProjectService);
   registerMapAmendmentRoutes(app, deps.mapAmendmentService);

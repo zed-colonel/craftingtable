@@ -56,6 +56,8 @@ export interface TestContext {
   readonly app: FastifyInstance;
   readonly services: ServiceSet;
   readonly storage: ReturnType<typeof openDaemonStorage>;
+  /** The daemon itself, for a test of its own stop; `cleanup` closes it either way. */
+  readonly daemon: CraftingTableRuntime;
   bootstrap(): Promise<void>;
   login(): Promise<{ cookie: string; csrfToken: string; sessionId: string }>;
   cleanup(): Promise<void>;
@@ -160,6 +162,7 @@ export async function createTestContext(
     app,
     services,
     storage,
+    daemon,
     async bootstrap() {
       await services.bootstrapService.bootstrap(TEST_USERNAME, TEST_PASSWORD);
     },

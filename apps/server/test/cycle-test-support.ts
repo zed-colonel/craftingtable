@@ -207,12 +207,15 @@ export interface CycleFixture extends SignedIn {
   readonly worktreeId: WorktreeId;
 }
 
-export async function createCycleFixture(): Promise<CycleFixture> {
+export async function createCycleFixture(
+  options: { readonly env?: Readonly<Record<string, string>> } = {},
+): Promise<CycleFixture> {
   const backend = new HeldBackend();
   const context = await createTestContext({
     gitOperations: createGitOperations({ gitExecutable: 'git' }),
     agentBackends: new Map([[backend.kind, backend]]),
     workers: false,
+    ...(options.env === undefined ? {} : { env: options.env }),
   });
   contexts.push(context);
   const signedIn = await signIn(context, asWorkItemId('item-1'));

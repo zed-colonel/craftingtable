@@ -642,6 +642,19 @@ export async function createDaemon(
       // Every step runs even when one before it fails, so a server that fails to close leaves
       // no check running and no storage open; the first failure is the one the close throws.
       const failures: unknown[] = [];
+      // The drain comes before the server closes, never in a Fastify close hook: avvio fails a
+      // hook still running after the plugin timeout (10 s), and a drain waits up to its bound,
+      // so a SIGTERM drain of a long turn crashed without its clean stop (R-B9 live finding
+      // 2026-10-13). Meanwhile the server serves on and the drain refuses launches, as during a
+      // deploy's drain; the clean stop it records lets the next start resume (R-B9).
+      try {
+        services.daemonDrain.stopWatching();
+        await services.storageService.shutdown();
+        await services.daemonDrain.drain(config.drainTimeoutMs, app.log);
+        await services.notificationService.shutdown();
+      } catch (error) {
+        failures.push(error);
+      }
       try {
         await app.close();
       } catch (error) {

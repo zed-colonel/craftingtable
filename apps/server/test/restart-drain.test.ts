@@ -4,6 +4,8 @@ import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServices, type ServiceSet } from '../src/composition.js';
+import { daemonStop } from '../src/daemon-start.js';
+import { openDaemonStorage } from '../src/persisted-records.js';
 import {
   createCycleFixture,
   type CycleFixture,
@@ -382,6 +384,63 @@ describe('restart drain and automatic resume (R-B9)', () => {
     expect(storedRun(g, secondRun)?.status).toBe('interrupted');
     expect(runFinished(g, secondRun)).toMatchObject({ reason: 'daemon-drain' });
   });
+
+  it('waits out a SIGTERM drain longer than Fastify’s plugin timeout and ends with the clean stop, so the restart resumes the step (R-B9 live finding 2026-10-13)', async () => {
+    // Fastify fails a close hook still running after its plugin timeout, 10 s by default; the
+    // live stop of 2026-10-13 crashed there. This bound is past it, and the turn never ends.
+    const f = await createCycleFixture({ env: { CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '11' } });
+    const started = await startLiveCycle(f);
+    const interruptedId = storedCycle(f, started.id).currentRunId as string;
+    let released = false;
+    const stop = daemonStop({
+      runtime: f.context.daemon,
+      lock: {
+        release: async () => {
+          released = true;
+        },
+      },
+    });
+
+    const signalledAt = Date.now();
+    await stop('SIGTERM');
+    expect(Date.now() - signalledAt).toBeGreaterThanOrEqual(11_000);
+    expect(released).toBe(true);
+
+    // The daemon closed its database; the next start opens it again and resumes the step's
+    // session with no operator action, as after a deploy's drain.
+    const storage = openDaemonStorage(f.context.config.databasePath);
+    try {
+      const run = storage.execution.runs.find(f.workspaceId, interruptedId as never);
+      expect(run?.status).toBe('interrupted');
+      const finished = storage.execution.runEvents.latestOfKind(
+        f.workspaceId,
+        interruptedId as never,
+        'run-finished',
+      );
+      expect(finished?.kind === 'run-finished' ? finished.payload : undefined).toMatchObject({
+        reason: 'daemon-drain',
+      });
+      const services = await createServices(storage, f.context.config, {
+        notificationTransport: { send: async () => ({ status: 'accepted' }) },
+        passwordHasher: new FastTestPasswordHasher(),
+        gitOperations: createGitOperations({ gitExecutable: 'git' }),
+        agentBackends: new Map([[f.backend.kind, f.backend]]),
+      });
+      try {
+        await stepDaemon(services, 2);
+        expect(f.backend.launches[1]).toMatchObject({ resumeSessionId: 'vendor-session-1' });
+        expect(storage.execution.cycles.find(f.workspaceId, started.id as never)).toMatchObject({
+          status: 'running',
+          parentRunId: interruptedId,
+        });
+      } finally {
+        await services.daemonDrain.drain(0);
+        await services.checkRequestService.closeAll();
+      }
+    } finally {
+      storage.close();
+    }
+  }, 60_000);
 
   it('asks to be restarted when a deploy drained it and no restart followed', async () => {
     const f = await fixture();

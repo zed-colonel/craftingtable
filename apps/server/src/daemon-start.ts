@@ -26,3 +26,26 @@ export async function startDaemon(
     throw error;
   }
 }
+
+/**
+ * The daemon's stop on a signal (R-B9): the first drains live agent turns up to the configured
+ * bound, records the clean stop and closes the daemon, then releases its locks; another
+ * interrupts what is still live at once. Each call resolves when the stop has finished.
+ */
+export function daemonStop(daemon: {
+  readonly runtime: Pick<CraftingTableRuntime, 'app' | 'services' | 'close'>;
+  readonly lock: Pick<InstanceLock, 'release'>;
+}): (signal: NodeJS.Signals) => Promise<void> {
+  const { runtime, lock } = daemon;
+  let stopping: Promise<void> | undefined;
+  return (signal) => {
+    if (stopping !== undefined) {
+      runtime.app.log.info({ signal }, 'stop requested again; interrupting live runs now');
+      runtime.services.daemonDrain.expedite();
+      return stopping;
+    }
+    runtime.app.log.info({ signal }, 'shutting down: draining live agent turns');
+    stopping = runtime.close().then(() => lock.release());
+    return stopping;
+  };
+}

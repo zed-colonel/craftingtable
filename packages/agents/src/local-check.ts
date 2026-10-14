@@ -2061,10 +2061,11 @@ function lockIndexPath(name: string): string {
 async function cargoLocks(
   m: CheckManifest,
   root: string,
-): Promise<{ locks: string[]; skipped: number }> {
+): Promise<{ locks: string[]; skipped: number; manifests: boolean }> {
   let listed: string[] = [];
+  let manifests = existsSync(join(root, 'Cargo.toml'));
   try {
-    listed = (
+    const files = (
       await daemonGit(
         m,
         ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
@@ -2073,8 +2074,9 @@ async function cargoLocks(
       )
     )
       .toString('utf8')
-      .split('\0')
-      .filter((p) => p === 'Cargo.lock' || p.endsWith('/Cargo.lock'));
+      .split('\0');
+    listed = files.filter((p) => p === 'Cargo.lock' || p.endsWith('/Cargo.lock'));
+    manifests ||= files.some((p) => p === 'Cargo.toml' || p.endsWith('/Cargo.toml'));
   } catch {
     // Not a Git tree: the root's lock only.
   }
@@ -2093,7 +2095,7 @@ async function cargoLocks(
     }
     locks.push(content.toString('utf8'));
   }
-  return { locks, skipped: paths.length - read };
+  return { locks, skipped: paths.length - read, manifests };
 }
 
 export function trustedPath(path: string | undefined, writable: readonly string[]): string {
@@ -2441,7 +2443,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         e.onOutput(
           `${lockFiles.skipped} Cargo.lock files were not read: a check reads at most 64 of them, 64 MiB in all.\n`,
         );
-      if (!prepared.locked)
+      // Only a tree with a Cargo manifest needs a lock: a Python project's has none (R-G19).
+      if (!prepared.locked && lockFiles.manifests)
         e.onOutput(
           'No Cargo.lock in the checked tree, so no registry dependency is available to this offline check. Commit Cargo.lock.\n',
         );

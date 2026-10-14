@@ -1381,6 +1381,7 @@ it('a lock that is a FIFO, or too many locks, never block or exhaust the daemon 
   const f = fixture();
   const shared = join(f.root, 'shared-cargo');
   mkdirSync(join(shared, 'registry', 'index'), { recursive: true });
+  writeFileSync(join(f.m.workspacePath, 'Cargo.toml'), '[package]\nname = "x"\n');
   // Untracked and not ignored, so it is listed; opening it must not wait for a writer.
   expect(spawnSync('mkfifo', [join(f.m.workspacePath, 'Cargo.lock')]).status).toBe(0);
   // Nothing ever writes to it, so a listing that waited would never finish: the guard names it.
@@ -1411,9 +1412,34 @@ it('says so when the checked tree has no lock, since no registry crate can then 
   const f = fixture();
   const shared = join(f.root, 'shared-cargo');
   mkdirSync(join(shared, 'registry', 'index'), { recursive: true });
+  writeFileSync(join(f.m.workspacePath, 'Cargo.toml'), '[package]\nname = "x"\n');
+  commitAll(f.m.workspacePath);
   const { outcome, output } = await listCargoHome(f, shared, authority({}));
   expect(outcome.exitCode).toBe(0);
   expect(output).toContain('No Cargo.lock in the checked tree');
+});
+
+it('says nothing of Cargo.lock for a tree with no Cargo manifest, such as a Python project (R-G19 live check)', async () => {
+  const f = fixture();
+  const shared = join(f.root, 'shared-cargo');
+  mkdirSync(join(shared, 'registry', 'index'), { recursive: true });
+  // A Python project's files, and a Cargo manifest only in a directory Git ignores.
+  writeFileSync(join(f.m.workspacePath, 'pyproject.toml'), '[project]\nname = "x"\n');
+  writeFileSync(join(f.m.workspacePath, '.gitignore'), 'ignored/\n');
+  mkdirSync(join(f.m.workspacePath, 'ignored'));
+  writeFileSync(join(f.m.workspacePath, 'ignored', 'Cargo.toml'), '[package]\nname = "y"\n');
+  commitAll(f.m.workspacePath);
+  const { outcome, output } = await listCargoHome(f, shared, authority({}));
+  expect(outcome.exitCode, output).toBe(0);
+  expect(output).not.toContain('Cargo.lock');
+  // A nested crate's manifest counts, untracked or committed.
+  mkdirSync(join(f.m.workspacePath, 'tools', 'helper'), { recursive: true });
+  writeFileSync(
+    join(f.m.workspacePath, 'tools', 'helper', 'Cargo.toml'),
+    '[package]\nname = "z"\n',
+  );
+  const nested = await listCargoHome(f, shared, authority({}));
+  expect(nested.output).toContain('No Cargo.lock in the checked tree');
 });
 
 const cachedItoa = join(

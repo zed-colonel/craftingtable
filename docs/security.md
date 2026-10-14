@@ -209,7 +209,7 @@ historical baseline's Cargo home, a pinned local-CI cache root, the worktree's s
 target). In
 the repository's Git directory they may write what a commit, a rebase or a merge needs: Claude
 Code grants the whole common directory itself, and the adapter keeps read-only every entry of it
-that exists at launch but `objects/`, `refs/`, `logs/` and `worktrees/` (the primary checkout's
+that exists at launch but `objects/`, `refs/`, `logs/`, `reftable/` and `worktrees/` (the primary checkout's
 `HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the rest), every
 other worktree's entry that exists at launch, and, existing or not, the common directory's
 `commondir`, `config.worktree` and `objects/info`, the run's own `commondir`, `gitdir` and
@@ -571,22 +571,39 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
   the primary checkout and the daemon's checks on a clone of the reviewed commit refuse ("failed
   to read .git/commondir"): they fail closed, and nothing is redirected. A refused check can be
   run again. Each Claude Code process removes the placeholders it made once its own commands have
-  ended, and nothing coordinates two Claude runs in the same repository; read from the 2.1.288
-  code and not verified live, a deny of a missing name may therefore not hold for the whole of a
-  command that overlaps another run's.
+  ended, and nothing coordinates two Claude runs in the same repository (read from the 2.1.288
+  code, not verified live). So while two Claude runs in one repository run commands at the same
+  time, a command that outlasts the other run's can defeat the deny of a missing name, and what it
+  writes then stays. A Claude process killed while a command runs leaves its placeholders behind:
+  remove the empty files ([Shutdown and recovery](operations.md#shutdown-and-recovery)).
 - **Git state Claude can still plant.** Claude Code binds a linked worktree's whole common
   directory writable, and the adapter denies only names that exist at launch and the ones listed
-  above (operator decisions 2026-10-13). A sandboxed command can still write the `HEAD` and
-  `index` of a worktree entry created after it launched, and anything under `refs/`, which a
-  commit needs: it can move branches (the ref watch reports it), including the primary
-  checkout's per-worktree refs (`refs/bisect/`, `refs/rewritten/`, `refs/worktree/`), which
-  matter only beside in-progress state the adapter denies. In a reftable repository the primary
-  checkout's `HEAD` and its other root refs (`ORIG_HEAD`, `MERGE_AUTOSTASH` and the rest) live in
-  the shared `reftable/` store, which both agents' commits write; no registered repository uses
-  one today. A newer Git may keep state under a new name. Codex runs cannot plant any of the
-  common directory's own names (it stays read-only to them). Until agents' worktrees stop sharing
-  the checkout's Git directory (R-G18), check `git status` in the primary checkout before
-  continuing a rebase, merge, cherry-pick or bisect you did not start.
+  above (operator decisions 2026-10-13). What a sandboxed command can still change there, that the
+  operator's own Git then acts on:
+  - anything under `refs/`, which a commit needs (Codex too): it can move branches (the ref watch
+    reports only `refs/heads/` and `refs/tags/`), change `refs/stash`, the primary checkout's
+    per-worktree refs (`refs/bisect/`, `refs/rewritten/`, `refs/worktree/`, which matter only
+    beside in-progress state the adapter denies) and **replace refs** (`refs/replace/`). The
+    daemon's Git ignores replace refs, but the operator's follows them by default, so a later
+    checkout, pull or reset in the primary checkout can write an object the agent chose in place
+    of the reviewed one, with `git status` clean. Nothing reports them. Open for the operator
+    (R-G16 review 2026-10-13, M-1);
+  - `objects/` (Codex too): objects can be deleted as well as added; `logs/` (Codex too), whose
+    `logs/HEAD` is the primary checkout's HEAD reflog (`git checkout -`, `HEAD@{n}`);
+  - names missing at launch beyond those denied: a submodule's Git directory under `modules/`,
+    which `git submodule update --init` in the primary checkout reuses with its configuration and
+    hooks (open for the operator, R-G16 review M-2); `shallow`, which makes Git treat the
+    repository as shallow; `FETCH_HEAD`; and the `HEAD` and `index` of a worktree entry created
+    after the run launched;
+  - in a reftable repository, the primary checkout's `HEAD` and its other root refs (`ORIG_HEAD`,
+    `MERGE_AUTOSTASH` and the rest), which live in the shared `reftable/` store both agents'
+    commits write; no registered repository uses one today;
+  - state under a name a newer Git adds.
+
+  Codex runs cannot change the common directory's own names (it stays read-only to them). Until
+  agents' worktrees stop sharing the checkout's Git directory (R-G18), check `git status` and
+  `git for-each-ref refs/replace` in the primary checkout before continuing a rebase, merge,
+  cherry-pick or bisect you did not start, or after a run you doubt.
 - **External Git.** The daemon's guards serialize its own Git work. A person or tool running Git
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;
   check it before running Git there by hand. External changes are detected by commit and

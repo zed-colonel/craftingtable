@@ -537,7 +537,12 @@ group its own record proves was a live run's, marks those runs `interrupted`, an
 roadmap needs attention. Worktrees survive restarts. A daemon Git command refused with
 `untrusted-git-directory` in a managed run's worktree or repository most often means the run's Git
 directory holds a non-empty `config.worktree`, which Git never writes there: inspect it, then
-empty it to go on ([security.md](security.md#the-daemons-own-git)). Removing a worktree whose
+empty it to go on ([security.md](security.md#the-daemons-own-git)). A Claude run killed while one of its
+commands ran can leave Claude Code's empty placeholders in the repository's Git directory: an empty
+`commondir` (Git in the primary checkout then fails with "failed to read .git/commondir") and empty
+files named after Git's in-progress state (`MERGE_HEAD`, `BISECT_LOG`, `rebase-merge` and the
+rest, which make Git report an operation in progress). With no Claude run live in that repository,
+delete the empty ones ([security.md](security.md#known-limits)). Removing a worktree whose
 directory was deleted by hand prunes it from Git's metadata and marks it removed.
 
 ## Forgotten password

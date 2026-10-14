@@ -28,7 +28,7 @@ typed commands, never commands to run.
 | Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only for agents, checks and daemon Git (not the native probes); process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
 | Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; one denied-reads list for commands, Claude's file tools and read-only runs; outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
 | The daemon's own Git | Git directories named explicitly; no hooks, fsmonitor, system or global configuration; untrusted Git directories refused | A repository's own configuration still applies; the ref watch detects moves, it does not prevent them | `packages/git/test/git-directory-pinning.test.ts`, `packages/git/test/adapter-robustness.test.ts`, `apps/server/test/services/ref-watch.test.ts` |
-| Checks and builds | Checks run by the daemon in confined units, on private clones, with offline Cargo homes; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts` |
+| Checks and builds | Checks run by the daemon in confined, capped units, on private clones, with offline Cargo homes and a root-owned Python toolchain; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `packages/agents/test/toolchains.test.ts`, `packages/agents/test/python-checks.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts`, `apps/server/test/server-execution-toolchains.test.ts` |
 | Merge and promotion | The review gate at exact commits; protected destinations; final promotion only by an operator's session, with step-up | A review's verdict is the reviewer's assertion | `apps/server/test/server-execution-merge-gate.test.ts`, `apps/server/test/server-execution-integration.test.ts`, `apps/server/test/server-execution-finalization.test.ts` |
 | Delegated work | Authority from a recorded, rechecked owner or editor; pause and stop are commands | — | `apps/server/test/server-execution-roadmaps.test.ts`, `apps/server/test/server-execution-decision-preparation.test.ts` |
 | Untrusted input | Bounded parsers; ZIPs read in memory, never extracted; text rendered as text; reports validated | A valid report is still an assertion | `packages/planning/test/archive.test.ts`, `apps/server/test/server-package-imports.test.ts`, `apps/server/test/services/review-report.test.ts` |
@@ -313,7 +313,8 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
 
 - **Check units.** Each check runs in a transient systemd user unit: the file system read-only
   except the run's own paths, a private `/tmp`, an empty `/dev/shm`, no network, no new
-  privileges, a time limit for the whole cgroup, and exactly the environment the daemon names.
+  privileges, a time limit for the whole cgroup, capped memory (no swap) and tasks, and exactly
+  the environment the daemon names.
   A check unit sees neither the user's runtime directory nor the system's Docker and D-Bus
   sockets. A local CI unit sees the runtime directory empty too, but for the Docker socket its
   configuration names, which is bound back when it lies there (rootless Docker), and it keeps the
@@ -329,6 +330,14 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   wrappers cleared, and a check is refused when the tree has a Cargo configuration or toolchain
   file it was not adopted with. A build of uncommitted work, which no gate accepts, still runs in
   the worktree.
+- **The Python toolchain.** A Python project's adopted checks use only the interpreter and uv
+  that `toolchains.json` names ([ADR-074](decisions/ADR-074-python-toolchains-and-pypi-wheels.md)).
+  Each must be a regular file that root owns and only root may write, every directory above it
+  too, with no link on the way, because anything the operator's account can write, agents can.
+  The daemon refuses to start on a tool that breaks the rule, probes each one with fixed
+  arguments and no input, and every Python check reads each tool again: one that is missing, no
+  longer root-owned, writable by others or no longer fits its configured version is refused, and
+  the identities it ran with go into its receipt.
 - **Adopted checks.** Checks are adopted only by a person: an owner or editor on the Repositories
   page, from `.craftingtable/checks.json` read by the daemon's Git at an exact commit. A slice
   that changes a definition file is merged only by a person who approves the definitions with
@@ -535,7 +544,8 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
   build scripts, procedural macros and tests run with whatever the check's unit allows.
 - **Native probes.** The native environment's fixed version probes (`native-environment.ts`)
   start with the daemon's whole environment, not the named variables agents and checks get; they
-  run fixed commands with no agent input.
+  run fixed commands with no agent input. The toolchain probes (`toolchains.ts`) start with a
+  fixed `PATH` and locale only.
 - **Secrets at rest** are plaintext files protected by modes and the denied reads. Database
   copies made before the credentials moved still hold them, and clearing credentials does not
   securely erase SQLite pages or older backups.

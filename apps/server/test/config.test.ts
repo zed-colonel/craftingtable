@@ -654,3 +654,148 @@ describe('outside sources (R-G14)', () => {
       }
   });
 });
+
+describe('toolchains (R-G17)', () => {
+  const directories: string[] = [];
+  afterEach(() => {
+    for (const directory of directories.splice(0))
+      rmSync(directory, { recursive: true, force: true });
+  });
+  /** A data and a settings directory of their own, `toolchains.json` written as given. */
+  function settings(contents?: string) {
+    const base = mkdtempSync(join(tmpdir(), 'craftingtable-toolchains-'));
+    directories.push(base);
+    const data = join(base, 'data');
+    const configDir = join(base, 'config');
+    mkdirSync(data);
+    mkdirSync(configDir);
+    const file = join(configDir, 'toolchains.json');
+    if (contents !== undefined) writeFileSync(file, contents);
+    const env = { CRAFTINGTABLE_DATA_DIR: data, CRAFTINGTABLE_CONFIG_DIR: configDir };
+    return { base, data, configDir, file, env, read: () => configFromEnv(env).execution };
+  }
+  const json = (value: unknown) => JSON.stringify(value);
+  // Root-owned files every Arch workstation has; the start does not run them.
+  const python = { interpreter: '/usr/bin/python3.14', version: '3.14' };
+  const uv = { path: '/usr/bin/env', version: '0.12' };
+
+  it('is no Python profile and the default caps without a file', () => {
+    expect(settings().read().toolchains).toEqual({ limits: { memoryMax: '8G', tasksMax: 1024 } });
+  });
+
+  it('reads a Python profile with uv, media and caps', () => {
+    const { read } = settings(
+      json({
+        version: 1,
+        python,
+        uv,
+        media: { ffmpeg: '/usr/bin/env', ffprobe: '/usr/bin/env', fonts: ['/usr/bin/env'] },
+        limits: { memoryMax: '6G', tasksMax: 2048 },
+      }),
+    );
+    expect(read().toolchains).toEqual({
+      python: {
+        ...python,
+        uv,
+        media: { ffmpeg: '/usr/bin/env', ffprobe: '/usr/bin/env', fonts: ['/usr/bin/env'] },
+      },
+      limits: { memoryMax: '6G', tasksMax: 2048 },
+    });
+    // Caps alone, and one cap alone, are a file of their own.
+    expect(settings(json({ version: 1, limits: { tasksMax: 4096 } })).read().toolchains).toEqual({
+      limits: { memoryMax: '8G', tasksMax: 4096 },
+    });
+  });
+
+  it('refuses to start on a file it cannot take whole, naming the file and the problem', () => {
+    const owned = join(tmpdir(), 'not-root-owned');
+    const refusals: [string, RegExp][] = [
+      ['{', /not valid JSON/],
+      [json([]), /JSON object/],
+      [json({ version: 2 }), /"version": 1/],
+      [json({ version: 1, extra: 1 }), /unknown key "extra"/],
+      [json({ version: 1, python }), /"python" and "uv" together/],
+      [json({ version: 1, uv }), /"python" and "uv" together/],
+      [json({ version: 1, media: { fonts: [] } }), /"media".*with "python"/],
+      [json({ version: 1, python: { ...python, extra: 1 }, uv }), /unknown key "extra"/],
+      [json({ version: 1, python: { interpreter: python.interpreter }, uv }), /version/],
+      [json({ version: 1, python: { ...python, version: '3.x' }, uv }), /version/],
+      [json({ version: 1, python: { ...python, version: '' }, uv }), /version/],
+      [json({ version: 1, python, uv: { path: uv.path } }), /version/],
+      [json({ version: 1, python: { ...python, interpreter: 'python3' }, uv }), /absolute/],
+      [
+        json({ version: 1, python: { ...python, interpreter: '/usr/bin/../bin/env' }, uv }),
+        /absolute, normalized/,
+      ],
+      // Through a link: /usr/bin/python3 names python3.14.
+      [
+        json({ version: 1, python: { ...python, interpreter: '/usr/bin/python3' }, uv }),
+        /is a link/,
+      ],
+      [
+        json({ version: 1, python: { ...python, interpreter: '/usr/bin/no-such-python' }, uv }),
+        /does not exist/,
+      ],
+      [
+        json({ version: 1, python: { ...python, interpreter: '/usr/bin' }, uv }),
+        /not a regular file/,
+      ],
+      [json({ version: 1, python, uv, media: { fonts: 'x' } }), /"fonts"/],
+      [json({ version: 1, python, uv, media: { other: '/usr/bin/env' } }), /unknown key "other"/],
+      [
+        json({ version: 1, python, uv, media: { fonts: Array(65).fill('/usr/bin/env') } }),
+        /at most 64/,
+      ],
+      [json({ version: 1, limits: { memoryMax: '8' } }), /"memoryMax"/],
+      [json({ version: 1, limits: { memoryMax: '100M' } }), /"memoryMax"/],
+      [json({ version: 1, limits: { memoryMax: '1T' } }), /"memoryMax"/],
+      [json({ version: 1, limits: { memoryMax: 8 } }), /"memoryMax"/],
+      [json({ version: 1, limits: { tasksMax: 10 } }), /"tasksMax"/],
+      [json({ version: 1, limits: { tasksMax: 1.5 } }), /"tasksMax"/],
+      [json({ version: 1, limits: { tasksMax: '1024' } }), /"tasksMax"/],
+      [json({ version: 1, limits: { cpu: 4 } }), /unknown key "cpu"/],
+    ];
+    writeFileSync(owned, '');
+    refusals.push([
+      json({ version: 1, python: { ...python, interpreter: owned }, uv }),
+      /not owned by root|writable by its group or by others/,
+    ]);
+    try {
+      for (const [contents, problem] of refusals) {
+        const { file, read } = settings(contents);
+        expect(read, contents).toThrow(problem);
+        expect(read, contents).toThrow(file);
+      }
+    } finally {
+      rmSync(owned, { force: true });
+    }
+  });
+
+  it('refuses a link, a directory, a pipe or an oversized file in its place', () => {
+    const linked = settings();
+    const elsewhere = join(linked.base, 'elsewhere.json');
+    writeFileSync(elsewhere, json({ version: 1 }));
+    symlinkSync(elsewhere, linked.file);
+    expect(linked.read).toThrow(/toolchains\.json must be a regular file/);
+    const directory = settings();
+    mkdirSync(directory.file);
+    expect(directory.read).toThrow(/regular file/);
+    const pipe = settings();
+    execFileSync('mkfifo', [pipe.file]);
+    expect(pipe.read).toThrow(/regular file/);
+    expect(settings(`{"version": 1}${' '.repeat(64 * 1024)}`).read).toThrow(/64 KiB/);
+  });
+
+  it('never reads the file from where agents write: its directory is the settings directory, checked at start', () => {
+    const at = settings();
+    const inWorktrees = join(at.data, 'worktrees', 'repo', '.craftingtable');
+    mkdirSync(inWorktrees, { recursive: true });
+    writeFileSync(
+      join(inWorktrees, 'toolchains.json'),
+      json({ version: 1, limits: { tasksMax: 64 } }),
+    );
+    expect(() => configFromEnv({ ...at.env, CRAFTINGTABLE_CONFIG_DIR: inWorktrees })).toThrow(
+      /must lie outside the worktree root/,
+    );
+  });
+});

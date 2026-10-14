@@ -5,7 +5,12 @@ import { About } from '../../components/About.js';
 import { PageHeader } from '../../components/PageHeader.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
-import { modelCatalogSummary, shortSha } from '../../lib/execution-labels.js';
+import {
+  modelCatalogSummary,
+  shortSha,
+  TOOL_LABELS,
+  toolchainFacts,
+} from '../../lib/execution-labels.js';
 import { RepositoryChecksPanel } from './RepositoryChecksPanel.js';
 
 export function RepositoriesPage({
@@ -250,6 +255,30 @@ export function RepositoriesPage({
               their worktree and run. Set in <code>outside-sources.json</code> in the daemon&rsquo;s
               settings directory, applied when the daemon restarts. Read-only runs get none.
               Unrestricted runs have no sandbox.
+            </p>
+          </About>
+          <StatusStrip label="Toolchain" facts={toolchainFacts(status.toolchains)} />
+          {status.toolchains.tools.some((tool) => tool.changes.length > 0) && (
+            <ul aria-label="Toolchain changes" className="plain-list">
+              {status.toolchains.tools.flatMap((tool) =>
+                tool.changes.map((change) => (
+                  <li key={`${tool.tool}-${tool.path}-${change.at}-${change.to}`}>
+                    {TOOL_LABELS[tool.tool]} {tool.path} changed at{' '}
+                    {new Date(change.at).toLocaleString()}: {change.from} → {change.to}
+                  </li>
+                )),
+              )}
+            </ul>
+          )}
+          <About label="About the toolchain">
+            <p>
+              Python checks use the interpreter and uv named in <code>toolchains.json</code> in the
+              daemon&rsquo;s settings directory, applied when the daemon restarts, with the media
+              tools and fonts it lists. Every tool, and every directory above it, must be owned by
+              root and writable by no one else. Each Python check reads them again: one that is
+              missing, no longer owned by root or no longer fits its version is refused, and an
+              update that still fits is recorded here and in the check&rsquo;s receipt. The caps
+              apply to every check unit.
             </p>
           </About>
           {missingTool && (

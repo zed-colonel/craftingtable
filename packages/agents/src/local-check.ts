@@ -33,6 +33,14 @@ import type {
   PinnedCargoManifest,
   VerificationManifest,
 } from './pinned-cargo.js';
+import {
+  type CheckUnitLimits,
+  DEFAULT_CHECK_UNIT_LIMITS,
+  observeToolchain,
+  type ToolIdentity,
+  type ToolObservation,
+  toolchainProfileDigest,
+} from './toolchains.js';
 
 // Generated launchers also run directly from TypeScript in adapter tests.
 const { nativeHostDigest, nativeArguments, nativeExecutables, nativeUnit, stopNativeUnit } =
@@ -1005,6 +1013,8 @@ export interface CheckExecution {
    * declared check's unit sees none of them but its own paths (R-G13 review).
    */
   readonly hiddenRoots?: readonly string[];
+  /** The caps of every unit this check starts; `DEFAULT_CHECK_UNIT_LIMITS` without them. */
+  readonly unitLimits?: CheckUnitLimits;
 }
 /** What the daemon knows of published crates: checksums, and each crate's index file. */
 export interface CrateRegistry {
@@ -1018,18 +1028,36 @@ export interface CheckOutcome {
   readonly diagnostic: string;
   /** Bytes of log the daemon kept for this check. */
   readonly logBytes: number;
+  /** What a Python check found of its tools (R-G17), for the daemon's Tools view. */
+  readonly toolchain?: readonly ToolObservation[];
+}
+
+/**
+ * Whether a checked tree is a Python project (R-G17 decision 12): it has a root `uv.lock`. A
+ * link counts, so a lock committed as one still has its tools checked; it is read as a lock
+ * only as a regular file.
+ */
+function pythonProject(tree: string): boolean {
+  try {
+    lstatSync(join(tree, 'uv.lock'));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * The systemd-run arguments that run a command in a transient user unit: the file system is
  * read-only except `writable`, with a private /tmp and no new privileges, no network unless
- * `network`, and the whole cgroup stops at the time limit. `env -i` gives the command exactly
+ * `network`, memory, swap and tasks capped, and the whole cgroup stops at the time limit. `env -i` gives the command exactly
  * `environment`, rather than the user manager's.
  */
 export function confinedCheckArguments(
   unitName: string,
   cwd: string,
   timeoutSeconds: number,
+  /** Memory and task caps; every check unit has them (R-G17 decision 7). */
+  limits: CheckUnitLimits,
   writable: readonly string[],
   environment: Readonly<Record<string, string>>,
   command: readonly string[],
@@ -1073,6 +1101,12 @@ export function confinedCheckArguments(
     'KillMode=control-group',
     '-p',
     `RuntimeMaxSec=${Math.max(1, Math.ceil(timeoutSeconds))}`,
+    '-p',
+    `MemoryMax=${limits.memoryMax}`,
+    '-p',
+    'MemorySwapMax=0',
+    '-p',
+    `TasksMax=${limits.tasksMax}`,
     ...writable.flatMap((p) => ['-p', `ReadWritePaths=-${p}`]),
     ...readOnly.flatMap((p) => ['-p', `ReadOnlyPaths=-${p}`]),
     ...inaccessible.flatMap((p) => ['-p', `InaccessiblePaths=-${p}`]),
@@ -2156,6 +2190,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let pinsOverlay: string | undefined;
   let observed = false;
   let declaredDigests: Record<string, string> = {};
+  let toolchain: ToolObservation[] | undefined;
+  let pythonReceipt:
+    | { readonly profileDigest: string; readonly tools: readonly ToolIdentity[] }
+    | undefined;
   let ownsNativeUnit = false;
   const started = Date.now();
   try {
@@ -2178,6 +2216,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       return pinned;
     };
     const timeoutMs = m.checkTimeoutMs ?? 30 * 60000;
+    const limits = e.unitLimits ?? DEFAULT_CHECK_UNIT_LIMITS;
     const deadline = started + timeoutMs;
     let cwd = m.workspacePath;
     let environment: Record<string, string> = { ...e.environment };
@@ -2392,6 +2431,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
               `${e.unitName}-metadata`,
               cwd,
               330,
+              limits,
               writable,
               environment,
               [cargoProgram, ...pinnedMetadataArguments(built, e.args)],
@@ -2463,6 +2503,22 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         e.signal,
       );
       await assertCargoFilesAdopted(m, snapshot, declared.definitionPaths, e.signal);
+      // A Python project's check re-reads every tool of the profile and records it (R-G17
+      // decision 5): a tool that is gone, no longer root-owned, writable by others or no longer
+      // fits its version refuses the check; an update that still fits is recorded, not refused.
+      if (m.python && pythonProject(snapshot)) {
+        toolchain = await observeToolchain(m.python, e.signal);
+        if (e.signal.aborted) throw new Error('Interrupted.');
+        pythonReceipt = {
+          profileDigest: toolchainProfileDigest(m.python),
+          tools: toolchain.flatMap((observed) => (observed.identity ? [observed.identity] : [])),
+        };
+        const refused = toolchain.find((observed) => observed.problem);
+        if (refused?.problem)
+          throw new Error(
+            `The configured Python toolchain cannot be used (${refused.tool} ${refused.path}): ${refused.problem.message}. The operator's toolchains.json names it; Tools on the Repositories page shows each tool.`,
+          );
+      }
       // A program with a path is the repository's own, from the reviewed commit.
       if (command.includes('/')) command = join(snapshot, command);
       cwd = snapshot;
@@ -2518,6 +2574,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
                     `${e.unitName}-metadata`,
                     snapshot!,
                     330,
+                    limits,
                     writable,
                     environment,
                     [metadataCargo, ...metadataArguments(manifestPath)],
@@ -2595,6 +2652,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           e.unitName,
           cwd,
           remaining / 1000 + 30,
+          limits,
           writable,
           environment,
           [command, ...actual],
@@ -2705,6 +2763,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     exitCode: success ? 0 : 1,
     diagnostic,
     logBytes,
+    ...(toolchain ? { toolchain } : {}),
     receipt: {
       kind: act ? 'local-ci' : native ? 'native-check' : 'scoped-check',
       ...(native && pinned?.nativeVerification
@@ -2731,6 +2790,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
             },
           }
         : {}),
+      ...(pythonReceipt ? { python: pythonReceipt } : {}),
       success,
       exitCode: code,
       diagnostic,

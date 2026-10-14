@@ -89,6 +89,7 @@ vi.mock('../lib/execution-api.js', async (original) => ({
     git: { available: true },
     backends: [],
     outsideSources: [],
+    toolchains: { limits: { memoryMax: '8G', tasksMax: 1024 }, tools: [] },
   })),
   loadRunProfiles: vi.fn(async () => ({ profiles: [] })),
   saveRunProfiles: vi.fn(async () => ({ profiles: [] })),
@@ -97,6 +98,7 @@ vi.mock('../lib/execution-api.js', async (original) => ({
     git: { available: true },
     backends: [],
     outsideSources: [],
+    toolchains: { limits: { memoryMax: '8G', tasksMax: 1024 }, tools: [] },
     refreshed: true,
   })),
   // A work item page's region in one read (R-D5).
@@ -304,7 +306,13 @@ it('sets the execution status the refresh answered with after "Refresh models" (
   expect(vi.mocked(store.set).mock.calls).toEqual([
     [
       queryKeys.executionStatus(),
-      { git: { available: true }, backends: [], outsideSources: [], refreshed: true },
+      {
+        git: { available: true },
+        backends: [],
+        outsideSources: [],
+        toolchains: { limits: { memoryMax: '8G', tasksMax: 1024 }, tools: [] },
+        refreshed: true,
+      },
     ],
   ]);
 });

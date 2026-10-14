@@ -13,7 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { confinedCheckArguments } from '@craftingtable/agents';
+import { confinedCheckArguments, DEFAULT_CHECK_UNIT_LIMITS } from '@craftingtable/agents';
 import { afterEach, expect, inject, it } from 'vitest';
 import {
   migratedTemplate,
@@ -172,6 +172,7 @@ function confinedCheck(worktree: string, runDirectory: string, script: string) {
       unit,
       worktree,
       60,
+      DEFAULT_CHECK_UNIT_LIMITS,
       [worktree, runDirectory],
       { PATH: '/usr/bin:/bin' },
       ['/bin/sh', '-c', script],

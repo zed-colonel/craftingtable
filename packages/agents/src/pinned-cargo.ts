@@ -53,6 +53,12 @@ export interface CheckManifest {
    * adopted checks then run the commit's managed toolchain; without it they run with none.
    */
   readonly cargoExecutable?: string;
+  /**
+   * The operator's Python profile (R-G17, `toolchains.json`), when one is configured. An adopted
+   * check of a reviewed commit with a root `uv.lock` re-reads its tools and gets Python; any
+   * other check ignores it.
+   */
+  readonly python?: import('./toolchains.js').PythonToolchain;
 }
 
 /**

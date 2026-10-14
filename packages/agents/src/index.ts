@@ -35,6 +35,16 @@ export {
   cargoManifestDigest,
 } from './pinned-cargo.js';
 export {
+  type CheckUnitLimits,
+  DEFAULT_CHECK_UNIT_LIMITS,
+  observeToolchain,
+  type PythonToolchain,
+  type ToolchainSettings,
+  type ToolIdentity,
+  type ToolObservation,
+  trustedFileProblem,
+} from './toolchains.js';
+export {
   cargoOutsideSource,
   OUTSIDE_SOURCE_HOSTS,
   outsideSourcesNote,

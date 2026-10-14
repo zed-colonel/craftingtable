@@ -207,6 +207,29 @@ export const OUTSIDE_SOURCE_KINDS = ['cargo'] as const;
 export type OutsideSourceKind = (typeof OUTSIDE_SOURCE_KINDS)[number];
 
 /**
+ * The tools a toolchain profile names (R-G17, `toolchains.json`): the Python interpreter, uv,
+ * and the media tools and font files the operator lists, each recorded by identity.
+ */
+export const TOOLCHAIN_TOOLS = ['python', 'uv', 'ffmpeg', 'ffprobe', 'font'] as const;
+export type ToolchainTool = (typeof TOOLCHAIN_TOOLS)[number];
+
+/**
+ * Why a configured tool cannot be used (R-G17 decision 5): it is gone or not a regular file, it
+ * or a directory above it is a link, is not owned by root or is writable by group or others, it
+ * no longer fits its configured version, or its fixed probe failed.
+ */
+export const TOOL_PROBLEM_CODES = [
+  'missing',
+  'not-regular',
+  'linked',
+  'untrusted-owner',
+  'writable',
+  'version-mismatch',
+  'probe-failed',
+] as const;
+export type ToolProblemCode = (typeof TOOL_PROBLEM_CODES)[number];
+
+/**
  * How the backend session was paid for, as reported by the backend itself.
  * When available, subscription cost is an estimate rather than a bill.
  * Some backends or accounts do not report dollar usage.

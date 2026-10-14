@@ -10,11 +10,13 @@ import {
   executeCheck,
   pendingCheckRequests,
   stopCheckUnits,
+  type ToolchainSettings,
   type VerificationManifest,
 } from '@craftingtable/agents';
 import { type AgentRunId, isTerminalAgentRunStatus, type WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { CrateChecksumAuthority } from './crate-checksums.js';
+import type { ToolchainService } from './toolchain-service.js';
 
 /**
  * One act run per workflow and Docker host at a time (LIVE-03). act names its containers after
@@ -214,6 +216,8 @@ export class CheckRequestService {
       readonly cargoHome: string;
       readonly runsRoot: string;
       readonly worktreeRoot: string;
+      /** The caps every check unit gets (R-G17 decision 7); the defaults without them. */
+      readonly toolchains?: Pick<ToolchainSettings, 'limits'>;
     },
     private readonly log: {
       warn(message: string, fields?: Record<string, unknown>): void;
@@ -225,6 +229,13 @@ export class CheckRequestService {
   ) {
     const instance = createHash('sha256').update(config.checkLogRoot).digest('hex').slice(0, 12);
     this.unitPrefix = `craftingtable-check-${instance}-`;
+  }
+
+  /** Where a Python check's re-read of its tools goes, for Tools (R-G17 decision 5). */
+  private toolchains: Pick<ToolchainService, 'record'> | undefined;
+
+  attachToolchains(toolchains: Pick<ToolchainService, 'record'>): void {
+    this.toolchains = toolchains;
   }
 
   /**
@@ -536,7 +547,9 @@ export class CheckRequestService {
         ...(this.checksums ? { crateRegistry: this.checksums } : {}),
         cargoHomeDirectory: join(this.config.checkLogRoot, context.runId, `cargo-home-${slot}`),
         hiddenRoots: checkHiddenRoots(this.config),
+        ...(this.config.toolchains ? { unitLimits: this.config.toolchains.limits } : {}),
       });
+      if (outcome.toolchain) this.toolchains?.record(outcome.toolchain);
       served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);
       const recorded = this.record(context, { ...outcome.receipt, origin });
       reply.finish(

@@ -71,8 +71,13 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
   private waiter: ((value: IteratorResult<T>) => void) | undefined;
   private closed = false;
   private weight = 0;
+  private readonly onDrained: (() => void) | undefined;
 
-  constructor(private readonly onDrained?: () => void) {}
+  // A plain field, not a parameter property: launched checks load this module through
+  // `toolchains.ts`, from source, where Node strips only erasable syntax.
+  constructor(onDrained?: () => void) {
+    this.onDrained = onDrained;
+  }
 
   /** Items pushed and not yet taken by the consumer. */
   get size(): number {

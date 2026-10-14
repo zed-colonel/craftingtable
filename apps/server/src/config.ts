@@ -14,9 +14,13 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep 
 import { fileURLToPath } from 'node:url';
 import {
   cargoOutsideSource,
+  DEFAULT_CHECK_UNIT_LIMITS,
   OUTSIDE_SOURCE_HOSTS,
   type OutsideSource,
   type OutsideSourceKind,
+  type PythonToolchain,
+  type ToolchainSettings,
+  trustedFileProblem,
 } from '@craftingtable/agents';
 
 /** Worktree, run, Git, and agent-backend settings for the execution loop. */
@@ -102,6 +106,11 @@ export interface ExecutionConfig {
    * the launch and the storage checks never fall back to different defaults (stray review).
    */
   readonly outsideSources: readonly OutsideSource[];
+  /**
+   * The operator's toolchains (R-G17): from `toolchains.json` in the settings directory, read
+   * at start. A Python profile only when the file names one; the check units' caps always.
+   */
+  readonly toolchains: ToolchainSettings;
 }
 
 export interface TlsConfig {
@@ -365,7 +374,7 @@ function defaultWebDistDir(): string | undefined {
 function executionConfig(
   env: NodeJS.ProcessEnv,
   dataDir: string,
-): Omit<ExecutionConfig, 'outsideSources'> {
+): Omit<ExecutionConfig, 'outsideSources' | 'toolchains'> {
   const gitExecutable = env.CRAFTINGTABLE_GIT_EXECUTABLE;
   const claudeExecutable = env.CRAFTINGTABLE_CLAUDE_EXECUTABLE;
   const codexExecutable = env.CRAFTINGTABLE_CODEX_EXECUTABLE;
@@ -662,7 +671,7 @@ export function outsideSourceCacheProblem(
 function outsideSourcesSetting(
   configDir: string,
   dataDir: string,
-  execution: Omit<ExecutionConfig, 'outsideSources'>,
+  execution: Omit<ExecutionConfig, 'outsideSources' | 'toolchains'>,
 ): readonly OutsideSource[] {
   const file = join(configDir, OUTSIDE_SOURCES_FILE);
   const refuse: (problem: string) => never = (problem) => {
@@ -676,7 +685,7 @@ function outsideSourcesSetting(
   // Where the file lies is checked before it is read, and once.
   const located = settingsFilePlacementProblem(configDir, agentWritable);
   if (located) throw new Error(located.message);
-  const contents = readOutsideSourcesFile(file, refuse);
+  const contents = readSettingsFile(file, refuse);
   const sources =
     contents === undefined
       ? [cargoOutsideSource(execution.cargoHome)]
@@ -693,8 +702,11 @@ function outsideSourcesSetting(
   return sources;
 }
 
-/** The file's JSON, or undefined when there is none; never through a link, at most 64 KiB. */
-function readOutsideSourcesFile(file: string, refuse: (problem: string) => never): unknown {
+/**
+ * A settings file's JSON, or undefined when there is none: never through a link, never waiting
+ * on a pipe, at most 64 KiB (`outside-sources.json`, `toolchains.json`).
+ */
+function readSettingsFile(file: string, refuse: (problem: string) => never): unknown {
   let descriptor: number;
   try {
     // Non-blocking, so a pipe in its place cannot hold the start.
@@ -759,6 +771,155 @@ function parseOutsideSources(
         );
     return cargoOutsideSource(cargoHome, extraHosts as string[]);
   });
+}
+
+/**
+ * The operator's toolchains file in the settings directory (R-G17; operator decision 2026-10-13):
+ * `{ "version": 1, "python": { "interpreter", "version" }, "uv": { "path", "version" },
+ * "media": { "ffmpeg", "ffprobe", "fonts" }, "limits": { "memoryMax", "tasksMax" } }`, every
+ * part but the version optional, `python` and `uv` together. Read at start; without it, no
+ * Python profile and the default caps.
+ */
+export const TOOLCHAINS_FILE = 'toolchains.json';
+/** A version prefix: `3.12`, `0.12.22`. */
+const TOOL_VERSION = /^\d{1,4}(?:\.\d{1,4}){0,2}$/;
+const MEMORY_MAX = /^([1-9]\d{0,6})([KMG])$/;
+const MEMORY_UNITS = { K: 1024, M: 1024 ** 2, G: 1024 ** 3 } as const;
+const MEMORY_MAX_BOUNDS = [256 * 1024 ** 2, 256 * 1024 ** 3] as const;
+const TASKS_MAX_BOUNDS = [64, 65536] as const;
+const MAX_FONTS = 64;
+
+/**
+ * The toolchains the operator configured (R-G17). The file lies in the settings directory,
+ * whose placement `outsideSourcesSetting` checks first; each tool must be an absolute,
+ * normalized path to a regular file that root owns and only root may write, every directory
+ * above it too, outside the data directory and every root agents write (decision 2). The start
+ * runs no tool; the probes and each check's re-read do (decisions 4 and 5).
+ */
+function toolchainsSetting(
+  configDir: string,
+  dataDir: string,
+  execution: Omit<ExecutionConfig, 'outsideSources' | 'toolchains'>,
+): ToolchainSettings {
+  const file = join(configDir, TOOLCHAINS_FILE);
+  const refuse: (problem: string) => never = (problem) => {
+    throw new Error(`The toolchains file ${file} ${problem}`);
+  };
+  const contents = readSettingsFile(file, refuse);
+  if (contents === undefined) return { limits: DEFAULT_CHECK_UNIT_LIMITS };
+  return parseToolchains(contents, refuse, [
+    ['data directory', dataDir],
+    ['worktree root', execution.worktreeRoot],
+    ['runs root', execution.runsRoot],
+    ["agents' temporary root", execution.agentTemporaryRoot],
+  ]);
+}
+
+/** Only the keys named, each once. */
+function onlyKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  at: string,
+  refuse: (problem: string) => never,
+): void {
+  for (const key of Object.keys(value))
+    if (!keys.includes(key)) refuse(`${at}has an unknown key ${JSON.stringify(key)}`);
+}
+
+function parseToolchains(
+  value: unknown,
+  refuse: (problem: string) => never,
+  forbidden: readonly LabelledRoot[],
+): ToolchainSettings {
+  if (!isJsonObject(value)) refuse('must hold a JSON object');
+  onlyKeys(value, ['version', 'python', 'uv', 'media', 'limits'], '', refuse);
+  if (value.version !== 1) refuse('must say "version": 1');
+  /** A tool's path, held to the rule and kept apart from every root the daemon or agents write. */
+  const toolPath = (path: unknown, at: string): string => {
+    if (typeof path !== 'string' || !isAbsolute(path) || path.length > 4096)
+      refuse(`${at} must be an absolute path`);
+    const problem = trustedFileProblem(path);
+    if (problem) refuse(`${at}: ${problem.message}`);
+    const compared = comparedPath(path);
+    for (const [label, root] of forbidden)
+      if (equalOrWithinCompared(compared, comparedPath(root)))
+        refuse(`${at} ${path} must lie outside the ${label}`);
+    return path;
+  };
+  const version = (entry: Record<string, unknown>, at: string): string => {
+    const configured = entry.version;
+    if (typeof configured !== 'string' || !TOOL_VERSION.test(configured))
+      refuse(`${at} must name its "version" as numbers and dots, such as "3.12"`);
+    return configured;
+  };
+  if ('python' in value !== 'uv' in value)
+    refuse('must name "python" and "uv" together: a Python check builds its environment with uv');
+  if ('media' in value && !('python' in value))
+    refuse('lists "media", which is recorded with "python": name the Python profile too');
+  let python: PythonToolchain | undefined;
+  if ('python' in value) {
+    const entry = value.python;
+    const uvEntry = value.uv;
+    if (!isJsonObject(entry)) refuse('"python" must be a JSON object');
+    if (!isJsonObject(uvEntry)) refuse('"uv" must be a JSON object');
+    onlyKeys(entry, ['interpreter', 'version'], '"python" ', refuse);
+    onlyKeys(uvEntry, ['path', 'version'], '"uv" ', refuse);
+    const media = value.media;
+    let parsedMedia: PythonToolchain['media'];
+    if (media !== undefined) {
+      if (!isJsonObject(media)) refuse('"media" must be a JSON object');
+      onlyKeys(media, ['ffmpeg', 'ffprobe', 'fonts'], '"media" ', refuse);
+      const fonts = media.fonts;
+      if (fonts !== undefined && !Array.isArray(fonts))
+        refuse('"media"\'s "fonts" must be a list of file paths');
+      if (Array.isArray(fonts) && fonts.length > MAX_FONTS)
+        refuse(`"media"'s "fonts" may list at most ${MAX_FONTS} files`);
+      parsedMedia = {
+        ...(media.ffmpeg === undefined
+          ? {}
+          : { ffmpeg: toolPath(media.ffmpeg, '"media"\'s "ffmpeg"') }),
+        ...(media.ffprobe === undefined
+          ? {}
+          : { ffprobe: toolPath(media.ffprobe, '"media"\'s "ffprobe"') }),
+        ...(Array.isArray(fonts)
+          ? { fonts: fonts.map((font, index) => toolPath(font, `"media"'s font ${index + 1}`)) }
+          : {}),
+      };
+    }
+    python = {
+      interpreter: toolPath(entry.interpreter, '"python"\'s "interpreter"'),
+      version: version(entry, '"python"'),
+      uv: { path: toolPath(uvEntry.path, '"uv"\'s "path"'), version: version(uvEntry, '"uv"') },
+      ...(parsedMedia ? { media: parsedMedia } : {}),
+    };
+  }
+  const limits = { ...DEFAULT_CHECK_UNIT_LIMITS };
+  if (value.limits !== undefined) {
+    const entry = value.limits;
+    if (!isJsonObject(entry)) refuse('"limits" must be a JSON object');
+    onlyKeys(entry, ['memoryMax', 'tasksMax'], '"limits" ', refuse);
+    if (entry.memoryMax !== undefined) {
+      const match = typeof entry.memoryMax === 'string' ? MEMORY_MAX.exec(entry.memoryMax) : null;
+      const bytes = match
+        ? Number(match[1]) * MEMORY_UNITS[match[2] as keyof typeof MEMORY_UNITS]
+        : Number.NaN;
+      if (!(bytes >= MEMORY_MAX_BOUNDS[0] && bytes <= MEMORY_MAX_BOUNDS[1]))
+        refuse('"limits"\'s "memoryMax" must be a size with K, M or G, from 256M to 256G');
+      limits.memoryMax = entry.memoryMax as string;
+    }
+    if (entry.tasksMax !== undefined) {
+      const tasks = entry.tasksMax;
+      if (
+        typeof tasks !== 'number' ||
+        !Number.isInteger(tasks) ||
+        tasks < TASKS_MAX_BOUNDS[0] ||
+        tasks > TASKS_MAX_BOUNDS[1]
+      )
+        refuse('"limits"\'s "tasksMax" must be a whole number from 64 to 65536');
+      limits.tasksMax = tasks;
+    }
+  }
+  return { ...(python ? { python } : {}), limits: Object.freeze(limits) };
 }
 
 /**
@@ -881,9 +1042,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
   const dataDir = dataDirectory(env);
   const configDir = configDirectory(env);
   const roots = executionConfig(env, dataDir);
+  const outsideSources = outsideSourcesSetting(configDir, dataDir, roots);
   const execution: ExecutionConfig = Object.freeze({
     ...roots,
-    outsideSources: outsideSourcesSetting(configDir, dataDir, roots),
+    outsideSources,
+    toolchains: toolchainsSetting(configDir, dataDir, roots),
     processRecordRoot: join(dataDir, DATABASE_DIRECTORY, 'processes'),
     protectedReads: [
       join(dataDir, DATABASE_DIRECTORY),

@@ -37,6 +37,7 @@ vi.mock('../../lib/execution-api.js', () => ({
     backends: [],
     git: { available: true },
     outsideSources: [],
+    toolchains: { limits: { memoryMax: '8G', tasksMax: 1024 }, tools: [] },
   })),
   loadRunProfiles: vi.fn(async () => ({ profiles: [] })),
 }));

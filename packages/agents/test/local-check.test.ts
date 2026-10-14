@@ -42,6 +42,7 @@ import {
   type PinnedCargoManifest,
   prepareCargoLauncher,
 } from '../src/pinned-cargo.js';
+import { DEFAULT_CHECK_UNIT_LIMITS } from '../src/toolchains.js';
 import { withinHangGuard } from './test-time.js';
 import {
   asConcurrencyDefinitionId,
@@ -559,6 +560,63 @@ itConfines(
   },
 );
 
+it('caps every check unit in memory, swap and tasks (R-G17 decision 7)', () => {
+  const args = confinedCheckArguments(
+    'unit',
+    '/work',
+    60,
+    { memoryMax: '2G', tasksMax: 300 },
+    [],
+    {},
+    ['true'],
+  );
+  expect(args).toContain('MemoryMax=2G');
+  expect(args).toContain('MemorySwapMax=0');
+  expect(args).toContain('TasksMax=300');
+  // The defaults: 8 GB as the native unit, and 16 times WorldInterface's heaviest adopted check
+  // (64 tasks at 8d25c1f on this workstation's 16 cores).
+  expect(DEFAULT_CHECK_UNIT_LIMITS).toEqual({ memoryMax: '8G', tasksMax: 1024 });
+});
+
+itConfines(
+  'a confined check runs under the configured caps, and under the defaults without them (R-G17 decision 7)',
+  async () => {
+    const f = fixture();
+    const cgroup = (name: string) => `cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/${name}`;
+    const limits = async (unitLimits?: { memoryMax: string; tasksMax: number }) => {
+      let output = '';
+      const outcome = await executeCheck({
+        tool: 'ct-check',
+        privateDirectory: join(f.root, `private-${randomUUID()}`),
+        manifestPath: f.launcher.manifestPath,
+        manifestDigest: f.launcher.manifestDigest,
+        manifest: f.launcher.manifest,
+        args: [
+          '--',
+          '/bin/sh',
+          '-c',
+          `echo tasks=$(${cgroup('pids.max')}) memory=$(${cgroup('memory.max')}) swap=$(${cgroup('memory.swap.max')})`,
+        ],
+        logPath: join(f.root, 'daemon-logs', `${randomUUID()}.log`),
+        logReference: 'check-logs/run/caps.log',
+        confinement: 'systemd',
+        unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
+        writablePaths: [f.m.workspacePath],
+        environment: { PATH: '/usr/bin:/bin' },
+        onOutput: (text) => (output += text),
+        signal: new AbortController().signal,
+        ...(unitLimits ? { unitLimits } : {}),
+      });
+      expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+      return output.trim();
+    };
+    expect(await limits({ memoryMax: '1G', tasksMax: 77 })).toBe(
+      'tasks=77 memory=1073741824 swap=0',
+    );
+    expect(await limits()).toBe(`tasks=1024 memory=${8 * 1024 ** 3} swap=0`);
+  },
+);
+
 itConfines('stops a confined check and its unit when the daemon cancels it (R-G4)', async () => {
   const f = fixture();
   const unitName = `craftingtable-check-test-${process.pid}-${Date.now()}`;
@@ -1029,6 +1087,7 @@ it("a declared check unit sees none of the run's writable roots or the shared Ca
     'unit',
     clone,
     60,
+    DEFAULT_CHECK_UNIT_LIMITS,
     unit.writable,
     unit.environment,
     ['true'],
@@ -1050,6 +1109,7 @@ it("a declared check unit sees none of the run's writable roots or the shared Ca
     'unit',
     clone,
     60,
+    DEFAULT_CHECK_UNIT_LIMITS,
     unit.writable,
     unit.environment,
     ['true'],
@@ -2369,6 +2429,7 @@ it("keeps local CI's Docker socket, and nothing else, of the user's runtime dire
       'unit',
       '/work',
       60,
+      DEFAULT_CHECK_UNIT_LIMITS,
       [],
       {},
       ['true'],
@@ -2424,6 +2485,7 @@ itConfines(
           `craftingtable-check-test-${process.pid}-${Date.now()}`,
           '/',
           60,
+          DEFAULT_CHECK_UNIT_LIMITS,
           [],
           { PATH: process.env.PATH ?? '/usr/bin' },
           ['sh', '-c', `ls -A ${runtime}; ${probe(docker, 'docker')}; ${probe(other, 'other')}`],

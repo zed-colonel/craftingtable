@@ -15,6 +15,8 @@ import {
   OUTSIDE_SOURCE_KINDS,
   type RepositoryCheckDeclarationId,
   SOURCE_REPOSITORY_STATUSES,
+  TOOL_PROBLEM_CODES,
+  TOOLCHAIN_TOOLS,
   WORKTREE_STATUSES,
 } from '@craftingtable/domain';
 import { z } from 'zod';
@@ -84,6 +86,70 @@ const modelCatalogStatusSchema = z.strictObject({
   issue: z.enum(MODEL_CATALOG_ISSUES).optional(),
 });
 
+const toolPathSchema = z.string().min(1).max(4096);
+const toolVersionSchema = z.string().min(1).max(64);
+
+/**
+ * The configured toolchain (R-G17): the check units' caps, the Python profile as
+ * `toolchains.json` names it, and each tool as the daemon last read it, with what changed and
+ * when since it started.
+ */
+const toolchainStatusSchema = z.strictObject({
+  limits: z.strictObject({
+    memoryMax: z.string().min(1).max(16),
+    tasksMax: z.number().int().min(1).max(1_000_000),
+  }),
+  python: z
+    .strictObject({
+      interpreter: toolPathSchema,
+      version: toolVersionSchema,
+      uv: z.strictObject({ path: toolPathSchema, version: toolVersionSchema }),
+      media: z
+        .strictObject({
+          ffmpeg: toolPathSchema.optional(),
+          ffprobe: toolPathSchema.optional(),
+          fonts: z.array(toolPathSchema).max(64).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  tools: z
+    .array(
+      z.strictObject({
+        tool: z.enum(TOOLCHAIN_TOOLS),
+        path: toolPathSchema,
+        configuredVersion: toolVersionSchema.optional(),
+        identity: z
+          .strictObject({
+            tool: z.enum(TOOLCHAIN_TOOLS),
+            path: toolPathSchema,
+            uid: z.number().int().min(0),
+            mode: z.string().regex(/^0[0-7]{3}$/),
+            size: z.number().int().min(0),
+            sha256: z.string().regex(/^[0-9a-f]{64}$/),
+            version: toolVersionSchema.optional(),
+            platform: z.string().min(1).max(64).optional(),
+            libc: z.string().min(1).max(64).optional(),
+          })
+          .optional(),
+        problem: z
+          .strictObject({ code: z.enum(TOOL_PROBLEM_CODES), message: z.string().min(1).max(8192) })
+          .optional(),
+        checkedAt: z.iso.datetime().optional(),
+        changes: z
+          .array(
+            z.strictObject({
+              at: z.iso.datetime(),
+              from: z.string().min(1).max(300),
+              to: z.string().min(1).max(300),
+            }),
+          )
+          .max(20),
+      }),
+    )
+    .max(80),
+});
+
 export const executionStatusResponseSchema = z.strictObject({
   git: z.strictObject({
     available: z.boolean(),
@@ -116,6 +182,7 @@ export const executionStatusResponseSchema = z.strictObject({
       }),
     )
     .max(16),
+  toolchains: toolchainStatusSchema,
 });
 
 /** "Refresh models" (R-G15): no input; the answer is the execution status. */

@@ -146,3 +146,57 @@ export function modelCatalogSummary(backend: ExecutionStatusResponse['backends']
   const read = listedAt === undefined ? '' : `, read ${new Date(listedAt).toLocaleString()}`;
   return `${count} from its catalog${read}${problem}`;
 }
+
+type ToolchainStatus = ExecutionStatusResponse['toolchains'];
+
+/** Each configured tool's name on Tools (R-G17). */
+export const TOOL_LABELS: Readonly<Record<ToolchainStatus['tools'][number]['tool'], string>> = {
+  python: 'Python',
+  uv: 'uv',
+  ffmpeg: 'FFmpeg',
+  ffprobe: 'ffprobe',
+  font: 'Font',
+};
+
+/** One tool's identity in a line, or why it is refused (R-G17 decisions 4 and 5). */
+function toolSummary(tool: ToolchainStatus['tools'][number]): string {
+  if (tool.problem && tool.problem.code !== 'version-mismatch')
+    return `Refused: ${tool.problem.message}`;
+  const identity = tool.identity;
+  if (!identity) return tool.problem ? `Refused: ${tool.problem.message}` : 'Not read yet';
+  const version =
+    identity.version === undefined
+      ? []
+      : [
+          tool.configuredVersion === undefined
+            ? identity.version
+            : `${identity.version} (${tool.problem ? 'does not fit' : 'fits'} ${tool.configuredVersion})`,
+        ];
+  const host = [identity.platform, identity.libc].filter(Boolean).join(', ');
+  return [
+    tool.path,
+    ...version,
+    ...(host ? [host] : []),
+    `sha256 ${identity.sha256.slice(0, 12)}…`,
+  ].join(' · ');
+}
+
+/** The toolchain's facts on Tools: the caps, then each configured tool (R-G17). */
+export function toolchainFacts(
+  status: ToolchainStatus,
+): { label: string; value: string; mono?: boolean }[] {
+  let fonts = 0;
+  return [
+    {
+      label: 'Check units',
+      value: `${status.limits.memoryMax} memory, ${status.limits.tasksMax} tasks per check`,
+    },
+    ...(status.python === undefined
+      ? [{ label: 'Python', value: 'Not configured: checks get no Python' }]
+      : status.tools.map((tool) => ({
+          label: tool.tool === 'font' ? `Font ${++fonts}` : TOOL_LABELS[tool.tool],
+          value: toolSummary(tool),
+          mono: tool.identity !== undefined && tool.problem === undefined,
+        }))),
+  ];
+}

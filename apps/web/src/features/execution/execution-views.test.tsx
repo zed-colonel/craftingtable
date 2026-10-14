@@ -117,6 +117,7 @@ describe('RepositoriesPage', () => {
         status={{
           git: { available: true, executable: '/usr/bin/git' },
           outsideSources: [],
+          toolchains: { limits: { memoryMax: '8G', tasksMax: 1024 }, tools: [] },
           backends: [
             {
               kind: 'claude-code',
@@ -154,6 +155,7 @@ describe('RepositoriesPage', () => {
         status={{
           git: { available: true, executable: '/usr/bin/git' },
           outsideSources: [],
+          toolchains: { limits: { memoryMax: '8G', tasksMax: 1024 }, tools: [] },
           backends: [
             {
               kind: 'claude-code',
@@ -201,6 +203,7 @@ describe('RepositoriesPage', () => {
       git: { available: true, executable: '/usr/bin/git' },
       backends: [],
       outsideSources,
+      toolchains: { limits: { memoryMax: '8G', tasksMax: 1024 }, tools: [] },
     });
     const { rerender } = render(
       <RepositoriesPage
@@ -247,6 +250,111 @@ describe('RepositoriesPage', () => {
         'None: sandboxed commands reach no network',
       ),
     ).toBeDefined();
+  });
+});
+
+describe('Tools: the configured toolchain (R-G17)', () => {
+  const sha = (c: string) => c.repeat(64);
+  const toolchains = {
+    limits: { memoryMax: '8G', tasksMax: 1024 },
+    python: {
+      interpreter: '/opt/ct/python/bin/python3.12',
+      version: '3.12',
+      uv: { path: '/opt/ct/bin/uv', version: '0.12' },
+      media: { fonts: ['/usr/share/fonts/dejavu.ttf'] },
+    },
+    tools: [
+      {
+        tool: 'python' as const,
+        path: '/opt/ct/python/bin/python3.12',
+        configuredVersion: '3.12',
+        identity: {
+          tool: 'python' as const,
+          path: '/opt/ct/python/bin/python3.12',
+          uid: 0,
+          mode: '0755',
+          size: 1,
+          sha256: sha('a'),
+          version: '3.12.16',
+          platform: 'linux-x86_64',
+          libc: 'glibc 2.44',
+        },
+        checkedAt: '2026-10-14T09:30:00.000Z',
+        changes: [
+          {
+            at: '2026-10-14T09:30:00.000Z',
+            from: `version 3.12.15, sha256 ${'b'.repeat(12)}…, owner 0, mode 0755`,
+            to: `version 3.12.16, sha256 ${'a'.repeat(12)}…, owner 0, mode 0755`,
+          },
+        ],
+      },
+      {
+        tool: 'uv' as const,
+        path: '/opt/ct/bin/uv',
+        configuredVersion: '0.12',
+        problem: {
+          code: 'untrusted-owner' as const,
+          message: '/opt/ct/bin/uv is not owned by root',
+        },
+        checkedAt: '2026-10-14T09:31:00.000Z',
+        changes: [],
+      },
+      {
+        tool: 'font' as const,
+        path: '/usr/share/fonts/dejavu.ttf',
+        identity: {
+          tool: 'font' as const,
+          path: '/usr/share/fonts/dejavu.ttf',
+          uid: 0,
+          mode: '0644',
+          size: 1,
+          sha256: sha('c'),
+        },
+        changes: [],
+      },
+    ],
+  };
+  const page = (status: ExecutionStatusResponse['toolchains']) =>
+    render(
+      <RepositoriesPage
+        repositories={[]}
+        status={{ git: { available: true }, backends: [], outsideSources: [], toolchains: status }}
+        canMutate={true}
+        busy={false}
+        onRegister={vi.fn()}
+        onRetire={vi.fn()}
+      />,
+    );
+
+  it("shows each tool's identity, a refused tool's reason, what changed and when, and the caps", () => {
+    page(toolchains);
+    const strip = screen.getByLabelText('Toolchain');
+    expect(within(strip).getByText('8G memory, 1024 tasks per check')).toBeDefined();
+    expect(
+      within(strip).getByText(
+        `/opt/ct/python/bin/python3.12 · 3.12.16 (fits 3.12) · linux-x86_64, glibc 2.44 · sha256 ${'a'.repeat(12)}…`,
+      ),
+    ).toBeDefined();
+    expect(within(strip).getByText('Refused: /opt/ct/bin/uv is not owned by root')).toBeDefined();
+    expect(
+      within(strip).getByText(`/usr/share/fonts/dejavu.ttf · sha256 ${'c'.repeat(12)}…`),
+    ).toBeDefined();
+    const changes = screen.getByRole('list', { name: 'Toolchain changes' });
+    expect(changes.textContent).toContain('Python /opt/ct/python/bin/python3.12');
+    expect(changes.textContent).toContain('version 3.12.15');
+    expect(changes.textContent).toContain('version 3.12.16');
+    // Where it is set, and the rule.
+    const about = screen.getByText(/toolchains\.json/).closest('p');
+    expect(about?.textContent).toContain('applied when the daemon restarts');
+    expect(about?.textContent).toContain('owned by root');
+  });
+
+  it('says a check gets no Python when no profile is configured, and still shows the caps', () => {
+    page({ limits: { memoryMax: '6G', tasksMax: 2048 }, tools: [] });
+    const strip = screen.getByLabelText('Toolchain');
+    expect(within(strip).getByText('6G memory, 2048 tasks per check')).toBeDefined();
+    expect(within(strip).getByText('Not configured: checks get no Python')).toBeDefined();
+    expect(screen.queryByRole('list', { name: 'Toolchain changes' })).toBeNull();
   });
 });
 

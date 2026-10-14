@@ -65,6 +65,7 @@ function setup(
     ],
     git: { available: true },
     outsideSources: [],
+    toolchains: { limits: { memoryMax: '8G', tasksMax: 1024 }, tools: [] },
   });
   vi.mocked(loadRunProfiles).mockResolvedValue({
     profiles: ['design', 'implement', 'review'].map((role) => ({

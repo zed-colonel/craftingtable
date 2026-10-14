@@ -211,6 +211,8 @@ export interface ExecutionStatus {
   }[];
   /** The outside sources sandboxed agent commands may reach, as read at start (R-G14). */
   readonly outsideSources: readonly import('@craftingtable/agents').OutsideSource[];
+  /** The check units' caps and the Python profile's tools as last read (R-G17). */
+  readonly toolchains: import('./toolchain-service.js').ToolchainStatus;
 }
 
 /**

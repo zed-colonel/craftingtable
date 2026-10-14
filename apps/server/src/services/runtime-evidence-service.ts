@@ -74,6 +74,7 @@ import {
   observeRustToolchain,
   type CheckOnlyManifest,
   type PinnedCargoManifest,
+  type PythonToolchain,
 } from '@craftingtable/agents';
 import {
   type ApplyRuntimeRefresh,
@@ -262,6 +263,11 @@ export class RuntimeEvidenceService {
     private readonly notifier: WorkspaceEventNotifier,
     private readonly git: GitOperations | undefined,
     private readonly now: () => Date = () => new Date(),
+    /**
+     * The operator's Python profile (R-G17), written into every manifest: an adopted check of a
+     * reviewed commit with a root `uv.lock` uses it, any other check ignores it.
+     */
+    private readonly python?: PythonToolchain,
   ) {}
   /**
    * A worktree's Git directories for its run's checks, resolved before the agent starts and taken
@@ -2633,6 +2639,7 @@ export class RuntimeEvidenceService {
       runtimeId: runtime.id,
       runId,
       cargoExecutable,
+      ...(this.python ? { python: this.python } : {}),
       workspacePath: tree.path,
       targetDirectory: join(runDirectory, 'scratch', 'target'),
       packages: supplied,
@@ -2744,6 +2751,7 @@ export class RuntimeEvidenceService {
       checkTimeoutMs: Math.min(30 * 60000, (cycle?.policy.maxRunMinutes ?? 30) * 60000),
       declaredChecks: manifestDeclaredChecks(declaration),
       ...(cargoExecutable ? { cargoExecutable } : {}),
+      ...(this.python ? { python: this.python } : {}),
     };
     const directory = join(runDirectory, 'checks');
     // The launcher only asks the daemon, which runs the check and records the receipt (R-G4).

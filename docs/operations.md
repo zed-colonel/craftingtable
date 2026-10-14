@@ -30,7 +30,8 @@ git-identity.gitconfig         the operator's user.name and user.email, for daem
 The **settings directory** is `CRAFTINGTABLE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/craftingtable`,
 else `~/.config/craftingtable`. It holds `credentials.json` (Pushover tokens, mode 0600 in a 0700
 directory), the optional `outside-sources.json` (see [Agents on the
-workstation](#agents-on-the-workstation)), and by convention the unit's environment file, `env`. A
+workstation](#agents-on-the-workstation)), the optional `toolchains.json` (see
+[Checks](#checks)), and by convention the unit's environment file, `env`. A
 development daemon uses `craftingtable-dev` in place of `craftingtable` for both directories.
 
 The worktree, runs and backup roots are storage settings: the environment seeds the first two at
@@ -336,6 +337,49 @@ previous daemon left.
   rustup), each check runs the checked commit's rustup-managed toolchain, with automatic installs
   off: install the toolchains a repository pins, or its checks fail saying so. A shim script in
   front of rustup is treated as a directly installed Cargo.
+- **Caps.** Every check unit is capped at 8 GB of memory, no swap, and 1024 tasks (threads
+  count), unless `toolchains.json` sets `limits` (below). A check that needs more fails as the
+  kernel refuses it: raise the cap and restart.
+- **Python toolchain** ([ADR-074](decisions/ADR-074-python-toolchains-and-pypi-wheels.md)). A
+  repository whose reviewed commit has a root `uv.lock` gets the Python profile in its adopted
+  checks. Install the toolchain as root, so agents, which run as your account, cannot change it:
+
+  ```sh
+  # uv: the official release, checked against its published SHA-256
+  sudo install -D -o root -g root -m 0755 ./uv /opt/craftingtable/bin/uv
+  # CPython, installed by that uv
+  sudo /opt/craftingtable/bin/uv python install 3.12.15 --install-dir /opt/craftingtable/python --no-bin
+  ```
+
+  Then name them in `toolchains.json` in the settings directory and restart:
+
+  ```json
+  {
+    "version": 1,
+    "python": {
+      "interpreter": "/opt/craftingtable/python/cpython-3.12.15-linux-x86_64-gnu/bin/python3.12",
+      "version": "3.12"
+    },
+    "uv": { "path": "/opt/craftingtable/bin/uv", "version": "0.12" },
+    "media": { "ffmpeg": "/usr/bin/ffmpeg", "ffprobe": "/usr/bin/ffprobe", "fonts": [] },
+    "limits": { "memoryMax": "8G", "tasksMax": 1024 }
+  }
+  ```
+
+  - Every part but `version` is optional; `python` and `uv` go together, and `media` needs them.
+    No file means no Python profile and the default caps.
+  - Each path must be the file itself (no link, so not the `cpython-3.12-…` alias), a regular
+    file that root owns and only root may write, every directory above it too, outside the data
+    directory and every root agents write. `version` is a prefix the tool's version must fit:
+    `"3.12"` takes any 3.12.x. `memoryMax` takes K, M or G, from 256M to 256G; `tasksMax` 64 to
+    65536.
+  - An invalid file (bad JSON, an unknown key, a tool that breaks the rule, a bad cap, a link or
+    non-regular file, over 64 KiB) stops the start, naming the problem. The start runs no tool.
+  - Tools on the workstation shows each tool's path, version, owner, mode and SHA-256 as the
+    start's probe and the latest check read them, and what changed and when since the start.
+    Every Python check reads them again: a tool that is missing, no longer root-owned, writable by
+    others or no longer fits its version refuses the check, naming it; an update that still fits
+    is recorded there and in the receipt, and needs no restart.
 - **Local CI** (`ct-act`) needs `CRAFTINGTABLE_ACT_CONFIG`, a private JSON file naming act, Docker,
   a local Docker socket, a cache root and an image pinned by digest; see
   [`scripts/local-ci/README.md`](../scripts/local-ci/README.md). **Native verification** and Kata

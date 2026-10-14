@@ -41,6 +41,7 @@ import { ExecutionService, type ExecutionStatus } from './services/execution-ser
 import { FinalizationService } from './services/finalization-service.js';
 import { HostSchedulingService } from './services/host-scheduling-service.js';
 import { MapAmendmentService } from './services/map-amendment-service.js';
+import { ToolchainService } from './services/toolchain-service.js';
 import { ModelCatalogService } from './services/model-catalog-service.js';
 import { ControllerPasses, OperatorPresence } from './services/attention-gates.js';
 import { AttentionProjector } from './services/attention-projector.js';
@@ -112,6 +113,8 @@ export interface ServiceSet {
   readonly pageViews: PageViews;
   /** Each backend's model catalog, read again at start, about hourly and on request (R-G15). */
   readonly modelCatalogService: ModelCatalogService;
+  /** The configured toolchain's identities: probed at start, re-read by Python checks (R-G17). */
+  readonly toolchainService: ToolchainService;
   readonly daemonDrain: DaemonDrain;
 }
 
@@ -287,6 +290,7 @@ export async function createServices(
     notifier,
     gitOperations,
     now,
+    config.execution.toolchains.python,
   );
   const repositoryChecksService = new RepositoryChecksService(
     storage,
@@ -334,6 +338,13 @@ export async function createServices(
     overrides.crateChecksums ?? new CratesIoChecksums(join(config.dataDir, 'crates-io')),
   );
   checkRequests.stopLeftoverUnits();
+  const toolchainService = new ToolchainService(
+    config.execution.toolchains,
+    undefined,
+    now,
+    overrides.runLog,
+  );
+  checkRequests.attachToolchains(toolchainService);
   agentRunService.attachChecks(checkRequests);
   if (gitOperations) agentRunService.attachRefWatch(refWatch, gitOperations);
   storage.transaction((tx) => {
@@ -424,6 +435,7 @@ export async function createServices(
       };
     }),
     outsideSources: config.execution.outsideSources,
+    toolchains: toolchainService.status(),
   });
   return {
     crossProjectService,
@@ -519,6 +531,7 @@ export async function createServices(
       executionStatus,
     ),
     modelCatalogService: new ModelCatalogService(backends, overrides.runLog),
+    toolchainService,
     daemonDrain: new DaemonDrain(
       storage,
       agentRunService,
@@ -599,6 +612,8 @@ export async function createDaemon(
   // A daemon reads its CLIs' model catalogs now and about hourly (R-G15); a replay, built from
   // the services alone, keeps the lists it starts with.
   services.modelCatalogService.start();
+  // And probes the configured toolchain once, without waiting (R-G17); checks re-read it.
+  void services.toolchainService.refresh();
   let closed = false;
   return {
     app,

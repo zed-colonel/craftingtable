@@ -215,14 +215,16 @@ historical baseline's Cargo home, a pinned local-CI cache root, the worktree's s
 target). In
 the repository's Git directory they may write what a commit, a rebase or a merge needs: Claude
 Code grants the whole common directory itself, and the adapter keeps read-only every entry of it
-that exists at launch but `objects/`, `refs/`, `logs/`, `reftable/` and `worktrees/` (the primary checkout's
-`HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the rest), every
-other worktree's entry that exists at launch, and, existing or not, the common directory's
-`commondir`, `config.worktree` and `objects/info` and the run's own `commondir`, `gitdir` and
-`config.worktree`. A name missing at launch is not denied beyond those: a worktree entry created
-after the run launched, and Git's in-progress state for the primary checkout, stay writable, an
-accepted risk (Known limits). R-G19 drops the denies of missing names, so the adapter makes no
-placeholder.
+that exists at launch but `objects/`, `refs/`, `logs/`, `reftable/` and `worktrees/` (the primary
+checkout's `HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the
+rest, a `commondir` or `config.worktree` left there included), the common directory's
+`objects/info`, every other worktree's entry, and the run's own `commondir`, `gitdir` and
+`config.worktree`, each when it exists at launch. No name missing at launch is denied (R-G19):
+Claude Code would hold it with an empty placeholder while a command runs, and a `commondir`
+placeholder made Git in the primary checkout fail. A name created after launch, such as a new
+worktree entry, a `commondir` or Git's in-progress state for the primary checkout, is an accepted
+risk (Known limits); the daemon's own Git still refuses a planted `commondir` or a non-empty
+`config.worktree`.
 They may listen on local ports and reach no host but the outside sources' hosts, a strict
 allowlist. Claude's own file tools are not commands: permission rules deny them reads and edits of
 the same list its commands are denied (below), each path itself and everything under it;
@@ -569,18 +571,16 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Claude Code's own tools** are not sandboxed commands. Its file tools are held by permission
   rules (the denied-reads list, or on `unrestricted` the daemon's protected paths, then the
   posture's checks), not by the OS sandbox; WebFetch and WebSearch reach any host.
-- **Claude's Git placeholder.** Claude Code 2.1.288 holds a denied path that does not exist with
-  an empty placeholder while a sandboxed command runs, and the common directory's `commondir` is
-  one. While it exists, Git in the primary checkout and the daemon's checks on a clone of the
-  reviewed commit refuse ("failed to read .git/commondir"): they fail closed, and nothing is
-  redirected. A refused check can be run again. A Claude process killed while a command runs
-  leaves it behind: remove the empty file ([Shutdown and recovery](operations.md#shutdown-and-recovery)).
-  R-G19 removes the deny, and with it the placeholder.
+- **Claude Code's own placeholders.** Claude Code 2.1.288 makes empty `config.worktree` files in
+  the common directory and each worktree entry when it starts, and holds its own deny of a missing
+  `config.lock` with an empty file while a sandboxed command runs. The adapter denies no missing
+  name (R-G19), so it adds none, and Git in the primary checkout works while agents run commands.
 - **Git state an agent can plant (accepted, ADR-075).** Agents share the checkout's Git
   directory: Claude Code binds a linked worktree's whole common directory writable, and both
   agents' commits write `refs/`, `objects/` and `logs/`. An agent deliberately working against the
   operator could leave state the operator's own Git later acts on: Git's in-progress state for the
   primary checkout (a planted `exec` line in `rebase-merge/` runs when the rebase is continued),
+  a `commondir` or `config.worktree` that points the primary checkout's Git elsewhere (R-G19),
   replace refs (`refs/replace/`, which the operator's Git follows by default), a submodule's Git
   directory under `modules/`, `shallow`, moved branches or stash entries, and in a reftable
   repository the primary checkout's root refs. CraftingTable does not defend against this; it

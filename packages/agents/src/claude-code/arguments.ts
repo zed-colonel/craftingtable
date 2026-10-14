@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { lstatSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentPermissionMode } from '@craftingtable/domain';
 import type { AgentLaunchRequest } from '../index.js';
@@ -92,6 +92,16 @@ function entriesOf(directory: string): string[] {
   }
 }
 
+/** Whether a name is present at launch, a link to nothing included. */
+function presentAtLaunch(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * What sandboxed commands may not write in the repository's Git directory. Claude Code binds a
  * linked worktree's whole common directory writable itself, and mounts denies after allows, so
@@ -102,15 +112,16 @@ function entriesOf(directory: string): string[] {
  *   and `worktrees/` (R-G16, operator decision 2026-10-13): the primary checkout's `HEAD`,
  *   `index` and `packed-refs`, `info/` (whose `attributes` could pick a merge driver for the
  *   daemon's merges), `rr-cache/` and the rest;
- * - what says where the repository and its configuration are, existing or not (R-G14 review
- *   MEDIUM-1, operator decision 2026-10-08): the common directory's `commondir`,
- *   `config.worktree` and `objects/info` (alternates), every other worktree's entry, and the
- *   run's own `commondir`, `gitdir` and `config.worktree`. Claude Code creates the
- *   `config.worktree` files empty itself before it mounts; a missing `commondir` is held by an
- *   empty placeholder while a command runs, which Git and the daemon's clone refuse to follow
- *   (known limit, operator decision 2026-10-13). No other name missing at launch is denied.
- * `worktrees/` as a whole cannot be denied: the run's own entry, which a commit writes, lies in
- * it, and a deny would win.
+ * - what says where the repository and its configuration are (R-G14 review MEDIUM-1): the
+ *   common directory's `commondir`, `config.worktree` and `objects/info` (alternates), every
+ *   other worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`.
+ * Only what exists at launch is denied (R-G19, ADR-075): Claude Code holds a denied path that does
+ * not exist with an empty placeholder while a command runs, and a `commondir` placeholder made Git
+ * in the primary checkout and the daemon's clone refuse meanwhile. A name an agent creates later
+ * is an accepted risk; the daemon's own Git still refuses a planted `commondir` or a non-empty
+ * `config.worktree` (`packages/git`). Claude Code's own empty `config.worktree` files, made before
+ * it mounts, are its own. `worktrees/` as a whole cannot be denied: the run's own entry, which a
+ * commit writes, lies in it, and a deny would win.
  */
 function gitDeniedWrites(git: NonNullable<AgentLaunchRequest['gitDirectories']>): string[] {
   const common = git.gitCommonDirectory;
@@ -130,7 +141,7 @@ function gitDeniedWrites(git: NonNullable<AgentLaunchRequest['gitDirectories']>)
       join(git.gitDirectory, 'gitdir'),
       join(git.gitDirectory, 'config.worktree'),
     ]),
-  ];
+  ].filter(presentAtLaunch);
 }
 
 /** Whether the run's Bash is sandboxed: every posture but unrestricted. */

@@ -87,7 +87,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G16](#r-g16) | P4 | S-M | done in the operator's variant, deployed 2026-10-13 (7d4e264); M-2 backed out unrun 2026-10-14 (ADR-075); R-G19 removes the missing-name denies | Claude Code's Git grant leaves placeholder files in the shared Git directory |
 | [R-G17](#r-g17) | P4 | L | done, deployed 2026-10-13 (7d4e264) | Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks |
 | [R-G18](#r-g18) | P4 | L | withdrawn 2026-10-14 (ADR-075) | Agents' worktrees on a Git directory CraftingTable owns |
-| [R-G19](#r-g19) | P4 | M | open (decided 2026-10-14, ADR-075) | The accelerator posture: simplify the agent and check defences |
+| [R-G19](#r-g19) | P4 | M | in progress on `remediation/p4`: change 1 built (2026-10-14) | The accelerator posture: simplify the agent and check defences |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
@@ -4381,7 +4381,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G19
 
-**The accelerator posture: simplify the agent and check defences** · Phase P4 (next) · Effort M · Status: open (decided by the operator 2026-10-14, [ADR-075](../../decisions/ADR-075-an-accelerator-not-a-guardian.md))
+**The accelerator posture: simplify the agent and check defences** · Phase P4 (next) · Effort M · Status: in progress on `remediation/p4` (decided by the operator 2026-10-14, [ADR-075](../../decisions/ADR-075-an-accelerator-not-a-guardian.md)): change 1 built
 
 - **Added 2026-10-14** (operator): CraftingTable is an accelerator, not a guardian. It defends against accidents and unverified claims, not a deliberately hostile agent, and leaves that to the agents' own controls (ADR-075). This item changes what that decision changes; the rest stays.
 - **Change:**
@@ -4397,6 +4397,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - `pnpm check` is green and `pnpm replays` unchanged.
 - **Later:** TypeScript, as its own item when a project needs it: an `npm` package source, a Node toolchain entry, and checks that install from the lockfile, then run offline.
 - **Sequencing:** next in P4, before Slopinator's rename and re-import, whose amendment then targets a packaged `slopinator` project.
+- **Progress, this item's session (2026-10-14 on):**
+  - *Change 1, Claude's Git rules.* `gitDeniedWrites` (`claude-code/arguments.ts`) keeps its list (every entry of the common directory present at launch but `objects/`, `refs/`, `reftable/`, `logs/` and `worktrees/`; the common directory's `info/`, `commondir`, `config.worktree` and `objects/info`; every other worktree's entry; the run's `commondir`, `gitdir` and `config.worktree`) and denies each only when it is present at launch (`lstat`, so a link to nothing counts as present). A name missing at launch gets no deny, so Claude Code makes no placeholder for the adapter. The daemon's own guards are unchanged: `packages/git` refuses a `commondir` that disagrees with its place and a run's non-empty `config.worktree`, and the check clone's guard (`local-check.ts`) refuses a `commondir` in the common directory.
+    - *Routine calls:* (1) a name present at launch stays denied even when it is one Git never writes there (a `commondir` or `config.worktree` left behind), which costs nothing and keeps a leftover from being changed; (2) Codex is unchanged: its grant names only what a commit writes, so it denies no missing name.
+    - *Tests:* `claude-code/arguments.test.ts`, "denies no Git name missing at launch …": with the common directory's `commondir`, `config.worktree`, `info/` and `objects/info` and the run's `config.worktree` missing, none is denied and the list is exactly the present `HEAD` and the run's `commondir` and `gitdir`; each is denied once when present; a run entry without `commondir` or `gitdir` gets no deny of them. The R-G14 MEDIUM-1 test's exact list now holds only the names present (its fixture makes the run's `commondir` and `gitdir`), and the R-G16 test no longer expects missing names. The new test and the R-G14 test failed before the change (the missing names were denied).
+    - *Docs:* `security.md` (Claude's paragraph; Claude Code's own placeholders replace the `commondir` known limit; a planted `commondir` or `config.worktree` joins the accepted plantable state), `operations.md` (Shutdown and recovery: only Claude Code's own `config.lock` can be left now).
 
 
 ### R-H1

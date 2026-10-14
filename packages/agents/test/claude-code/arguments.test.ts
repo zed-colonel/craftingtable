@@ -308,21 +308,20 @@ it("keeps Git's redirect files and info/ read-only for sandboxed commands, so a 
         sandbox?: { filesystem: { denyWrite?: string[] } };
       };
     };
+    for (const file of ['commondir', 'gitdir']) writeFileSync(join(own, file), '');
     const gitDirectories = { gitDirectory: own, gitCommonDirectory: common, worktreeConfig: false };
     for (const permissionMode of ['auto', 'edit-only'] as const)
       expect(settings({ permissionMode, gitDirectories }).sandbox?.filesystem.denyWrite).toEqual([
         // Claude Code already keeps `config` and `hooks/` read-only; `info/attributes` could pick
         // a merge driver for the daemon's merges.
         join(common, 'info'),
-        // What says where the repository and its configuration are: existing or not.
-        join(common, 'commondir'),
-        join(common, 'config.worktree'),
+        // What says where the repository and its configuration are, when it exists at launch
+        // (R-G19: a missing one is not denied, so no placeholder is made).
         join(common, 'objects', 'info'),
         // Every other worktree's entry (not the run's own, which a commit writes).
         join(common, 'worktrees', 'other'),
         join(own, 'commondir'),
         join(own, 'gitdir'),
-        join(own, 'config.worktree'),
       ]);
     // Without the daemon's directories, and without a sandbox, nothing is added.
     expect(settings({}).sandbox?.filesystem.denyWrite).toBeUndefined();
@@ -380,17 +379,13 @@ it('keeps every entry of the common Git directory that exists at launch read-onl
     ])
       expect(denied.filter((path) => path === join(common, entry))).toEqual([join(common, entry)]);
     expect(new Set(denied).size).toBe(denied.length);
-    // Today's list stays, missing names included: the common directory's `commondir` (its
-    // placeholder fails closed) and `config.worktree`, `objects/info`, other entries, and the
-    // run's `commondir`, `gitdir` and `config.worktree`.
+    // R-G14 MEDIUM-1's names that exist at launch stay: `objects/info`, other entries, and the
+    // run's `commondir` and `gitdir`.
     for (const path of [
-      join(common, 'commondir'),
-      join(common, 'config.worktree'),
       join(common, 'objects', 'info'),
       join(common, 'worktrees', 'other'),
       join(own, 'commondir'),
       join(own, 'gitdir'),
-      join(own, 'config.worktree'),
     ])
       expect(denied).toContain(path);
     // What a commit, a rebase and a merge write stays writable: objects/, refs/, logs/ and the
@@ -408,9 +403,61 @@ it('keeps every entry of the common Git directory that exists at launch read-onl
     expect(withReftable[withReftable.indexOf('--settings') + 1]).not.toContain(
       JSON.stringify(join(common, 'reftable')),
     );
-    // No other name missing at launch is denied: each would leave a placeholder (shallow stays
-    // as today).
+    // No name missing at launch is denied: each would leave a placeholder.
     expect(denied).not.toContain(join(common, 'shallow'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('denies no Git name missing at launch, so Claude Code makes no placeholder for the adapter, and keeps each one that exists read-only (R-G19, ADR-075)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-claude-git-'));
+  try {
+    const common = join(root, 'repo', '.git');
+    const own = join(common, 'worktrees', 'wt-1');
+    for (const directory of ['objects/pack', 'refs/heads', 'logs', 'worktrees/wt-1'])
+      mkdirSync(join(common, directory), { recursive: true });
+    writeFileSync(join(common, 'HEAD'), '');
+    for (const file of ['commondir', 'gitdir', 'HEAD']) writeFileSync(join(own, file), '');
+    const denied = () => {
+      const args = claudeCodeArguments({
+        cwd: '/work/x',
+        prompt: 'Go',
+        permissionMode: 'auto',
+        gitDirectories: { gitDirectory: own, gitCommonDirectory: common, worktreeConfig: false },
+      });
+      return (
+        JSON.parse(args[args.indexOf('--settings') + 1]!) as {
+          sandbox: { filesystem: { denyWrite: string[] } };
+        }
+      ).sandbox.filesystem.denyWrite;
+    };
+    const missing = [
+      join(common, 'commondir'),
+      join(common, 'config.worktree'),
+      join(common, 'info'),
+      join(common, 'objects', 'info'),
+      join(own, 'config.worktree'),
+    ];
+    // Missing at launch: none is denied, and every path denied exists.
+    expect(denied()).toEqual([join(common, 'HEAD'), join(own, 'commondir'), join(own, 'gitdir')]);
+    for (const path of missing) expect(denied()).not.toContain(path);
+    // Present at launch (a file left behind, or an agent's): each is denied once.
+    mkdirSync(join(common, 'info'));
+    mkdirSync(join(common, 'objects', 'info'));
+    for (const file of [
+      join(common, 'commondir'),
+      join(common, 'config.worktree'),
+      join(own, 'config.worktree'),
+    ])
+      writeFileSync(file, '');
+    const present = denied();
+    for (const path of missing) expect(present.filter((entry) => entry === path)).toEqual([path]);
+    // A run whose own entry has no `commondir` or `gitdir` gets no deny of them either.
+    rmSync(join(own, 'commondir'));
+    rmSync(join(own, 'gitdir'));
+    expect(denied()).not.toContain(join(own, 'commondir'));
+    expect(denied()).not.toContain(join(own, 'gitdir'));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

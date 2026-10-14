@@ -4157,7 +4157,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G17
 
-**Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks** · Phase P4 (second, after R-B11) · Effort L · Status: open (designed and decided 2026-10-13; the operator's toolchain setup pending)
+**Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks** · Phase P4 (second, after R-B11) · Effort L · Status: open (designed and decided 2026-10-13; the operator's toolchain setup done the same day)
 
 - **Added 2026-10-13** (operator), from the external "CraftingTable Slopinator support" plan (CT-SLP-SUPPORT-1, revision CT-SLP-PLAN-1), items CT-SLP-01 to 03, built through this register as one item in three increments (operator decision 2026-10-13). CT-SLP-04 to 06 (managed Mac verification) wait for Slopinator's P0-04R.
   - Slopinator (`~/src/slopinator`) is the first consumer, in its own workspace (R-B11 decision 7). Its root project is virtual (`tool.uv.package = false`), needs Python `>=3.12,<3.13`, and its CPU dependencies all ship wheels.
@@ -4200,7 +4200,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - A Rust-and-Python fixture check (decision 17) builds a Cargo binary and runs pytest against it in one check.
   - R-G16's done-when holds.
   - `pnpm check` is green, and `pnpm replays` shows 0 failed and no change beyond R-B11's close.
-- **Operator setup, before the live campaign:** the root-owned uv and CPython 3.12 under `/opt/craftingtable` (commands given in the design session; `operations.md` records them).
+- **Operator setup, done 2026-10-13** (commands given in the design session; `operations.md` is to record them):
+  - `/opt/craftingtable/bin/uv`: the official uv 0.12.22 release, checked against its published checksum, SHA-256 `96e1603cb62aebb1a804fe9866a5708ee8bba4c39d07202ad29cf256a67366c3`.
+  - `/opt/craftingtable/python/cpython-3.12.15-linux-x86_64-gnu/bin/python3.12`: installed by that uv (`uv python install 3.12.15 --install-dir /opt/craftingtable/python --no-bin`, run as root), SHA-256 `9b6fd06e487935c92477cb47cabbda8d814cda44823a5159eddf791178afe7d0`; x86_64, glibc 2.44.
+  - Verified the same day: every path component root-owned and writable only by root; no link leaves the tree; uv builds an offline venv on the interpreter with downloads disabled. uv's own lock file in the install root is world-writable by uv's design (it is not on any interpreter path).
 - **Sequencing:** after R-B11 (landed). Before R-B7, which rewrites `agent-run-service.ts`, `runtime-evidence-service.ts` and the brief, which this item touches lightly. CT-SLP-04 to 06 follow Slopinator's P0-04R.
 
 

@@ -24,6 +24,7 @@ import {
   type CheckExecution,
   executeCheck,
   prepareCheckManifest,
+  pythonStepConfinement,
   pythonStepRunner,
   pythonStepUnitArguments,
   resolveGitDirectories,
@@ -726,6 +727,40 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
     );
   });
 
+  it("takes a step's confinement from the check's execution (re-check S2b, S5, S5c)", () => {
+    const signal = new AbortController().signal;
+    expect(
+      pythonStepConfinement(
+        {
+          confinement: 'systemd',
+          unitName: 'craftingtable-check-x',
+          hiddenRoots: ['/agents/root'],
+          manifestPath: '/run/launcher/manifest.json',
+          writablePaths: ['/work/x', '/run/dir'],
+          signal,
+        },
+        {
+          limits: DEFAULT_CHECK_UNIT_LIMITS,
+          directory: '/data/private/python',
+          tree: '/data/private/clone',
+          workspacePath: '/work/x',
+          sharedCargoHome: '/data/cargo-home',
+          commonDirectory: '/repo/.git',
+        },
+      ),
+    ).toEqual({
+      confinement: 'systemd',
+      unitName: 'craftingtable-check-x',
+      limits: DEFAULT_CHECK_UNIT_LIMITS,
+      directory: '/data/private/python',
+      tree: '/data/private/clone',
+      hiddenRoots: ['/agents/root', '/data/cargo-home', '/repo/.git'],
+      inaccessible: ['/work/x', '/run/launcher', '/work/x', '/run/dir', '/data/cargo-home'],
+      home: homedir(),
+      signal,
+    });
+  });
+
   it('ends a step at once on a cancel, and at its own time limit', async () => {
     const controller = new AbortController();
     const run = pythonStepRunner({
@@ -818,7 +853,7 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
         });
         return { code: result.status, stdout: result.stdout, stderr: result.stderr };
       };
-      await preparePythonEnvironment({
+      const environment = await preparePythonEnvironment({
         profile: OPT_PROFILE,
         target: { pythonVersion: '3.12.15', platform: 'linux-x86_64', libc: 'glibc 2.44' },
         tree: f.workspacePath,
@@ -864,6 +899,34 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
           join(directory, 'requirements.txt'),
         ],
       ]);
+      // The check's own environment (re-check E7, E8): every inherited Python or uv setting
+      // dropped, then the venv's, uv offline, frozen and with no configuration.
+      expect(
+        environment.environment({
+          PATH: '/usr/bin:/bin',
+          TMPDIR: '/scratch',
+          HOME: '/scratch',
+          PYTHONPATH: '/planted',
+          UV_INDEX_URL: 'https://example.org/simple',
+          PIP_FIND_LINKS: '/planted',
+          VIRTUAL_ENV: '/planted',
+        }),
+      ).toEqual({
+        PATH: `${join(venv, 'bin')}:/opt/craftingtable/bin:/usr/bin:/bin`,
+        TMPDIR: '/scratch',
+        HOME: '/scratch',
+        VIRTUAL_ENV: venv,
+        UV_PROJECT_ENVIRONMENT: venv,
+        UV_PYTHON: join(venv, 'bin', 'python'),
+        UV_PYTHON_DOWNLOADS: 'never',
+        UV_OFFLINE: '1',
+        UV_FROZEN: '1',
+        UV_NO_SYNC: '1',
+        UV_NO_CONFIG: '1',
+        UV_CACHE_DIR: '/scratch/uv-cache',
+        PYTHONNOUSERSITE: '1',
+        PYTHONDONTWRITEBYTECODE: '1',
+      });
       for (const call of calls) {
         expect(call.env).toMatchObject({
           PATH: '/usr/bin:/bin',

@@ -2228,6 +2228,44 @@ export interface PythonStepConfinement {
 }
 
 /**
+ * A check's helper-step confinement from its execution (increment 3 re-check S2b, S5): the check's
+ * own confinement and unit name; hidden, the roots agents write, the shared Cargo home and the
+ * repository's Git directory; inaccessible, as for the check's unit, the worktree, the launcher
+ * directory, the run's writable paths and the shared Cargo home.
+ */
+export function pythonStepConfinement(
+  e: Pick<
+    CheckExecution,
+    'confinement' | 'unitName' | 'hiddenRoots' | 'manifestPath' | 'writablePaths' | 'signal'
+  >,
+  input: {
+    readonly limits: CheckUnitLimits;
+    readonly directory: string;
+    readonly tree: string;
+    readonly workspacePath: string;
+    readonly sharedCargoHome?: string;
+    readonly commonDirectory?: string;
+  },
+): PythonStepConfinement {
+  const shared = input.sharedCargoHome ? [input.sharedCargoHome] : [];
+  return {
+    confinement: e.confinement,
+    unitName: e.unitName,
+    limits: input.limits,
+    directory: input.directory,
+    tree: input.tree,
+    hiddenRoots: [
+      ...(e.hiddenRoots ?? []),
+      ...shared,
+      ...(input.commonDirectory ? [input.commonDirectory] : []),
+    ],
+    inaccessible: [input.workspacePath, dirname(e.manifestPath), ...e.writablePaths, ...shared],
+    home: homedir(),
+    signal: e.signal,
+  };
+}
+
+/**
  * One helper step's unit (increment 3 review L1): no network; it writes only the check's Python
  * directory and reads the reviewed clone; the home directory and every hidden root are empty and
  * read-only, and the inaccessible paths are gone.
@@ -2686,26 +2724,16 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           signal: e.signal,
           remainingMs: remainingTime,
           onOutput: e.onOutput,
-          run: pythonStepRunner({
-            confinement: e.confinement,
-            unitName: e.unitName,
-            limits,
-            directory,
-            tree,
-            hiddenRoots: [
-              ...(e.hiddenRoots ?? []),
-              ...(sharedCargoHome ? [sharedCargoHome] : []),
-              ...(commonDirectory ? [commonDirectory] : []),
-            ],
-            inaccessible: [
-              m.workspacePath,
-              dirname(e.manifestPath),
-              ...e.writablePaths,
-              ...(sharedCargoHome ? [sharedCargoHome] : []),
-            ],
-            home: homedir(),
-            signal: e.signal,
-          }),
+          run: pythonStepRunner(
+            pythonStepConfinement(e, {
+              limits,
+              directory,
+              tree,
+              workspacePath: m.workspacePath,
+              ...(sharedCargoHome ? { sharedCargoHome } : {}),
+              ...(commonDirectory ? { commonDirectory } : {}),
+            }),
+          ),
         });
         pythonReceipt = {
           ...pythonReceipt,

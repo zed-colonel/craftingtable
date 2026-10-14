@@ -1115,7 +1115,8 @@ parallel, before the controller-kernel items:
    profiles, a `pypi` outside-source kind whose checks use daemon-verified wheels only (R-G14's rule),
    and adopted Python checks in private offline environments (CT-PYTHON-READY). Designed and decided
    2026-10-13 as **R-G17**, with R-G16 built first in the same session. Slopinator runs in its own
-   workspace (R-B11 decision 7).
+   workspace (R-B11 decision 7). Built on this line 2026-10-13 to 14 (R-G16 4f5bbc4; R-G17 1eaab09
+   to 2fc3934), not deployed.
 3. **Managed Mac verification** (CT-SLP-04 to 06): only after Slopinator's P0-04R fixes the inference
    service protocol; until then Slopinator records operator-run, exact-candidate Mac evidence.
 4. Then the controller-kernel items below. R-B7 rewrites files the Python item touches lightly, so

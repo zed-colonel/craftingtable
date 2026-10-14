@@ -4170,7 +4170,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G17
 
-**Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks** · Phase P4 (second, after R-B11) · Effort L · Status: open (designed and decided 2026-10-13; the operator's toolchain setup done the same day)
+**Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks** · Phase P4 (second, after R-B11) · Effort L · Status: built on `remediation/p4` (1eaab09 to 2fc3934, 2026-10-13 to 14; reviewed, mutation-tested, live campaign done), not deployed; R-G16's review finding M-2 awaits the operator
 
 - **Added 2026-10-13** (operator), from the external "CraftingTable Slopinator support" plan (CT-SLP-SUPPORT-1, revision CT-SLP-PLAN-1), items CT-SLP-01 to 03, built through this register as one item in three increments (operator decision 2026-10-13). CT-SLP-04 to 06 (managed Mac verification) wait for Slopinator's P0-04R.
   - Slopinator (`~/src/slopinator`) is the first consumer, in its own workspace (R-B11 decision 7). Its root project is virtual (`tool.uv.package = false`), needs Python `>=3.12,<3.13`, and its CPU dependencies all ship wheels.

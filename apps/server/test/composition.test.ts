@@ -269,9 +269,15 @@ describe('service composition', () => {
       drainBegun();
       throw new Error('the drain failed');
     });
+    // The daemon's own server carries the gate: once it has closed, before the server closes,
+    // a request is refused.
+    const closeGate = RequestGate.prototype.close;
     const gateClose = vi.spyOn(RequestGate.prototype, 'close');
-    gateClose.mockImplementation(async () => {
+    let refused: number | undefined;
+    gateClose.mockImplementation(async function (this: RequestGate) {
       order.push('requests');
+      await closeGate.call(this, 0);
+      refused = (await daemon.app.inject({ method: 'GET', url: '/api/health' })).statusCode;
     });
     notificationService.shutdown = record(
       'notifications',
@@ -296,6 +302,7 @@ describe('service composition', () => {
       'server',
       'checks',
     ]);
+    expect(refused).toBe(503);
     expect(() => storage.users.findByNormalizedUsername('nobody')).toThrow();
     gateClose.mockRestore();
   });

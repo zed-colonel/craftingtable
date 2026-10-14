@@ -50,10 +50,13 @@ it('refuses new requests once closed, and waits for a running write to finish', 
   await tick(50);
   expect(closed).toBe(false);
 
+  const releasedAt = Date.now();
   release();
   expect((await writing).statusCode).toBe(200);
   await closing;
   expect(closed).toBe(true);
+  // Once the last write has answered, not at the bound.
+  expect(Date.now() - releasedAt).toBeLessThan(1_000);
 });
 
 it('waits no longer than its bound, and not at all with nothing written', async () => {

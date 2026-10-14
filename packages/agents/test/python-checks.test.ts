@@ -458,6 +458,30 @@ itPython(
 );
 
 itPython(
+  'refuses, by name and before installing, a resolver option the lock records that it cannot pass to uv (mutation round 2, O7)',
+  async () => {
+    const f = pythonCheck();
+    const lock = readFileSync(join(f.workspacePath, 'uv.lock'), 'utf8');
+    writeFileSync(
+      join(f.workspacePath, 'uv.lock'),
+      lock.replace(
+        'requires-python = ">=3.12"\n',
+        'requires-python = ">=3.12"\n\n[options]\nresolution-mode = "newest"\n',
+      ),
+    );
+    git(['add', '-A'], f.workspacePath);
+    git(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'options'],
+      f.workspacePath,
+    );
+    const result = await f.execute();
+    expect(result.exitCode).toBe(1);
+    expect(result.output).not.toContain('uv sync --locked');
+    expect(result.diagnostic).toContain('resolver option resolution-mode');
+  },
+);
+
+itPython(
   "fails, with uv's reason, when a file of the tree does not match the lock's hash",
   async () => {
     const f = pythonCheck();

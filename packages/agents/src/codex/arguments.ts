@@ -101,8 +101,13 @@ function codexGitAccess(request: AgentLaunchRequest): [string, string][] {
     join(git.gitDirectory, 'gitdir'),
   ];
   if (!readOnly.every((path) => existsSync(path))) return [];
+  // A reftable repository keeps its refs in `reftable`, the same authority as `refs/`; granted
+  // only where it exists, so no missing path needs a mask (R-G16 review L-1).
+  const stores = ['objects', 'refs', 'logs', 'reftable'].filter(
+    (name) => name !== 'reftable' || existsSync(join(common, name)),
+  );
   return [
-    ...['objects', 'refs', 'logs'].map((name): [string, string] => [join(common, name), 'write']),
+    ...stores.map((name): [string, string] => [join(common, name), 'write']),
     [readOnly[0] as string, 'read'],
     [git.gitDirectory, 'write'],
     ...readOnly.slice(1).map((path): [string, string] => [path, 'read']),

@@ -3,6 +3,9 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
+  mkdirSync,
+  type Stats,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -14,8 +17,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   identifyTool,
+  modeText,
   observeToolchain,
   toolchainProfileDigest,
+  pythonInstallProblem,
   trustedDirectoryProblem,
   trustedFileProblem,
   versionFits,
@@ -202,4 +207,139 @@ describe('the profile digest', () => {
       toolchainProfileDigest(a),
     );
   });
+});
+
+/** A stand-in for `lstat`: every path root-owned and 0755 unless `overrides` says otherwise. */
+function fakeStat(
+  overrides: Readonly<Record<string, { uid?: number; mode?: number; link?: boolean }>>,
+) {
+  return (path: string) => {
+    const real = lstatSync(path);
+    const override = overrides[path] ?? {};
+    return {
+      ...real,
+      uid: override.uid ?? 0,
+      mode: (real.mode & ~0o7777) | (override.mode ?? 0o755),
+      isFile: () => real.isFile(),
+      isDirectory: () => real.isDirectory(),
+      isSymbolicLink: () => override.link ?? real.isSymbolicLink(),
+    } as unknown as Stats;
+  };
+}
+
+describe('the rule, part by part (review L-2)', () => {
+  it("refuses a file the account owns inside root-owned directories, as `cp -p` or root's `tar x` leave", () => {
+    expect(
+      trustedFileProblem('/usr/bin/env', fakeStat({ '/usr/bin/env': { uid: 1000 } }))?.code,
+    ).toBe('untrusted-owner');
+  });
+
+  it('refuses a directory its group may write, not only others', () => {
+    expect(
+      trustedFileProblem('/usr/bin/env', fakeStat({ '/usr/bin': { mode: 0o775 } }))?.code,
+    ).toBe('writable');
+    expect(trustedFileProblem('/usr/bin/env', fakeStat({ '/usr': { mode: 0o757 } }))?.code).toBe(
+      'writable',
+    );
+  });
+
+  it('refuses a path with a trailing slash', () => {
+    expect(trustedFileProblem('/usr/bin/env/')?.code).toBe('linked');
+  });
+});
+
+describe("an interpreter's install, held to the rule before it runs (review L-2)", () => {
+  function install() {
+    const prefix = temporary();
+    for (const directory of ['bin', 'lib/python3.12/json', 'lib/python3.12/lib-dynload'])
+      mkdirSync(join(prefix, directory), { recursive: true });
+    writeFileSync(join(prefix, 'bin', 'python3.12'), '');
+    writeFileSync(join(prefix, 'lib', 'libpython3.12.so'), '');
+    writeFileSync(join(prefix, 'lib', 'python3.12', 'os.py'), '');
+    writeFileSync(join(prefix, 'lib', 'python3.12', 'json', '__init__.py'), '');
+    return { prefix, interpreter: join(prefix, 'bin', 'python3.12') };
+  }
+  it('accepts an install root owns throughout', () => {
+    expect(pythonInstallProblem(install().interpreter, fakeStat({}))).toBeUndefined();
+  });
+
+  it('refuses a module, a shared library or a neighbour of the interpreter that the account owns or others may write', () => {
+    const { prefix, interpreter } = install();
+    for (const [path, override, code] of [
+      [join(prefix, 'lib', 'python3.12', 'json', '__init__.py'), { uid: 1000 }, 'untrusted-owner'],
+      [join(prefix, 'lib', 'libpython3.12.so'), { mode: 0o666 }, 'writable'],
+      [join(prefix, 'lib', 'python3.12', 'lib-dynload'), { mode: 0o777 }, 'writable'],
+      [join(prefix, 'lib'), { uid: 1000 }, 'untrusted-owner'],
+    ] as const)
+      expect(pythonInstallProblem(interpreter, fakeStat({ [path]: override }))?.code, path).toBe(
+        code,
+      );
+  });
+
+  it('refuses a link in the standard library that leads somewhere the account may write', () => {
+    const { prefix, interpreter } = install();
+    const outside = temporary();
+    writeFileSync(join(outside, 'planted.py'), '');
+    symlinkSync(join(outside, 'planted.py'), join(prefix, 'lib', 'python3.12', 'planted.py'));
+    // Everything root's but the link's target, which lies in the account's directory.
+    const stat = (path: string) =>
+      path.startsWith(outside) ? lstatSync(path) : fakeStat({})(path);
+    expect(pythonInstallProblem(interpreter, stat)?.code).toMatch(/^(untrusted-owner|writable)$/);
+  });
+
+  it('refuses an interpreter with no standard library beside it', () => {
+    const prefix = temporary();
+    mkdirSync(join(prefix, 'bin'));
+    mkdirSync(join(prefix, 'lib'));
+    writeFileSync(join(prefix, 'bin', 'python3.12'), '');
+    expect(pythonInstallProblem(join(prefix, 'bin', 'python3.12'), fakeStat({}))?.code).toBe(
+      'missing',
+    );
+  });
+});
+
+describe('identifyTool, with the rule satisfied (review L-2, T6)', () => {
+  it('never runs an interpreter whose install holds a module the account owns', async () => {
+    const prefix = temporary();
+    const marker = join(prefix, 'ran');
+    for (const directory of ['bin', 'lib/python3.12'])
+      mkdirSync(join(prefix, directory), { recursive: true });
+    const interpreter = join(prefix, 'bin', 'python3.12');
+    writeFileSync(interpreter, `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+    const planted = join(prefix, 'lib', 'python3.12', 'json.py');
+    writeFileSync(planted, '');
+    const observed = await identifyTool('python', interpreter, {
+      stat: fakeStat({ [planted]: { uid: 1000 } }),
+    });
+    expect(observed.problem?.code).toBe('untrusted-owner');
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('probes with the fixed environment only, never the daemon’s own', async () => {
+    const directory = temporary();
+    const uv = join(directory, 'uv');
+    writeFileSync(
+      uv,
+      [
+        '#!/bin/sh',
+        'if [ -z "$CRAFTINGTABLE_PROBE_LEAK" ] && [ "$UV_NO_CONFIG" = 1 ] && [ "$PATH" = /usr/bin:/bin ] && [ "$LC_ALL" = C ] && [ "$(pwd)" = / ]',
+        'then echo "uv 0.12.22"; else echo "uv 9.9.9"; fi',
+        '',
+      ].join('\n'),
+      { mode: 0o755 },
+    );
+    process.env.CRAFTINGTABLE_PROBE_LEAK = 'the daemon environment';
+    try {
+      const observed = await identifyTool('uv', uv, { stat: fakeStat({}) });
+      expect(observed.identity?.version).toBe('0.12.22');
+    } finally {
+      delete process.env.CRAFTINGTABLE_PROBE_LEAK;
+    }
+  });
+});
+
+it('formats a mode below 0100 with three digits, as the status contract reads it (review L-7)', () => {
+  // A root-owned 0044 file is readable by the daemon's account through its other bits.
+  expect(modeText(0o100044)).toBe('0044');
+  expect(modeText(0o100755)).toBe('0755');
 });

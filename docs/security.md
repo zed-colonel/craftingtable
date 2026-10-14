@@ -210,9 +210,12 @@ target). In
 the repository's Git directory they may write what a commit, a rebase or a merge needs: Claude
 Code grants the whole common directory itself, and the adapter keeps read-only every entry of it
 that exists at launch but `objects/`, `refs/`, `logs/` and `worktrees/` (the primary checkout's
-`HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the rest), and,
-existing or not, the common directory's `commondir`, `config.worktree` and `objects/info`, every
-other worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`.
+`HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the rest), every
+other worktree's entry that exists at launch, and, existing or not, the common directory's
+`commondir`, `config.worktree` and `objects/info` and the run's own `commondir`, `gitdir` and
+`config.worktree`. A name missing at launch is not denied beyond those: a worktree entry created
+after the run launched, and Git's in-progress state for the primary checkout (`rebase-merge/`,
+`rebase-apply/`, `sequencer/`), stay writable (see Known limits).
 They may listen on local ports and reach no host but the outside sources' hosts, a strict
 allowlist. Claude's own file tools are not commands: permission rules deny them reads and edits of
 the same list its commands are denied (below), each path itself and everything under it;
@@ -335,14 +338,17 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   wrappers cleared, and a check is refused when the tree has a Cargo configuration or toolchain
   file it was not adopted with. A build of uncommitted work, which no gate accepts, still runs in
   the worktree.
-- **The Python toolchain.** A Python project's adopted checks use only the interpreter and uv
-  that `toolchains.json` names ([ADR-074](decisions/ADR-074-python-toolchains-and-pypi-wheels.md)).
-  Each must be a regular file that root owns and only root may write, every directory above it
-  too, with no link on the way, because anything the operator's account can write, agents can.
-  The daemon refuses to start on a tool that breaks the rule, probes each one with fixed
-  arguments and no input, and every Python check reads each tool again: one that is missing, no
-  longer root-owned, writable by others or no longer fits its configured version is refused, and
-  the identities it ran with go into its receipt.
+- **The Python toolchain.** A Python project's adopted checks build their venv with, and run
+  first on PATH, only the interpreter and uv that `toolchains.json` names
+  ([ADR-074](decisions/ADR-074-python-toolchains-and-pypi-wheels.md)). Each must be a regular
+  file that root owns and only root may write, every directory above it too, with no link on the
+  way, because anything the operator's account can write, agents can; the interpreter's install
+  (its standard library at any depth, and the entries of its `lib/` and `bin/`) is held to the
+  same rule before the interpreter ever runs. The daemon refuses to start on a tool that breaks
+  the rule, probes each one with fixed arguments and no input, and every Python check reads each
+  tool again, the media tools and fonts included: any problem with one (missing, no longer
+  root-owned, writable by its group or others, a failed probe, a version that no longer fits)
+  refuses the check, and the identities it ran with go into its receipt.
 - **Python checks.** An adopted check of a reviewed commit with a root `uv.lock` runs in a fresh
   venv built for it alone, in its private directory, by units with no network: the lock is read
   with the profile's interpreter, the wheels that fit it come from the daemon's verified store
@@ -557,6 +563,16 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
   is one. While it exists, Git in the primary checkout and the daemon's checks on a clone of the
   reviewed commit refuse ("failed to read .git/commondir"): they fail closed, and nothing is
   redirected. A refused check can be run again.
+- **Git state Claude can still plant.** Claude Code binds a linked worktree's whole common
+  directory writable, and only names that exist at launch, with the few listed above, are denied
+  (operator decision 2026-10-13). A sandboxed command can therefore create Git's in-progress
+  state for the primary checkout (`rebase-merge/`, `rebase-apply/`, `sequencer/`, `MERGE_HEAD`)
+  and write the `HEAD` and `index` of a worktree entry created after it launched. The R-G16
+  review showed the first: the operator's own `git rebase --continue` in the primary checkout
+  then runs a planted `exec` line outside any sandbox, and `git rebase --abort` moves the
+  checked-out branch. Codex runs cannot (their common directory is read-only). Until the
+  operator decides otherwise, check `git status` in the primary checkout before continuing a
+  rebase, merge or cherry-pick you did not start.
 - **External Git.** The daemon's guards serialize its own Git work. A person or tool running Git
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;
   check it before running Git there by hand. External changes are detected by commit and
@@ -569,7 +585,7 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Native probes.** The native environment's fixed version probes (`native-environment.ts`)
   start with the daemon's whole environment, not the named variables agents and checks get; they
   run fixed commands with no agent input. The toolchain probes (`toolchains.ts`) start with a
-  fixed `PATH` and locale only.
+  fixed `PATH`, locale and `UV_NO_CONFIG=1` only, in `/`.
 - **Secrets at rest** are plaintext files protected by modes and the denied reads. Database
   copies made before the credentials moved still hold them, and clearing credentials does not
   securely erase SQLite pages or older backups.

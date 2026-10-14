@@ -29,8 +29,7 @@ const DENIED = [
   join(homedir(), '.cargo', 'credentials'),
   '~/.pypirc',
   '~/.netrc',
-  uvConfigPaths().credentials,
-  uvConfigPaths().configuration,
+  ...uvConfigPaths(),
 ];
 const fixtureLines = readFileSync(fixturePath, 'utf8').split('\n');
 

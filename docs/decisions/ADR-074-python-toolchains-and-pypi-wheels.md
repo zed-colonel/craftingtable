@@ -23,12 +23,14 @@ produced.
 **The toolchain is a trust root the operator installs as root.** CPython and uv live under
 `/opt/craftingtable`, installed as root by the operator; `toolchains.json` in the settings
 directory names them, with the version each must fit, and optionally FFmpeg, ffprobe and font
-files, recorded by identity, and the check units' caps.
+files, held to the same rule, and the check units' caps.
 
 - **The rule.** Every configured tool must be an absolute, normalized path to a regular file
   that root owns and no group or other user may write, with every directory above it the same
-  and no link anywhere on the way; a Python interpreter's prefix and standard library
-  directories too. Anything the operator's account can write could otherwise become a check's
+  and no link anywhere on the way; a Python interpreter's install too, checked before it first
+  runs: its prefix, `lib/` and standard library directories, every entry of the standard library
+  at any depth, and the entries directly in `lib/` and `bin/`, with a link among them leading only
+  to a path that passes the rule (review L-2). Anything the operator's account can write could otherwise become a check's
   privileged configuration, because agents run as that account. This is stricter than Rust's
   toolchain, which lives in the operator's `~/.rustup`.
 - **At start** the daemon validates the file, as it does `outside-sources.json`: it refuses to

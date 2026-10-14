@@ -77,8 +77,11 @@ export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
   return launchOutsideSources(request).flatMap((source) => source.caches);
 }
 
-/** What a commit, a rebase or a merge in a linked worktree writes in the common directory. */
-const GIT_COMMIT_WRITES = new Set(['objects', 'refs', 'logs', 'worktrees']);
+/**
+ * What a commit, a rebase or a merge in a linked worktree writes in the common directory:
+ * `reftable` is a reftable repository's ref store, `refs/` in another format (R-G16 review L-1).
+ */
+const GIT_COMMIT_WRITES = new Set(['objects', 'refs', 'reftable', 'logs', 'worktrees']);
 
 /** A directory's entries, or none when it cannot be listed. */
 function entriesOf(directory: string): string[] {

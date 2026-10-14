@@ -397,6 +397,17 @@ it('keeps every entry of the common Git directory that exists at launch read-onl
     // run's own entry; `worktrees/` itself is not denied.
     for (const path of ['objects', 'refs', 'logs', 'worktrees', 'worktrees/wt-1'])
       expect(denied).not.toContain(join(common, path));
+    // A reftable repository's ref store is refs/ in another format (review L-1).
+    mkdirSync(join(common, 'reftable'));
+    const withReftable = claudeCodeArguments({
+      cwd: '/work/x',
+      prompt: 'Go',
+      permissionMode: 'auto',
+      gitDirectories: { gitDirectory: own, gitCommonDirectory: common, worktreeConfig: false },
+    });
+    expect(withReftable[withReftable.indexOf('--settings') + 1]).not.toContain(
+      JSON.stringify(join(common, 'reftable')),
+    );
     // No other name missing at launch is denied: each would leave a placeholder (shallow stays
     // as today).
     expect(denied).not.toContain(join(common, 'shallow'));

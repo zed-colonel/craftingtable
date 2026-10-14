@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  createReadStream,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -19,7 +20,8 @@ import {
 
 /** A normalized-enough project name and version for PyPI's JSON API path; nothing else. */
 const NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$/;
-const VERSION = /^[A-Za-z0-9.+!_-]{1,64}$/;
+/** A version with a letter or digit in it: `.` and `..` would collapse PyPI's URL. */
+const VERSION = /^(?=.*[A-Za-z0-9])[A-Za-z0-9.+!_-]{1,64}$/;
 const FILENAME = /^[A-Za-z0-9_.!+-]{1,255}\.whl$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 /** The most of PyPI's JSON answer for one release the daemon reads. */
@@ -41,6 +43,18 @@ export interface PypiWheelStoreOptions {
 
 class WheelProblem extends Error {}
 
+/** A request that ran past its time limit: reported as such even though its signal aborted. */
+class WheelTimeout extends WheelProblem {}
+
+type WheelResult = { path: string } | { problem: string };
+
+/** One download every check that wants the file shares, stopped once none still waits. */
+interface SharedFetch {
+  readonly result: Promise<WheelResult>;
+  readonly controller: AbortController;
+  waiting: number;
+}
+
 /**
  * The daemon's verified wheel store (R-G17 decision 8, ADR-074): the wheels Python checks use,
  * fetched by the daemon itself from PyPI's JSON API and files.pythonhosted.org only, with
@@ -50,7 +64,7 @@ class WheelProblem extends Error {}
  * or check unit writes it, and a check copies what it needs and hashes it again.
  */
 export class PypiWheelStore implements PythonWheelSource {
-  private readonly pending = new Map<string, Promise<{ path: string } | { problem: string }>>();
+  private readonly pending = new Map<string, SharedFetch>();
   private window = { start: 0, count: 0 };
   private readonly fetchImpl: (url: string, init: RequestInit) => Promise<Response>;
   private readonly maxFileBytes: number;
@@ -74,6 +88,8 @@ export class PypiWheelStore implements PythonWheelSource {
     this.jsonTimeoutMs = options.jsonTimeoutMs ?? 30_000;
     this.downloadTimeoutMs = options.downloadTimeoutMs ?? 10 * 60_000;
     this.now = options.now ?? Date.now;
+    // What a stopped daemon left half-written is nobody's: the store is this daemon's alone.
+    rmSync(join(root, 'tmp'), { recursive: true, force: true });
   }
 
   async wheel(
@@ -92,28 +108,58 @@ export class PypiWheelStore implements PythonWheelSource {
       };
     const directory = join(this.root, 'files', request.sha256);
     const stored = join(directory, request.filename);
-    if (this.storedFile(stored)) return { path: stored };
+    if (await this.storedFile(stored, request.sha256)) return { path: stored };
     const key = `${request.sha256}/${request.filename}`;
-    const running = this.pending.get(key);
-    if (running) return running;
-    const fetching = this.fetchWheel(request, stored, signal).finally(() =>
-      this.pending.delete(key),
-    );
-    this.pending.set(key, fetching);
-    return fetching;
+    let shared = this.pending.get(key);
+    if (!shared) {
+      const controller = new AbortController();
+      const created: SharedFetch = {
+        controller,
+        waiting: 0,
+        result: this.fetchWheel(request, stored, controller.signal).finally(() => {
+          if (this.pending.get(key) === created) this.pending.delete(key);
+        }),
+      };
+      shared = created;
+      this.pending.set(key, shared);
+    }
+    // Each check waits on its own terms: its cancel releases it at once, and the download goes
+    // on for the others; it stops only when no check still waits for it.
+    shared.waiting++;
+    try {
+      return await new Promise<WheelResult>((resolve) => {
+        const cancelled = () => resolve({ problem: `fetching ${request.filename} was cancelled` });
+        if (signal.aborted) return cancelled();
+        signal.addEventListener('abort', cancelled, { once: true });
+        void shared.result.then((result) => {
+          signal.removeEventListener('abort', cancelled);
+          resolve(result);
+        });
+      });
+    } finally {
+      shared.waiting--;
+      if (shared.waiting === 0 && this.pending.get(key) === shared) {
+        this.pending.delete(key);
+        shared.controller.abort();
+      }
+    }
   }
 
-  /** Whether the store holds the file, a regular file and no link; marks it used. */
-  private storedFile(path: string): boolean {
+  /**
+   * Whether the store holds the file: a regular file, no link, whose bytes still hash to its
+   * digest (a crash can leave a truncated one). Anything else in its place is removed, so it is
+   * fetched again. Marks it used.
+   */
+  private async storedFile(path: string, sha256: string): Promise<boolean> {
     try {
-      if (!lstatSync(path).isFile()) {
-        rmSync(path, { recursive: true, force: true });
-        return false;
-      }
+      if (!lstatSync(path).isFile()) throw new WheelProblem('not a file');
+      if ((await fileDigest(path)) !== sha256) throw new WheelProblem('not its digest');
       const at = this.now() / 1000;
       utimesSync(path, at, at);
       return true;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        rmSync(path, { recursive: true, force: true });
       return false;
     }
   }
@@ -145,7 +191,8 @@ export class PypiWheelStore implements PythonWheelSource {
       return { path: stored };
     } catch (error) {
       rmSync(temporary, { force: true });
-      if (signal.aborted) return { problem: `fetching ${request.filename} was cancelled` };
+      if (signal.aborted && !(error instanceof WheelTimeout))
+        return { problem: `fetching ${request.filename} was cancelled` };
       return {
         problem: `${request.filename} could not be verified: ${
           error instanceof WheelProblem
@@ -165,15 +212,28 @@ export class PypiWheelStore implements PythonWheelSource {
   ): Promise<{ url: string; size: number }> {
     this.allow();
     const url = `https://pypi.org/pypi/${encodeURIComponent(request.name)}/${encodeURIComponent(request.version)}/json`;
+    const timeout = AbortSignal.timeout(this.jsonTimeoutMs);
     const response = await this.fetchImpl(url, {
       redirect: 'error',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(this.jsonTimeoutMs)]),
+      signal: AbortSignal.any([signal, timeout]),
+    }).catch((error: unknown) => {
+      if (timeout.aborted)
+        throw new WheelTimeout(`timed out asking PyPI after ${this.jsonTimeoutMs} ms`);
+      throw error;
     });
     if (!response.ok)
       throw new WheelProblem(
         `PyPI answered ${response.status} for ${request.name} ${request.version}`,
       );
-    const text = await boundedText(response, JSON_MAX_BYTES);
+    const text = await boundedText(
+      response,
+      JSON_MAX_BYTES,
+      AbortSignal.any([signal, timeout]),
+    ).catch((error: unknown) => {
+      if (timeout.aborted)
+        throw new WheelTimeout(`timed out reading PyPI's answer after ${this.jsonTimeoutMs} ms`);
+      throw error;
+    });
     let answer: unknown;
     try {
       answer = JSON.parse(text);
@@ -218,10 +278,18 @@ export class PypiWheelStore implements PythonWheelSource {
     signal: AbortSignal,
   ): Promise<void> {
     this.allow();
-    const response = await this.fetchImpl(url, {
-      redirect: 'error',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(this.downloadTimeoutMs)]),
-    });
+    const timeout = AbortSignal.timeout(this.downloadTimeoutMs);
+    const stop = AbortSignal.any([signal, timeout]);
+    const ended = () =>
+      timeout.aborted
+        ? new WheelTimeout(`timed out after ${this.downloadTimeoutMs} ms`)
+        : new WheelProblem('cancelled');
+    const response = await this.fetchImpl(url, { redirect: 'error', signal: stop }).catch(
+      (error: unknown) => {
+        if (timeout.aborted) throw new WheelTimeout(`timed out after ${this.downloadTimeoutMs} ms`);
+        throw error;
+      },
+    );
     if (!response.ok || !response.body)
       throw new WheelProblem(`files.pythonhosted.org answered ${response.status}`);
     const hash = createHash('sha256');
@@ -229,20 +297,23 @@ export class PypiWheelStore implements PythonWheelSource {
     let received = 0;
     try {
       const reader = response.body.getReader();
+      // A cancel or the time limit ends a read that hangs, as the request's own abort may not.
       const aborted = new Promise<never>((_, reject) => {
-        const stop = () => {
+        const end = () => {
+          // Rejected first: cancelling settles a pending read at once, as if the file ended.
+          reject(ended());
           void reader.cancel().catch(() => undefined);
-          reject(new WheelProblem('cancelled'));
         };
-        if (signal.aborted) stop();
-        else signal.addEventListener('abort', stop, { once: true });
+        if (stop.aborted) end();
+        else stop.addEventListener('abort', end, { once: true });
       });
       aborted.catch(() => undefined);
       for (;;) {
         const { done, value } = await Promise.race([reader.read(), aborted]);
         if (done) break;
         received += value.byteLength;
-        if (received > size || received > this.maxFileBytes) {
+        // `size` is within the per-file limit already, so this holds the stream to both.
+        if (received > size) {
           void reader.cancel().catch(() => undefined);
           throw new WheelProblem(
             `files.pythonhosted.org sent more bytes than PyPI declared (${size})`,
@@ -251,9 +322,12 @@ export class PypiWheelStore implements PythonWheelSource {
         hash.update(value);
         await handle.write(value);
       }
+      // On disk before the rename makes it the stored file.
+      await handle.sync();
     } finally {
       await handle.close();
     }
+    if (stop.aborted) throw ended();
     if (received !== size || hash.digest('hex') !== sha256)
       throw new WheelProblem(`its bytes do not match PyPI's digest and the lock's hash`);
   }
@@ -284,14 +358,34 @@ export class PypiWheelStore implements PythonWheelSource {
   }
 }
 
-/** A response's text, refused past `limit` bytes as it arrives. */
-async function boundedText(response: Response, limit: number): Promise<string> {
+/** A file's SHA-256, read as a stream. */
+function fileDigest(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    createReadStream(path)
+      .on('error', reject)
+      .on('data', (chunk) => hash.update(chunk))
+      .on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+/** A response's text, refused past `limit` bytes as it arrives; `stop` ends a hanging read. */
+async function boundedText(response: Response, limit: number, stop: AbortSignal): Promise<string> {
   if (!response.body) return '';
   const reader = response.body.getReader();
+  const stopped = new Promise<never>((_, reject) => {
+    const end = () => {
+      reject(new WheelProblem('stopped'));
+      void reader.cancel().catch(() => undefined);
+    };
+    if (stop.aborted) end();
+    else stop.addEventListener('abort', end, { once: true });
+  });
+  stopped.catch(() => undefined);
   const chunks: Uint8Array[] = [];
   let received = 0;
   for (;;) {
-    const { done, value } = await reader.read();
+    const { done, value } = await Promise.race([reader.read(), stopped]);
     if (done) break;
     received += value.byteLength;
     if (received > limit) {

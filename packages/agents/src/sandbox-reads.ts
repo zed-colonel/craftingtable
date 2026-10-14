@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import type { AgentLaunchRequest } from './index.js';
 import { launchCargoHome } from './outside-sources.js';
@@ -10,18 +11,23 @@ export const CLAUDE_CREDENTIALS_FILE = '~/.claude/.credentials.json';
 
 /**
  * uv's stored credentials (`uv auth login`) and its user configuration, which may hold an
- * index's credentials (R-G17), where XDG puts them for the daemon's account.
+ * index's credentials (R-G17): at XDG's default places always, and where the daemon's XDG
+ * variables say too, when they say something else. The daemon's unit may set them differently
+ * from the operator's shell, whose uv writes the defaults (review L-9).
  */
-export function uvConfigPaths(env: NodeJS.ProcessEnv = process.env): {
-  readonly credentials: string;
-  readonly configuration: string;
-} {
-  const base = (value: string | undefined, fallback: string) =>
-    value !== undefined && isAbsolute(value) ? value : fallback;
-  return {
-    credentials: join(base(env.XDG_DATA_HOME, '~/.local/share'), 'uv', 'credentials'),
-    configuration: join(base(env.XDG_CONFIG_HOME, '~/.config'), 'uv'),
-  };
+export function uvConfigPaths(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  const defaults = ['~/.local/share/uv/credentials', '~/.config/uv'];
+  const named = [
+    ...(env.XDG_DATA_HOME !== undefined && isAbsolute(env.XDG_DATA_HOME)
+      ? [join(env.XDG_DATA_HOME, 'uv', 'credentials')]
+      : []),
+    ...(env.XDG_CONFIG_HOME !== undefined && isAbsolute(env.XDG_CONFIG_HOME)
+      ? [join(env.XDG_CONFIG_HOME, 'uv')]
+      : []),
+  ];
+  // An XDG path that is a default spelled out is listed once, as the default.
+  const spelled = defaults.map((path) => join(homedir(), path.slice(2)));
+  return [...defaults, ...named.filter((path) => !spelled.includes(path))];
 }
 
 /**
@@ -52,8 +58,7 @@ export function sandboxDeniedReads(
     // PyPI's and uv's credentials, and uv's own configuration (R-G17).
     '~/.pypirc',
     '~/.netrc',
-    uvConfigPaths().credentials,
-    uvConfigPaths().configuration,
+    ...uvConfigPaths(),
     // The daemon's database, its copies and the credentials file (R-G9).
     ...(request.deniedReads ?? []),
   ];

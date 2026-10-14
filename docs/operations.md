@@ -313,6 +313,9 @@ They are read from `outside-sources.json` in the settings directory at start; ed
 - A sandboxed or read-only Codex run can mask at most one existing file in Codex 0.160.0; one that
   would need more (for example Cargo registry tokens left in `<data>/cargo-home`) is refused
   before it starts as `agent-environment-unavailable`, naming the files: move all but one away.
+  A system Docker socket (`/run/docker.sock`) already takes that one, so on such a workstation
+  creating `~/.netrc` or `~/.pypirc` (or uv's credentials file) stops every sandboxed and
+  read-only Codex run until the file is moved; keep PyPI credentials out of the home directory.
 
 **Cargo.** Agents use the daemon's own Cargo home, `<data>/cargo-home`, never `~/.cargo`. Each
 start copies into it, one way, the `registry` and `git` caches of the operator's Cargo home that it

@@ -153,3 +153,22 @@ it('keeps the start from failing when a probe throws, and logs it', async () => 
   expect(service.status().tools).toEqual([]);
   expect(warnings).toEqual(['The configured toolchain could not be probed']);
 });
+
+it("records only the current profile's tools: a check of a run launched before a restart may re-read another (review L-7)", () => {
+  const service = new ToolchainService(settings, async () => []);
+  const elsewhere = (index: number): ToolObservation => ({
+    tool: 'uv',
+    path: `/opt/old-${index}/bin/uv`,
+    identity: {
+      tool: 'uv',
+      path: `/opt/old-${index}/bin/uv`,
+      uid: 0,
+      mode: '0755',
+      size: 1,
+      sha256: 'c'.repeat(64),
+    },
+  });
+  service.record(Array.from({ length: 100 }, (_, index) => elsewhere(index)));
+  service.record([identity('uv', 'b'.repeat(64), '0.12.22')]);
+  expect(service.status().tools.map((tool) => tool.path)).toEqual([python.uv.path]);
+});

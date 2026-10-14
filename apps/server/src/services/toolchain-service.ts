@@ -30,6 +30,19 @@ export interface ToolchainStatus {
   readonly tools: readonly ToolStatus[];
 }
 
+/** The paths the profile names, by tool. */
+function profilePaths(profile: PythonToolchain | undefined): Map<ToolchainTool, readonly string[]> {
+  if (!profile) return new Map();
+  const media = profile.media ?? {};
+  return new Map<ToolchainTool, readonly string[]>([
+    ['python', [profile.interpreter]],
+    ['uv', [profile.uv.path]],
+    ...(media.ffmpeg ? [['ffmpeg', [media.ffmpeg]] as const] : []),
+    ...(media.ffprobe ? [['ffprobe', [media.ffprobe]] as const] : []),
+    ...(media.fonts?.length ? [['font', media.fonts] as const] : []),
+  ]);
+}
+
 /** A tool's state in a few words, to say what changed. */
 function describe(observation: ToolObservation): string {
   if (observation.problem && !observation.identity)
@@ -74,10 +87,16 @@ export class ToolchainService {
     }
   }
 
-  /** Records what a probe or a check found, and what changed since the last look. */
+  /**
+   * Records what a probe or a check found, and what changed since the last look. Only the current
+   * profile's tools: a check of a run launched before a restart re-reads the profile in its own
+   * manifest, which may name other paths (review L-7).
+   */
   record(observations: readonly ToolObservation[]): void {
     const at = this.now().toISOString();
+    const configured = profilePaths(this.settings.python);
     for (const observation of observations) {
+      if (configured.get(observation.tool)?.includes(observation.path) !== true) continue;
       const key = `${observation.tool}\0${observation.path}`;
       const previous = this.tools.get(key);
       const to = describe(observation);

@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { asDeclaredCheckId, asRepositoryCheckDeclarationId } from '@craftingtable/domain';
 import { hostCargo, hostGit } from './host-tools-test-support.js';
-import { FixtureWheels, writePythonProject } from './python-fixture.js';
+import { buildWheel, FixtureWheels, lockFor, writePythonProject } from './python-fixture.js';
 import {
   type CheckExecution,
   executeCheck,
@@ -183,6 +183,36 @@ it('refuses a Python check whose interpreter is missing', async () => {
   expect(result.exitCode).toBe(1);
   expect(result.output).not.toContain('CHECK-RAN');
   expect(result.diagnostic).toContain('does not exist');
+});
+
+it('refuses a Python check whose uv alone is missing, while the interpreter fits (review L-3)', async () => {
+  const f = fixture({
+    python: {
+      interpreter: SYSTEM_PYTHON,
+      version: '3',
+      uv: { path: '/opt/craftingtable-no-such/bin/uv', version: '0.12' },
+    },
+    files: ROOT_LOCK,
+  });
+  const result = await f.execute();
+  expect(result.exitCode).toBe(1);
+  expect(result.output).not.toContain('CHECK-RAN');
+  expect(result.diagnostic).toContain('uv /opt/craftingtable-no-such/bin/uv');
+});
+
+it('refuses a Python check whose uv alone does not answer its probe (review L-3)', async () => {
+  const f = fixture({
+    python: {
+      interpreter: SYSTEM_PYTHON,
+      version: '3',
+      uv: { path: '/usr/bin/false', version: '0' },
+    },
+    files: ROOT_LOCK,
+  });
+  const result = await f.execute();
+  expect(result.exitCode).toBe(1);
+  expect(result.output).not.toContain('CHECK-RAN');
+  expect(result.diagnostic).toContain('did not answer its fixed version probe');
 });
 
 it('gives a check no Python, and reads no tool, without a root uv.lock, even with a nested one', async () => {
@@ -550,5 +580,63 @@ it.skipIf(!optToolchain || !['running', 'degraded'].includes(userManager ?? ''))
     expect(result.output).toContain('CTFIX 42');
     expect(result.output).toContain('NET-DENIED');
     expect(result.output).toContain('VENV-READONLY');
+  },
+);
+
+itPython(
+  'refuses a wheel whose bytes are not what the store vouched for, installing nothing',
+  async () => {
+    const f = pythonCheck();
+    // The store answers with a path whose file is not the locked one.
+    const other = join(f.root, 'other.whl');
+    writeFileSync(other, 'not the wheel');
+    const result = await f.execute({
+      pythonWheels: { wheel: async () => ({ path: other }) },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.output).not.toContain('CTFIX');
+    expect(result.diagnostic).toContain(`${f.wheel.filename} changed after the daemon verified it`);
+  },
+);
+
+itPython('refuses a root uv.lock committed as a link, never reading through it', async () => {
+  const f = pythonCheck();
+  rmSync(join(f.workspacePath, 'uv.lock'));
+  symlinkSync('/etc/hostname', join(f.workspacePath, 'uv.lock'));
+  git(['add', '-A'], f.workspacePath);
+  git(
+    ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'link'],
+    f.workspacePath,
+  );
+  const result = await f.execute();
+  expect(result.exitCode).toBe(1);
+  expect(result.output).not.toContain('CTFIX');
+  // Either refusal holds: the adopted lock's digest no longer matches, or it is no file.
+  expect(result.diagnostic).toContain('uv.lock must be a regular file');
+});
+
+itPython(
+  'digests the wheel set in a fixed order, whatever order the lock lists them in',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ct-python-order-'));
+    roots.push(root);
+    const extra = buildWheel(join(root, 'wheels'), 'aaa-first', '1.0', {
+      'aaa_first/__init__.py': '',
+    });
+    const f = pythonCheck();
+    // The lock lists ctfix-pkg before aaa-first; the digest sorts by SHA-256.
+    writeFileSync(join(f.workspacePath, 'uv.lock'), lockFor('ct-python-fixture', [f.wheel, extra]));
+    git(['add', '-A'], f.workspacePath);
+    git(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'two wheels'],
+      f.workspacePath,
+    );
+    const result = await f.execute({ pythonWheels: new FixtureWheels([f.wheel, extra]) });
+    // The adopted lock changed, so the check is held to the new one only by its digests; what
+    // matters here is the receipt's wheel set.
+    const lines = [f.wheel, extra].map((w) => `${w.sha256}  ${w.filename}\n`).sort();
+    expect((result.receipt.python as { wheelSetDigest: string }).wheelSetDigest).toBe(
+      sha256(lines.join('')),
+    );
   },
 );

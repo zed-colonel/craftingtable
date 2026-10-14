@@ -386,6 +386,28 @@ it("lets a sandboxed run's commands commit, through Git's objects, refs and logs
   }
 });
 
+it("grants a reftable repository's ref store as it grants refs/, and only where it exists (R-G16 review L-1)", () => {
+  const git = gitLayout();
+  try {
+    const filesystem = () =>
+      (
+        profileOf({
+          cwd: '/work/x',
+          prompt: 'Go',
+          permissionMode: 'auto',
+          outsideSources: [],
+          gitDirectories: git.gitDirectories,
+        }).profile as { filesystem: Record<string, string> }
+      ).filesystem;
+    // No rule for a path that does not exist: Codex would mask it.
+    expect(filesystem()).not.toHaveProperty(join(git.common, 'reftable'));
+    mkdirSync(join(git.common, 'reftable'));
+    expect(filesystem()[join(git.common, 'reftable')]).toBe('write');
+  } finally {
+    rmSync(git.root, { recursive: true, force: true });
+  }
+});
+
 it('grants no Git at all for a repository that enables per-worktree configuration (R-G14, operator decision 2026-10-08)', () => {
   const git = gitLayout();
   try {

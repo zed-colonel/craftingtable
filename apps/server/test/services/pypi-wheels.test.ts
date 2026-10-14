@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { PypiWheelStore } from '../../src/services/pypi-wheels.js';
 
 /**
@@ -35,6 +35,17 @@ function root(): string {
 }
 const sha256 = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
 const never = new AbortController().signal;
+/** Waits up to two seconds for a condition the store reaches asynchronously. */
+async function until(condition: () => boolean): Promise<void> {
+  for (const started = Date.now(); !condition(); ) {
+    if (Date.now() - started > 2_000) throw new Error('condition not reached');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+const endless = () =>
+  new ReadableStream<Uint8Array>({
+    pull: () => new Promise((resolve) => setTimeout(resolve, 60_000)),
+  });
 
 const WHEEL = Buffer.from('a genuine wheel');
 const FILE = 'markupsafe-3.0.4-cp312-cp312-manylinux_2_17_x86_64.whl';
@@ -125,6 +136,8 @@ it('fetches only from files.pythonhosted.org over HTTPS, and only a wheel', asyn
     [{ url: `https://example.org/${FILE}` }, /files\.pythonhosted\.org/],
     [{ url: `http://files.pythonhosted.org/packages/ab/cd/${FILE}` }, /files\.pythonhosted\.org/],
     [{ url: `https://files.pythonhosted.org.example.org/${FILE}` }, /files\.pythonhosted\.org/],
+    // Credentials in the URL, which the store refuses before any fetch implementation sees it.
+    [{ url: `https://user:secret@files.pythonhosted.org/packages/ab/cd/${FILE}` }, /not https/],
     [{ packagetype: 'sdist' }, /not on PyPI/],
   ] as const) {
     const server = pypi(overrides);
@@ -168,7 +181,8 @@ it('ends within seconds when the check is cancelled during a download', async ()
   setTimeout(() => controller.abort(), 200);
   expect(await pending).toEqual({ problem: expect.stringContaining('cancelled') });
   expect(Date.now() - started).toBeLessThan(5_000);
-  expect(readdirSync(join(at, 'tmp'))).toEqual([]);
+  // The download, with no check left waiting for it, stops and removes its partial file.
+  await until(() => readdirSync(join(at, 'tmp')).length === 0);
 });
 
 it('asks PyPI at most so many times per window, whatever locks name', async () => {
@@ -266,4 +280,146 @@ it('serves only a regular file it stored: a link or a directory in its place is 
     expect(lstatSync(join(directory, FILE)).isFile(), plant).toBe(true);
     expect(readFileSync(join(directory, FILE)), plant).toEqual(WHEEL);
   }
+});
+
+describe('one download shared by the checks that want the same wheel (review M-1)', () => {
+  it('fetches once for checks asking at the same time', async () => {
+    const server = pypi();
+    const store = new PypiWheelStore(root(), { fetch: server.fetch });
+    const [a, b] = await Promise.all([store.wheel(request, never), store.wheel(request, never)]);
+    expect(a).toEqual(b);
+    expect(server.asked).toHaveLength(2);
+  });
+
+  it("releases a waiting check at once on its own cancel, and the others' download goes on", async () => {
+    const at = root();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // A body that arrives only when released.
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        await gate;
+        controller.enqueue(new Uint8Array(WHEEL));
+        controller.close();
+      },
+    });
+    const store = new PypiWheelStore(at, { fetch: pypi({ body }).fetch });
+    const first = store.wheel(request, never);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const second = new AbortController();
+    const waiting = store.wheel(request, second.signal);
+    const started = Date.now();
+    second.abort();
+    expect(await waiting).toEqual({ problem: expect.stringContaining('cancelled') });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    release();
+    // The first check, which never cancelled, gets its verified wheel.
+    expect(await first).toEqual({ path: join(at, 'files', request.sha256, FILE) });
+  });
+
+  it('a cancel of the first check fails no other check waiting on the same wheel', async () => {
+    const at = root();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        await gate;
+        controller.enqueue(new Uint8Array(WHEEL));
+        controller.close();
+      },
+    });
+    const store = new PypiWheelStore(at, { fetch: pypi({ body }).fetch });
+    const first = new AbortController();
+    const a = store.wheel(request, first.signal);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const b = store.wheel(request, never);
+    first.abort();
+    expect(await a).toEqual({ problem: expect.stringContaining('cancelled') });
+    release();
+    expect(await b).toEqual({ path: join(at, 'files', request.sha256, FILE) });
+  });
+
+  it('stops the download once no check waits for it', async () => {
+    const at = root();
+    const store = new PypiWheelStore(at, { fetch: pypi({ body: endless() }).fetch });
+    const only = new AbortController();
+    const pending = store.wheel(request, only.signal);
+    await until(() => existsSync(join(at, 'tmp')) && readdirSync(join(at, 'tmp')).length === 1);
+    only.abort();
+    await pending;
+    await until(() => readdirSync(join(at, 'tmp')).length === 0);
+  });
+});
+
+describe("the store's other guards, one test each (review L-4, L-5)", () => {
+  it('re-hashes a stored file when it serves it, and fetches again over a truncated one', async () => {
+    const at = root();
+    const directory = join(at, 'files', request.sha256);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, FILE), '');
+    const server = pypi();
+    const result = await new PypiWheelStore(at, { fetch: server.fetch }).wheel(request, never);
+    expect(result).toEqual({ path: join(directory, FILE) });
+    expect(server.asked).toHaveLength(2);
+    expect(readFileSync(join(directory, FILE))).toEqual(WHEEL);
+  });
+
+  it('clears what a stopped daemon left half-written', () => {
+    const at = root();
+    mkdirSync(join(at, 'tmp'), { recursive: true });
+    writeFileSync(join(at, 'tmp', 'left-by-a-crash'), Buffer.alloc(10));
+    new PypiWheelStore(at);
+    expect(existsSync(join(at, 'tmp'))).toBe(false);
+  });
+
+  it('holds the stream to the size PyPI declared, within the limit', async () => {
+    const at = root();
+    const big = Buffer.alloc(4096, 1);
+    const result = await new PypiWheelStore(at, {
+      fetch: pypi({ body: big, size: 16, digest: sha256(big) }).fetch,
+      maxFileBytes: 1024 * 1024,
+    }).wheel({ ...request, sha256: sha256(big) }, never);
+    expect(result).toEqual({ problem: expect.stringContaining('more bytes than PyPI declared') });
+  });
+
+  it('gives up on a JSON answer and on a download that stall, within their time limits', async () => {
+    const stalledJson = async (_url: string, init: RequestInit) =>
+      new Promise<Response>((_, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    const json = await new PypiWheelStore(root(), {
+      fetch: stalledJson,
+      jsonTimeoutMs: 200,
+    }).wheel(request, never);
+    expect(json).toEqual({ problem: expect.stringContaining('timed out asking PyPI') });
+    const download = await new PypiWheelStore(root(), {
+      fetch: pypi({ body: endless() }).fetch,
+      downloadTimeoutMs: 200,
+    }).wheel(request, never);
+    expect(download).toEqual({ problem: expect.stringContaining('timed out after 200 ms') });
+  });
+
+  it('never evicts the wheel it has just fetched, even past the budget', async () => {
+    const at = root();
+    const result = await new PypiWheelStore(at, { fetch: pypi().fetch, budgetBytes: 1 }).wheel(
+      request,
+      never,
+    );
+    expect(result).toEqual({ path: join(at, 'files', request.sha256, FILE) });
+    expect(existsSync(join(at, 'files', request.sha256, FILE))).toBe(true);
+  });
+
+  it('refuses a version made only of dots, which would collapse PyPI URL', async () => {
+    const server = pypi();
+    const store = new PypiWheelStore(root(), { fetch: server.fetch });
+    for (const version of ['.', '..', '...'])
+      expect(await store.wheel({ ...request, version }, never)).toEqual({
+        problem: expect.stringContaining('not a wheel'),
+      });
+    expect(server.asked).toEqual([]);
+  });
 });

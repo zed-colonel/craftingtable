@@ -120,20 +120,18 @@ it("notes the pypi source's hosts and cache with the others (R-G17)", () => {
 
 it("denies sandboxed commands PyPI's and uv's credentials and uv's own configuration (R-G17)", () => {
   const denied = sandboxDeniedReads({});
-  for (const path of [
-    '~/.pypirc',
-    '~/.netrc',
-    uvConfigPaths().credentials,
-    uvConfigPaths().configuration,
-  ])
-    expect(denied).toContain(path);
-  // Where XDG says, when it says it.
-  expect(uvConfigPaths({ XDG_DATA_HOME: '/x/data', XDG_CONFIG_HOME: '/x/config' })).toEqual({
-    credentials: '/x/data/uv/credentials',
-    configuration: '/x/config/uv',
-  });
-  expect(uvConfigPaths({ XDG_DATA_HOME: 'relative' })).toEqual({
-    credentials: '~/.local/share/uv/credentials',
-    configuration: '~/.config/uv',
-  });
+  for (const path of ['~/.pypirc', '~/.netrc', ...uvConfigPaths()]) expect(denied).toContain(path);
+  // The default places always, and where XDG says, when it says something else (review L-9):
+  // the daemon's unit may set XDG differently from the operator's shell.
+  expect(uvConfigPaths({})).toEqual(['~/.local/share/uv/credentials', '~/.config/uv']);
+  expect(uvConfigPaths({ XDG_DATA_HOME: '/x/data', XDG_CONFIG_HOME: '/x/config' })).toEqual([
+    '~/.local/share/uv/credentials',
+    '~/.config/uv',
+    '/x/data/uv/credentials',
+    '/x/config/uv',
+  ]);
+  expect(uvConfigPaths({ XDG_DATA_HOME: 'relative' })).toEqual([
+    '~/.local/share/uv/credentials',
+    '~/.config/uv',
+  ]);
 });

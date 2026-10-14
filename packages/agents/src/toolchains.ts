@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { constants, lstatSync, type Stats } from 'node:fs';
+import { constants, lstatSync, readdirSync, realpathSync, type Stats } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { isAbsolute, join, normalize } from 'node:path';
+import { dirname, isAbsolute, join, normalize } from 'node:path';
 import type { ToolchainTool, ToolProblemCode } from '@craftingtable/domain';
 import { spawnSupervisedProcess } from './process.js';
 
@@ -113,13 +113,20 @@ function componentProblem(
  * link, owned by root and writable by no group or other user. Agents run as the operator's
  * account, so anything that account can write could become a check's privileged configuration.
  */
-export function trustedFileProblem(path: string): ToolProblem | undefined {
-  return trustedPathProblem(path, 'file');
+export function trustedFileProblem(
+  path: string,
+  stat: (path: string) => Stats = lstatSync,
+): ToolProblem | undefined {
+  return trustedPathProblem(path, 'file', stat);
 }
 
 /** The rule for a file or a directory: every component from `/` down. */
-function trustedPathProblem(path: string, kind: 'file' | 'directory'): ToolProblem | undefined {
-  if (!isAbsolute(path) || normalize(path) !== path)
+function trustedPathProblem(
+  path: string,
+  kind: 'file' | 'directory' | 'any',
+  stat: (path: string) => Stats = lstatSync,
+): ToolProblem | undefined {
+  if (!isAbsolute(path) || normalize(path) !== path || (path !== '/' && path.endsWith('/')))
     return problem('linked', `${path} must be an absolute, normalized path`);
   const components = path.split('/').filter(Boolean);
   let current = '/';
@@ -127,14 +134,15 @@ function trustedPathProblem(path: string, kind: 'file' | 'directory'): ToolProbl
     if (index > 0) current = join(current, components[index - 1] as string);
     let status: Stats;
     try {
-      status = lstatSync(current);
+      status = stat(current);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       return code === 'ENOENT' || code === 'ENOTDIR'
         ? problem('missing', `${path} does not exist`)
         : problem('untrusted-owner', `${current} could not be checked: ${code ?? String(error)}`);
     }
-    const found = componentProblem(current, status, index === components.length ? kind : undefined);
+    const last = index === components.length && kind !== 'any' ? kind : undefined;
+    const found = componentProblem(current, status, last);
     if (found) return found;
   }
   return undefined;
@@ -144,8 +152,104 @@ function trustedPathProblem(path: string, kind: 'file' | 'directory'): ToolProbl
  * Why a directory a tool loads from (Python's prefix and standard library) cannot be trusted:
  * the same rule as a tool file, for a directory.
  */
-export function trustedDirectoryProblem(path: string): ToolProblem | undefined {
-  return trustedPathProblem(normalize(path).replace(/\/+$/, '') || '/', 'directory');
+export function trustedDirectoryProblem(
+  path: string,
+  stat: (path: string) => Stats = lstatSync,
+): ToolProblem | undefined {
+  return trustedPathProblem(normalize(path).replace(/\/+$/, '') || '/', 'directory', stat);
+}
+
+/** The most entries of an interpreter's install the rule walks. */
+const INSTALL_MAX_ENTRIES = 200_000;
+
+/**
+ * Why a Python interpreter's install cannot be trusted (R-G17 review L-2), checked before the
+ * interpreter ever runs: its prefix (the directory above its `bin/`), `<prefix>/lib` and each
+ * standard library there (`<prefix>/lib/python3.X`, at least one) must pass the rule as
+ * directories; every entry of a standard library, at any depth, and every entry directly in
+ * `<prefix>/lib` and `<prefix>/bin` (the shared library, the interpreter's neighbours) must be
+ * owned by root and writable by no group or other user, and a link among them must lead to a path
+ * that passes the rule. Python imports what lies there, so a file the account could write would
+ * run in every check.
+ */
+export function pythonInstallProblem(
+  interpreter: string,
+  stat: (path: string) => Stats = lstatSync,
+  list: (directory: string) => string[] = (directory) => readdirSync(directory),
+  resolve: (path: string) => string = realpathSync,
+): ToolProblem | undefined {
+  const prefix = dirname(dirname(interpreter));
+  const library = join(prefix, 'lib');
+  for (const directory of [prefix, library]) {
+    const found = trustedDirectoryProblem(directory, stat);
+    if (found) return found;
+  }
+  let standards: string[];
+  try {
+    standards = list(library)
+      .filter((name) => /^python\d+\.\d+t?$/.test(name))
+      .map((name) => join(library, name));
+  } catch {
+    standards = [];
+  }
+  if (standards.length === 0)
+    return problem('missing', `${interpreter} has no standard library under ${library}`);
+  for (const directory of standards) {
+    const found = trustedDirectoryProblem(directory, stat);
+    if (found) return found;
+  }
+  let seen = 0;
+  const entry = (path: string): ToolProblem | undefined => {
+    if (++seen > INSTALL_MAX_ENTRIES)
+      return problem('not-regular', `${prefix} holds more than ${INSTALL_MAX_ENTRIES} entries`);
+    let status: Stats;
+    try {
+      status = stat(path);
+    } catch {
+      return undefined;
+    }
+    if (status.isSymbolicLink()) {
+      let target: string;
+      try {
+        target = resolve(path);
+      } catch {
+        return undefined;
+      }
+      return trustedPathProblem(target, 'any', stat);
+    }
+    return componentProblem(path, status, undefined);
+  };
+  const walk = (directory: string, deep: boolean): ToolProblem | undefined => {
+    let names: string[];
+    try {
+      names = list(directory);
+    } catch {
+      return problem('untrusted-owner', `${directory} could not be listed`);
+    }
+    for (const name of names) {
+      const path = join(directory, name);
+      const found = entry(path);
+      if (found) return found;
+      if (deep) {
+        let status: Stats | undefined;
+        try {
+          status = stat(path);
+        } catch {
+          status = undefined;
+        }
+        if (status?.isDirectory()) {
+          const below = walk(path, true);
+          if (below) return below;
+        }
+      }
+    }
+    return undefined;
+  };
+  for (const directory of standards) {
+    const found = walk(directory, true);
+    if (found) return found;
+  }
+  return walk(library, false) ?? walk(join(prefix, 'bin'), false);
 }
 
 /** Whether `observed` fits `configured`, a dotted prefix: `3.12` takes 3.12.x, never 3.120. */
@@ -291,8 +395,14 @@ async function probe(
 export async function identifyTool(
   tool: ToolchainTool,
   path: string,
-  options: { readonly configuredVersion?: string; readonly signal?: AbortSignal } = {},
+  options: {
+    readonly configuredVersion?: string;
+    readonly signal?: AbortSignal;
+    /** How a path's owner and mode are read; tests substitute it, as only root owns real tools. */
+    readonly stat?: (path: string) => Stats;
+  } = {},
 ): Promise<ToolObservation> {
+  const stat = options.stat ?? lstatSync;
   const base = {
     tool,
     path,
@@ -300,7 +410,7 @@ export async function identifyTool(
       ? {}
       : { configuredVersion: options.configuredVersion }),
   };
-  const refused = trustedFileProblem(path);
+  const refused = trustedFileProblem(path, stat);
   if (refused) return { ...base, problem: refused };
   let digest: Awaited<ReturnType<typeof digestOf>>;
   try {
@@ -311,12 +421,17 @@ export async function identifyTool(
       problem: problem('not-regular', error instanceof Error ? error.message : String(error)),
     };
   }
+  // A Python interpreter's install is held to the rule before the interpreter runs.
+  if (tool === 'python') {
+    const unsafe = pythonInstallProblem(path, stat);
+    if (unsafe) return { ...base, problem: unsafe };
+  }
   const probed = await probe(tool, path, options.signal);
   const identity: ToolIdentity = {
     tool,
     path,
     uid: digest.status.uid,
-    mode: `0${(digest.status.mode & 0o777).toString(8)}`,
+    mode: modeText(digest.status.mode),
     size: digest.status.size,
     sha256: digest.sha256,
     ...(probed?.version ? { version: probed.version } : {}),
@@ -330,7 +445,7 @@ export async function identifyTool(
       problem: problem('probe-failed', `${path} did not answer its fixed version probe`),
     };
   for (const directory of probed.loadsFrom ?? []) {
-    const unsafe = trustedDirectoryProblem(directory);
+    const unsafe = trustedDirectoryProblem(directory, stat);
     if (unsafe) return { ...base, identity, problem: unsafe };
   }
   if (
@@ -346,6 +461,11 @@ export async function identifyTool(
       ),
     };
   return { ...base, identity };
+}
+
+/** A file's permission bits as four octal digits, as the status contract reads them. */
+export function modeText(mode: number): string {
+  return `0${(mode & 0o777).toString(8).padStart(3, '0')}`;
 }
 
 /** Every tool of a Python profile, in a fixed order: Python, uv, FFmpeg, ffprobe, the fonts. */

@@ -84,7 +84,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | [R-G13](#r-g13) | P2 | M | done (increments 1 to 3 and 5 in P2; 4 in P3, 2026-10-07) | Declared per-repository checks |
 | [R-G14](#r-g14) | P3 | S-M | done (2026-10-08, on `remediation/p3`) | Operator-configured outside sources for agent sandboxes |
-| [R-G16](#r-g16) | P4 | S-M | open (found live 2026-10-13; awaiting decision) | Claude Code's Git grant leaves placeholder files in the shared Git directory |
+| [R-G16](#r-g16) | P4 | S-M | open (decided 2026-10-13; built first in R-G17's session) | Claude Code's Git grant leaves placeholder files in the shared Git directory |
+| [R-G17](#r-g17) | P4 | L | open (designed and decided 2026-10-13) | Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
@@ -4135,7 +4136,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G16
 
-**Claude Code's Git grant leaves placeholder files in the shared Git directory** · Phase P4 · Effort S-M · Status: open (found live 2026-10-13; awaiting the operator's decision)
+**Claude Code's Git grant leaves placeholder files in the shared Git directory** · Phase P4 · Effort S-M · Status: open (decided 2026-10-13; built first in [R-G17](#r-g17)'s session)
 
 - **Added 2026-10-13** (operator), from WorldInterface WIP-01's second review (5774d76d): four of the reviewer's five counted reruns (`ct-check --declared`) were refused with "The repository's Git directory names another common directory."
 - **Today (verified at 3b01933, live 2026-10-13):**
@@ -4150,7 +4151,57 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - A Claude Code run's sandboxed commands leave no file in the common Git directory, during or after the command.
   - The daemon's clone guard and Git in the primary checkout keep working while a Claude Code run's commands execute.
   - R-G14 MEDIUM-1's protections hold: a sandboxed command still cannot write the common directory's `config`, `hooks/`, `info/`, `commondir`, `config.worktree` or `objects/info`, another worktree's entry, or its own `commondir`, `gitdir` or `config.worktree`.
+- **Decision, by the operator 2026-10-13:** the proposed change, Codex's grant for Claude Code. It is built first in [R-G17](#r-g17)'s session, because it changes the same sandbox code as R-G17's `pypi` source.
 - **Interim:** since R-G13's live fix of 2026-10-13, a review's adopted checks no longer fail by sharing a build directory, so a reviewer rarely needs a counted rerun. A refused rerun can be retried.
+
+
+### R-G17
+
+**Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks** · Phase P4 (second, after R-B11) · Effort L · Status: open (designed and decided 2026-10-13; the operator's toolchain setup pending)
+
+- **Added 2026-10-13** (operator), from the external "CraftingTable Slopinator support" plan (CT-SLP-SUPPORT-1, revision CT-SLP-PLAN-1), items CT-SLP-01 to 03, built through this register as one item in three increments (operator decision 2026-10-13). CT-SLP-04 to 06 (managed Mac verification) wait for Slopinator's P0-04R.
+  - Slopinator (`~/src/slopinator`) is the first consumer, in its own workspace (R-B11 decision 7). Its root project is virtual (`tool.uv.package = false`), needs Python `>=3.12,<3.13`, and its CPU dependencies all ship wheels.
+  - Its `runtimes/*` projects are the Mac's MLX environments and inference gateway, never built here: Slopinator's doc 12 puts only model inference on the Mac. The gateway's non-MLX code can still be tested here in the root environment, whose dependencies cover it.
+- **Today (verified at 2553feb and on this workstation, 2026-10-13):**
+  - *Checks without Cargo already work:* a check-only manifest needs no Cargo (R-G13 increment 4), and a declared check runs any argument vector. Slopinator's adopted `planning` check runs `python3 tools/ct_gate.py` on the system Python.
+  - *The daemon knows no Python toolchain.* Check units take the daemon's PATH minus agent-writable entries (`trustedPath`), hide the home (`HOME` is the check's scratch), and start from an allowlisted environment (`allowlistedEnvironment`; `PYTHONPATH` and `PYTHONHOME` never pass). The host has only Python 3.14 (pacman); uv 0.12.22 comes from mise as `latest`, under the operator's home. FFmpeg 9.0.1 is pacman's; DejaVu is not installed.
+  - *Check units have no resource caps:* only `ct-native` sets MemoryMax and TasksMax (`native-environment.ts`).
+  - *Outside sources are Cargo only:* `OUTSIDE_SOURCE_KINDS = ['cargo']` (`domain/execution.ts`), its hosts in `outside-sources.ts`, parsed from `outside-sources.json` (`config.ts`). The launch overlay sets only `CARGO_HOME`, `CARGO_TARGET_DIR` and `TMPDIR`, so a sandboxed `uv` could neither write a cache nor reach PyPI.
+  - *Cargo's check-side model does not carry over:* Cargo checks copy the agents' downloaded `.crate` files and verify them against crates.io's index. uv's cache holds unpacked wheels, not the files, so there is nothing of the agents' to verify. The daemon's own outbound requests are Pushover and crates.io's index (`security.md`).
+  - *Adoption:* `checks.json` v1 allows 20 checks of 20 definition paths each (`contracts/repository-checks.ts`), and every Cargo-running check must list the tracked Cargo configuration and toolchain files (`CARGO_FILE_PATTERN`). Cargo Git dependencies pinned to a commit already reach checks, copied through a verified pack (`lockedPackages`).
+- **Decisions, by the operator 2026-10-13** (the recommendations, with 5 amended and 17 added in discussion):
+  1. **R-G16 first.** It is decided as proposed (Codex's Git grant for Claude Code) and built first in this item's session: it changes the same sandbox code as the `pypi` source.
+  2. **Python:** a uv-built CPython 3.12 (3.12.15 at setup), root-owned under `/opt/craftingtable/python`. The daemon refuses an interpreter with any path component not owned by root or writable by group or others. This is stricter than Rust's toolchain today, as the plan requires ("a user-controlled executable path cannot become privileged configuration"): agents run as the operator.
+  3. **uv:** a pinned, root-owned copy at `/opt/craftingtable/bin/uv` (0.12.22, the official release; its SHA-256 `96e1603c…` matches the mise copy), also first on agents' PATH, so agents and checks resolve with the same uv.
+  4. **Configuration:** `toolchains.json` in the settings directory, read at start and refused like `outside-sources.json`. Fixed probes (no installation, no arbitrary command, no network) record each tool's real path, owner, mode, version and SHA-256, shown on Repositories → Tools and in the execution status.
+  5. **A changed tool (amended):** each check re-reads the tools' identities and records them in its receipt, and Tools shows what changed and when. A check is refused only when a tool is missing, is no longer root-owned or is writable by others, or no longer fits its configured version (Python 3.12.x). An update the operator installs is recorded, not blocked (Omarchy is a rolling release); receipts already recorded stay valid.
+  6. **FFmpeg and fonts:** recorded by identity (FFmpeg, ffprobe and the font files the operator lists) in the profile and in receipts. No separate media profile; nothing is installed.
+  7. **Resource caps on every check unit, Rust included:** MemoryMax (default 8 GB, as `ct-native`) and TasksMax (a default sized in the build from WorldInterface's heaviest adopted check, with headroom), both configurable.
+  8. **The daemon downloads the wheels checks use,** from pypi.org's JSON API and `files.pythonhosted.org` only: redirects refused, a per-file size cap, a rate window and a store budget. Files are kept by SHA-256 under the data directory, and only when the bytes match both PyPI's digest and the lock's hash: the lock selects, PyPI vouches. This is a third kind of daemon outbound request.
+  9. **Agents' uv cache:** one shared, daemon-owned cache under the data directory. Checks never read it.
+  10. **Hosts:** `pypi.org` and `files.pythonhosted.org` only. No extra hosts or second indexes in v1; the configuration refuses them.
+  11. **Source distributions in checks:** refused. A missing wheel fails the check, naming the package.
+  12. **When a check gets Python:** when the reviewed commit has a root `uv.lock` and a Python profile is configured; `checks.json` stays v1. Each check gets a fresh venv, built offline from the verified wheels in its private directory and first on its PATH, with uv held offline and frozen.
+  13. **What adoption covers:** Python environment and tool configuration files at any depth (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, `pytest.ini`, `tox.ini`, `setup.cfg`, `ruff.toml`, `.ruff.toml`, `mypy.ini`, `.mypy.ini`), enforced at adoption and at check time like Cargo's. `conftest.py` and the tests stay the reviewer's (R-G13's boundary). The per-check definition-path cap rises from 20 to 50, which every v1 file still meets.
+  14. **Projects:** v1 supports virtual projects only (`tool.uv.package = false`); a packaged project is refused with a message saying so. Runners run as `python -m …` or as scripts, not as console scripts.
+  15. **pytest plugins:** autoload stays on. The venv holds only the adopted lock's verified packages, so only adopted plugins can load.
+  16. **Delivery:** one session on `remediation/p4`: R-G16 first, then the three increments; an independent security review and a memory-capped mutation check after increments 2 and 3; then the live CT-PYTHON-READY campaign on a CraftingTable-owned fixture. ADR-074 records the PyPI trust model. One operator merge and deploy at the end.
+  17. **A check can have both** the Python venv and the verified Cargo home, so one pytest suite can drive a Rust-built program and Python runners (for Slopinator's P1, a WorldInterface host process; its doc 07a). Python bindings built as native extensions (PyO3, maturin) are not in v1 (decisions 11 and 14).
+- **Design** (the session's routine calls are its own; it records each):
+  - *Increment 1, toolchains.* `toolchains.json`: `{version: 1, python: {interpreter, version}, uv: {path, version}, media?: {ffmpeg, ffprobe, fonts}, limits?: {memoryMax, tasksMax}}`, with absolute, resolved, regular files outside every agent-writable root and the data directory. Fixed probes in a new `packages/agents` module, through the supervised process spawner: `python -I -S -c <fixed>` for version, platform and glibc, `uv --version`, `ffmpeg -version`. Identity re-read per check (decision 5); caps on all check units (decision 7); `CheckManifest.python` set when the reviewed tree has a root `uv.lock`.
+  - *Increment 2, `pypi`.* The kind joins the closed set with its two hosts and its cache, and carries its own launch overlay (`UV_CACHE_DIR`, `UV_PYTHON` set to the profile's interpreter, `UV_PYTHON_DOWNLOADS=never`, the profile's uv first on PATH), so the launch gains no per-kind branch. `~/.pypirc`, `~/.netrc` and uv's credential files join the sandbox's denied reads. A daemon service fetches and verifies wheels (decision 8) and refuses Git, URL, path, other-index and sdist-only packages by name. Before product code, an experiment as in R-G14: in a unit, `uv export --frozen`, `uv venv`, then an offline, hash-required install from a verified directory; and agents' `uv sync` through each CLI's proxy.
+  - *Increment 3, checks.* A no-network helper unit builds the venv in the check's private directory from its verified wheels (copy, then hash). The check runs with the venv first on PATH, `UV_OFFLINE=1 UV_FROZEN=1 UV_NO_SYNC=1 PYTHONNOUSERSITE=1`, and the venv and toolchain read-only. `PYTHON_ENVIRONMENT_FILE_PATTERN` sits beside `CARGO_FILE_PATTERN`. Receipts gain the tool identities and the profile, lock and wheel-set digests. `declaredChecksBrief` says to `uv sync` first and that checks run offline. A fixture under `packages/agents/test/fixtures/`, and an opt-in real-PyPI test (`CRAFTINGTABLE_REAL_PYPI=1`).
+  - *Docs:* `security.md` (the third outbound request, the trust model, the root-owned toolchain rule), `operations.md` (setup, `toolchains.json`, `pypi` in `outside-sources.json`), ADR-074.
+- **Done when (CT-PYTHON-READY, on this workstation):**
+  - `toolchains.json` names the root-owned CPython 3.12 and uv, `outside-sources.json` adds `pypi`, and Tools shows their identities.
+  - A CraftingTable-owned fixture (a virtual project, a `uv.lock` with one compiled-wheel dependency such as `markupsafe`, pytest) is adopted. Sandboxed Claude `auto` and Codex `auto` runs each `uv sync` into the daemon's uv cache and are refused `example.com`; removing `pypi` makes their `uv sync` fail.
+  - A review's adopted pytest check runs before the reviewer, offline, from PyPI-verified wheels, and the merge goes through. Its receipt names the interpreter, uv and the lock.
+  - Each of these blocks the merge: a wheel planted in the agents' cache, a reused venv, `PYTHONPATH` or plugin injection, an unadopted change to `uv.lock` or `pyproject.toml` (`check-definition-changed`), pytest collecting no tests (exit 5), an sdist-only dependency, an interpreter not owned by root. A cancel during the wheel fetch ends within seconds; a check has no network; `ct-check -- true` counts for nothing.
+  - A Rust-and-Python fixture check (decision 17) builds a Cargo binary and runs pytest against it in one check.
+  - R-G16's done-when holds.
+  - `pnpm check` is green, and `pnpm replays` shows 0 failed and no change beyond R-B11's close.
+- **Operator setup, before the live campaign:** the root-owned uv and CPython 3.12 under `/opt/craftingtable` (commands given in the design session; `operations.md` records them).
+- **Sequencing:** after R-B11 (landed). Before R-B7, which rewrites `agent-run-service.ts`, `runtime-evidence-service.ts` and the brief, which this item touches lightly. CT-SLP-04 to 06 follow Slopinator's P0-04R.
 
 
 ### R-H1

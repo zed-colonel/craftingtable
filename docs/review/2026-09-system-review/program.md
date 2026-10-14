@@ -1113,8 +1113,9 @@ parallel, before the controller-kernel items:
 2. **Python support for CraftingTable** (from the external "CraftingTable Slopinator support" plan,
    CT-SLP-01 to 03, built through this register as one item with three increments): toolchain
    profiles, a `pypi` outside-source kind whose checks use daemon-verified wheels only (R-G14's rule),
-   and adopted Python checks in private offline environments (CT-PYTHON-READY). Design pass pending;
-   researched 2026-10-13. Slopinator runs in its own workspace (R-B11 decision 7).
+   and adopted Python checks in private offline environments (CT-PYTHON-READY). Designed and decided
+   2026-10-13 as **R-G17**, with R-G16 built first in the same session. Slopinator runs in its own
+   workspace (R-B11 decision 7).
 3. **Managed Mac verification** (CT-SLP-04 to 06): only after Slopinator's P0-04R fixes the inference
    service protocol; until then Slopinator records operator-run, exact-candidate Mac evidence.
 4. Then the controller-kernel items below. R-B7 rewrites files the Python item touches lightly, so
@@ -1124,8 +1125,8 @@ Found live 2026-10-13, while WorldInterface's first off-map item ran: two rule-7
 `fix/` branches cut from this line and integrated into it after R-B11 (R-G7, f57cf37: create a Cargo
 worktree's build cache before the launch; R-G13, dcf0733: a run's adopted checks run one at a time in
 its build directory),
-and **R-G16** (Claude Code's Git grant leaves placeholder files in the shared Git directory), which
-awaits the operator's decision. It is small; schedule it beside item 2.
+and **R-G16** (Claude Code's Git grant leaves placeholder files in the shared Git directory), decided
+2026-10-13 and built first in R-G17's session.
 
 Exit criteria:
 - `reconcile` is a thin shell.

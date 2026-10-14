@@ -10,7 +10,6 @@ import {
   executeCheck,
   pendingCheckRequests,
   stopCheckUnits,
-  type PythonWheelSource,
   type ToolchainSettings,
   type VerificationManifest,
 } from '@craftingtable/agents';
@@ -217,6 +216,8 @@ export class CheckRequestService {
       readonly cargoHome: string;
       readonly runsRoot: string;
       readonly worktreeRoot: string;
+      /** The daemon's uv directory; Python checks' installs keep uv's cache in its `checks`. */
+      readonly uvHome?: string;
       /** The caps every check unit gets (R-G17 decision 7); the defaults without them. */
       readonly toolchains?: Pick<ToolchainSettings, 'limits'>;
     },
@@ -227,8 +228,6 @@ export class CheckRequestService {
     private readonly limits: typeof CHECK_LIMITS = CHECK_LIMITS,
     /** Published crate checksums; without it no registry crate reaches a check (R-G13 review). */
     private readonly checksums?: CrateChecksumAuthority,
-    /** Verified wheels for Python checks (R-G17); without it no wheel reaches a check. */
-    private readonly wheels?: PythonWheelSource,
   ) {
     const instance = createHash('sha256').update(config.checkLogRoot).digest('hex').slice(0, 12);
     this.unitPrefix = `craftingtable-check-${instance}-`;
@@ -548,7 +547,8 @@ export class CheckRequestService {
         logLimitBytes: Math.min(this.limits.logBytesPerCheck, served.logBudget),
         declaredTargetDirectory: join(this.config.checkLogRoot, context.runId, 'declared-target'),
         ...(this.checksums ? { crateRegistry: this.checksums } : {}),
-        ...(this.wheels ? { pythonWheels: this.wheels } : {}),
+        // uv's cache for Python checks' installs, the daemon's own (R-G19): no agent writes it.
+        ...(this.config.uvHome ? { pythonCacheDirectory: join(this.config.uvHome, 'checks') } : {}),
         cargoHomeDirectory: join(this.config.checkLogRoot, context.runId, `cargo-home-${slot}`),
         hiddenRoots: checkHiddenRoots(this.config),
         ...(this.config.toolchains ? { unitLimits: this.config.toolchains.limits } : {}),

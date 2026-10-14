@@ -50,8 +50,8 @@ Some decisions are spread over several records. Read the latest first:
 - **Cross-project maps:** ADR-028 (boundaries), ADR-043 (imports), ADR-045 (slices and parent
   acceptance), ADR-046 (transition gates), ADR-047 and ADR-058 (pinned builds, dependency
   refresh), ADR-048 (supervision), ADR-053 and ADR-054 (scoped and native verification), ADR-074
-  (Python toolchains and PyPI wheels for checks), ADR-060 (candidate checkpoints), ADR-069 (pin
-  transitions), ADR-071 (slice verification).
+  (Python toolchains) and ADR-076 (Python checks install with `uv sync`), ADR-060 (candidate
+  checkpoints), ADR-069 (pin transitions), ADR-071 (slice verification).
 - **Stops and recovery:** ADR-063 (controller obligations and operator questions), ADR-067
   (typed attention), ADR-037, 051, 052, 056, 057, 059, 062 and 065 (the bounded recoveries and
   decision preparation), ADR-066 (drained restarts).
@@ -137,5 +137,6 @@ Some decisions are spread over several records. Read the latest first:
 | [ADR-071](ADR-071-slice-verification-stays-a-separate-gate.md) | Slice verification stays a separate gate | accepted | 2026-10-07 |  |
 | [ADR-072](ADR-072-roadmap-neighbourhood-graph.md) | A roadmap's neighbourhood graph | accepted | 2026-10-09 | supersedes ADR-015 |
 | [ADR-073](ADR-073-winding-down-a-roadmap.md) | Winding down a roadmap | accepted | 2026-10-13 | refines ADR-029, ADR-041, ADR-049 |
-| [ADR-074](ADR-074-python-toolchains-and-pypi-wheels.md) | Python toolchains and PyPI wheels for checks | accepted | 2026-10-13 | refines ADR-053 |
+| [ADR-074](ADR-074-python-toolchains-and-pypi-wheels.md) | Python toolchains and PyPI wheels for checks | partly superseded | 2026-10-13 | superseded in part by ADR-076, R-G19; refines ADR-053 |
 | [ADR-075](ADR-075-an-accelerator-not-a-guardian.md) | An accelerator, not a guardian | accepted | 2026-10-14 | refines ADR-074, R-G19 |
+| [ADR-076](ADR-076-python-checks-install-with-uv-sync.md) | Python checks install with uv sync | accepted | 2026-10-14 | supersedes ADR-074; refines ADR-053, ADR-075 |

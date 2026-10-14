@@ -1,9 +1,17 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
-  FixtureWheels,
   OPT_PYTHON,
   OPT_UV,
   writePythonProject,
@@ -29,10 +37,11 @@ import {
 } from './execution-test-support.js';
 
 /**
- * R-G17 increment 3, through the daemon: a review of a Python project runs its adopted check
- * first, in a fresh venv built offline from verified wheels; the brief tells agents to `uv sync`
- * and that checks run offline; the merge goes through on that receipt; an unadopted change to
- * the lock stops as `check-definition-changed`.
+ * R-G17 increment 3 and R-G19, through the daemon: a review of a Python project runs its adopted
+ * check first, in a fresh venv an install step builds with `uv sync --locked` (the packaged
+ * project and its console script included), with uv's cache in the daemon's own `<data>/uv/checks`;
+ * the brief tells agents to `uv sync` and that the tests run offline; the merge goes through on
+ * that receipt; an unadopted change to the lock stops as `check-definition-changed`.
  */
 
 afterEach(cleanupExecutionFixtures);
@@ -66,9 +75,7 @@ function pythonSettings(pypi = true): Record<string, string> {
 /** A Python project repository with its checks file, adopted as the operator adopts it. */
 async function pythonRepository(backend: CycleBackend, options: { pypi?: boolean } = {}) {
   const root = fixtureRepository();
-  const wheels = mkdtempSync(join(tmpdir(), 'craftingtable-python-wheels-'));
-  directories.push(wheels);
-  const wheel = writePythonProject(root, wheels);
+  writePythonProject(root);
   mkdirSync(join(root, '.craftingtable'));
   writeFileSync(
     join(root, '.craftingtable', 'checks.json'),
@@ -79,11 +86,7 @@ async function pythonRepository(backend: CycleBackend, options: { pypi?: boolean
   );
   git(['add', '--all'], root);
   git(['commit', '--no-gpg-sign', '-m', 'a Python project'], root);
-  const state = await ready({
-    backend,
-    env: pythonSettings(options.pypi ?? true),
-    pythonWheels: new FixtureWheels([wheel]),
-  });
+  const state = await ready({ backend, env: pythonSettings(options.pypi ?? true) });
   const { repository, worktree } = await registerAndWorktree(state, root);
   const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]!);
   const checks = state.context.services.repositoryChecksService;
@@ -98,7 +101,7 @@ async function pythonRepository(backend: CycleBackend, options: { pypi?: boolean
 }
 
 itPython(
-  "runs a review's adopted Python check first, offline from verified wheels, and merges on its receipt",
+  "runs a review's adopted Python check first, installed with `uv sync --locked` into the daemon's check cache, and merges on its receipt",
   async () => {
     const backend = new CycleBackend([]);
     const { state, worktree } = await pythonRepository(backend);
@@ -123,11 +126,19 @@ itPython(
       OPT_PYTHON,
       OPT_UV,
     ]);
-    expect(receipts[0].python.lockDigest).toMatch(/^[0-9a-f]{64}$/);
-    expect(receipts[0].python.wheelSetDigest).toMatch(/^[0-9a-f]{64}$/);
-    // The brief says to sync first, and that checks run offline.
+    expect(receipts[0].python.lockDigest).toBe(
+      createHash('sha256')
+        .update(readFileSync(join(worktree.path, 'uv.lock')))
+        .digest('hex'),
+    );
+    expect(receipts[0].python.wheelSetDigest).toBeUndefined();
+    // uv's cache for checks is the daemon's own, beside the agents' and apart from it.
+    const checksCache = join(state.context.config.dataDir, 'uv', 'checks');
+    expect(readdirSync(checksCache).length).toBeGreaterThan(0);
+    // The brief says to sync first, how checks install, and that the tests run offline.
     const run = state.context.storage.execution.runs.find(state.workspaceId, review)!;
-    expect(run.brief).toContain('uv sync');
+    expect(run.brief).toContain('uv sync --locked');
+    expect(run.brief).toContain('Run `uv sync` first');
     expect(run.brief).toContain('offline');
     expect(await mergeGate(state, worktree.id)).toMatchObject({ mergeable: true, reason: 'ready' });
     const merged = await merge(state, worktree.id);
@@ -179,7 +190,7 @@ itPython(
     const review = await runToFinish(state, worktree.id, { role: 'review' });
     const brief = state.context.storage.execution.runs.find(state.workspaceId, review)!.brief;
     expect(brief).toContain('offline');
-    expect(brief).not.toContain('uv sync');
+    expect(brief).not.toContain('Run `uv sync` first');
     expect(brief).toContain('no PyPI');
     // Without a root uv.lock, the tree is no Python project to the checks, and the brief says so
     // by saying nothing of Python.
@@ -192,12 +203,15 @@ itPython(
   },
 );
 
-/** The real-PyPI fixture: markupsafe's compiled wheel and pytest, from PyPI itself. */
+/**
+ * The real-PyPI fixture: a packaged project built by hatchling from PyPI, with a console script,
+ * markupsafe's compiled wheel, docopt (a source distribution only) and pytest, from PyPI itself.
+ */
 const PYPI_FIXTURE = new URL('../../../packages/agents/test/fixtures/python-pypi/', import.meta.url)
   .pathname;
 
 it.skipIf(!optToolchain || process.env.CRAFTINGTABLE_REAL_PYPI !== '1')(
-  "runs a review's adopted pytest check on wheels the daemon fetched and verified from the real PyPI; pytest collecting nothing fails it (CRAFTINGTABLE_REAL_PYPI=1)",
+  'installs a packaged project from the real PyPI, building it and a source-only dependency, and runs its console script and tests offline; pytest collecting nothing fails (CRAFTINGTABLE_REAL_PYPI=1)',
   async () => {
     const backend = new CycleBackend([]);
     const root = fixtureRepository();
@@ -223,7 +237,6 @@ it.skipIf(!optToolchain || process.env.CRAFTINGTABLE_REAL_PYPI !== '1')(
     );
     git(['add', '--all'], root);
     git(['commit', '--no-gpg-sign', '-m', 'a Python project on PyPI'], root);
-    // The daemon's own store, fetching from PyPI.
     const state = await ready({ backend, env: pythonSettings() });
     const { repository, worktree } = await registerAndWorktree(state, root);
     const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]!);

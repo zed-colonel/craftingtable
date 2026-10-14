@@ -358,11 +358,11 @@ function declaredChecksBrief(
       ? ''
       : `Repository checks: this run has no pinned dependency environment, so its merge is gated on the repository's adopted checks alone, run by CraftingTable. ${pinned.binDirectory}/ct-check is on PATH; ct-check -- <executable> <arguments> runs a command you choose, which is recorded and counts for nothing.
 `;
-  // A Python project's checks build their own environment, offline (R-G17 decision 12).
+  // A Python project's checks install their own environment, then run offline (R-G19).
   const pythonText =
     python === 'none'
       ? ''
-      : `Python: CraftingTable runs these checks offline, in a fresh environment it builds with no network from the adopted uv.lock and the wheels it fetches and verifies from PyPI itself; they cannot download anything. ${
+      : `Python: CraftingTable runs each of these checks in a fresh environment it installs from the adopted uv.lock with \`uv sync --locked\` (PyPI and the repository only; the project and its console scripts included), then runs the check itself offline: the tests cannot download anything. ${
           python === 'sync'
             ? "Run `uv sync` first to get the same packages in your worktree (the uv on PATH is the operator's, and reaches PyPI only)."
             : 'Your commands reach no PyPI on this workstation (no `pypi` outside source), so packages the lock names cannot be installed in your worktree.'

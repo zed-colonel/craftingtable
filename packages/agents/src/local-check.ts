@@ -42,7 +42,6 @@ import {
   type PythonStepRunner,
   preparePythonEnvironment,
 } from './python-environment.js';
-import type { PythonWheelSource } from './python-wheels.js';
 import {
   type CheckUnitLimits,
   DEFAULT_CHECK_UNIT_LIMITS,
@@ -1026,10 +1025,10 @@ export interface CheckExecution {
   /** The caps of every unit this check starts; `DEFAULT_CHECK_UNIT_LIMITS` without them. */
   readonly unitLimits?: CheckUnitLimits;
   /**
-   * The daemon's verified wheels (R-G17 decision 8): a Python check's environment is built from
-   * these alone. Without it, a Python project's adopted check gets no wheel.
+   * uv's cache for Python checks' installs (R-G19): the daemon's own, `<data>/uv/checks`, shared
+   * by checks and written by no agent. Without it, each check's install gets a cache of its own.
    */
-  readonly pythonWheels?: PythonWheelSource;
+  readonly pythonCacheDirectory?: string;
 }
 /** What the daemon knows of published crates: checksums, and each crate's index file. */
 export interface CrateRegistry {
@@ -1131,7 +1130,7 @@ export function confinedCheckArguments(
     // Nor the user's runtime directory, whose user bus would start a unit outside every
     // confinement (R-G13 review), nor the other sockets there (an SSH or GPG agent's): local CI
     // gets back only its Docker socket (operator decision 2026-10-12).
-    ...runtimeDirectoryConfinement(network, dockerSocket),
+    ...runtimeDirectoryConfinement(network && dockerSocket !== undefined, dockerSocket),
     ...hidden.roots.flatMap((p) => ['-p', `TemporaryFileSystem=${p}:ro`]),
     ...hidden.binds.flatMap((p) => ['-p', `BindPaths=${p}`]),
     ...(hidden.readOnlyBinds ?? []).flatMap((p) => ['-p', `BindReadOnlyPaths=-${p}`]),
@@ -2210,15 +2209,17 @@ export function declaredUnitSettings(input: {
   };
 }
 
-/** Where a Python check's helper steps run, and what they may see (R-G17 decision 12). */
+/** Where a Python check's helper steps run, and what they may see (R-G17 decision 12, R-G19). */
 export interface PythonStepConfinement {
   readonly confinement: CheckConfinement;
   readonly unitName: string;
   readonly limits: CheckUnitLimits;
-  /** The check's own Python directory: the one path a step may write. */
+  /** The check's own Python directory: the one path the lock's reading may write. */
   readonly directory: string;
-  /** The reviewed clone, which a step reads. */
+  /** The reviewed clone, which a step reads and the install writes (a build in the tree). */
   readonly tree: string;
+  /** uv's cache, which only the install writes. */
+  readonly cache: string;
   /** Roots replaced by empty read-only file systems: those agents write, the shared Cargo home and the repository's Git directory. */
   readonly hiddenRoots: readonly string[];
   /** Paths a step cannot see at all, as for the check's own unit: the worktree, the run's directories and the shared Cargo home. */
@@ -2242,6 +2243,7 @@ export function pythonStepConfinement(
     readonly limits: CheckUnitLimits;
     readonly directory: string;
     readonly tree: string;
+    readonly cache: string;
     readonly workspacePath: string;
     readonly sharedCargoHome?: string;
     readonly commonDirectory?: string;
@@ -2254,6 +2256,7 @@ export function pythonStepConfinement(
     limits: input.limits,
     directory: input.directory,
     tree: input.tree,
+    cache: input.cache,
     hiddenRoots: [
       ...(e.hiddenRoots ?? []),
       ...shared,
@@ -2266,9 +2269,12 @@ export function pythonStepConfinement(
 }
 
 /**
- * One helper step's unit (increment 3 review L1): no network; it writes only the check's Python
- * directory and reads the reviewed clone; the home directory and every hidden root are empty and
- * read-only, and the inaccessible paths are gone.
+ * One helper step's unit (increment 3 review L1): the home directory and every hidden root are
+ * empty and read-only, and the inaccessible paths are gone. Reading the lock has no network,
+ * writes only the check's Python directory and reads the reviewed clone. The install (R-G19,
+ * ADR-076) has the network, which systemd cannot narrow to PyPI's hosts in a user unit, and
+ * writes the Python directory, the clone (a build in the tree) and uv's cache; it still reaches
+ * no Docker socket and nothing of the user's runtime directory.
  */
 export function pythonStepUnitArguments(
   confinement: Omit<PythonStepConfinement, 'confinement' | 'signal'>,
@@ -2279,23 +2285,27 @@ export function pythonStepUnitArguments(
     readonly cwd: string;
     readonly env: Readonly<Record<string, string>>;
     readonly timeoutMs: number;
+    readonly install: boolean;
   },
 ): string[] {
+  const written = options.install
+    ? [confinement.directory, confinement.tree, confinement.cache]
+    : [confinement.directory];
   return confinedCheckArguments(
     unitName,
     options.cwd,
     options.timeoutMs / 1000,
     confinement.limits,
-    [confinement.directory],
+    written,
     options.env,
     [command, ...args],
-    false,
+    options.install,
     [],
     confinement.inaccessible,
     {
       roots: [...new Set([...confinement.hiddenRoots, confinement.home])],
-      binds: [confinement.directory],
-      readOnlyBinds: [confinement.tree],
+      binds: written,
+      readOnlyBinds: options.install ? [] : [confinement.tree],
     },
   );
 }
@@ -2366,7 +2376,6 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         readonly profileDigest: string;
         readonly tools: readonly ToolIdentity[];
         readonly lockDigest?: string;
-        readonly wheelSetDigest?: string;
       }
     | undefined;
   let pythonEnvironment: PythonEnvironment | undefined;
@@ -2696,31 +2705,26 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           throw new Error(
             `The configured Python toolchain cannot be used (${refused.tool} ${refused.path}): ${refused.problem.message}. The operator's toolchains.json names it; Tools on the Repositories page shows each tool.`,
           );
-        // A fresh venv for this check alone, built with no network from the daemon's verified
-        // wheels (decisions 11, 12 and 14), which the check then runs in, read-only.
+        // A fresh venv for this check alone, built by an install step with `uv sync --locked`
+        // from PyPI and the tree (R-G19), which the check then runs in, offline and read-only.
         const lock = await readRegular(join(snapshot, 'uv.lock'), 16 * 1024 * 1024);
         if (!lock)
           throw new Error(
             "The reviewed commit's uv.lock must be a regular file of at most 16 MiB.",
           );
-        const interpreter = toolchain.find((observed) => observed.tool === 'python')?.identity;
         const python = m.python;
         const commonDirectory = m.gitCommonDirectory;
         const tree = snapshot;
         pythonDirectory = join(e.privateDirectory, 'python');
         rmSync(pythonDirectory, { recursive: true, force: true });
         const directory = pythonDirectory;
+        const cache = e.pythonCacheDirectory ?? join(directory, 'uv-cache');
         pythonEnvironment = await preparePythonEnvironment({
           profile: python,
-          target: {
-            pythonVersion: interpreter?.version ?? '',
-            platform: interpreter?.platform ?? '',
-            libc: interpreter?.libc,
-          },
           tree,
           lock,
           directory,
-          wheels: e.pythonWheels,
+          cache,
           signal: e.signal,
           remainingMs: remainingTime,
           onOutput: e.onOutput,
@@ -2729,17 +2733,14 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
               limits,
               directory,
               tree,
+              cache,
               workspacePath: m.workspacePath,
               ...(sharedCargoHome ? { sharedCargoHome } : {}),
               ...(commonDirectory ? { commonDirectory } : {}),
             }),
           ),
         });
-        pythonReceipt = {
-          ...pythonReceipt,
-          lockDigest: pythonEnvironment.lockDigest,
-          wheelSetDigest: pythonEnvironment.wheelSetDigest,
-        };
+        pythonReceipt = { ...pythonReceipt, lockDigest: pythonEnvironment.lockDigest };
       }
       // A program with a path is the repository's own, from the reviewed commit.
       if (command.includes('/')) command = join(snapshot, command);

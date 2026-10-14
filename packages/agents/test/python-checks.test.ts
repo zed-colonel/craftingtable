@@ -19,7 +19,7 @@ import {
   PYTHON_ENVIRONMENT_FILE_PATTERN,
 } from '@craftingtable/domain';
 import { hostCargo, hostGit } from './host-tools-test-support.js';
-import { buildWheel, FixtureWheels, lockFor, writePythonProject } from './python-fixture.js';
+import { buildWheel, writePythonProject } from './python-fixture.js';
 import {
   type CheckExecution,
   executeCheck,
@@ -268,8 +268,10 @@ it('takes a root uv.lock that is a link as a Python project, so its tools are st
 });
 
 /*
- * Increment 3 (decisions 11, 12, 13 and 17): an adopted check of a Python project runs in a fresh
- * venv built offline, in the check's private directory, from the daemon's verified wheels alone.
+ * R-G19 (ADR-076, revising R-G17's increment 3): an adopted check of a Python project runs in a
+ * fresh venv that an install step builds in the check's private directory with
+ * `uv sync --locked`, from PyPI and the tree only, packaged projects included; the check itself
+ * then runs offline.
  */
 
 const OPT_PROFILE: PythonToolchain = {
@@ -279,17 +281,17 @@ const OPT_PROFILE: PythonToolchain = {
 };
 const UNITTEST = ['python', '-m', 'unittest', 'discover', '-s', 'tests', '-v'];
 
-/** A Python project with an adopted check, the wheels it locks, and the store standing in for PyPI. */
+/** A Python project with an adopted check: the packaged fixture, its in-tree wheel and its lock. */
 function pythonCheck(
   options: {
     readonly argv?: readonly string[];
     readonly value?: number;
-    readonly sdistOnly?: readonly { name: string; version: string }[];
+    readonly slow?: boolean;
     readonly extraFiles?: Readonly<Record<string, string>>;
+    /** Replaces the lock the fixture's uv wrote. */
+    readonly lock?: string;
     /** Files left out of the adopted definition files although the tree tracks them. */
     readonly unadopted?: readonly string[];
-    readonly hold?: boolean;
-    readonly serve?: 'all' | 'none';
     readonly cargo?: string;
     readonly checkTimeoutMs?: number;
   } = {},
@@ -297,14 +299,15 @@ function pythonCheck(
   const root = mkdtempSync(join(tmpdir(), 'ct-python-venv-'));
   roots.push(root);
   const workspacePath = join(root, 'repository');
-  const wheel = writePythonProject(workspacePath, join(root, 'wheels'), {
+  const wheel = writePythonProject(workspacePath, {
     ...(options.value === undefined ? {} : { value: options.value }),
-    ...(options.sdistOnly ? { sdistOnly: options.sdistOnly } : {}),
+    ...(options.slow ? { slow: true } : {}),
   });
   for (const [path, content] of Object.entries(options.extraFiles ?? {})) {
     mkdirSync(join(workspacePath, path, '..'), { recursive: true });
     writeFileSync(join(workspacePath, path), content);
   }
+  if (options.lock !== undefined) writeFileSync(join(workspacePath, 'uv.lock'), options.lock);
   git(['init', '-q', '-b', 'main'], workspacePath);
   git(['add', '.'], workspacePath);
   git(
@@ -346,7 +349,6 @@ function pythonCheck(
     replies: join(root, 'daemon', 'replies'),
     limitMs: 60_000,
   });
-  const store = new FixtureWheels(options.serve === 'none' ? [] : [wheel], options.hold ?? false);
   const privateDirectory = join(root, 'daemon', `${randomUUID()}.private`);
   const execute = async (overrides: Partial<CheckExecution> = {}) => {
     let output = '';
@@ -366,77 +368,137 @@ function pythonCheck(
       environment: { PATH: '/usr/bin:/bin' },
       onOutput: (text) => (output += text),
       signal: new AbortController().signal,
-      pythonWheels: store,
       ...overrides,
     });
     return { ...outcome, output };
   };
-  return { root, workspacePath, wheel, store, privateDirectory, execute };
+  return { root, workspacePath, wheel, privateDirectory, execute };
 }
 
 const itPython = it.skipIf(!optToolchain);
 
 itPython(
-  'runs the adopted check in a fresh venv built offline from the verified wheels, and records the lock and the wheel set',
+  'installs a packaged project with `uv sync --locked` into a fresh venv, runs its console script, and records the lock',
   async () => {
     const f = pythonCheck();
     const result = await f.execute();
     expect(result.exitCode, result.output + result.diagnostic).toBe(0);
-    // The locked package, installed from the verified wheel into the check's own venv.
+    // The locked package, installed into the check's own venv; the project's console script.
     expect(result.output).toMatch(
       /CTFIX 42 \S*\.private\/python\/venv\/lib\/python3\.12\/site-packages\/ctfix_pkg\/__init__\.py/,
     );
-    expect(f.store.requests).toEqual([
-      { name: 'ctfix-pkg', version: '1.0', filename: f.wheel.filename, sha256: f.wheel.sha256 },
-    ]);
+    expect(result.output).toContain('FROM-SCRIPT CTFIX-APP 42');
+    expect(result.output).toContain('uv sync --locked');
     const recorded = result.receipt.python as {
-      lockDigest: string;
-      wheelSetDigest: string;
-      tools: { tool: string }[];
-    };
-    expect(recorded.lockDigest).toBe(sha256(readFileSync(join(f.workspacePath, 'uv.lock'))));
-    expect(recorded.wheelSetDigest).toBe(sha256(`${f.wheel.sha256}  ${f.wheel.filename}\n`));
-    expect(recorded.tools.map((t) => t.tool)).toEqual(['python', 'uv']);
-    // The tools as the check re-read them (decision 5), and the profile as configured.
-    const tools = result.receipt.python as {
       profileDigest: string;
+      lockDigest: string;
+      wheelSetDigest?: string;
       tools: { tool: string; path: string; sha256: string; version: string; uid: number }[];
     };
-    expect(tools.profileDigest).toBe(toolchainProfileDigest(OPT_PROFILE));
-    expect(tools.tools.map((t) => [t.tool, t.path, t.uid])).toEqual([
+    expect(recorded.lockDigest).toBe(sha256(readFileSync(join(f.workspacePath, 'uv.lock'))));
+    // No store of wheels any more (R-G19): the lock is what the install was held to.
+    expect(recorded.wheelSetDigest).toBeUndefined();
+    // The tools as the check re-read them (R-G17 decision 5), and the profile as configured.
+    expect(recorded.profileDigest).toBe(toolchainProfileDigest(OPT_PROFILE));
+    expect(recorded.tools.map((t) => [t.tool, t.path, t.uid])).toEqual([
       ['python', OPT_PYTHON, 0],
       ['uv', OPT_UV, 0],
     ]);
-    expect(tools.tools[0]?.sha256).toBe(sha256(readFileSync(OPT_PYTHON)));
-    expect(tools.tools[0]?.version).toMatch(/^3\.12\.\d+$/);
-    expect(tools.tools[1]?.version).toMatch(/^0\.12\.\d+$/);
+    expect(recorded.tools[0]?.sha256).toBe(sha256(readFileSync(OPT_PYTHON)));
+    expect(recorded.tools[0]?.version).toMatch(/^3\.12\.\d+$/);
+    expect(recorded.tools[1]?.version).toMatch(/^0\.12\.\d+$/);
     // The daemon is told what it found, for Tools.
     expect(result.toolchain?.map((o) => o.tool)).toEqual(['python', 'uv']);
-    // Nothing of it is left: the next check builds its own.
+    // Nothing of it is left, its private uv cache included: the next check builds its own.
     expect(existsSync(join(f.privateDirectory, 'python'))).toBe(false);
   },
 );
 
-itPython('fails naming the file when the store cannot vouch for a locked wheel', async () => {
-  const f = pythonCheck({ serve: 'none' });
-  const result = await f.execute();
-  expect(result.exitCode).toBe(1);
-  expect(result.output).not.toContain('CTFIX');
-  expect(result.diagnostic).toContain(f.wheel.filename);
-});
-
-itPython('refuses an sdist-only dependency by name, building and running nothing', async () => {
-  const f = pythonCheck({ sdistOnly: [{ name: 'only-source', version: '2.0' }] });
-  const result = await f.execute();
-  expect(result.exitCode).toBe(1);
-  expect(result.output).not.toContain('CTFIX');
-  expect(result.diagnostic).toContain('only-source');
-  expect(result.diagnostic).toMatch(/source distribution|sdist/);
-  expect(f.store.requests).toEqual([]);
-});
+itPython(
+  "keeps what it downloads and builds in the daemon's check cache when given one, and its venv apart from it",
+  async () => {
+    const f = pythonCheck();
+    const cache = join(f.root, 'daemon', 'uv-checks');
+    const result = await f.execute({ pythonCacheDirectory: cache });
+    expect(result.exitCode, result.output + result.diagnostic).toBe(0);
+    // uv kept the project's build and the vendored wheel there, for the next check.
+    expect(existsSync(cache)).toBe(true);
+    expect(git(['ls-files'], f.workspacePath)).not.toContain('uv-checks');
+    expect(spawnSync('find', [cache, '-name', 'ctfix_pkg'], { encoding: 'utf8' }).stdout).not.toBe(
+      '',
+    );
+    expect(existsSync(join(f.privateDirectory, 'python'))).toBe(false);
+    // A second check installs again, from that cache, into a venv of its own.
+    const second = await f.execute({ pythonCacheDirectory: cache });
+    expect(second.exitCode, second.output + second.diagnostic).toBe(0);
+    expect(second.output).toMatch(/Installed \d+ packages?/);
+  },
+);
 
 itPython(
-  "never takes a package from the agents' cache, PYTHONPATH or a venv the environment names",
+  "fails, with uv's reason, when a file of the tree does not match the lock's hash",
+  async () => {
+    const f = pythonCheck();
+    // The vendored wheel changed after the lock was written: uv checks it against the lock.
+    buildWheel(join(f.workspacePath, 'vendor'), 'ctfix-pkg', '1.0', {
+      'ctfix_pkg/__init__.py': 'VALUE = 666\n',
+    });
+    git(['add', '-A'], f.workspacePath);
+    git(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'swap'],
+      f.workspacePath,
+    );
+    const result = await f.execute();
+    expect(result.exitCode).toBe(1);
+    expect(result.output).not.toContain('CTFIX');
+    expect(result.diagnostic).toContain('uv sync --locked');
+    expect(result.diagnostic).toContain('Hash mismatch');
+  },
+);
+
+itPython(
+  'refuses, by name, a lock that names a source other than PyPI or the tree, installing nothing',
+  async () => {
+    const lock = [
+      'version = 1',
+      'revision = 3',
+      'requires-python = ">=3.12"',
+      '',
+      '[[package]]',
+      'name = "ct-python-fixture"',
+      'version = "0.1.0"',
+      'source = { editable = "." }',
+      '',
+      '[[package]]',
+      'name = "from-git"',
+      'version = "1.0"',
+      'source = { git = "https://example.org/from-git.git?rev=v1#0123456789abcdef0123456789abcdef01234567" }',
+      '',
+      '[[package]]',
+      'name = "mirrored"',
+      'version = "1.0"',
+      'source = { registry = "https://mirror.example.org/simple" }',
+      `sdist = { url = "https://mirror.example.org/mirrored-1.0.tar.gz", hash = "sha256:${'a'.repeat(64)}" }`,
+      '',
+      '[[package]]',
+      'name = "outside"',
+      'version = "1.0"',
+      'source = { directory = "../outside" }',
+      '',
+    ].join('\n');
+    const f = pythonCheck({ lock });
+    const result = await f.execute();
+    expect(result.exitCode).toBe(1);
+    expect(result.output).not.toContain('CTFIX');
+    expect(result.output).not.toContain('uv sync --locked');
+    expect(result.diagnostic).toContain('from-git comes from Git');
+    expect(result.diagnostic).toContain('mirrored comes from an index other than PyPI');
+    expect(result.diagnostic).toContain('outside lies outside the repository');
+  },
+);
+
+itPython(
+  "never takes a package from PYTHONPATH, the environment's uv or pip settings, or a venv it names",
   async () => {
     const f = pythonCheck();
     // Planted where an agent could write: a package that says 666.
@@ -451,6 +513,7 @@ itPython(
         PYTHONSTARTUP: join(planted, 'ctfix_pkg', '__init__.py'),
         UV_CACHE_DIR: planted,
         UV_FIND_LINKS: planted,
+        UV_INDEX_URL: 'https://example.org/simple',
         PIP_FIND_LINKS: planted,
         VIRTUAL_ENV: planted,
       },
@@ -476,11 +539,10 @@ itPython(
     expect(first.exitCode, first.output + first.diagnostic).toBe(0);
     expect(first.output).toContain('CTFIX 42');
     expect(first.output).toContain('.private/python/venv/');
-    // A second check builds again: with the store now unable to vouch, it cannot pass on the
-    // first one's venv.
-    const second = await f.execute({ pythonWheels: new FixtureWheels([]) });
-    expect(second.exitCode).toBe(1);
-    expect(second.output).not.toContain('CTFIX');
+    // A second check installs again into a new venv: uv says it installed, not that it audited.
+    const second = await f.execute();
+    expect(second.exitCode, second.output + second.diagnostic).toBe(0);
+    expect(second.output).toMatch(/Installed \d+ packages?/);
   },
 );
 
@@ -507,32 +569,34 @@ itPython(
   },
 );
 
-itPython('ends within seconds when cancelled while a wheel is fetched', async () => {
-  const f = pythonCheck({ hold: true });
+itPython('ends within seconds when cancelled during the install', async () => {
+  const f = pythonCheck({ slow: true });
   const controller = new AbortController();
-  const started = Date.now();
-  setTimeout(() => controller.abort(), 300);
+  let cancelled = 0;
+  setTimeout(() => {
+    cancelled = Date.now();
+    controller.abort();
+  }, 1_500);
   const result = await f.execute({ signal: controller.signal });
   expect(result.exitCode).toBe(1);
-  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(cancelled).toBeGreaterThan(0);
+  expect(Date.now() - cancelled).toBeLessThan(5_000);
+  expect(result.output).not.toContain('CTFIX');
+  expect(existsSync(join(f.privateDirectory, 'python'))).toBe(false);
+});
+
+itPython('ends at the check time limit during the install', async () => {
+  const f = pythonCheck({ slow: true, checkTimeoutMs: 3_000 });
+  const started = Date.now();
+  const result = await f.execute();
+  expect(result.exitCode).toBe(1);
+  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(result.diagnostic).toContain('time limit');
   expect(result.output).not.toContain('CTFIX');
 });
 
-itPython(
-  'ends at the check time limit while a wheel is fetched (increment 3 review M2)',
-  async () => {
-    const f = pythonCheck({ hold: true, checkTimeoutMs: 2_000 });
-    const started = Date.now();
-    const result = await f.execute();
-    expect(result.exitCode).toBe(1);
-    expect(Date.now() - started).toBeLessThan(6_000);
-    expect(result.diagnostic).toContain('time limit');
-    expect(result.output).not.toContain('CTFIX');
-  },
-);
-
 it.skipIf(!optToolchain || hostCargo === undefined)(
-  'builds a Cargo binary and runs Python against it in one check, with the venv beside a fresh Cargo home (decision 17)',
+  'builds a Cargo binary and runs Python against it in one check, with the venv beside a fresh Cargo home (R-G17 decision 17)',
   async () => {
     const f = pythonCheck({
       argv: [
@@ -584,13 +648,17 @@ it.skipIf(!optToolchain || hostCargo === undefined)(
 const userManager = spawnSync('systemctl', ['--user', 'is-system-running'], {
   encoding: 'utf8',
 }).stdout?.trim();
+const itConfinedPython = it.skipIf(
+  !optToolchain || !['running', 'degraded'].includes(userManager ?? ''),
+);
 
-it.skipIf(!optToolchain || !['running', 'degraded'].includes(userManager ?? ''))(
-  "a confined Python check has no network and cannot change its venv, which its build's units made with none either",
+itConfinedPython(
+  'a confined Python check has no network and cannot change its venv, which its install step made',
   async () => {
     const probe = [
-      'import os, socket, ctfix_pkg',
+      'import os, socket, subprocess, ctfix_pkg',
       'print("CTFIX", ctfix_pkg.VALUE)',
+      'print(subprocess.run(["ctfix-app"], capture_output=True, text=True).stdout.strip())',
       'try:',
       '    socket.create_connection(("pypi.org", 443), 3)',
       '    print("NET-OPEN")',
@@ -603,33 +671,49 @@ it.skipIf(!optToolchain || !['running', 'degraded'].includes(userManager ?? ''))
       '    print("VENV-READONLY")',
     ].join('\n');
     const f = pythonCheck({ argv: ['python', '-c', probe] });
+    const cache = join(f.root, 'daemon', 'uv-checks');
     const result = await f.execute({
       confinement: 'systemd',
       unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
       hiddenRoots: [f.root],
+      pythonCacheDirectory: cache,
     });
     expect(result.exitCode, result.output + result.diagnostic).toBe(0);
     expect(result.output).toContain('CTFIX 42');
+    expect(result.output).toContain('CTFIX-APP 42');
     expect(result.output).toContain('NET-DENIED');
     expect(result.output).toContain('VENV-READONLY');
   },
 );
 
-itPython(
-  'refuses a wheel whose bytes are not what the store vouched for, installing nothing',
-  async () => {
-    const f = pythonCheck();
-    // The store answers with a path whose file is not the locked one.
-    const other = join(f.root, 'other.whl');
-    writeFileSync(other, 'not the wheel');
-    const result = await f.execute({
-      pythonWheels: { wheel: async () => ({ path: other }) },
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.output).not.toContain('CTFIX');
-    expect(result.diagnostic).toContain(`${f.wheel.filename} changed after the daemon verified it`);
-  },
-);
+itConfinedPython("stops a confined install's unit within seconds of a cancel", async () => {
+  const f = pythonCheck({ slow: true });
+  const unitName = `craftingtable-check-test-${process.pid}-${Date.now()}`;
+  const controller = new AbortController();
+  const units = () =>
+    spawnSync('systemctl', ['--user', 'list-units', '--plain', '--no-legend', `${unitName}*`], {
+      encoding: 'utf8',
+    }).stdout.trim();
+  let during = '';
+  let cancelled = 0;
+  setTimeout(() => {
+    during = units();
+    cancelled = Date.now();
+    controller.abort();
+  }, 2_500);
+  const result = await f.execute({
+    confinement: 'systemd',
+    unitName,
+    hiddenRoots: [f.root],
+    pythonCacheDirectory: join(f.root, 'daemon', 'uv-checks'),
+    signal: controller.signal,
+  });
+  expect(result.exitCode).toBe(1);
+  // The install step ran in its own unit, numbered after the check's.
+  expect(during).toContain(`${unitName}-python-2`);
+  expect(Date.now() - cancelled).toBeLessThan(5_000);
+  expect(units()).toBe('');
+});
 
 itPython('refuses a root uv.lock committed as a link, never reading through it', async () => {
   const f = pythonCheck();
@@ -647,58 +731,37 @@ itPython('refuses a root uv.lock committed as a link, never reading through it',
   expect(result.diagnostic).toContain('uv.lock must be a regular file');
 });
 
-itPython(
-  'digests the wheel set in a fixed order, whatever order the lock lists them in',
-  async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ct-python-order-'));
-    roots.push(root);
-    const extra = buildWheel(join(root, 'wheels'), 'aaa-first', '1.0', {
-      'aaa_first/__init__.py': '',
-    });
-    const f = pythonCheck();
-    // The lock lists ctfix-pkg before aaa-first; the digest sorts by SHA-256.
-    writeFileSync(join(f.workspacePath, 'uv.lock'), lockFor('ct-python-fixture', [f.wheel, extra]));
-    git(['add', '-A'], f.workspacePath);
-    git(
-      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'two wheels'],
-      f.workspacePath,
-    );
-    const result = await f.execute({ pythonWheels: new FixtureWheels([f.wheel, extra]) });
-    // The adopted lock changed, so the check is held to the new one only by its digests; what
-    // matters here is the receipt's wheel set.
-    const lines = [f.wheel, extra].map((w) => `${w.sha256}  ${w.filename}\n`).sort();
-    expect((result.receipt.python as { wheelSetDigest: string }).wheelSetDigest).toBe(
-      sha256(lines.join('')),
-    );
-  },
-);
-
-describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
+describe("a Python check's helper steps (R-G17 increment 3 review L1–L4; R-G19)", () => {
   const confinement = {
     unitName: 'craftingtable-check-x',
     limits: DEFAULT_CHECK_UNIT_LIMITS,
     directory: '/data/private/python',
     tree: '/data/private/clone',
+    cache: '/data/uv/checks',
     hiddenRoots: ['/agents/root', '/data/cargo-home', '/repo/.git'],
     inaccessible: ['/work/x', '/run/dir'],
     home: '/home/op',
   };
+  const runtime = `/run/user/${process.getuid?.()}`;
+  const properties = (args: readonly string[]) =>
+    args.flatMap((arg, index) => (args[index - 1] === '-p' ? [arg] : []));
 
-  it('runs each step in a unit with no network that writes only the Python directory and reads the clone', () => {
+  it('reads the lock in a unit with no network that writes only the Python directory and reads the clone', () => {
     const args = pythonStepUnitArguments(
       confinement,
       'craftingtable-check-x-python-1',
-      '/opt/uv',
-      ['venv'],
+      OPT_PYTHON,
+      ['-I', '-S', '-c', 'reader'],
       {
         cwd: '/data/private/python',
         env: { PATH: '/usr/bin:/bin', UV_NO_CONFIG: '1' },
         timeoutMs: 60_000,
+        install: false,
       },
     );
-    const properties = args.flatMap((arg, index) => (args[index - 1] === '-p' ? [arg] : []));
+    const set = properties(args);
     expect(args).toContain('--unit=craftingtable-check-x-python-1');
-    expect(properties).toEqual(
+    expect(set).toEqual(
       expect.arrayContaining([
         'PrivateNetwork=yes',
         'ProtectHome=read-only',
@@ -715,15 +778,51 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
         'BindReadOnlyPaths=-/data/private/clone',
       ]),
     );
-    // Nothing else is writable, and the clone is not bound writable.
-    expect(properties.filter((p) => p.startsWith('ReadWritePaths='))).toEqual([
+    // Nothing else is writable: neither the clone nor the uv cache.
+    expect(set.filter((p) => p.startsWith('ReadWritePaths='))).toEqual([
       'ReadWritePaths=-/data/private/python',
     ]);
-    expect(properties.filter((p) => p.startsWith('BindPaths='))).toEqual([
+    expect(set.filter((p) => p.startsWith('BindPaths='))).toEqual([
       'BindPaths=/data/private/python',
     ]);
     expect(args.slice(args.indexOf('--'))).toEqual(
-      expect.arrayContaining(['/opt/uv', 'venv', 'UV_NO_CONFIG=1']),
+      expect.arrayContaining([OPT_PYTHON, 'reader', 'UV_NO_CONFIG=1']),
+    );
+  });
+
+  it('runs the install in a unit with the network that writes the Python directory, the clone and the uv cache, and reaches no Docker socket or runtime directory (R-G19)', () => {
+    const set = properties(
+      pythonStepUnitArguments(confinement, 'craftingtable-check-x-python-2', OPT_UV, ['sync'], {
+        cwd: '/data/private/clone',
+        env: { PATH: '/usr/bin:/bin' },
+        timeoutMs: 600_000,
+        install: true,
+      }),
+    );
+    expect(set).toContain('PrivateNetwork=no');
+    expect(set.filter((p) => p.startsWith('ReadWritePaths='))).toEqual([
+      'ReadWritePaths=-/data/private/python',
+      'ReadWritePaths=-/data/private/clone',
+      'ReadWritePaths=-/data/uv/checks',
+    ]);
+    expect(set.filter((p) => p.startsWith('BindPaths='))).toEqual([
+      'BindPaths=/data/private/python',
+      'BindPaths=/data/private/clone',
+      'BindPaths=/data/uv/checks',
+    ]);
+    expect(set.filter((p) => p.startsWith('BindReadOnlyPaths='))).toEqual([]);
+    // Still everything agents write hidden, and nothing of the user's runtime directory or
+    // Docker, as for any check: the network is the install's only addition.
+    expect(set).toEqual(
+      expect.arrayContaining([
+        'TemporaryFileSystem=/agents/root:ro',
+        'TemporaryFileSystem=/home/op:ro',
+        'InaccessiblePaths=-/work/x',
+        `TemporaryFileSystem=${runtime}:ro`,
+        'InaccessiblePaths=-/run/docker.sock',
+        'InaccessiblePaths=-/var/run/docker.sock',
+        'InaccessiblePaths=-/run/dbus/system_bus_socket',
+      ]),
     );
   });
 
@@ -743,6 +842,7 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
           limits: DEFAULT_CHECK_UNIT_LIMITS,
           directory: '/data/private/python',
           tree: '/data/private/clone',
+          cache: '/data/uv/checks',
           workspacePath: '/work/x',
           sharedCargoHome: '/data/cargo-home',
           commonDirectory: '/repo/.git',
@@ -754,6 +854,7 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
       limits: DEFAULT_CHECK_UNIT_LIMITS,
       directory: '/data/private/python',
       tree: '/data/private/clone',
+      cache: '/data/uv/checks',
       hiddenRoots: ['/agents/root', '/data/cargo-home', '/repo/.git'],
       inaccessible: ['/work/x', '/run/launcher', '/work/x', '/run/dir', '/data/cargo-home'],
       home: homedir(),
@@ -774,6 +875,7 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
       cwd: '/',
       env: { PATH: '/usr/bin:/bin' },
       timeoutMs: 60_000,
+      install: false,
     });
     expect(cancelled.code).toBeNull();
     expect(Date.now() - started).toBeLessThan(3_000);
@@ -787,6 +889,7 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
       cwd: '/',
       env: { PATH: '/usr/bin:/bin' },
       timeoutMs: 300,
+      install: false,
     });
     expect(timedOut.code).toBeNull();
     expect(Date.now() - started).toBeLessThan(3_000);
@@ -804,6 +907,7 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
         unitName,
         directory: root,
         tree: root,
+        cache: root,
         hiddenRoots: [],
         inaccessible: [],
         home: homedir(),
@@ -825,6 +929,7 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
         cwd: root,
         env: { PATH: '/usr/bin:/bin' },
         timeoutMs: 60_000,
+        install: false,
       });
       expect(before).toBe('active');
       expect(result.code).toBeNull();
@@ -834,18 +939,28 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
   );
 
   itPython(
-    'builds offline with fixed arguments: every hash required, nothing built, no index, no configuration, each step within the time left',
+    'installs with fixed arguments: `uv sync --locked` on the profile, no configuration, its own cache, venv copies, each step within the time left',
     async () => {
       const f = pythonCheck();
       const directory = join(f.root, 'python');
+      const cache = join(f.root, 'uv-checks');
       const calls: {
         command: string;
         args: readonly string[];
+        cwd: string;
         env: Record<string, string>;
         timeoutMs: number;
+        install: boolean;
       }[] = [];
       const record: PythonStepRunner = async (command, args, options) => {
-        calls.push({ command, args, env: { ...options.env }, timeoutMs: options.timeoutMs });
+        calls.push({
+          command,
+          args,
+          cwd: options.cwd,
+          env: { ...options.env },
+          timeoutMs: options.timeoutMs,
+          install: options.install,
+        });
         const result = spawnSync(command, [...args], {
           cwd: options.cwd,
           env: options.env,
@@ -855,50 +970,50 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
       };
       const environment = await preparePythonEnvironment({
         profile: OPT_PROFILE,
-        target: { pythonVersion: '3.12.15', platform: 'linux-x86_64', libc: 'glibc 2.44' },
         tree: f.workspacePath,
         lock: readFileSync(join(f.workspacePath, 'uv.lock')),
         directory,
-        wheels: f.store,
+        cache,
         signal: new AbortController().signal,
-        remainingMs: () => 4_321,
+        remainingMs: () => 654_321,
         run: record,
         onOutput: () => undefined,
       });
       const venv = join(directory, 'venv');
       expect(
-        calls.map((call) => [call.command, ...call.args.filter((a) => !a.includes('\n'))]),
+        calls.map((call) => [
+          call.command,
+          ...call.args.filter((a) => !a.includes('\n')),
+          call.cwd,
+          call.install,
+        ]),
       ).toEqual([
-        [OPT_PYTHON, '-I', '-S', '-c', join(directory, 'uv.lock')],
-        [
-          OPT_UV,
-          'export',
-          '--frozen',
-          '--no-emit-project',
-          '--format',
-          'requirements.txt',
-          '--output-file',
-          join(directory, 'requirements.txt'),
-          '--quiet',
-        ],
-        [OPT_UV, 'venv', venv, '--python', OPT_PYTHON, '--quiet'],
-        [
-          OPT_UV,
-          'pip',
-          'install',
-          '--python',
-          join(venv, 'bin', 'python'),
-          '--offline',
-          '--no-index',
-          '--find-links',
-          join(directory, 'wheels'),
-          '--require-hashes',
-          '--no-build',
-          '--quiet',
-          '-r',
-          join(directory, 'requirements.txt'),
-        ],
+        [OPT_PYTHON, '-I', '-S', '-c', join(directory, 'uv.lock'), directory, false],
+        [OPT_UV, 'sync', '--locked', '--python', OPT_PYTHON, f.workspacePath, true],
       ]);
+      const scratch = join(directory, 'tmp');
+      expect(calls[0]?.env).toEqual({
+        PATH: '/usr/bin:/bin',
+        HOME: scratch,
+        TMPDIR: scratch,
+        LC_ALL: 'C',
+      });
+      expect(calls[1]?.env).toEqual({
+        PATH: '/usr/bin:/bin',
+        HOME: scratch,
+        TMPDIR: scratch,
+        LC_ALL: 'C',
+        UV_CACHE_DIR: cache,
+        UV_PROJECT_ENVIRONMENT: venv,
+        UV_PYTHON: OPT_PYTHON,
+        UV_PYTHON_DOWNLOADS: 'never',
+        UV_NO_CONFIG: '1',
+        UV_LINK_MODE: 'copy',
+        UV_NO_PROGRESS: '1',
+      });
+      // The lock is read within ten minutes; the install may take what is left of the check's.
+      expect(calls[0]?.timeoutMs).toBe(600_000);
+      expect(calls[1]?.timeoutMs).toBe(654_321);
       // The check's own environment (re-check E7, E8): every inherited Python or uv setting
       // dropped, then the venv's, uv offline, frozen and with no configuration.
       expect(
@@ -927,16 +1042,7 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
         PYTHONNOUSERSITE: '1',
         PYTHONDONTWRITEBYTECODE: '1',
       });
-      for (const call of calls) {
-        expect(call.env).toMatchObject({
-          PATH: '/usr/bin:/bin',
-          UV_OFFLINE: '1',
-          UV_NO_CONFIG: '1',
-          UV_PYTHON_DOWNLOADS: 'never',
-          UV_CACHE_DIR: join(directory, 'uv-cache'),
-        });
-        expect(call.timeoutMs).toBeLessThanOrEqual(4_321);
-      }
+      expect(environment.lockDigest).toBe(sha256(readFileSync(join(f.workspacePath, 'uv.lock'))));
     },
   );
 });

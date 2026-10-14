@@ -35,17 +35,6 @@ export {
   cargoManifestDigest,
 } from './pinned-cargo.js';
 export {
-  isWheelFilename,
-  type LockedPackage,
-  planWheels,
-  PYPI_FILES,
-  type PythonWheelSource,
-  type WheelPlan,
-  type WheelRequest,
-  type WheelTarget,
-  wheelFits,
-} from './python-wheels.js';
-export {
   type CheckUnitLimits,
   DEFAULT_CHECK_UNIT_LIMITS,
   observeToolchain,

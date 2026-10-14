@@ -1,3 +1,4 @@
-R-G17's Python check fixture: a virtual uv project whose one dependency, `ctfix-pkg`, is a wheel
-`python-fixture.ts` builds at test time, with the `uv.lock` that names it by SHA-256. No wheel
-from PyPI is committed.
+R-G19's Python check fixture: a packaged uv project (uv's own build backend, which uv builds with no
+download) with a console script, `ctfix-app`, and one dependency, `ctfix-pkg`, a wheel in `vendor/`
+that `python-fixture.ts` builds at test time before locking the project with the operator's uv,
+offline. No file from PyPI is committed.

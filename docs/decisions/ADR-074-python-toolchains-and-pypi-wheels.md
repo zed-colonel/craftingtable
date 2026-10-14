@@ -1,7 +1,8 @@
 # ADR-074: Python toolchains and PyPI wheels for checks
 
-- **Status:** accepted
+- **Status:** partly superseded
 - **Date:** 2026-10-13
+- **Superseded in part by:** ADR-076 (the daemon's wheel store, and how a Python check's environment is built; R-G19)
 - **Refines:** ADR-053
 
 ## Context

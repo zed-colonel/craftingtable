@@ -24,7 +24,7 @@ check-logs/<runId>/            logs, clones and Cargo homes of the checks the da
 cargo-home/                    the agents' Cargo home (its registry and git caches)
 crates-io/                     what the daemon learned from crates.io's index
 uv/cache/                      the agents' shared uv cache, with the pypi outside source
-pypi-wheels/                   the wheels the daemon verified for Python checks, by SHA-256
+uv/checks/                     uv's cache for Python checks' installs, which no agent writes
 model-catalog/                 where Codex's catalog app-server runs
 git-identity.gitconfig         the operator's user.name and user.email, for daemon Git
 ```
@@ -301,8 +301,8 @@ They are read from `outside-sources.json` in the settings directory at start; ed
   `<data>/uv/cache`. It takes no `extraHosts` and needs the Python profile in `toolchains.json`
   ([Checks](#checks)): agents get its uv first on PATH, `UV_PYTHON` set to its interpreter,
   `UV_CACHE_DIR` set to the cache and `UV_PYTHON_DOWNLOADS=never`, so a sandboxed `uv sync`
-  resolves as checks do. Checks never read the cache: the daemon fetches and verifies the wheels
-  they use itself (security.md, *The daemon's outbound requests*).
+  resolves as checks do. Checks never read that cache: their installs keep their own,
+  `<data>/uv/checks` ([Checks](#checks)).
 - No file means the `cargo` source. `"sources": []` means none: sandboxed commands reach no
   network, and `cargo fetch` and `uv sync` fail. For a Python project, add
   `{ "kind": "pypi" }` beside `{ "kind": "cargo" }`.
@@ -392,22 +392,30 @@ previous daemon left.
     Every Python check reads them again: a tool that is missing, no longer root-owned, writable by
     others or no longer fits its version refuses the check, naming it; an update that still fits
     is recorded there and in the receipt, and needs no restart.
-- **Python checks** (R-G17). With the profile configured, an adopted check of a commit with a
-  root `uv.lock` runs in a fresh venv the daemon builds offline from the wheels the lock names,
-  fetched and verified from PyPI by the daemon itself (`<data>/pypi-wheels`). For a repository to
-  adopt such checks, its `.craftingtable/checks.json` must:
+- **Python checks** (R-G17, R-G19; [ADR-076](decisions/ADR-076-python-checks-install-with-uv-sync.md)).
+  With the profile configured, an adopted check of a commit with a root `uv.lock` runs in a fresh
+  venv that an install step builds first with `uv sync --locked`, from PyPI, with the network;
+  the check itself then runs offline. uv's cache for these installs is `<data>/uv/checks`: remove
+  it, or run `uv cache prune` with `UV_CACHE_DIR` set to it, while no check runs, to reclaim space.
+  A daemon from before R-G19 left `<data>/pypi-wheels/`, which nothing reads; delete it. For a
+  repository to adopt such checks, its `.craftingtable/checks.json` must:
   - list, in every check's `definitionPaths`, each Python environment file the commit tracks at
     any depth (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, `pytest.ini`,
     `.pytest.ini`, `pytest.toml`, `.pytest.toml`, `.coveragerc`, `tox.ini`, `setup.cfg`,
-    `ruff.toml`, `.ruff.toml`, `mypy.ini`, `.mypy.ini`), as well as
-    Cargo's files where it has them; at most 50 paths per check;
-  - run its tools as `python -m …` or as scripts (`python -m pytest`, `python tools/gate.py`):
-    the project is virtual (`tool.uv.package = false`), so no console script of its own exists.
-  The lock must name only PyPI packages with a wheel that fits the profile's interpreter:
-  a Git, URL, path or other-index source, an sdist-only package or a packaged project is refused
-  by name, and a needed package with no fitting wheel fails the install naming it. Changing a
-  listed file, `uv.lock` included, stops the slice as `check-definition-changed` until the checks
-  are adopted again. Agents should `uv sync` first; their brief says so.
+    `ruff.toml`, `.ruff.toml`, `mypy.ini`, `.mypy.ini`), as well as Cargo's files where it has
+    them; at most 50 paths per check;
+  - run its tools as the agents do: the install puts the project's console scripts and its
+    dependencies' on PATH (`pytest`, the project's own commands), and `python -m …`, scripts and `uv run …`
+    (offline, never syncing) work too.
+
+  The project may be packaged (its build backend, from PyPI or uv's own `uv_build`, runs in the
+  install; console scripts are installed) or virtual (`tool.uv.package = false`). The lock may
+  name PyPI packages, with wheels or only a source distribution (built in the install), the
+  project itself, workspace members and paths inside the repository; a Git, URL or other-index
+  source, or a path outside the repository, is refused by name. The install takes uv's default
+  groups (`dev`, or the project's `tool.uv.default-groups`), not extras. Changing a listed file,
+  `uv.lock` included, stops the slice as `check-definition-changed` until the checks are adopted
+  again. Agents should `uv sync` first; their brief says so.
 - **Local CI** (`ct-act`) needs `CRAFTINGTABLE_ACT_CONFIG`, a private JSON file naming act, Docker,
   a local Docker socket, a cache root and an image pinned by digest; see
   [`scripts/local-ci/README.md`](../scripts/local-ci/README.md). **Native verification** and Kata
@@ -646,7 +654,7 @@ Read by the test harness: `vitest.config.ts`, `playwright.config.ts`, `e2e/` and
 | `CRAFTINGTABLE_DEV_API_TARGET` | `http://127.0.0.1:${CRAFTINGTABLE_PORT:-4601}` | The Vite dev server's API proxy target (`apps/web/vite.config.ts`; the e2e run sets it). |
 | `CRAFTINGTABLE_MIGRATION_SNAPSHOT` | unset | A copied snapshot for the opt-in migration and resume tests; never a live database. |
 | `CRAFTINGTABLE_REAL_CLAUDE` | unset | `1` runs the sandbox test against the installed Claude Code. |
-| `CRAFTINGTABLE_REAL_PYPI` | unset | `1` runs the wheel store's and Python checks' tests against the real PyPI (`apps/server/test/services/pypi-wheels.test.ts`). |
+| `CRAFTINGTABLE_REAL_PYPI` | unset | `1` runs the Python check test that installs from the real PyPI (`apps/server/test/server-execution-python-checks.test.ts`). |
 | `CRAFTINGTABLE_TEST_NO_NETNS` | unset | `1` declares that the host refuses unprivileged network namespaces, so the instance-lock test that needs one skips there instead of failing. |
 | `CRAFTINGTABLE_UPDATE_GOLDEN` | unset | `1` rewrites the planning format golden files. |
 | `UPDATE_ROUTE_INVENTORY` | unset | `1` rewrites `docs/api-routes.md` (`pnpm routes:inventory`). |

@@ -1,11 +1,15 @@
 [project]
-name = "ct-python-fixture"
+name = "ct-pypi-fixture"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["markupsafe"]
+dependencies = ["markupsafe", "docopt"]
+
+[project.scripts]
+ct-pypi-app = "ct_pypi_fixture:main"
 
 [dependency-groups]
 dev = ["pytest"]
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

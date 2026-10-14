@@ -1,13 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { PythonWheelSource, WheelRequest } from '../src/python-wheels.js';
 
 /**
- * Test support for R-G17's Python checks: wheels built at test time (a zip written by the host's
- * Python, with fixed timestamps), a `uv.lock` naming them by SHA-256 as PyPI's, and a wheel
- * source that stands in for the daemon's verified store. No PyPI wheel is committed.
+ * Test support for Python checks (R-G17, R-G19): the fixture project, a packaged uv project with a
+ * console script, whose dependency is a wheel built at test time (a zip written by the host's
+ * Python, with fixed timestamps) in its `vendor/`, locked with the operator's uv, offline. Its
+ * install needs no network: uv builds a `uv_build` project itself, and the wheel is in the tree.
+ * No file from PyPI is committed.
  */
 
 export const FIXTURE_PROJECT = new URL('./fixtures/python-project/', import.meta.url).pathname;
@@ -69,108 +71,85 @@ export function buildWheel(
   };
 }
 
-/** A lock entry of a package with no wheel at all, for refusals. */
-export interface SdistOnly {
-  readonly name: string;
-  readonly version: string;
-}
-
 /**
- * The project's `uv.lock`: the virtual root depending on each package, each package from PyPI
- * with its one wheel at a files.pythonhosted.org URL, or with only an sdist.
+ * A dependency in the tree whose build backend, also in the tree, sleeps for two minutes before
+ * failing: an install that is still running when a test cancels it or its time limit passes.
  */
-export function lockFor(
-  root: string,
-  wheels: readonly FixtureWheel[],
-  sdistOnly: readonly SdistOnly[] = [],
-): string {
-  const names = [...wheels.map((w) => w.name), ...sdistOnly.map((s) => s.name)];
-  const lines = [
-    'version = 1',
-    'revision = 3',
-    'requires-python = ">=3.12"',
+const SLOW_DEPENDENCY: Readonly<Record<string, string>> = {
+  'slow/pyproject.toml': [
+    '[project]',
+    'name = "ctslow"',
+    'version = "1.0"',
     '',
-    '[[package]]',
-    `name = "${root}"`,
-    'version = "0.1.0"',
-    'source = { virtual = "." }',
-    'dependencies = [',
-    ...names.map((name) => `    { name = "${name}" },`),
-    ']',
+    '[build-system]',
+    'requires = []',
+    'build-backend = "slowbackend"',
+    'backend-path = ["."]',
     '',
-    '[package.metadata]',
-    `requires-dist = [${names.map((name) => `{ name = "${name}" }`).join(', ')}]`,
-  ];
-  for (const wheel of wheels)
-    lines.push(
-      '',
-      '[[package]]',
-      `name = "${wheel.name}"`,
-      `version = "${wheel.version}"`,
-      'source = { registry = "https://pypi.org/simple" }',
-      'wheels = [',
-      `    { url = "https://files.pythonhosted.org/packages/00/00/${wheel.filename}", hash = "sha256:${wheel.sha256}", size = ${wheel.size} },`,
-      ']',
-    );
-  for (const sdist of sdistOnly)
-    lines.push(
-      '',
-      '[[package]]',
-      `name = "${sdist.name}"`,
-      `version = "${sdist.version}"`,
-      'source = { registry = "https://pypi.org/simple" }',
-      `sdist = { url = "https://files.pythonhosted.org/packages/00/00/${sdist.name}-${sdist.version}.tar.gz", hash = "sha256:${'0'.repeat(64)}", size = 10 }`,
-    );
-  return `${lines.join('\n')}\n`;
+  ].join('\n'),
+  'slow/slowbackend.py': [
+    'import time',
+    '',
+    '',
+    'def get_requires_for_build_wheel(config_settings=None):',
+    '    return []',
+    '',
+    '',
+    'def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):',
+    '    print("CTSLOW-BUILDING", flush=True)',
+    '    time.sleep(120)',
+    '    raise RuntimeError("never built")',
+    '',
+  ].join('\n'),
+};
+
+/** Locks the project in `directory` with the operator's uv, offline, with no configuration. */
+export function lockProject(directory: string): void {
+  const cache = mkdtempSync(join(tmpdir(), 'ct-python-lock-cache-'));
+  try {
+    const locked = spawnSync(OPT_UV, ['lock', '--offline', '--quiet', '--python', OPT_PYTHON], {
+      cwd: directory,
+      encoding: 'utf8',
+      env: {
+        PATH: '/usr/bin:/bin',
+        HOME: cache,
+        UV_CACHE_DIR: cache,
+        UV_NO_CONFIG: '1',
+        UV_PYTHON_DOWNLOADS: 'never',
+      },
+    });
+    if (locked.status !== 0) throw new Error(`uv lock failed: ${locked.stderr}`);
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
 }
 
 /**
- * The fixture project copied into `directory`, its dependency on `ctfix-pkg` (VALUE = `value`)
- * built and locked; `extra` adds more files. Returns the wheel so a test can serve it.
+ * The fixture project copied into `directory`: its dependency `ctfix-pkg` (VALUE = `value`)
+ * built into `vendor/`, `extra` files added, and, with `slow`, a dependency whose build never
+ * ends; then locked. Returns the wheel.
  */
 export function writePythonProject(
   directory: string,
-  wheels: string,
-  options: {
-    readonly value?: number;
-    readonly sdistOnly?: readonly SdistOnly[];
-    readonly extraWheels?: readonly FixtureWheel[];
-  } = {},
+  options: { readonly value?: number; readonly slow?: boolean } = {},
 ): FixtureWheel {
   cpSync(FIXTURE_PROJECT, directory, { recursive: true });
-  const wheel = buildWheel(wheels, 'ctfix-pkg', '1.0', {
+  const wheel = buildWheel(join(directory, 'vendor'), 'ctfix-pkg', '1.0', {
     'ctfix_pkg/__init__.py': `VALUE = ${options.value ?? 42}\n`,
   });
-  writeFileSync(
-    join(directory, 'uv.lock'),
-    lockFor('ct-python-fixture', [wheel, ...(options.extraWheels ?? [])], options.sdistOnly),
-  );
-  return wheel;
-}
-
-/** A stand-in for the daemon's store: serves the given wheels by name and digest. */
-export class FixtureWheels implements PythonWheelSource {
-  readonly requests: WheelRequest[] = [];
-  constructor(
-    private readonly wheels: readonly FixtureWheel[],
-    /** Holds every request until the signal aborts, as a slow download would. */
-    private readonly hold = false,
-  ) {}
-
-  async wheel(
-    request: WheelRequest,
-    signal: AbortSignal,
-  ): Promise<{ path: string } | { problem: string }> {
-    this.requests.push(request);
-    if (this.hold)
-      await new Promise<void>((resolve) => {
-        if (signal.aborted) resolve();
-        signal.addEventListener('abort', () => resolve(), { once: true });
-      });
-    if (signal.aborted) return { problem: `fetching ${request.filename} was cancelled` };
-    const wheel = this.wheels.find(
-      (w) => w.filename === request.filename && w.sha256 === request.sha256,
+  if (options.slow) {
+    for (const [path, content] of Object.entries(SLOW_DEPENDENCY)) {
+      mkdirSync(join(directory, path, '..'), { recursive: true });
+      writeFileSync(join(directory, path), content);
+    }
+    const pyproject = join(directory, 'pyproject.toml');
+    writeFileSync(
+      pyproject,
+      readFileSync(pyproject, 'utf8')
+        .replace('dependencies = ["ctfix-pkg"]', 'dependencies = ["ctfix-pkg", "ctslow"]')
+        .replace('[tool.uv.sources]\n', '[tool.uv.sources]\nctslow = { path = "slow" }\n'),
     );
-    return wheel ? { path: wheel.path } : { problem: `${request.filename} is not on PyPI` };
   }
+  lockProject(directory);
+  return wheel;
 }

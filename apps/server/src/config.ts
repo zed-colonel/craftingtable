@@ -86,8 +86,9 @@ export interface ExecutionConfig {
    */
   readonly cargoHome: string;
   /**
-   * The daemon's uv directory (R-G17): the `pypi` source's shared cache, `cache`, lies in it.
-   * Agents fetch into that cache; checks never read it (decision 9).
+   * The daemon's uv directory (R-G17): the `pypi` source's shared cache, `cache`, which agents
+   * fetch into and checks never read (decision 9), and uv's cache for checks' installs, `checks`,
+   * which no agent writes (R-G19).
    */
   readonly uvHome: string;
   /**

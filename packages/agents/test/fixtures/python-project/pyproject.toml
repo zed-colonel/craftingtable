@@ -4,5 +4,12 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = ["ctfix-pkg"]
 
-[tool.uv]
-package = false
+[project.scripts]
+ctfix-app = "ct_python_fixture:main"
+
+[tool.uv.sources]
+ctfix-pkg = { path = "vendor/ctfix_pkg-1.0-py3-none-any.whl" }
+
+[build-system]
+requires = ["uv_build>=0.12"]
+build-backend = "uv_build"

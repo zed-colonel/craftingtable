@@ -7,7 +7,6 @@ import {
   ClaudeCodeBackend,
   CodexBackend,
   parseModelList,
-  type PythonWheelSource,
   syncDaemonCargoHome,
 } from '@craftingtable/agents';
 import {
@@ -42,7 +41,6 @@ import { ExecutionService, type ExecutionStatus } from './services/execution-ser
 import { FinalizationService } from './services/finalization-service.js';
 import { HostSchedulingService } from './services/host-scheduling-service.js';
 import { MapAmendmentService } from './services/map-amendment-service.js';
-import { PypiWheelStore } from './services/pypi-wheels.js';
 import { ToolchainService } from './services/toolchain-service.js';
 import { ModelCatalogService } from './services/model-catalog-service.js';
 import { ControllerPasses, OperatorPresence } from './services/attention-gates.js';
@@ -139,8 +137,6 @@ export interface ServiceOverrides {
   readonly runLog?: RunLog;
   /** Test seam: where published crate checksums come from (crates.io's index by default). */
   readonly crateChecksums?: CrateChecksumAuthority;
-  /** Test seam: where Python checks' verified wheels come from (PyPI by default, R-G17). */
-  readonly pythonWheels?: PythonWheelSource;
   /**
    * Replay seam (R-I10): false takes the database as a live daemon's next pass would find it,
    * instead of recovering interrupted runs, cycles and roadmaps as a restart does.
@@ -340,7 +336,6 @@ export async function createServices(
     undefined,
     undefined,
     overrides.crateChecksums ?? new CratesIoChecksums(join(config.dataDir, 'crates-io')),
-    overrides.pythonWheels ?? new PypiWheelStore(join(config.dataDir, 'pypi-wheels')),
   );
   checkRequests.stopLeftoverUnits();
   // Every source's caches exist, so a sandbox can make them writable (the `pypi` source's uv

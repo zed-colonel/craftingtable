@@ -7,7 +7,7 @@ import type { CheckOnlyManifest } from '@craftingtable/agents';
 import { executionStatusResponseSchema } from '@craftingtable/contracts';
 import { asDeclaredCheckId } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
-import { FixtureWheels, writePythonProject } from '../../../packages/agents/test/python-fixture.js';
+import { writePythonProject } from '../../../packages/agents/test/python-fixture.js';
 import {
   CycleBackend,
   cleanupExecutionFixtures,
@@ -44,19 +44,17 @@ function settingsWith(toolchains: unknown): Record<string, string> {
 }
 
 /**
- * A manual worktree of a Python project (the fixture project, its `uv.lock` naming a wheel built
- * here, which the stand-in store serves) with committed work and adopted checks that name its
- * environment files, as adoption requires.
+ * A manual worktree of a Python project (the fixture project, a packaged project whose `uv.lock`
+ * names a wheel built into its tree, so its install needs no network) with committed work and
+ * adopted checks that name its environment files, as adoption requires.
  */
 async function pythonProject(env: Record<string, string>) {
   const backend = new CycleBackend([]);
   const repository = fixtureRepository();
-  const wheels = mkdtempSync(join(tmpdir(), 'craftingtable-toolchain-wheels-'));
-  directories.push(wheels);
-  const wheel = writePythonProject(repository, wheels);
+  writePythonProject(repository);
   git(['add', '--all'], repository);
   git(['commit', '--no-gpg-sign', '-m', 'a Python project'], repository);
-  const state = await ready({ backend, env, pythonWheels: new FixtureWheels([wheel]) });
+  const state = await ready({ backend, env });
   const { worktree } = await registerAndWorktree(state, repository);
   const files = ['pyproject.toml', 'uv.lock'];
   declareFixtureChecks(

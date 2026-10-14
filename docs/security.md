@@ -34,12 +34,12 @@ typed commands, never commands to run.
 | Process authority | Only listed modules may spawn; argument arrays; supervised process groups; named environment variables only for agents, checks and daemon Git (not the native probes); process records proved before a restart signals | The brief's instruction to stay in the worktree | `scripts/check-forbidden-scope.test.mjs`, `packages/agents/test/process.test.ts`, `apps/server/test/restart-reaping.test.ts` |
 | Agent sandboxes | Claude Code's OS sandbox for commands; Codex's per-run permission profiles; one denied-reads list for commands, Claude's file tools and read-only runs; outside sources as the only network and cache writes | Claude Code's own tools are governed by its permission posture, not the sandbox; `unrestricted` has no sandbox | `packages/agents/test/claude-code/arguments.test.ts`, `packages/agents/test/codex/arguments.test.ts`, `packages/agents/test/codex/denied-files.test.ts`, `packages/agents/test/outside-sources.test.ts` |
 | The daemon's own Git | Git directories named explicitly; no hooks, fsmonitor, system or global configuration; untrusted Git directories refused | A repository's own configuration still applies; the ref watch detects moves, it does not prevent them | `packages/git/test/git-directory-pinning.test.ts`, `packages/git/test/adapter-robustness.test.ts`, `apps/server/test/services/ref-watch.test.ts` |
-| Checks and builds | Checks run by the daemon in confined, capped units, on private clones, with offline Cargo homes and a root-owned Python toolchain; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `packages/agents/test/toolchains.test.ts`, `packages/agents/test/python-checks.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts`, `apps/server/test/server-execution-toolchains.test.ts` |
+| Checks and builds | Checks run by the daemon in confined, capped units, on private clones, with offline Cargo homes and a root-owned Python toolchain; Python installs from PyPI and the tree only; checks adopted only by a person | Local CI's Docker; the native unit's file system; the tree's own build scripts; a Python install's network | `packages/agents/test/local-check.test.ts`, `packages/agents/test/check-spool.test.ts`, `packages/agents/test/toolchains.test.ts`, `packages/agents/test/python-checks.test.ts`, `packages/agents/test/python-lock.test.ts`, `apps/server/test/server-execution-check-only.test.ts`, `apps/server/test/server-execution-check-adoption.test.ts`, `apps/server/test/server-execution-toolchains.test.ts` |
 | Merge and promotion | The review gate at exact commits; protected destinations; final promotion only by an operator's session, with step-up | A review's verdict is the reviewer's assertion | `apps/server/test/server-execution-merge-gate.test.ts`, `apps/server/test/server-execution-integration.test.ts`, `apps/server/test/server-execution-finalization.test.ts` |
 | Delegated work | Authority from a recorded, rechecked owner or editor; pause and stop are commands | — | `apps/server/test/server-execution-roadmaps.test.ts`, `apps/server/test/server-execution-decision-preparation.test.ts` |
 | Untrusted input | Bounded parsers; ZIPs read in memory, never extracted; text rendered as text; reports validated | A valid report is still an assertion | `packages/planning/test/archive.test.ts`, `apps/server/test/server-package-imports.test.ts`, `apps/server/test/services/review-report.test.ts` |
 | Stored secrets | Credentials file outside the database, mode 0600; database and copies 0600; denied to sandboxed agents | The OS account's own trust | `apps/server/test/security/credential-file.test.ts`, `apps/server/test/notifications.test.ts` |
-| Outbound requests | Fixed HTTPS endpoints, no redirects, timeouts and size bounds | — | `apps/server/test/services/notification-transport.test.ts`, `apps/server/test/services/crate-checksums.test.ts`, `apps/server/test/services/pypi-wheels.test.ts` |
+| Outbound requests | Fixed HTTPS endpoints, no redirects, timeouts and size bounds | — | `apps/server/test/services/notification-transport.test.ts`, `apps/server/test/services/crate-checksums.test.ts` |
 | Installation storage | Installation access; validated, pinned roots; deletion only of what the daemon previewed | Concurrent host file-system changes | `apps/server/test/storage-management.test.ts` |
 
 ## Network and the browser origin
@@ -359,22 +359,28 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   tool again, the media tools and fonts included: any problem with one (missing, no longer
   root-owned, writable by its group or others, a failed probe, a version that no longer fits)
   refuses the check, and the identities it ran with go into its receipt.
-- **Python checks.** An adopted check of a reviewed commit with a root `uv.lock` runs in a fresh
-  venv built for it alone, in its private directory, by units with no network: the lock is read
-  with the profile's interpreter, the wheels that fit it come from the daemon's verified store
-  (copied, then hashed again), and uv installs them offline with every hash required and nothing
-  built. Git, URL, path and other-index sources, sdist-only packages and a packaged project are
-  refused by name. The check runs with the venv first on PATH and read-only, uv offline and
-  frozen, and no Python or uv setting inherited; it never reads the agents' uv cache or reuses a
-  venv. Its receipt names the tools, the profile, the lock and, by digest, the set of verified
-  wheels the install could draw on. Python environment and tool configuration files
-  (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, pytest's `pytest.ini`,
-  `.pytest.ini`, `pytest.toml` and `.pytest.toml`, `.coveragerc`, `tox.ini`, `setup.cfg`, Ruff's
-  and mypy's) are held like Cargo's: every adopted check must name each one its commit tracks, at
-  any depth, and a check is refused when its tree has one it was not adopted with. The tests,
-  `conftest.py` and the rest of the tree's code stay the reviewer's: under `python -m` the tree
-  comes first on `sys.path`, so a module there can stand in for the runner or a locked package,
-  and a `*.dist-info` there can register a pytest plugin.
+- **Python checks** ([ADR-076](decisions/ADR-076-python-checks-install-with-uv-sync.md)). An
+  adopted check of a reviewed commit with a root `uv.lock` runs in a fresh venv built for it
+  alone, in its private directory. The lock is read with the profile's interpreter in a unit with
+  no network, and refused by name when it names anything but PyPI and the tree: a Git or URL
+  source, another registry, a PyPI file off `files.pythonhosted.org` or without a SHA-256, a path
+  outside the repository. Then an install step runs `uv sync --locked` with the profile's
+  interpreter, no configuration and no Python downloads, in a unit that has the network, writes
+  only the check's Python directory, the clone and uv's cache for checks (`<data>/uv/checks`,
+  which no agent writes), and sees nothing else agents write, no Docker socket and nothing of the
+  user's runtime directory. uv refuses a lock that no longer matches the project and checks every
+  file against the lock's hashes; it builds the project (its console scripts included) and any
+  source distribution there, and fetches build requirements, which the lock does not pin, from
+  PyPI. The check itself then runs with no network, the venv first on PATH and read-only, uv
+  offline and frozen, and no Python or uv setting inherited; it never reads the agents' uv cache
+  or reuses a venv. Its receipt names the tools, the profile and the lock. Python environment and
+  tool configuration files (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, pytest's
+  `pytest.ini`, `.pytest.ini`, `pytest.toml` and `.pytest.toml`, `.coveragerc`, `tox.ini`,
+  `setup.cfg`, Ruff's and mypy's) are held like Cargo's: every adopted check must name each one
+  its commit tracks, at any depth, and a check is refused when its tree has one it was not adopted
+  with. The tests, `conftest.py`, build scripts and the rest of the tree's code stay the
+  reviewer's: under `python -m` the tree comes first on `sys.path`, so a module there can stand in
+  for the runner or a locked package, and a `*.dist-info` there can register a pytest plugin.
 - **Adopted checks.** Checks are adopted only by a person: an owner or editor on the Repositories
   page, from `.craftingtable/checks.json` read by the daemon's Git at an exact commit. A slice
   that changes a definition file is merged only by a person who approves the definitions with
@@ -531,7 +537,7 @@ evidence it accepts is a current review.
 
 ## The daemon's outbound requests
 
-The daemon makes three kinds of request of its own:
+The daemon makes two kinds of request of its own:
 
 - **Pushover**, for notifications: only its fixed HTTPS endpoint, with redirects refused, a
   10-second timeout and a bounded response. A push carries project and item names, short
@@ -542,12 +548,9 @@ The daemon makes three kinds of request of its own:
   ([ADR-070](decisions/ADR-070-attention-items.md)).
 - **crates.io's index** (`https://index.crates.io/`), to verify the crates checks use: redirects
   refused, a timeout per request and at most 500 requests per ten-minute window.
-- **PyPI** (R-G17, [ADR-074](decisions/ADR-074-python-toolchains-and-pypi-wheels.md)), for the
-  wheels Python checks use: its JSON API (`https://pypi.org/pypi/<name>/<version>/json`) and the
-  files it names on `https://files.pythonhosted.org/` only, with redirects refused, timeouts, a
-  16 MiB answer and a 512 MiB file limit, at most 600 requests per ten-minute window, and a 20 GiB
-  store, least recently used first. A wheel is kept, under its SHA-256 in `<data>/pypi-wheels`,
-  only when its bytes match both PyPI's published digest and the adopted lock's hash.
+
+Python checks' installs reach PyPI themselves, from their own units ([Checks and
+builds](#checks-and-builds)); the daemon's own store of PyPI's wheels (R-G17) is retired (R-G19).
 
 The agents' own CLIs reach their vendors as the operator's account does.
 
@@ -575,6 +578,10 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
   the common directory and each worktree entry when it starts, and holds its own deny of a missing
   `config.lock` with an empty file while a sandboxed command runs. The adapter denies no missing
   name (R-G19), so it adds none, and Git in the primary checkout works while agents run commands.
+- **A Python install's network (accepted, ADR-076).** A check's install step has the network,
+  because a systemd user unit cannot narrow it to PyPI's hosts. uv fetches only from PyPI, but a
+  build it runs (the project's build backend, a `setup.py`, a source distribution's) can reach any
+  host, as it can in an agent's own `uv sync`. The check itself has no network.
 - **Git state an agent can plant (accepted, ADR-075).** Agents share the checkout's Git
   directory: Claude Code binds a linked worktree's whole common directory writable, and both
   agents' commits write `refs/`, `objects/` and `logs/`. An agent deliberately working against the

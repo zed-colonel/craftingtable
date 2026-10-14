@@ -144,7 +144,7 @@ function trustedPathProblem(path: string, kind: 'file' | 'directory'): ToolProbl
  * Why a directory a tool loads from (Python's prefix and standard library) cannot be trusted:
  * the same rule as a tool file, for a directory.
  */
-function trustedDirectoryProblem(path: string): ToolProblem | undefined {
+export function trustedDirectoryProblem(path: string): ToolProblem | undefined {
   return trustedPathProblem(normalize(path).replace(/\/+$/, '') || '/', 'directory');
 }
 

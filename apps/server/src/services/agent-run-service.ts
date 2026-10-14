@@ -316,6 +316,8 @@ function declaredChecksBrief(
   storage: CraftingTableStorage,
   workspaceId: WorkspaceId,
   role: string,
+  /** Whether the run's checks get the Python profile: one is configured and the tree has a root uv.lock (R-G17). */
+  python: boolean,
   pinned:
     | {
         readonly kind?: undefined;
@@ -353,12 +355,17 @@ function declaredChecksBrief(
       ? ''
       : `Repository checks: this run has no pinned dependency environment, so its merge is gated on the repository's adopted checks alone, run by CraftingTable. ${pinned.binDirectory}/ct-check is on PATH; ct-check -- <executable> <arguments> runs a command you choose, which is recorded and counts for nothing.
 `;
+  // A Python project's checks build their own environment, offline (R-G17 decision 12).
+  const pythonText = !python
+    ? ''
+    : `Python: CraftingTable runs these checks offline, in a fresh environment it builds with no network from the adopted uv.lock and the wheels it fetches and verifies from PyPI itself; they cannot download anything. Run \`uv sync\` first to get the same packages in your worktree (the uv on PATH is the operator's, and reaches PyPI only).
+`;
   return role === 'review'
-    ? `${checkOnly}Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head. CraftingTable runs each from the adopted definition on a private clone of that commit before this review starts, and appends their results below these instructions; those runs count for the gate. Report a failing check as a finding. To run one again, read-only (do not commit):
+    ? `${checkOnly}${pythonText}Adopted repository checks (version ${declaration.version}): this review's gate needs a successful run of EACH on the reviewed head. CraftingTable runs each from the adopted definition on a private clone of that commit before this review starts, and appends their results below these instructions; those runs count for the gate. Report a failing check as a finding. To run one again, read-only (do not commit):
 ${commands}
 ${beside}
 `
-    : `${checkOnly}Adopted repository checks (version ${declaration.version}): the review of this work will need a successful run of EACH on the committed head, which CraftingTable runs from the adopted definition on a private clone of your committed head. After committing, run them to check your work early:
+    : `${checkOnly}${pythonText}Adopted repository checks (version ${declaration.version}): the review of this work will need a successful run of EACH on the committed head, which CraftingTable runs from the adopted definition on a private clone of your committed head. After committing, run them to check your work early:
 ${commands}
 ${beside} If one fails, fix the code, not the check's definition files, which the operator adopts.
 `;
@@ -1478,6 +1485,10 @@ export class AgentRunService {
             runDirectory,
             join(this.config.checkLogRoot, runId, 'replies'),
           );
+      // A Python project's checks get the operator's Python profile (R-G17): the brief says so.
+      const pythonChecks =
+        this.config.toolchains.python !== undefined &&
+        existsSync(join(prepared.worktree.path, 'uv.lock'));
       // Without a pinned environment, a run in a repository with adopted checks is held to them
       // through a check-only manifest (R-G13 increment 4).
       const checksOnly =
@@ -1808,6 +1819,7 @@ export class AgentRunService {
                           this.storage,
                           workspaceId,
                           input.role,
+                          pythonChecks,
                           pinned,
                         ),
                         ...(pinned.localCi ? { localCiImage: pinned.localCi.image } : {}),
@@ -1823,6 +1835,7 @@ export class AgentRunService {
                         this.storage,
                         workspaceId,
                         input.role,
+                        pythonChecks,
                         checksOnly,
                       ),
                     }

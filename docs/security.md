@@ -343,6 +343,19 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   arguments and no input, and every Python check reads each tool again: one that is missing, no
   longer root-owned, writable by others or no longer fits its configured version is refused, and
   the identities it ran with go into its receipt.
+- **Python checks.** An adopted check of a reviewed commit with a root `uv.lock` runs in a fresh
+  venv built for it alone, in its private directory, by units with no network: the lock is read
+  with the profile's interpreter, the wheels that fit it come from the daemon's verified store
+  (copied, then hashed again), and uv installs them offline with every hash required and nothing
+  built. Git, URL, path and other-index sources, sdist-only packages and a packaged project are
+  refused by name. The check runs with the venv first on PATH and read-only, uv offline and
+  frozen, and no Python or uv setting inherited; it never reads the agents' uv cache or reuses a
+  venv. Its receipt names the tools, the profile, the lock and the wheel set by digest. Python
+  environment and tool configuration files (`pyproject.toml`, `uv.lock`, `uv.toml`,
+  `.python-version`, `pytest.ini`, `tox.ini`, `setup.cfg`, Ruff's and mypy's) are held like
+  Cargo's: every adopted check must name each one its commit tracks, at any depth, and a check
+  is refused when its tree has one it was not adopted with. The tests and `conftest.py` stay the
+  reviewer's.
 - **Adopted checks.** Checks are adopted only by a person: an owner or editor on the Repositories
   page, from `.craftingtable/checks.json` read by the daemon's Git at an exact commit. A slice
   that changes a definition file is merged only by a person who approves the definitions with

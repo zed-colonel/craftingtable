@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +7,7 @@ import type { CheckOnlyManifest } from '@craftingtable/agents';
 import { executionStatusResponseSchema } from '@craftingtable/contracts';
 import { asDeclaredCheckId } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
+import { FixtureWheels, writePythonProject } from '../../../packages/agents/test/python-fixture.js';
 import {
   CycleBackend,
   cleanupExecutionFixtures,
@@ -13,6 +15,7 @@ import {
   declareFixtureChecks,
   directories,
   fixtureRepository,
+  git,
   ready,
   registerAndWorktree,
   runToFinish,
@@ -40,14 +43,40 @@ function settingsWith(toolchains: unknown): Record<string, string> {
   return { CRAFTINGTABLE_CONFIG_DIR: configDir };
 }
 
-/** A manual worktree of a Python project (a root `uv.lock`) with committed work and adopted checks. */
+/**
+ * A manual worktree of a Python project (the fixture project, its `uv.lock` naming a wheel built
+ * here, which the stand-in store serves) with committed work and adopted checks that name its
+ * environment files, as adoption requires.
+ */
 async function pythonProject(env: Record<string, string>) {
   const backend = new CycleBackend([]);
-  const state = await ready({ backend, env });
   const repository = fixtureRepository();
-  commitFile(repository, 'uv.lock', 'version = 1\nrevision = 3\nrequires-python = ">=3.12"\n');
+  const wheels = mkdtempSync(join(tmpdir(), 'craftingtable-toolchain-wheels-'));
+  directories.push(wheels);
+  const wheel = writePythonProject(repository, wheels);
+  git(['add', '--all'], repository);
+  git(['commit', '--no-gpg-sign', '-m', 'a Python project'], repository);
+  const state = await ready({ backend, env, pythonWheels: new FixtureWheels([wheel]) });
   const { worktree } = await registerAndWorktree(state, repository);
-  declareFixtureChecks(state);
+  const files = ['pyproject.toml', 'uv.lock'];
+  declareFixtureChecks(
+    state,
+    [
+      {
+        id: asDeclaredCheckId('fixture'),
+        argv: ['git', 'diff', '--check', 'HEAD'],
+        definitionPaths: files,
+      },
+    ],
+    Object.fromEntries(
+      files.map((path) => [
+        path,
+        createHash('sha256')
+          .update(readFileSync(join(repository, path)))
+          .digest('hex'),
+      ]),
+    ),
+  );
   commitFile(worktree.path, 'feature.txt', 'feature\n');
   return { state, backend, worktree };
 }

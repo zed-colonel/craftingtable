@@ -26,13 +26,18 @@ import {
 } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
-import { argvRunsCargo, CARGO_FILE_PATTERN } from '@craftingtable/domain';
+import {
+  argvRunsCargo,
+  CARGO_FILE_PATTERN,
+  PYTHON_ENVIRONMENT_FILE_PATTERN,
+} from '@craftingtable/domain';
 import type {
   CheckManifest,
   CheckOnlyManifest,
   PinnedCargoManifest,
   VerificationManifest,
 } from './pinned-cargo.js';
+import { type PythonEnvironment, preparePythonEnvironment } from './python-environment.js';
 import type { PythonWheelSource } from './python-wheels.js';
 import {
   type CheckUnitLimits,
@@ -1523,21 +1528,34 @@ function rustupBinary(cargo: string): string | undefined {
  * was not adopted with (R-G13 posture review): at the root or nested, legacy, or a linked `.cargo`.
  * Whatever the check's command, Cargo may run beneath it, and these choose what Cargo runs.
  */
-async function assertCargoFilesAdopted(
+async function assertEnvironmentFilesAdopted(
   m: CheckManifest,
   tree: string,
   definitionPaths: readonly string[],
   signal?: AbortSignal,
 ): Promise<void> {
-  const unadopted = (
+  const tracked = (
     await daemonGit(m, ['ls-files', '-z', '--cached'], tree, 64 * 1024 * 1024, undefined, signal)
   )
     .toString('utf8')
     .split('\0')
-    .filter((path) => CARGO_FILE_PATTERN.test(path) && !definitionPaths.includes(path));
-  if (unadopted.length)
+    .filter((path) => path !== '' && !definitionPaths.includes(path));
+  const unadopted = (pattern: RegExp) =>
+    tracked
+      .filter((path) => pattern.test(path))
+      .map((path) => `${path} is not a definition file of this check`)
+      .join('; ');
+  const cargo = unadopted(CARGO_FILE_PATTERN);
+  if (cargo)
     throw new Error(
-      `${unadopted.map((path) => `${path} is not a definition file of this check`).join('; ')}. Cargo reads it to choose its toolchain and configuration; adopt the checks with it, or remove it.`,
+      `${cargo}. Cargo reads it to choose its toolchain and configuration; adopt the checks with it, or remove it.`,
+    );
+  // A Python project's environment and tool configuration, at any depth, as for Cargo's
+  // (R-G17 decision 13): it decides what the check installs and how its tools run.
+  const python = unadopted(PYTHON_ENVIRONMENT_FILE_PATTERN);
+  if (python)
+    throw new Error(
+      `${python}. It shapes the check's Python environment; adopt the checks with it, or remove it.`,
     );
 }
 
@@ -2198,8 +2216,15 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let declaredDigests: Record<string, string> = {};
   let toolchain: ToolObservation[] | undefined;
   let pythonReceipt:
-    | { readonly profileDigest: string; readonly tools: readonly ToolIdentity[] }
+    | {
+        readonly profileDigest: string;
+        readonly tools: readonly ToolIdentity[];
+        readonly lockDigest?: string;
+        readonly wheelSetDigest?: string;
+      }
     | undefined;
+  let pythonEnvironment: PythonEnvironment | undefined;
+  let pythonDirectory: string | undefined;
   let ownsNativeUnit = false;
   const started = Date.now();
   try {
@@ -2508,7 +2533,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         declared.definitionPaths,
         e.signal,
       );
-      await assertCargoFilesAdopted(m, snapshot, declared.definitionPaths, e.signal);
+      await assertEnvironmentFilesAdopted(m, snapshot, declared.definitionPaths, e.signal);
       // A Python project's check re-reads every tool of the profile and records it (R-G17
       // decision 5): a tool that is gone, no longer root-owned, writable by others or no longer
       // fits its version refuses the check; an update that still fits is recorded, not refused.
@@ -2524,6 +2549,84 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           throw new Error(
             `The configured Python toolchain cannot be used (${refused.tool} ${refused.path}): ${refused.problem.message}. The operator's toolchains.json names it; Tools on the Repositories page shows each tool.`,
           );
+        // A fresh venv for this check alone, built with no network from the daemon's verified
+        // wheels (decisions 11, 12 and 14), which the check then runs in, read-only.
+        const lock = await readRegular(join(snapshot, 'uv.lock'), 16 * 1024 * 1024);
+        if (!lock)
+          throw new Error(
+            "The reviewed commit's uv.lock must be a regular file of at most 16 MiB.",
+          );
+        const interpreter = toolchain.find((observed) => observed.tool === 'python')?.identity;
+        const python = m.python;
+        const commonDirectory = m.gitCommonDirectory;
+        const tree = snapshot;
+        pythonDirectory = join(e.privateDirectory, 'python');
+        rmSync(pythonDirectory, { recursive: true, force: true });
+        const directory = pythonDirectory;
+        let steps = 0;
+        pythonEnvironment = await preparePythonEnvironment({
+          profile: python,
+          target: {
+            pythonVersion: interpreter?.version ?? '',
+            platform: interpreter?.platform ?? '',
+            libc: interpreter?.libc,
+          },
+          tree,
+          lock,
+          directory,
+          wheels: e.pythonWheels,
+          signal: e.signal,
+          remainingMs: remainingTime,
+          onOutput: e.onOutput,
+          // Each step in a unit of its own with no network: it may write only this check's
+          // Python directory and read the reviewed clone; every root agents write is hidden.
+          run: (command, args, options) =>
+            e.confinement === 'systemd'
+              ? captureCheck(
+                  'systemd-run',
+                  confinedCheckArguments(
+                    `${e.unitName}-python-${++steps}`,
+                    options.cwd,
+                    options.timeoutMs / 1000,
+                    limits,
+                    [directory],
+                    options.env,
+                    [command, ...args],
+                    false,
+                    [],
+                    [],
+                    {
+                      roots: [
+                        ...new Set([
+                          ...(e.hiddenRoots ?? []),
+                          ...(sharedCargoHome ? [sharedCargoHome] : []),
+                          ...(commonDirectory ? [commonDirectory] : []),
+                          homedir(),
+                        ]),
+                      ],
+                      binds: [directory],
+                      readOnlyBinds: [tree],
+                    },
+                  ),
+                  {
+                    cwd: options.cwd,
+                    env: userBusEnvironment(),
+                    timeoutMs: options.timeoutMs,
+                    signal: e.signal,
+                  },
+                )
+              : captureCheck(command, args, {
+                  cwd: options.cwd,
+                  env: options.env,
+                  timeoutMs: options.timeoutMs,
+                  signal: e.signal,
+                }),
+        });
+        pythonReceipt = {
+          ...pythonReceipt,
+          lockDigest: pythonEnvironment.lockDigest,
+          wheelSetDigest: pythonEnvironment.wheelSetDigest,
+        };
       }
       // A program with a path is the repository's own, from the reviewed commit.
       if (command.includes('/')) command = join(snapshot, command);
@@ -2546,7 +2649,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         });
         confineToClone(
           snapshot,
-          [pinnedSources, pinsOverlay],
+          [pinnedSources, pinsOverlay, ...(pythonEnvironment ? [pythonEnvironment.venv] : [])],
           pinned.dependencySources.map((source) => source.gitDirectory),
         );
         // Every adopted check runs the commit's toolchain: Cargo may run beneath any command.
@@ -2599,7 +2702,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
             ),
         );
       } else {
-        confineToClone(snapshot);
+        confineToClone(snapshot, pythonEnvironment ? [pythonEnvironment.venv] : []);
         // Every adopted check runs the commit's own rustup-managed toolchain (R-G13 posture):
         // Cargo may run beneath any command. A check-only run on a host without Cargo has none
         // to resolve, and nothing of Cargo's to run (R-G13 increment 4).
@@ -2614,6 +2717,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
             )
           ).environment;
       }
+      // The venv first on PATH, uv offline and frozen, no Python setting inherited.
+      if (pythonEnvironment) environment = pythonEnvironment.environment(environment);
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0)
@@ -2716,6 +2821,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     if (pinnedSources) rmSync(pinnedSources, { recursive: true, force: true });
     if (pinsOverlay) rmSync(pinsOverlay, { recursive: true, force: true });
     if (privateCargoHome) rmSync(privateCargoHome, { recursive: true, force: true });
+    if (pythonDirectory) rmSync(pythonDirectory, { recursive: true, force: true });
   }
   const after = m ? await observeGitState(m) : { headSha: '', clean: false };
   mkdirSync(dirname(e.logPath), { recursive: true, mode: 0o700 });

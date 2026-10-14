@@ -80,6 +80,8 @@ export async function createTestContext(
     readonly env?: Readonly<Record<string, string>>;
     /** Where the agent run and check request services' warnings go; nowhere by default. */
     readonly runLog?: RunLog;
+    /** Where Python checks' verified wheels come from: a stand-in for PyPI (R-G17). */
+    readonly pythonWheels?: import('@craftingtable/agents').PythonWheelSource;
     /** False leaves the controller loops stopped so the test steps them itself. */
     readonly workers?: boolean;
     /** False skips the cleanup's record check, for tests that store invalid rows on purpose. */
@@ -132,6 +134,7 @@ export async function createTestContext(
         gitOperations: options.gitOperations === undefined ? null : options.gitOperations,
         agentBackends: options.agentBackends ?? new Map(),
         ...(options.runLog === undefined ? {} : { runLog: options.runLog }),
+        ...(options.pythonWheels === undefined ? {} : { pythonWheels: options.pythonWheels }),
       },
       server: {
         ...(options.loggerStream === undefined

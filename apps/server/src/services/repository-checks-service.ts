@@ -10,6 +10,7 @@ import {
   CARGO_FILE_PATTERN,
   CHECK_DECLARATION_PATH,
   type DeclaredCheck,
+  PYTHON_ENVIRONMENT_FILE_PATTERN,
   type RepositoryCheckDeclaration,
   type SourceRepository,
   type SourceRepositoryId,
@@ -762,6 +763,8 @@ export class RepositoryChecksService {
         `${ref} could not be listed: ${listed.failure.message}`,
       );
     const cargoFiles = listed.value.filter((path) => CARGO_FILE_PATTERN.test(path));
+    // And every Python environment file, at any depth (R-G17 decision 13), as for Cargo's.
+    const pythonFiles = listed.value.filter((path) => PYTHON_ENVIRONMENT_FILE_PATTERN.test(path));
     const files = await read(paths);
     if (!files.ok)
       throw new ExecutionRequestError(
@@ -786,6 +789,11 @@ export class RepositoryChecksService {
         if (!check.definitionPaths.includes(path))
           issues.push(
             `Check ${check.id} does not name ${path} as a definition file; the commit has it, and Cargo reads it.`,
+          );
+      for (const path of pythonFiles)
+        if (!check.definitionPaths.includes(path))
+          issues.push(
+            `Check ${check.id} does not name ${path} as a definition file; the commit has it, and it shapes the check's Python environment.`,
           );
       const program = check.argv[0]!;
       const file = program.includes('/') ? files.value.get(program) : undefined;

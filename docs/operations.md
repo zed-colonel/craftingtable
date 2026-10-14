@@ -389,6 +389,21 @@ previous daemon left.
     Every Python check reads them again: a tool that is missing, no longer root-owned, writable by
     others or no longer fits its version refuses the check, naming it; an update that still fits
     is recorded there and in the receipt, and needs no restart.
+- **Python checks** (R-G17). With the profile configured, an adopted check of a commit with a
+  root `uv.lock` runs in a fresh venv the daemon builds offline from the wheels the lock names,
+  fetched and verified from PyPI by the daemon itself (`<data>/pypi-wheels`). For a repository to
+  adopt such checks, its `.craftingtable/checks.json` must:
+  - list, in every check's `definitionPaths`, each Python environment file the commit tracks at
+    any depth (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, `pytest.ini`,
+    `tox.ini`, `setup.cfg`, `ruff.toml`, `.ruff.toml`, `mypy.ini`, `.mypy.ini`), as well as
+    Cargo's files where it has them; at most 50 paths per check;
+  - run its tools as `python -m …` or as scripts (`python -m pytest`, `python tools/gate.py`):
+    the project is virtual (`tool.uv.package = false`), so no console script of its own exists.
+  The lock must name only PyPI packages with a wheel that fits the profile's interpreter:
+  a Git, URL, path or other-index source, an sdist-only package or a packaged project is refused
+  by name, and a needed package with no fitting wheel fails the install naming it. Changing a
+  listed file, `uv.lock` included, stops the slice as `check-definition-changed` until the checks
+  are adopted again. Agents should `uv sync` first; their brief says so.
 - **Local CI** (`ct-act`) needs `CRAFTINGTABLE_ACT_CONFIG`, a private JSON file naming act, Docker,
   a local Docker socket, a cache root and an image pinned by digest; see
   [`scripts/local-ci/README.md`](../scripts/local-ci/README.md). **Native verification** and Kata

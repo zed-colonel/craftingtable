@@ -16,6 +16,7 @@ import {
   identifyTool,
   observeToolchain,
   toolchainProfileDigest,
+  trustedDirectoryProblem,
   trustedFileProblem,
   versionFits,
 } from '../src/toolchains.js';
@@ -71,6 +72,17 @@ describe('the root-owned toolchain rule (R-G17 decision 2)', () => {
     expect(trustedFileProblem('/usr/bin/craftingtable-no-such-tool')?.code).toBe('missing');
     expect(trustedFileProblem('/usr/bin')?.code).toBe('not-regular');
     expect(trustedFileProblem('usr/bin/env')?.code).toBe('linked');
+  });
+});
+
+describe('the rule for the directories an interpreter loads from (its prefix and standard library)', () => {
+  it('accepts a root-owned directory only root may write, and refuses others', () => {
+    expect(trustedDirectoryProblem('/usr/lib')).toBeUndefined();
+    expect(trustedDirectoryProblem('/usr/lib/')).toBeUndefined();
+    expect(trustedDirectoryProblem(homedir())?.code).toBe('untrusted-owner');
+    expect(trustedDirectoryProblem('/tmp')?.code).toBe('writable');
+    expect(trustedDirectoryProblem('/usr/bin/env')?.code).toBe('not-regular');
+    expect(trustedDirectoryProblem('/usr/lib/craftingtable-no-such')?.code).toBe('missing');
   });
 });
 

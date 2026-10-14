@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto';
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -221,6 +223,8 @@ it('refuses a request that is not a wheel of PyPI, before asking anything', asyn
   for (const bad of [
     { ...request, filename: '../escape-1.0-py3-none-any.whl' },
     { ...request, filename: 'markupsafe-3.0.4.tar.gz' },
+    // A `.whl` name without a wheel's tags.
+    { ...request, filename: 'markupsafe.whl' },
     { ...request, name: 'markupsafe/../x' },
     { ...request, version: '3.0.4/../../x' },
     { ...request, sha256: 'z'.repeat(64) },
@@ -245,3 +249,21 @@ it.skipIf(process.env.CRAFTINGTABLE_REAL_PYPI !== '1')(
     expect(sha256(readFileSync((result as { path: string }).path))).toBe(real.sha256);
   },
 );
+
+it('serves only a regular file it stored: a link or a directory in its place is replaced by a verified fetch', async () => {
+  for (const plant of ['link', 'directory'] as const) {
+    const at = root();
+    const directory = join(at, 'files', request.sha256);
+    mkdirSync(directory, { recursive: true });
+    const elsewhere = join(at, 'planted.whl');
+    writeFileSync(elsewhere, 'planted');
+    if (plant === 'link') symlinkSync(elsewhere, join(directory, FILE));
+    else mkdirSync(join(directory, FILE));
+    const server = pypi();
+    const result = await new PypiWheelStore(at, { fetch: server.fetch }).wheel(request, never);
+    expect(result, plant).toEqual({ path: join(directory, FILE) });
+    expect(server.asked, plant).toHaveLength(2);
+    expect(lstatSync(join(directory, FILE)).isFile(), plant).toBe(true);
+    expect(readFileSync(join(directory, FILE)), plant).toEqual(WHEEL);
+  }
+});

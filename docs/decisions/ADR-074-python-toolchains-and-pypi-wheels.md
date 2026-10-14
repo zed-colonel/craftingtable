@@ -75,14 +75,20 @@ count). `toolchains.json` may set both.
   sandboxed Claude Code and Codex `auto` runs each `uv sync` through their own proxies while
   `example.com` is refused.
 
-**Checks: a fresh, offline environment from verified wheels.** *(Built in increment 3; see
-R-G17.)* A check gets Python when the reviewed commit has a root `uv.lock` and a Python profile
-is configured. A helper unit with no network builds a fresh venv in the check's private
-directory, copying the verified wheels in and hashing them again; the check then runs with the
-venv first on PATH, uv held offline and frozen, and the venv and toolchain read-only. Adoption
-covers Python environment and tool configuration files at any depth, as it covers Cargo's; tests
-and `conftest.py` stay the reviewer's. Only virtual projects are supported, so nothing of the
-tree is installed. A check may have both the venv and a verified Cargo home.
+**Checks: a fresh, offline environment from verified wheels.** A check gets Python when the
+reviewed commit has a root `uv.lock` and a Python profile is configured. In units with no
+network, the profile's interpreter reads the lock (`tomllib`), and after the daemon's store has
+provided each fitting wheel (copied into the check's private directory and hashed again) uv
+exports the lock's requirements, makes a venv on the profile's interpreter and installs them
+offline, every hash required, nothing built, with no configuration and a cache of its own. The
+check then runs with the venv first on PATH and bound read-only, `UV_PROJECT_ENVIRONMENT` set to
+it, uv offline, frozen and not syncing, `PYTHONNOUSERSITE`, and no Python, uv or pip setting
+inherited. The venv is removed when the check ends; none is reused. Adoption covers Python
+environment and tool configuration files at any depth, as it covers Cargo's, and a check is
+refused when its tree has one it was not adopted with; tests and `conftest.py` stay the
+reviewer's. Only virtual projects are supported, so nothing of the tree is installed, and pytest
+plugins can come only from the adopted lock's packages. A check may have both the venv and a
+verified Cargo home (decision 17).
 
 ## Consequences
 

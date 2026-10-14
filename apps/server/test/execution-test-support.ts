@@ -549,6 +549,8 @@ export async function ready(
     readonly workers?: boolean;
     /** Settings over the test daemon's, as `createTestContext` takes them. */
     readonly env?: Readonly<Record<string, string>>;
+    /** Where Python checks' verified wheels come from (R-G17). */
+    readonly pythonWheels?: import('@craftingtable/agents').PythonWheelSource;
   } = {},
 ): Promise<Ready> {
   const backend = options.backend === undefined ? new ScriptedBackend() : options.backend;
@@ -561,6 +563,7 @@ export async function ready(
     agentBackends: options.backends ?? new Map(backend === null ? [] : [[backend.kind, backend]]),
     workers: options.workers ?? false,
     ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.pythonWheels === undefined ? {} : { pythonWheels: options.pythonWheels }),
   });
   contexts.push(context);
   if (options.workers) freeRunning.add(context);

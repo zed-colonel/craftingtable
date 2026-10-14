@@ -43,6 +43,12 @@ const argument = z
   .refine((value) => !value.includes('\0'), { message: 'An argument has no NUL' });
 
 /**
+ * The most definition files one check may name (R-G17 decision 13): a Python project's
+ * environment files at any depth count, beside its scripts and Cargo's files.
+ */
+const DEFINITION_PATHS_MAX = 50;
+
+/**
  * One check as a repository proposes it. Its program is a name on PATH or a repository path;
  * its definition files default to the program when that is a repository path.
  */
@@ -50,7 +56,7 @@ const proposedCheckSchema = z
   .strictObject({
     id: checkIdSchema,
     argv: z.array(argument).min(1).max(64),
-    definitionPaths: z.array(repositoryPathSchema).max(20).optional(),
+    definitionPaths: z.array(repositoryPathSchema).max(DEFINITION_PATHS_MAX).optional(),
   })
   .refine((check) => !check.argv[0]!.startsWith('-'), {
     message: 'A check starts with its program, not an option',
@@ -75,7 +81,7 @@ const declaredCheckSchema = equivalentSchema<DeclaredCheck>()(
   z.strictObject({
     id: checkIdSchema,
     argv: z.array(argument).min(1).max(64),
-    definitionPaths: z.array(repositoryPathSchema).max(20),
+    definitionPaths: z.array(repositoryPathSchema).max(DEFINITION_PATHS_MAX),
   }),
 );
 

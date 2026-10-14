@@ -456,3 +456,63 @@ it("refuses any check that does not name the commit's Cargo configuration and to
   ]);
   expect((await preview()).issues).toEqual([]);
 });
+
+it("refuses any check that does not name the commit's Python environment files as definition files (R-G17 decision 13)", async () => {
+  const f = await checksFixture();
+  const python = {
+    'pyproject.toml': '[project]\nname = "x"\nversion = "0"\n[tool.uv]\npackage = false\n',
+    'uv.lock': 'version = 1\n',
+    '.python-version': '3.12\n',
+    'pytest.ini': '[pytest]\n',
+    'runtimes/audio/pyproject.toml': '[project]\nname = "audio"\n',
+    'tools/ruff.toml': '',
+    'tools/.ruff.toml': '',
+    'tools/mypy.ini': '',
+    'tools/.mypy.ini': '',
+    'tools/uv.toml': '',
+    'tools/tox.ini': '',
+    'tools/setup.cfg': '',
+  };
+  for (const [path, text] of Object.entries(python)) {
+    mkdirSync(join(f.root, path, '..'), { recursive: true });
+    writeFileSync(join(f.root, path), text);
+  }
+  // Not environment files: the tests and their conftest stay the reviewer's.
+  writeFileSync(join(f.root, 'conftest.py'), '');
+  writeFileSync(join(f.root, 'pyproject.toml.bak'), '');
+  const write = (checks: object[]) => {
+    writeFileSync(join(f.root, CHECK_DECLARATION_PATH), JSON.stringify({ version: 1, checks }));
+    git(['add', '--all'], f.root);
+    git(['commit', '-m', 'checks'], f.root);
+  };
+  const preview = async () => {
+    const response = await f.post('preview', { ref: 'main' });
+    expect(response.statusCode, response.body).toBe(200);
+    return checkDeclarationPreviewSchema.parse(response.json());
+  };
+  write([
+    { id: 'tests', argv: ['python', '-m', 'pytest'], definitionPaths: ['pyproject.toml'] },
+    { id: 'lint', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: [] },
+  ]);
+  const all = Object.keys(python).toSorted();
+  const missing = (id: string, paths: string[]) =>
+    paths.map(
+      (path) =>
+        `Check ${id} does not name ${path} as a definition file; the commit has it, and it shapes the check's Python environment.`,
+    );
+  // Every check, whatever its command, as for Cargo's files.
+  expect((await preview()).issues.toSorted()).toEqual(
+    [
+      ...missing(
+        'tests',
+        all.filter((path) => path !== 'pyproject.toml'),
+      ),
+      ...missing('lint', all),
+    ].toSorted(),
+  );
+  write([
+    { id: 'tests', argv: ['python', '-m', 'pytest'], definitionPaths: all },
+    { id: 'lint', argv: ['git', 'diff', '--check', 'HEAD'], definitionPaths: all },
+  ]);
+  expect((await preview()).issues).toEqual([]);
+});

@@ -1129,6 +1129,13 @@ its build directory),
 and **R-G16** (Claude Code's Git grant leaves placeholder files in the shared Git directory), decided
 2026-10-13 and built first in R-G17's session.
 
+R-G17 is done and deployed (2026-10-13, 7d4e264), with R-G16 in the operator's variant. Next, in one
+small session: R-G16's review finding M-2 (decided 2026-10-13: deny the primary checkout's
+in-progress Git state) and R-B9's live finding of the same day (a drain started by SIGTERM crashes
+when a live turn outlasts Fastify's 10-second plugin timeout). Then **R-G18** (agents' worktrees on a
+Git directory CraftingTable owns, the structural fix behind R-G16 and M-2), which needs a design
+pass; the operator places it relative to the controller-kernel items.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

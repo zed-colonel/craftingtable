@@ -75,13 +75,14 @@ export const CARGO_FILE_PATTERN = /(^|\/)(\.cargo(\/config(\.toml)?)?|rust-toolc
 
 /**
  * A Python project's environment and tool configuration files (R-G17 decision 13): uv's project,
- * lock and settings, the interpreter pin, and pytest's, tox's, setuptools', Ruff's and mypy's
- * configuration, at any depth. They decide what a Python check installs and how its tools run, so
- * every adopted check must name each one its commit tracks as a definition file, as for Cargo's,
- * and a check's tree may hold no other. `conftest.py` and the tests stay the reviewer's.
+ * lock and settings, the interpreter pin, and pytest's (all four of its own file names, each read
+ * before `pyproject.toml`; increment 3 review H1), coverage's, tox's, setuptools', Ruff's and
+ * mypy's configuration, at any depth. They decide what a Python check installs and how its tools
+ * run, so every adopted check must name each one its commit tracks as a definition file, as for
+ * Cargo's, and a check's tree may hold no other. `conftest.py` and the tests stay the reviewer's.
  */
 export const PYTHON_ENVIRONMENT_FILE_PATTERN =
-  /(^|\/)(pyproject\.toml|uv\.lock|uv\.toml|\.python-version|pytest\.ini|tox\.ini|setup\.cfg|\.?ruff\.toml|\.?mypy\.ini)$/;
+  /(^|\/)(pyproject\.toml|uv\.lock|uv\.toml|\.python-version|\.?pytest\.(ini|toml)|\.coveragerc|tox\.ini|setup\.cfg|\.?ruff\.toml|\.?mypy\.ini)$/;
 
 /** Whether an adopted argv runs Cargo: as its program, or named in a shell string it runs. */
 export function argvRunsCargo(argv: readonly string[]): boolean {

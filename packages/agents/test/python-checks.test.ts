@@ -12,18 +12,29 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
-import { asDeclaredCheckId, asRepositoryCheckDeclarationId } from '@craftingtable/domain';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  asDeclaredCheckId,
+  asRepositoryCheckDeclarationId,
+  PYTHON_ENVIRONMENT_FILE_PATTERN,
+} from '@craftingtable/domain';
 import { hostCargo, hostGit } from './host-tools-test-support.js';
 import { buildWheel, FixtureWheels, lockFor, writePythonProject } from './python-fixture.js';
 import {
   type CheckExecution,
   executeCheck,
   prepareCheckManifest,
+  pythonStepRunner,
+  pythonStepUnitArguments,
   resolveGitDirectories,
 } from '../src/local-check.js';
+import { type PythonStepRunner, preparePythonEnvironment } from '../src/python-environment.js';
 import type { CheckOnlyManifest } from '../src/pinned-cargo.js';
-import { type PythonToolchain, toolchainProfileDigest } from '../src/toolchains.js';
+import {
+  DEFAULT_CHECK_UNIT_LIMITS,
+  type PythonToolchain,
+  toolchainProfileDigest,
+} from '../src/toolchains.js';
 
 /**
  * R-G17: an adopted check of a reviewed commit with a root `uv.lock` gets the configured Python
@@ -279,6 +290,7 @@ function pythonCheck(
     readonly hold?: boolean;
     readonly serve?: 'all' | 'none';
     readonly cargo?: string;
+    readonly checkTimeoutMs?: number;
   } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), 'ct-python-venv-'));
@@ -301,9 +313,7 @@ function pythonCheck(
   const tracked = git(['ls-files'], workspacePath).split('\n');
   const definitionPaths = tracked.filter(
     (path) =>
-      /(^|\/)(pyproject\.toml|uv\.lock|uv\.toml|\.python-version|pytest\.ini|tox\.ini|setup\.cfg|\.?ruff\.toml|\.?mypy\.ini)$/.test(
-        path,
-      ) && !(options.unadopted ?? []).includes(path),
+      PYTHON_ENVIRONMENT_FILE_PATTERN.test(path) && !(options.unadopted ?? []).includes(path),
   );
   const m: CheckOnlyManifest = {
     kind: 'checks',
@@ -327,6 +337,7 @@ function pythonCheck(
     },
     python: OPT_PROFILE,
     ...(options.cargo ? { cargoExecutable: options.cargo } : {}),
+    ...(options.checkTimeoutMs ? { checkTimeoutMs: options.checkTimeoutMs } : {}),
   };
   const directory = join(root, 'run', 'checks');
   const prepared = prepareCheckManifest(directory, m, {
@@ -475,7 +486,14 @@ itPython(
 itPython(
   'refuses a Python environment file the check was not adopted with, at any depth, running nothing',
   async () => {
-    for (const path of ['pytest.ini', 'tools/lint/ruff.toml', 'runtimes/a/pyproject.toml']) {
+    for (const path of [
+      'pytest.ini',
+      '.pytest.ini',
+      'tests/pytest.toml',
+      '.coveragerc',
+      'tools/lint/ruff.toml',
+      'runtimes/a/pyproject.toml',
+    ]) {
       const f = pythonCheck({
         extraFiles: { [path]: '[pytest]\naddopts = -p evil\n' },
         unadopted: [path],
@@ -498,6 +516,19 @@ itPython('ends within seconds when cancelled while a wheel is fetched', async ()
   expect(Date.now() - started).toBeLessThan(5_000);
   expect(result.output).not.toContain('CTFIX');
 });
+
+itPython(
+  'ends at the check time limit while a wheel is fetched (increment 3 review M2)',
+  async () => {
+    const f = pythonCheck({ hold: true, checkTimeoutMs: 2_000 });
+    const started = Date.now();
+    const result = await f.execute();
+    expect(result.exitCode).toBe(1);
+    expect(Date.now() - started).toBeLessThan(6_000);
+    expect(result.diagnostic).toContain('time limit');
+    expect(result.output).not.toContain('CTFIX');
+  },
+);
 
 it.skipIf(!optToolchain || hostCargo === undefined)(
   'builds a Cargo binary and runs Python against it in one check, with the venv beside a fresh Cargo home (decision 17)',
@@ -640,3 +671,202 @@ itPython(
     );
   },
 );
+
+describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
+  const confinement = {
+    unitName: 'craftingtable-check-x',
+    limits: DEFAULT_CHECK_UNIT_LIMITS,
+    directory: '/data/private/python',
+    tree: '/data/private/clone',
+    hiddenRoots: ['/agents/root', '/data/cargo-home', '/repo/.git'],
+    inaccessible: ['/work/x', '/run/dir'],
+    home: '/home/op',
+  };
+
+  it('runs each step in a unit with no network that writes only the Python directory and reads the clone', () => {
+    const args = pythonStepUnitArguments(
+      confinement,
+      'craftingtable-check-x-python-1',
+      '/opt/uv',
+      ['venv'],
+      {
+        cwd: '/data/private/python',
+        env: { PATH: '/usr/bin:/bin', UV_NO_CONFIG: '1' },
+        timeoutMs: 60_000,
+      },
+    );
+    const properties = args.flatMap((arg, index) => (args[index - 1] === '-p' ? [arg] : []));
+    expect(args).toContain('--unit=craftingtable-check-x-python-1');
+    expect(properties).toEqual(
+      expect.arrayContaining([
+        'PrivateNetwork=yes',
+        'ProtectHome=read-only',
+        'RuntimeMaxSec=60',
+        'MemorySwapMax=0',
+        'ReadWritePaths=-/data/private/python',
+        'InaccessiblePaths=-/work/x',
+        'InaccessiblePaths=-/run/dir',
+        'TemporaryFileSystem=/agents/root:ro',
+        'TemporaryFileSystem=/data/cargo-home:ro',
+        'TemporaryFileSystem=/repo/.git:ro',
+        'TemporaryFileSystem=/home/op:ro',
+        'BindPaths=/data/private/python',
+        'BindReadOnlyPaths=-/data/private/clone',
+      ]),
+    );
+    // Nothing else is writable, and the clone is not bound writable.
+    expect(properties.filter((p) => p.startsWith('ReadWritePaths='))).toEqual([
+      'ReadWritePaths=-/data/private/python',
+    ]);
+    expect(properties.filter((p) => p.startsWith('BindPaths='))).toEqual([
+      'BindPaths=/data/private/python',
+    ]);
+    expect(args.slice(args.indexOf('--'))).toEqual(
+      expect.arrayContaining(['/opt/uv', 'venv', 'UV_NO_CONFIG=1']),
+    );
+  });
+
+  it('ends a step at once on a cancel, and at its own time limit', async () => {
+    const controller = new AbortController();
+    const run = pythonStepRunner({
+      ...confinement,
+      confinement: 'none',
+      signal: controller.signal,
+    });
+    let started = Date.now();
+    setTimeout(() => controller.abort(), 200);
+    const cancelled = await run('/usr/bin/sleep', ['60'], {
+      cwd: '/',
+      env: { PATH: '/usr/bin:/bin' },
+      timeoutMs: 60_000,
+    });
+    expect(cancelled.code).toBeNull();
+    expect(Date.now() - started).toBeLessThan(3_000);
+    const limited = pythonStepRunner({
+      ...confinement,
+      confinement: 'none',
+      signal: new AbortController().signal,
+    });
+    started = Date.now();
+    const timedOut = await limited('/usr/bin/sleep', ['60'], {
+      cwd: '/',
+      env: { PATH: '/usr/bin:/bin' },
+      timeoutMs: 300,
+    });
+    expect(timedOut.code).toBeNull();
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  it.skipIf(!['running', 'degraded'].includes(userManager ?? ''))(
+    "stops a confined step's unit on a cancel, not only the systemd-run client",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), 'ct-python-step-'));
+      roots.push(root);
+      const unitName = `craftingtable-check-test-${process.pid}-${Date.now()}`;
+      const controller = new AbortController();
+      const run = pythonStepRunner({
+        ...confinement,
+        unitName,
+        directory: root,
+        tree: root,
+        hiddenRoots: [],
+        inaccessible: [],
+        home: homedir(),
+        confinement: 'systemd',
+        signal: controller.signal,
+      });
+      const started = Date.now();
+      setTimeout(() => controller.abort(), 1_000);
+      const result = await run('/usr/bin/sleep', ['60'], {
+        cwd: root,
+        env: { PATH: '/usr/bin:/bin' },
+        timeoutMs: 60_000,
+      });
+      expect(result.code).toBeNull();
+      expect(Date.now() - started).toBeLessThan(12_000);
+      const state = spawnSync('systemctl', ['--user', 'is-active', `${unitName}-python-1`], {
+        encoding: 'utf8',
+      }).stdout.trim();
+      expect(state).not.toBe('active');
+    },
+  );
+
+  itPython(
+    'builds offline with fixed arguments: every hash required, nothing built, no index, no configuration, each step within the time left',
+    async () => {
+      const f = pythonCheck();
+      const directory = join(f.root, 'python');
+      const calls: {
+        command: string;
+        args: readonly string[];
+        env: Record<string, string>;
+        timeoutMs: number;
+      }[] = [];
+      const record: PythonStepRunner = async (command, args, options) => {
+        calls.push({ command, args, env: { ...options.env }, timeoutMs: options.timeoutMs });
+        const result = spawnSync(command, [...args], {
+          cwd: options.cwd,
+          env: options.env,
+          encoding: 'utf8',
+        });
+        return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+      };
+      await preparePythonEnvironment({
+        profile: OPT_PROFILE,
+        target: { pythonVersion: '3.12.15', platform: 'linux-x86_64', libc: 'glibc 2.44' },
+        tree: f.workspacePath,
+        lock: readFileSync(join(f.workspacePath, 'uv.lock')),
+        directory,
+        wheels: f.store,
+        signal: new AbortController().signal,
+        remainingMs: () => 4_321,
+        run: record,
+        onOutput: () => undefined,
+      });
+      const venv = join(directory, 'venv');
+      expect(
+        calls.map((call) => [call.command, ...call.args.filter((a) => !a.includes('\n'))]),
+      ).toEqual([
+        [OPT_PYTHON, '-I', '-S', '-c', join(directory, 'uv.lock')],
+        [
+          OPT_UV,
+          'export',
+          '--frozen',
+          '--no-emit-project',
+          '--format',
+          'requirements.txt',
+          '--output-file',
+          join(directory, 'requirements.txt'),
+          '--quiet',
+        ],
+        [OPT_UV, 'venv', venv, '--python', OPT_PYTHON, '--quiet'],
+        [
+          OPT_UV,
+          'pip',
+          'install',
+          '--python',
+          join(venv, 'bin', 'python'),
+          '--offline',
+          '--no-index',
+          '--find-links',
+          join(directory, 'wheels'),
+          '--require-hashes',
+          '--no-build',
+          '--quiet',
+          '-r',
+          join(directory, 'requirements.txt'),
+        ],
+      ]);
+      for (const call of calls) {
+        expect(call.env).toMatchObject({
+          PATH: '/usr/bin:/bin',
+          UV_OFFLINE: '1',
+          UV_NO_CONFIG: '1',
+          UV_PYTHON_DOWNLOADS: 'never',
+          UV_CACHE_DIR: join(directory, 'uv-cache'),
+        });
+        expect(call.timeoutMs).toBeLessThanOrEqual(4_321);
+      }
+    },
+  );
+});

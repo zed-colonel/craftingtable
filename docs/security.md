@@ -356,12 +356,15 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   built. Git, URL, path and other-index sources, sdist-only packages and a packaged project are
   refused by name. The check runs with the venv first on PATH and read-only, uv offline and
   frozen, and no Python or uv setting inherited; it never reads the agents' uv cache or reuses a
-  venv. Its receipt names the tools, the profile, the lock and the wheel set by digest. Python
-  environment and tool configuration files (`pyproject.toml`, `uv.lock`, `uv.toml`,
-  `.python-version`, `pytest.ini`, `tox.ini`, `setup.cfg`, Ruff's and mypy's) are held like
-  Cargo's: every adopted check must name each one its commit tracks, at any depth, and a check
-  is refused when its tree has one it was not adopted with. The tests and `conftest.py` stay the
-  reviewer's.
+  venv. Its receipt names the tools, the profile, the lock and, by digest, the set of verified
+  wheels the install could draw on. Python environment and tool configuration files
+  (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, pytest's `pytest.ini`,
+  `.pytest.ini`, `pytest.toml` and `.pytest.toml`, `.coveragerc`, `tox.ini`, `setup.cfg`, Ruff's
+  and mypy's) are held like Cargo's: every adopted check must name each one its commit tracks, at
+  any depth, and a check is refused when its tree has one it was not adopted with. The tests,
+  `conftest.py` and the rest of the tree's code stay the reviewer's: under `python -m` the tree
+  comes first on `sys.path`, so a module there can stand in for the runner or a locked package,
+  and a `*.dist-info` there can register a pytest plugin.
 - **Adopted checks.** Checks are adopted only by a person: an owner or editor on the Repositories
   page, from `.craftingtable/checks.json` read by the daemon's Git at an exact commit. A slice
   that changes a definition file is merged only by a person who approves the definitions with

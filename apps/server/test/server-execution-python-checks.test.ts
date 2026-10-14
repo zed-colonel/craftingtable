@@ -41,8 +41,8 @@ const optToolchain = existsSync(OPT_PYTHON) && existsSync(OPT_UV);
 const itPython = it.skipIf(!optToolchain);
 const UNITTEST = ['python', '-m', 'unittest', 'discover', '-s', 'tests', '-v'];
 
-/** Settings naming the operator's toolchain and the pypi source. */
-function pythonSettings(): Record<string, string> {
+/** Settings naming the operator's toolchain and, unless told not to, the pypi source. */
+function pythonSettings(pypi = true): Record<string, string> {
   const configDir = mkdtempSync(join(tmpdir(), 'craftingtable-python-settings-'));
   directories.push(configDir);
   writeFileSync(
@@ -55,13 +55,16 @@ function pythonSettings(): Record<string, string> {
   );
   writeFileSync(
     join(configDir, 'outside-sources.json'),
-    JSON.stringify({ version: 1, sources: [{ kind: 'cargo' }, { kind: 'pypi' }] }),
+    JSON.stringify({
+      version: 1,
+      sources: [{ kind: 'cargo' }, ...(pypi ? [{ kind: 'pypi' }] : [])],
+    }),
   );
   return { CRAFTINGTABLE_CONFIG_DIR: configDir };
 }
 
 /** A Python project repository with its checks file, adopted as the operator adopts it. */
-async function pythonRepository(backend: CycleBackend) {
+async function pythonRepository(backend: CycleBackend, options: { pypi?: boolean } = {}) {
   const root = fixtureRepository();
   const wheels = mkdtempSync(join(tmpdir(), 'craftingtable-python-wheels-'));
   directories.push(wheels);
@@ -78,7 +81,7 @@ async function pythonRepository(backend: CycleBackend) {
   git(['commit', '--no-gpg-sign', '-m', 'a Python project'], root);
   const state = await ready({
     backend,
-    env: pythonSettings(),
+    env: pythonSettings(options.pypi ?? true),
     pythonWheels: new FixtureWheels([wheel]),
   });
   const { repository, worktree } = await registerAndWorktree(state, root);
@@ -161,6 +164,31 @@ itPython(
       status: 'needs-attention',
       attention: { code: 'check-definition-changed', refs: { repositoryId: repository.id } },
     });
+  },
+);
+
+itPython(
+  'tells agents to `uv sync` only when the pypi source lets their commands reach PyPI, and says nothing of Python for a tree without a root uv.lock (increment 3 review N2, B1)',
+  async () => {
+    const backend = new CycleBackend([]);
+    const { state, worktree } = await pythonRepository(backend, { pypi: false });
+    writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+    git(['add', '--all'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'feature'], worktree.path);
+    backend.replyForRequest = () => ({ resultText: reviewText([]) });
+    const review = await runToFinish(state, worktree.id, { role: 'review' });
+    const brief = state.context.storage.execution.runs.find(state.workspaceId, review)!.brief;
+    expect(brief).toContain('offline');
+    expect(brief).not.toContain('uv sync');
+    expect(brief).toContain('no PyPI');
+    // Without a root uv.lock, the tree is no Python project to the checks, and the brief says so
+    // by saying nothing of Python.
+    git(['rm', '--quiet', 'uv.lock'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'no lock'], worktree.path);
+    const second = await runToFinish(state, worktree.id, { role: 'review' });
+    expect(
+      state.context.storage.execution.runs.find(state.workspaceId, second)!.brief,
+    ).not.toContain('Python:');
   },
 );
 

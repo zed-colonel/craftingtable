@@ -398,7 +398,8 @@ previous daemon left.
   adopt such checks, its `.craftingtable/checks.json` must:
   - list, in every check's `definitionPaths`, each Python environment file the commit tracks at
     any depth (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, `pytest.ini`,
-    `tox.ini`, `setup.cfg`, `ruff.toml`, `.ruff.toml`, `mypy.ini`, `.mypy.ini`), as well as
+    `.pytest.ini`, `pytest.toml`, `.pytest.toml`, `.coveragerc`, `tox.ini`, `setup.cfg`,
+    `ruff.toml`, `.ruff.toml`, `mypy.ini`, `.mypy.ini`), as well as
     Cargo's files where it has them; at most 50 paths per check;
   - run its tools as `python -m …` or as scripts (`python -m pytest`, `python tools/gate.py`):
     the project is virtual (`tool.uv.package = false`), so no console script of its own exists.

@@ -88,9 +88,13 @@ it, uv offline, frozen and not syncing, `PYTHONNOUSERSITE`, and no Python, uv or
 inherited. The venv is removed when the check ends; none is reused. Adoption covers Python
 environment and tool configuration files at any depth, as it covers Cargo's, and a check is
 refused when its tree has one it was not adopted with; tests and `conftest.py` stay the
-reviewer's. Only virtual projects are supported, so nothing of the tree is installed, and pytest
-plugins can come only from the adopted lock's packages. A check may have both the venv and a
-verified Cargo home (decision 17).
+reviewer's. Only virtual projects are supported, so nothing of the tree is installed. The tree's
+own code is the reviewer's too, as `conftest.py` is: under `python -m` the tree comes first on
+`sys.path`, so a module of the tree can stand in for the runner or for a locked package, and a
+`*.dist-info` in the tree can register a pytest plugin (increment 3 review M1). What the
+environment guarantees is the interpreter, the installed packages' bytes and the adopted
+configuration; what runs from the tree is reviewed like the tests. A check may have both the
+venv and a verified Cargo home (decision 17).
 
 ## Consequences
 
@@ -104,6 +108,8 @@ verified Cargo home (decision 17).
 - An operator update of CPython or uv inside its configured version takes effect for the next
   check without a restart, recorded on Tools and in receipts; one outside it refuses Python checks
   until `toolchains.json` names it and the daemon restarts.
-- Hosts without the toolchain run no Python checks; nothing else changes for them. No persisted
+- Hosts without the toolchain give checks no Python of the operator's: a project's adopted
+  checks run as before R-G17, on the daemon's PATH (whatever Python the host has), with no venv
+  and no `python` receipt (increment 3 review N3). No persisted
   format changes: the profile reaches checks through the run's manifest, and the identities
   through receipts, both of which already carried free-form JSON.

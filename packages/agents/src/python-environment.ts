@@ -52,7 +52,10 @@ export interface PythonEnvironment {
   readonly venv: string;
   /** SHA-256 of the adopted `uv.lock`. */
   readonly lockDigest: string;
-  /** SHA-256 of the wheels installed: each `"<sha256>  <file name>"`, sorted, one per line. */
+  /**
+   * SHA-256 of the verified wheels the install could draw on (uv installs those the lock's
+   * markers select for this host): each `"<sha256>  <file name>"`, sorted, one per line.
+   */
   readonly wheelSetDigest: string;
   readonly wheels: number;
   /** The check's environment: `base` without any Python or uv setting, then the venv's. */
@@ -190,11 +193,17 @@ export async function preparePythonEnvironment(
   if (plan.wheels.length && !input.wheels)
     throw new Error('This daemon has no store of verified wheels, so a Python check gets none.');
   // PyPI vouches: each file from the daemon's store, copied, then hashed again here.
-  const installed: string[] = [];
+  const verified: string[] = [];
   for (const request of plan.wheels) {
+    // Each fetch within what is left of the check's time limit (increment 3 review M2): the
+    // store follows this signal, so a slow PyPI holds no check past its limit.
+    const limit = AbortSignal.timeout(input.remainingMs() + 5);
+    const got = await input.wheels!.wheel(request, AbortSignal.any([input.signal, limit]));
     if (input.signal.aborted) throw new Error('Interrupted.');
-    const got = await input.wheels!.wheel(request, input.signal);
-    if (input.signal.aborted) throw new Error('Interrupted.');
+    if (limit.aborted) {
+      input.remainingMs();
+      throw new Error('The check time limit passed while its wheels were fetched.');
+    }
     if ('problem' in got) throw new Error(`A locked wheel is not available: ${got.problem}.`);
     const copy = join(wheelsDirectory, request.filename);
     await copyFile(got.path, copy, fsConstants.COPYFILE_EXCL);
@@ -202,10 +211,10 @@ export async function preparePythonEnvironment(
       throw new Error(
         `${request.filename} changed after the daemon verified it; nothing was installed.`,
       );
-    installed.push(`${request.sha256}  ${request.filename}\n`);
+    verified.push(`${request.sha256}  ${request.filename}\n`);
   }
   input.onOutput(
-    `Python environment: ${installed.length} verified wheels from the adopted uv.lock.\n`,
+    `Python environment: ${verified.length} verified wheels from the adopted uv.lock.\n`,
   );
 
   // Built with no network: the lock's own requirements, every hash required, nothing built.
@@ -254,8 +263,8 @@ export async function preparePythonEnvironment(
   return {
     venv,
     lockDigest: sha256(input.lock),
-    wheelSetDigest: sha256(installed.sort().join('')),
-    wheels: installed.length,
+    wheelSetDigest: sha256(verified.sort().join('')),
+    wheels: verified.length,
     environment(base) {
       const kept = Object.fromEntries(Object.entries(base).filter(([key]) => !INHERITED.test(key)));
       return {

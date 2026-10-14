@@ -472,6 +472,12 @@ it("refuses any check that does not name the commit's Python environment files a
     'tools/uv.toml': '',
     'tools/tox.ini': '',
     'tools/setup.cfg': '',
+    // pytest's other configuration files, each read before pyproject.toml, and coverage's
+    // (increment 3 review H1).
+    'pytest.toml': '',
+    'tests/.pytest.toml': '',
+    'tests/.pytest.ini': '',
+    '.coveragerc': '',
   };
   for (const [path, text] of Object.entries(python)) {
     mkdirSync(join(f.root, path, '..'), { recursive: true });

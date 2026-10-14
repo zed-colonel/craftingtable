@@ -37,7 +37,11 @@ import type {
   PinnedCargoManifest,
   VerificationManifest,
 } from './pinned-cargo.js';
-import { type PythonEnvironment, preparePythonEnvironment } from './python-environment.js';
+import {
+  type PythonEnvironment,
+  type PythonStepRunner,
+  preparePythonEnvironment,
+} from './python-environment.js';
 import type { PythonWheelSource } from './python-wheels.js';
 import {
   type CheckUnitLimits,
@@ -1209,6 +1213,12 @@ function captureCheck(
     readonly timeoutMs: number;
     /** Cancelling the check stops the helper too (R-G13 increment 4). */
     readonly signal?: AbortSignal;
+    /**
+     * The transient unit the helper runs in, when `command` is `systemd-run`: killing the client
+     * does not stop the unit, so a cancel or the time limit stops it too before this returns
+     * (increment 3 review L3).
+     */
+    readonly unit?: string;
   },
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
@@ -1221,6 +1231,7 @@ function captureCheck(
     });
     let stdout = '';
     let stderr = '';
+    let stopped = false;
     const kill = () => {
       try {
         if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
@@ -1228,9 +1239,24 @@ function captureCheck(
         /* already gone */
       }
     };
-    const timer = setTimeout(kill, options.timeoutMs);
-    if (options.signal?.aborted) kill();
-    else options.signal?.addEventListener('abort', kill, { once: true });
+    const stop = () => {
+      stopped = true;
+      kill();
+      // The unit holds the client's pipes (`--pipe`), so the helper does not close until the
+      // unit stops: stop it now, without blocking the daemon while it does.
+      if (options.unit)
+        spawn('systemctl', ['--user', 'stop', options.unit], {
+          stdio: 'ignore',
+          timeout: 10_000,
+        }).once('error', () => undefined);
+    };
+    const finish = (result: { code: number | null; stdout: string; stderr: string }) => {
+      if (stopped && options.unit) stopCheckUnit(options.unit);
+      resolveResult(result);
+    };
+    const timer = setTimeout(stop, options.timeoutMs);
+    if (options.signal?.aborted) stop();
+    else options.signal?.addEventListener('abort', stop, { once: true });
     child.stdout.on('data', (d: Buffer) => {
       if (stdout.length < 32 * 1024 * 1024) stdout += d.toString();
     });
@@ -1239,14 +1265,14 @@ function captureCheck(
     });
     child.once('error', (error) => {
       clearTimeout(timer);
-      options.signal?.removeEventListener('abort', kill);
-      resolveResult({ code: null, stdout, stderr: `${stderr}${error.message}` });
+      options.signal?.removeEventListener('abort', stop);
+      finish({ code: null, stdout, stderr: `${stderr}${error.message}` });
     });
     child.once('close', (code) => {
       clearTimeout(timer);
-      options.signal?.removeEventListener('abort', kill);
+      options.signal?.removeEventListener('abort', stop);
       kill();
-      resolveResult({ code, stdout, stderr });
+      finish({ code, stdout, stderr });
     });
   });
 }
@@ -2184,6 +2210,88 @@ export function declaredUnitSettings(input: {
   };
 }
 
+/** Where a Python check's helper steps run, and what they may see (R-G17 decision 12). */
+export interface PythonStepConfinement {
+  readonly confinement: CheckConfinement;
+  readonly unitName: string;
+  readonly limits: CheckUnitLimits;
+  /** The check's own Python directory: the one path a step may write. */
+  readonly directory: string;
+  /** The reviewed clone, which a step reads. */
+  readonly tree: string;
+  /** Roots replaced by empty read-only file systems: those agents write, the shared Cargo home and the repository's Git directory. */
+  readonly hiddenRoots: readonly string[];
+  /** Paths a step cannot see at all, as for the check's own unit: the worktree, the run's directories and the shared Cargo home. */
+  readonly inaccessible: readonly string[];
+  readonly home: string;
+  readonly signal: AbortSignal;
+}
+
+/**
+ * One helper step's unit (increment 3 review L1): no network; it writes only the check's Python
+ * directory and reads the reviewed clone; the home directory and every hidden root are empty and
+ * read-only, and the inaccessible paths are gone.
+ */
+export function pythonStepUnitArguments(
+  confinement: Omit<PythonStepConfinement, 'confinement' | 'signal'>,
+  unitName: string,
+  command: string,
+  args: readonly string[],
+  options: {
+    readonly cwd: string;
+    readonly env: Readonly<Record<string, string>>;
+    readonly timeoutMs: number;
+  },
+): string[] {
+  return confinedCheckArguments(
+    unitName,
+    options.cwd,
+    options.timeoutMs / 1000,
+    confinement.limits,
+    [confinement.directory],
+    options.env,
+    [command, ...args],
+    false,
+    [],
+    confinement.inaccessible,
+    {
+      roots: [...new Set([...confinement.hiddenRoots, confinement.home])],
+      binds: [confinement.directory],
+      readOnlyBinds: [confinement.tree],
+    },
+  );
+}
+
+/**
+ * Runs a Python check's helper steps, each in a unit of its own under systemd (numbered after the
+ * check's unit), or as a process group without; a cancel or a step's time limit ends it, its unit
+ * included.
+ */
+export function pythonStepRunner(confinement: PythonStepConfinement): PythonStepRunner {
+  let steps = 0;
+  return (command, args, options) => {
+    if (confinement.confinement !== 'systemd')
+      return captureCheck(command, args, {
+        cwd: options.cwd,
+        env: options.env,
+        timeoutMs: options.timeoutMs,
+        signal: confinement.signal,
+      });
+    const unit = `${confinement.unitName}-python-${++steps}`;
+    return captureCheck(
+      'systemd-run',
+      pythonStepUnitArguments(confinement, unit, command, args, options),
+      {
+        cwd: options.cwd,
+        env: userBusEnvironment(),
+        timeoutMs: options.timeoutMs,
+        signal: confinement.signal,
+        unit,
+      },
+    );
+  };
+}
+
 export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let success = false,
     diagnostic = '',
@@ -2477,6 +2585,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           env: e.confinement === 'systemd' ? userBusEnvironment() : environment,
           timeoutMs: Math.min(300000, Math.max(1, deadline - Date.now())),
           signal: e.signal,
+          ...(e.confinement === 'systemd' ? { unit: `${e.unitName}-metadata` } : {}),
         },
       );
       if (e.signal.aborted) throw new Error('Interrupted.');
@@ -2563,7 +2672,6 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         pythonDirectory = join(e.privateDirectory, 'python');
         rmSync(pythonDirectory, { recursive: true, force: true });
         const directory = pythonDirectory;
-        let steps = 0;
         pythonEnvironment = await preparePythonEnvironment({
           profile: python,
           target: {
@@ -2578,49 +2686,26 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           signal: e.signal,
           remainingMs: remainingTime,
           onOutput: e.onOutput,
-          // Each step in a unit of its own with no network: it may write only this check's
-          // Python directory and read the reviewed clone; every root agents write is hidden.
-          run: (command, args, options) =>
-            e.confinement === 'systemd'
-              ? captureCheck(
-                  'systemd-run',
-                  confinedCheckArguments(
-                    `${e.unitName}-python-${++steps}`,
-                    options.cwd,
-                    options.timeoutMs / 1000,
-                    limits,
-                    [directory],
-                    options.env,
-                    [command, ...args],
-                    false,
-                    [],
-                    [],
-                    {
-                      roots: [
-                        ...new Set([
-                          ...(e.hiddenRoots ?? []),
-                          ...(sharedCargoHome ? [sharedCargoHome] : []),
-                          ...(commonDirectory ? [commonDirectory] : []),
-                          homedir(),
-                        ]),
-                      ],
-                      binds: [directory],
-                      readOnlyBinds: [tree],
-                    },
-                  ),
-                  {
-                    cwd: options.cwd,
-                    env: userBusEnvironment(),
-                    timeoutMs: options.timeoutMs,
-                    signal: e.signal,
-                  },
-                )
-              : captureCheck(command, args, {
-                  cwd: options.cwd,
-                  env: options.env,
-                  timeoutMs: options.timeoutMs,
-                  signal: e.signal,
-                }),
+          run: pythonStepRunner({
+            confinement: e.confinement,
+            unitName: e.unitName,
+            limits,
+            directory,
+            tree,
+            hiddenRoots: [
+              ...(e.hiddenRoots ?? []),
+              ...(sharedCargoHome ? [sharedCargoHome] : []),
+              ...(commonDirectory ? [commonDirectory] : []),
+            ],
+            inaccessible: [
+              m.workspacePath,
+              dirname(e.manifestPath),
+              ...e.writablePaths,
+              ...(sharedCargoHome ? [sharedCargoHome] : []),
+            ],
+            home: homedir(),
+            signal: e.signal,
+          }),
         });
         pythonReceipt = {
           ...pythonReceipt,
@@ -2698,6 +2783,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
                 env: e.confinement === 'systemd' ? userBusEnvironment() : environment,
                 timeoutMs: Math.min(300000, remainingTime()),
                 signal: e.signal,
+                ...(e.confinement === 'systemd' ? { unit: `${e.unitName}-metadata` } : {}),
               },
             ),
         );

@@ -776,18 +776,25 @@ describe("a Python check's helper steps (increment 3 review L1–L4)", () => {
         signal: controller.signal,
       });
       const started = Date.now();
-      setTimeout(() => controller.abort(), 1_000);
+      const unitState = () =>
+        spawnSync('systemctl', ['--user', 'is-active', `${unitName}-python-1`], {
+          encoding: 'utf8',
+        }).stdout.trim();
+      let before = '';
+      setTimeout(() => {
+        // The step runs in its own unit, numbered after the check's.
+        before = unitState();
+        controller.abort();
+      }, 1_000);
       const result = await run('/usr/bin/sleep', ['60'], {
         cwd: root,
         env: { PATH: '/usr/bin:/bin' },
         timeoutMs: 60_000,
       });
+      expect(before).toBe('active');
       expect(result.code).toBeNull();
       expect(Date.now() - started).toBeLessThan(12_000);
-      const state = spawnSync('systemctl', ['--user', 'is-active', `${unitName}-python-1`], {
-        encoding: 'utf8',
-      }).stdout.trim();
-      expect(state).not.toBe('active');
+      expect(unitState()).not.toBe('active');
     },
   );
 

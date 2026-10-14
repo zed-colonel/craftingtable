@@ -80,7 +80,7 @@ first `pnpm deploy:daemon <ref> --no-restart`, then `systemctl --user enable --n
 and `loginctl enable-linger $USER` so it outlives your login. The three stop settings matter:
 node runs the daemon directly (a `pnpm` wrapper may not forward SIGTERM), `KillMode=mixed`
 signals only the daemon, which ends its agents itself, and `TimeoutStopSec` must exceed the drain
-bound plus 30 seconds, so that a plain `systemctl stop`, a restart or a reboot drains
+bound plus 90 seconds, so that a plain `systemctl stop`, a restart or a reboot drains
 ([Shutdown and recovery](#shutdown-and-recovery)). `pnpm deploy:daemon --status` checks all three
 and prints a `drain.conf` drop-in when one is off.
 
@@ -526,8 +526,10 @@ SELECT count(*) FROM attention_items i WHERE resolved_by = 'automation' AND EXIS
 
 `SIGTERM` or `SIGINT` (a `systemctl stop` or restart, a reboot) drains as a deploy does: no new
 work starts, live turns get up to the drain bound to finish, what is still live is interrupted for
-resume, and a clean stop is recorded; then the HTTP listener, the daemon's checks and the
-database close. A second signal interrupts at once. After a clean stop the next start resumes on
+resume, and a clean stop is recorded. Pages keep working meanwhile; only launches are refused.
+Then requests that change state are answered 503 ("stopping"), those still running get up to 30
+seconds to finish, and the HTTP listener, the daemon's checks and the database close. A second
+signal interrupts live turns at once. After a clean stop the next start resumes on
 its own: running roadmaps and cycles continue, and each interrupted step resumes its vendor session
 in the same worktree with its original agent, permissions, guidance and deadline.
 
@@ -539,10 +541,12 @@ roadmap needs attention. Worktrees survive restarts. A daemon Git command refuse
 directory holds a non-empty `config.worktree`, which Git never writes there: inspect it, then
 empty it to go on ([security.md](security.md#the-daemons-own-git)). A Claude run killed while one of its
 commands ran can leave Claude Code's empty placeholders in the repository's Git directory: an empty
-`commondir` (Git in the primary checkout then fails with "failed to read .git/commondir") and empty
-files named after Git's in-progress state (`MERGE_HEAD`, `BISECT_LOG`, `rebase-merge` and the
-rest, which make Git report an operation in progress). With no Claude run live in that repository,
-delete the empty ones ([security.md](security.md#known-limits)). Removing a worktree whose
+`commondir` (Git in the primary checkout then fails with "failed to read .git/commondir"), an empty
+`config.lock`, and empty files named after Git's in-progress state (`MERGE_HEAD`, `BISECT_LOG`,
+`rebase-merge` and the rest, which make Git report an operation in progress). With no Claude run
+live in that repository and no rebase, merge, cherry-pick or bisect of your own in progress there
+(Git's own `BISECT_FIRST_PARENT` may be empty), delete the empty ones
+([security.md](security.md#known-limits)). Removing a worktree whose
 directory was deleted by hand prunes it from Git's metadata and marks it removed.
 
 ## Forgotten password

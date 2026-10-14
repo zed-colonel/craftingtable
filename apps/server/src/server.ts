@@ -105,7 +105,9 @@ const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * The last step of the daemon's stop before its server closes (R-B9 review L-5): Fastify's close
  * ends every connection while their handlers run on, and the database closes right after, so a
  * request that changes state could be cut off between its Git work and its record. Once closed,
- * the gate answers 503 to every new request and waits, up to a bound, for those already running.
+ * the gate answers 503 to every new request that changes state and waits, up to a bound, for
+ * those already running. Reads are answered until the server closes: a browser's event stream
+ * refused with a 503 would never reconnect (re-check R-L2).
  */
 export class RequestGate {
   private closed = false;
@@ -114,6 +116,7 @@ export class RequestGate {
 
   install(app: FastifyInstance): void {
     app.addHook('onRequest', async (request, reply) => {
+      if (READ_METHODS.has(request.method)) return;
       if (this.closed)
         return sendApiError(
           reply,
@@ -121,16 +124,18 @@ export class RequestGate {
           'unavailable',
           'CraftingTable is stopping. Try again after it restarts.',
         );
-      if (!READ_METHODS.has(request.method)) this.writing.add(request);
+      this.writing.add(request);
     });
-    const finished = async (request: FastifyRequest) => {
+    // A write is over once it is answered, whether or not its client is still there to receive
+    // the answer (re-check R-L1). Every answer passes here: a handler's, an error's, and the
+    // one Fastify gives a request whose client left before sending all of it.
+    app.addHook('onSend', async (request, _reply, payload) => {
       if (this.writing.delete(request) && this.writing.size === 0) this.idle?.();
-    };
-    app.addHook('onResponse', finished);
-    app.addHook('onRequestAbort', finished);
+      return payload;
+    });
   }
 
-  /** Refuses what comes next; resolves once no request that writes runs, or after `boundMs`. */
+  /** Refuses the writes that come next; resolves once none runs, or after `boundMs`. */
   async close(boundMs: number): Promise<void> {
     this.closed = true;
     if (this.writing.size === 0) return;
@@ -191,7 +196,7 @@ export function buildServer(
             key: readFileSync(config.tls.keyPath),
           },
         }) as unknown as FastifyInstance);
-  // First of all: once the daemon's stop has drained, nothing new is served (R-B9 review L-5).
+  // First of all: once the daemon's stop has drained, no new write is served (R-B9 review L-5).
   deps.requestGate.install(app);
   void app.register(cookie);
   // Before any route: a request naming another host is refused; every answer carries the

@@ -592,7 +592,8 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
     `logs/HEAD` is the primary checkout's HEAD reflog (`git checkout -`, `HEAD@{n}`);
   - names missing at launch beyond those denied: a submodule's Git directory under `modules/`,
     which `git submodule update --init` in the primary checkout reuses with its configuration and
-    hooks (open for the operator, R-G16 review M-2); `shallow`, which makes Git treat the
+    hooks (open for the operator, R-G16 review M-2), and in the same way `gitweb/`, which
+    `git instaweb` reuses; `shallow`, which makes Git treat the
     repository as shallow; `FETCH_HEAD`; and the `HEAD` and `index` of a worktree entry created
     after the run launched;
   - in a reftable repository, the primary checkout's `HEAD` and its other root refs (`ORIG_HEAD`,

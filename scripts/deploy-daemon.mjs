@@ -685,6 +685,13 @@ TimeoutStopSec=300
  * settings: a wrapper that may not forward SIGTERM, a kill mode that signals the agents
  * directly, or a stop timeout shorter than the drain bound.
  */
+/**
+ * What a stop takes after its drain's bound: interrupting what is still live, the last
+ * notifications, up to 30 s for running requests that change state, and the server's close
+ * (R-B9 review re-check R-L3).
+ */
+const STOP_AFTER_DRAIN_SECONDS = 90;
+
 export function unitStopProblems({ killMode, timeoutStop, execStart, drainSeconds = 180 }) {
   const problems = [];
   if (/\bpnpm\b/.test(execStart ?? ''))
@@ -692,7 +699,7 @@ export function unitStopProblems({ killMode, timeoutStop, execStart, drainSecond
   if (killMode !== 'mixed')
     problems.push(`KillMode=${killMode || 'control-group'} signals the agents directly`);
   const seconds = timeSpanSeconds(timeoutStop);
-  if (seconds < drainSeconds + 30)
+  if (seconds < drainSeconds + STOP_AFTER_DRAIN_SECONDS)
     problems.push(
       `TimeoutStopSec=${timeoutStop || 'unknown'} is below the ${drainSeconds} s drain bound plus shutdown`,
     );

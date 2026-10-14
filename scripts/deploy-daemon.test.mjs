@@ -674,6 +674,25 @@ describe('unit stop settings (R-B9)', () => {
         execStart: '{ path=/usr/bin/env ; argv[]=/usr/bin/env node apps/server/dist/index.js ; }',
       }),
     ).toEqual([]);
+    // After the drain the stop interrupts what is left, sends its last notifications and gives
+    // running requests up to 30 s (R-B9 review re-check R-L3): 4 min no longer covers 180 s.
+    const node = '{ path=/usr/bin/env ; argv[]=/usr/bin/env node apps/server/dist/index.js ; }';
+    expect(
+      unitStopProblems({
+        killMode: 'mixed',
+        timeoutStop: '4min',
+        execStart: node,
+        drainSeconds: 180,
+      }),
+    ).toHaveLength(1);
+    expect(
+      unitStopProblems({
+        killMode: 'mixed',
+        timeoutStop: '270s',
+        execStart: node,
+        drainSeconds: 180,
+      }),
+    ).toEqual([]);
     expect(timeSpanSeconds('1min 30s')).toBe(90);
     expect(timeSpanSeconds('infinity')).toBe(Number.POSITIVE_INFINITY);
   });

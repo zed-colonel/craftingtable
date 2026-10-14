@@ -270,14 +270,21 @@ describe('service composition', () => {
       throw new Error('the drain failed');
     });
     // The daemon's own server carries the gate: once it has closed, before the server closes,
-    // a request is refused.
+    // a request that changes state is refused.
     const closeGate = RequestGate.prototype.close;
     const gateClose = vi.spyOn(RequestGate.prototype, 'close');
     let refused: number | undefined;
     gateClose.mockImplementation(async function (this: RequestGate) {
       order.push('requests');
       await closeGate.call(this, 0);
-      refused = (await daemon.app.inject({ method: 'GET', url: '/api/health' })).statusCode;
+      refused = (
+        await daemon.app.inject({
+          method: 'POST',
+          url: '/api/auth/login',
+          headers: { 'content-type': 'application/json' },
+          payload: {},
+        })
+      ).statusCode;
     });
     notificationService.shutdown = record(
       'notifications',
@@ -291,7 +298,11 @@ describe('service composition', () => {
       order.push('server');
     });
 
-    await expect(daemon.close()).rejects.toThrow('the drain failed');
+    try {
+      await expect(daemon.close()).rejects.toThrow('the drain failed');
+    } finally {
+      gateClose.mockRestore();
+    }
     // No Fastify close hook waits on the drain, and every step after the failed one ran.
     expect(order).toEqual([
       'stop watching',
@@ -304,6 +315,5 @@ describe('service composition', () => {
     ]);
     expect(refused).toBe(503);
     expect(() => storage.users.findByNormalizedUsername('nobody')).toThrow();
-    gateClose.mockRestore();
   });
 });

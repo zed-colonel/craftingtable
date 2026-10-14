@@ -1,16 +1,22 @@
 # Security model
 
-CraftingTable is a single-operator tool on a home network. It keeps authentication, CSRF and
-origin checks, and agent containment in force anyway, because a signed-in browser can make the
-daemon start a coding agent with write access to the operator's repositories.
+CraftingTable is a single-operator tool on a home network, and an accelerator, not a guardian
+([ADR-075](decisions/ADR-075-an-accelerator-not-a-guardian.md)): it organizes, separates and
+isolates parallel agent work. It defends against accidents and unverified claims (agents getting
+in each other's way or the operator's, a check result an agent wrote, a merge without review),
+not against an agent deliberately turned against the operator; for that it relies on the agents'
+own controls. It keeps authentication, CSRF and origin checks in force, because a signed-in
+browser can make the daemon start a coding agent with write access to the operator's repositories.
 
 Who is trusted:
 
 - **Trusted:** the operator, and the operating-system account the daemon runs as. A process with
   that account's full authority can read everything the daemon can.
-- **Semi-trusted:** the coding agents. They act on the operator's behalf, but repository contents,
-  plans and tool output can mislead them, so what they can reach is bounded by the posture the
-  operator chose, and nothing an agent writes widens its own authority.
+- **Cooperative:** the coding agents. They act on the operator's behalf, each in its own worktree
+  and sandbox, so that parallel runs do not interfere and nothing an agent writes widens its own
+  authority or counts as evidence the daemon did not record. Repository contents, plans and tool
+  output can still mislead them; containing an agent that turns hostile is left to its own
+  controls (ADR-075).
 - **Untrusted:** other hosts on the network, plan bundles, ZIP packages and maps, agent output and
   review reports, Git output, and repository contents.
 
@@ -212,13 +218,11 @@ Code grants the whole common directory itself, and the adapter keeps read-only e
 that exists at launch but `objects/`, `refs/`, `logs/`, `reftable/` and `worktrees/` (the primary checkout's
 `HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the rest), every
 other worktree's entry that exists at launch, and, existing or not, the common directory's
-`commondir`, `config.worktree` and `objects/info`, the run's own `commondir`, `gitdir` and
-`config.worktree`, and Git's in-progress state for the primary checkout: the 26 names Git 2.55.0
-keeps for a rebase, `am`, cherry-pick, revert, merge, bisect or notes merge (`rebase-merge/`,
-`rebase-apply/`, `sequencer/`, `MERGE_HEAD`, `MERGE_AUTOSTASH`, `ORIG_HEAD`, the `BISECT_*` files
-and the rest; `GIT_IN_PROGRESS_STATE` in the Claude adapter). The run's own rebase, merge and
-cherry-pick keep their state in its own entry. A worktree entry created after the run launched
-stays writable (see Known limits).
+`commondir`, `config.worktree` and `objects/info` and the run's own `commondir`, `gitdir` and
+`config.worktree`. A name missing at launch is not denied beyond those: a worktree entry created
+after the run launched, and Git's in-progress state for the primary checkout, stay writable, an
+accepted risk (Known limits). R-G19 drops the denies of missing names, so the adapter makes no
+placeholder.
 They may listen on local ports and reach no host but the outside sources' hosts, a strict
 allowlist. Claude's own file tools are not commands: permission rules deny them reads and edits of
 the same list its commands are denied (below), each path itself and everything under it;
@@ -565,46 +569,25 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Claude Code's own tools** are not sandboxed commands. Its file tools are held by permission
   rules (the denied-reads list, or on `unrestricted` the daemon's protected paths, then the
   posture's checks), not by the OS sandbox; WebFetch and WebSearch reach any host.
-- **Claude's Git placeholders.** Claude Code 2.1.288 holds a denied path that does not exist
-  with an empty placeholder while a sandboxed command runs: the common directory's `commondir`,
-  and the primary checkout's in-progress state names that are missing. While they exist, Git in
-  the primary checkout and the daemon's checks on a clone of the reviewed commit refuse ("failed
-  to read .git/commondir"): they fail closed, and nothing is redirected. A refused check can be
-  run again. Each Claude Code process removes the placeholders it made once its own commands have
-  ended, and nothing coordinates two Claude runs in the same repository (read from the 2.1.288
-  code, not verified live). So while two Claude runs in one repository run commands at the same
-  time, a command that outlasts the other run's can defeat the deny of a missing name, and what it
-  writes then stays. A Claude process killed while a command runs leaves its placeholders behind:
-  remove the empty files ([Shutdown and recovery](operations.md#shutdown-and-recovery)).
-- **Git state Claude can still plant.** Claude Code binds a linked worktree's whole common
-  directory writable, and the adapter denies only names that exist at launch and the ones listed
-  above (operator decisions 2026-10-13). What a sandboxed command can still change there, that the
-  operator's own Git then acts on:
-  - anything under `refs/`, which a commit needs (Codex too): it can move branches (the ref watch
-    reports only `refs/heads/` and `refs/tags/`), change `refs/stash`, the primary checkout's
-    per-worktree refs (`refs/bisect/`, `refs/rewritten/`, `refs/worktree/`, which matter only
-    beside in-progress state the adapter denies) and **replace refs** (`refs/replace/`). The
-    daemon's Git ignores replace refs, but the operator's follows them by default, so a later
-    checkout, pull or reset in the primary checkout can write an object the agent chose in place
-    of the reviewed one, with `git status` clean. Nothing reports them. Open for the operator
-    (R-G16 review 2026-10-13, M-1);
-  - `objects/` (Codex too): objects can be deleted as well as added; `logs/` (Codex too), whose
-    `logs/HEAD` is the primary checkout's HEAD reflog (`git checkout -`, `HEAD@{n}`);
-  - names missing at launch beyond those denied: a submodule's Git directory under `modules/`,
-    which `git submodule update --init` in the primary checkout reuses with its configuration and
-    hooks (open for the operator, R-G16 review M-2), and in the same way `gitweb/`, which
-    `git instaweb` reuses; `shallow`, which makes Git treat the
-    repository as shallow; `FETCH_HEAD`; and the `HEAD` and `index` of a worktree entry created
-    after the run launched;
-  - in a reftable repository, the primary checkout's `HEAD` and its other root refs (`ORIG_HEAD`,
-    `MERGE_AUTOSTASH` and the rest), which live in the shared `reftable/` store both agents'
-    commits write; no registered repository uses one today;
-  - state under a name a newer Git adds.
-
-  Codex runs cannot change the common directory's own names (it stays read-only to them). Until
-  agents' worktrees stop sharing the checkout's Git directory (R-G18), check `git status` and
-  `git for-each-ref refs/replace` in the primary checkout before continuing a rebase, merge,
-  cherry-pick or bisect you did not start, or after a run you doubt.
+- **Claude's Git placeholder.** Claude Code 2.1.288 holds a denied path that does not exist with
+  an empty placeholder while a sandboxed command runs, and the common directory's `commondir` is
+  one. While it exists, Git in the primary checkout and the daemon's checks on a clone of the
+  reviewed commit refuse ("failed to read .git/commondir"): they fail closed, and nothing is
+  redirected. A refused check can be run again. A Claude process killed while a command runs
+  leaves it behind: remove the empty file ([Shutdown and recovery](operations.md#shutdown-and-recovery)).
+  R-G19 removes the deny, and with it the placeholder.
+- **Git state an agent can plant (accepted, ADR-075).** Agents share the checkout's Git
+  directory: Claude Code binds a linked worktree's whole common directory writable, and both
+  agents' commits write `refs/`, `objects/` and `logs/`. An agent deliberately working against the
+  operator could leave state the operator's own Git later acts on: Git's in-progress state for the
+  primary checkout (a planted `exec` line in `rebase-merge/` runs when the rebase is continued),
+  replace refs (`refs/replace/`, which the operator's Git follows by default), a submodule's Git
+  directory under `modules/`, `shallow`, moved branches or stash entries, and in a reftable
+  repository the primary checkout's root refs. CraftingTable does not defend against this; it
+  treats agents as cooperative. The daemon's own Git is unaffected: it names its Git directories,
+  ignores replace refs and refuses a planted `commondir`. If a run behaved unexpectedly, check
+  `git status` and `git for-each-ref refs/replace` in the primary checkout before continuing a
+  rebase, merge or cherry-pick you did not start.
 - **External Git.** The daemon's guards serialize its own Git work. A person or tool running Git
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;
   check it before running Git there by hand. External changes are detected by commit and

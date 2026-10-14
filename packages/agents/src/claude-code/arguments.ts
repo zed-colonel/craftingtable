@@ -83,45 +83,6 @@ export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
  */
 const GIT_COMMIT_WRITES = new Set(['objects', 'refs', 'reftable', 'logs', 'worktrees']);
 
-/**
- * What Git keeps in a worktree's own Git directory while an operation is in progress, and reads
- * when the operator continues, aborts or commits; the primary checkout's lie at the common
- * directory's root (R-G16 review M-2, operator decision 2026-10-13). Taken from Git 2.55.0's
- * source: `rebase-merge` (sequencer.c), `rebase-apply` (builtin/rebase.c, builtin/am.c),
- * `sequencer` (sequencer.c); `MERGE_HEAD`, `MERGE_MSG`, `MERGE_MODE`, `MERGE_RR`, `SQUASH_MSG`
- * (path.c); the `BISECT_*` files (bisect.c, builtin/bisect.c); `NOTES_MERGE_WORKTREE`
- * (notes-merge.h); and the root refs an operation writes (refs.c `is_root_ref`), among them
- * `MERGE_AUTOSTASH`, which every later commit applies (builtin/commit.c). A new Git may add names.
- */
-const GIT_IN_PROGRESS_STATE = [
-  'rebase-merge',
-  'rebase-apply',
-  'REBASE_HEAD',
-  'sequencer',
-  'CHERRY_PICK_HEAD',
-  'REVERT_HEAD',
-  'MERGE_HEAD',
-  'MERGE_MSG',
-  'MERGE_MODE',
-  'MERGE_RR',
-  'AUTO_MERGE',
-  'MERGE_AUTOSTASH',
-  'SQUASH_MSG',
-  'ORIG_HEAD',
-  'BISECT_ANCESTORS_OK',
-  'BISECT_EXPECTED_REV',
-  'BISECT_FIRST_PARENT',
-  'BISECT_HEAD',
-  'BISECT_LOG',
-  'BISECT_NAMES',
-  'BISECT_RUN',
-  'BISECT_START',
-  'BISECT_TERMS',
-  'NOTES_MERGE_PARTIAL',
-  'NOTES_MERGE_REF',
-  'NOTES_MERGE_WORKTREE',
-];
-
 /** A directory's entries, or none when it cannot be listed. */
 function entriesOf(directory: string): string[] {
   try {
@@ -147,13 +108,7 @@ function entriesOf(directory: string): string[] {
  *   run's own `commondir`, `gitdir` and `config.worktree`. Claude Code creates the
  *   `config.worktree` files empty itself before it mounts; a missing `commondir` is held by an
  *   empty placeholder while a command runs, which Git and the daemon's clone refuse to follow
- *   (known limit, operator decision 2026-10-13);
- * - Git's in-progress state for the primary checkout, existing or not (`GIT_IN_PROGRESS_STATE`,
- *   R-G16 review M-2): a planted `rebase-merge/` would run its `exec` lines when the operator
- *   continues the rebase. A missing name is held by a placeholder while a command runs, as
- *   `commondir` is, when Git in the primary checkout refuses anyway (security.md, known limits).
- *   The run's own state lies in its own entry.
- * No other name missing at launch is denied.
+ *   (known limit, operator decision 2026-10-13). No other name missing at launch is denied.
  * `worktrees/` as a whole cannot be denied: the run's own entry, which a commit writes, lies in
  * it, and a deny would win.
  */
@@ -174,7 +129,6 @@ function gitDeniedWrites(git: NonNullable<AgentLaunchRequest['gitDirectories']>)
       join(git.gitDirectory, 'commondir'),
       join(git.gitDirectory, 'gitdir'),
       join(git.gitDirectory, 'config.worktree'),
-      ...GIT_IN_PROGRESS_STATE.map((name) => join(common, name)),
     ]),
   ];
 }

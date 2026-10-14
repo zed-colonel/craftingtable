@@ -1134,9 +1134,15 @@ small session (2026-10-13, built on this line, not deployed): R-G16's review fin
 primary checkout's in-progress Git state denied, 81a7700; its live probe not run) and R-B9's live
 finding of the same day (a SIGTERM drain now waits its bound outside Fastify's close hooks and ends
 with the clean stop, 1f65664), each independently reviewed. That review left two findings for the
-operator in R-G16's entry (replace refs; a planted `modules/`). Next, **R-G18** (agents' worktrees
-on a Git directory CraftingTable owns, the structural fix behind R-G16, M-2 and those findings),
-which needs a design pass; the operator places it relative to the controller-kernel items.
+operator in R-G16's entry (replace refs; a planted `modules/`).
+
+**Posture change, by the operator 2026-10-14 ([ADR-075](../../decisions/ADR-075-an-accelerator-not-a-guardian.md)).**
+CraftingTable is an accelerator, not a guardian: it organizes, separates and isolates parallel
+agent work, and defends against accidents and unverified claims, not a deliberately hostile agent.
+M-2 is backed out before deployment and its review's findings are accepted; R-G18 is withdrawn.
+Next, **R-G19** (drop Claude's missing-name Git denies; Python checks install with `uv sync --locked`
+from PyPI, supporting packaged projects), then Slopinator's rename to `slopinator` throughout and
+its re-import. TypeScript support follows the same pattern when a project needs it.
 
 Exit criteria:
 - `reconcile` is a thin shell.

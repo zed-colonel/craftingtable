@@ -283,52 +283,6 @@ it("passes today's arguments for the cargo source in the run's Cargo home, on ev
   });
 });
 
-/**
- * What Git 2.55.0 keeps in a worktree's own Git directory while an operation is in progress, and
- * reads when the operation continues, aborts or commits; the primary checkout's lie at the common
- * directory's root. Taken from Git's source (v2.55.0): `rebase-merge` (sequencer.c), `rebase-apply`
- * (builtin/rebase.c, builtin/am.c) and `sequencer` (sequencer.c); `MERGE_HEAD`, `MERGE_MSG`,
- * `MERGE_MODE`, `MERGE_RR` and `SQUASH_MSG` (path.c); the `BISECT_*` files (bisect.c,
- * builtin/bisect.c); `NOTES_MERGE_WORKTREE` (notes-merge.h); and the root refs an operation
- * writes (refs.c `is_root_ref`): `ORIG_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `REBASE_HEAD`,
- * `AUTO_MERGE`, `MERGE_AUTOSTASH` (builtin/commit.c applies it after every commit),
- * `BISECT_HEAD`, `BISECT_EXPECTED_REV`, `NOTES_MERGE_PARTIAL` and `NOTES_MERGE_REF`.
- */
-const GIT_IN_PROGRESS_STATE = [
-  'rebase-merge',
-  'rebase-apply',
-  'REBASE_HEAD',
-  'sequencer',
-  'CHERRY_PICK_HEAD',
-  'REVERT_HEAD',
-  'MERGE_HEAD',
-  'MERGE_MSG',
-  'MERGE_MODE',
-  'MERGE_RR',
-  'AUTO_MERGE',
-  'MERGE_AUTOSTASH',
-  'SQUASH_MSG',
-  'ORIG_HEAD',
-  'BISECT_ANCESTORS_OK',
-  'BISECT_EXPECTED_REV',
-  'BISECT_FIRST_PARENT',
-  'BISECT_HEAD',
-  'BISECT_LOG',
-  'BISECT_NAMES',
-  'BISECT_RUN',
-  'BISECT_START',
-  'BISECT_TERMS',
-  'NOTES_MERGE_PARTIAL',
-  'NOTES_MERGE_REF',
-  'NOTES_MERGE_WORKTREE',
-];
-const GIT_IN_PROGRESS_DIRECTORIES = new Set([
-  'rebase-merge',
-  'rebase-apply',
-  'sequencer',
-  'NOTES_MERGE_WORKTREE',
-]);
-
 it("keeps Git's redirect files and info/ read-only for sandboxed commands, so a commit still works (R-G14 review MEDIUM-1)", () => {
   const root = mkdtempSync(join(tmpdir(), 'craftingtable-claude-git-'));
   try {
@@ -369,8 +323,6 @@ it("keeps Git's redirect files and info/ read-only for sandboxed commands, so a 
         join(own, 'commondir'),
         join(own, 'gitdir'),
         join(own, 'config.worktree'),
-        // The primary checkout's in-progress state, existing or not (R-G16 review M-2).
-        ...GIT_IN_PROGRESS_STATE.map((name) => join(common, name)),
       ]);
     // Without the daemon's directories, and without a sandbox, nothing is added.
     expect(settings({}).sandbox?.filesystem.denyWrite).toBeUndefined();
@@ -459,55 +411,6 @@ it('keeps every entry of the common Git directory that exists at launch read-onl
     // No other name missing at launch is denied: each would leave a placeholder (shallow stays
     // as today).
     expect(denied).not.toContain(join(common, 'shallow'));
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("keeps the primary checkout's in-progress Git state read-only, whether it exists or not (R-G16 review M-2, operator decision 2026-10-13)", () => {
-  const root = mkdtempSync(join(tmpdir(), 'craftingtable-claude-git-'));
-  try {
-    const common = join(root, 'repo', '.git');
-    const own = join(common, 'worktrees', 'wt-1');
-    for (const directory of ['objects/info', 'refs/heads', 'logs', 'worktrees/wt-1'])
-      mkdirSync(join(common, directory), { recursive: true });
-    for (const file of ['HEAD', 'config', 'commondir', 'gitdir'])
-      writeFileSync(join(file === 'HEAD' || file === 'config' ? common : own, file), '');
-    const denied = () => {
-      const args = claudeCodeArguments({
-        cwd: '/work/x',
-        prompt: 'Go',
-        permissionMode: 'auto',
-        gitDirectories: { gitDirectory: own, gitCommonDirectory: common, worktreeConfig: false },
-      });
-      return (
-        JSON.parse(args[args.indexOf('--settings') + 1]!) as {
-          sandbox: { filesystem: { denyWrite: string[] } };
-        }
-      ).sandbox.filesystem.denyWrite;
-    };
-    // Missing at launch: a planted `rebase-merge/` would make the operator's own
-    // `git rebase --continue` in the primary checkout run its `exec` lines outside any sandbox.
-    const missing = denied();
-    for (const name of GIT_IN_PROGRESS_STATE)
-      expect(missing.filter((path) => path === join(common, name))).toEqual([join(common, name)]);
-    // Present at launch (the operator is in the middle of one): still each denied, once.
-    for (const name of GIT_IN_PROGRESS_STATE)
-      if (GIT_IN_PROGRESS_DIRECTORIES.has(name)) mkdirSync(join(common, name));
-      else writeFileSync(join(common, name), 'x\n');
-    const present = denied();
-    for (const name of GIT_IN_PROGRESS_STATE)
-      expect(present.filter((path) => path === join(common, name))).toEqual([join(common, name)]);
-    expect(new Set(present).size).toBe(present.length);
-    // The run's own rebase, merge, cherry-pick and bisect keep their state in its own entry.
-    const ownDenied = [join(own, 'commondir'), join(own, 'gitdir'), join(own, 'config.worktree')];
-    expect(missing.filter((path) => path.startsWith(`${own}/`))).toEqual(ownDenied);
-    expect(present.filter((path) => path.startsWith(`${own}/`))).toEqual(ownDenied);
-    // Names that are not an operation's state stay as they were: each would only leave a
-    // placeholder (`FETCH_HEAD` is rewritten by every fetch; `CHECKOUT_AUTOSTASH_HEAD` is made and
-    // applied within one checkout).
-    for (const name of ['FETCH_HEAD', 'CHECKOUT_AUTOSTASH_HEAD', 'shallow', 'COMMIT_EDITMSG'])
-      expect(missing).not.toContain(join(common, name));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

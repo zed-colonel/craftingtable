@@ -138,3 +138,4 @@ Some decisions are spread over several records. Read the latest first:
 | [ADR-072](ADR-072-roadmap-neighbourhood-graph.md) | A roadmap's neighbourhood graph | accepted | 2026-10-09 | supersedes ADR-015 |
 | [ADR-073](ADR-073-winding-down-a-roadmap.md) | Winding down a roadmap | accepted | 2026-10-13 | refines ADR-029, ADR-041, ADR-049 |
 | [ADR-074](ADR-074-python-toolchains-and-pypi-wheels.md) | Python toolchains and PyPI wheels for checks | accepted | 2026-10-13 | refines ADR-053 |
+| [ADR-075](ADR-075-an-accelerator-not-a-guardian.md) | An accelerator, not a guardian | accepted | 2026-10-14 | refines ADR-074, R-G19 |

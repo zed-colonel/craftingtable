@@ -84,9 +84,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | [R-G13](#r-g13) | P2 | M | done (increments 1 to 3 and 5 in P2; 4 in P3, 2026-10-07) | Declared per-repository checks |
 | [R-G14](#r-g14) | P3 | S-M | done (2026-10-08, on `remediation/p3`) | Operator-configured outside sources for agent sandboxes |
-| [R-G16](#r-g16) | P4 | S-M | done in the operator's variant, deployed 2026-10-13 (7d4e264); M-2 built on `remediation/p4` (81a7700), not deployed, live probe not run; review M-1 and M-2 open for the operator | Claude Code's Git grant leaves placeholder files in the shared Git directory |
+| [R-G16](#r-g16) | P4 | S-M | done in the operator's variant, deployed 2026-10-13 (7d4e264); M-2 backed out unrun 2026-10-14 (ADR-075); R-G19 removes the missing-name denies | Claude Code's Git grant leaves placeholder files in the shared Git directory |
 | [R-G17](#r-g17) | P4 | L | done, deployed 2026-10-13 (7d4e264) | Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks |
-| [R-G18](#r-g18) | P4 | L | open (added 2026-10-13; design pass needed) | Agents' worktrees on a Git directory CraftingTable owns |
+| [R-G18](#r-g18) | P4 | L | withdrawn 2026-10-14 (ADR-075) | Agents' worktrees on a Git directory CraftingTable owns |
+| [R-G19](#r-g19) | P4 | M | open (decided 2026-10-14, ADR-075) | The accelerator posture: simplify the agent and check defences |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
@@ -4160,7 +4161,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G16
 
-**Claude Code's Git grant leaves placeholder files in the shared Git directory** · Phase P4 · Effort S-M · Status: done in the operator's variant (2026-10-13, built first in [R-G17](#r-g17)'s session; deployed 2026-10-13 with R-G17, 7d4e264): the decided grant is not buildable on Claude Code 2.1.288; the `commondir` placeholder stays as a known limit. Review finding M-2 decided 2026-10-13 and built on `remediation/p4` (not deployed; its live probe not run)
+**Claude Code's Git grant leaves placeholder files in the shared Git directory** · Phase P4 · Effort S-M · Status: done in the operator's variant (2026-10-13, built first in [R-G17](#r-g17)'s session; deployed 2026-10-13 with R-G17, 7d4e264): the decided grant is not buildable on Claude Code 2.1.288; the `commondir` placeholder stays as a known limit. Review finding M-2 built on `remediation/p4` (81a7700, its live probe not run) and backed out before deployment, 2026-10-14, under the accelerator posture ([ADR-075](../../decisions/ADR-075-an-accelerator-not-a-guardian.md)); R-G19 removes the missing-name denies
 
 - **Added 2026-10-13** (operator), from WorldInterface WIP-01's second review (5774d76d): four of the reviewer's five counted reruns (`ct-check --declared`) were refused with "The repository's Git directory names another common directory."
 - **Today (verified at 3b01933, live 2026-10-13):**
@@ -4215,7 +4216,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *Gate and replays:* `pnpm check` alone at 13f9d84 (`CRAFTINGTABLE_TEST_DATA_ROOT` and `TMPDIR` set as usual), green in 563 s: 3,351 unit tests (6 skipped), 23 e2e, the walkthrough rehearsal and the scope check. `pnpm replays`: 31 of 56 comparisons unchanged, 25 only as expected, 0 failed, every row identical to R-G17's at 40a5955.
   - *L-1, fixed:* a reftable repository keeps its refs in `<common>/reftable`, which the deny list made read-only, so a commit failed ("reftable: transaction prepare"). `reftable` is now among `GIT_COMMIT_WRITES`, and Codex's grant names it where it exists (no mask for a missing path). Tests: `claude-code/arguments.test.ts` (not denied when present), `codex/arguments.test.ts` (granted only where it exists), each failing before.
   - *L-8, fixed:* `security.md` said every other worktree's entry was denied "existing or not"; only those that exist at launch are, and an entry created later keeps its `HEAD` and `index` writable. Corrected, and the limit recorded.
-
+- **Posture change, by the operator 2026-10-14 ([ADR-075](../../decisions/ADR-075-an-accelerator-not-a-guardian.md)).** CraftingTable defends against accidents and unverified claims, not a deliberately hostile agent. M-2 (81a7700) is backed out before deployment, its code restored to 13f9d84's parent state for `claude-code/arguments.ts` and its test. Its review's open findings, M-1 (replace refs) and M-2 (`modules/`, `gitweb/`), and the placeholders one Claude run can remove under another, are accepted risks (`security.md`, "Git state an agent can plant"), not work. [R-G19](#r-g19) drops the denies of names missing at launch, ending the `commondir` placeholder.
 
 ### R-G17
 
@@ -4363,10 +4364,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Gate and replays (2026-10-14, at 40a5955).* `pnpm check` alone, in the gate worktree with nothing else running (`CRAFTINGTABLE_TEST_DATA_ROOT` and `TMPDIR` as usual; the dev daemon stopped, no mutation run): green, 551 s; 394 test files passed (2 skipped), 3,342 tests passed (6 skipped); e2e 23 passed and the walkthrough rehearsal passed; the scope check passed. The first run, at 355593d, failed one test: the docs check requires every `CRAFTINGTABLE_*` name in the code to be listed in `operations.md`, and a probe test planted `CRAFTINGTABLE_PROBE_LEAK`; renamed `PLANTED_PROBE_LEAK` (40a5955), then green. `pnpm replays`: 31 of 56 comparisons report 0 changed, 25 differ only as expected, 0 failed; 217 s. The table is identical, row for row, to R-B11's at 70257ff: no change beyond R-B11's close. No UI changed after the after capture (`2026-10-14-rg17-after`, 1eaab09).
   - **Done-when:** every bullet holds (the live campaign above; R-G16's as built). Open for the operator: R-G16's review finding M-2 (decided 2026-10-13, see R-G16).
 - **Deployed 2026-10-13** (7d4e264, release `20261014T052918Z-7d4e2642feab`; no migration). The deploy ran with the settings as they were; then `toolchains.json` (the campaign's: the Python profile, uv, FFmpeg and ffprobe, default caps) and `outside-sources.json` (`cargo` and `pypi`) were added to the settings directory and applied by a restart, which started with both. That restart exposed [R-B9](#r-b9)'s live finding of the same day.
+- **Revised by [R-G19](#r-g19)** (operator 2026-10-14, ADR-075): the daemon's wheel store, the virtual-projects-only rule and the refusal of source builds give way to an install step that runs `uv sync --locked` from PyPI.
 
 ### R-G18
 
-**Agents' worktrees on a Git directory CraftingTable owns** · Phase P4 · Effort L · Status: open (added 2026-10-13; needs a design pass)
+**Agents' worktrees on a Git directory CraftingTable owns** · Phase P4 · Effort L · Status: withdrawn 2026-10-14 by the operator ([ADR-075](../../decisions/ADR-075-an-accelerator-not-a-guardian.md)): what it would prevent is a hostile agent's route, accepted under the accelerator posture
 
 - **Added 2026-10-13** (operator), from [R-G16](#r-g16) and its review finding M-2. A run's worktree is a linked worktree of the operator's own checkout under `~/src`, so its common Git directory is the operator's `.git`. Claude Code makes that directory writable to its sandboxed commands by itself, and denies over it are the only guard; Codex's grant names only `objects/`, `refs/`, `logs/` and the run's entry, but still writes the operator's repository.
 - **What the shared directory has cost so far:** the `commondir` placeholder, which makes Git in the primary checkout and the daemon's clone of a reviewed commit refuse while any sandboxed Claude command runs (R-G16's known limit); in-progress state an agent could plant for the operator's own rebase or merge (M-2, closed by a deny list of Git's state names, which has to track Git); the writes R-G16's probe found to the primary checkout's `HEAD`, `index` and `packed-refs`; and the R-G14 MEDIUM-1 work on `commondir` and `gitdir` pointers. Found while building M-2 (2026-10-13, from Claude Code's code): denies of missing names rest on placeholders that each Claude Code process removes by itself, with nothing coordinating two runs in one repository.
@@ -4374,6 +4376,26 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Questions for the design pass:** how merges, integration branches, finalization, the wind-down's cleanup (R-B11) and the operator's own Git see the work; object storage (a full copy, or alternates read-only into the operator's objects) and disk; moving existing worktrees, or letting them finish first; repository registration (repositories only under `~/src`) and the merge gate's evidence; what each agent's sandbox then grants.
 - **Done when (to be settled by the design):** a Claude or Codex run cannot create or change any file in the operator's checkout's Git directory; R-G16's known limit and M-2's deny list are removed; merges, finalization, adopted checks and the wind-down work as before.
 - **Sequencing:** after M-2's build. The operator places it relative to the controller-kernel items.
+
+
+### R-G19
+
+**The accelerator posture: simplify the agent and check defences** · Phase P4 (next) · Effort M · Status: open (decided by the operator 2026-10-14, [ADR-075](../../decisions/ADR-075-an-accelerator-not-a-guardian.md))
+
+- **Added 2026-10-14** (operator): CraftingTable is an accelerator, not a guardian. It defends against accidents and unverified claims, not a deliberately hostile agent, and leaves that to the agents' own controls (ADR-075). This item changes what that decision changes; the rest stays.
+- **Change:**
+  1. *Claude's Git rules:* drop every deny of a name missing at launch (the common directory's `commondir` and `config.worktree`, and the run's `config.worktree`, when missing), so the adapter makes no placeholder. Entries that exist at launch stay read-only, which costs nothing. The daemon's own guards against a planted `commondir` stay.
+  2. *Python checks:* replace the daemon's wheel store with an install step. A unit with network to PyPI's hosts runs `uv sync --locked` into the check's fresh venv (uv checks every artifact against the lock's hashes), building there what needs building (build backends, source distributions), and may use the agents' shared uv cache. The tests then run offline, as now. Packaged projects are supported: the install step installs the project, so its console scripts exist. Sources other than PyPI stay refused (they would need network beyond PyPI). Revise ADR-074 and `operations.md`, and retire the wheel store and its outbound request (`security.md`).
+  3. *Records:* done in the posture commit (R-G16's M-2 backed out and its findings accepted; R-G18 withdrawn).
+- **Not changed:** each run's worktree, its agent's sandbox and network allowlist; the credential and daemon-file denies; adopted checks, receipts and the merge gate; Cargo's verified registry; the root-owned Python toolchain and its identity records; the daemon's own Git hygiene.
+- **Done when:**
+  - While a sandboxed Claude command runs, Git in the primary checkout works and the adapter's rules put no file in the common Git directory (Claude Code's own `config.worktree` and `config.lock` aside); commits, rebases and merges in the run's worktree still work.
+  - A packaged Python fixture (a console script, a build backend from PyPI, one source-only dependency) is adopted; its review's check installs it, its console script runs, the tests have no network, and the merge goes through.
+  - R-G17's cases that still apply hold: an unadopted environment-file change stops as `check-definition-changed`, pytest collecting nothing fails the check, and a cancel during the install ends within seconds.
+  - WorldInterface's Rust checks are unaffected.
+  - `pnpm check` is green and `pnpm replays` unchanged.
+- **Later:** TypeScript, as its own item when a project needs it: an `npm` package source, a Node toolchain entry, and checks that install from the lockfile, then run offline.
+- **Sequencing:** next in P4, before Slopinator's rename and re-import, whose amendment then targets a packaged `slopinator` project.
 
 
 ### R-H1

@@ -373,18 +373,18 @@ describe('identifyTool, with the rule satisfied (review L-2, T6)', () => {
       uv,
       [
         '#!/bin/sh',
-        'if [ -z "$CRAFTINGTABLE_PROBE_LEAK" ] && [ "$UV_NO_CONFIG" = 1 ] && [ "$PATH" = /usr/bin:/bin ] && [ "$LC_ALL" = C ] && [ "$(pwd)" = / ]',
+        'if [ -z "$PLANTED_PROBE_LEAK" ] && [ "$UV_NO_CONFIG" = 1 ] && [ "$PATH" = /usr/bin:/bin ] && [ "$LC_ALL" = C ] && [ "$(pwd)" = / ]',
         'then echo "uv 0.12.22"; else echo "uv 9.9.9"; fi',
         '',
       ].join('\n'),
       { mode: 0o755 },
     );
-    process.env.CRAFTINGTABLE_PROBE_LEAK = 'the daemon environment';
+    process.env.PLANTED_PROBE_LEAK = 'the daemon environment';
     try {
       const observed = await identifyTool('uv', uv, { stat: fakeStat({}) });
       expect(observed.identity?.version).toBe('0.12.22');
     } finally {
-      delete process.env.CRAFTINGTABLE_PROBE_LEAK;
+      delete process.env.PLANTED_PROBE_LEAK;
     }
   });
 });

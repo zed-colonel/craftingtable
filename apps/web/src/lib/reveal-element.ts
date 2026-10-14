@@ -26,6 +26,14 @@ export interface ShowPart {
 const showPart = (detail: ShowPart) =>
   window.dispatchEvent(new CustomEvent<ShowPart>(SHOW_PART_EVENT, { detail }));
 
+/**
+ * Ends a reveal still waiting for its target or settling, with its timer and listeners. Its
+ * timer outlives a page left in under ten seconds, and a test's whole environment.
+ */
+export function cancelPendingReveal(): void {
+  cancelPending?.();
+}
+
 export function revealElement(id: string): () => void {
   cancelPending?.();
   cancelPending = undefined;

@@ -1144,8 +1144,8 @@ Next, **R-G19** (drop Claude's missing-name Git denies; Python checks install wi
 from PyPI, supporting packaged projects), then Slopinator's rename to `slopinator` throughout and
 its re-import. TypeScript support follows the same pattern when a project needs it.
 
-R-G19 is built on this line (2026-10-14, from d05ae61; [ADR-076](../../decisions/ADR-076-python-checks-install-with-uv-sync.md)),
-with its live check on a dev daemon, not deployed: Claude's Git rules deny only what exists at
+R-G19 is done on this line (2026-10-14, d05ae61 to b1d67b8; [ADR-076](../../decisions/ADR-076-python-checks-install-with-uv-sync.md)),
+reviewed, mutation-tested and checked live on a dev daemon, not deployed: Claude's Git rules deny only what exists at
 launch, and Python checks install with `uv sync --locked` into a fresh venv, then run offline;
 the daemon's wheel store is retired.
 

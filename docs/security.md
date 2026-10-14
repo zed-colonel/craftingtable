@@ -212,10 +212,13 @@ Code grants the whole common directory itself, and the adapter keeps read-only e
 that exists at launch but `objects/`, `refs/`, `logs/` and `worktrees/` (the primary checkout's
 `HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the rest), every
 other worktree's entry that exists at launch, and, existing or not, the common directory's
-`commondir`, `config.worktree` and `objects/info` and the run's own `commondir`, `gitdir` and
-`config.worktree`. A name missing at launch is not denied beyond those: a worktree entry created
-after the run launched, and Git's in-progress state for the primary checkout (`rebase-merge/`,
-`rebase-apply/`, `sequencer/`), stay writable (see Known limits).
+`commondir`, `config.worktree` and `objects/info`, the run's own `commondir`, `gitdir` and
+`config.worktree`, and Git's in-progress state for the primary checkout: the 26 names Git 2.55.0
+keeps for a rebase, `am`, cherry-pick, revert, merge, bisect or notes merge (`rebase-merge/`,
+`rebase-apply/`, `sequencer/`, `MERGE_HEAD`, `MERGE_AUTOSTASH`, `ORIG_HEAD`, the `BISECT_*` files
+and the rest; `GIT_IN_PROGRESS_STATE` in the Claude adapter). The run's own rebase, merge and
+cherry-pick keep their state in its own entry. A worktree entry created after the run launched
+stays writable (see Known limits).
 They may listen on local ports and reach no host but the outside sources' hosts, a strict
 allowlist. Claude's own file tools are not commands: permission rules deny them reads and edits of
 the same list its commands are denied (below), each path itself and everything under it;
@@ -562,21 +565,28 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Claude Code's own tools** are not sandboxed commands. Its file tools are held by permission
   rules (the denied-reads list, or on `unrestricted` the daemon's protected paths, then the
   posture's checks), not by the OS sandbox; WebFetch and WebSearch reach any host.
-- **Claude's Git placeholder.** Claude Code 2.1.288 holds a denied path that does not exist with
-  an empty placeholder while a sandboxed command runs, and the common directory's `commondir`
-  is one. While it exists, Git in the primary checkout and the daemon's checks on a clone of the
-  reviewed commit refuse ("failed to read .git/commondir"): they fail closed, and nothing is
-  redirected. A refused check can be run again.
+- **Claude's Git placeholders.** Claude Code 2.1.288 holds a denied path that does not exist
+  with an empty placeholder while a sandboxed command runs: the common directory's `commondir`,
+  and the primary checkout's in-progress state names that are missing. While they exist, Git in
+  the primary checkout and the daemon's checks on a clone of the reviewed commit refuse ("failed
+  to read .git/commondir"): they fail closed, and nothing is redirected. A refused check can be
+  run again. Each Claude Code process removes the placeholders it made once its own commands have
+  ended, and nothing coordinates two Claude runs in the same repository; read from the 2.1.288
+  code and not verified live, a deny of a missing name may therefore not hold for the whole of a
+  command that overlaps another run's.
 - **Git state Claude can still plant.** Claude Code binds a linked worktree's whole common
-  directory writable, and only names that exist at launch, with the few listed above, are denied
-  (operator decision 2026-10-13). A sandboxed command can therefore create Git's in-progress
-  state for the primary checkout (`rebase-merge/`, `rebase-apply/`, `sequencer/`, `MERGE_HEAD`)
-  and write the `HEAD` and `index` of a worktree entry created after it launched. The R-G16
-  review showed the first: the operator's own `git rebase --continue` in the primary checkout
-  then runs a planted `exec` line outside any sandbox, and `git rebase --abort` moves the
-  checked-out branch. Codex runs cannot (their common directory is read-only). Until the
-  operator decides otherwise, check `git status` in the primary checkout before continuing a
-  rebase, merge or cherry-pick you did not start.
+  directory writable, and the adapter denies only names that exist at launch and the ones listed
+  above (operator decisions 2026-10-13). A sandboxed command can still write the `HEAD` and
+  `index` of a worktree entry created after it launched, and anything under `refs/`, which a
+  commit needs: it can move branches (the ref watch reports it), including the primary
+  checkout's per-worktree refs (`refs/bisect/`, `refs/rewritten/`, `refs/worktree/`), which
+  matter only beside in-progress state the adapter denies. In a reftable repository the primary
+  checkout's `HEAD` and its other root refs (`ORIG_HEAD`, `MERGE_AUTOSTASH` and the rest) live in
+  the shared `reftable/` store, which both agents' commits write; no registered repository uses
+  one today. A newer Git may keep state under a new name. Codex runs cannot plant any of the
+  common directory's own names (it stays read-only to them). Until agents' worktrees stop sharing
+  the checkout's Git directory (R-G18), check `git status` in the primary checkout before
+  continuing a rebase, merge, cherry-pick or bisect you did not start.
 - **External Git.** The daemon's guards serialize its own Git work. A person or tool running Git
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;
   check it before running Git there by hand. External changes are detected by commit and

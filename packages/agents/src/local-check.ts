@@ -33,6 +33,7 @@ import type {
   PinnedCargoManifest,
   VerificationManifest,
 } from './pinned-cargo.js';
+import type { PythonWheelSource } from './python-wheels.js';
 import {
   type CheckUnitLimits,
   DEFAULT_CHECK_UNIT_LIMITS,
@@ -1015,6 +1016,11 @@ export interface CheckExecution {
   readonly hiddenRoots?: readonly string[];
   /** The caps of every unit this check starts; `DEFAULT_CHECK_UNIT_LIMITS` without them. */
   readonly unitLimits?: CheckUnitLimits;
+  /**
+   * The daemon's verified wheels (R-G17 decision 8): a Python check's environment is built from
+   * these alone. Without it, a Python project's adopted check gets no wheel.
+   */
+  readonly pythonWheels?: PythonWheelSource;
 }
 /** What the daemon knows of published crates: checksums, and each crate's index file. */
 export interface CrateRegistry {

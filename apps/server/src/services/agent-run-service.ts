@@ -26,6 +26,7 @@ import {
   type AgentSession,
   type AgentSessionItem,
   type NormalizedAgentEvent,
+  launchSourceOverlay,
   outsideSourcesNote,
   parseProcessGroupIdentity,
   type ProcessGroupIdentity,
@@ -2093,6 +2094,9 @@ export class AgentRunService {
                   ...(cycle.stepGuidance ? { stepGuidance: cycle.stepGuidance } : {}),
                 })
             : brief) + declared;
+        // Each outside source's own variables and PATH directories (R-G17: `pypi` points uv at
+        // the shared cache and the profile's interpreter), with no branch per kind.
+        const sourceOverlay = launchSourceOverlay(this.config.outsideSources);
         const launch: AgentLaunchRequest = {
           // The daemon's database, backups and credentials, unreadable to sandboxed commands.
           deniedReads: this.config.protectedReads ?? [],
@@ -2113,6 +2117,7 @@ export class AgentRunService {
           // (R-G7) and, with a pinned environment, its launchers ahead of PATH. The adapter adds
           // them to named variables only.
           environment: {
+            ...sourceOverlay.environment,
             TMPDIR: temporaryDirectory,
             TMP: temporaryDirectory,
             TEMP: temporaryDirectory,
@@ -2126,7 +2131,14 @@ export class AgentRunService {
             [RUN_ID_VARIABLE]: runId,
             ...(verifying ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
           },
-          ...(verifying ? { pathPrefix: [verifying.binDirectory] } : {}),
+          ...(verifying || sourceOverlay.pathPrefix.length
+            ? {
+                pathPrefix: [
+                  ...(verifying ? [verifying.binDirectory] : []),
+                  ...sourceOverlay.pathPrefix,
+                ],
+              }
+            : {}),
           ...(cycle
             ? { deadlineAt: cycle.runDeadlineAt }
             : controlled

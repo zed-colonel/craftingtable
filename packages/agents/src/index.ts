@@ -35,6 +35,17 @@ export {
   cargoManifestDigest,
 } from './pinned-cargo.js';
 export {
+  isWheelFilename,
+  type LockedPackage,
+  planWheels,
+  PYPI_FILES,
+  type PythonWheelSource,
+  type WheelPlan,
+  type WheelRequest,
+  type WheelTarget,
+  wheelFits,
+} from './python-wheels.js';
+export {
   type CheckUnitLimits,
   DEFAULT_CHECK_UNIT_LIMITS,
   observeToolchain,
@@ -46,8 +57,10 @@ export {
 } from './toolchains.js';
 export {
   cargoOutsideSource,
+  launchSourceOverlay,
   OUTSIDE_SOURCE_HOSTS,
   outsideSourcesNote,
+  pypiOutsideSource,
   type OutsideSource,
   type OutsideSourceKind,
 } from './outside-sources.js';

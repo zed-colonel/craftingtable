@@ -588,6 +588,59 @@ describe('agent runs', () => {
     ]);
   });
 
+  it("launches with the pypi source's overlay: the profile's uv first on PATH, its interpreter and the shared uv cache (R-G17)", async () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'craftingtable-sources-'));
+    directories.push(configDir);
+    writeFileSync(
+      join(configDir, 'outside-sources.json'),
+      JSON.stringify({ version: 1, sources: [{ kind: 'cargo' }, { kind: 'pypi' }] }),
+    );
+    writeFileSync(
+      join(configDir, 'toolchains.json'),
+      JSON.stringify({
+        version: 1,
+        python: { interpreter: '/usr/bin/python3.14', version: '3.14' },
+        uv: { path: '/usr/bin/env', version: '0.12' },
+      }),
+    );
+    const configured = await ready({ env: { CRAFTINGTABLE_CONFIG_DIR: configDir } });
+    const { worktree } = await registerAndWorktree(configured, fixtureRepository());
+    const started = await configured.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${configured.workspaceId}/work-items/${configured.workItemId}/runs`,
+      headers: mutationHeaders(configured),
+      payload: { worktreeId: worktree.id, role: 'implement' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const { dataDir } = configured.context.config;
+    const cache = join(dataDir, 'uv', 'cache');
+    const launch = configured.backend.launches[0]!;
+    expect(launch.outsideSources?.map((source) => source.kind)).toEqual(['cargo', 'pypi']);
+    expect(launch.environment).toMatchObject({
+      UV_CACHE_DIR: cache,
+      UV_PYTHON: '/usr/bin/python3.14',
+      UV_PYTHON_DOWNLOADS: 'never',
+    });
+    expect(launch.pathPrefix).toEqual(['/usr/bin']);
+    // The daemon made the cache, so a sandbox can make it writable.
+    expect(existsSync(cache)).toBe(true);
+    // The status lists what agents may reach and write, as for Cargo.
+    const status = executionStatusResponseSchema.parse(
+      (
+        await configured.context.app.inject({
+          method: 'GET',
+          url: '/api/execution-status',
+          headers: { cookie: configured.cookie },
+        })
+      ).json(),
+    );
+    expect(status.outsideSources[1]).toEqual({
+      kind: 'pypi',
+      hosts: ['pypi.org', 'files.pythonhosted.org'],
+      caches: [cache],
+    });
+  });
+
   it("says when a run's repository enables per-worktree configuration (R-G14, operator decision 2026-10-08)", async () => {
     const state = await ready();
     const repository = fixtureRepository();

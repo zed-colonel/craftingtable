@@ -577,19 +577,28 @@ describe('outside sources (R-G14)', () => {
       { kind: 'cargo' as const, hosts: ['index.crates.io'], caches: paths },
     ];
     expect(
-      outsideSourceCacheProblem(caches(join(cargoHome, 'registry')), { cargo: cargoHome }),
+      outsideSourceCacheProblem(caches(join(cargoHome, 'registry')), {
+        cargo: cargoHome,
+        pypi: join(at.data, 'uv'),
+      }),
     ).toBeUndefined();
     // A cache must lie directly in the kind's directory, however a source came to name it.
     for (const stray of [join(at.data, 'state'), join(cargoHome, 'registry', 'index'), cargoHome])
       expect(
-        outsideSourceCacheProblem(caches(join(cargoHome, 'git'), stray), { cargo: cargoHome }),
+        outsideSourceCacheProblem(caches(join(cargoHome, 'git'), stray), {
+          cargo: cargoHome,
+          pypi: join(at.data, 'uv'),
+        }),
         stray,
       ).toBe(`The cargo source's cache ${stray} must lie directly in ${cargoHome}`);
     // A kind's directory that cannot be checked is named itself, not after its first cache.
     writeFileSync(join(at.base, 'file'), '');
     const unreadable = join(at.base, 'file', 'cargo-home');
     expect(
-      outsideSourceCacheProblem(caches(join(unreadable, 'registry')), { cargo: unreadable }),
+      outsideSourceCacheProblem(caches(join(unreadable, 'registry')), {
+        cargo: unreadable,
+        pypi: join(at.data, 'uv'),
+      }),
     ).toBe(`The cargo source's directory ${unreadable} could not be checked: ENOTDIR`);
   });
 
@@ -797,5 +806,73 @@ describe('toolchains (R-G17)', () => {
     expect(() => configFromEnv({ ...at.env, CRAFTINGTABLE_CONFIG_DIR: inWorktrees })).toThrow(
       /must lie outside the worktree root/,
     );
+  });
+});
+
+describe('the pypi outside source (R-G17)', () => {
+  const directories: string[] = [];
+  afterEach(() => {
+    for (const directory of directories.splice(0))
+      rmSync(directory, { recursive: true, force: true });
+  });
+  function settings(sources: unknown, toolchains?: unknown) {
+    const base = mkdtempSync(join(tmpdir(), 'craftingtable-pypi-'));
+    directories.push(base);
+    const data = join(base, 'data');
+    const configDir = join(base, 'config');
+    mkdirSync(data);
+    mkdirSync(configDir);
+    writeFileSync(join(configDir, 'outside-sources.json'), JSON.stringify(sources));
+    if (toolchains !== undefined)
+      writeFileSync(join(configDir, 'toolchains.json'), JSON.stringify(toolchains));
+    const env = { CRAFTINGTABLE_DATA_DIR: data, CRAFTINGTABLE_CONFIG_DIR: configDir };
+    return { base, data, configDir, env, read: () => configFromEnv(env).execution };
+  }
+  const profile = {
+    version: 1,
+    python: { interpreter: '/usr/bin/python3.14', version: '3.14' },
+    uv: { path: '/usr/bin/env', version: '0.12' },
+  };
+
+  it("reaches PyPI's two hosts, writes the daemon's uv cache, and carries the profile's uv and interpreter", () => {
+    const { data, read } = settings(
+      { version: 1, sources: [{ kind: 'cargo' }, { kind: 'pypi' }] },
+      profile,
+    );
+    const pypi = read().outsideSources.find((source) => source.kind === 'pypi');
+    expect(pypi).toEqual({
+      kind: 'pypi',
+      hosts: ['pypi.org', 'files.pythonhosted.org'],
+      caches: [join(data, 'uv', 'cache')],
+      environment: {
+        UV_CACHE_DIR: join(data, 'uv', 'cache'),
+        UV_PYTHON: '/usr/bin/python3.14',
+        UV_PYTHON_DOWNLOADS: 'never',
+      },
+      pathPrefix: ['/usr/bin'],
+    });
+    expect(read().uvHome).toBe(join(data, 'uv'));
+  });
+
+  it('refuses pypi without a Python profile, and with extra hosts or a second index', () => {
+    const missing = settings({ version: 1, sources: [{ kind: 'pypi' }] });
+    expect(missing.read).toThrow(/"pypi".*toolchains\.json/);
+    const extra = settings(
+      { version: 1, sources: [{ kind: 'pypi', extraHosts: ['mirror.example.org'] }] },
+      profile,
+    );
+    expect(extra.read).toThrow(/pypi.*no extra hosts/);
+  });
+
+  it('refuses a uv directory or cache reached through a link, as for Cargo', () => {
+    const linked = settings({ version: 1, sources: [{ kind: 'pypi' }] }, profile);
+    mkdirSync(join(linked.data, 'state'));
+    symlinkSync(join(linked.data, 'state'), join(linked.data, 'uv'));
+    expect(linked.read).toThrow(/pypi source's cache .* must not be reached through a link/);
+    const cache = settings({ version: 1, sources: [{ kind: 'pypi' }] }, profile);
+    mkdirSync(join(cache.data, 'uv'));
+    mkdirSync(join(cache.data, 'crates-io'));
+    symlinkSync(join(cache.data, 'crates-io'), join(cache.data, 'uv', 'cache'));
+    expect(cache.read).toThrow(/pypi source's cache .* must not be reached through a link/);
   });
 });

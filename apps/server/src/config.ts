@@ -18,6 +18,7 @@ import {
   OUTSIDE_SOURCE_HOSTS,
   type OutsideSource,
   type OutsideSourceKind,
+  pypiOutsideSource,
   type PythonToolchain,
   type ToolchainSettings,
   trustedFileProblem,
@@ -84,6 +85,11 @@ export interface ExecutionConfig {
    * it, never the operator's, so a planted crate never reaches the operator's builds.
    */
   readonly cargoHome: string;
+  /**
+   * The daemon's uv directory (R-G17): the `pypi` source's shared cache, `cache`, lies in it.
+   * Agents fetch into that cache; checks never read it (decision 9).
+   */
+  readonly uvHome: string;
   /**
    * The Cargo home whose registry and Git caches seed `cargoHome` at start
    * (`CRAFTINGTABLE_CARGO_SEED_FROM`; the operator's by default; empty turns seeding off).
@@ -412,6 +418,7 @@ function executionConfig(
     throw new Error('Check logs must lie outside the worktree and runs roots');
   }
   const cargoHome = join(dataDir, 'cargo-home');
+  const uvHome = join(dataDir, 'uv');
   if (pathsOverlap(cargoHome, runsRoot) || pathsOverlap(cargoHome, worktreeRoot)) {
     throw new Error("The daemon's Cargo home must lie outside the worktree and runs roots");
   }
@@ -443,6 +450,7 @@ function executionConfig(
       worktreeRoot,
       checkLogRoot,
       cargoHome,
+      uvHome,
       join(dataDir, DATABASE_BACKUP_DIRECTORY),
     ].some((root) => overlapCompared(agentRoot, comparedPath(root)))
   )
@@ -476,6 +484,7 @@ function executionConfig(
     checkLogRoot,
     agentEnvironmentAllow,
     cargoHome,
+    uvHome,
     agentTemporaryRoot,
     ...(cargoSeedFrom === '' ? {} : { cargoSeedFrom }),
     ...(env.CRAFTINGTABLE_CLAUDE_MODELS === undefined
@@ -672,6 +681,7 @@ function outsideSourcesSetting(
   configDir: string,
   dataDir: string,
   execution: Omit<ExecutionConfig, 'outsideSources' | 'toolchains'>,
+  python: PythonToolchain | undefined,
 ): readonly OutsideSource[] {
   const file = join(configDir, OUTSIDE_SOURCES_FILE);
   const refuse: (problem: string) => never = (problem) => {
@@ -689,9 +699,12 @@ function outsideSourcesSetting(
   const sources =
     contents === undefined
       ? [cargoOutsideSource(execution.cargoHome)]
-      : parseOutsideSources(contents, execution.cargoHome, refuse);
+      : parseOutsideSources(contents, { ...execution, python }, refuse);
   const written = writtenCacheSources({ outsideSources: sources, cargoHome: execution.cargoHome });
-  const linked = outsideSourceCacheProblem(written, { cargo: execution.cargoHome });
+  const linked = outsideSourceCacheProblem(written, {
+    cargo: execution.cargoHome,
+    pypi: execution.uvHome,
+  });
   if (linked) throw new Error(linked);
   const placed = cacheOverlapProblem(written, configDir, [
     ...agentWritable,
@@ -740,7 +753,11 @@ function readSettingsFile(file: string, refuse: (problem: string) => never): unk
 /** Known kinds only, each once, with exact extra hosts; nothing else is accepted. */
 function parseOutsideSources(
   value: unknown,
-  cargoHome: string,
+  homes: {
+    readonly cargoHome: string;
+    readonly uvHome: string;
+    readonly python: PythonToolchain | undefined;
+  },
   refuse: (problem: string) => never,
 ): OutsideSource[] {
   if (!isJsonObject(value)) refuse('must hold a JSON object');
@@ -769,7 +786,18 @@ function parseOutsideSources(
         refuse(
           `${at} lists ${JSON.stringify(host)?.slice(0, 300)}, which is not an exact lowercase host name of at least three labels (no wildcard, IP address, port or apex domain)`,
         );
-    return cargoOutsideSource(cargoHome, extraHosts as string[]);
+    if (kind === 'pypi') {
+      // PyPI's own two hosts and no other (decision 10): a mirror or second index would let a
+      // package come from somewhere the daemon's verification never looks.
+      if ((extraHosts as unknown[]).length > 0)
+        refuse(`${at}: the pypi source takes no extra hosts, so no mirror or second index`);
+      if (!homes.python)
+        refuse(
+          `${at} names "pypi", which needs the Python profile in toolchains.json: agents resolve with its uv and interpreter`,
+        );
+      return pypiOutsideSource(join(homes.uvHome, 'cache'), homes.python);
+    }
+    return cargoOutsideSource(homes.cargoHome, extraHosts as string[]);
   });
 }
 
@@ -791,7 +819,7 @@ const MAX_FONTS = 64;
 
 /**
  * The toolchains the operator configured (R-G17). The file lies in the settings directory,
- * whose placement `outsideSourcesSetting` checks first; each tool must be an absolute,
+ * whose placement is checked first; each tool must be an absolute,
  * normalized path to a regular file that root owns and only root may write, every directory
  * above it too, outside the data directory and every root agents write (decision 2). The start
  * runs no tool; the probes and each check's re-read do (decisions 4 and 5).
@@ -805,6 +833,13 @@ function toolchainsSetting(
   const refuse: (problem: string) => never = (problem) => {
     throw new Error(`The toolchains file ${file} ${problem}`);
   };
+  // The settings directory's placement, checked before either settings file is read.
+  const located = settingsFilePlacementProblem(configDir, [
+    ['worktree root', execution.worktreeRoot],
+    ['runs root', execution.runsRoot],
+    ["agents' temporary root", execution.agentTemporaryRoot],
+  ]);
+  if (located) throw new Error(located.message);
   const contents = readSettingsFile(file, refuse);
   if (contents === undefined) return { limits: DEFAULT_CHECK_UNIT_LIMITS };
   return parseToolchains(contents, refuse, [
@@ -1042,11 +1077,12 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
   const dataDir = dataDirectory(env);
   const configDir = configDirectory(env);
   const roots = executionConfig(env, dataDir);
-  const outsideSources = outsideSourcesSetting(configDir, dataDir, roots);
+  const toolchains = toolchainsSetting(configDir, dataDir, roots);
+  const outsideSources = outsideSourcesSetting(configDir, dataDir, roots, toolchains.python);
   const execution: ExecutionConfig = Object.freeze({
     ...roots,
     outsideSources,
-    toolchains: toolchainsSetting(configDir, dataDir, roots),
+    toolchains,
     processRecordRoot: join(dataDir, DATABASE_DIRECTORY, 'processes'),
     protectedReads: [
       join(dataDir, DATABASE_DIRECTORY),

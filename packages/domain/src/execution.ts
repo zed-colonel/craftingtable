@@ -202,8 +202,8 @@ export function isTerminalAgentRunStatus(status: AgentRunStatus): boolean {
 export const AGENT_PERMISSION_MODES = ['edit-only', 'auto', 'unrestricted'] as const;
 export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number];
 
-/** The kinds of outside source the daemon knows (R-G14): for now only Cargo's registry. */
-export const OUTSIDE_SOURCE_KINDS = ['cargo'] as const;
+/** The kinds of outside source the daemon knows: Cargo's registry (R-G14) and PyPI (R-G17). */
+export const OUTSIDE_SOURCE_KINDS = ['cargo', 'pypi'] as const;
 export type OutsideSourceKind = (typeof OUTSIDE_SOURCE_KINDS)[number];
 
 /**

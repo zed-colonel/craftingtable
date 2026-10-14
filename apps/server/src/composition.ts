@@ -338,6 +338,10 @@ export async function createServices(
     overrides.crateChecksums ?? new CratesIoChecksums(join(config.dataDir, 'crates-io')),
   );
   checkRequests.stopLeftoverUnits();
+  // Every source's caches exist, so a sandbox can make them writable (the `pypi` source's uv
+  // cache, R-G17; Cargo's are seeded at start too).
+  for (const source of config.execution.outsideSources)
+    for (const cache of source.caches) mkdirSync(cache, { recursive: true, mode: 0o700 });
   const toolchainService = new ToolchainService(
     config.execution.toolchains,
     undefined,
@@ -434,7 +438,12 @@ export async function createServices(
         catalog: backend === undefined ? { source: 'fallback' } : backend.describe().catalog,
       };
     }),
-    outsideSources: config.execution.outsideSources,
+    // What sandboxed commands may reach and write; each kind's launch overlay stays the daemon's.
+    outsideSources: config.execution.outsideSources.map(({ kind, hosts, caches }) => ({
+      kind,
+      hosts,
+      caches,
+    })),
     toolchains: toolchainService.status(),
   });
   return {

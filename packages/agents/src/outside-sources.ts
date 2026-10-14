@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import type { OutsideSourceKind } from '@craftingtable/domain';
 import { truncateUtf8 } from './bounded.js';
 import type { AgentLaunchRequest } from './index.js';
+import type { PythonToolchain } from './toolchains.js';
 
 export type { OutsideSourceKind } from '@craftingtable/domain';
 
@@ -18,6 +19,13 @@ export interface OutsideSource {
   readonly hosts: readonly string[];
   /** Absolute directories a fetch writes; each must already exist to be made writable. */
   readonly caches: readonly string[];
+  /**
+   * The kind's own launch overlay (R-G17): variables every launch gets and directories put ahead
+   * of its PATH, so the launch gains no branch per kind. `pypi` points uv at the shared cache and
+   * the profile's interpreter; `cargo` has none, as the run's Cargo home is the daemon's.
+   */
+  readonly environment?: Readonly<Record<string, string>>;
+  readonly pathPrefix?: readonly string[];
 }
 
 /**
@@ -27,6 +35,9 @@ export interface OutsideSource {
  */
 export const OUTSIDE_SOURCE_HOSTS: Readonly<Record<OutsideSourceKind, readonly string[]>> = {
   cargo: ['index.crates.io', 'static.crates.io'],
+  // PyPI's index and its files, nothing else (decision 10): `upload.pypi.org`, which publishes,
+  // is another host.
+  pypi: ['pypi.org', 'files.pythonhosted.org'],
 };
 
 /**
@@ -42,6 +53,41 @@ export function cargoOutsideSource(
     kind: 'cargo',
     hosts: [...new Set([...OUTSIDE_SOURCE_HOSTS.cargo, ...extraHosts])],
     caches: [join(cargoHome, 'registry'), join(cargoHome, 'git')],
+  };
+}
+
+/**
+ * The `pypi` source (R-G17 decisions 8 to 10): PyPI's two hosts, and the daemon-owned uv cache
+ * every agent shares (decision 9), which no check ever reads. Its overlay makes agents resolve
+ * with the profile's uv (first on PATH, decision 3) and interpreter, into that cache, and never
+ * download a Python.
+ */
+export function pypiOutsideSource(
+  uvCache: string,
+  python: Pick<PythonToolchain, 'interpreter' | 'uv'>,
+  extraHosts: readonly string[] = [],
+): OutsideSource {
+  return {
+    kind: 'pypi',
+    hosts: [...new Set([...OUTSIDE_SOURCE_HOSTS.pypi, ...extraHosts])],
+    caches: [uvCache],
+    environment: {
+      UV_CACHE_DIR: uvCache,
+      UV_PYTHON: python.interpreter,
+      UV_PYTHON_DOWNLOADS: 'never',
+    },
+    pathPrefix: [dirname(python.uv.path)],
+  };
+}
+
+/** Every source's overlay, merged in order: its variables, and its directories ahead of PATH. */
+export function launchSourceOverlay(sources: readonly OutsideSource[]): {
+  readonly environment: Readonly<Record<string, string>>;
+  readonly pathPrefix: readonly string[];
+} {
+  return {
+    environment: Object.assign({}, ...sources.map((source) => source.environment ?? {})),
+    pathPrefix: [...new Set(sources.flatMap((source) => source.pathPrefix ?? []))],
   };
 }
 

@@ -50,17 +50,30 @@ TasksMax (1024 by default: sixteen times the 64-task peak of WorldInterface's he
 check on a 16-core workstation, where Cargo's and the test harnesses' parallelism follow the core
 count). `toolchains.json` may set both.
 
-**Wheels: the lock selects, PyPI vouches.** *(Built in increment 2; see R-G17.)*
+**Wheels: the lock selects, PyPI vouches.**
 
-- Agents fetch through a `pypi` outside source: `pypi.org` and `files.pythonhosted.org` only,
-  into one daemon-owned uv cache shared by all agents, with the profile's uv first on PATH and
-  `UV_PYTHON_DOWNLOADS=never`. Checks never read that cache.
+- Agents fetch through a `pypi` outside source: `pypi.org` and `files.pythonhosted.org` only (no
+  extra host, so no mirror or second index), into one daemon-owned uv cache shared by all agents
+  (`<data>/uv/cache`). The source carries its own launch overlay: the profile's uv first on PATH,
+  `UV_PYTHON` set to the profile's interpreter, `UV_CACHE_DIR` and `UV_PYTHON_DOWNLOADS=never`, so
+  the launch gains no branch per kind. Checks never read that cache. `~/.pypirc`, `~/.netrc`, uv's
+  stored credentials and its user configuration join the sandboxes' denied reads.
 - The daemon downloads the wheels a check needs itself, from PyPI's JSON API and
-  `files.pythonhosted.org` only, with redirects refused, a per-file size cap, a rate window and a
-  store budget. It keeps a file, by SHA-256, under the data directory only when its bytes match
-  both PyPI's published digest and the lock's hash. Git, URL, path, other-index and sdist-only
-  packages are refused by name. This is the daemon's third kind of outbound request, after
-  Pushover and crates.io's index.
+  `files.pythonhosted.org` only, with redirects refused, a 512 MiB file limit, at most 600 requests
+  per ten minutes and a 20 GiB store, least recently used first. It keeps a file, under its
+  SHA-256 in `<data>/pypi-wheels`, only when its bytes match both PyPI's published digest and the
+  lock's hash. This is the daemon's third kind of outbound request, after Pushover and crates.io's
+  index.
+- Which wheels: from the adopted lock, every wheel of a PyPI package whose tags fit the profile's
+  interpreter (its version, platform and C library, as probed). Git, URL, path and other-index
+  sources, sdist-only packages and a packaged project are refused by name. The lock's markers are
+  left to uv, which installs offline and hash-required in the check's unit and fails naming a
+  needed package with no fitting wheel.
+- An experiment confirmed the route before it was built (R-G17): in a unit with no network,
+  `uv export --frozen`, `uv venv` and `uv pip install --offline --no-index --find-links
+  <verified> --require-hashes --no-build` build an environment from verified wheels, and
+  sandboxed Claude Code and Codex `auto` runs each `uv sync` through their own proxies while
+  `example.com` is refused.
 
 **Checks: a fresh, offline environment from verified wheels.** *(Built in increment 3; see
 R-G17.)* A check gets Python when the reviewed commit has a root `uv.lock` and a Python profile

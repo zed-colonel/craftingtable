@@ -134,3 +134,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-13-rb11-before | `b860b1c` | 2026-10-13 | 72 (1 phone only) | 1× |
 | 2026-10-13-rb11-after | `03624f6` | 2026-10-13 | 74 (1 phone only) | 1× |
 | 2026-10-14-rg17-before | `4f5bbc4` | 2026-10-14 | 74 (1 phone only) | 1× |
+| 2026-10-14-rg17-after | `1eaab09` | 2026-10-14 | 74 (1 phone only) | 1× |

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { claudeCodeArguments, claudeUserMessageLine } from '../../src/claude-code/arguments.js';
+import { uvConfigPaths } from '../../src/sandbox-reads.js';
 import {
   ClaudeStreamNormalizer,
   summarizeToolCall,
@@ -26,6 +27,10 @@ const DENIED = [
   '~/.claude/.credentials.json',
   join(homedir(), '.cargo', 'credentials.toml'),
   join(homedir(), '.cargo', 'credentials'),
+  '~/.pypirc',
+  '~/.netrc',
+  uvConfigPaths().credentials,
+  uvConfigPaths().configuration,
 ];
 const fixtureLines = readFileSync(fixturePath, 'utf8').split('\n');
 

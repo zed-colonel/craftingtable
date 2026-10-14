@@ -33,7 +33,7 @@ typed commands, never commands to run.
 | Delegated work | Authority from a recorded, rechecked owner or editor; pause and stop are commands | — | `apps/server/test/server-execution-roadmaps.test.ts`, `apps/server/test/server-execution-decision-preparation.test.ts` |
 | Untrusted input | Bounded parsers; ZIPs read in memory, never extracted; text rendered as text; reports validated | A valid report is still an assertion | `packages/planning/test/archive.test.ts`, `apps/server/test/server-package-imports.test.ts`, `apps/server/test/services/review-report.test.ts` |
 | Stored secrets | Credentials file outside the database, mode 0600; database and copies 0600; denied to sandboxed agents | The OS account's own trust | `apps/server/test/security/credential-file.test.ts`, `apps/server/test/notifications.test.ts` |
-| Outbound requests | Fixed HTTPS endpoints, no redirects, timeouts and size bounds | — | `apps/server/test/services/notification-transport.test.ts`, `apps/server/test/services/crate-checksums.test.ts` |
+| Outbound requests | Fixed HTTPS endpoints, no redirects, timeouts and size bounds | — | `apps/server/test/services/notification-transport.test.ts`, `apps/server/test/services/crate-checksums.test.ts`, `apps/server/test/services/pypi-wheels.test.ts` |
 | Installation storage | Installation access; validated, pinned roots; deletion only of what the daemon previewed | Concurrent host file-system changes | `apps/server/test/storage-management.test.ts` |
 
 ## Network and the browser origin
@@ -237,7 +237,8 @@ gets a profile of its own (`craftingtable-read-only`, below). Verified with Code
 runtime directory (the rootless Docker socket and the session bus), the system Docker socket,
 `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.docker`, `~/.config/gh`, `~/.git-credentials`, `~/.codex`,
 Claude Code's credentials file (for Codex, the whole of `~/.claude`), the registry tokens in the
-run's Cargo home, and the daemon's protected paths: the database directory (with its
+run's Cargo home, `~/.pypirc`, `~/.netrc`, uv's stored credentials and its user configuration
+(under the XDG data and configuration directories), and the daemon's protected paths: the database directory (with its
 pre-migration copies and process records), the default and the configured backup directories,
 and the settings directory with the credentials file. Claude's own file tools are denied the same
 list on every posture but `unrestricted` (which keeps only the daemon's protected paths), so a
@@ -249,11 +250,15 @@ a cycle stops as `agent-environment-unavailable`), naming the files.
 
 **Outside sources.** The only hosts a sandboxed command may reach beyond loopback, and the only
 caches it may write beside its worktree and run, are the operator's outside sources, named in
-`outside-sources.json` in the settings directory and read at start. The only kind is `cargo`:
+`outside-sources.json` in the settings directory and read at start. Two kinds exist. `cargo`:
 `index.crates.io` and `static.crates.io` (never the `crates.io` API, which publishes) and the
 `registry` and `git` caches of the daemon's own Cargo home, `<data>/cargo-home`, never the
-operator's `~/.cargo`. The daemon refuses to start when the file is invalid, lies where agents
-write, or would put a cache over its own files. Read-only runs get no sources; `unrestricted`
+operator's `~/.cargo`. `pypi` ([ADR-074](decisions/ADR-074-python-toolchains-and-pypi-wheels.md)):
+`pypi.org` and `files.pythonhosted.org` only (no extra host, so no mirror or second index, and
+never `upload.pypi.org`), writing one uv cache all agents share, `<data>/uv/cache`, which no
+check reads; it needs the Python profile, whose uv goes first on agents' PATH, with
+`UV_PYTHON` set to the profile's interpreter and Python downloads off. The daemon refuses to start
+when the file is invalid, lies where agents write, or would put a cache over its own files. Read-only runs get no sources; `unrestricted`
 runs are not limited by them. Each run's journal notes at launch what its commands may reach.
 Configuration is in [Agents on the workstation](operations.md#agents-on-the-workstation).
 
@@ -494,7 +499,7 @@ evidence it accepts is a current review.
 
 ## The daemon's outbound requests
 
-The daemon makes two kinds of request of its own:
+The daemon makes three kinds of request of its own:
 
 - **Pushover**, for notifications: only its fixed HTTPS endpoint, with redirects refused, a
   10-second timeout and a bounded response. A push carries project and item names, short
@@ -505,6 +510,12 @@ The daemon makes two kinds of request of its own:
   ([ADR-070](decisions/ADR-070-attention-items.md)).
 - **crates.io's index** (`https://index.crates.io/`), to verify the crates checks use: redirects
   refused, a timeout per request and at most 500 requests per ten-minute window.
+- **PyPI** (R-G17, [ADR-074](decisions/ADR-074-python-toolchains-and-pypi-wheels.md)), for the
+  wheels Python checks use: its JSON API (`https://pypi.org/pypi/<name>/<version>/json`) and the
+  files it names on `https://files.pythonhosted.org/` only, with redirects refused, timeouts, a
+  16 MiB answer and a 512 MiB file limit, at most 600 requests per ten-minute window, and a 20 GiB
+  store, least recently used first. A wheel is kept, under its SHA-256 in `<data>/pypi-wheels`,
+  only when its bytes match both PyPI's published digest and the adopted lock's hash.
 
 The agents' own CLIs reach their vendors as the operator's account does.
 

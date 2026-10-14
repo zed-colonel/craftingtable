@@ -23,6 +23,8 @@ backups/database/              database snapshots (the default backup root)
 check-logs/<runId>/            logs, clones and Cargo homes of the checks the daemon runs
 cargo-home/                    the agents' Cargo home (its registry and git caches)
 crates-io/                     what the daemon learned from crates.io's index
+uv/cache/                      the agents' shared uv cache, with the pypi outside source
+pypi-wheels/                   the wheels the daemon verified for Python checks, by SHA-256
 model-catalog/                 where Codex's catalog app-server runs
 git-identity.gitconfig         the operator's user.name and user.email, for daemon Git
 ```
@@ -291,12 +293,19 @@ They are read from `outside-sources.json` in the settings directory at start; ed
 { "version": 1, "sources": [{ "kind": "cargo", "extraHosts": ["mirror.example.org"] }] }
 ```
 
-- The only kind is `cargo`: `index.crates.io` and `static.crates.io` (what a sparse `cargo fetch`
-  reads, never the `crates.io` API), writing the `registry` and `git` caches of the agents' Cargo
-  home. `extraHosts` are exact lowercase names of at least three labels: no wildcard, address,
-  port or trailing dot.
+- `cargo`: `index.crates.io` and `static.crates.io` (what a sparse `cargo fetch` reads, never the
+  `crates.io` API), writing the `registry` and `git` caches of the agents' Cargo home.
+  `extraHosts` are exact lowercase names of at least three labels: no wildcard, address, port or
+  trailing dot.
+- `pypi` (R-G17): `pypi.org` and `files.pythonhosted.org`, writing the agents' shared uv cache,
+  `<data>/uv/cache`. It takes no `extraHosts` and needs the Python profile in `toolchains.json`
+  ([Checks](#checks)): agents get its uv first on PATH, `UV_PYTHON` set to its interpreter,
+  `UV_CACHE_DIR` set to the cache and `UV_PYTHON_DOWNLOADS=never`, so a sandboxed `uv sync`
+  resolves as checks do. Checks never read the cache: the daemon fetches and verifies the wheels
+  they use itself (security.md, *The daemon's outbound requests*).
 - No file means the `cargo` source. `"sources": []` means none: sandboxed commands reach no
-  network, and `cargo fetch` fails.
+  network, and `cargo fetch` and `uv sync` fail. For a Python project, add
+  `{ "kind": "pypi" }` beside `{ "kind": "cargo" }`.
 - An invalid file (bad JSON, an unknown key or kind, a bad host, not a regular file, over 64 KiB)
   or a cache that is a link or overlaps a daemon root stops the start, naming the problem.
 - Tools on the workstation shows the effective list; each run's journal notes at launch what its
@@ -611,6 +620,7 @@ Read by the test harness: `vitest.config.ts`, `playwright.config.ts`, `e2e/` and
 | `CRAFTINGTABLE_DEV_API_TARGET` | `http://127.0.0.1:${CRAFTINGTABLE_PORT:-4601}` | The Vite dev server's API proxy target (`apps/web/vite.config.ts`; the e2e run sets it). |
 | `CRAFTINGTABLE_MIGRATION_SNAPSHOT` | unset | A copied snapshot for the opt-in migration and resume tests; never a live database. |
 | `CRAFTINGTABLE_REAL_CLAUDE` | unset | `1` runs the sandbox test against the installed Claude Code. |
+| `CRAFTINGTABLE_REAL_PYPI` | unset | `1` runs the wheel store's and Python checks' tests against the real PyPI (`apps/server/test/services/pypi-wheels.test.ts`). |
 | `CRAFTINGTABLE_TEST_NO_NETNS` | unset | `1` declares that the host refuses unprivileged network namespaces, so the instance-lock test that needs one skips there instead of failing. |
 | `CRAFTINGTABLE_UPDATE_GOLDEN` | unset | `1` rewrites the planning format golden files. |
 | `UPDATE_ROUTE_INVENTORY` | unset | `1` rewrites `docs/api-routes.md` (`pnpm routes:inventory`). |

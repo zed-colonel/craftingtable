@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   createReadStream,
   lstatSync,
+  type Stats,
   mkdirSync,
   readdirSync,
   renameSync,
@@ -151,15 +152,24 @@ export class PypiWheelStore implements PythonWheelSource {
    * fetched again. Marks it used.
    */
   private async storedFile(path: string, sha256: string): Promise<boolean> {
+    let found: Stats | undefined;
     try {
-      if (!lstatSync(path).isFile()) throw new WheelProblem('not a file');
+      found = lstatSync(path);
+      if (!found.isFile()) throw new WheelProblem('not a file');
       if ((await fileDigest(path)) !== sha256) throw new WheelProblem('not its digest');
       const at = this.now() / 1000;
       utimesSync(path, at, at);
       return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-        rmSync(path, { recursive: true, force: true });
+    } catch {
+      // Removed only if it is still the file that was found: another check may have fetched a
+      // good copy into its place meanwhile (re-check N-3).
+      try {
+        const now = lstatSync(path);
+        if (found && now.ino === found.ino && now.dev === found.dev)
+          rmSync(path, { recursive: true, force: true });
+      } catch {
+        /* gone already */
+      }
       return false;
     }
   }
@@ -295,11 +305,12 @@ export class PypiWheelStore implements PythonWheelSource {
     const hash = createHash('sha256');
     const handle = await open(temporary, 'wx', 0o600);
     let received = 0;
+    let end: () => void = () => undefined;
     try {
       const reader = response.body.getReader();
       // A cancel or the time limit ends a read that hangs, as the request's own abort may not.
       const aborted = new Promise<never>((_, reject) => {
-        const end = () => {
+        end = () => {
           // Rejected first: cancelling settles a pending read at once, as if the file ended.
           reject(ended());
           void reader.cancel().catch(() => undefined);
@@ -325,6 +336,8 @@ export class PypiWheelStore implements PythonWheelSource {
       // On disk before the rename makes it the stored file.
       await handle.sync();
     } finally {
+      // Nothing of this download outlives it (re-check N-4).
+      stop.removeEventListener('abort', end);
       await handle.close();
     }
     if (stop.aborted) throw ended();
@@ -373,8 +386,9 @@ function fileDigest(path: string): Promise<string> {
 async function boundedText(response: Response, limit: number, stop: AbortSignal): Promise<string> {
   if (!response.body) return '';
   const reader = response.body.getReader();
+  let end: () => void = () => undefined;
   const stopped = new Promise<never>((_, reject) => {
-    const end = () => {
+    end = () => {
       reject(new WheelProblem('stopped'));
       void reader.cancel().catch(() => undefined);
     };
@@ -384,15 +398,20 @@ async function boundedText(response: Response, limit: number, stop: AbortSignal)
   stopped.catch(() => undefined);
   const chunks: Uint8Array[] = [];
   let received = 0;
-  for (;;) {
-    const { done, value } = await Promise.race([reader.read(), stopped]);
-    if (done) break;
-    received += value.byteLength;
-    if (received > limit) {
-      void reader.cancel().catch(() => undefined);
-      throw new WheelProblem(`PyPI's answer is larger than ${limit} bytes`);
+  try {
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), stopped]);
+      if (done) break;
+      received += value.byteLength;
+      if (received > limit) {
+        void reader.cancel().catch(() => undefined);
+        throw new WheelProblem(`PyPI's answer is larger than ${limit} bytes`);
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    // Nothing of this read outlives it (re-check N-4).
+    stop.removeEventListener('abort', end);
   }
   return Buffer.concat(chunks).toString('utf8');
 }

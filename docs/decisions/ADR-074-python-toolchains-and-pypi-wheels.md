@@ -29,8 +29,10 @@ files, held to the same rule, and the check units' caps.
   that root owns and no group or other user may write, with every directory above it the same
   and no link anywhere on the way; a Python interpreter's install too, checked before it first
   runs: its prefix, `lib/` and standard library directories, every entry of the standard library
-  at any depth, and the entries directly in `lib/` and `bin/`, with a link among them leading only
-  to a path that passes the rule (review L-2). Anything the operator's account can write could otherwise become a check's
+  at any depth, and the entries directly in `lib/`, `bin/` and the prefix itself (where CPython
+  reads a `pyvenv.cfg` even under `-I`), with a link among them leading only to a path that passes
+  the rule, or, for a link to nothing yet, into a directory only root could create it in (review
+  L-2 and its re-check). Anything the operator's account can write could otherwise become a check's
   privileged configuration, because agents run as that account. This is stricter than Rust's
   toolchain, which lives in the operator's `~/.rustup`.
 - **At start** the daemon validates the file, as it does `outside-sources.json`: it refuses to

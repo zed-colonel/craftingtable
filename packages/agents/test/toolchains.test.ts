@@ -287,6 +287,35 @@ describe("an interpreter's install, held to the rule before it runs (review L-2)
     expect(pythonInstallProblem(interpreter, stat)?.code).toMatch(/^(untrusted-owner|writable)$/);
   });
 
+  it("refuses an account's file directly in the prefix, such as a pyvenv.cfg CPython reads even under -I (re-check N-1)", () => {
+    const { prefix, interpreter } = install();
+    const config = join(prefix, 'pyvenv.cfg');
+    writeFileSync(config, 'home = /elsewhere/bin\n');
+    expect(pythonInstallProblem(interpreter, fakeStat({ [config]: { uid: 1000 } }))?.code).toBe(
+      'untrusted-owner',
+    );
+  });
+
+  it('refuses a neighbour of the interpreter in bin/ that the account owns (re-check N-5)', () => {
+    const { prefix, interpreter } = install();
+    const neighbour = join(prefix, 'bin', 'python3');
+    writeFileSync(neighbour, '');
+    expect(pythonInstallProblem(interpreter, fakeStat({ [neighbour]: { uid: 1000 } }))?.code).toBe(
+      'untrusted-owner',
+    );
+  });
+
+  it('refuses a link in the standard library to nothing yet, whose target the account could create (re-check N-2)', () => {
+    const { prefix, interpreter } = install();
+    const later = temporary();
+    symlinkSync(join(later, 'later.py'), join(prefix, 'lib', 'python3.12', 'later.py'));
+    expect(pythonInstallProblem(interpreter, fakeStat({ [later]: { uid: 1000 } }))?.code).toBe(
+      'untrusted-owner',
+    );
+    // Where only root could create it, as a package's leftover link in /usr/bin, it passes.
+    expect(pythonInstallProblem(interpreter, fakeStat({}))).toBeUndefined();
+  });
+
   it('refuses an interpreter with no standard library beside it', () => {
     const prefix = temporary();
     mkdirSync(join(prefix, 'bin'));
@@ -313,6 +342,28 @@ describe('identifyTool, with the rule satisfied (review L-2, T6)', () => {
     });
     expect(observed.problem?.code).toBe('untrusted-owner');
     expect(existsSync(marker)).toBe(false);
+  });
+
+  it('refuses an interpreter that reports loading from a directory the account owns (re-check T1)', async () => {
+    const prefix = temporary();
+    for (const directory of ['bin', 'lib/python3.12'])
+      mkdirSync(join(prefix, directory), { recursive: true });
+    const elsewhere = temporary();
+    const interpreter = join(prefix, 'bin', 'python3.12');
+    const facts = JSON.stringify({
+      version: '3.12.15',
+      platform: 'linux-x86_64',
+      libc: 'glibc 2.44',
+      prefix,
+      stdlib: elsewhere,
+      platstdlib: join(prefix, 'lib', 'python3.12'),
+    });
+    writeFileSync(interpreter, `#!/bin/sh\necho '${facts}'\n`, { mode: 0o755 });
+    const observed = await identifyTool('python', interpreter, {
+      stat: fakeStat({ [elsewhere]: { uid: 1000 } }),
+    });
+    expect(observed.problem?.code).toBe('untrusted-owner');
+    expect(observed.problem?.message).toContain(elsewhere);
   });
 
   it('probes with the fixed environment only, never the daemon’s own', async () => {

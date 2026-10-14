@@ -403,6 +403,23 @@ describe("the store's other guards, one test each (review L-4, L-5)", () => {
     expect(download).toEqual({ problem: expect.stringContaining('timed out after 200 ms') });
   });
 
+  it("gives up on PyPI's JSON answer when its body stalls (re-check N-5)", async () => {
+    const stalledBody = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"urls": ['));
+          },
+          pull: () => new Promise((resolve) => setTimeout(resolve, 60_000)),
+        }),
+      );
+    const result = await new PypiWheelStore(root(), {
+      fetch: stalledBody,
+      jsonTimeoutMs: 200,
+    }).wheel(request, never);
+    expect(result).toEqual({ problem: expect.stringContaining("timed out reading PyPI's answer") });
+  });
+
   it('never evicts the wheel it has just fetched, even past the budget', async () => {
     const at = root();
     const result = await new PypiWheelStore(at, { fetch: pypi().fetch, budgetBytes: 1 }).wheel(

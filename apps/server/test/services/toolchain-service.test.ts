@@ -172,3 +172,11 @@ it("records only the current profile's tools: a check of a run launched before a
   service.record([identity('uv', 'b'.repeat(64), '0.12.22')]);
   expect(service.status().tools.map((tool) => tool.path)).toEqual([python.uv.path]);
 });
+
+it('records no observation of a run whose manifest configured another version of the same path (re-check N-6)', () => {
+  const service = new ToolchainService(settings, async () => []);
+  service.record([{ ...identity('python', 'a'.repeat(64), '3.12.15'), configuredVersion: '3.11' }]);
+  expect(service.status().tools).toEqual([]);
+  service.record([identity('python', 'a'.repeat(64), '3.12.15')]);
+  expect(service.status().tools.map((tool) => tool.configuredVersion)).toEqual(['3.12']);
+});

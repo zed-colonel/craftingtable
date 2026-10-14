@@ -43,6 +43,16 @@ function profilePaths(profile: PythonToolchain | undefined): Map<ToolchainTool, 
   ]);
 }
 
+/** The version the profile configures, by tool: Python's and uv's; none for media. */
+function configuredVersions(profile: PythonToolchain | undefined): Map<ToolchainTool, string> {
+  return profile
+    ? new Map<ToolchainTool, string>([
+        ['python', profile.version],
+        ['uv', profile.uv.version],
+      ])
+    : new Map();
+}
+
 /** A tool's state in a few words, to say what changed. */
 function describe(observation: ToolObservation): string {
   if (observation.problem && !observation.identity)
@@ -95,8 +105,11 @@ export class ToolchainService {
   record(observations: readonly ToolObservation[]): void {
     const at = this.now().toISOString();
     const configured = profilePaths(this.settings.python);
+    const versions = configuredVersions(this.settings.python);
     for (const observation of observations) {
       if (configured.get(observation.tool)?.includes(observation.path) !== true) continue;
+      // The same path under another configured version is an older profile's (re-check N-6).
+      if (observation.configuredVersion !== versions.get(observation.tool)) continue;
       const key = `${observation.tool}\0${observation.path}`;
       const previous = this.tools.get(key);
       const to = describe(observation);

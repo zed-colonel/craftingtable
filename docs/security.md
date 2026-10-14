@@ -343,8 +343,9 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   ([ADR-074](decisions/ADR-074-python-toolchains-and-pypi-wheels.md)). Each must be a regular
   file that root owns and only root may write, every directory above it too, with no link on the
   way, because anything the operator's account can write, agents can; the interpreter's install
-  (its standard library at any depth, and the entries of its `lib/` and `bin/`) is held to the
-  same rule before the interpreter ever runs. The daemon refuses to start on a tool that breaks
+  (its standard library at any depth, and the entries of its `lib/`, its `bin/` and its prefix,
+  where a `pyvenv.cfg` would redirect it) is held to the same rule before the interpreter ever
+  runs. The daemon refuses to start on a tool that breaks
   the rule, probes each one with fixed arguments and no input, and every Python check reads each
   tool again, the media tools and fonts included: any problem with one (missing, no longer
   root-owned, writable by its group or others, a failed probe, a version that no longer fits)

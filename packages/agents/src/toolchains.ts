@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { constants, lstatSync, readdirSync, realpathSync, type Stats } from 'node:fs';
+import { constants, lstatSync, readdirSync, readlinkSync, realpathSync, type Stats } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize } from 'node:path';
+import { dirname, isAbsolute, join, normalize, resolve as pathResolve } from 'node:path';
 import type { ToolchainTool, ToolProblemCode } from '@craftingtable/domain';
 import { spawnSupervisedProcess } from './process.js';
 
@@ -159,6 +159,38 @@ export function trustedDirectoryProblem(
   return trustedPathProblem(normalize(path).replace(/\/+$/, '') || '/', 'directory', stat);
 }
 
+/**
+ * Why a link whose target does not exist cannot be trusted: the target's nearest existing
+ * directory, through its links, must pass the rule, so only root could create the target.
+ */
+function danglingLinkProblem(
+  link: string,
+  stat: (path: string) => Stats,
+  resolve: (path: string) => string,
+): ToolProblem | undefined {
+  let target: string;
+  try {
+    target = pathResolve(dirname(link), readlinkSync(link));
+  } catch {
+    return problem('linked', `${link} is a link that could not be read`);
+  }
+  for (let directory = dirname(target); ; directory = dirname(directory)) {
+    let real: string | undefined;
+    try {
+      real = resolve(directory);
+    } catch {
+      real = undefined;
+    }
+    if (real !== undefined) {
+      const found = trustedPathProblem(real, 'directory', stat);
+      return found
+        ? problem(found.code, `${link} leads to ${target}, which does not exist: ${found.message}`)
+        : undefined;
+    }
+    if (directory === '/') return problem('linked', `${link} leads nowhere`);
+  }
+}
+
 /** The most entries of an interpreter's install the rule walks. */
 const INSTALL_MAX_ENTRIES = 200_000;
 
@@ -167,9 +199,9 @@ const INSTALL_MAX_ENTRIES = 200_000;
  * interpreter ever runs: its prefix (the directory above its `bin/`), `<prefix>/lib` and each
  * standard library there (`<prefix>/lib/python3.X`, at least one) must pass the rule as
  * directories; every entry of a standard library, at any depth, and every entry directly in
- * `<prefix>/lib` and `<prefix>/bin` (the shared library, the interpreter's neighbours) must be
- * owned by root and writable by no group or other user, and a link among them must lead to a path
- * that passes the rule. Python imports what lies there, so a file the account could write would
+ * `<prefix>/lib`, `<prefix>/bin` (the shared library, the interpreter's neighbours) and the prefix
+ * itself (a `pyvenv.cfg`) must be owned by root and writable by no group or other user, and a link
+ * among them must lead to a path that exists and passes the rule. Python imports what lies there, so a file the account could write would
  * run in every check.
  */
 export function pythonInstallProblem(
@@ -213,7 +245,9 @@ export function pythonInstallProblem(
       try {
         target = resolve(path);
       } catch {
-        return undefined;
+        // A link to nothing yet: whoever may create its target decides what it loads, so the
+        // nearest directory of the target that exists must pass the rule (re-check N-2).
+        return danglingLinkProblem(path, stat, resolve);
       }
       return trustedPathProblem(target, 'any', stat);
     }
@@ -249,7 +283,8 @@ export function pythonInstallProblem(
     const found = walk(directory, true);
     if (found) return found;
   }
-  return walk(library, false) ?? walk(join(prefix, 'bin'), false);
+  // The prefix's own entries too: CPython reads a `pyvenv.cfg` there even under `-I` (re-check N-1).
+  return walk(library, false) ?? walk(join(prefix, 'bin'), false) ?? walk(prefix, false);
 }
 
 /** Whether `observed` fits `configured`, a dotted prefix: `3.12` takes 3.12.x, never 3.120. */

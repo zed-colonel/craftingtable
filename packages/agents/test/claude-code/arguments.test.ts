@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -288,7 +288,14 @@ it("keeps Git's redirect files and info/ read-only for sandboxed commands, so a 
   try {
     const common = join(root, 'repo', '.git');
     const own = join(common, 'worktrees', 'wt-1');
-    for (const directory of ['objects/info', 'info', 'worktrees/wt-1', 'worktrees/other'])
+    for (const directory of [
+      'objects/info',
+      'info',
+      'refs/heads',
+      'logs',
+      'worktrees/wt-1',
+      'worktrees/other',
+    ])
       mkdirSync(join(common, directory), { recursive: true });
     const settings = (request: Partial<Parameters<typeof claudeCodeArguments>[0]>) => {
       const args = claudeCodeArguments({
@@ -320,6 +327,79 @@ it("keeps Git's redirect files and info/ read-only for sandboxed commands, so a 
     // Without the daemon's directories, and without a sandbox, nothing is added.
     expect(settings({}).sandbox?.filesystem.denyWrite).toBeUndefined();
     expect(settings({ permissionMode: 'unrestricted', gitDirectories }).sandbox).toBeUndefined();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('keeps every entry of the common Git directory that exists at launch read-only but what a commit writes (R-G16, operator decision 2026-10-13)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-claude-git-'));
+  try {
+    const common = join(root, 'repo', '.git');
+    const own = join(common, 'worktrees', 'wt-1');
+    for (const directory of [
+      'objects/info',
+      'info',
+      'hooks',
+      'refs/heads',
+      'logs',
+      'rr-cache',
+      'branches',
+      'worktrees/wt-1',
+      'worktrees/other',
+    ])
+      mkdirSync(join(common, directory), { recursive: true });
+    // The primary checkout's own files: Claude Code binds the whole common directory itself, so
+    // today a sandboxed command could switch the operator's branch or rewrite packed refs.
+    for (const file of ['HEAD', 'config', 'packed-refs', 'index', 'description', 'MERGE_RR'])
+      writeFileSync(join(common, file), '');
+    for (const file of ['commondir', 'gitdir', 'HEAD', 'index']) writeFileSync(join(own, file), '');
+    const args = claudeCodeArguments({
+      cwd: '/work/x',
+      prompt: 'Go',
+      permissionMode: 'auto',
+      gitDirectories: { gitDirectory: own, gitCommonDirectory: common, worktreeConfig: false },
+    });
+    const denied = (
+      JSON.parse(args[args.indexOf('--settings') + 1]!) as {
+        sandbox: { filesystem: { denyWrite: string[] } };
+      }
+    ).sandbox.filesystem.denyWrite;
+    // Each existing entry is denied, once.
+    for (const entry of [
+      'HEAD',
+      'config',
+      'packed-refs',
+      'index',
+      'description',
+      'MERGE_RR',
+      'rr-cache',
+      'branches',
+      'hooks',
+      'info',
+    ])
+      expect(denied.filter((path) => path === join(common, entry))).toEqual([join(common, entry)]);
+    expect(new Set(denied).size).toBe(denied.length);
+    // Today's list stays, missing names included: the common directory's `commondir` (its
+    // placeholder fails closed) and `config.worktree`, `objects/info`, other entries, and the
+    // run's `commondir`, `gitdir` and `config.worktree`.
+    for (const path of [
+      join(common, 'commondir'),
+      join(common, 'config.worktree'),
+      join(common, 'objects', 'info'),
+      join(common, 'worktrees', 'other'),
+      join(own, 'commondir'),
+      join(own, 'gitdir'),
+      join(own, 'config.worktree'),
+    ])
+      expect(denied).toContain(path);
+    // What a commit, a rebase and a merge write stays writable: objects/, refs/, logs/ and the
+    // run's own entry; `worktrees/` itself is not denied.
+    for (const path of ['objects', 'refs', 'logs', 'worktrees', 'worktrees/wt-1'])
+      expect(denied).not.toContain(join(common, path));
+    // No other name missing at launch is denied: each would leave a placeholder (shallow stays
+    // as today).
+    expect(denied).not.toContain(join(common, 'shallow'));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

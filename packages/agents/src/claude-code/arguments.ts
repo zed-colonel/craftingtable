@@ -77,36 +77,56 @@ export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
   return launchOutsideSources(request).flatMap((source) => source.caches);
 }
 
+/** What a commit, a rebase or a merge in a linked worktree writes in the common directory. */
+const GIT_COMMIT_WRITES = new Set(['objects', 'refs', 'logs', 'worktrees']);
+
+/** A directory's entries, or none when it cannot be listed. */
+function entriesOf(directory: string): string[] {
+  try {
+    return readdirSync(directory).sort();
+  } catch {
+    return [];
+  }
+}
+
 /**
- * What sandboxed commands may not write in the repository's Git directory (R-G14 review
- * MEDIUM-1, operator decision 2026-10-08). Claude Code lets them write it, so a run can commit,
- * except `config` and `hooks/`; these keep the rest of what says where the repository and its
- * configuration are read-only, existing or not (Claude Code stops a denied path's creation, and
- * leaves an empty placeholder for a missing `config.worktree`): `info/` (whose `attributes`
- * could pick a merge driver for the daemon's merges), the common directory's `commondir`,
- * `config.worktree` and `objects/info` (alternates), every other worktree's entry, and the run's
- * own `commondir`, `gitdir` and `config.worktree`. `worktrees/` as a whole cannot be denied: the
- * run's own entry, which a commit writes, lies in it, and a deny would win.
+ * What sandboxed commands may not write in the repository's Git directory. Claude Code binds a
+ * linked worktree's whole common directory writable itself, and mounts denies after allows, so
+ * a deny on the common directory would make every allow under it read-only too; Codex's narrower
+ * grant cannot be expressed (R-G16, verified on Claude Code 2.1.288). So, beside Claude Code's own
+ * `config` and `hooks/`:
+ * - every entry of the common directory that exists at launch, but `objects/`, `refs/`, `logs/`
+ *   and `worktrees/` (R-G16, operator decision 2026-10-13): the primary checkout's `HEAD`,
+ *   `index` and `packed-refs`, `info/` (whose `attributes` could pick a merge driver for the
+ *   daemon's merges), `rr-cache/` and the rest;
+ * - what says where the repository and its configuration are, existing or not (R-G14 review
+ *   MEDIUM-1, operator decision 2026-10-08): the common directory's `commondir`,
+ *   `config.worktree` and `objects/info` (alternates), every other worktree's entry, and the
+ *   run's own `commondir`, `gitdir` and `config.worktree`. Claude Code creates the
+ *   `config.worktree` files empty itself before it mounts; a missing `commondir` is held by an
+ *   empty placeholder while a command runs, which Git and the daemon's clone refuse to follow
+ *   (known limit, operator decision 2026-10-13). No other name missing at launch is denied.
+ * `worktrees/` as a whole cannot be denied: the run's own entry, which a commit writes, lies in
+ * it, and a deny would win.
  */
 function gitDeniedWrites(git: NonNullable<AgentLaunchRequest['gitDirectories']>): string[] {
   const common = git.gitCommonDirectory;
-  let entries: string[] = [];
-  try {
-    entries = readdirSync(join(common, 'worktrees'));
-  } catch {
-    // No other worktree.
-  }
   return [
-    join(common, 'info'),
-    join(common, 'commondir'),
-    join(common, 'config.worktree'),
-    join(common, 'objects', 'info'),
-    ...entries
-      .map((entry) => join(common, 'worktrees', entry))
-      .filter((entry) => entry !== git.gitDirectory),
-    join(git.gitDirectory, 'commondir'),
-    join(git.gitDirectory, 'gitdir'),
-    join(git.gitDirectory, 'config.worktree'),
+    ...new Set([
+      ...entriesOf(common)
+        .filter((entry) => !GIT_COMMIT_WRITES.has(entry))
+        .map((entry) => join(common, entry)),
+      join(common, 'info'),
+      join(common, 'commondir'),
+      join(common, 'config.worktree'),
+      join(common, 'objects', 'info'),
+      ...entriesOf(join(common, 'worktrees'))
+        .map((entry) => join(common, 'worktrees', entry))
+        .filter((entry) => entry !== git.gitDirectory),
+      join(git.gitDirectory, 'commondir'),
+      join(git.gitDirectory, 'gitdir'),
+      join(git.gitDirectory, 'config.worktree'),
+    ]),
   ];
 }
 

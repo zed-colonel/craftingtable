@@ -207,9 +207,12 @@ write the worktree, the run's directories, its scratch space, the outside source
 directories the daemon adds for the run (`additionalDirectories`: the previous run's directory, a
 historical baseline's Cargo home, a pinned local-CI cache root, the worktree's shared Cargo
 target). In
-the repository's Git directory they may write what a commit needs, except `config`, `hooks/`,
-`info/`, the common directory's `commondir`, `config.worktree` and `objects/info`, every other
-worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`, existing or not.
+the repository's Git directory they may write what a commit, a rebase or a merge needs: Claude
+Code grants the whole common directory itself, and the adapter keeps read-only every entry of it
+that exists at launch but `objects/`, `refs/`, `logs/` and `worktrees/` (the primary checkout's
+`HEAD`, `index` and `packed-refs`, `config`, `hooks/`, `info/`, `rr-cache/` and the rest), and,
+existing or not, the common directory's `commondir`, `config.worktree` and `objects/info`, every
+other worktree's entry, and the run's own `commondir`, `gitdir` and `config.worktree`.
 They may listen on local ports and reach no host but the outside sources' hosts, a strict
 allowlist. Claude's own file tools are not commands: permission rules deny them reads and edits of
 the same list its commands are denied (below), each path itself and everything under it;
@@ -516,6 +519,11 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Claude Code's own tools** are not sandboxed commands. Its file tools are held by permission
   rules (the denied-reads list, or on `unrestricted` the daemon's protected paths, then the
   posture's checks), not by the OS sandbox; WebFetch and WebSearch reach any host.
+- **Claude's Git placeholder.** Claude Code 2.1.288 holds a denied path that does not exist with
+  an empty placeholder while a sandboxed command runs, and the common directory's `commondir`
+  is one. While it exists, Git in the primary checkout and the daemon's checks on a clone of the
+  reviewed commit refuse ("failed to read .git/commondir"): they fail closed, and nothing is
+  redirected. A refused check can be run again.
 - **External Git.** The daemon's guards serialize its own Git work. A person or tool running Git
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;
   check it before running Git there by hand. External changes are detected by commit and

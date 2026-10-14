@@ -442,6 +442,38 @@ describe('restart drain and automatic resume (R-B9)', () => {
     }
   }, 60_000);
 
+  it('interrupts at once on a second stop signal, and each signal waits for the stop to finish', async () => {
+    const f = await createCycleFixture({ env: { CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '600' } });
+    const started = await startLiveCycle(f);
+    const interruptedId = storedCycle(f, started.id).currentRunId as string;
+    let released = false;
+    const stop = daemonStop({
+      runtime: f.context.daemon,
+      lock: {
+        release: async () => {
+          released = true;
+        },
+      },
+    });
+
+    const first = stop('SIGTERM');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(f.context.services.agentRunService.busyRunCount()).toBe(1);
+    const signalledAt = Date.now();
+    await stop('SIGINT');
+    expect(Date.now() - signalledAt).toBeLessThan(10_000);
+    expect(released).toBe(true);
+    await first;
+    const storage = openDaemonStorage(f.context.config.databasePath);
+    try {
+      expect(storage.execution.runs.find(f.workspaceId, interruptedId as never)?.status).toBe(
+        'interrupted',
+      );
+    } finally {
+      storage.close();
+    }
+  }, 30_000);
+
   it('asks to be restarted when a deploy drained it and no restart followed', async () => {
     const f = await fixture();
     await startLiveCycle(f);

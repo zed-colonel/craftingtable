@@ -86,13 +86,14 @@ const GIT_COMMIT_WRITES = new Set(['objects', 'refs', 'reftable', 'logs', 'workt
 /**
  * Names Git creates and removes on its own in the common directory: the primary checkout's state
  * of an operation in progress (Git 2.55's names, as R-G16 review M-2 listed them from its source,
- * less `ORIG_HEAD`, which stays), rerere's `MERGE_RR`, locks and `git gc`'s files. One present at
+ * less `ORIG_HEAD`, which stays), rerere's `MERGE_RR`, locks, `git gc`'s files, Git's editor
+ * scratch files, a stash's temporary index, fsmonitor's socket and `shallow`. One present at
  * launch may be gone before a later command, and Claude Code would then hold the deny with an
  * empty placeholder, which Git reads as a lock or an operation in progress (R-G19 review
  * MEDIUM-1), so none is denied.
  */
 const TRANSIENT_GIT_STATE =
-  /^(?:rebase-merge|rebase-apply|sequencer|MERGE_HEAD|MERGE_MSG|MERGE_MODE|MERGE_RR|MERGE_AUTOSTASH|AUTO_MERGE|CHERRY_PICK_HEAD|REVERT_HEAD|REBASE_HEAD|SQUASH_MSG|CHECKOUT_AUTOSTASH_HEAD|BISECT_\w+|NOTES_MERGE_\w+|gc\.pid|gc\.log|.*\.lock)$/;
+  /^(?:rebase-merge|rebase-apply|sequencer|MERGE_HEAD|MERGE_MSG|MERGE_MODE|MERGE_RR|MERGE_AUTOSTASH|AUTO_MERGE|CHERRY_PICK_HEAD|REVERT_HEAD|REBASE_HEAD|SQUASH_MSG|CHECKOUT_AUTOSTASH_HEAD|BISECT_\w+|NOTES_MERGE_\w+|gc\.pid|gc\.log|TAG_EDITMSG|NOTES_EDITMSG|EDIT_DESCRIPTION|ADD_EDIT\.patch|addp-hunk-edit\.diff|index\.stash\.\d+|fsmonitor--daemon\.ipc|shallow|.*\.lock)$/;
 
 /** Whether a path is a directory (a worktree's entry is one), not following a link. */
 function isDirectory(path: string): boolean {

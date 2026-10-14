@@ -154,3 +154,25 @@ it('refuses, by name, a resolver option it does not know or a value it cannot pa
     expect('problem' in result && result.problem, JSON.stringify(options)).toContain(named);
   }
 });
+
+it('passes a relative or opted-out per-package exclude-newer as uv records it (R-G19 re-check R-1)', () => {
+  expect(
+    lockOptionArguments({
+      'exclude-newer-package': {
+        fxdep: { timestamp: '0001-01-01T00:00:00Z', span: 'P1W' },
+        other: false,
+        dated: '2026-01-01T00:00:00Z',
+      },
+    }),
+  ).toEqual({
+    arguments: [
+      '--exclude-newer-package=fxdep=P1W',
+      '--exclude-newer-package=other=false',
+      '--exclude-newer-package=dated=2026-01-01T00:00:00Z',
+    ],
+  });
+  for (const value of [true, { span: 'soon' }, { timestamp: '2026-01-01T00:00:00Z' }, 3])
+    expect(lockOptionArguments({ 'exclude-newer-package': { fxdep: value } })).toEqual({
+      problem: expect.stringContaining('exclude-newer-package'),
+    });
+});

@@ -364,32 +364,33 @@ exclusively. See [ADR-053](decisions/ADR-053-scoped-verification-and-local-ci.md
   tool again, the media tools and fonts included: any problem with one (missing, no longer
   root-owned, writable by its group or others, a failed probe, a version that no longer fits)
   refuses the check, and the identities it ran with go into its receipt.
-- **Python checks** ([ADR-076](decisions/ADR-076-python-checks-install-with-uv-sync.md)). An
-  adopted check of a reviewed commit with a root `uv.lock` runs in a fresh venv built for it
-  alone, in its private directory. The lock is read with the profile's interpreter in a unit with
-  no network, and refused by name when it names anything but PyPI and the tree: a Git or URL
-  source, another registry, a PyPI file off `files.pythonhosted.org` or without a SHA-256, a path
-  outside the repository. Then an install step runs `uv sync --locked` with the profile's
-  interpreter, no configuration and no Python downloads, in a unit that has the network, writes
-  only the check's Python directory, the clone and uv's cache for checks (`<data>/uv/checks`,
-  which no agent writes), and sees nothing else agents write, no Docker socket and nothing of the
-  user's runtime directory. uv refuses a lock that no longer matches the project and checks every
-  file against the lock's hashes; it builds the project (its console scripts included) and any
-  source distribution there. The install passes uv the resolver options the lock records
-  (`exclude-newer`, `resolution`, `prerelease`, `fork-strategy`), which `UV_NO_CONFIG` would
-  otherwise drop, and refuses one it cannot pass by name. Build requirements are not in the lock:
-  uv resolves them at install time, from PyPI unless the project's `[build-system] requires`
-  names a direct URL or its `tool.uv.sources` names another source for one, which uv follows,
-  unhashed. The check itself then runs with no network, the venv first on PATH and read-only, uv
-  offline and frozen, and no Python or uv setting inherited; it never reads the agents' uv cache
-  or reuses a venv. Its receipt names the tools, the profile and the lock. Python environment and
-  tool configuration files (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, pytest's
-  `pytest.ini`, `.pytest.ini`, `pytest.toml` and `.pytest.toml`, `.coveragerc`, `tox.ini`,
-  `setup.cfg`, Ruff's and mypy's) are held like Cargo's: every adopted check must name each one
-  its commit tracks, at any depth, and a check is refused when its tree has one it was not adopted
-  with. The tests, `conftest.py`, build scripts and the rest of the tree's code stay the
-  reviewer's: under `python -m` the tree comes first on `sys.path`, so a module there can stand in
-  for the runner or a locked package, and a `*.dist-info` there can register a pytest plugin.
+- **Python checks** ([ADR-076](decisions/ADR-076-python-checks-install-with-uv-sync.md)). An adopted
+  check of a reviewed commit with a root `uv.lock` runs in a fresh venv built for it alone, in its
+  private directory. The lock is read with the profile's interpreter in a unit with no network, and
+  refused by name when it names anything but PyPI and the tree: a Git or URL source, another
+  registry, a PyPI file off `files.pythonhosted.org` or without a SHA-256, a path outside the
+  repository. Then an install step runs `uv sync --locked` with the profile's interpreter, no
+  configuration and no Python downloads, in a unit that has the network, writes only the check's
+  Python directory, the clone and uv's cache for checks (`<data>/uv/checks`, which no agent writes),
+  and sees nothing else agents write, no Docker socket and nothing of the user's runtime directory.
+  uv refuses a lock that no longer matches the project and checks every file against the lock's
+  hashes; it builds the project (its console scripts included) and any source distribution there.
+  The install passes uv the resolver options the lock records (`exclude-newer` and
+  `exclude-newer-package`, `resolution`, `prerelease`, `fork-strategy`), which `UV_NO_CONFIG` would
+  otherwise drop, and refuses one it cannot pass by name. Build requirements are not in the lock: uv
+  resolves them at install time, from PyPI unless the project's or a source distribution's
+  `[build-system] requires` names a direct URL, or the project's `tool.uv.sources` names another
+  source for one, which uv follows, unhashed. The check itself then runs with no network, the venv
+  first on PATH and read-only, uv offline and frozen, and no Python or uv setting inherited; it
+  never reads the agents' uv cache or reuses a venv. Its receipt names the tools, the profile and
+  the lock. Python environment and tool configuration files (`pyproject.toml`, `uv.lock`, `uv.toml`,
+  `.python-version`, pytest's `pytest.ini`, `.pytest.ini`, `pytest.toml` and `.pytest.toml`,
+  `.coveragerc`, `tox.ini`, `setup.cfg`, Ruff's and mypy's) are held like Cargo's: every adopted
+  check must name each one its commit tracks, at any depth, and a check is refused when its tree has
+  one it was not adopted with. The tests, `conftest.py`, build scripts and the rest of the tree's
+  code stay the reviewer's: under `python -m` the tree comes first on `sys.path`, so a module there
+  can stand in for the runner or a locked package, and a `*.dist-info` there can register a pytest
+  plugin.
 - **Adopted checks.** Checks are adopted only by a person: an owner or editor on the Repositories
   page, from `.craftingtable/checks.json` read by the daemon's Git at an exact commit. A slice
   that changes a definition file is merged only by a person who approves the definitions with
@@ -586,17 +587,18 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
 - **Claude Code's placeholders.** Claude Code 2.1.288 makes empty `config.worktree` files in the
   common directory and each worktree entry when it starts, holds its own deny of a missing
   `config.lock` with an empty file while a sandboxed command runs, and holds any denied path that
-  has gone missing since launch the same way. The adapter denies no name missing at launch and
-  none of Git's transient names (R-G19), so Git in the primary checkout works while agents run
-  commands. One case remains, accepted: another worktree's entry the daemon removes while a Claude
-  run lives gets an empty placeholder file during that run's later commands, which Git ignores and
-  `git worktree prune` removes.
+  has gone missing since launch the same way. The adapter denies no name missing at launch and none
+  of Git's transient names (R-G19), so Git in the primary checkout works while agents run commands,
+  but for writes to its configuration (`git config`, `git push -u`, `git branch -u`), which Claude
+  Code's own `config.lock` refuses meanwhile. One case remains, accepted: another worktree's entry
+  the daemon removes while a Claude run lives gets an empty placeholder file during that run's later
+  commands, which Git ignores and `git worktree prune` removes.
 - **A Python install's network (accepted, ADR-076).** A check's install step has the network,
   because a systemd user unit cannot narrow it to PyPI's hosts. uv fetches the lock's packages only
-  from PyPI and the tree, and build requirements from PyPI unless the project names a direct URL
-  or another source for one; a build it runs (the project's build backend, a `setup.py`, a source
-  distribution's) can reach any host, as it can in an agent's own `uv sync`. The check itself has
-  no network.
+  from PyPI and the tree, and build requirements from PyPI unless the project or a source
+  distribution names a direct URL or another source for one; a build it runs (the project's build
+  backend, a `setup.py`, a source distribution's) can reach any host, as it can in an agent's own
+  `uv sync`. The check itself has no network.
 - **Git state an agent can plant (accepted, ADR-075).** Agents share the checkout's Git
   directory: Claude Code binds a linked worktree's whole common directory writable, and both
   agents' commits write `refs/`, `objects/` and `logs/`. An agent deliberately working against the

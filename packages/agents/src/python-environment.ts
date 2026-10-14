@@ -94,7 +94,9 @@ const LOCK_READER = [
   '                "wheels": [file(w) for w in p.get("wheels", []) if isinstance(w, dict)],',
   '                "sdist": file(sdist) if isinstance(sdist, dict) else None})',
   'options = lock.get("options")',
-  'print(json.dumps({"packages": out, "options": options if isinstance(options, dict) else {}}, default=str))',
+  'manifest = lock.get("manifest") if isinstance(lock.get("manifest"), dict) else {}',
+  'print(json.dumps({"packages": out, "options": options if isinstance(options, dict) else {},',
+  '                  "dependencyMetadata": bool(manifest.get("dependency-metadata"))}, default=str))',
 ].join('\n');
 
 /** Variables a check of a Python project may never inherit: they choose code or its sources. */
@@ -103,6 +105,7 @@ const INHERITED = /^(PYTHON|UV_|PIP_|VIRTUAL_ENV$|CONDA|PYENV|PDM_|POETRY_)/;
 function readLock(stdout: string): {
   readonly packages: LockedPackage[];
   readonly options: LockOptions;
+  readonly dependencyMetadata: boolean;
 } {
   let parsed: unknown;
   try {
@@ -110,7 +113,11 @@ function readLock(stdout: string): {
   } catch {
     throw new Error('The uv.lock could not be read as a uv lock.');
   }
-  const read = parsed as { packages?: unknown; options?: unknown } | null;
+  const read = parsed as {
+    packages?: unknown;
+    options?: unknown;
+    dependencyMetadata?: unknown;
+  } | null;
   if (!read || !Array.isArray(read.packages) || typeof read.options !== 'object' || !read.options)
     throw new Error('The uv.lock could not be read as a uv lock.');
   const file = (entry: Record<string, unknown>) => ({
@@ -129,6 +136,7 @@ function readLock(stdout: string): {
         : {}),
     })),
     options: read.options as LockOptions,
+    dependencyMetadata: read.dependencyMetadata === true,
   };
 }
 
@@ -193,6 +201,11 @@ export async function preparePythonEnvironment(
   // The resolver options the lock was made with, which `UV_NO_CONFIG` would otherwise drop.
   const options = lockOptionArguments(lock.options);
   if ('problem' in options) throw new Error(`${options.problem}.`);
+  // Recorded from `[tool.uv] dependency-metadata`, which no flag carries (re-check R-2).
+  if (lock.dependencyMetadata)
+    throw new Error(
+      "uv.lock records dependency-metadata from the project's uv settings, which Python checks cannot pass to uv.",
+    );
 
   // The install: uv checks every file against the lock's hashes and builds what needs building
   // (the project, source distributions), with the profile's interpreter, no configuration of the

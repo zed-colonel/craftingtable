@@ -392,33 +392,36 @@ previous daemon left.
     Every Python check reads them again: a tool that is missing, no longer root-owned, writable by
     others or no longer fits its version refuses the check, naming it; an update that still fits
     is recorded there and in the receipt, and needs no restart.
-- **Python checks** (R-G17, R-G19; [ADR-076](decisions/ADR-076-python-checks-install-with-uv-sync.md)).
-  With the profile configured, an adopted check of a commit with a root `uv.lock` runs in a fresh
-  venv that an install step builds first with `uv sync --locked`, from PyPI, with the network;
-  the check itself then runs offline. uv's cache for these installs is `<data>/uv/checks`; it grows
-  with every check (each builds its project anew), and the daemon empties it at each start. A
-  daemon from before R-G19 left `<data>/pypi-wheels/`, which nothing reads; delete it. For a
-  repository to adopt such checks, its `.craftingtable/checks.json` must:
+- **Python checks** (R-G17, R-G19;
+  [ADR-076](decisions/ADR-076-python-checks-install-with-uv-sync.md)). With the profile configured,
+  an adopted check of a commit with a root `uv.lock` runs in a fresh venv that an install step
+  builds first with `uv sync --locked`, from PyPI, with the network; the check itself then runs
+  offline. uv's cache for these installs is `<data>/uv/checks`; it grows with every check (each
+  builds its project anew), and the daemon empties it at each start. A daemon from before R-G19 left
+  `<data>/pypi-wheels/`, which nothing reads; delete it. For a repository to adopt such checks, its
+  `.craftingtable/checks.json` must:
   - list, in every check's `definitionPaths`, each Python environment file the commit tracks at
     any depth (`pyproject.toml`, `uv.lock`, `uv.toml`, `.python-version`, `pytest.ini`,
     `.pytest.ini`, `pytest.toml`, `.pytest.toml`, `.coveragerc`, `tox.ini`, `setup.cfg`,
     `ruff.toml`, `.ruff.toml`, `mypy.ini`, `.mypy.ini`), as well as Cargo's files where it has
     them; at most 50 paths per check;
   - run its tools as the agents do: the install puts the project's console scripts and its
-    dependencies' on PATH (`pytest`, the project's own commands), and `python -m …`, scripts and `uv run …`
-    (offline, never syncing) work too.
+    dependencies' on PATH (`pytest`, the project's own commands), and `python -m …`, scripts and `uv
+    run …` (offline, never syncing) work too.
 
   The project may be packaged (its build backend, from PyPI or uv's own `uv_build`, runs in the
-  install; console scripts are installed) or virtual (`tool.uv.package = false`). The lock may
-  name PyPI packages, with wheels or only a source distribution (built in the install), the
-  project itself, workspace members and paths inside the repository; a Git, URL or other-index
-  source, or a path outside the repository, is refused by name. The install ignores the project's
-  uv settings (`UV_NO_CONFIG`) but passes uv the resolver options the lock records
-  (`exclude-newer`, `resolution`, `prerelease`, `fork-strategy`), and takes uv's default groups
-  (`dev`, or the project's `tool.uv.default-groups`), not extras. Its `PATH` is `/usr/bin:/bin`,
-  so a source distribution whose build needs another tool (rustup's Cargo, Go) fails there. Changing a listed file,
-  `uv.lock` included, stops the slice as `check-definition-changed` until the checks are adopted
-  again. Agents should `uv sync` first; their brief says so.
+  install; console scripts are installed) or virtual (`tool.uv.package = false`). The lock may name
+  PyPI packages, with wheels or only a source distribution (built in the install), the project
+  itself, workspace members and paths inside the repository; a Git, URL or other-index source, or a
+  path outside the repository, is refused by name. The install ignores the project's uv settings
+  (`UV_NO_CONFIG`) but passes uv the resolver options the lock records (`exclude-newer` and
+  `exclude-newer-package`, `resolution`, `prerelease`, `fork-strategy`); `no-sources` and
+  `dependency-metadata` are not supported (the first is recorded nowhere, the second is refused by
+  name). It takes uv's default groups (`dev`, or the project's `tool.uv.default-groups`), not
+  extras. Its `PATH` is `/usr/bin:/bin`, so a source distribution whose build needs another tool
+  (rustup's Cargo, Go) fails there. Changing a listed file, `uv.lock` included, stops the slice as
+  `check-definition-changed` until the checks are adopted again. Agents should `uv sync` first;
+  their brief says so.
 - **Local CI** (`ct-act`) needs `CRAFTINGTABLE_ACT_CONFIG`, a private JSON file naming act, Docker,
   a local Docker socket, a cache root and an image pinned by digest; see
   [`scripts/local-ci/README.md`](../scripts/local-ci/README.md). **Native verification** and Kata
@@ -544,19 +547,19 @@ signal interrupts live turns at once. After a clean stop the next start resumes 
 its own: running roadmaps and cycles continue, and each interrupted step resumes its vendor session
 in the same worktree with its original agent, permissions, guidance and deadline.
 
-After a crash, a stop that did not finish draining, a step whose agent never reported a session,
-or a resume that fails, the work waits for an explicit Resume: the next start ends any process
-group its own record proves was a live run's, marks those runs `interrupted`, and the cycle or
-roadmap needs attention. Worktrees survive restarts. A daemon Git command refused with
+After a crash, a stop that did not finish draining, a step whose agent never reported a session, or
+a resume that fails, the work waits for an explicit Resume: the next start ends any process group
+its own record proves was a live run's, marks those runs `interrupted`, and the cycle or roadmap
+needs attention. Worktrees survive restarts. A daemon Git command refused with
 `untrusted-git-directory` in a managed run's worktree or repository most often means the run's Git
-directory holds a non-empty `config.worktree`, which Git never writes there: inspect it, then
-empty it to go on ([security.md](security.md#the-daemons-own-git)). A Claude run killed while one of its
-commands ran can leave Claude Code's own empty `config.lock` in the repository's Git directory
-(`git config` there then fails with "could not lock config file"); before R-G19 it could also leave
-an empty `commondir` (Git in the primary checkout then fails with "failed to read
-.git/commondir"). With no Claude run live in that repository, delete an empty `config.lock` or `commondir`
-([security.md](security.md#known-limits)). Removing a worktree whose
-directory was deleted by hand prunes it from Git's metadata and marks it removed.
+directory holds a non-empty `config.worktree`, which Git never writes there: inspect it, then empty
+it to go on ([security.md](security.md#the-daemons-own-git)). A Claude run killed while one of its
+commands ran can leave Claude Code's own empty `config.lock` in the repository's Git directory (`git
+config` there then fails with "could not lock config file"); before R-G19 it could also leave an
+empty `commondir` (Git in the primary checkout then fails with "failed to read .git/commondir").
+With no Claude run live in that repository, delete an empty `config.lock` or `commondir`
+([security.md](security.md#known-limits)). Removing a worktree whose directory was deleted by hand
+prunes it from Git's metadata and marks it removed.
 
 ## Forgotten password
 

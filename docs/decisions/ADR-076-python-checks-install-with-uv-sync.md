@@ -33,17 +33,18 @@ ADR-074):
 - **The install** runs `uv sync --locked --python <profile>` in the reviewed clone, into a fresh
   venv in the check's private directory (`UV_PROJECT_ENVIRONMENT`), with no configuration of the
   tree's or the operator's (`UV_NO_CONFIG`) but the resolver options the lock records
-  (`exclude-newer`, `resolution`, `prerelease`, `fork-strategy`), passed as flags so that the lock
-  still matches (one it cannot pass is refused by name), no Python downloads, copies rather than
-  links into the venv, and a fixed environment. uv refuses a lock that no longer matches the project and checks
-  every file against the lock's hashes; it builds what needs building (the project with its build
-  backend, source distributions), so the project's console scripts exist. It runs in its own
-  systemd unit with the network, which may write the check's Python directory, the clone (a build
-  in the tree) and uv's cache, and sees nothing else of what agents write, no Docker socket and
-  nothing of the user's runtime directory, within what is left of the check's time limit.
-- **uv's cache for installs is the daemon's own,** `<data>/uv/checks`, shared by checks and
-  written by no agent: not the agents' `<data>/uv/cache`, which their venvs may link into. The
-  daemon empties it at each start, before any check runs.
+  (`exclude-newer` and `exclude-newer-package`, `resolution`, `prerelease`, `fork-strategy`), passed
+  as flags so that the lock still matches (one it cannot pass is refused by name), no Python
+  downloads, copies rather than links into the venv, and a fixed environment. uv refuses a lock that
+  no longer matches the project and checks every file against the lock's hashes; it builds what
+  needs building (the project with its build backend, source distributions), so the project's
+  console scripts exist. It runs in its own systemd unit with the network, which may write the
+  check's Python directory, the clone (a build in the tree) and uv's cache, and sees nothing else of
+  what agents write, no Docker socket and nothing of the user's runtime directory, within what is
+  left of the check's time limit.
+- **uv's cache for installs is the daemon's own,** `<data>/uv/checks`, shared by checks and written
+  by no agent: not the agents' `<data>/uv/cache`, which their venvs may link into. The daemon
+  empties it at each start, before any check runs.
 - **The check then runs as before:** offline, in a unit with no network, with the venv first on
   PATH and read-only, uv offline, frozen and not syncing, and no Python or uv setting inherited.
   The venv is removed when the check ends; none is reused.
@@ -53,16 +54,16 @@ ADR-074):
   `uv.lock` and `pyproject.toml` included, and a change to one is `check-definition-changed`.
 
 **The install's network is not narrowed to PyPI's hosts.** A systemd user manager does not enforce
-`IPAddressAllow`/`IPAddressDeny` ("unit configures an IP firewall, but not running as root";
-checked 2026-10-14: a unit with `IPAddressDeny=any` reached `example.com`), and PyPI's hosts are a
-CDN's addresses in any case. Narrowing it would take a proxy of the daemon's own, bridged into a
-private network namespace, which is more than a simple mechanism, so ADR-075's fallback applies:
-the install step alone has the network. uv fetches the lock's packages only from PyPI and the
-tree, because the lock is refused otherwise and no configuration points it elsewhere; build
-requirements come from PyPI unless the project's `[build-system] requires` names a direct URL or
+`IPAddressAllow`/`IPAddressDeny` ("unit configures an IP firewall, but not running as root"; checked
+2026-10-14: a unit with `IPAddressDeny=any` reached `example.com`), and PyPI's hosts are a CDN's
+addresses in any case. Narrowing it would take a proxy of the daemon's own, bridged into a private
+network namespace, which is more than a simple mechanism, so ADR-075's fallback applies: the install
+step alone has the network. uv fetches the lock's packages only from PyPI and the tree, because the
+lock is refused otherwise and no configuration points it elsewhere; build requirements come from
+PyPI unless the project's or a source distribution's `[build-system] requires` names a direct URL or
 its `tool.uv.sources` names another source for one, which uv follows (R-G19 review MEDIUM-2); and a
-build the install runs (a `setup.py`, a build backend) can reach any host, as it can in the
-agent's own `uv sync`.
+build the install runs (a `setup.py`, a build backend) can reach any host, as it can in the agent's
+own `uv sync`.
 
 **The daemon's wheel store is retired,** and with it its outbound request: the daemon's own
 requests are Pushover and crates.io's index again.
@@ -74,8 +75,10 @@ requests are Pushover and crates.io's index again.
 - What a check's environment guarantees: the root-owned interpreter and uv, the adopted lock, and
   that each locked file from PyPI matched the lock's hash. Build requirements (`[build-system]
   requires`) are not in `uv.lock` and are not hashed: uv resolves them at install time, by its own
-  rules, from PyPI or from a source the project names for them. What a build runs is the tree's
-  code, the reviewer's, as tests and `conftest.py` are.
+  rules, from PyPI or from a source the project or a source distribution names for them. A project's
+  `[tool.uv] dependency-metadata`, which no flag carries, is refused by name, and `no-sources` is
+  not supported. What a build runs is the tree's code, the reviewer's, as tests and `conftest.py`
+  are.
 - A source distribution whose build needs a tool outside `/usr/bin` (rustup's Cargo, Go) fails
   in the install, whose `PATH` is `/usr/bin:/bin` with the home hidden, though it builds in an
   agent's `uv sync`.

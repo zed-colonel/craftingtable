@@ -141,10 +141,22 @@ export function lockOptionArguments(
   if (packages !== undefined) {
     if (typeof packages !== 'object' || packages === null || Array.isArray(packages))
       return refuse('exclude-newer-package');
+    // A date, a relative value (recorded as its span beside a placeholder date), or an opt-out.
     for (const [name, value] of Object.entries(packages)) {
-      if (!PACKAGE_NAME.test(name) || typeof value !== 'string' || !TIMESTAMP.test(value))
-        return refuse('exclude-newer-package');
-      args.push(`--exclude-newer-package=${name}=${value}`);
+      const span =
+        typeof value === 'object' && value !== null
+          ? (value as { span?: unknown }).span
+          : undefined;
+      const flag =
+        value === false
+          ? 'false'
+          : typeof value === 'string' && TIMESTAMP.test(value)
+            ? value
+            : typeof span === 'string' && SPAN.test(span)
+              ? span
+              : undefined;
+      if (!PACKAGE_NAME.test(name) || flag === undefined) return refuse('exclude-newer-package');
+      args.push(`--exclude-newer-package=${name}=${flag}`);
     }
   }
   return { arguments: args };

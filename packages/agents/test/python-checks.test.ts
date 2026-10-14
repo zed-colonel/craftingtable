@@ -482,6 +482,27 @@ itPython(
 );
 
 itPython(
+  "refuses, by name and before installing, a lock that records the project's dependency metadata, which the install's `UV_NO_CONFIG` would drop (R-G19 re-check R-2)",
+  async () => {
+    const f = pythonCheck();
+    const lock = readFileSync(join(f.workspacePath, 'uv.lock'), 'utf8');
+    writeFileSync(
+      join(f.workspacePath, 'uv.lock'),
+      `${lock}\n[[manifest.dependency-metadata]]\nname = "ctfix-pkg"\nversion = "1.0"\nrequires-dist = []\n`,
+    );
+    git(['add', '-A'], f.workspacePath);
+    git(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'metadata'],
+      f.workspacePath,
+    );
+    const result = await f.execute();
+    expect(result.exitCode).toBe(1);
+    expect(result.output).not.toContain('uv sync --locked');
+    expect(result.diagnostic).toContain('dependency-metadata');
+  },
+);
+
+itPython(
   "fails, with uv's reason, when a file of the tree does not match the lock's hash",
   async () => {
     const f = pythonCheck();
@@ -628,13 +649,18 @@ itPython('ends within seconds when cancelled during the install', async () => {
   const controller = new AbortController();
   let cancelled = 0;
   let installing = false;
-  setTimeout(() => {
-    // uv made the venv before it started building the slow dependency (review NIT 1).
-    installing = existsSync(join(f.privateDirectory, 'python', 'venv', 'pyvenv.cfg'));
-    cancelled = Date.now();
-    controller.abort();
-  }, 2_500);
+  // Cancelled once uv has made the venv, before it builds the slow dependency (review NIT 1).
+  const poll = setInterval(() => {
+    if (cancelled || !existsSync(join(f.privateDirectory, 'python', 'venv', 'pyvenv.cfg'))) return;
+    installing = true;
+    setTimeout(() => {
+      cancelled = Date.now();
+      controller.abort();
+    }, 500);
+    clearInterval(poll);
+  }, 50);
   const result = await f.execute({ signal: controller.signal });
+  clearInterval(poll);
   expect(result.exitCode).toBe(1);
   expect(installing).toBe(true);
   expect(cancelled).toBeGreaterThan(0);
@@ -644,16 +670,17 @@ itPython('ends within seconds when cancelled during the install', async () => {
 });
 
 itPython('ends at the check time limit during the install', async () => {
-  const f = pythonCheck({ slow: true, checkTimeoutMs: 3_000 });
+  const f = pythonCheck({ slow: true, checkTimeoutMs: 6_000 });
   const started = Date.now();
   let installing = false;
-  setTimeout(() => {
-    installing = existsSync(join(f.privateDirectory, 'python', 'venv', 'pyvenv.cfg'));
-  }, 2_500);
+  const poll = setInterval(() => {
+    installing ||= existsSync(join(f.privateDirectory, 'python', 'venv', 'pyvenv.cfg'));
+  }, 50);
   const result = await f.execute();
+  clearInterval(poll);
   expect(result.exitCode).toBe(1);
   expect(installing).toBe(true);
-  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(Date.now() - started).toBeLessThan(14_000);
   expect(result.diagnostic).toContain('time limit');
   expect(result.output).not.toContain('CTFIX');
 });

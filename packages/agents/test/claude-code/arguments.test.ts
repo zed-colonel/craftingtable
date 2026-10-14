@@ -503,6 +503,16 @@ it("denies none of Git's transient names even when present at launch, since Clau
       'config.lock',
       'gc.pid',
       'gc.log',
+      // Git's editor scratch files, a stash's temporary index, fsmonitor's socket and `shallow`
+      // (R-G19 re-check NIT).
+      'TAG_EDITMSG',
+      'NOTES_EDITMSG',
+      'EDIT_DESCRIPTION',
+      'ADD_EDIT.patch',
+      'addp-hunk-edit.diff',
+      'index.stash.4242',
+      'fsmonitor--daemon.ipc',
+      'shallow',
     ];
     const stable = ['HEAD', 'index', 'packed-refs', 'ORIG_HEAD', 'FETCH_HEAD', 'COMMIT_EDITMSG'];
     for (const file of [...transient, ...stable]) writeFileSync(join(common, file), '');

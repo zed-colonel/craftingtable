@@ -616,6 +616,11 @@ change to the host's file system. See [ADR-034](decisions/ADR-034-storage-placem
   outside it, including in a run's worktree, uses whatever `.git` pointer the agent left there;
   check it before running Git there by hand. External changes are detected by commit and
   cleanliness checks, not prevented.
+- **Shared Cargo sources.** Agents share the Cargo home's unpacked dependency sources
+  (`registry/src`, `git/checkouts`), so an agent that edits a dependency's source there, to debug
+  it, changes it for every other agent's builds until Cargo unpacks it again. Cargo has no copy
+  mode to avoid it. Checks are unaffected: each builds from its own private Cargo home of verified
+  crates. (uv's venvs copy their files for the same reason: `UV_LINK_MODE=copy`.)
 - **Detection, not prevention.** The ref watch and the investigation worktree check report
   changes after the fact; a run can still create or move branches.
 - **Process groups** do not contain work that deliberately leaves its session. The native unit

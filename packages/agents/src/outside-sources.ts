@@ -75,6 +75,11 @@ export function pypiOutsideSource(
       UV_CACHE_DIR: uvCache,
       UV_PYTHON: python.interpreter,
       UV_PYTHON_DOWNLOADS: 'never',
+      // Copies, not hard links into the shared cache: an agent that edits a file in its venv
+      // (patching a library to debug) changes no other agent's venv, nor the cache (ADR-075:
+      // runs must not step on each other). Costs a copy per venv; the cache's file system
+      // (ext4 here) cannot clone.
+      UV_LINK_MODE: 'copy',
     },
     pathPrefix: [dirname(python.uv.path)],
   };

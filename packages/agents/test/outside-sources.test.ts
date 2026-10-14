@@ -80,6 +80,7 @@ it("is PyPI's index and files hosts, the daemon's uv cache, and the profile's uv
       UV_CACHE_DIR: '/data/uv/cache',
       UV_PYTHON: '/opt/ct/python/bin/python3.12',
       UV_PYTHON_DOWNLOADS: 'never',
+      UV_LINK_MODE: 'copy',
     },
     pathPrefix: ['/opt/ct/bin'],
   });
@@ -96,6 +97,7 @@ it("merges every source's overlay into a launch, in order, and adds nothing for 
       UV_CACHE_DIR: '/data/uv/cache',
       UV_PYTHON: '/opt/ct/python/bin/python3.12',
       UV_PYTHON_DOWNLOADS: 'never',
+      UV_LINK_MODE: 'copy',
     },
     pathPrefix: ['/opt/ct/bin'],
   });

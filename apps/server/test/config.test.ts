@@ -848,6 +848,7 @@ describe('the pypi outside source (R-G17)', () => {
         UV_CACHE_DIR: join(data, 'uv', 'cache'),
         UV_PYTHON: '/usr/bin/python3.14',
         UV_PYTHON_DOWNLOADS: 'never',
+        UV_LINK_MODE: 'copy',
       },
       pathPrefix: ['/usr/bin'],
     });

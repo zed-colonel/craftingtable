@@ -300,8 +300,10 @@ They are read from `outside-sources.json` in the settings directory at start; ed
 - `pypi` (R-G17): `pypi.org` and `files.pythonhosted.org`, writing the agents' shared uv cache,
   `<data>/uv/cache`. It takes no `extraHosts` and needs the Python profile in `toolchains.json`
   ([Checks](#checks)): agents get its uv first on PATH, `UV_PYTHON` set to its interpreter,
-  `UV_CACHE_DIR` set to the cache and `UV_PYTHON_DOWNLOADS=never`, so a sandboxed `uv sync`
-  resolves as checks do. Checks never read that cache: their installs keep their own,
+  `UV_CACHE_DIR` set to the cache, `UV_PYTHON_DOWNLOADS=never` and `UV_LINK_MODE=copy`, so a
+  sandboxed `uv sync` resolves as checks do, and each venv holds its own copies rather than hard
+  links into the shared cache: an agent that edits a library file in its venv changes no other
+  agent's. Each worktree's venv therefore takes its full size on disk. Checks never read that cache: their installs keep their own,
   `<data>/uv/checks` ([Checks](#checks)).
 - No file means the `cargo` source. `"sources": []` means none: sandboxed commands reach no
   network, and `cargo fetch` and `uv sync` fail. For a Python project, add

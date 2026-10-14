@@ -620,6 +620,8 @@ describe('agent runs', () => {
       UV_CACHE_DIR: cache,
       UV_PYTHON: '/usr/bin/python3.14',
       UV_PYTHON_DOWNLOADS: 'never',
+      // Copies, not hard links: an agent editing a file in its venv changes no other's.
+      UV_LINK_MODE: 'copy',
     });
     expect(launch.pathPrefix).toEqual(['/usr/bin']);
     // The daemon made the cache, so a sandbox can make it writable.

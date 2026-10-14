@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
-import { type FastifyInstance, fastify } from 'fastify';
+import { type FastifyInstance, type FastifyRequest, fastify } from 'fastify';
 import type { ServerConfig } from './config.js';
 import { registerAgentRunRoutes } from './routes/agent-runs.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -96,6 +96,52 @@ export interface ServerDependencies {
   readonly pageViews: PageViews;
   readonly modelCatalogService: ModelCatalogService;
   readonly daemonDrain: DaemonDrain;
+  readonly requestGate: RequestGate;
+}
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * The last step of the daemon's stop before its server closes (R-B9 review L-5): Fastify's close
+ * ends every connection while their handlers run on, and the database closes right after, so a
+ * request that changes state could be cut off between its Git work and its record. Once closed,
+ * the gate answers 503 to every new request and waits, up to a bound, for those already running.
+ */
+export class RequestGate {
+  private closed = false;
+  private readonly writing = new Set<FastifyRequest>();
+  private idle: (() => void) | undefined;
+
+  install(app: FastifyInstance): void {
+    app.addHook('onRequest', async (request, reply) => {
+      if (this.closed)
+        return sendApiError(
+          reply,
+          503,
+          'unavailable',
+          'CraftingTable is stopping. Try again after it restarts.',
+        );
+      if (!READ_METHODS.has(request.method)) this.writing.add(request);
+    });
+    const finished = async (request: FastifyRequest) => {
+      if (this.writing.delete(request) && this.writing.size === 0) this.idle?.();
+    };
+    app.addHook('onResponse', finished);
+    app.addHook('onRequestAbort', finished);
+  }
+
+  /** Refuses what comes next; resolves once no request that writes runs, or after `boundMs`. */
+  async close(boundMs: number): Promise<void> {
+    this.closed = true;
+    if (this.writing.size === 0) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, boundMs);
+      this.idle = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+  }
 }
 
 export interface BuildServerOptions {
@@ -145,6 +191,8 @@ export function buildServer(
             key: readFileSync(config.tls.keyPath),
           },
         }) as unknown as FastifyInstance);
+  // First of all: once the daemon's stop has drained, nothing new is served (R-B9 review L-5).
+  deps.requestGate.install(app);
   void app.register(cookie);
   // Before any route: a request naming another host is refused; every answer carries the
   // security headers (R-G9, SEC-07).
@@ -162,7 +210,7 @@ export function buildServer(
     deps.daemonDrain.startWatching();
   });
   // The daemon's stop (the drain, the workers) is its runtime's close, before the server closes
-  // (`createDaemon`): a close hook still running after Fastify's plugin timeout fails the stop.
+  // (`createDaemon`): a `preClose` hook still running after Fastify's plugin timeout fails it.
   registerPackageImportRoutes(app, deps.packageImportService);
   registerCrossProjectRoutes(app, deps.crossProjectService);
   registerMapAmendmentRoutes(app, deps.mapAmendmentService);

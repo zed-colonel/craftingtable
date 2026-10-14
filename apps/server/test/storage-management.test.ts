@@ -532,6 +532,20 @@ it('cleans ended-run caches before merge, retaining run history and unknown scra
     /Scan storage/,
   );
 });
+it("refuses the manual commands once the daemon's stop has begun, so none is cut off when its database closes (R-B9 review L-4)", async () => {
+  const { context, headers, url, service } = await fixture();
+  await service.shutdown();
+  for (const action of ['backup', 'scan'] as const) {
+    const response = await context.app.inject({
+      method: 'POST',
+      url: `${url}/control`,
+      headers,
+      payload: { action },
+    });
+    expect(response.statusCode, response.body).toBe(503);
+    expect(response.json()).toMatchObject({ error: { code: 'unavailable' } });
+  }
+});
 it('revalidates eligibility and directory identity after preview; cannot follow replaced scratch links', async () => {
   const s = await runFixture();
   s.merge();

@@ -309,6 +309,8 @@ describe('restart drain and automatic resume (R-B9)', () => {
     const drain = f.services.daemonDrain;
     const dataDir = f.context.config.dataDir;
     const status = () => JSON.parse(readFileSync(join(dataDir, DRAIN_STATUS_FILE), 'utf8'));
+    let stranded = 0;
+    drain.whenStranded(() => stranded++, 0);
 
     writeFileSync(
       join(dataDir, DRAIN_REQUEST_FILE),
@@ -326,6 +328,9 @@ describe('restart drain and automatic resume (R-B9)', () => {
     expect(drain.isDraining()).toBe(false);
     expect(f.services.agentRunService.isDraining()).toBe(false);
     expect(existsSync(join(dataDir, DRAIN_STATUS_FILE))).toBe(false);
+    // A withdrawn drain never asks to be restarted (R-B9 review M-3, 2026-10-13).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(stranded).toBe(0);
 
     // Once a stop signal joins a requested drain, withdrawing the request no longer cancels it.
     writeFileSync(
@@ -341,6 +346,10 @@ describe('restart drain and automatic resume (R-B9)', () => {
     drain.expedite();
     expect(await stopping).toBe(1);
     expect(status()).toMatchObject({ requestId: 'r2', state: 'drained', interruptedRuns: 1 });
+    // A deploy's drain that finished does, if no restart follows.
+    for (let turn = 0; turn < 100 && stranded === 0; turn++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(stranded).toBe(1);
   });
 
   it('interrupts at a deploy request’s own bound', async () => {
@@ -402,7 +411,15 @@ describe('restart drain and automatic resume (R-B9)', () => {
     });
 
     const signalledAt = Date.now();
-    await stop('SIGTERM');
+    const stopping = stop('SIGTERM');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // While it drains, the server serves on, and launches are refused (503, as "refuses new runs
+    // while draining" shows), as during a deploy's drain.
+    expect((await f.context.app.inject({ method: 'GET', url: '/api/health' })).statusCode).toBe(
+      200,
+    );
+    expect(f.services.agentRunService.isDraining()).toBe(true);
+    await stopping;
     expect(Date.now() - signalledAt).toBeGreaterThanOrEqual(11_000);
     expect(released).toBe(true);
 

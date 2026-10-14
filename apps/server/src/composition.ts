@@ -30,7 +30,7 @@ import { openDaemonStorage } from './persisted-records.js';
 import { CredentialFile } from './security/credential-file.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
-import { type BuildServerOptions, buildServer } from './server.js';
+import { type BuildServerOptions, buildServer, RequestGate } from './server.js';
 import { AgentRunService, type RunLog } from './services/agent-run-service.js';
 import { AuthService } from './services/auth-service.js';
 import { BaselinePreparationService } from './services/baseline-preparation.js';
@@ -558,6 +558,9 @@ export async function createServices(
   };
 }
 
+/** How long a stop that has drained waits for requests that change state to finish (R-B9). */
+const STOP_REQUEST_GRACE_MS = 30_000;
+
 export interface CraftingTableRuntime {
   readonly app: FastifyInstance;
   readonly storage: CraftingTableStorage;
@@ -590,6 +593,7 @@ export async function createDaemon(
   const services = await createServices(storage, config, options.overrides);
   // Pushover credentials still in the database move to the credentials file (R-G9).
   services.notificationService.adoptStoredCredentials();
+  const requestGate = new RequestGate();
   const app = buildServer(
     {
       crossProjectService: services.crossProjectService,
@@ -619,6 +623,7 @@ export async function createDaemon(
       pageViews: services.pageViews,
       modelCatalogService: services.modelCatalogService,
       daemonDrain: services.daemonDrain,
+      requestGate,
     },
     config,
     options.server,
@@ -642,39 +647,30 @@ export async function createDaemon(
       // Every step runs even when one before it fails, so a server that fails to close leaves
       // no check running and no storage open; the first failure is the one the close throws.
       const failures: unknown[] = [];
-      // The drain comes before the server closes, never in a Fastify close hook: avvio fails a
-      // hook still running after the plugin timeout (10 s), and a drain waits up to its bound,
-      // so a SIGTERM drain of a long turn crashed without its clean stop (R-B9 live finding
-      // 2026-10-13). Meanwhile the server serves on and the drain refuses launches, as during a
-      // deploy's drain; the clean stop it records lets the next start resume (R-B9).
-      try {
-        services.daemonDrain.stopWatching();
-        await services.storageService.shutdown();
-        await services.daemonDrain.drain(config.drainTimeoutMs, app.log);
-        await services.notificationService.shutdown();
-      } catch (error) {
-        failures.push(error);
-      }
-      try {
-        await app.close();
-      } catch (error) {
-        failures.push(error);
-      }
-      try {
-        await services.checkRequestService.closeAll();
-      } catch (error) {
-        failures.push(error);
-      }
-      try {
-        options.beforeStorageCloses?.();
-      } catch (error) {
-        failures.push(error);
-      }
-      try {
-        storage.close();
-      } catch (error) {
-        failures.push(error);
-      }
+      const step = async (stop: () => unknown) => {
+        try {
+          await stop();
+        } catch (error) {
+          failures.push(error);
+        }
+      };
+      // The drain comes before the server closes, never in a Fastify `preClose` hook: avvio
+      // fails one still running after the plugin timeout (10 s), and a drain waits up to its
+      // bound, so a SIGTERM drain of a long turn crashed without its clean stop (R-B9 live
+      // finding 2026-10-13). Meanwhile the server serves on, and the drain refuses launches and
+      // holds admissions from its first moment, beside storage maintenance's running operation
+      // (review L-6), as during a deploy's drain; the clean stop lets the next start resume.
+      await step(() => services.daemonDrain.stopWatching());
+      const maintenance = step(() => services.storageService.shutdown());
+      const drained = step(() => services.daemonDrain.drain(config.drainTimeoutMs, app.log));
+      await maintenance;
+      await drained;
+      await step(() => services.notificationService.shutdown());
+      await step(() => requestGate.close(STOP_REQUEST_GRACE_MS));
+      await step(() => app.close());
+      await step(() => services.checkRequestService.closeAll());
+      await step(() => options.beforeStorageCloses?.());
+      await step(() => storage.close());
       if (failures.length > 0) throw failures[0];
     },
   };

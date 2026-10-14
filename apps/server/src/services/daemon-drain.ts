@@ -166,6 +166,9 @@ export class DaemonDrain {
         true,
       ).then(
         (interrupted) => {
+          // A withdrawn request's drain resolves too, having drained nothing: no restart is due
+          // (R-B9 review M-3, 2026-10-13).
+          if (this.request !== request) return;
           this.writeStatus('drained', interrupted);
           if (this.stranded) setTimeout(this.stranded.listener, this.stranded.afterMs).unref();
         },

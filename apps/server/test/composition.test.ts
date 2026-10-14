@@ -1,10 +1,11 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GitOperations } from '@craftingtable/git';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDaemon, createRuntime, createServices } from '../src/composition.js';
 import { configFromEnv } from '../src/config.js';
 import { openDaemonStorage } from '../src/persisted-records.js';
+import { RequestGate } from '../src/server.js';
 import { FastTestPasswordHasher, testDataRoot } from './test-support.js';
 
 const directories: string[] = [];
@@ -222,5 +223,80 @@ describe('service composition', () => {
     expect(checksClosed).toBe(true);
     expect(checked).toBe(true);
     expect(() => storage.users.findByNormalizedUsername('nobody')).toThrow();
+  });
+
+  it('stops its workers and drains before its server closes, and closes the rest when the drain fails (R-B9 live finding 2026-10-13)', async () => {
+    const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-composition-'));
+    directories.push(directory);
+    const storage = openDaemonStorage(join(directory, 'state.sqlite'));
+    const daemon = await createDaemon(
+      storage,
+      configFromEnv({
+        CRAFTINGTABLE_DATA_DIR: directory,
+        CRAFTINGTABLE_CONFIG_DIR: join(directory, 'config'),
+      }),
+      {
+        overrides: { passwordHasher: new FastTestPasswordHasher(), gitOperations: null },
+        server: { logger: false, startWorkers: false },
+      },
+    );
+    const { daemonDrain, storageService, notificationService, checkRequestService } =
+      daemon.services;
+    const order: string[] = [];
+    const record = <T extends (...args: never[]) => unknown>(name: string, run: T) =>
+      ((...args: Parameters<T>) => {
+        order.push(name);
+        return run(...args);
+      }) as T;
+    daemonDrain.stopWatching = record('stop watching', daemonDrain.stopWatching.bind(daemonDrain));
+    // The drain holds admissions and refuses launches at once, not after storage maintenance's
+    // running operation ends (R-B9 review L-6): this shutdown waits for the drain to begin.
+    let drainBegun = () => {};
+    const begun = new Promise<void>((resolve) => {
+      drainBegun = resolve;
+    });
+    const shutdown = storageService.shutdown.bind(storageService);
+    storageService.shutdown = record('storage', async () => {
+      await Promise.race([
+        begun,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('the drain had not begun')), 2_000),
+        ),
+      ]);
+      await shutdown();
+    });
+    daemonDrain.drain = record('drain', async () => {
+      drainBegun();
+      throw new Error('the drain failed');
+    });
+    const gateClose = vi.spyOn(RequestGate.prototype, 'close');
+    gateClose.mockImplementation(async () => {
+      order.push('requests');
+    });
+    notificationService.shutdown = record(
+      'notifications',
+      notificationService.shutdown.bind(notificationService),
+    );
+    checkRequestService.closeAll = record(
+      'checks',
+      checkRequestService.closeAll.bind(checkRequestService),
+    );
+    daemon.app.addHook('onClose', async () => {
+      order.push('server');
+    });
+
+    await expect(daemon.close()).rejects.toThrow('the drain failed');
+    // No Fastify close hook waits on the drain, and every step after the failed one ran.
+    expect(order).toEqual([
+      'stop watching',
+      'storage',
+      'drain',
+      'notifications',
+      'requests',
+      'server',
+      'checks',
+    ]);
+    expect(() => storage.users.findByNormalizedUsername('nobody')).toThrow();
+    gateClose.mockRestore();
   });
 });

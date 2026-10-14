@@ -533,6 +533,13 @@ export class StorageService {
     return this.status();
   }
   private async exclusively<T>(job: () => Promise<T>): Promise<T> {
+    // The daemon's stop waits for the running operation, then closes the database: one started
+    // later, while the stop drains, would be cut off (R-B9 review L-4).
+    if (this.stopping)
+      throw new ExecutionRequestError(
+        'unavailable',
+        'CraftingTable is stopping; storage maintenance runs again after it restarts.',
+      );
     if (this.operation)
       throw new ExecutionRequestError('conflict', 'Storage maintenance is already running.');
     const running = Promise.resolve().then(job);

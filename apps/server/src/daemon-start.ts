@@ -30,7 +30,7 @@ export async function startDaemon(
 /**
  * The daemon's stop on a signal (R-B9): the first drains live agent turns up to the configured
  * bound, records the clean stop and closes the daemon, then releases its locks; another
- * interrupts what is still live at once. Each call resolves when the stop has finished.
+ * interrupts what is still live at once. Each call settles when the stop has finished.
  */
 export function daemonStop(daemon: {
   readonly runtime: Pick<CraftingTableRuntime, 'app' | 'services' | 'close'>;

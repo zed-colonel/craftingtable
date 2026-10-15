@@ -5108,8 +5108,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   touched a route's behaviour.
 - **Deploy note (superseded by the one with the decisions' gate below):** restart only; at
   `98fdb58` every answer was as before.
-- **Open questions for the operator** (each would change a status code, so none was built; the
-  daemon answers as before):
+- **Open questions for the operator** (asked 2026-10-14; each would change a status code, so
+  none was built until the operator decided them on 2026-10-15, below):
   1. *The four commands that answer a malformed id with 400 and their body's message* (the three
      map-amendment commands and the supervision adoption, `paramsRefusedAsBody`): keep, or answer
      404 like every other route? *Recommended: 404*, so "a malformed id answers 404" holds without

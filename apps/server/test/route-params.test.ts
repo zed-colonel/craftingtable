@@ -64,3 +64,38 @@ describe('a run event stream', () => {
     expect(malformed.json()).toEqual(notFound());
   });
 });
+
+describe('session and workspace routes', () => {
+  it('refuse a malformed session or workspace id with 404, and pass a parsed one on', async () => {
+    const { context, session, get } = await signedIn();
+    const revoke = (sessionId: string) =>
+      context.app.inject({
+        method: 'POST',
+        url: `/api/auth/sessions/${sessionId}/revoke`,
+        headers: {
+          cookie: session.cookie,
+          [CSRF_HEADER_NAME]: session.csrfToken,
+          origin: context.config.publicOrigin,
+          'content-type': 'application/json',
+        },
+        payload: {},
+      });
+    const malformed = await revoke('%20x');
+    expect(malformed.statusCode).toBe(404);
+    expect(malformed.json()).toEqual(notFound());
+    const noWorkspace = await context.app.inject({
+      method: 'GET',
+      url: '/api/workspaces/%20w/snapshot',
+      headers: { cookie: session.cookie },
+    });
+    expect(noWorkspace.statusCode).toBe(404);
+    expect(noWorkspace.json()).toEqual(notFound());
+    expect((await get('snapshot')).statusCode).toBe(200);
+    const revoked = await revoke(session.sessionId);
+    expect(revoked.statusCode, revoked.body).toBe(200);
+    expect(revoked.json()).toEqual({
+      revokedSessionId: session.sessionId,
+      currentSessionRevoked: true,
+    });
+  });
+});

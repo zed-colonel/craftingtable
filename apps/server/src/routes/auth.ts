@@ -25,7 +25,7 @@ import {
   sessionSummary,
 } from './http.js';
 import { browserHeaders, clientAddress } from './request-security.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, paramsOf } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
 const SESSION = { sessionId: sessionIdSchema } as const;
@@ -174,7 +174,7 @@ export function registerAuthRoutes(
     },
   );
 
-  app.post<{ Params: { sessionId: string }; Body: BodyOf<typeof revokeSessionRequestSchema> }>(
+  app.post<{ Body: BodyOf<typeof revokeSessionRequestSchema> }>(
     '/api/auth/sessions/:sessionId/revoke',
     {
       config: {
@@ -187,11 +187,8 @@ export function registerAuthRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const parsedSessionId = sessionIdSchema.safeParse(request.params.sessionId);
-      if (!parsedSessionId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      const result = authService.revokeSession(context, parsedSessionId.data, request.id);
+      const { sessionId } = paramsOf(request, SESSION);
+      const result = authService.revokeSession(context, sessionId, request.id);
       if (result.currentSessionRevoked) {
         reply.clearCookie(sessionCookieName(config), {
           httpOnly: true,

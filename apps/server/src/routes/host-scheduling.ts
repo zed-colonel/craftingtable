@@ -1,24 +1,19 @@
-import {
-  hostSchedulingSchema,
-  saveHostSchedulingSchema,
-  workspaceIdSchema,
-} from '@craftingtable/contracts';
+import { hostSchedulingSchema, saveHostSchedulingSchema } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { HostSchedulingService } from '../services/host-scheduling-service.js';
-import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
+import { noStore } from './http.js';
+import { type BodyOf, contextOf, paramsOf, WORKSPACE_PARAMS } from './route-access.js';
 export function registerHostSchedulingRoutes(app: FastifyInstance, service: HostSchedulingService) {
-  app.get<{ Params: { workspaceId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/host-scheduling',
     { config: { access: 'installation', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
-      const id = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!id.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      return noStore(reply).send(hostSchedulingSchema.parse(service.get(context, id.data)));
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
+      return noStore(reply).send(hostSchedulingSchema.parse(service.get(context, workspaceId)));
     },
   );
-  app.post<{ Params: { workspaceId: string }; Body: BodyOf<typeof saveHostSchedulingSchema> }>(
+  app.post<{ Body: BodyOf<typeof saveHostSchedulingSchema> }>(
     '/api/workspaces/:workspaceId/host-scheduling',
     {
       config: {
@@ -32,10 +27,9 @@ export function registerHostSchedulingRoutes(app: FastifyInstance, service: Host
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const id = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!id.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       return noStore(reply).send(
-        hostSchedulingSchema.parse(service.save(context, id.data, request.body)),
+        hostSchedulingSchema.parse(service.save(context, workspaceId, request.body)),
       );
     },
   );

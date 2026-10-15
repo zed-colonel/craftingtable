@@ -2,30 +2,27 @@ import {
   notificationStatusSchema,
   saveNotificationsRequestSchema,
   testNotificationsRequestSchema,
-  workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { NotificationService } from '../services/notification-service.js';
-import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
+import { noStore } from './http.js';
+import { type BodyOf, contextOf, paramsOf, WORKSPACE_PARAMS } from './route-access.js';
 export function registerNotificationRoutes(
   app: FastifyInstance,
   notifications: NotificationService,
 ): void {
-  app.get<{ Params: { workspaceId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/notifications',
     { config: { access: 'owner', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       return noStore(reply).send(
-        notificationStatusSchema.parse(notifications.get(context, workspace.data)),
+        notificationStatusSchema.parse(notifications.get(context, workspaceId)),
       );
     },
   );
   app.post<{
-    Params: { workspaceId: string };
     Body: BodyOf<typeof saveNotificationsRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/notifications',
@@ -40,15 +37,13 @@ export function registerNotificationRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       return noStore(reply).send(
-        notificationStatusSchema.parse(notifications.save(context, workspace.data, request.body)),
+        notificationStatusSchema.parse(notifications.save(context, workspaceId, request.body)),
       );
     },
   );
   app.post<{
-    Params: { workspaceId: string };
     Body: BodyOf<typeof testNotificationsRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/notifications/test',
@@ -63,10 +58,9 @@ export function registerNotificationRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       return noStore(reply).send(
-        notificationStatusSchema.parse(notifications.test(context, workspace.data)),
+        notificationStatusSchema.parse(notifications.test(context, workspaceId)),
       );
     },
   );

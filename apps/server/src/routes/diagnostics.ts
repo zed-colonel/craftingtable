@@ -4,7 +4,6 @@ import {
   daemonDiagnosticsResponseSchema,
   type EventLoopDelaySummary,
   type RouteTimingSummary,
-  workspaceIdSchema,
 } from '@craftingtable/contracts';
 import {
   type FastifyInstance,
@@ -13,8 +12,8 @@ import {
   LogController,
 } from 'fastify';
 import type { WorkspaceService } from '../services/workspace-service.js';
-import { noStore, sendApiError } from './http.js';
-import { contextOf, WORKSPACE_PARAMS } from './route-access.js';
+import { noStore } from './http.js';
+import { contextOf, paramsOf, WORKSPACE_PARAMS } from './route-access.js';
 
 /** Completed requests kept per route for percentiles; older ones are overwritten. */
 const SAMPLES_PER_ROUTE = 512;
@@ -199,14 +198,13 @@ export function registerDiagnosticsRoutes(
       responseBytes(reply) ?? 0,
     );
   });
-  app.get<{ Params: { workspaceId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/diagnostics',
     { config: { access: 'owner', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      workspaces.requireRole(context, workspace.data, ['owner'], { requestId: request.id });
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
+      workspaces.requireRole(context, workspaceId, ['owner'], { requestId: request.id });
       return noStore(reply).send(daemonDiagnosticsResponseSchema.parse(diagnostics.summary()));
     },
   );

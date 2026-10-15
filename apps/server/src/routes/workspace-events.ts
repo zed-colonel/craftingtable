@@ -3,7 +3,6 @@ import {
   SSE_AUTHENTICATION_EXPIRED_EVENT_NAME,
   SSE_WORKSPACE_EVENT_NAME,
   workspaceEventEnvelopeSchema,
-  workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import { type ServerConfig, sessionCookieName } from '../config.js';
@@ -16,7 +15,7 @@ import {
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { eventStreamHeaders } from './browser-security.js';
 import { sendApiError } from './http.js';
-import { contextOf, WORKSPACE_PARAMS } from './route-access.js';
+import { contextOf, paramsOf, WORKSPACE_PARAMS } from './route-access.js';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -37,7 +36,6 @@ export function registerWorkspaceEventRoute(
   });
 
   app.get<{
-    Params: { workspaceId: string };
     Querystring: { after?: string };
   }>(
     '/api/workspaces/:workspaceId/events',
@@ -45,6 +43,7 @@ export function registerWorkspaceEventRoute(
     (request, reply) => {
       const rawSessionToken = request.cookies[sessionCookieName(config)];
       const context = contextOf(request);
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       if (
         !isAllowedBrowserRequest(
           {
@@ -60,17 +59,13 @@ export function registerWorkspaceEventRoute(
       ) {
         throw new ForbiddenError();
       }
-      const parsedWorkspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!parsedWorkspaceId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
       let cursor: number;
       try {
         cursor = selectEventCursor(request.query.after, request.headers['last-event-id']);
       } catch {
         return sendApiError(reply, 400, 'invalid-request', 'Invalid event cursor');
       }
-      workspaceService.requireAuthorized(context, parsedWorkspaceId.data, request.id);
+      workspaceService.requireAuthorized(context, workspaceId, request.id);
       if (rawSessionToken === undefined) {
         return sendApiError(reply, 401, 'unauthenticated', 'Authentication required');
       }
@@ -101,7 +96,7 @@ export function registerWorkspaceEventRoute(
         try {
           for await (const item of streamService.stream({
             rawSessionToken,
-            workspaceId: parsedWorkspaceId.data,
+            workspaceId,
             after: cursor,
             signal: controller.signal,
           })) {

@@ -95,7 +95,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | done (2026-10-11, not merged or deployed; 147 → 133 routes; reload open pages after deploying) | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
-| [R-H7](#r-h7) | P4 | M | in progress (part 1) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
+| [R-H7](#r-h7) | P4 | M | in progress (parts 1, 2) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -4769,7 +4769,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H7
 
-**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (2026-10-14, on `remediation/p4`: part 1, the declaration, parsing and startup refusal; not merged or deployed)
+**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (2026-10-14, on `remediation/p4`: part 1, the declaration, parsing and startup refusal; part 2, the routes by area, under way; not merged or deployed)
 
 - **Added 2026-10-12 by the operator,** after R-I7 branded the domain's ids (part 8) and left route
   parameters and service and storage lookups as plain strings wherever no route parses a schema.
@@ -4881,6 +4881,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Handlers are unchanged in this commit:* they still parse their own parameters, after the
     daemon's parse refused what they would refuse; the commits below move them to `paramsOf` area
     by area.
+- **Built (2026-10-14), part 2: the routes, area by area.** Each handler reads its parameters
+  with `paramsOf(request, DECLARATION)` and its own parse and 404 are gone; a route's `Params`
+  type is gone with them, so a leftover `request.params` read no longer compiles. Each area's
+  representative test in `route-params.test.ts` passes, and fails with the daemon's parameter
+  refusal disabled (the handler then gets no parsed parameters: 500).
+  - *Session and workspace* (`auth`, `workspaces`, `attention`, `notifications`,
+    `host-scheduling`, `operator-wait`, `storage`, `diagnostics`, `workspace-events`): a session
+    revocation with a malformed id gets 404 "Resource not found", a malformed workspace id the
+    access check's 404, and a parsed session id still reaches the service (the caller's own
+    session revoked). `workspaces.ts` loses its private workspace-id parser.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

@@ -4,18 +4,13 @@ import {
   renameWorkspaceRequestSchema,
   renameWorkspaceResponseSchema,
   workspaceAuditPageResponseSchema,
-  workspaceIdSchema,
   workspaceListResponseSchema,
   workspaceSnapshotResponseSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
-
-function workspaceId(value: string) {
-  return workspaceIdSchema.safeParse(value);
-}
+import { type BodyOf, contextOf, paramsOf, WORKSPACE_PARAMS } from './route-access.js';
 
 function positiveCursor(value: unknown): number | undefined {
   if (value === undefined) {
@@ -59,7 +54,7 @@ export function registerWorkspaceRoutes(
     },
   );
 
-  app.post<{ Params: { workspaceId: string }; Body: BodyOf<typeof renameWorkspaceRequestSchema> }>(
+  app.post<{ Body: BodyOf<typeof renameWorkspaceRequestSchema> }>(
     '/api/workspaces/:workspaceId/rename',
     {
       config: {
@@ -72,47 +67,37 @@ export function registerWorkspaceRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const parsed = workspaceId(request.params.workspaceId);
-      if (!parsed.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       return noStore(reply).send(
         renameWorkspaceResponseSchema.parse(
-          workspaceService.rename(context, parsed.data, request.body.name, request.id),
+          workspaceService.rename(context, workspaceId, request.body.name, request.id),
         ),
       );
     },
   );
 
-  app.get<{ Params: { workspaceId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/snapshot',
     { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
-      const parsed = workspaceId(request.params.workspaceId);
-      if (!parsed.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       return noStore(reply).send(
         workspaceSnapshotResponseSchema.parse(
-          workspaceService.snapshot(context, parsed.data, request.id),
+          workspaceService.snapshot(context, workspaceId, request.id),
         ),
       );
     },
   );
 
   app.get<{
-    Params: { workspaceId: string };
     Querystring: { limit?: string; before?: string };
   }>(
     '/api/workspaces/:workspaceId/audit',
     { config: { access: 'owner', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
-      const parsed = workspaceId(request.params.workspaceId);
-      if (!parsed.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       const limit = Number(request.query.limit ?? 50);
       if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
         return sendApiError(reply, 400, 'invalid-request', 'Invalid audit pagination');
@@ -125,7 +110,7 @@ export function registerWorkspaceRoutes(
       }
       return noStore(reply).send(
         workspaceAuditPageResponseSchema.parse(
-          workspaceService.auditPage(context, parsed.data, {
+          workspaceService.auditPage(context, workspaceId, {
             limit,
             ...(before === undefined ? {} : { before }),
             requestId: request.id,

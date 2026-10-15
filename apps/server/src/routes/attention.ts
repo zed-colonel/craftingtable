@@ -2,26 +2,23 @@ import {
   acknowledgeProtectedRefMovesRequestSchema,
   acknowledgeProtectedRefMovesResponseSchema,
   attentionFeedSchema,
-  workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { AttentionService } from '../services/attention-service.js';
-import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
+import { noStore } from './http.js';
+import { type BodyOf, contextOf, paramsOf, WORKSPACE_PARAMS } from './route-access.js';
 
 export function registerAttentionRoutes(app: FastifyInstance, service: AttentionService) {
-  app.get<{ Params: { workspaceId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/attention',
     { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
-      const id = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!id.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      return noStore(reply).send(attentionFeedSchema.parse(service.feed(context, id.data)));
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
+      return noStore(reply).send(attentionFeedSchema.parse(service.feed(context, workspaceId)));
     },
   );
   app.post<{
-    Params: { workspaceId: string };
     Body: BodyOf<typeof acknowledgeProtectedRefMovesRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/protected-ref-moves/acknowledge',
@@ -36,11 +33,10 @@ export function registerAttentionRoutes(app: FastifyInstance, service: Attention
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const id = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!id.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       return noStore(reply).send(
         acknowledgeProtectedRefMovesResponseSchema.parse(
-          service.acknowledgeProtectedRefMoves(context, id.data, request.body.moveIds),
+          service.acknowledgeProtectedRefMoves(context, workspaceId, request.body.moveIds),
         ),
       );
     },

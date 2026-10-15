@@ -126,3 +126,41 @@ describe('planning and work item routes', () => {
     });
   });
 });
+
+describe('execution routes: repositories, worktrees, runs and checks', () => {
+  it('refuse a malformed id with 404 and the message each route gave', async () => {
+    const { get, post } = await signedIn();
+    const uuid = '00000000-0000-4000-8000-000000000002';
+    const reads: readonly (readonly [string, string?])[] = [
+      ['worktrees/%20x/diff'],
+      ['worktrees/%20x/branch-status'],
+      ['worktrees/%20x/check-definitions', 'Worktree not found'],
+      ['repositories/%20x/branches'],
+      ['repositories/%20x/checks', 'Repository not found'],
+      ['repositories/%20x/checks/receipts', 'Repository not found'],
+      ['runs/%20x'],
+      ['runs/%20x/event-page'],
+      ['runs/%20x/view'],
+      [`runs/${uuid}/tool-results/not-a-digest`],
+      ['work-items/%20x/execution-scopes'],
+      ['plan-versions/%20x/repository-policy', 'Plan not found'],
+      ['plan-versions/%20x/branch-settings'],
+    ];
+    for (const [path, message] of reads) {
+      const response = await get(path);
+      expect(response.statusCode, path).toBe(404);
+      expect(response.json(), path).toEqual(notFound(message));
+    }
+    // A merge asks for no password for a worktree id that does not parse (its rule finds no
+    // worktree), and the id is refused.
+    const merge = await post('worktrees/%20x/merge', {});
+    expect(merge.statusCode).toBe(404);
+    expect(merge.json()).toEqual(notFound());
+    const control = await post('runs/%20x/control', { action: 'cancel' });
+    expect(control.statusCode).toBe(404);
+    expect(control.json()).toEqual(notFound());
+    const adopt = await post('repositories/%20x/checks/preview', { ref: 'main' });
+    expect(adopt.statusCode).toBe(404);
+    expect(adopt.json()).toEqual(notFound('Repository not found'));
+  });
+});

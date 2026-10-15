@@ -11,7 +11,6 @@ import {
   startAgentRunRequestSchema,
   startAgentRunResponseSchema,
   workItemIdSchema,
-  workspaceIdSchema,
   toolResultDigestSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
@@ -24,7 +23,7 @@ import { parseEventCursor, selectEventCursor } from '../services/workspace-event
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { eventStreamHeaders } from './browser-security.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+import { type BodyOf, contextOf, workspaceParams, paramsOf } from './route-access.js';
 import { runDetail, runSummary } from './run-summary.js';
 
 /** Each route's path parameters (R-H7). */
@@ -70,7 +69,6 @@ export function registerAgentRunRoutes(
   });
 
   app.post<{
-    Params: { workspaceId: string; workItemId: string };
     Body: BodyOf<typeof startAgentRunRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/runs',
@@ -85,15 +83,11 @@ export function registerAgentRunRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
-      if (!workspaceId.success || !workItemId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId, workItemId } = paramsOf(request, WORK_ITEM);
       const run = await agentRunService.start(
         context,
-        workspaceId.data,
-        workItemId.data,
+        workspaceId,
+        workItemId,
         request.body,
         request.id,
       );
@@ -101,40 +95,26 @@ export function registerAgentRunRoutes(
     },
   );
 
-  app.get<{ Params: { workspaceId: string; runId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/runs/:runId',
     { config: { access: 'member', params: RUN } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const runId = agentRunIdSchema.safeParse(request.params.runId);
-      if (!workspaceId.success || !runId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      const detail = agentRunService.detail(context, workspaceId.data, runId.data, request.id);
+      const { workspaceId, runId } = paramsOf(request, RUN);
+      const detail = agentRunService.detail(context, workspaceId, runId, request.id);
       return noStore(reply).send(agentRunDetailResponseSchema.parse(runDetail(detail)));
     },
   );
 
   // The full output of a tool result the journal keeps as a preview (R-H2). Plain text, so
   // the browser shows it as-is; 404 once it expires with the run's scratch retention.
-  app.get<{ Params: { workspaceId: string; runId: string; digest: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/runs/:runId/tool-results/:digest',
     { config: { access: 'member', params: RUN_DIGEST } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const runId = agentRunIdSchema.safeParse(request.params.runId);
-      if (!workspaceId.success || !runId.success || !/^[a-f0-9]{64}$/.test(request.params.digest)) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      const body = agentRunService.toolResult(
-        context,
-        workspaceId.data,
-        runId.data,
-        request.params.digest,
-        request.id,
-      );
+      const { workspaceId, runId, digest } = paramsOf(request, RUN_DIGEST);
+      const body = agentRunService.toolResult(context, workspaceId, runId, digest, request.id);
       return noStore(reply)
         .header('content-type', 'text/plain; charset=utf-8')
         .header('x-content-type-options', 'nosniff')
@@ -144,18 +124,13 @@ export function registerAgentRunRoutes(
 
   // `?includeRaw=true` is the explicit diagnostics read of the retained vendor lines.
   app.get<{
-    Params: { workspaceId: string; runId: string };
     Querystring: { after?: string; includeRaw?: string };
   }>(
     '/api/workspaces/:workspaceId/runs/:runId/event-page',
     { config: { access: 'member', params: RUN } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const runId = agentRunIdSchema.safeParse(request.params.runId);
-      if (!workspaceId.success || !runId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId, runId } = paramsOf(request, RUN);
       let after: number;
       try {
         after = parseEventCursor(request.query.after, 'after') ?? 0;
@@ -168,8 +143,8 @@ export function registerAgentRunRoutes(
       }
       const events = agentRunService.listEvents(
         context,
-        workspaceId.data,
-        runId.data,
+        workspaceId,
+        runId,
         after,
         EVENT_PAGE_LIMIT,
         request.id,
@@ -185,7 +160,6 @@ export function registerAgentRunRoutes(
 
   // A run's manual commands share one route (R-H5, H5-2): the same access, none carries authority.
   app.post<{
-    Params: { workspaceId: string; runId: string };
     Body: BodyOf<typeof agentRunControlRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/runs/:runId/control',
@@ -200,24 +174,14 @@ export function registerAgentRunRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const runId = agentRunIdSchema.safeParse(request.params.runId);
-      if (!workspaceId.success || !runId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId, runId } = paramsOf(request, RUN);
       const body = request.body;
       const result =
         body.action === 'message'
-          ? agentRunService.sendMessage(
-              context,
-              workspaceId.data,
-              runId.data,
-              body.text,
-              request.id,
-            )
+          ? agentRunService.sendMessage(context, workspaceId, runId, body.text, request.id)
           : body.action === 'end'
-            ? agentRunService.end(context, workspaceId.data, runId.data, request.id)
-            : agentRunService.cancel(context, workspaceId.data, runId.data, request.id);
+            ? agentRunService.end(context, workspaceId, runId, request.id)
+            : agentRunService.cancel(context, workspaceId, runId, request.id);
       return noStore(reply).send(
         agentRunCommandResponseSchema.parse({
           run: runSummary(result.run),
@@ -227,7 +191,7 @@ export function registerAgentRunRoutes(
     },
   );
 
-  app.get<{ Params: { workspaceId: string; runId: string }; Querystring: { after?: string } }>(
+  app.get<{ Querystring: { after?: string } }>(
     '/api/workspaces/:workspaceId/runs/:runId/events',
     {
       config: { access: 'member', params: RUN },
@@ -254,20 +218,16 @@ export function registerAgentRunRoutes(
     (request, reply) => {
       const rawSessionToken = request.cookies[sessionCookieName(config)];
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const runId = agentRunIdSchema.safeParse(request.params.runId);
-      if (!workspaceId.success || !runId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId, runId } = paramsOf(request, RUN);
       let cursor: number;
       try {
         cursor = selectEventCursor(request.query.after, request.headers['last-event-id']);
       } catch {
         return sendApiError(reply, 400, 'invalid-request', 'Invalid event cursor');
       }
-      workspaceService.requireAuthorized(context, workspaceId.data, request.id);
+      workspaceService.requireAuthorized(context, workspaceId, request.id);
       // Proves the run exists in this workspace before hijacking the reply.
-      agentRunService.detail(context, workspaceId.data, runId.data, request.id);
+      agentRunService.detail(context, workspaceId, runId, request.id);
       if (rawSessionToken === undefined) {
         return sendApiError(reply, 401, 'unauthenticated', 'Authentication required');
       }
@@ -298,8 +258,8 @@ export function registerAgentRunRoutes(
         try {
           for await (const item of streamService.stream({
             rawSessionToken,
-            workspaceId: workspaceId.data,
-            runId: runId.data,
+            workspaceId,
+            runId,
             after: cursor,
             signal: controller.signal,
           })) {

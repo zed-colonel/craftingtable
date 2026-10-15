@@ -7,14 +7,13 @@ import {
   savePlanBranchSettingsRequestSchema,
   saveRepositoryPolicyRequestSchema,
   workItemIdSchema,
-  workspaceIdSchema,
   worktreeBranchStatusResponseSchema,
   worktreeIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { BranchService } from '../services/branch-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+import { type BodyOf, contextOf, workspaceParams, paramsOf } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
 const PLAN_VERSION = workspaceParams({ planVersionId: planVersionIdSchema });
@@ -23,29 +22,24 @@ const WORK_ITEM = workspaceParams({ workItemId: workItemIdSchema });
 
 export function registerBranchRoutes(app: FastifyInstance, branches: BranchService) {
   app.get<{
-    Params: { workspaceId: string; planVersionId: string };
     Querystring: { freezeBranch?: string };
   }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
     { config: { access: 'member', params: PLAN_VERSION, notFound: 'Plan not found' } },
     async (request, reply) => {
       const context = contextOf(request);
-      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
+      const { workspaceId, planVersionId } = paramsOf(request, PLAN_VERSION);
       const freeze = gitBranchNameSchema.optional().safeParse(request.query.freezeBranch);
-      if (!ws.success || !plan.success)
-        return sendApiError(reply, 404, 'not-found', 'Plan not found');
       if (!freeze.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid freeze branch');
       return noStore(reply).send(
         repositoryPolicyEvidenceSchema.parse(
-          await branches.policyPreview(context, ws.data, plan.data, freeze.data),
+          await branches.policyPreview(context, workspaceId, planVersionId, freeze.data),
         ),
       );
     },
   );
   app.post<{
-    Params: { workspaceId: string; planVersionId: string };
     Body: BodyOf<typeof saveRepositoryPolicyRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
@@ -61,35 +55,28 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
-      if (!ws.success || !plan.success)
-        return sendApiError(reply, 404, 'not-found', 'Plan not found');
+      const { workspaceId, planVersionId } = paramsOf(request, PLAN_VERSION);
       return noStore(reply).send(
         repositoryPolicyEvidenceSchema.parse(
-          await branches.savePolicy(context, ws.data, plan.data, request.body),
+          await branches.savePolicy(context, workspaceId, planVersionId, request.body),
         ),
       );
     },
   );
-  app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
     { config: { access: 'member', params: PLAN_VERSION } },
     async (request, reply) => {
       const context = contextOf(request);
-      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
-      if (!ws.success || !plan.success)
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const { workspaceId, planVersionId } = paramsOf(request, PLAN_VERSION);
       return noStore(reply).send(
         planBranchSettingsResponseSchema.parse(
-          await branches.settings(context, ws.data, plan.data),
+          await branches.settings(context, workspaceId, planVersionId),
         ),
       );
     },
   );
   app.post<{
-    Params: { workspaceId: string; planVersionId: string };
     Body: BodyOf<typeof savePlanBranchSettingsRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
@@ -104,33 +91,28 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
-      if (!ws.success || !plan.success)
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const { workspaceId, planVersionId } = paramsOf(request, PLAN_VERSION);
       return noStore(reply).send(
         planBranchSettingsResponseSchema.parse(
-          await branches.save(context, ws.data, plan.data, request.body),
+          await branches.save(context, workspaceId, planVersionId, request.body),
         ),
       );
     },
   );
-  app.get<{ Params: { workspaceId: string; worktreeId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/branch-status',
     { config: { access: 'member', params: WORKTREE } },
     async (request, reply) => {
       const context = contextOf(request);
-      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const wt = worktreeIdSchema.safeParse(request.params.worktreeId);
-      if (!ws.success || !wt.success)
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const { workspaceId, worktreeId } = paramsOf(request, WORKTREE);
       return noStore(reply).send(
-        worktreeBranchStatusResponseSchema.parse(await branches.status(context, ws.data, wt.data)),
+        worktreeBranchStatusResponseSchema.parse(
+          await branches.status(context, workspaceId, worktreeId),
+        ),
       );
     },
   );
   app.post<{
-    Params: { workspaceId: string; workItemId: string };
     Body: BodyOf<typeof recordIntegrationEvidenceRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/integration-evidence',
@@ -145,13 +127,10 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const item = workItemIdSchema.safeParse(request.params.workItemId);
-      if (!ws.success || !item.success)
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const { workspaceId, workItemId } = paramsOf(request, WORK_ITEM);
       return noStore(reply).send(
         planBranchSettingsResponseSchema.parse(
-          await branches.recordEvidence(context, ws.data, item.data, request.body.commitSha),
+          await branches.recordEvidence(context, workspaceId, workItemId, request.body.commitSha),
         ),
       );
     },

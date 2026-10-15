@@ -7,7 +7,6 @@ import {
   checkDeclarationPreviewSchema,
   repositoryChecksViewSchema,
   sourceRepositoryIdSchema,
-  workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type {
@@ -15,7 +14,7 @@ import type {
   RepositoryChecksService,
 } from '../services/repository-checks-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+import { type BodyOf, contextOf, workspaceParams, paramsOf } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
 const REPOSITORY = workspaceParams({ repositoryId: sourceRepositoryIdSchema });
@@ -27,41 +26,29 @@ export function registerRepositoryChecksRoutes(
   service: RepositoryChecksService,
 ) {
   const base = '/api/workspaces/:workspaceId/repositories/:repositoryId/checks';
-  type Params = { Params: { workspaceId: string; repositoryId: string } };
-  const ids = (params: Params['Params']) => {
-    const ws = workspaceIdSchema.safeParse(params.workspaceId);
-    const repository = sourceRepositoryIdSchema.safeParse(params.repositoryId);
-    return ws.success && repository.success
-      ? { ws: ws.data, repository: repository.data }
-      : undefined;
-  };
-  app.get<Params>(
+  app.get(
     base,
     { config: { access: 'member', params: REPOSITORY, notFound: 'Repository not found' } },
     async (request, reply) => {
       const context = contextOf(request);
-      const target = ids(request.params);
-      if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+      const { workspaceId, repositoryId } = paramsOf(request, REPOSITORY);
       return noStore(reply).send(
-        repositoryChecksViewSchema.parse(service.view(context, target.ws, target.repository)),
+        repositoryChecksViewSchema.parse(service.view(context, workspaceId, repositoryId)),
       );
     },
   );
-  app.get<Params>(
+  app.get(
     `${base}/receipts`,
     { config: { access: 'member', params: REPOSITORY, notFound: 'Repository not found' } },
     async (request, reply) => {
       const context = contextOf(request);
-      const target = ids(request.params);
-      if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+      const { workspaceId, repositoryId } = paramsOf(request, REPOSITORY);
       return noStore(reply).send(
-        repositoryCheckReceiptsSchema.parse(
-          service.receipts(context, target.ws, target.repository),
-        ),
+        repositoryCheckReceiptsSchema.parse(service.receipts(context, workspaceId, repositoryId)),
       );
     },
   );
-  app.post<Params & { Body: BodyOf<typeof checkDeclarationPreviewRequestSchema> }>(
+  app.post<{ Body: BodyOf<typeof checkDeclarationPreviewRequestSchema> }>(
     `${base}/preview`,
     {
       config: {
@@ -75,26 +62,21 @@ export function registerRepositoryChecksRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const target = ids(request.params);
-      if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+      const { workspaceId, repositoryId } = paramsOf(request, REPOSITORY);
       return noStore(reply).send(
         checkDeclarationPreviewSchema.parse(
-          await service.preview(context, target.ws, target.repository, request.body.ref),
+          await service.preview(context, workspaceId, repositoryId, request.body.ref),
         ),
       );
     },
   );
-  type TreeParams = { Params: { workspaceId: string; worktreeId: string } };
-  app.get<TreeParams>(
+  app.get(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/check-definitions',
     { config: { access: 'member', params: WORKTREE, notFound: 'Worktree not found' } },
     async (request, reply) => {
       const context = contextOf(request);
-      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const tree = worktreeIdSchema.safeParse(request.params.worktreeId);
-      if (!ws.success || !tree.success)
-        return sendApiError(reply, 404, 'not-found', 'Worktree not found');
-      const diagnosis = await service.definitionsOf(context, ws.data, tree.data);
+      const { workspaceId, worktreeId } = paramsOf(request, WORKTREE);
+      const diagnosis = await service.definitionsOf(context, workspaceId, worktreeId);
       if (!diagnosis)
         return sendApiError(
           reply,
@@ -105,7 +87,7 @@ export function registerRepositoryChecksRoutes(
       return noStore(reply).send(checkDefinitionDiagnosisSchema.parse(diagnosisView(diagnosis)));
     },
   );
-  app.post<Params & { Body: BodyOf<typeof adoptCheckDeclarationRequestSchema> }>(
+  app.post<{ Body: BodyOf<typeof adoptCheckDeclarationRequestSchema> }>(
     `${base}/adopt`,
     {
       config: {
@@ -119,11 +101,10 @@ export function registerRepositoryChecksRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const target = ids(request.params);
-      if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+      const { workspaceId, repositoryId } = paramsOf(request, REPOSITORY);
       return noStore(reply).send(
         repositoryChecksViewSchema.parse(
-          await service.adopt(context, target.ws, target.repository, request.body),
+          await service.adopt(context, workspaceId, repositoryId, request.body),
         ),
       );
     },

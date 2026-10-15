@@ -4894,6 +4894,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *Planning and work items* (`planning`, `page-views`): a malformed project, plan version,
     artifact or work item id gets 404 "Resource not found" on each read and on the work item's
     control; a malformed id with a malformed body still gets the body's 400.
+  - *Execution* (`execution`, `agent-runs`, `branches`, `repository-checks`): worktree,
+    repository, run, work item and plan version ids, and the tool result's digest, refused with
+    each route's message ("Worktree not found" for check definitions, "Repository not found" for
+    adopted checks, "Plan not found" for repository policy, "Resource not found" elsewhere). The
+    merge's step-up rule reads the parsed worktree id with `parsedParamsOf` (none when it did not
+    parse: no password asked, then the 404, as before); the adopted checks' private id parser and
+    the tool result's inline digest test are gone (`toolResultDigestSchema` declares it).
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

@@ -4,13 +4,19 @@ import {
   finalizationViewSchema,
   planVersionIdSchema,
   startFinalizationRequestSchema,
-  workspaceIdSchema,
   finalizationIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { FinalizationService } from '../services/finalization-service.js';
-import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, stepUpForStoredWork, workspaceParams } from './route-access.js';
+import { noStore } from './http.js';
+import {
+  type BodyOf,
+  contextOf,
+  stepUpForStoredWork,
+  workspaceParams,
+  paramsOf,
+  parsedParamsOf,
+} from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
 const PLAN_VERSION = workspaceParams({ planVersionId: planVersionIdSchema });
@@ -19,24 +25,20 @@ export function registerFinalizationRoutes(
   app: FastifyInstance,
   service: FinalizationService,
 ): void {
-  app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/finalizations',
     { config: { access: 'member', params: PLAN_VERSION, notFound: 'Plan not found' } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
-      if (!workspace.success || !plan.success)
-        return sendApiError(reply, 404, 'not-found', 'Plan not found');
+      const { workspaceId, planVersionId } = paramsOf(request, PLAN_VERSION);
       return noStore(reply).send(
         finalizationsResponseSchema.parse({
-          finalizations: await service.list(context, workspace.data, plan.data),
+          finalizations: await service.list(context, workspaceId, planVersionId),
         }),
       );
     },
   );
   app.post<{
-    Params: { workspaceId: string; planVersionId: string };
     Body: BodyOf<typeof startFinalizationRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/finalizations',
@@ -52,19 +54,15 @@ export function registerFinalizationRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
-      if (!workspace.success || !plan.success)
-        return sendApiError(reply, 404, 'not-found', 'Plan not found');
+      const { workspaceId, planVersionId } = paramsOf(request, PLAN_VERSION);
       return noStore(reply).send(
         finalizationViewSchema.parse(
-          await service.start(context, workspace.data, plan.data, request.body),
+          await service.start(context, workspaceId, planVersionId, request.body),
         ),
       );
     },
   );
   app.post<{
-    Params: { workspaceId: string; finalizationId: string };
     Body: BodyOf<typeof controlFinalizationRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/finalizations/:finalizationId/control',
@@ -83,26 +81,17 @@ export function registerFinalizationRoutes(
             body !== null &&
             (body as { action?: unknown }).action === 'merge') ||
           stepUpForStoredWork((request) => {
-            const { workspaceId, finalizationId } = request.params as {
-              readonly workspaceId: string;
-              readonly finalizationId: string;
-            };
-            return service.storedWork(workspaceId, finalizationId);
+            const params = parsedParamsOf(request, FINALIZATION);
+            return params && service.storedWork(params.workspaceId, params.finalizationId);
           })(body, request),
       },
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId, finalizationId } = paramsOf(request, FINALIZATION);
       return noStore(reply).send(
         finalizationViewSchema.parse(
-          await service.control(
-            context,
-            workspace.data,
-            request.params.finalizationId,
-            request.body,
-          ),
+          await service.control(context, workspaceId, finalizationId, request.body),
         ),
       );
     },

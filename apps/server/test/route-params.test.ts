@@ -1,5 +1,7 @@
+import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from '../src/config.js';
+import { cycleProfiles } from './execution-test-support.js';
 import { createTestContext, TEST_USERNAME, type TestContext } from './test-support.js';
 
 /**
@@ -162,5 +164,55 @@ describe('execution routes: repositories, worktrees, runs and checks', () => {
     const adopt = await post('repositories/%20x/checks/preview', { ref: 'main' });
     expect(adopt.statusCode).toBe(404);
     expect(adopt.json()).toEqual(notFound('Repository not found'));
+  });
+});
+
+describe('cycle and finalization routes', () => {
+  it('refuse a malformed work item or plan version id as before, and pass a cycle id on to its lookup', async () => {
+    const { post, get } = await signedIn();
+    const uuid = '00000000-0000-4000-8000-000000000003';
+    const start = await post('work-items/%20x/cycles', {
+      worktreeId: uuid,
+      profiles: cycleProfiles,
+      policy: DEFAULT_COMPLETION_POLICY,
+    });
+    expect(start.statusCode).toBe(404);
+    expect(start.json()).toEqual(notFound('Work item not found'));
+    const finalizations = await get('plan-versions/%20x/finalizations');
+    expect(finalizations.statusCode).toBe(404);
+    expect(finalizations.json()).toEqual(notFound('Plan not found'));
+    const settings = await post('plan-versions/%20x/finalizations', { rounds: 'many' });
+    expect(settings.statusCode).toBe(400);
+    expect(settings.json()).toEqual({
+      error: { code: 'invalid-request', message: 'Invalid finalization settings' },
+    });
+    // A cycle id was never checked by its handlers: it is only branded, and each service still
+    // answers what its lookup finds, padded or not.
+    for (const id of [uuid, '%20x']) {
+      const evidence = await get(`cycles/${id}/baseline-evidence`);
+      expect(evidence.statusCode).toBe(404);
+      expect(evidence.json()).toEqual(notFound());
+      const control = await post(`cycles/${id}/control`, { action: 'resume', expectedVersion: 1 });
+      expect(control.statusCode).toBe(404);
+      expect(control.json()).toEqual(notFound());
+      const repair = await post(`cycles/${id}/scope-repair`, {
+        expectedVersion: 1,
+        snapshotDigest: '0'.repeat(64),
+        sourceId: 'slice',
+        maxRemediationRounds: 1,
+      });
+      expect(repair.statusCode).toBe(409);
+      expect(repair.json()).toEqual({
+        error: {
+          code: 'conflict',
+          message: 'An idle scope review is required for source remediation.',
+        },
+      });
+      const finalization = await post(`finalizations/${id}/control`, {
+        action: 'pause',
+        expectedVersion: 1,
+      });
+      expect(finalization.statusCode).toBe(404);
+    }
   });
 });

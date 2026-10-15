@@ -4901,6 +4901,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     merge's step-up rule reads the parsed worktree id with `parsedParamsOf` (none when it did not
     parse: no password asked, then the 404, as before); the adopted checks' private id parser and
     the tool result's inline digest test are gone (`toolResultDigestSchema` declares it).
+  - *Cycles and finalizations* (`work-cycles`, `finalizations`): a malformed work item id on
+    starting a cycle gets 404 "Work item not found", a malformed plan version id on a plan's
+    finalizations "Plan not found", a malformed body first its 400. Cycle and finalization ids,
+    which no handler checked, are only branded: a padded or unknown cycle id still gets each
+    service's answer (404 "Resource not found" for evidence, control and a finalization's
+    control; 409 "An idle scope review is required for source remediation." for a scope repair).
+    The two step-up rules (cycle and finalization control) read the parsed ids with
+    `parsedParamsOf` instead of casting `request.params`.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

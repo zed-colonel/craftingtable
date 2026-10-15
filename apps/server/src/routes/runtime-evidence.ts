@@ -19,7 +19,6 @@ import {
   runtimeEvidenceViewSchema,
   runtimeRefreshPreviewSchema,
   runtimeRefreshRequestSchema,
-  workspaceIdSchema,
   evidenceSubmissionIdLookupSchema,
   worktreeIdLookupSchema,
   concurrencyDefinitionIdLookupSchema,
@@ -28,8 +27,14 @@ import {
 import type { WorkspaceId } from '@craftingtable/domain';
 import type { FastifyInstance } from 'fastify';
 import type { RuntimeEvidenceService } from '../services/runtime-evidence-service.js';
-import { noStore, sendApiError } from './http.js';
-import { type BodyOf, type BodySchema, contextOf, workspaceParams } from './route-access.js';
+import { noStore } from './http.js';
+import {
+  type BodyOf,
+  type BodySchema,
+  contextOf,
+  paramsOf,
+  workspaceParams,
+} from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
 const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
@@ -50,59 +55,44 @@ export function registerRuntimeEvidenceRoutes(
   service: RuntimeEvidenceService,
 ) {
   const base = '/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime';
-  app.get<{ Params: { workspaceId: string; id: string; worktreeId: string } }>(
+  app.get(
     `${base}/checkpoint-recovery/:worktreeId`,
     { config: { access: 'editor', params: DEFINITION_WORKTREE } },
     async (request, reply) => {
-      const context = contextOf(request),
-        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const context = contextOf(request);
+      const { workspaceId, id, worktreeId } = paramsOf(request, DEFINITION_WORKTREE);
       return noStore(reply).send(
         checkpointRecoverySchema.parse(
-          await service.checkpointRecovery(
-            context,
-            ws.data,
-            request.params.id,
-            request.params.worktreeId,
-          ),
+          await service.checkpointRecovery(context, workspaceId, id, worktreeId),
         ),
       );
     },
   );
-  app.get<{ Params: { workspaceId: string; id: string } }>(
-    base,
-    { config: { access: 'member', params: DEFINITION } },
-    async (request, reply) => {
-      const context = contextOf(request),
-        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      return noStore(reply).send(
-        runtimeEvidenceViewSchema.parse(await service.view(context, ws.data, request.params.id)),
-      );
-    },
-  );
-  app.get<{ Params: { workspaceId: string; id: string; submissionId: string } }>(
+  app.get(base, { config: { access: 'member', params: DEFINITION } }, async (request, reply) => {
+    const context = contextOf(request);
+    const { workspaceId, id } = paramsOf(request, DEFINITION);
+    return noStore(reply).send(
+      runtimeEvidenceViewSchema.parse(await service.view(context, workspaceId, id)),
+    );
+  });
+  app.get(
     `${base}/submissions/:submissionId`,
     { config: { access: 'member', params: DEFINITION_SUBMISSION } },
     async (request, reply) => {
-      const context = contextOf(request),
-        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const context = contextOf(request);
+      const { workspaceId, id, submissionId } = paramsOf(request, DEFINITION_SUBMISSION);
       return noStore(reply).send(
-        evidenceSubmissionSchema.parse(
-          service.submission(context, ws.data, request.params.id, request.params.submissionId),
-        ),
+        evidenceSubmissionSchema.parse(service.submission(context, workspaceId, id, submissionId)),
       );
     },
   );
-  app.get<{ Params: { workspaceId: string; id: string; runId: string } }>(
+  app.get(
     `${base}/runs/:runId/build-record`,
     { config: { access: 'member', params: DEFINITION_RUN } },
     async (request, reply) => {
-      const context = contextOf(request),
-        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      const record = service.buildRecord(context, ws.data, request.params.id, request.params.runId);
+      const context = contextOf(request);
+      const { workspaceId, id, runId } = paramsOf(request, DEFINITION_RUN);
+      const record = service.buildRecord(context, workspaceId, id, runId);
       return noStore(reply)
         .header('content-type', 'application/json')
         .header('content-disposition', 'attachment; filename="build-record.json"')
@@ -112,7 +102,7 @@ export function registerRuntimeEvidenceRoutes(
     },
   );
   for (const c of runtimeCommands(service))
-    app.post<{ Params: { workspaceId: string; id: string } }>(
+    app.post(
       `${base}/${c.action}`,
       {
         config: {
@@ -125,10 +115,9 @@ export function registerRuntimeEvidenceRoutes(
         bodyLimit: 5 * 1024 * 1024,
       },
       async (request, reply) => {
-        const context = contextOf(request),
-          ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-        if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-        return noStore(reply).send(await c.run(context, ws.data, request.params.id, request.body));
+        const context = contextOf(request);
+        const { workspaceId, id } = paramsOf(request, DEFINITION);
+        return noStore(reply).send(await c.run(context, workspaceId, id, request.body));
       },
     );
 }

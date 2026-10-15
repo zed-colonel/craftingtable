@@ -4769,7 +4769,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H7
 
-**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (2026-10-14, on `remediation/p4`: part 1, the declaration, parsing and startup refusal; part 2, the routes by area, under way; not merged or deployed)
+**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (2026-10-14, on `remediation/p4`: part 1, the declaration, parsing and startup refusal; part 2, the routes by area; not merged or deployed)
 
 - **Added 2026-10-12 by the operator,** after R-I7 branded the domain's ids (part 8) and left route
   parameters and service and storage lookups as plain strings wherever no route parses a schema.
@@ -4916,6 +4916,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     routes that passed the roadmap id on unchecked keep their answers (history: the service's
     404; control: its own 400 "Re-verify applies to one item." before any lookup). The control's
     step-up rule reads the parsed id with `parsedParamsOf`.
+  - *Imports, concurrency definitions, runtime evidence and supervision* (`package-imports`,
+    `runtime-evidence`, `cross-project`): the supervision adoption still answers a roadmap id that
+    is not a UUID with 400 and its body's message; the supervision preview and roadmap commands
+    keep their check that the path's definition id is the body's (400). Definition, archive,
+    submission, and the runtime's worktree and run ids were never checked and are only branded:
+    an unknown or padded one still gets each service's 404.
+  - *After the last area* no handler parses or reads `request.params`: the only read left in
+    `apps/server/src/routes` is the daemon's parse in `route-access.ts` (from 146 id-schema
+    parses and 194 raw reads at `9230d81`). A check that holds it comes with part 4.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

@@ -10,7 +10,6 @@ import {
   planVersionIdSchema,
   projectIdSchema,
   saveConcurrencyBindingsSchema,
-  workspaceIdSchema,
   concurrencyDefinitionIdLookupSchema,
   importedArchiveIdLookupSchema,
 } from '@craftingtable/contracts';
@@ -26,6 +25,7 @@ import {
   declaredBody,
   WORKSPACE_PARAMS,
   workspaceParams,
+  paramsOf,
 } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
@@ -85,7 +85,7 @@ async function readArchiveUpload(request: FastifyRequest) {
 }
 export function registerPackageImportRoutes(app: FastifyInstance, imports: PackageImportService) {
   for (const action of ['preview', 'import'] as const)
-    app.post<{ Params: { workspaceId: string } }>(
+    app.post(
       action === 'preview'
         ? '/api/workspaces/:workspaceId/imports/plan-archives/preview'
         : '/api/workspaces/:workspaceId/imports/plan-archives',
@@ -102,8 +102,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
       },
       async (request, reply) => {
         const context = contextOf(request);
-        const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-        if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+        const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
         const upload = await readArchiveUpload(request);
         const fields = upload.fields;
         const selection = archiveSelectionSchema.safeParse({
@@ -117,7 +116,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
             planArchivePreviewSchema.parse(
               imports.previewPlan(
                 context,
-                workspace.data,
+                workspaceId,
                 upload.bytes,
                 selection.success ? selection.data : undefined,
               ),
@@ -143,7 +142,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
             'invalid-request',
             'Preview the archive and choose a project or project name before importing.',
           );
-        const result = imports.importPlan(context, workspace.data, upload.filename, upload.bytes, {
+        const result = imports.importPlan(context, workspaceId, upload.filename, upload.bytes, {
           ...selection.data,
           archiveDigest: fields.archiveDigest as string,
           activate: fields.activate === 'true',
@@ -159,7 +158,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
         );
       },
     );
-  app.post<{ Params: { workspaceId: string } }>(
+  app.post(
     '/api/workspaces/:workspaceId/imports/concurrency-definitions',
     {
       config: {
@@ -174,42 +173,36 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       const upload = await readArchiveUpload(request);
       return noStore(reply).send(
         concurrencyImportResponseSchema.parse(
-          imports.importConcurrency(context, workspace.data, upload.filename, upload.bytes),
+          imports.importConcurrency(context, workspaceId, upload.filename, upload.bytes),
         ),
       );
     },
   );
-  app.get<{ Params: { workspaceId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/imports/concurrency-definitions',
     { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      return noStore(reply).send(
-        concurrencyListSchema.parse(imports.list(context, workspace.data)),
-      );
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
+      return noStore(reply).send(concurrencyListSchema.parse(imports.list(context, workspaceId)));
     },
   );
-  app.get<{ Params: { workspaceId: string; id: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id',
     { config: { access: 'member', params: DEFINITION } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId, id } = paramsOf(request, DEFINITION);
       return noStore(reply).send(
-        concurrencyDetailSchema.parse(imports.detail(context, workspace.data, request.params.id)),
+        concurrencyDetailSchema.parse(imports.detail(context, workspaceId, id)),
       );
     },
   );
   app.post<{
-    Params: { workspaceId: string; id: string };
     Body: BodyOf<typeof saveConcurrencyBindingsSchema>;
   }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/bindings',
@@ -224,23 +217,19 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const { workspaceId, id } = paramsOf(request, DEFINITION);
       return noStore(reply).send(
-        concurrencyDetailSchema.parse(
-          imports.saveBindings(context, workspace.data, request.params.id, request.body),
-        ),
+        concurrencyDetailSchema.parse(imports.saveBindings(context, workspaceId, id, request.body)),
       );
     },
   );
-  app.get<{ Params: { workspaceId: string; id: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/imports/archives/:id',
     { config: { access: 'member', params: ARCHIVE } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-      const archive = imports.archiveContent(context, workspace.data, request.params.id);
+      const { workspaceId, id } = paramsOf(request, ARCHIVE);
+      const archive = imports.archiveContent(context, workspaceId, id);
       return noStore(reply)
         .header('content-type', 'application/octet-stream')
         .header('content-disposition', `attachment; filename="${archive.filename}"`)

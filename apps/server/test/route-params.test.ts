@@ -275,3 +275,36 @@ describe('roadmap and map amendment routes', () => {
     });
   });
 });
+
+describe('import, concurrency definition, runtime and supervision routes', () => {
+  it('keep each answer: the adoption refuses a malformed id as its body, the rest look it up', async () => {
+    const { get, post } = await signedIn();
+    // The adoption read its id (a roadmap UUID) with its body: 400 with the body's message.
+    const adopt = await post('concurrency-definitions/not-a-uuid/supervision/adopt', {
+      bindingRevision: 1,
+      decisionIds: [],
+      rationale: 'Adopt the map.',
+    });
+    expect(adopt.statusCode).toBe(400);
+    expect(adopt.json()).toEqual({
+      error: {
+        code: 'invalid-request',
+        message: 'Review the exact decisions and give an adoption rationale.',
+      },
+    });
+    // A definition, archive or submission id was never checked: each service still answers
+    // what its lookup finds.
+    for (const id of ['00000000-0000-4000-8000-000000000005', '%20x']) {
+      for (const path of [
+        `concurrency-definitions/${id}`,
+        `concurrency-definitions/${id}/runtime`,
+        `concurrency-definitions/${id}/runtime/submissions/${id}`,
+        `imports/archives/${id}`,
+      ]) {
+        const response = await get(path);
+        expect(response.statusCode, path).toBe(404);
+        expect(response.json(), path).toEqual(notFound());
+      }
+    }
+  });
+});

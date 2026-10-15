@@ -5,20 +5,18 @@ import {
   roadmapIdSchema,
   roadmapViewSchema,
   saveCrossProjectSchema,
-  workspaceIdSchema,
   concurrencyDefinitionIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { CrossProjectService } from '../services/cross-project-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+import { type BodyOf, contextOf, paramsOf, workspaceParams } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
 const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
 const ADOPTION = workspaceParams({ id: roadmapIdSchema });
 export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossProjectService) {
   app.post<{
-    Params: { workspaceId: string; id: string };
     Body: BodyOf<typeof mapSelectionSchema>;
   }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview',
@@ -32,9 +30,9 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
       },
     },
     async (req, reply) => {
-      const context = contextOf(req),
-        ws = workspaceIdSchema.safeParse(req.params.workspaceId);
-      if (!ws.success || req.body.definitionId !== req.params.id)
+      const context = contextOf(req);
+      const { workspaceId, id } = paramsOf(req, DEFINITION);
+      if (req.body.definitionId !== id)
         return sendApiError(
           reply,
           400,
@@ -42,11 +40,11 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
           'Select an exact binding and declared target.',
         );
       return noStore(reply).send(
-        crossProjectViewSchema.parse(service.view(context, ws.data, req.body)),
+        crossProjectViewSchema.parse(service.view(context, workspaceId, req.body)),
       );
     },
   );
-  app.post<{ Params: { workspaceId: string; id: string }; Body: BodyOf<typeof adoptMapSchema> }>(
+  app.post<{ Body: BodyOf<typeof adoptMapSchema> }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt',
     {
       config: {
@@ -59,21 +57,12 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
       },
     },
     async (req, reply) => {
-      const context = contextOf(req),
-        ws = workspaceIdSchema.safeParse(req.params.workspaceId),
-        id = roadmapIdSchema.safeParse(req.params.id);
-      if (!ws.success || !id.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Review the exact decisions and give an adoption rationale.',
-        );
-      return noStore(reply).send(service.adopt(context, ws.data, id.data, req.body));
+      const context = contextOf(req);
+      const { workspaceId, id } = paramsOf(req, ADOPTION);
+      return noStore(reply).send(service.adopt(context, workspaceId, id, req.body));
     },
   );
   app.post<{
-    Params: { workspaceId: string; id: string };
     Body: BodyOf<typeof saveCrossProjectSchema>;
   }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap',
@@ -88,16 +77,18 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
       bodyLimit: 2 * 1024 * 1024,
     },
     async (req, reply) => {
-      const context = contextOf(req),
-        ws = workspaceIdSchema.safeParse(req.params.workspaceId);
-      if (!ws.success || req.body.configuration.definitionId !== req.params.id)
+      const context = contextOf(req);
+      const { workspaceId, id } = paramsOf(req, DEFINITION);
+      if (req.body.configuration.definitionId !== id)
         return sendApiError(
           reply,
           400,
           'invalid-request',
           'Invalid cross-project roadmap configuration.',
         );
-      return noStore(reply).send(roadmapViewSchema.parse(service.save(context, ws.data, req.body)));
+      return noStore(reply).send(
+        roadmapViewSchema.parse(service.save(context, workspaceId, req.body)),
+      );
     },
   );
 }

@@ -216,3 +216,62 @@ describe('cycle and finalization routes', () => {
     }
   });
 });
+
+describe('roadmap and map amendment routes', () => {
+  it('refuse a malformed roadmap id or revision as each route did', async () => {
+    const { get, post } = await signedIn();
+    const uuid = '00000000-0000-4000-8000-000000000004';
+    for (const path of [
+      'roadmaps/not-a-uuid/view',
+      'roadmaps/not-a-uuid/status',
+      'roadmaps/not-a-uuid/wind-down',
+      `roadmaps/${uuid}/definitions/0`,
+      `roadmaps/${uuid}/graph/first`,
+      'roadmaps/not-a-uuid/amendments',
+      'roadmaps/not-a-uuid/finalization-readiness',
+    ]) {
+      const response = await get(path);
+      expect(response.statusCode, path).toBe(404);
+      expect(response.json(), path).toEqual(notFound('Roadmap not found'));
+    }
+    const capacity = await post('roadmaps/not-a-uuid/capacity', {
+      expectedVersion: 1,
+      maxInFlight: 2,
+      maxPerRepository: 1,
+    });
+    expect(capacity.statusCode).toBe(404);
+    expect(capacity.json()).toEqual(notFound('Roadmap not found'));
+    // A map amendment's decision read its roadmap id with its body: 400 with the body's message.
+    const decision = await post('roadmaps/not-a-uuid/amendments/decision', {
+      amendmentId: uuid,
+      outcome: 'reject',
+      impactDigest: 'a'.repeat(64),
+      rationale: 'Not needed.',
+      reuseIntegrationIds: [],
+    });
+    expect(decision.statusCode).toBe(400);
+    expect(decision.json()).toEqual({
+      error: {
+        code: 'invalid-request',
+        message: 'Review the impact and provide a decision rationale.',
+      },
+    });
+    // The cleanup always asks for the password first, as it did before the id was refused.
+    const cleanup = await post('roadmaps/not-a-uuid/cleanup', {});
+    expect(cleanup.statusCode).toBe(403);
+    expect(cleanup.json().error.reason).toBe('step-up-required');
+    // The four routes that passed the roadmap id on unchecked still do: their answers are the
+    // handler's and the service's.
+    const history = await get('roadmaps/not-a-uuid/history');
+    expect(history.statusCode).toBe(404);
+    expect(history.json()).toEqual(notFound());
+    const reverify = await post('roadmaps/not-a-uuid/control', {
+      action: 'reverify',
+      expectedVersion: 1,
+    });
+    expect(reverify.statusCode).toBe(400);
+    expect(reverify.json()).toEqual({
+      error: { code: 'invalid-request', message: 'Re-verify applies to one item.' },
+    });
+  });
+});

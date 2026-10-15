@@ -6,47 +6,39 @@ import {
   mapSelectionSchema,
   proposeMapAmendmentSchema,
   roadmapIdSchema,
-  workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { MapAmendmentService } from '../services/map-amendment-service.js';
-import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+import { noStore } from './http.js';
+import { type BodyOf, contextOf, paramsOf, workspaceParams } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
 const ROADMAP = workspaceParams({ roadmapId: roadmapIdSchema });
 export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAmendmentService) {
   const base = '/api/workspaces/:workspaceId/roadmaps/:roadmapId';
-  type Params = { workspaceId: string; roadmapId: string };
-  app.get<{ Params: Params }>(
+  app.get(
     `${base}/amendments`,
     { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (req, reply) => {
-      const context = contextOf(req),
-        ws = workspaceIdSchema.safeParse(req.params.workspaceId),
-        id = roadmapIdSchema.safeParse(req.params.roadmapId);
-      if (!ws.success || !id.success)
-        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      const context = contextOf(req);
+      const { workspaceId, roadmapId } = paramsOf(req, ROADMAP);
       return noStore(reply).send(
-        mapAmendmentsViewSchema.parse(service.view(context, ws.data, id.data)),
+        mapAmendmentsViewSchema.parse(service.view(context, workspaceId, roadmapId)),
       );
     },
   );
-  app.get<{ Params: Params }>(
+  app.get(
     `${base}/finalization-readiness`,
     { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (req, reply) => {
-      const context = contextOf(req),
-        ws = workspaceIdSchema.safeParse(req.params.workspaceId),
-        id = roadmapIdSchema.safeParse(req.params.roadmapId);
-      if (!ws.success || !id.success)
-        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      const context = contextOf(req);
+      const { workspaceId, roadmapId } = paramsOf(req, ROADMAP);
       return noStore(reply).send(
-        crossProjectFinalizationSchema.parse(service.finalization(context, ws.data, id.data)),
+        crossProjectFinalizationSchema.parse(service.finalization(context, workspaceId, roadmapId)),
       );
     },
   );
-  app.post<{ Params: Params; Body: BodyOf<typeof mapSelectionSchema> }>(
+  app.post<{ Body: BodyOf<typeof mapSelectionSchema> }>(
     `${base}/amendments/preview`,
     {
       config: {
@@ -59,22 +51,14 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
       },
     },
     async (req, reply) => {
-      const context = contextOf(req),
-        ws = workspaceIdSchema.safeParse(req.params.workspaceId),
-        id = roadmapIdSchema.safeParse(req.params.roadmapId);
-      if (!ws.success || !id.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Choose an exact map binding and target.',
-        );
+      const context = contextOf(req);
+      const { workspaceId, roadmapId } = paramsOf(req, ROADMAP);
       return noStore(reply).send(
-        amendmentImpactSchema.parse(service.preview(context, ws.data, id.data, req.body)),
+        amendmentImpactSchema.parse(service.preview(context, workspaceId, roadmapId, req.body)),
       );
     },
   );
-  app.post<{ Params: Params; Body: BodyOf<typeof proposeMapAmendmentSchema> }>(
+  app.post<{ Body: BodyOf<typeof proposeMapAmendmentSchema> }>(
     `${base}/amendments`,
     {
       config: {
@@ -87,22 +71,16 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
       },
     },
     async (req, reply) => {
-      const context = contextOf(req),
-        ws = workspaceIdSchema.safeParse(req.params.workspaceId),
-        id = roadmapIdSchema.safeParse(req.params.roadmapId);
-      if (!ws.success || !id.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Provide an exact candidate binding and proposal summary.',
-        );
+      const context = contextOf(req);
+      const { workspaceId, roadmapId } = paramsOf(req, ROADMAP);
       return noStore(reply).send(
-        mapAmendmentsViewSchema.parse(await service.propose(context, ws.data, id.data, req.body)),
+        mapAmendmentsViewSchema.parse(
+          await service.propose(context, workspaceId, roadmapId, req.body),
+        ),
       );
     },
   );
-  app.post<{ Params: Params; Body: BodyOf<typeof decideMapAmendmentSchema> }>(
+  app.post<{ Body: BodyOf<typeof decideMapAmendmentSchema> }>(
     `${base}/amendments/decision`,
     {
       config: {
@@ -115,18 +93,12 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
       },
     },
     async (req, reply) => {
-      const context = contextOf(req),
-        ws = workspaceIdSchema.safeParse(req.params.workspaceId),
-        id = roadmapIdSchema.safeParse(req.params.roadmapId);
-      if (!ws.success || !id.success)
-        return sendApiError(
-          reply,
-          400,
-          'invalid-request',
-          'Review the impact and provide a decision rationale.',
-        );
+      const context = contextOf(req);
+      const { workspaceId, roadmapId } = paramsOf(req, ROADMAP);
       return noStore(reply).send(
-        mapAmendmentsViewSchema.parse(await service.decide(context, ws.data, id.data, req.body)),
+        mapAmendmentsViewSchema.parse(
+          await service.decide(context, workspaceId, roadmapId, req.body),
+        ),
       );
     },
   );

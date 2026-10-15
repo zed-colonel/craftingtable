@@ -4909,6 +4909,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     control; 409 "An idle scope review is required for source remediation." for a scope repair).
     The two step-up rules (cycle and finalization control) read the parsed ids with
     `parsedParamsOf` instead of casting `request.params`.
+  - *Roadmaps and map amendments* (`roadmaps`, `map-amendments`): a roadmap id that is not a
+    UUID, or a revision that is not a positive integer, gets 404 "Roadmap not found" on the
+    routes that checked it; the three amendment commands still answer 400 with their body's
+    message; the cleanup still asks for the password before a malformed id's 404. The four
+    routes that passed the roadmap id on unchecked keep their answers (history: the service's
+    404; control: its own 400 "Re-verify applies to one item." before any lookup). The control's
+    step-up rule reads the parsed id with `parsedParamsOf`.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

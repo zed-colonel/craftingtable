@@ -2603,6 +2603,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - Gate at fb42dc5, on an idle machine during the Codex outage: `pnpm check` is green (186 test files, 1,427 unit, 20 e2e, scope check). The earlier failures in scope-recovery and supervised-maps were waitFor timeouts under the live daemon's load.
 
 - **Measured (2026-10-09, operator agreed to place it here).** Profiling R-E3b's reads on a copy of the 2026-10-09 07:06 UTC live snapshot: a cold `crossProjectState` takes 122 ms, about half of it per-node phase blockers (`scopePhaseBlockers` 48 ms), status text and cycle lookups that the board, the feed and the operator's needs do not read; the other half is deciding which milestones are met (`milestoneSatisfied` 57 ms, mostly evidence and scope-receipt checks). The single evaluator this item plans should separate satisfaction and requirements from per-node blockers, so a reader that needs only "is it met" (R-E3b's board, the feed's slice counts) pays about half. R-D6 then shares that one evaluation between the scheduler and the readers.
+
+- **Follow-up from R-H7 (operator decision 2026-10-15):** when the compiled map model is built,
+  brand the map-declared identities where it reads the raw v0.3 document, so the 17 service
+  parameters R-H7 left as plain strings take their brands: checkpoint (`CheckpointId`), slice
+  (`SliceId`), declared check (`DeclaredCheckId`) and qualification environment
+  (`QualificationEnvironmentId`) ids, listed in [R-H7](#r-h7)'s part 3. Compile-time only, as R-I7
+  and R-H7 branded: the document's format keeps its strings.
+
 ### R-F2
 
 **Typed feature recognition instead of prose and magic identifiers** · Phase P3 · Effort M · Status: done (parts 1 to 4 reviewed and integrated on `remediation/p3` 2026-10-07; part 6 built with R-G6 (c215840), reviewed and integrated 2026-10-08; part 5 built with R-A6's rest, 2026-10-09, see its progress below)
@@ -5121,8 +5129,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
      map model*, which reads the document once and is the natural edge to brand them at.
 - **Operator decisions, 2026-10-15 (on the three questions above):** (1) yes, the four commands
   answer a malformed id with 404; (2) yes, the 40 lookup parameters take their kind's rule; (3) a
-  follow-up: recorded in [R-F1](#r-f1)'s entry, to brand the map-declared ids where its compiled
-  map model reads the document.
+  follow-up: recorded in [R-F1](#r-f1)'s entry (built with decisions 1 and 2), to brand the
+  map-declared ids where its compiled map model reads the document.
 - **Built (2026-10-15), decision 1: the four commands answer 404.** The three map-amendment
   commands answer a roadmap id that is not a UUID with 404 "Roadmap not found" (the message their
   amendment reads on the same path give), and the supervision adoption a definition id that is not

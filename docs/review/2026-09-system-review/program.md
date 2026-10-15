@@ -1159,6 +1159,29 @@ now answers a malformed parameter with its 404 (four commands answered 400, and 
 their services answer), and branding the map-declared ids follows with R-F1. Next on this line: the Slopinator rename and re-import; R-B7
 can now move service code with branded signatures.
 
+**R-B4 design pass (2026-10-15, at 728fa16; nothing built).** The first step is done: the
+`--every-run` baseline is re-recorded beside the 2026-09-23 snapshot as
+`every-run-golden-728fa16.json` (278 decisions). It differs from the manifest's a4aa12d golden only
+by the change the manifest already expects, and the build's first commit points the manifest at
+it. [R-B4](register.md#r-b4)'s entry holds the design and fifteen decisions for the operator; no
+controller code changes until they are settled. Measured at 728fa16: `reconcile` is 292 lines (656
+at the baseline); `WorkCycle` has 52 top-level fields, 32 optional (the baseline's 41 counted every
+optional field in `work-cycle.ts`, which also holds other types now: 63).
+
+Recommended order for the controller-kernel items, replacing the listing above as an order:
+1. **R-B4**, the decision core (its increments 1 to 6). Its state shape (increment 7: the stop
+   record, the step attempt, the migration) follows once the core has settled, or becomes R-B4b
+   (R-B4 decision 12), so nothing below waits on a migration.
+2. **R-C10's follow-up**, once R-B4's core is in (its increment 5 gives the holds a typed cause):
+   small, and it cuts operator waits directly.
+3. **R-B7's cycle half**, which moves the effects R-B4 has separated into their modules.
+4. **R-B5**, the kernel, on those modules: timers from the `dueAt` of R-B4's `idle` and `wait`
+   decisions, its per-aggregate mutex in place of the in-memory sets R-B4 confines to `KernelFacts`.
+5. **R-B6**, which scopes pauses with R-B5's mutex and R-B11's drain.
+6. **R-B7's scheduler half**, then R-F1 full and R-F5. The cycle core reads map facts through
+   functions R-F1 can replace, and R-B4's predecessor gate is the whole-item half of FMT-09, which
+   R-F1 completes for the map. R-D6 is measured after R-B5.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

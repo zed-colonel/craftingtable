@@ -69,7 +69,8 @@
  *    one. Handlers read the parsed values with `paramsOf`. A route's parameters typed as `Params`
  *    are reported too: a type argument of a generic Fastify declares (`app.get<…>`,
  *    `FastifyRequest<…>`, `extends FastifyRequest<…>`) whose type, as the compiler reads it, has a
- *    `Params` property, written in place or through an alias, an interface or an intersection.
+ *    `Params` property declared outside Fastify (its own `RouteGenericInterface` types nothing),
+ *    written in place or through an alias, an interface or an intersection.
  *    Typing them is what lets a handler, or a helper typed by shape that it hands the request,
  *    read them unparsed. Like rule 7 it guards
  *    against a mistake, not evasion: a member it cannot name (a computed key, `Reflect.get`)
@@ -1727,7 +1728,13 @@ function requestParameterReads(module) {
     if (!fastifyDeclared(owners[index])) return;
     for (const argument of node.typeArguments) {
       const type = checker.getTypeFromTypeNode(argument);
-      if (type !== undefined && checker.getPropertyOfType(type, 'Params') !== undefined)
+      const params = type === undefined ? undefined : checker.getPropertyOfType(type, 'Params');
+      // Fastify's own route generic declares an optional `Params`; only a route's own counts.
+      if (
+        params?.declarations.some(
+          (declaration) => !posix(declaration.path).includes('/node_modules/fastify/'),
+        )
+      )
         typed.push(argument);
     }
   });

@@ -788,6 +788,12 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
       'export interface FastifyInstance {',
       '  get<G = unknown>(url: string, handler: (request: FastifyRequest<G>) => unknown): void;',
       '}',
+      // Fastify's own route generic declares an optional `Params`: naming it types nothing.
+      'export interface RouteGenericInterface { Params?: unknown; Body?: unknown }',
+      // Real Fastify puts the route generic fourth in a reply, a handler method and options.
+      'export interface FastifyReply<A = unknown, B = unknown, C = unknown, G = unknown> {',
+      '  send(payload: unknown): void;',
+      '}',
       '',
     ].join('\n'),
   };
@@ -861,6 +867,12 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
         'export type BodyOnly = FastifyRequest<{ Body: string } & { Querystring: string }>;',
         "import type * as F from 'fastify';",
         'export type Spaced = F.FastifyRequest<Aliased>;',
+        'export type Fourth = F.FastifyReply<unknown, unknown, unknown, Aliased>;',
+        'export type First = F.FastifyReply<Aliased, unknown, unknown, unknown>;',
+        // Fastify's route generic, and a helper generic over it, type nothing of a route's own.
+        'export type Generic = FastifyRequest<F.RouteGenericInterface>;',
+        'export const anyRoute = <G extends F.RouteGenericInterface>(request: FastifyRequest<G>) =>',
+        '  request.body;',
         '',
       ].join('\n'),
       // Tests may read what a request carried.
@@ -884,6 +896,8 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
       typed('apps/server/src/routes/typed.ts', 14),
       typed('apps/server/src/routes/typed.ts', 15),
       typed('apps/server/src/routes/typed.ts', 18),
+      typed('apps/server/src/routes/typed.ts', 19),
+      typed('apps/server/src/routes/typed.ts', 20),
     ]);
   });
 

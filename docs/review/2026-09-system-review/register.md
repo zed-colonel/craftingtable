@@ -5054,6 +5054,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     a body-and-query intersection and a non-Fastify generic are not. With the route modules
     restored to part 1's the check reports **320 findings: 207 reads and 113 typed `Params`**
     (every typed registration, the five aliased ones included); at this commit it passes.
+  - *Round 4* (at `a50f14b`): 8 mutants of the type-based `Params` rule (each kind of generic
+    dropped, the qualified and member names, the `Params` test, the arguments checked, the Fastify
+    owner check): 8 caught.
+- **Re-check 2 (at `a50f14b`):** R1 closed: with part 1's route modules the check reports 207
+  reads and 113 typed, and all 12 of the reviewer's planted shapes are reported (an alias, an
+  interface, an inline or aliased intersection, a heritage clause, a renamed and a namespace
+  import, `RouteHandler`, `app.route`, a reply's route generic in fourth place, the F6 helper with
+  an alias), while a literal with only `Body` or `Querystring`, `any` and a non-Fastify generic
+  are not. The entry's text checked accurate. Two new LOW findings, settled:
+  - *R2, a false finding on Fastify's own route generic:* `RouteGenericInterface` declares an
+    optional `Params`, so `FastifyRequest<RouteGenericInterface>` and a helper generic over it
+    (`<G extends RouteGenericInterface>(request: FastifyRequest<G>)`) were reported, though they
+    type nothing of a route's own. The rule now reports a `Params` declared outside Fastify only;
+    the self-test adds both as passes.
+  - *R3, the self-test's Fastify had only one-argument generics,* so checking only the first or
+    only the last type argument survived (real Fastify puts the route generic fourth in
+    `FastifyReply`, `RouteHandlerMethod` and route options): the fake Fastify gains a
+    four-argument `FastifyReply`, with reported cases on its first and fourth arguments.
 - **Open questions for the operator** (each would change a status code, so none was built; the
   daemon answers as before):
   1. *The four commands that answer a malformed id with 400 and their body's message* (the three

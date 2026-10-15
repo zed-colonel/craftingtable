@@ -7,12 +7,12 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { AttentionService } from '../services/attention-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
 
 export function registerAttentionRoutes(app: FastifyInstance, service: AttentionService) {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/attention',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -28,6 +28,7 @@ export function registerAttentionRoutes(app: FastifyInstance, service: Attention
     {
       config: {
         access: 'editor',
+        params: WORKSPACE_PARAMS,
         tag: 'decision',
         body: acknowledgeProtectedRefMovesRequestSchema,
         invalidBody: 'Name the moves to acknowledge.',

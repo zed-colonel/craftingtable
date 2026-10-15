@@ -28,7 +28,17 @@ import {
   MULTIPART_PLUGIN_LIMITS,
   readPlanImportParts,
 } from './multipart.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, WORKSPACE_PARAMS, workspaceParams } from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const PROJECT = workspaceParams({ projectId: projectIdSchema });
+const PROJECT_PLAN_VERSION = workspaceParams({
+  projectId: projectIdSchema,
+  planVersionId: planVersionIdSchema,
+});
+const PLAN_VERSION = workspaceParams({ planVersionId: planVersionIdSchema });
+const WORK_ITEM = workspaceParams({ workItemId: workItemIdSchema });
+const ARTIFACT = workspaceParams({ artifactId: planArtifactIdSchema });
 
 /**
  * Thin planning routes.
@@ -105,6 +115,7 @@ export function registerPlanningRoutes(
     {
       config: {
         access: 'editor',
+        params: WORKSPACE_PARAMS,
         tag: 'config',
         multipart: true,
         body: planImportFieldsSchema,
@@ -178,7 +189,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string; projectId: string } }>(
     '/api/workspaces/:workspaceId/projects/:projectId',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: PROJECT } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -196,7 +207,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string; projectId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: PROJECT_PLAN_VERSION } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -222,7 +233,7 @@ export function registerPlanningRoutes(
   // A plan version's dependency structure, which never changes (R-E4).
   app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/graph',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: PLAN_VERSION } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -240,7 +251,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string }; Querystring: { filter?: string } }>(
     '/api/workspaces/:workspaceId/work-items',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -269,6 +280,7 @@ export function registerPlanningRoutes(
     {
       config: {
         access: 'editor',
+        params: WORK_ITEM,
         tag: 'control',
         body: workItemControlRequestSchema,
         invalidBody: 'Invalid work item command',
@@ -333,7 +345,7 @@ export function registerPlanningRoutes(
    */
   app.get<{ Params: { workspaceId: string; artifactId: string } }>(
     '/api/workspaces/:workspaceId/plan-artifacts/:artifactId',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ARTIFACT } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);

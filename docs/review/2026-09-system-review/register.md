@@ -95,7 +95,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | done (2026-10-11, not merged or deployed; 147 → 133 routes; reload open pages after deploying) | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
-| [R-H7](#r-h7) | P4 | M | open | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
+| [R-H7](#r-h7) | P4 | M | in progress (part 1) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -4769,7 +4769,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H7
 
-**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: open
+**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (2026-10-14, on `remediation/p4`: part 1, the declaration, parsing and startup refusal; not merged or deployed)
 
 - **Added 2026-10-12 by the operator,** after R-I7 branded the domain's ids (part 8) and left route
   parameters and service and storage lookups as plain strings wherever no route parses a schema.
@@ -4795,6 +4795,92 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Done when:** every path parameter has a declared schema (the startup refusal tested); no
   handler reads `request.params` directly (held by a check); service and storage lookups take
   branded ids wherever a brand exists; `pnpm check` and `pnpm replays` are unchanged.
+
+- **Built (2026-10-14, on `remediation/p4`, not merged or deployed), part 1: the declaration, the
+  parsing and the startup refusal, with the inventory.**
+  - **Recount at `9230d81`** (before R-H7; R-B11, R-G17 and R-G19 added routes since `16f6021`):
+    137 routes (64 GET, 73 POST); **126 take path parameters** (122 at `16f6021`), 95 of them one
+    beyond the workspace's id. In `apps/server/src/routes`: **146 id-schema parses of a parameter**
+    (`IdSchema.safeParse(request.params…`, 138 by the same search at `16f6021`, the entry's count)
+    and **194 `request.params` reads** (186 by the same search at `16f6021`; the entry's 182 was
+    counted another way). Sixteen parameter names: `workspaceId` (125 routes), `roadmapId` (24),
+    `id` (23: a concurrency definition on 22, an imported archive on one), `cycleId` (10),
+    `workItemId` and `planVersionId` (8 each), `worktreeId` and `runId` (7 each), `repositoryId`
+    (6), `revision` and `projectId` (2 each), `submissionId`, `sessionId`, `finalizationId`,
+    `digest` and `artifactId` (1 each).
+  - **What a malformed parameter answered before, read route by route.** The workspace's id: the
+    access check's 404 "Resource not found", before the body is read. Every other parameter a
+    handler parsed: after the body (R-H5's order), with one message per route: "Resource not
+    found" on most; "Roadmap not found" (15 roadmap routes and the two amendment reads), "Plan not
+    found" (repository policy and a plan's finalizations, 4), "Repository not found" (adopted
+    checks, 4), "Worktree not found" (check definitions), "Work item not found" (starting a
+    cycle). Not always 404: the three map-amendment commands and the supervision adoption read
+    their id (a roadmap UUID) with their body and refused a malformed one with 400 and the body's
+    message; the supervision preview and roadmap commands compare their id with the body's (400
+    on a mismatch, a check that stays in the handler). And **40 parameters on 38 routes reached a
+    service unparsed:** every cycle id (10), a concurrency definition id (21), four roadmap ids
+    (history, the decision-preparation grant, scope recovery, control), and one each of an
+    imported archive, a finalization, a submission, and the worktree and run under a runtime's
+    checkpoint recovery and build record. What such a value got was the service's answer: mostly
+    its lookup's 404 "Resource not found", but not everywhere (a cycle's scope repair answers 409
+    "An idle scope review is required for source remediation." for an unknown cycle; roadmap
+    control answers its own 400s for some bodies before it looks the roadmap up; checkpoint
+    recovery brands the worktree id with `asWorktreeId`, which throws on a padded id: a 500).
+  - **The declaration (`route-access.ts`).** Each route declares `params` in its config beside
+    `body`: every path parameter by name with its schema, a shared contract. A workspace route's
+    is `workspaceParams({ … })`, which adds `workspaceId: workspaceIdSchema`. The daemon parses
+    every declared parameter once, in the access check's `preParsing` hook, before the caller is
+    authenticated or the body read; the access check reads the parsed workspace id (one that did
+    not parse is still its 404 "Resource not found"). Any other parameter that did not parse is
+    refused by a `preValidation` hook after step-up and the body, as its handler refused it: 404
+    with the route's `notFound` ("Resource not found" when absent), or, with
+    `paramsRefusedAsBody`, 400 with the route's `invalidBody`. A handler reads the parsed values
+    with `paramsOf(request, DECLARATION)`, typed by its schemas' outputs (branded ids); a
+    declaration other than its route's is a fault, so a handler cannot read what its route did not
+    declare. A step-up rule reads them with `parsedParamsOf`, undefined when one did not parse.
+  - **The startup refusal.** The daemon refuses to start with a route whose path has a parameter
+    without a declared schema, a declared parameter its path lacks, a workspace route whose
+    `workspaceId` is not `workspaceIdSchema`, a refusal named for a route with no parameter of its
+    own, or `paramsRefusedAsBody` without a body or beside `notFound`.
+  - **The inventory.** `docs/api-routes.md` gains **Parameters** (each parameter with its schema's
+    contract name; one the contracts do not export is refused, as a body's is) and **Refused**
+    columns, and the counts: 126 routes take path parameters, 95 beyond the workspace's.
+  - *Choices made here (routine calls):*
+    1. **Parity by construction.** Each parameter is declared with exactly the schema its handler
+       applied and refused as its handler refused it. A parameter its handler passed on unparsed
+       is declared with a `…LookupSchema` (contracts, `ids.ts`): any text, only branded, as R-I7
+       branded records ("a value keeps the rule of the edge that admitted it"), so its service
+       answers it as before. No status, message or order changes; "a malformed id still answers
+       404, as handlers do today" holds wherever it held. It did not hold on the four 400
+       commands or for the 40 unchecked parameters; changing either changes a status code, so
+       both are questions for the operator (below), and the inventory shows each one.
+    2. **The workspace's id is declared on every workspace route** rather than implied by its
+       access, so "every path parameter has a declared schema" holds without an exception; the
+       startup check pins it to `workspaceIdSchema`, the schema the access check needs.
+    3. **Parsed before authentication, refused after the body.** Parsing in the access check
+       keeps one parse per request and gives step-up the parsed values; refusing after the body
+       keeps R-H5's order (a wrong body and a wrong id get the body's 400) and step-up's (a step-up
+       route asks for the password before a malformed id's 404, as it did).
+    4. **New contract schemas:** `toolResultDigestSchema` (the run tool-result route's
+       `/^[a-f0-9]{64}$/`, which the handler tested inline) and the eight lookup schemas
+       (`workCycleIdLookupSchema`, `roadmapIdLookupSchema`, `finalizationIdLookupSchema`,
+       `concurrencyDefinitionIdLookupSchema`, `importedArchiveIdLookupSchema`,
+       `evidenceSubmissionIdLookupSchema`, `worktreeIdLookupSchema`, `agentRunIdLookupSchema`).
+    5. **The run event stream's origin check** moved from its handler to the route's own
+       `preParsing` hook, which Fastify runs after the daemon's: a cross-origin request with a
+       malformed run id still gets 403 before the 404, an anonymous one still 401.
+  - **Tests (each failed before the change).** `route-access.test.ts`: the startup refusals above,
+    one by one; on a test route, the handler reads the schema's output, a parameter that does not
+    parse is refused with the route's message and never reaches the handler, a malformed workspace
+    id gets the access check's 404, a wrong body and a wrong id get the body's 400, step-up reads
+    the parsed parameters (undefined when one did not parse), `paramsRefusedAsBody` answers as the
+    body, each parameter is parsed once per request, and a handler reading another declaration
+    fails. `route-params.test.ts`: the run event stream answers 401, then 403, then 404 (it got
+    404 for the cross-origin request with the check left out of the hook). The R-H5 tests that
+    register their own routes declare their parameters. The inventory test regenerates the file.
+  - *Handlers are unchanged in this commit:* they still parse their own parameters, after the
+    daemon's parse refused what they would refuse; the commits below move them to `paramsOf` area
+    by area.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

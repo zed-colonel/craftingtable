@@ -25,12 +25,27 @@ import {
   decisionPreparationGrantRequestSchema,
   scopeRecoveryPolicyRequestSchema,
   workspaceIdSchema,
+  roadmapIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { RepositoryCleanupService } from '../services/repository-cleanup.js';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, stepUpForStoredWork } from './route-access.js';
+import {
+  type BodyOf,
+  contextOf,
+  stepUpForStoredWork,
+  WORKSPACE_PARAMS,
+  workspaceParams,
+} from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const ROADMAP = workspaceParams({ roadmapId: roadmapIdSchema });
+const ROADMAP_REVISION = workspaceParams({
+  roadmapId: roadmapIdSchema,
+  revision: roadmapRevisionParamSchema,
+});
+const ROADMAP_LOOKUP = workspaceParams({ roadmapId: roadmapIdLookupSchema });
 export function registerRoadmapRoutes(
   app: FastifyInstance,
   roadmaps: RoadmapService,
@@ -39,7 +54,7 @@ export function registerRoadmapRoutes(
   // Winding down (R-B11, ADR-073): `control` routes, so R-A6's decision boundary is unchanged.
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/wind-down',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -59,6 +74,8 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        notFound: 'Roadmap not found',
         tag: 'control',
         body: windDownRequestSchema,
         invalidBody: 'Choose the preview you reviewed and the plan versions to retire.',
@@ -86,7 +103,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/cleanup',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -106,6 +123,8 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'owner',
+        params: ROADMAP,
+        notFound: 'Roadmap not found',
         tag: 'control',
         body: cleanupRequestSchema,
         invalidBody: 'Choose the cleanup plan you reviewed.',
@@ -129,7 +148,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -151,6 +170,8 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        notFound: 'Roadmap not found',
         tag: 'decision',
         body: prepareRoadmapDecisionSchema,
         invalidBody: 'Choose a decision, model and bounded preparation time.',
@@ -177,6 +198,8 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        notFound: 'Roadmap not found',
         tag: 'decision',
         body: applyRoadmapDelegationSchema,
         invalidBody: 'Choose current entries, delegation and a reason.',
@@ -196,7 +219,7 @@ export function registerRoadmapRoutes(
   // A roadmap's agents as its setup edits them (R-E5b); it replaced the workspace-wide read.
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -216,6 +239,8 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        notFound: 'Roadmap not found',
         tag: 'config',
         body: applyRoadmapAgentsSchema,
         invalidBody:
@@ -237,7 +262,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/capacities',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -255,6 +280,8 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        notFound: 'Roadmap not found',
         tag: 'config',
         body: saveRoadmapCapacitySchema,
         invalidBody:
@@ -276,7 +303,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -289,7 +316,7 @@ export function registerRoadmapRoutes(
   // The roadmaps list page's light rows (R-D5).
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/summaries',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -302,7 +329,7 @@ export function registerRoadmapRoutes(
   // A roadmap page's region in one read (R-D5).
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/view',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -317,7 +344,7 @@ export function registerRoadmapRoutes(
   // One revision of a roadmap's definition, which never changes (R-D5).
   app.get<{ Params: { workspaceId: string; roadmapId: string; revision: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/definitions/:revision',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP_REVISION, notFound: 'Roadmap not found' } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -335,7 +362,7 @@ export function registerRoadmapRoutes(
   // A roadmap's dependency structure at one revision, which never changes (R-E3b).
   app.get<{ Params: { workspaceId: string; roadmapId: string; revision: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/graph/:revision',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP_REVISION, notFound: 'Roadmap not found' } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -350,7 +377,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/status',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -364,7 +391,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/history',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP_LOOKUP } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -384,6 +411,7 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP_LOOKUP,
         tag: 'decision',
         body: decisionPreparationGrantRequestSchema,
         invalidBody: 'Invalid decision preparation grant',
@@ -413,6 +441,7 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP_LOOKUP,
         tag: 'config',
         body: scopeRecoveryPolicyRequestSchema,
         invalidBody: 'Invalid recovery delegation',
@@ -442,6 +471,8 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        notFound: 'Roadmap not found',
         tag: 'config',
         body: saveRoadmapRequestSchema,
         invalidBody: 'Invalid roadmap settings; choose unique work items and entries.',
@@ -467,6 +498,7 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
+        params: ROADMAP_LOOKUP,
         tag: 'control',
         body: controlRoadmapRequestSchema,
         invalidBody: 'Invalid roadmap command',

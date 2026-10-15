@@ -16,8 +16,12 @@ import {
   contextOf,
   declaredRouteAccess,
   declaredRoutes,
+  paramsOf,
+  parsedParamsOf,
   type RouteAccess,
   routeAccessProblem,
+  WORKSPACE_PARAMS,
+  workspaceParams,
 } from '../src/routes/route-access.js';
 import { UnauthenticatedError } from '../src/services/errors.js';
 import { createTestContext, routeTable, TEST_USERNAME, type TestContext } from './test-support.js';
@@ -239,6 +243,7 @@ describe('route authorization sweep', () => {
           config: {
             access: 'editor',
             tag: 'control',
+            params: WORKSPACE_PARAMS,
             body,
             stepUpRule: 'always',
             stepUp: () => true,
@@ -265,7 +270,15 @@ describe('route authorization sweep', () => {
     };
     context.app.post(
       '/api/workspaces/:workspaceId/r-h5-parsed',
-      { config: { access: 'editor', tag: 'control', body, invalidBody: 'Name n.' } },
+      {
+        config: {
+          access: 'editor',
+          tag: 'control',
+          params: WORKSPACE_PARAMS,
+          body,
+          invalidBody: 'Name n.',
+        },
+      },
       async (request) => {
         seen.push(request.body);
         return { ok: true };
@@ -310,6 +323,218 @@ describe('route authorization sweep', () => {
     expect(parsed.statusCode, parsed.body).toBe(200);
     // The handler reads the schema's output, not the body as sent.
     expect(seen).toEqual([{ n: 2 }]);
+  });
+
+  it('refuses a route whose path has a parameter without a declared schema (R-H7)', async () => {
+    const context = await createTestContext({ workers: false });
+    contexts.push(context);
+    const handler = async () => ({});
+    const thing = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
+    const url = '/api/workspaces/:workspaceId/r-h7/:thingId';
+    expect(() => context.app.get(url, { config: { access: 'member' } }, handler)).toThrow(
+      /parameter :workspaceId without a declared schema/,
+    );
+    expect(() =>
+      context.app.get(url, { config: { access: 'member', params: WORKSPACE_PARAMS } }, handler),
+    ).toThrow(/parameter :thingId without a declared schema/);
+    expect(() =>
+      context.app.get(
+        '/api/workspaces/:workspaceId/r-h7',
+        { config: { access: 'member', params: workspaceParams({ thingId: thing }) } },
+        handler,
+      ),
+    ).toThrow(/declares a parameter thingId its path does not have/);
+    // The access check parses the workspace's id, before the body is read, with its one schema.
+    expect(() =>
+      context.app.get(
+        url,
+        { config: { access: 'member', params: { workspaceId: thing, thingId: thing } } },
+        handler,
+      ),
+    ).toThrow(/workspace's id with a schema other than workspaceIdSchema/);
+    expect(() =>
+      context.app.get(
+        '/api/workspaces/:workspaceId/r-h7-only',
+        { config: { access: 'member', params: WORKSPACE_PARAMS, notFound: 'Thing not found' } },
+        handler,
+      ),
+    ).toThrow(/refusal for parameters it does not have/);
+    expect(() =>
+      context.app.get(
+        url,
+        {
+          config: {
+            access: 'member',
+            params: workspaceParams({ thingId: thing }),
+            paramsRefusedAsBody: true,
+          },
+        },
+        handler,
+      ),
+    ).toThrow(/refuses a parameter as its body, but has no body/);
+    expect(() =>
+      context.app.post(
+        '/api/auth/sessions/:sessionId/r-h7',
+        { config: { access: 'session', tag: 'control', body: thing } },
+        handler,
+      ),
+    ).toThrow(/parameter :sessionId without a declared schema/);
+    expect(() =>
+      context.app.get(
+        url,
+        {
+          config: {
+            access: 'member',
+            params: workspaceParams({ thingId: thing }),
+            notFound: 'Thing not found',
+          },
+        },
+        handler,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      context.app.post(
+        '/api/auth/sessions/:sessionId/r-h7',
+        {
+          config: { access: 'session', tag: 'control', params: { sessionId: thing }, body: thing },
+        },
+        handler,
+      ),
+    ).not.toThrow();
+  });
+
+  it('parses every path parameter once, before the handler, and refuses one as its route declares (R-H7)', async () => {
+    const context = await createTestContext({ workers: false });
+    contexts.push(context);
+    await context.bootstrap();
+    const parsedSeen: unknown[] = [];
+    const thing = {
+      safeParse: (value: unknown) => {
+        parsedSeen.push(value);
+        return typeof value === 'string' && value.startsWith('t-')
+          ? { success: true as const, data: `${value}!` }
+          : { success: false as const };
+      },
+    };
+    const body = {
+      safeParse: (value: unknown) =>
+        typeof value === 'object' && value !== null && 'n' in value
+          ? { success: true as const, data: value }
+          : { success: false as const },
+    };
+    const THING = workspaceParams({ thingId: thing });
+    const handled: unknown[] = [];
+    const steppedUp: unknown[] = [];
+    context.app.get(
+      '/api/workspaces/:workspaceId/r-h7/:thingId',
+      { config: { access: 'member', params: THING, notFound: 'Thing not found' } },
+      async (request) => {
+        handled.push(paramsOf(request, THING));
+        return { ok: true };
+      },
+    );
+    context.app.post(
+      '/api/workspaces/:workspaceId/r-h7/:thingId',
+      {
+        config: {
+          access: 'editor',
+          tag: 'control',
+          params: THING,
+          notFound: 'Thing not found',
+          body,
+          invalidBody: 'Name n.',
+          stepUpRule: 'never, but it reads the parameters',
+          stepUp: (_body, request) => {
+            steppedUp.push(parsedParamsOf(request, THING));
+            return false;
+          },
+        },
+      },
+      async (request) => {
+        handled.push(paramsOf(request, THING));
+        return { ok: true };
+      },
+    );
+    context.app.post(
+      '/api/workspaces/:workspaceId/r-h7/:thingId/as-body',
+      {
+        config: {
+          access: 'editor',
+          tag: 'control',
+          params: THING,
+          paramsRefusedAsBody: true,
+          body,
+          invalidBody: 'Name n.',
+        },
+      },
+      async (request) => {
+        handled.push(paramsOf(request, THING));
+        return { ok: true };
+      },
+    );
+    context.app.get(
+      '/api/workspaces/:workspaceId/r-h7-other/:thingId',
+      { config: { access: 'member', params: THING } },
+      // Reads a declaration other than its route's: refused, not silently trusted.
+      async (request) => paramsOf(request, workspaceParams({ thingId: thing })),
+    );
+    const session = await context.login();
+    const workspaceId = context.storage.workspaces.listAuthorized(
+      context.storage.users.findByNormalizedUsername(TEST_USERNAME)!.id,
+    )[0]!.workspace.id;
+    const headers = {
+      cookie: session.cookie,
+      [CSRF_HEADER_NAME]: session.csrfToken,
+      origin: context.config.publicOrigin,
+      'content-type': 'application/json',
+    };
+    const get = (path: string) =>
+      context.app.inject({ method: 'GET', url: `/api/workspaces/${path}`, headers });
+    const post = (path: string, payload: Record<string, unknown>) =>
+      context.app.inject({ method: 'POST', url: `/api/workspaces/${path}`, headers, payload });
+
+    // The handler reads the schema's output, branded or transformed, never the text as sent.
+    const read = await get(`${workspaceId}/r-h7/t-1`);
+    expect(read.statusCode, read.body).toBe(200);
+    expect(handled).toEqual([{ workspaceId, thingId: 't-1!' }]);
+    expect(parsedSeen).toEqual(['t-1']);
+    // A parameter that does not parse is refused before the handler, with the route's message.
+    const missing = await get(`${workspaceId}/r-h7/x-1`);
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({ error: { code: 'not-found', message: 'Thing not found' } });
+    // A workspace id that does not parse is refused by the access check, before anything else.
+    const noWorkspace = await get('%20w/r-h7/t-1');
+    expect(noWorkspace.statusCode).toBe(404);
+    expect(noWorkspace.json()).toEqual({
+      error: { code: 'not-found', message: 'Resource not found' },
+    });
+    expect(handled).toHaveLength(1);
+
+    // A command: step-up reads the parsed parameters (or none), then the body is refused before a
+    // parameter, as handlers refused them after the body was parsed.
+    const bothWrong = await post(`${workspaceId}/r-h7/x-1`, { m: 1 });
+    expect(bothWrong.statusCode).toBe(400);
+    expect(bothWrong.json()).toEqual({ error: { code: 'invalid-request', message: 'Name n.' } });
+    const idWrong = await post(`${workspaceId}/r-h7/x-1`, { n: 1 });
+    expect(idWrong.statusCode).toBe(404);
+    expect(idWrong.json()).toEqual({ error: { code: 'not-found', message: 'Thing not found' } });
+    const right = await post(`${workspaceId}/r-h7/t-2`, { n: 1 });
+    expect(right.statusCode, right.body).toBe(200);
+    expect(steppedUp).toEqual([undefined, undefined, { workspaceId, thingId: 't-2!' }]);
+    expect(handled).toEqual([
+      { workspaceId, thingId: 't-1!' },
+      { workspaceId, thingId: 't-2!' },
+    ]);
+    // Refused as the body is, where a route refused a malformed id as an invalid request.
+    const asBody = await post(`${workspaceId}/r-h7/x-1/as-body`, { n: 1 });
+    expect(asBody.statusCode).toBe(400);
+    expect(asBody.json()).toEqual({ error: { code: 'invalid-request', message: 'Name n.' } });
+    expect(handled).toHaveLength(2);
+    // Each parameter was parsed once per request.
+    expect(parsedSeen).toEqual(['t-1', 'x-1', 't-1', 'x-1', 'x-1', 't-2', 'x-1']);
+
+    const other = await get(`${workspaceId}/r-h7-other/t-3`);
+    expect(other.statusCode).toBe(500);
   });
 
   it('checks sign-in origin and media type before reading the body (R-H5)', async () => {

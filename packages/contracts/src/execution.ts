@@ -42,6 +42,9 @@ import {
 import { providerFailureSchema } from './provider-failure.js';
 import { reviewReportAssessmentSchema } from './review.js';
 
+/** A tool result's full output by its digest (R-H2), as a run's `tool-results/:digest` names it (R-H7). */
+export const toolResultDigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
 export const SSE_RUN_EVENT_NAME = 'run-event';
 
 const utf8Length = (value: string): number => new TextEncoder().encode(value).byteLength;

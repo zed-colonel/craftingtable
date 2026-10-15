@@ -14,7 +14,12 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { BranchService } from '../services/branch-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const PLAN_VERSION = workspaceParams({ planVersionId: planVersionIdSchema });
+const WORKTREE = workspaceParams({ worktreeId: worktreeIdSchema });
+const WORK_ITEM = workspaceParams({ workItemId: workItemIdSchema });
 
 export function registerBranchRoutes(app: FastifyInstance, branches: BranchService) {
   app.get<{
@@ -22,7 +27,7 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
     Querystring: { freezeBranch?: string };
   }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: PLAN_VERSION, notFound: 'Plan not found' } },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -47,6 +52,8 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
     {
       config: {
         access: 'editor',
+        params: PLAN_VERSION,
+        notFound: 'Plan not found',
         tag: 'config',
         body: saveRepositoryPolicyRequestSchema,
         invalidBody: 'Invalid repository policy',
@@ -67,7 +74,7 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
   );
   app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: PLAN_VERSION } },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -89,6 +96,7 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
     {
       config: {
         access: 'editor',
+        params: PLAN_VERSION,
         tag: 'config',
         body: savePlanBranchSettingsRequestSchema,
         invalidBody: 'Invalid branch settings',
@@ -109,7 +117,7 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
   );
   app.get<{ Params: { workspaceId: string; worktreeId: string } }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/branch-status',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKTREE } },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -129,6 +137,7 @@ export function registerBranchRoutes(app: FastifyInstance, branches: BranchServi
     {
       config: {
         access: 'editor',
+        params: WORK_ITEM,
         tag: 'control',
         body: recordIntegrationEvidenceRequestSchema,
         invalidBody: 'Invalid integration evidence',

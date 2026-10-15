@@ -27,6 +27,9 @@ import {
 import { browserHeaders, clientAddress } from './request-security.js';
 import { type BodyOf, contextOf } from './route-access.js';
 
+/** Each route's path parameters (R-H7). */
+const SESSION = { sessionId: sessionIdSchema } as const;
+
 export function registerAuthRoutes(
   app: FastifyInstance,
   authService: AuthService,
@@ -176,6 +179,7 @@ export function registerAuthRoutes(
     {
       config: {
         access: 'session',
+        params: SESSION,
         tag: 'control',
         body: revokeSessionRequestSchema,
         invalidBody: 'Invalid session revocation request',

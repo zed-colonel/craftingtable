@@ -5,18 +5,23 @@ import {
   planVersionIdSchema,
   startFinalizationRequestSchema,
   workspaceIdSchema,
+  finalizationIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { FinalizationService } from '../services/finalization-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, stepUpForStoredWork } from './route-access.js';
+import { type BodyOf, contextOf, stepUpForStoredWork, workspaceParams } from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const PLAN_VERSION = workspaceParams({ planVersionId: planVersionIdSchema });
+const FINALIZATION = workspaceParams({ finalizationId: finalizationIdLookupSchema });
 export function registerFinalizationRoutes(
   app: FastifyInstance,
   service: FinalizationService,
 ): void {
   app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/finalizations',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: PLAN_VERSION, notFound: 'Plan not found' } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -38,6 +43,8 @@ export function registerFinalizationRoutes(
     {
       config: {
         access: 'editor',
+        params: PLAN_VERSION,
+        notFound: 'Plan not found',
         tag: 'control',
         body: startFinalizationRequestSchema,
         invalidBody: 'Invalid finalization settings',
@@ -65,6 +72,7 @@ export function registerFinalizationRoutes(
     {
       config: {
         access: 'editor',
+        params: FINALIZATION,
         tag: 'decision',
         body: controlFinalizationRequestSchema,
         invalidBody: 'Invalid finalization command',

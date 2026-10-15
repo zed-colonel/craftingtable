@@ -1,5 +1,5 @@
 import { workspaceIdSchema } from '@craftingtable/contracts';
-import type { WorkspaceRole } from '@craftingtable/domain';
+import type { WorkspaceId, WorkspaceRole } from '@craftingtable/domain';
 import type { FastifyContextConfig, FastifyInstance, FastifyRequest } from 'fastify';
 import { CSRF_HEADER_NAME, type ServerConfig, sessionCookieName } from '../config.js';
 import { csrfTokensEqual } from '../security/csrf.js';
@@ -46,6 +46,35 @@ export interface BodySchema {
       };
 }
 
+/** A path parameter's schema (R-H7): a shared contract, applied by the daemon before the handler. */
+export type ParamSchema = BodySchema;
+
+/** A route's path parameters (R-H7): each name in its path, with the schema it is parsed with. */
+export type RouteParams = Readonly<Record<string, ParamSchema>>;
+
+/** What a declared parameter parses to: its schema's output, a brand for an id. */
+type ParsedParam<S> = S extends { safeParse(value: unknown): infer R }
+  ? Extract<R, { readonly success: true }> extends { readonly data: infer T }
+    ? T
+    : never
+  : never;
+
+/** A route's parameters as its handler reads them (R-H7): each parsed by its declared schema. */
+export type ParamsOf<P extends RouteParams> = { readonly [K in keyof P]: ParsedParam<P[K]> };
+
+/**
+ * A workspace route's parameters (R-H7): its workspace's id, which the access check parses with
+ * `workspaceIdSchema` before the body is read, and the route's own.
+ */
+export function workspaceParams<const P extends RouteParams>(
+  params: P,
+): { readonly workspaceId: typeof workspaceIdSchema } & P {
+  return { workspaceId: workspaceIdSchema, ...params };
+}
+
+/** The parameters of a workspace route that takes no other (R-H7). */
+export const WORKSPACE_PARAMS = workspaceParams({});
+
 declare module 'fastify' {
   interface FastifyContextConfig {
     readonly access?: RouteAccess;
@@ -59,6 +88,22 @@ declare module 'fastify' {
     readonly body?: BodySchema;
     readonly invalidBody?: string;
     readonly multipart?: true;
+    /**
+     * Every path parameter's schema, by its name in the path (R-H7). The daemon parses each once,
+     * before anything reads it, and the handler reads the parsed values with `paramsOf`. A
+     * workspace route's `workspaceId` is `workspaceIdSchema` (`workspaceParams`): the access check
+     * refuses one that does not parse with 404 before the body is read. Any other parameter that
+     * does not parse is refused once step-up and the body are settled, where handlers refused it:
+     * with 404 and `notFound`, or, with `paramsRefusedAsBody`, as an invalid body.
+     */
+    readonly params?: RouteParams;
+    /** The message of the 404 a parameter that does not parse gets (R-H7); "Resource not found". */
+    readonly notFound?: string;
+    /**
+     * A parameter that does not parse is refused as the body is (400 and `invalidBody`), as the
+     * map and supervision commands that read their id with their body refused it (R-H7).
+     */
+    readonly paramsRefusedAsBody?: true;
     /** The route's own step-up rule, in words, for the route inventory (R-H5); with `stepUp`. */
     readonly stepUpRule?: string;
     /**
@@ -113,11 +158,25 @@ function isMutation(method: string): boolean {
   return method !== 'GET' && method !== 'HEAD';
 }
 
-/** What a route declares beyond its method and URL (R-I3, R-H5). */
+/** What a route declares beyond its method and URL (R-I3, R-H5, R-H7). */
 export type RouteDeclaration = Pick<
   FastifyContextConfig,
-  'access' | 'tag' | 'body' | 'multipart' | 'stepUp' | 'stepUpRule' | 'invalidBody'
+  | 'access'
+  | 'tag'
+  | 'body'
+  | 'multipart'
+  | 'stepUp'
+  | 'stepUpRule'
+  | 'invalidBody'
+  | 'params'
+  | 'notFound'
+  | 'paramsRefusedAsBody'
 >;
+
+/** The names of a route path's parameters, in order (`:name`, Fastify's syntax). */
+export function pathParameters(url: string): readonly string[] {
+  return [...url.matchAll(/:([^/(?:.-]+)/g)].map((match) => match[1] ?? '');
+}
 
 /** Why a route's declaration is refused, or undefined when it is acceptable. */
 export function routeAccessProblem(
@@ -150,6 +209,23 @@ export function routeAccessProblem(
     return 'is a read, which takes no tag or body';
   if ((declaration.stepUp === undefined) !== (declaration.stepUpRule === undefined))
     return 'declares a step-up without its rule in words, or a rule without a step-up';
+  // R-H7: every path parameter has a declared schema, and nothing else is declared.
+  const names = pathParameters(url);
+  const declared = Object.keys(declaration.params ?? {});
+  const undeclared = names.find((name) => !declared.includes(name));
+  if (undeclared !== undefined)
+    return `has a path parameter :${undeclared} without a declared schema`;
+  const extra = declared.find((name) => !names.includes(name));
+  if (extra !== undefined) return `declares a parameter ${extra} its path does not have`;
+  if (workspaceRoute && declaration.params?.workspaceId !== workspaceIdSchema)
+    return "parses its workspace's id with a schema other than workspaceIdSchema";
+  const own = names.filter((name) => !(workspaceRoute && name === 'workspaceId'));
+  if (own.length === 0 && (declaration.notFound !== undefined || declaration.paramsRefusedAsBody))
+    return 'names a refusal for parameters it does not have';
+  if (declaration.paramsRefusedAsBody && declaration.body === undefined)
+    return 'refuses a parameter as its body, but has no body';
+  if (declaration.paramsRefusedAsBody && declaration.notFound !== undefined)
+    return 'names both a 404 and an invalid body for a parameter';
   return undefined;
 }
 
@@ -162,6 +238,53 @@ export interface DeclaredRoute extends Omit<RouteDeclaration, 'tag'> {
 }
 
 const declarations = new WeakMap<FastifyInstance, Map<string, DeclaredRoute>>();
+
+/** Each request's parameters as the access check parsed them (R-H7), for `paramsOf`. */
+interface ParsedParams {
+  readonly declared: RouteParams | undefined;
+  readonly values: Readonly<Record<string, unknown>>;
+  readonly invalid: boolean;
+}
+const parsedParams = new WeakMap<FastifyRequest, ParsedParams>();
+
+function parseParams(declared: RouteParams | undefined, raw: unknown): ParsedParams {
+  const values: Record<string, unknown> = {};
+  let invalid = false;
+  for (const [name, schema] of Object.entries(declared ?? {})) {
+    const parsed = schema.safeParse(
+      typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>)[name] : undefined,
+    );
+    if (parsed.success) values[name] = parsed.data;
+    else invalid = true;
+  }
+  return { declared, values, invalid };
+}
+
+/**
+ * A handler's path parameters (R-H7): what the daemon parsed with the schemas its route declares,
+ * read with that declaration. Handlers never read `request.params`. A declaration other than its
+ * route's, or parameters that did not parse (the daemon refused them first), are a fault.
+ */
+export function paramsOf<P extends RouteParams>(request: FastifyRequest, declared: P): ParamsOf<P> {
+  const parsed = parsedParamsOf(request, declared);
+  if (parsed === undefined)
+    throw new Error("Read a route's parameters with the declaration it registered (R-H7).");
+  return parsed;
+}
+
+/**
+ * The parsed parameters for a step-up rule (R-H7), which runs before a parameter that did not
+ * parse is refused: undefined then, as a lookup of the text as sent would have found nothing.
+ */
+export function parsedParamsOf<P extends RouteParams>(
+  request: FastifyRequest,
+  declared: P,
+): ParamsOf<P> | undefined {
+  const parsed = parsedParams.get(request);
+  if (parsed === undefined || parsed.declared !== declared)
+    throw new Error("Read a route's parameters with the declaration it registered (R-H7).");
+  return parsed.invalid ? undefined : (parsed.values as ParamsOf<P>);
+}
 
 /** Each API route's declared access, keyed `METHOD url`, as registered on this app. */
 export function declaredRouteAccess(app: FastifyInstance): ReadonlyMap<string, RouteAccess> {
@@ -210,18 +333,21 @@ export function installRouteAccess(
   // preParsing runs after every onRequest hook (the cookie parser's included) and before the
   // body is read, so an outsider is refused before the daemon buffers or parses its input.
   app.addHook('preParsing', async (request) => {
-    const access = request.routeOptions.config?.access;
-    if (access === undefined || access === 'public') return;
+    const route = request.routeOptions.config;
+    const access = route?.access;
+    if (access === undefined) return;
+    // R-H7: every path parameter is parsed here, once, with the schema its route declares.
+    const params = parseParams(route.params, request.params);
+    parsedParams.set(request, params);
+    if (access === 'public') return;
     const context = isMutation(request.method)
       ? authorizeMutation(request, auth, config)
       : authenticate(request, auth, config);
     request.auth = context;
     if (access === 'session') return;
-    const workspaceId = workspaceIdSchema.safeParse(
-      (request.params as { readonly workspaceId?: unknown }).workspaceId,
-    );
-    if (!workspaceId.success) throw new NotFoundError();
-    workspaces.requireRole(context, workspaceId.data, ROUTE_ACCESS_ROLES[access], {
+    const workspaceId = params.values.workspaceId as WorkspaceId | undefined;
+    if (workspaceId === undefined) throw new NotFoundError();
+    workspaces.requireRole(context, workspaceId, ROUTE_ACCESS_ROLES[access], {
       requestId: request.id,
     });
     if (access === 'installation' && !workspaces.ownsInstallation(context))
@@ -245,6 +371,16 @@ export function installRouteAccess(
     if (!parsed.success)
       return sendApiError(reply, 400, 'invalid-request', config.invalidBody ?? 'Invalid request');
     request.body = parsed.data;
+  });
+  // Then a path parameter that did not parse is refused (R-H7), after the body, where handlers
+  // refused it: 404 with the route's message, or 400 as an invalid body where a route read its id
+  // with its body.
+  app.addHook('preValidation', async (request, reply) => {
+    if (parsedParams.get(request)?.invalid !== true) return;
+    const config = request.routeOptions.config;
+    return config?.paramsRefusedAsBody
+      ? sendApiError(reply, 400, 'invalid-request', config.invalidBody ?? 'Invalid request')
+      : sendApiError(reply, 404, 'not-found', config?.notFound ?? 'Resource not found');
   });
 }
 

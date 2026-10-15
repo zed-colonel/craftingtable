@@ -15,7 +15,11 @@ import type {
   RepositoryChecksService,
 } from '../services/repository-checks-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const REPOSITORY = workspaceParams({ repositoryId: sourceRepositoryIdSchema });
+const WORKTREE = workspaceParams({ worktreeId: worktreeIdSchema });
 
 /** A repository's declared checks (R-G13): read them, preview a proposal, adopt it. */
 export function registerRepositoryChecksRoutes(
@@ -31,27 +35,39 @@ export function registerRepositoryChecksRoutes(
       ? { ws: ws.data, repository: repository.data }
       : undefined;
   };
-  app.get<Params>(base, { config: { access: 'member' } }, async (request, reply) => {
-    const context = contextOf(request);
-    const target = ids(request.params);
-    if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
-    return noStore(reply).send(
-      repositoryChecksViewSchema.parse(service.view(context, target.ws, target.repository)),
-    );
-  });
-  app.get<Params>(`${base}/receipts`, { config: { access: 'member' } }, async (request, reply) => {
-    const context = contextOf(request);
-    const target = ids(request.params);
-    if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
-    return noStore(reply).send(
-      repositoryCheckReceiptsSchema.parse(service.receipts(context, target.ws, target.repository)),
-    );
-  });
+  app.get<Params>(
+    base,
+    { config: { access: 'member', params: REPOSITORY, notFound: 'Repository not found' } },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const target = ids(request.params);
+      if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+      return noStore(reply).send(
+        repositoryChecksViewSchema.parse(service.view(context, target.ws, target.repository)),
+      );
+    },
+  );
+  app.get<Params>(
+    `${base}/receipts`,
+    { config: { access: 'member', params: REPOSITORY, notFound: 'Repository not found' } },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const target = ids(request.params);
+      if (!target) return sendApiError(reply, 404, 'not-found', 'Repository not found');
+      return noStore(reply).send(
+        repositoryCheckReceiptsSchema.parse(
+          service.receipts(context, target.ws, target.repository),
+        ),
+      );
+    },
+  );
   app.post<Params & { Body: BodyOf<typeof checkDeclarationPreviewRequestSchema> }>(
     `${base}/preview`,
     {
       config: {
         access: 'editor',
+        params: REPOSITORY,
+        notFound: 'Repository not found',
         tag: 'config',
         body: checkDeclarationPreviewRequestSchema,
         invalidBody: 'Invalid preview',
@@ -71,7 +87,7 @@ export function registerRepositoryChecksRoutes(
   type TreeParams = { Params: { workspaceId: string; worktreeId: string } };
   app.get<TreeParams>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/check-definitions',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKTREE, notFound: 'Worktree not found' } },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -94,6 +110,8 @@ export function registerRepositoryChecksRoutes(
     {
       config: {
         access: 'editor',
+        params: REPOSITORY,
+        notFound: 'Repository not found',
         tag: 'decision',
         body: adoptCheckDeclarationRequestSchema,
         invalidBody: 'Invalid adoption',

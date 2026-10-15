@@ -6,11 +6,16 @@ import {
   roadmapViewSchema,
   saveCrossProjectSchema,
   workspaceIdSchema,
+  concurrencyDefinitionIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { CrossProjectService } from '../services/cross-project-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
+const ADOPTION = workspaceParams({ id: roadmapIdSchema });
 export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossProjectService) {
   app.post<{
     Params: { workspaceId: string; id: string };
@@ -20,6 +25,7 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
     {
       config: {
         access: 'editor',
+        params: DEFINITION,
         tag: 'config',
         body: mapSelectionSchema,
         invalidBody: 'Select an exact binding and declared target.',
@@ -45,6 +51,8 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
     {
       config: {
         access: 'editor',
+        params: ADOPTION,
+        paramsRefusedAsBody: true,
         tag: 'decision',
         body: adoptMapSchema,
         invalidBody: 'Review the exact decisions and give an adoption rationale.',
@@ -72,6 +80,7 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
     {
       config: {
         access: 'editor',
+        params: DEFINITION,
         tag: 'config',
         body: saveCrossProjectSchema,
         invalidBody: 'Invalid cross-project roadmap configuration.',

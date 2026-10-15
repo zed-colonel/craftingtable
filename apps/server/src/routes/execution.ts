@@ -32,8 +32,13 @@ import type { ExecutionService, ExecutionStatus } from '../services/execution-se
 import type { ModelCatalogService } from '../services/model-catalog-service.js';
 import { registerBranchRoutes } from './branches.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, WORKSPACE_PARAMS, workspaceParams } from './route-access.js';
 import { runListRow } from './run-summary.js';
+
+/** Each route's path parameters (R-H7). */
+const WORK_ITEM = workspaceParams({ workItemId: workItemIdSchema });
+const WORKTREE = workspaceParams({ worktreeId: worktreeIdSchema });
+const REPOSITORY = workspaceParams({ repositoryId: sourceRepositoryIdSchema });
 
 /**
  * Repository, worktree, and diff routes.
@@ -54,7 +59,7 @@ export function registerExecutionRoutes(
   registerBranchRoutes(app, executionService.branches);
   app.get<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/execution-scopes',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORK_ITEM } },
     async (request, reply) => {
       const context = contextOf(request);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -76,6 +81,7 @@ export function registerExecutionRoutes(
     {
       config: {
         access: 'editor',
+        params: WORK_ITEM,
         tag: 'decision',
         body: authorizeScopeSchedulingRequestSchema,
         invalidBody: 'Invalid scheduling authorization',
@@ -107,6 +113,7 @@ export function registerExecutionRoutes(
     {
       config: {
         access: 'editor',
+        params: WORKTREE,
         tag: 'decision',
         body: recordScopeReceiptRequestSchema,
         invalidBody: 'Invalid scope evidence request',
@@ -152,7 +159,7 @@ export function registerExecutionRoutes(
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/run-profiles',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -172,6 +179,7 @@ export function registerExecutionRoutes(
     {
       config: {
         access: 'editor',
+        params: WORKSPACE_PARAMS,
         tag: 'config',
         body: saveRunProfilesRequestSchema,
         invalidBody: 'Invalid run profiles',
@@ -198,7 +206,7 @@ export function registerExecutionRoutes(
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/repositories',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -221,6 +229,7 @@ export function registerExecutionRoutes(
     {
       config: {
         access: 'editor',
+        params: WORKSPACE_PARAMS,
         tag: 'config',
         body: registerSourceRepositoryRequestSchema,
         invalidBody: 'Invalid repository registration',
@@ -250,6 +259,7 @@ export function registerExecutionRoutes(
     {
       config: {
         access: 'editor',
+        params: REPOSITORY,
         tag: 'config',
         body: retireSourceRepositoryRequestSchema,
         invalidBody: 'Invalid request',
@@ -274,7 +284,7 @@ export function registerExecutionRoutes(
 
   app.get<{ Params: { workspaceId: string; repositoryId: string } }>(
     '/api/workspaces/:workspaceId/repositories/:repositoryId/branches',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: REPOSITORY } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -296,7 +306,7 @@ export function registerExecutionRoutes(
   // `?status=live` returns only the runs the dashboard shows.
   app.get<{ Params: { workspaceId: string }; Querystring: { status?: string } }>(
     '/api/workspaces/:workspaceId/runs',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -333,6 +343,7 @@ export function registerExecutionRoutes(
     {
       config: {
         access: 'editor',
+        params: WORK_ITEM,
         tag: 'control',
         body: createWorktreeRequestSchema,
         invalidBody: 'Invalid worktree request',
@@ -366,6 +377,7 @@ export function registerExecutionRoutes(
     {
       config: {
         access: 'editor',
+        params: WORKTREE,
         tag: 'control',
         body: worktreeControlRequestSchema,
         invalidBody: 'Invalid worktree command',
@@ -420,6 +432,7 @@ export function registerExecutionRoutes(
     {
       config: {
         access: 'editor',
+        params: WORKTREE,
         tag: 'decision',
         body: mergeWorktreeRequestSchema,
         invalidBody: 'Invalid merge request',
@@ -454,7 +467,7 @@ export function registerExecutionRoutes(
 
   app.get<{ Params: { workspaceId: string; worktreeId: string } }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/diff',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKTREE } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);

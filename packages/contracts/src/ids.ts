@@ -2,16 +2,22 @@ import {
   type AgentRunEventId,
   type AgentRunId,
   type AuditEventId,
+  type ConcurrencyDefinitionId,
   type EventId,
+  type EvidenceSubmissionId,
+  type FinalizationId,
+  type ImportedArchiveId,
   isWellFormedId,
   type PlanArtifactId,
   type PlanBundleId,
   type PlanImportAttemptId,
   type PlanVersionId,
   type ProjectId,
+  type RoadmapId,
   type SessionId,
   type SourceRepositoryId,
   type UserId,
+  type WorkCycleId,
   type WorkItemId,
   type WorkspaceId,
   type WorktreeId,
@@ -49,3 +55,22 @@ export const planArtifactIdSchema = idSchema<PlanArtifactId>('planArtifactId');
 export const sourceRepositoryIdSchema = idSchema<SourceRepositoryId>('sourceRepositoryId');
 export const worktreeIdSchema = idSchema<WorktreeId>('worktreeId');
 export const agentRunEventIdSchema = idSchema<AgentRunEventId>('agentRunEventId');
+
+/**
+ * A path parameter its handler passed on unchecked before R-H7: any text the router admits,
+ * branded, so the service's lookup still answers it (not found, or whatever it answered). A value
+ * keeps the rule of the edge that admitted it, as R-I7 branded records (R-H7). The route inventory
+ * names these, so a later tightening to the kind's id rule is a visible, reviewed change.
+ */
+function lookupSchema<T extends string>() {
+  return branded<T>(z.string());
+}
+
+export const workCycleIdLookupSchema = lookupSchema<WorkCycleId>();
+export const roadmapIdLookupSchema = lookupSchema<RoadmapId>();
+export const finalizationIdLookupSchema = lookupSchema<FinalizationId>();
+export const concurrencyDefinitionIdLookupSchema = lookupSchema<ConcurrencyDefinitionId>();
+export const importedArchiveIdLookupSchema = lookupSchema<ImportedArchiveId>();
+export const evidenceSubmissionIdLookupSchema = lookupSchema<EvidenceSubmissionId>();
+export const worktreeIdLookupSchema = lookupSchema<WorktreeId>();
+export const agentRunIdLookupSchema = lookupSchema<AgentRunId>();

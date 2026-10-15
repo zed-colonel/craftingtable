@@ -2,12 +2,12 @@ import { operatorWaitReportSchema, workspaceIdSchema } from '@craftingtable/cont
 import type { FastifyInstance } from 'fastify';
 import type { OperatorWaitService } from '../services/operator-wait-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { contextOf, WORKSPACE_PARAMS } from './route-access.js';
 
 export function registerOperatorWaitRoutes(app: FastifyInstance, service: OperatorWaitService) {
   app.get<{ Params: { workspaceId: string }; Querystring: { days?: string } }>(
     '/api/workspaces/:workspaceId/operator-wait',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);

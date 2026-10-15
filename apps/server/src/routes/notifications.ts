@@ -7,14 +7,14 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { NotificationService } from '../services/notification-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
 export function registerNotificationRoutes(
   app: FastifyInstance,
   notifications: NotificationService,
 ): void {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/notifications',
-    { config: { access: 'owner' } },
+    { config: { access: 'owner', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -32,6 +32,7 @@ export function registerNotificationRoutes(
     {
       config: {
         access: 'owner',
+        params: WORKSPACE_PARAMS,
         tag: 'config',
         body: saveNotificationsRequestSchema,
         invalidBody: 'Invalid notification settings',
@@ -54,6 +55,7 @@ export function registerNotificationRoutes(
     {
       config: {
         access: 'owner',
+        params: WORKSPACE_PARAMS,
         tag: 'control',
         body: testNotificationsRequestSchema,
         invalidBody: 'Invalid test request',

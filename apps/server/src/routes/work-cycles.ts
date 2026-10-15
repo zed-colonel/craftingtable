@@ -14,12 +14,23 @@ import {
   workCyclesResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
+  workCycleIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { RoadmapService } from '../services/roadmap-service.js';
 import type { WorkCycleService } from '../services/work-cycle-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf, stepUpForStoredWork } from './route-access.js';
+import {
+  type BodyOf,
+  contextOf,
+  stepUpForStoredWork,
+  WORKSPACE_PARAMS,
+  workspaceParams,
+} from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const CYCLE = workspaceParams({ cycleId: workCycleIdLookupSchema });
+const WORK_ITEM = workspaceParams({ workItemId: workItemIdSchema });
 
 export function registerWorkCycleRoutes(
   app: FastifyInstance,
@@ -29,7 +40,7 @@ export function registerWorkCycleRoutes(
 ): void {
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: CYCLE } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -49,6 +60,7 @@ export function registerWorkCycleRoutes(
     {
       config: {
         access: 'editor',
+        params: CYCLE,
         tag: 'decision',
         body: scopeRepairRequestSchema,
         invalidBody: 'Invalid scope repair request',
@@ -76,7 +88,7 @@ export function registerWorkCycleRoutes(
   // detail (the shell's attention list). With it: that work item's full cycles.
   app.get<{ Params: { workspaceId: string }; Querystring: { workItemId?: string } }>(
     '/api/workspaces/:workspaceId/cycles',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -106,6 +118,8 @@ export function registerWorkCycleRoutes(
     {
       config: {
         access: 'editor',
+        params: WORK_ITEM,
+        notFound: 'Work item not found',
         tag: 'control',
         body: startWorkCycleRequestSchema,
         invalidBody: 'Invalid cycle settings',
@@ -126,7 +140,7 @@ export function registerWorkCycleRoutes(
   );
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-evidence',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: CYCLE } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -140,7 +154,7 @@ export function registerWorkCycleRoutes(
   );
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
-    { config: { access: 'editor' } },
+    { config: { access: 'editor', params: CYCLE } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -154,7 +168,7 @@ export function registerWorkCycleRoutes(
   );
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
-    { config: { access: 'editor' } },
+    { config: { access: 'editor', params: CYCLE } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -174,6 +188,7 @@ export function registerWorkCycleRoutes(
     {
       config: {
         access: 'editor',
+        params: CYCLE,
         tag: 'decision',
         body: prepareBaselineRequestSchema,
         invalidBody: 'Invalid baseline preparation',
@@ -205,6 +220,7 @@ export function registerWorkCycleRoutes(
     {
       config: {
         access: 'editor',
+        params: CYCLE,
         tag: 'decision',
         body: recoverDesignRequestSchema,
         invalidBody: 'Invalid design recovery request',
@@ -234,6 +250,7 @@ export function registerWorkCycleRoutes(
     {
       config: {
         access: 'editor',
+        params: CYCLE,
         tag: 'decision',
         body: investigationRequestSchema,
         invalidBody: 'Invalid investigation request',
@@ -276,6 +293,7 @@ export function registerWorkCycleRoutes(
     {
       config: {
         access: 'editor',
+        params: CYCLE,
         tag: 'decision',
         body: controlWorkCycleRequestSchema,
         invalidBody: 'Invalid cycle command',
@@ -330,6 +348,7 @@ export function registerWorkCycleRoutes(
     {
       config: {
         access: 'editor',
+        params: CYCLE,
         tag: 'decision',
         body: integrationResolutionRequestSchema,
         invalidBody: 'Invalid integration resolution command',

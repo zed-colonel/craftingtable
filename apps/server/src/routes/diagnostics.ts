@@ -14,7 +14,7 @@ import {
 } from 'fastify';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
-import { contextOf } from './route-access.js';
+import { contextOf, WORKSPACE_PARAMS } from './route-access.js';
 
 /** Completed requests kept per route for percentiles; older ones are overwritten. */
 const SAMPLES_PER_ROUTE = 512;
@@ -201,7 +201,7 @@ export function registerDiagnosticsRoutes(
   });
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/diagnostics',
-    { config: { access: 'owner' } },
+    { config: { access: 'owner', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

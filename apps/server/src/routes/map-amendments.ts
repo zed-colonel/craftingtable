@@ -11,13 +11,16 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { MapAmendmentService } from '../services/map-amendment-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const ROADMAP = workspaceParams({ roadmapId: roadmapIdSchema });
 export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAmendmentService) {
   const base = '/api/workspaces/:workspaceId/roadmaps/:roadmapId';
   type Params = { workspaceId: string; roadmapId: string };
   app.get<{ Params: Params }>(
     `${base}/amendments`,
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (req, reply) => {
       const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
@@ -31,7 +34,7 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
   );
   app.get<{ Params: Params }>(
     `${base}/finalization-readiness`,
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ROADMAP, notFound: 'Roadmap not found' } },
     async (req, reply) => {
       const context = contextOf(req),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
@@ -48,6 +51,8 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        paramsRefusedAsBody: true,
         tag: 'decision',
         body: mapSelectionSchema,
         invalidBody: 'Choose an exact map binding and target.',
@@ -74,6 +79,8 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        paramsRefusedAsBody: true,
         tag: 'decision',
         body: proposeMapAmendmentSchema,
         invalidBody: 'Provide an exact candidate binding and proposal summary.',
@@ -100,6 +107,8 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
     {
       config: {
         access: 'editor',
+        params: ROADMAP,
+        paramsRefusedAsBody: true,
         tag: 'decision',
         body: decideMapAmendmentSchema,
         invalidBody: 'Review the impact and provide a decision rationale.',

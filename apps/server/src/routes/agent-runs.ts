@@ -12,6 +12,7 @@ import {
   startAgentRunResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
+  toolResultDigestSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import { type ServerConfig, sessionCookieName } from '../config.js';
@@ -23,8 +24,13 @@ import { parseEventCursor, selectEventCursor } from '../services/workspace-event
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { eventStreamHeaders } from './browser-security.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, workspaceParams } from './route-access.js';
 import { runDetail, runSummary } from './run-summary.js';
+
+/** Each route's path parameters (R-H7). */
+const WORK_ITEM = workspaceParams({ workItemId: workItemIdSchema });
+const RUN = workspaceParams({ runId: agentRunIdSchema });
+const RUN_DIGEST = workspaceParams({ runId: agentRunIdSchema, digest: toolResultDigestSchema });
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const EVENT_PAGE_LIMIT = 500;
@@ -71,6 +77,7 @@ export function registerAgentRunRoutes(
     {
       config: {
         access: 'editor',
+        params: WORK_ITEM,
         tag: 'control',
         body: startAgentRunRequestSchema,
         invalidBody: 'Invalid run request',
@@ -96,7 +103,7 @@ export function registerAgentRunRoutes(
 
   app.get<{ Params: { workspaceId: string; runId: string } }>(
     '/api/workspaces/:workspaceId/runs/:runId',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: RUN } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -113,7 +120,7 @@ export function registerAgentRunRoutes(
   // the browser shows it as-is; 404 once it expires with the run's scratch retention.
   app.get<{ Params: { workspaceId: string; runId: string; digest: string } }>(
     '/api/workspaces/:workspaceId/runs/:runId/tool-results/:digest',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: RUN_DIGEST } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -141,7 +148,7 @@ export function registerAgentRunRoutes(
     Querystring: { after?: string; includeRaw?: string };
   }>(
     '/api/workspaces/:workspaceId/runs/:runId/event-page',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: RUN } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -185,6 +192,7 @@ export function registerAgentRunRoutes(
     {
       config: {
         access: 'editor',
+        params: RUN,
         tag: 'control',
         body: agentRunControlRequestSchema,
         invalidBody: 'Invalid run command',
@@ -221,25 +229,31 @@ export function registerAgentRunRoutes(
 
   app.get<{ Params: { workspaceId: string; runId: string }; Querystring: { after?: string } }>(
     '/api/workspaces/:workspaceId/runs/:runId/events',
-    { config: { access: 'member' } },
+    {
+      config: { access: 'member', params: RUN },
+      // The stream's origin check runs after the access check and before a run id that does not
+      // parse is refused, as it did in the handler (R-H7): route hooks follow the daemon's own.
+      preParsing: async (request) => {
+        if (
+          !isAllowedBrowserRequest(
+            {
+              ...(typeof request.headers.origin === 'string'
+                ? { origin: request.headers.origin }
+                : {}),
+              ...(typeof request.headers['sec-fetch-site'] === 'string'
+                ? { secFetchSite: request.headers['sec-fetch-site'] }
+                : {}),
+            },
+            config.publicOrigin,
+          )
+        ) {
+          throw new ForbiddenError();
+        }
+      },
+    },
     (request, reply) => {
       const rawSessionToken = request.cookies[sessionCookieName(config)];
       const context = contextOf(request);
-      if (
-        !isAllowedBrowserRequest(
-          {
-            ...(typeof request.headers.origin === 'string'
-              ? { origin: request.headers.origin }
-              : {}),
-            ...(typeof request.headers['sec-fetch-site'] === 'string'
-              ? { secFetchSite: request.headers['sec-fetch-site'] }
-              : {}),
-          },
-          config.publicOrigin,
-        )
-      ) {
-        throw new ForbiddenError();
-      }
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
       const runId = agentRunIdSchema.safeParse(request.params.runId);
       if (!workspaceId.success || !runId.success) {

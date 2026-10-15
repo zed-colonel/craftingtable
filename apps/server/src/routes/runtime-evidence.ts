@@ -20,12 +20,31 @@ import {
   runtimeRefreshPreviewSchema,
   runtimeRefreshRequestSchema,
   workspaceIdSchema,
+  evidenceSubmissionIdLookupSchema,
+  worktreeIdLookupSchema,
+  concurrencyDefinitionIdLookupSchema,
+  agentRunIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import type { FastifyInstance } from 'fastify';
 import type { RuntimeEvidenceService } from '../services/runtime-evidence-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, type BodySchema, contextOf } from './route-access.js';
+import { type BodyOf, type BodySchema, contextOf, workspaceParams } from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
+const DEFINITION_WORKTREE = workspaceParams({
+  id: concurrencyDefinitionIdLookupSchema,
+  worktreeId: worktreeIdLookupSchema,
+});
+const DEFINITION_SUBMISSION = workspaceParams({
+  id: concurrencyDefinitionIdLookupSchema,
+  submissionId: evidenceSubmissionIdLookupSchema,
+});
+const DEFINITION_RUN = workspaceParams({
+  id: concurrencyDefinitionIdLookupSchema,
+  runId: agentRunIdLookupSchema,
+});
 export function registerRuntimeEvidenceRoutes(
   app: FastifyInstance,
   service: RuntimeEvidenceService,
@@ -33,7 +52,7 @@ export function registerRuntimeEvidenceRoutes(
   const base = '/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime';
   app.get<{ Params: { workspaceId: string; id: string; worktreeId: string } }>(
     `${base}/checkpoint-recovery/:worktreeId`,
-    { config: { access: 'editor' } },
+    { config: { access: 'editor', params: DEFINITION_WORKTREE } },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -52,7 +71,7 @@ export function registerRuntimeEvidenceRoutes(
   );
   app.get<{ Params: { workspaceId: string; id: string } }>(
     base,
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: DEFINITION } },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -64,7 +83,7 @@ export function registerRuntimeEvidenceRoutes(
   );
   app.get<{ Params: { workspaceId: string; id: string; submissionId: string } }>(
     `${base}/submissions/:submissionId`,
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: DEFINITION_SUBMISSION } },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -78,7 +97,7 @@ export function registerRuntimeEvidenceRoutes(
   );
   app.get<{ Params: { workspaceId: string; id: string; runId: string } }>(
     `${base}/runs/:runId/build-record`,
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: DEFINITION_RUN } },
     async (request, reply) => {
       const context = contextOf(request),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -96,7 +115,13 @@ export function registerRuntimeEvidenceRoutes(
     app.post<{ Params: { workspaceId: string; id: string } }>(
       `${base}/${c.action}`,
       {
-        config: { access: 'editor', tag: c.tag, body: c.body, invalidBody: c.invalidBody },
+        config: {
+          access: 'editor',
+          params: DEFINITION,
+          tag: c.tag,
+          body: c.body,
+          invalidBody: c.invalidBody,
+        },
         bodyLimit: 5 * 1024 * 1024,
       },
       async (request, reply) => {

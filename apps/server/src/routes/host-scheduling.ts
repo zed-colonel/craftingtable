@@ -6,11 +6,11 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { HostSchedulingService } from '../services/host-scheduling-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
 export function registerHostSchedulingRoutes(app: FastifyInstance, service: HostSchedulingService) {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/host-scheduling',
-    { config: { access: 'installation' } },
+    { config: { access: 'installation', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -23,6 +23,7 @@ export function registerHostSchedulingRoutes(app: FastifyInstance, service: Host
     {
       config: {
         access: 'installation',
+        params: WORKSPACE_PARAMS,
         tag: 'config',
         body: saveHostSchedulingSchema,
         invalidBody:

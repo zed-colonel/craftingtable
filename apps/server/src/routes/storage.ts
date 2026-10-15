@@ -7,11 +7,11 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { StorageService } from '../services/storage-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
 export function registerStorageRoutes(app: FastifyInstance, service: StorageService): void {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/storage',
-    { config: { access: 'installation' } },
+    { config: { access: 'installation', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -24,6 +24,7 @@ export function registerStorageRoutes(app: FastifyInstance, service: StorageServ
     {
       config: {
         access: 'installation',
+        params: WORKSPACE_PARAMS,
         tag: 'config',
         body: saveStorageRequestSchema,
         invalidBody: 'Invalid storage settings',
@@ -47,6 +48,7 @@ export function registerStorageRoutes(app: FastifyInstance, service: StorageServ
     {
       config: {
         access: 'installation',
+        params: WORKSPACE_PARAMS,
         tag: 'control',
         body: storageControlRequestSchema,
         invalidBody: 'Invalid storage command',

@@ -11,6 +11,8 @@ import {
   projectIdSchema,
   saveConcurrencyBindingsSchema,
   workspaceIdSchema,
+  concurrencyDefinitionIdLookupSchema,
+  importedArchiveIdLookupSchema,
 } from '@craftingtable/contracts';
 import { ARCHIVE_LIMITS } from '@craftingtable/planning';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -18,7 +20,17 @@ import { ExecutionRequestError } from '../services/errors.js';
 import type { PackageImportService } from '../services/package-import-service.js';
 import { noStore, sendApiError } from './http.js';
 import { importResponse } from './planning.js';
-import { type BodyOf, contextOf, declaredBody } from './route-access.js';
+import {
+  type BodyOf,
+  contextOf,
+  declaredBody,
+  WORKSPACE_PARAMS,
+  workspaceParams,
+} from './route-access.js';
+
+/** Each route's path parameters (R-H7). */
+const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
+const ARCHIVE = workspaceParams({ id: importedArchiveIdLookupSchema });
 
 async function readArchiveUpload(request: FastifyRequest) {
   if (!request.isMultipart())
@@ -80,6 +92,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
       {
         config: {
           access: 'editor',
+          params: WORKSPACE_PARAMS,
           tag: 'config',
           multipart: true,
           body: planArchiveUploadFieldsSchema,
@@ -151,6 +164,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
     {
       config: {
         access: 'editor',
+        params: WORKSPACE_PARAMS,
         tag: 'config',
         multipart: true,
         body: concurrencyUploadFieldsSchema,
@@ -172,7 +186,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
   );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/imports/concurrency-definitions',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -184,7 +198,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
   );
   app.get<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: DEFINITION } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -202,6 +216,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
     {
       config: {
         access: 'editor',
+        params: DEFINITION,
         tag: 'config',
         body: saveConcurrencyBindingsSchema,
         invalidBody: 'Invalid binding revision.',
@@ -220,7 +235,7 @@ export function registerPackageImportRoutes(app: FastifyInstance, imports: Packa
   );
   app.get<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/imports/archives/:id',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: ARCHIVE } },
     async (request, reply) => {
       const context = contextOf(request);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

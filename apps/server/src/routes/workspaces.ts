@@ -11,7 +11,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
-import { type BodyOf, contextOf } from './route-access.js';
+import { type BodyOf, contextOf, WORKSPACE_PARAMS } from './route-access.js';
 
 function workspaceId(value: string) {
   return workspaceIdSchema.safeParse(value);
@@ -64,6 +64,7 @@ export function registerWorkspaceRoutes(
     {
       config: {
         access: 'owner',
+        params: WORKSPACE_PARAMS,
         tag: 'config',
         body: renameWorkspaceRequestSchema,
         invalidBody: 'Invalid workspace request',
@@ -85,7 +86,7 @@ export function registerWorkspaceRoutes(
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/snapshot',
-    { config: { access: 'member' } },
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const parsed = workspaceId(request.params.workspaceId);
@@ -105,7 +106,7 @@ export function registerWorkspaceRoutes(
     Querystring: { limit?: string; before?: string };
   }>(
     '/api/workspaces/:workspaceId/audit',
-    { config: { access: 'owner' } },
+    { config: { access: 'owner', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
       const parsed = workspaceId(request.params.workspaceId);

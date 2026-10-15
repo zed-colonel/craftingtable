@@ -781,11 +781,20 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
       name: 'fastify',
       types: './types/request.d.ts',
     }),
-    'node_modules/fastify/types/request.d.ts':
-      'export interface FastifyRequest { params: unknown; body: unknown; query: unknown }\n',
+    'node_modules/fastify/types/request.d.ts': [
+      'export interface FastifyRequest<G = unknown> { params: unknown; body: unknown; query: unknown }',
+      // A route schema's `params` is not a request's.
+      'export interface FastifySchema { params?: unknown }',
+      'export interface FastifyInstance {',
+      '  get<G = unknown>(url: string, handler: (request: FastifyRequest<G>) => unknown): void;',
+      '}',
+      '',
+    ].join('\n'),
   };
   const reads = (file, line) =>
     `${file}:${line}: reads a request's path parameters; read the values the daemon parsed with paramsOf (R-H7)`;
+  const typed = (file, line) =>
+    `${file}:${line}: types a request's path parameters (\`Params\`); declare them in the route's config and read them with paramsOf (R-H7)`;
 
   it("finds every way a production module reads a request's params, whatever the request is called", () => {
     const root = workspace({
@@ -823,6 +832,25 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
         '];',
         '',
       ].join('\n'),
+      // A route schema's `params`, and a local type that only shares Fastify's name, are not one.
+      'apps/server/src/routes/lookalikes.ts': [
+        "import type { FastifySchema } from 'fastify';",
+        'interface FastifyRequest { params: string }',
+        'export const schemaParams = (schema: FastifySchema) => schema.params;',
+        'export const local = (request: FastifyRequest) => request.params;',
+        '',
+      ].join('\n'),
+      // Typing a route's parameters is what lets a handler read them unparsed: reported too.
+      'apps/server/src/routes/typed.ts': [
+        "import type { FastifyInstance, FastifyRequest } from 'fastify';",
+        'export const register = (app: FastifyInstance) =>',
+        "  app.get<{ Params: { id: string } }>('/api/x/:id', () => 'ok');",
+        'export type Typed = FastifyRequest<{ Params: { id: string } }>;',
+        'export type Untyped = FastifyRequest<{ Body: { id: string } }>;',
+        'export const other = <G,>(value: G) => value;',
+        "export const notFastify = other<{ Params: string }>({ Params: 'x' });",
+        '',
+      ].join('\n'),
       // Tests may read what a request carried.
       'apps/server/test/handlers.test.ts': [
         "import type { FastifyRequest } from 'fastify';",
@@ -837,10 +865,12 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
       reads('apps/server/src/routes/handlers.ts', 10),
       reads('apps/server/src/routes/handlers.ts', 13),
       reads('apps/server/src/routes/handlers.ts', 16),
+      typed('apps/server/src/routes/typed.ts', 3),
+      typed('apps/server/src/routes/typed.ts', 4),
     ]);
   });
 
-  it('pins what it does not catch: a member it cannot name', () => {
+  it('pins what it does not catch: a member it cannot name, a helper typed by shape', () => {
     const root = workspace({
       ...FASTIFY,
       'apps/server/src/routes/evasive.ts': [
@@ -848,6 +878,9 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
         "const key = 'par' + 'ams';",
         'export const a = (request: FastifyRequest) => (request as never)[key];',
         "export const b = (request: FastifyRequest) => Reflect.get(request, 'params');",
+        // A helper typed by shape reads what it is handed; handing it a request needs the
+        // route's `Params` typed, which the rule reports.
+        'export const c = (req: { readonly params: { readonly id: string } }) => req.params.id;',
         '',
       ].join('\n'),
     });

@@ -42,7 +42,9 @@ export function routeInventory(app: FastifyInstance): string {
     '  still answers whatever it finds.',
     "- **Refused** is the answer to a route's own parameter (not the workspace's) that does not",
     '  parse, given once step-up and the body are settled: 404 with its message, or 400 with the',
-    "  body's message where a command read its id with its body.",
+    "  body's message where a command read its id with its body. A route whose own parameters are",
+    '  all lookups refuses none: its service answers an unknown id (404 on most, 409 on a scope',
+    "  repair, roadmap control's own 400s first).",
     '',
     `**${routes.length} routes:** ${count((r) => r.method === 'GET')} GET, ${count((r) => r.method === 'POST')} POST; ${tags}. ${count((r) => pathParameters(r.url).length > 0)} take path parameters, ${count((r) => ownParameters(r).length > 0)} beyond the workspace's.`,
     '',
@@ -82,9 +84,19 @@ function parameterNames(route: DeclaredRoute): string {
     .join(', ');
 }
 
-/** How the route refuses its own parameter that does not parse (R-H7). */
+/**
+ * How the route refuses its own parameter that does not parse (R-H7). One whose own parameters are
+ * all lookups never refuses one: its service answers what it finds.
+ */
 function refusal(route: DeclaredRoute): string {
-  if (ownParameters(route).length === 0) return '';
+  const own = ownParameters(route);
+  if (own.length === 0) return '';
+  if (
+    own.every((name) =>
+      contractName(route, route.params?.[name], `parameter ${name}`).endsWith('LookupSchema'),
+    )
+  )
+    return 'none: its service answers';
   return route.paramsRefusedAsBody
     ? '400, as its body'
     : `404 ${route.notFound ?? 'Resource not found'}`;

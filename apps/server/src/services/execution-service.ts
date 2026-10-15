@@ -252,13 +252,10 @@ export class ExecutionService {
    * operator's password again (R-G9 review): the access guard asks after the caller's role.
    */
   mergesIntoDefaultBranch(workspaceId: WorkspaceId, worktreeId: WorktreeId): boolean {
-    const worktree = this.storage.execution.worktrees.find(
-      workspaceId as never,
-      worktreeId as never,
-    );
+    const worktree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
     if (worktree?.integrationBranch === undefined) return false;
     const repository = this.storage.execution.sourceRepositories.find(
-      workspaceId as never,
+      workspaceId,
       worktree.repositoryId,
     );
     return repository !== undefined && worktree.integrationBranch === repository.defaultBranch;

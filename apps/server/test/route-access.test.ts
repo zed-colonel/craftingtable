@@ -374,6 +374,22 @@ describe('route authorization sweep', () => {
     ).toThrow(/refuses a parameter as its body, but has no body/);
     expect(() =>
       context.app.post(
+        url,
+        {
+          config: {
+            access: 'editor',
+            tag: 'control',
+            params: workspaceParams({ thingId: thing }),
+            body: thing,
+            notFound: 'Thing not found',
+            paramsRefusedAsBody: true,
+          },
+        },
+        handler,
+      ),
+    ).toThrow(/names both a 404 and an invalid body for a parameter/);
+    expect(() =>
+      context.app.post(
         '/api/auth/sessions/:sessionId/r-h7',
         { config: { access: 'session', tag: 'control', body: thing } },
         handler,
@@ -472,6 +488,16 @@ describe('route authorization sweep', () => {
         return { ok: true };
       },
     );
+    // A public route's parameters are parsed like any other's, before the access check returns.
+    const PUBLIC = { thingId: thing };
+    context.app.get(
+      '/api/r-h7-public/:thingId',
+      { config: { access: 'public', params: PUBLIC } },
+      async (request) => {
+        handled.push(paramsOf(request, PUBLIC));
+        return { ok: true };
+      },
+    );
     context.app.get(
       '/api/workspaces/:workspaceId/r-h7-other/:thingId',
       { config: { access: 'member', params: THING } },
@@ -535,6 +561,14 @@ describe('route authorization sweep', () => {
 
     const other = await get(`${workspaceId}/r-h7-other/t-3`);
     expect(other.statusCode).toBe(500);
+    const open = await context.app.inject({ method: 'GET', url: '/api/r-h7-public/t-4' });
+    expect(open.statusCode, open.body).toBe(200);
+    expect(handled.at(-1)).toEqual({ thingId: 't-4!' });
+    const openRefused = await context.app.inject({ method: 'GET', url: '/api/r-h7-public/x-4' });
+    expect(openRefused.statusCode).toBe(404);
+    expect(openRefused.json()).toEqual({
+      error: { code: 'not-found', message: 'Resource not found' },
+    });
   });
 
   it('checks sign-in origin and media type before reading the body (R-H5)', async () => {

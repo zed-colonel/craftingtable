@@ -49,16 +49,13 @@ export class FinalizationService {
    * `RoadmapService.storedWork`.
    */
   storedWork(workspaceId: WorkspaceId, finalizationId: FinalizationId): unknown {
-    const finalization = this.storage.execution.finalizations.find(
-      workspaceId as never,
-      finalizationId as never,
-    );
+    const finalization = this.storage.execution.finalizations.find(workspaceId, finalizationId);
     return {
       finalization,
       cycle:
         finalization === undefined
           ? undefined
-          : this.storage.execution.cycles.find(workspaceId as never, finalization.cycleId),
+          : this.storage.execution.cycles.find(workspaceId, finalization.cycleId),
     };
   }
   async list(context: AuthContext, workspaceId: WorkspaceId, planVersionId: PlanVersionId) {

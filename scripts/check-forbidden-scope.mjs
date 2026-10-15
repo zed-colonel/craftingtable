@@ -66,9 +66,12 @@
  *    `x?.params`, `x['params']`, or destructured, `const { params } = x` or a parameter
  *    `({ params }: …)`) that the compiler resolves to the `params` property Fastify's
  *    `FastifyRequest` declares, whatever the request is called: another object's `params` is not
- *    one. Handlers read the parsed values with `paramsOf`. Like rule 7 it guards against a
- *    mistake, not evasion: a member it cannot name (a computed key, `Reflect.get`) passes, and the
- *    self-test pins that.
+ *    one. Handlers read the parsed values with `paramsOf`. A route's parameters typed as `Params`
+ *    in a type argument of a generic Fastify declares (`app.get<{ Params: … }>`,
+ *    `FastifyRequest<{ Params: … }>`) are reported too: typing them is what lets a handler, or a
+ *    helper typed by shape that it hands the request, read them unparsed. Like rule 7 it guards
+ *    against a mistake, not evasion: a member it cannot name (a computed key, `Reflect.get`)
+ *    passes, and the self-test pins that.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -1636,14 +1639,34 @@ function placeOf(root, path) {
 }
 
 /**
- * Rule 9 (R-H7): the nodes of a module that read a request's path parameters: a member named
- * `params` the compiler resolves to the property Fastify's `FastifyRequest` declares.
+ * Rule 9 (R-H7): the nodes of a module that read a request's path parameters (a member named
+ * `params` the compiler resolves to the property Fastify's `FastifyRequest` declares), and those
+ * that type them (a `Params` member of a type argument to a generic Fastify declares).
  */
 function requestParameterReads(module) {
   const { sourceFile, project } = module;
   const named = [];
   const destructured = [];
+  const typedOwners = [];
   const visit = (node) => {
+    if (
+      node.kind === SyntaxKind.PropertySignature &&
+      node.name.kind === SyntaxKind.Identifier &&
+      node.name.text === 'Params' &&
+      node.parent.kind === SyntaxKind.TypeLiteral
+    ) {
+      // The generic the literal is a type argument of: a type (`FastifyRequest<…>`) or a call
+      // (`app.get<…>(…)`).
+      const owner = node.parent.parent;
+      if (owner.kind === SyntaxKind.TypeReference) typedOwners.push([node, owner.typeName]);
+      else if (owner.kind === SyntaxKind.CallExpression)
+        typedOwners.push([
+          node,
+          owner.expression.kind === SyntaxKind.PropertyAccessExpression
+            ? owner.expression.name
+            : owner.expression,
+        ]);
+    }
     if (node.kind === SyntaxKind.PropertyAccessExpression && node.name.text === 'params')
       named.push([node, node.name]);
     else if (
@@ -1663,8 +1686,20 @@ function requestParameterReads(module) {
     node.forEachChild(visit);
   };
   visit(sourceFile);
-  if (named.length === 0 && destructured.length === 0) return [];
+  if (named.length === 0 && destructured.length === 0 && typedOwners.length === 0)
+    return { reads: [], typed: [] };
   const checker = project.checker;
+  const fastifyDeclared = (symbol) => {
+    const target =
+      symbol !== undefined && symbol.flags & SymbolFlags.Alias
+        ? checker.getAliasedSymbol(symbol)
+        : symbol;
+    return (
+      target?.declarations.some((declaration) =>
+        posix(declaration.path).includes('/node_modules/fastify/'),
+      ) === true
+    );
+  };
   const isRequestParams = (symbol) =>
     symbol !== undefined &&
     symbol.name === 'params' &&
@@ -1682,7 +1717,13 @@ function requestParameterReads(module) {
     if (type !== undefined && isRequestParams(checker.getPropertyOfType(type, 'params')))
       reads.push(node);
   }
-  return reads;
+  const owners = typedOwners.length
+    ? checker.getSymbolAtLocation(typedOwners.map(([, name]) => name))
+    : [];
+  const typed = typedOwners
+    .filter((_, index) => fastifyDeclared(owners[index]))
+    .map(([node]) => node);
+  return { reads, typed };
 }
 
 /** One module's findings under rules 1-5, 7 and 9. */
@@ -1734,10 +1775,16 @@ function moduleFindings(root, module, production, vocabulary) {
       findings.push(`${path}:${line}: branches on human-readable text; use a typed code`);
   }
   if (path !== PARAMETER_PARSER) {
-    const lines = new Set(module.parameterReads.map((node) => lineOf(sourceFile, node)));
+    const { reads, typed } = module.parameterReads;
+    const lines = new Set(reads.map((node) => lineOf(sourceFile, node)));
     for (const line of [...lines].sort((a, b) => a - b))
       findings.push(
         `${path}:${line}: reads a request's path parameters; read the values the daemon parsed with paramsOf (R-H7)`,
+      );
+    const typedLines = new Set(typed.map((node) => lineOf(sourceFile, node)));
+    for (const line of [...typedLines].sort((a, b) => a - b))
+      findings.push(
+        `${path}:${line}: types a request's path parameters (\`Params\`); declare them in the route's config and read them with paramsOf (R-H7)`,
       );
   }
   if (path !== MAP_VOCABULARY_MODULE && path !== PROSE_LEGACY_MAPPING)

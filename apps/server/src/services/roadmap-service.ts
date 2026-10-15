@@ -483,7 +483,7 @@ export class RoadmapService {
    * role was checked, and only to see whether its settings grant an unrestricted agent.
    */
   storedWork(workspaceId: WorkspaceId, roadmapId: RoadmapId): unknown {
-    return this.storage.roadmaps.find(workspaceId as never, roadmapId as never);
+    return this.storage.roadmaps.find(workspaceId, roadmapId);
   }
   private attention: AttentionProjector | undefined;
   private passes: ControllerPasses | undefined;

@@ -307,7 +307,7 @@ export class WorkCycleService {
 
   /** The stored cycle, for the access guard's step-up check (R-G9), as `RoadmapService.storedWork`. */
   storedWork(workspaceId: WorkspaceId, cycleId: WorkCycleId): unknown {
-    return this.storage.execution.cycles.find(workspaceId as never, cycleId as never);
+    return this.storage.execution.cycles.find(workspaceId, cycleId);
   }
 
   /**

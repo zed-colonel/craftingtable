@@ -4817,7 +4817,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     cycle). Not always 404: the three map-amendment commands and the supervision adoption read
     their id (a roadmap UUID) with their body and refused a malformed one with 400 and the body's
     message; the supervision preview and roadmap commands compare their id with the body's (400
-    on a mismatch, a check that stays in the handler). And **40 parameters on 38 routes reached a
+    on a mismatch, a check that stays in the handler). And **40 parameters on 37 routes reached a
     service unparsed:** every cycle id (10), a concurrency definition id (21), four roadmap ids
     (history, the decision-preparation grant, scope recovery, control), and one each of an
     imported archive, a finalization, a submission, and the worktree and run under a runtime's
@@ -4853,7 +4853,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
        answers it as before. No status, message or order changes; "a malformed id still answers
        404, as handlers do today" holds wherever it held. It did not hold on the four 400
        commands or for the 40 unchecked parameters; changing either changes a status code, so
-       both are questions for the operator (below), and the inventory shows each one.
+       both are open questions for the operator (*Open questions* at the end of this entry),
+       and the inventory shows each one.
     2. **The workspace's id is declared on every workspace route** rather than implied by its
        access, so "every path parameter has a declared schema" holds without an exception; the
        startup check pins it to `workspaceIdSchema`, the schema the access check needs.
@@ -4982,6 +4983,57 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     object's `params`, a request's `body` and `query`, and a test's read. With the route modules
     restored to part 1's (`f7df64c`, handlers still parsing their own), the check reports 207 reads
     in 22 modules; at this commit it passes.
+- **Independent review (2026-10-14, a fresh agent, at `3fcd4f5`;
+  `~/.cache/ct-p4-tmp/rh7/review/review.md`): 0 HIGH, 1 MEDIUM, 5 LOW.** The reviewer sent the same
+  11,451 requests to a daemon at `9230d81` and at `3fcd4f5`: all 126 parameterized routes; each
+  parameter shape (a valid unknown UUID, padded, not a UUID, `0`, `1`, 64 hex, an uppercase UUID,
+  empty, an encoded slash, a non-ASCII character, 150 characters), on GET, POST and HEAD; each
+  command with its body and with any body admitted; anonymous, viewer, editor, outsider,
+  cross-origin and CSRF-less callers; own, padded, foreign and unknown workspace ids. Every answer
+  is identical in status and body (only the diagnostics read's timing fields differ), so parity
+  holds route by route: each 404 message, the four 400-as-body commands, the order 401, 403
+  (CSRF and origin), 404 (non-member), 403 (role), 403 step-up, 400 body, then the parameter's
+  refusal, the step-up rules, the run stream's origin check, and the 37 lookup routes answering
+  as their services did. It also found every registration's declaration matching what its handler
+  and step-up rule read (113 registrations, 0 mismatches), the inventory's counts, the branding
+  compile-time only, no wrong brand, and rule 9's 207 findings. Settled, in one commit:
+  - *F1 (MEDIUM), the questions the entry deferred "below" were not written down:* they are now,
+    with a third the reviewer named (the map-declared ids), at the end of this entry.
+  - *F2:* the startup refusal of a declaration naming both a 404 message and the body's refusal had
+    no test (its mutant survived): added to `route-access.test.ts`.
+  - *F3:* the four step-up readers (`mergesIntoDefaultBranch`, three `storedWork`) still cast their
+    now-branded ids `as never` for the storage lookup, which hid a swapped argument from the
+    compiler exactly where step-up is decided: the eight casts are gone.
+  - *F4:* "40 parameters on 38 routes" is 37 routes; corrected above.
+  - *F5:* the inventory's Refused column showed "404 Resource not found" on the 37 routes whose own
+    parameters are all lookups, a refusal that cannot happen: they now read "none: its service
+    answers", and the header says what those services answer.
+  - *F6:* rule 9 passed a helper typed by shape (`(req: { params: … }) => req.params`) handed the
+    request. That needs the route's `Params` typed again (without it the call does not compile),
+    so the rule now also reports a `Params` member in a type argument of a generic Fastify
+    declares (`app.get<{ Params: … }>`, `FastifyRequest<{ Params: … }>`, resolved through the
+    import to Fastify's declaration), and the self-test pins the helper as a pass whose
+    precondition is reported. With the route modules restored to part 1's the check now reports
+    315 findings: 207 reads and 108 typed `Params`.
+- **Open questions for the operator** (each would change a status code, so none was built; the
+  daemon answers as before):
+  1. *The four commands that answer a malformed id with 400 and their body's message* (the three
+     map-amendment commands and the supervision adoption, `paramsRefusedAsBody`): keep, or answer
+     404 like every other route? *Recommended: 404*, so "a malformed id answers 404" holds without
+     an exception; the browser never sends one, so only hand-made requests see the difference.
+  2. *The 40 lookup parameters on 37 routes* (every cycle id, the concurrency definition id, four
+     roadmap ids, an archive, a finalization, a submission, and the checkpoint recovery's worktree
+     and the build record's run): tighten each to its kind's rule (the UUID rule its other routes
+     use, or the shared well-formed id rule), so a malformed id gets the route's 404 before its
+     service? That changes the answer for such an id where the service answered otherwise: 409 on
+     a cycle's scope repair, roadmap control's own 400s, and checkpoint recovery's 500 for a padded
+     worktree id (its service's `asWorktreeId` throws; a pre-existing defect R-H7 leaves as it
+     was). *Recommended: tighten*, which also ends that 500; the inventory then shows each route's
+     404.
+  3. *The 17 map-declared ids left as strings* (checkpoint, slice, declared check and environment
+     ids read from the raw v0.3 document, although their brands exist): an accepted exception to
+     "wherever a brand exists", or a follow-up? *Recommended: a follow-up with R-F1's compiled
+     map model*, which reads the document once and is the natural edge to brand them at.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

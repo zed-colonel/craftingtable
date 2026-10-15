@@ -60,6 +60,15 @@
  *    computed member (`ns[key]`), a nested destructure (`const { inner: { a } } = ns`), a
  *    re-export the compiler cannot follow (a workspace package that is not linked), and a module
  *    outside `apps/`, `packages/`, `scripts/` and `e2e/` (the root configs).
+ * 9. Route parameters are read once, by the route layer (R-H7): no production module but
+ *    `apps/server/src/routes/route-access.ts`, which parses every route's declared parameters,
+ *    reads a request's path parameters. A read is a member named `params` (`x.params`,
+ *    `x?.params`, `x['params']`, or destructured, `const { params } = x` or a parameter
+ *    `({ params }: …)`) that the compiler resolves to the `params` property Fastify's
+ *    `FastifyRequest` declares, whatever the request is called: another object's `params` is not
+ *    one. Handlers read the parsed values with `paramsOf`. Like rule 7 it guards against a
+ *    mistake, not evasion: a member it cannot name (a computed key, `Reflect.get`) passes, and the
+ *    self-test pins that.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -153,6 +162,9 @@ export const LOADER_AUTHORITY = new Map([
     'Resolves workspace packages to source in checks launched from source (TS-H6); never loaded built',
   ],
 ]);
+
+/** The one module that reads a request's path parameters: it parses them for every route (R-H7). */
+export const PARAMETER_PARSER = 'apps/server/src/routes/route-access.ts';
 
 /** The pure planning boundary (ADR-012). */
 export const PLANNING_FORBIDDEN_PATTERNS = [
@@ -1448,6 +1460,8 @@ function readWorkspace(root) {
       const sourceFile = project?.program.getSourceFile(vitestConfig);
       if (sourceFile) tests = vitestEntries(sourceFile);
     }
+    // Rule 9 asks the compiler what each `params` member is, while it is still open.
+    for (const module of modules.values()) module.parameterReads = requestParameterReads(module);
     return { projects, modules, tests, exported, consumed, reexported };
   } finally {
     api.close();
@@ -1621,7 +1635,57 @@ function placeOf(root, path) {
   return APPLICATION_GROUPS.includes(group) ? `${group}/${name}` : group;
 }
 
-/** One module's findings under rules 1-5 and 7. */
+/**
+ * Rule 9 (R-H7): the nodes of a module that read a request's path parameters: a member named
+ * `params` the compiler resolves to the property Fastify's `FastifyRequest` declares.
+ */
+function requestParameterReads(module) {
+  const { sourceFile, project } = module;
+  const named = [];
+  const destructured = [];
+  const visit = (node) => {
+    if (node.kind === SyntaxKind.PropertyAccessExpression && node.name.text === 'params')
+      named.push([node, node.name]);
+    else if (
+      node.kind === SyntaxKind.ElementAccessExpression &&
+      isLiteral(node.argumentExpression) &&
+      node.argumentExpression.text === 'params'
+    )
+      named.push([node, node.argumentExpression]);
+    else if (
+      node.kind === SyntaxKind.BindingElement &&
+      node.parent.kind === SyntaxKind.ObjectBindingPattern &&
+      !node.dotDotDotToken &&
+      (node.propertyName ?? node.name).kind === SyntaxKind.Identifier &&
+      (node.propertyName ?? node.name).text === 'params'
+    )
+      destructured.push(node);
+    node.forEachChild(visit);
+  };
+  visit(sourceFile);
+  if (named.length === 0 && destructured.length === 0) return [];
+  const checker = project.checker;
+  const isRequestParams = (symbol) =>
+    symbol !== undefined &&
+    symbol.name === 'params' &&
+    symbol.getParent()?.name === 'FastifyRequest' &&
+    symbol.declarations.some((declaration) =>
+      posix(declaration.path).includes('/node_modules/fastify/'),
+    );
+  const reads = [];
+  const symbols = named.length ? checker.getSymbolAtLocation(named.map(([, name]) => name)) : [];
+  named.forEach(([node], index) => {
+    if (isRequestParams(symbols[index])) reads.push(node);
+  });
+  for (const node of destructured) {
+    const type = checker.getTypeAtLocation(node.parent);
+    if (type !== undefined && isRequestParams(checker.getPropertyOfType(type, 'params')))
+      reads.push(node);
+  }
+  return reads;
+}
+
+/** One module's findings under rules 1-5, 7 and 9. */
 function moduleFindings(root, module, production, vocabulary) {
   const findings = [];
   const path = posix(relative(root, module.file));
@@ -1668,6 +1732,13 @@ function moduleFindings(root, module, production, vocabulary) {
     const lines = new Set(proseBranches(sourceFile).map((node) => lineOf(sourceFile, node)));
     for (const line of [...lines].sort((a, b) => a - b))
       findings.push(`${path}:${line}: branches on human-readable text; use a typed code`);
+  }
+  if (path !== PARAMETER_PARSER) {
+    const lines = new Set(module.parameterReads.map((node) => lineOf(sourceFile, node)));
+    for (const line of [...lines].sort((a, b) => a - b))
+      findings.push(
+        `${path}:${line}: reads a request's path parameters; read the values the daemon parsed with paramsOf (R-H7)`,
+      );
   }
   if (path !== MAP_VOCABULARY_MODULE && path !== PROSE_LEGACY_MAPPING)
     for (const { node, word } of vocabularyLiterals(sourceFile, vocabulary))
@@ -1791,6 +1862,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

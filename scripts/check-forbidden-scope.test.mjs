@@ -774,6 +774,87 @@ describe('map vocabulary stays in map-capabilities (rule 7, R-F2)', () => {
   });
 });
 
+describe('route parameters are read once, by the route layer (rule 9, R-H7)', () => {
+  /** Fastify's request type, as the server's code sees it: a property `params` of `FastifyRequest`. */
+  const FASTIFY = {
+    'node_modules/fastify/package.json': JSON.stringify({
+      name: 'fastify',
+      types: './types/request.d.ts',
+    }),
+    'node_modules/fastify/types/request.d.ts':
+      'export interface FastifyRequest { params: unknown; body: unknown; query: unknown }\n',
+  };
+  const reads = (file, line) =>
+    `${file}:${line}: reads a request's path parameters; read the values the daemon parsed with paramsOf (R-H7)`;
+
+  it("finds every way a production module reads a request's params, whatever the request is called", () => {
+    const root = workspace({
+      ...FASTIFY,
+      // The route layer parses them for every route: the one module that may.
+      'apps/server/src/routes/route-access.ts': [
+        "import type { FastifyRequest } from 'fastify';",
+        'export const parse = (request: FastifyRequest) => request.params;',
+        '',
+      ].join('\n'),
+      'apps/server/src/routes/handlers.ts': [
+        "import type { FastifyRequest } from 'fastify';",
+        'export function a(request: FastifyRequest) {',
+        '  return (request.params as { id: string }).id;',
+        '}',
+        "export const b = (req: FastifyRequest) => req['params'];",
+        'export function c(request: FastifyRequest) {',
+        '  const { params } = request;',
+        '  return params;',
+        '}',
+        'export const d = ({ params }: FastifyRequest) => params;',
+        'export function e(request: FastifyRequest) {',
+        '  const r = request;',
+        '  return r?.params;',
+        '}',
+        'export function f(request: FastifyRequest) {',
+        '  const { params: renamed } = request;',
+        '  return renamed;',
+        '}',
+        // Another object's `params`, and a request's other members, are not path parameters.
+        'export const g = (options: { params: string }, request: FastifyRequest) => [',
+        '  options.params,',
+        '  request.body,',
+        '  request.query,',
+        '];',
+        '',
+      ].join('\n'),
+      // Tests may read what a request carried.
+      'apps/server/test/handlers.test.ts': [
+        "import type { FastifyRequest } from 'fastify';",
+        'export const seen = (request: FastifyRequest) => request.params;',
+        '',
+      ].join('\n'),
+    });
+    expect(exceptRule8(runCheck(root))).toEqual([
+      reads('apps/server/src/routes/handlers.ts', 3),
+      reads('apps/server/src/routes/handlers.ts', 5),
+      reads('apps/server/src/routes/handlers.ts', 7),
+      reads('apps/server/src/routes/handlers.ts', 10),
+      reads('apps/server/src/routes/handlers.ts', 13),
+      reads('apps/server/src/routes/handlers.ts', 16),
+    ]);
+  });
+
+  it('pins what it does not catch: a member it cannot name', () => {
+    const root = workspace({
+      ...FASTIFY,
+      'apps/server/src/routes/evasive.ts': [
+        "import type { FastifyRequest } from 'fastify';",
+        "const key = 'par' + 'ams';",
+        'export const a = (request: FastifyRequest) => (request as never)[key];',
+        "export const b = (request: FastifyRequest) => Reflect.get(request, 'params');",
+        '',
+      ].join('\n'),
+    });
+    expect(exceptRule8(runCheck(root))).toEqual([]);
+  });
+});
+
 describe('domain, contracts and storage export only what another module takes (rule 8, DATA-15)', () => {
   const unimported = (name, file) =>
     `\`${name}\` is exported by \`${file}\` but no other module imports it; drop the \`export\` (DATA-15)`;

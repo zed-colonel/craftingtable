@@ -67,9 +67,11 @@
  *    `({ params }: …)`) that the compiler resolves to the `params` property Fastify's
  *    `FastifyRequest` declares, whatever the request is called: another object's `params` is not
  *    one. Handlers read the parsed values with `paramsOf`. A route's parameters typed as `Params`
- *    in a type argument of a generic Fastify declares (`app.get<{ Params: … }>`,
- *    `FastifyRequest<{ Params: … }>`) are reported too: typing them is what lets a handler, or a
- *    helper typed by shape that it hands the request, read them unparsed. Like rule 7 it guards
+ *    are reported too: a type argument of a generic Fastify declares (`app.get<…>`,
+ *    `FastifyRequest<…>`, `extends FastifyRequest<…>`) whose type, as the compiler reads it, has a
+ *    `Params` property, written in place or through an alias, an interface or an intersection.
+ *    Typing them is what lets a handler, or a helper typed by shape that it hands the request,
+ *    read them unparsed. Like rule 7 it guards
  *    against a mistake, not evasion: a member it cannot name (a computed key, `Reflect.get`)
  *    passes, and the self-test pins that.
  *
@@ -1641,31 +1643,31 @@ function placeOf(root, path) {
 /**
  * Rule 9 (R-H7): the nodes of a module that read a request's path parameters (a member named
  * `params` the compiler resolves to the property Fastify's `FastifyRequest` declares), and those
- * that type them (a `Params` member of a type argument to a generic Fastify declares).
+ * that type them (a type argument of a generic Fastify declares whose type has `Params`).
  */
 function requestParameterReads(module) {
   const { sourceFile, project } = module;
   const named = [];
   const destructured = [];
-  const typedOwners = [];
+  // Each generic given type arguments, by the name its declaration is found from: a call
+  // (`app.get<…>(…)`), a type (`FastifyRequest<…>`) or a heritage clause (`extends X<…>`).
+  const generics = [];
   const visit = (node) => {
-    if (
-      node.kind === SyntaxKind.PropertySignature &&
-      node.name.kind === SyntaxKind.Identifier &&
-      node.name.text === 'Params' &&
-      node.parent.kind === SyntaxKind.TypeLiteral
-    ) {
-      // The generic the literal is a type argument of: a type (`FastifyRequest<…>`) or a call
-      // (`app.get<…>(…)`).
-      const owner = node.parent.parent;
-      if (owner.kind === SyntaxKind.TypeReference) typedOwners.push([node, owner.typeName]);
-      else if (owner.kind === SyntaxKind.CallExpression)
-        typedOwners.push([
-          node,
-          owner.expression.kind === SyntaxKind.PropertyAccessExpression
-            ? owner.expression.name
-            : owner.expression,
-        ]);
+    if (node.typeArguments?.length) {
+      const owner =
+        node.kind === SyntaxKind.CallExpression ||
+        node.kind === SyntaxKind.ExpressionWithTypeArguments
+          ? node.expression
+          : node.kind === SyntaxKind.TypeReference
+            ? node.typeName
+            : undefined;
+      const name =
+        owner?.kind === SyntaxKind.PropertyAccessExpression
+          ? owner.name
+          : owner?.kind === SyntaxKind.QualifiedName
+            ? owner.right
+            : owner;
+      if (name?.kind === SyntaxKind.Identifier) generics.push([node, name]);
     }
     if (node.kind === SyntaxKind.PropertyAccessExpression && node.name.text === 'params')
       named.push([node, node.name]);
@@ -1686,7 +1688,7 @@ function requestParameterReads(module) {
     node.forEachChild(visit);
   };
   visit(sourceFile);
-  if (named.length === 0 && destructured.length === 0 && typedOwners.length === 0)
+  if (named.length === 0 && destructured.length === 0 && generics.length === 0)
     return { reads: [], typed: [] };
   const checker = project.checker;
   const fastifyDeclared = (symbol) => {
@@ -1717,12 +1719,18 @@ function requestParameterReads(module) {
     if (type !== undefined && isRequestParams(checker.getPropertyOfType(type, 'params')))
       reads.push(node);
   }
-  const owners = typedOwners.length
-    ? checker.getSymbolAtLocation(typedOwners.map(([, name]) => name))
+  const owners = generics.length
+    ? checker.getSymbolAtLocation(generics.map(([, name]) => name))
     : [];
-  const typed = typedOwners
-    .filter((_, index) => fastifyDeclared(owners[index]))
-    .map(([node]) => node);
+  const typed = [];
+  generics.forEach(([node], index) => {
+    if (!fastifyDeclared(owners[index])) return;
+    for (const argument of node.typeArguments) {
+      const type = checker.getTypeFromTypeNode(argument);
+      if (type !== undefined && checker.getPropertyOfType(type, 'Params') !== undefined)
+        typed.push(argument);
+    }
+  });
   return { reads, typed };
 }
 

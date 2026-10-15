@@ -849,6 +849,18 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
         'export type Untyped = FastifyRequest<{ Body: { id: string } }>;',
         'export const other = <G,>(value: G) => value;',
         "export const notFastify = other<{ Params: string }>({ Params: 'x' });",
+        // Through an alias, an interface, an intersection or a heritage clause: decided by type.
+        'type Aliased = { Params: { id: string } };',
+        'interface Declared { Params: { id: string } }',
+        'const helper = (req: { readonly params: { readonly id: string } }) => req.params.id;',
+        'export const viaAlias = (app: FastifyInstance) =>',
+        "  app.get<Aliased>('/api/y/:id', (request) => helper(request));",
+        "export const viaInterface = (app: FastifyInstance) => app.get<Declared>('/api/z/:id', () => 1);",
+        'export type Intersected = FastifyRequest<Aliased & { Body: string }>;',
+        'export interface Extended extends FastifyRequest<Declared> {}',
+        'export type BodyOnly = FastifyRequest<{ Body: string } & { Querystring: string }>;',
+        "import type * as F from 'fastify';",
+        'export type Spaced = F.FastifyRequest<Aliased>;',
         '',
       ].join('\n'),
       // Tests may read what a request carried.
@@ -867,6 +879,11 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
       reads('apps/server/src/routes/handlers.ts', 16),
       typed('apps/server/src/routes/typed.ts', 3),
       typed('apps/server/src/routes/typed.ts', 4),
+      typed('apps/server/src/routes/typed.ts', 12),
+      typed('apps/server/src/routes/typed.ts', 13),
+      typed('apps/server/src/routes/typed.ts', 14),
+      typed('apps/server/src/routes/typed.ts', 15),
+      typed('apps/server/src/routes/typed.ts', 18),
     ]);
   });
 

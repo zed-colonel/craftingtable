@@ -23,8 +23,8 @@ decision boundary test reads each `decision` route from it.
 - **Refused** is the answer to a route's own parameter (not the workspace's) that does not
   parse, given once step-up and the body are settled: 404 with its message, or 400 with the
   body's message where a command read its id with its body. A route whose own parameters are
-  all lookups refuses none: its service answers an unknown id (404 on most, 409 on a scope
-  repair, roadmap control's own 400s first).
+  all lookups refuses none: its service answers an unknown or malformed id (404 on most, 409
+  on a scope repair, roadmap control's own 400s first).
 
 **137 routes:** 64 GET, 73 POST; 64 read, 29 decision, 19 control, 25 config. 126 take path parameters, 95 beyond the workspace's.
 

@@ -5013,8 +5013,47 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     so the rule now also reports a `Params` member in a type argument of a generic Fastify
     declares (`app.get<{ Params: … }>`, `FastifyRequest<{ Params: … }>`, resolved through the
     import to Fastify's declaration), and the self-test pins the helper as a pass whose
-    precondition is reported. With the route modules restored to part 1's the check now reports
-    315 findings: 207 reads and 108 typed `Params`.
+    precondition is reported. (Re-check R1 below made that hold through aliases too.)
+- **Mutation testing** (`~/.cache/ct-p4-tmp/rh7/mutate`, the memory-capped runner: a
+  `systemd-run --user --scope` with `MemoryMax=8G` and no swap, `--max-old-space-size=2048`, the
+  process group killed at 300 s, under the gate lock so no gate ran beside it; in the gate
+  worktree at `3fcd4f5`). Round 1, 44 mutants over the parsing layer, the startup refusal, the
+  refusal hook and its order, the accessors, the stream's origin hook, the step-up readers, three
+  declarations and rule 9, each against the route tests (`route-access`, `route-params`,
+  `route-inventory`; rule 9's against its self-test): 34 caught, 10 survived. Round 2 reran the
+  survivors against broader suites (the step-up rules' against `server-auth-hardening`, the
+  access check's against the auth, workspace, server, event and attention suites):
+  - *Caught there:* U2 and U3 (the cycle and roadmap control step-up rules finding no stored
+    work), by `server-auth-hardening`'s stored-settings step-up test.
+  - *Equivalent, recorded:* P6 (no 404 when the parsed workspace id is absent: the membership
+    check then refuses with the same 404), P7 (the access check reading the raw workspace id:
+    every id `workspaceIdSchema` refuses is no workspace's, so the membership check answers the
+    same 404), A3 (`paramsOf` without its own undefined check: it is reached only when the
+    parameters parsed, the refusal answered otherwise), A4 (`workspaceParams` spreading the
+    workspace's schema last: the route's own never names `workspaceId`).
+  - *Killed by new tests:* S6 (a declaration naming both a 404 message and the body's refusal),
+    P5 (parameters parsed only after a public route returns: a public route with a parameter
+    read by its handler), C1 (rule 9 without the `FastifyRequest` owner: a Fastify schema's own
+    `params`), C5 (rule 9 without Fastify's declaration file: a local type named
+    `FastifyRequest`).
+  - *Round 3* (at `8fede32`, after the review's fixes): the four tests above, six mutants of the
+    new `Params` rule and one of the inventory's lookup refusal: 11 caught.
+- **Re-check (the same reviewer, at `8fede32`; `~/.cache/ct-p4-tmp/rh7/review/recheck.md`):**
+  F1 to F5 closed (the open questions and their recommendations accurate; F5's header said "an
+  unknown id" where "an unknown or malformed id" is exact, now corrected); F6 partly closed. 10
+  mutants of the new rule-9 code, 8 caught and 2 equivalent (the same symbol found from the whole
+  `app.get` expression; a parent check that never matters). One new finding, settled:
+  - *R1 (LOW), the `Params` rule read syntax, so it saw only a type literal written in place:* at
+    part 1, `repository-checks.ts` typed its five routes through aliases (`type Params = { Params:
+    … }; app.get<Params>`), and an alias, an interface, an intersection or an `extends
+    FastifyRequest<{ Params }>` all passed, so F6's helper written with an alias did too. The rule
+    now decides by type: for every type argument of a generic Fastify declares (a call, a type, a
+    heritage clause, by a plain, renamed or namespace name), it reports the argument when the
+    compiler's type of it has a `Params` property. Self-test: an alias (with the helper), an
+    interface, an intersection, a heritage clause and a namespace-qualified type are reported,
+    a body-and-query intersection and a non-Fastify generic are not. With the route modules
+    restored to part 1's the check reports **320 findings: 207 reads and 113 typed `Params`**
+    (every typed registration, the five aliased ones included); at this commit it passes.
 - **Open questions for the operator** (each would change a status code, so none was built; the
   daemon answers as before):
   1. *The four commands that answer a malformed id with 400 and their body's message* (the three

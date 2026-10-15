@@ -95,7 +95,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | done (2026-10-11, not merged or deployed; 147 → 133 routes; reload open pages after deploying) | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
-| [R-H7](#r-h7) | P4 | M | built, in review (parts 1-4) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
+| [R-H7](#r-h7) | P4 | M | done (2026-10-15, not merged or deployed) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -4769,7 +4769,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H7
 
-**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (2026-10-14, on `remediation/p4`: part 1, the declaration, parsing and startup refusal; part 2, the routes by area; part 3, branded ids through services and storage; part 4, the check; independent review, mutation testing and the gate to follow; not merged or deployed)
+**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: done (2026-10-15, `f7df64c` to `98fdb58` on `remediation/p4`, reviewed with three re-checks to 0 open, mutation-tested, gate and replays green at `98fdb58`; not merged or deployed; three open questions for the operator below; deploy note: restart only)
 
 - **Added 2026-10-12 by the operator,** after R-I7 branded the domain's ids (part 8) and left route
   parameters and service and storage lookups as plain strings wherever no route parses a schema.
@@ -5082,6 +5082,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   reported, its four `RouteGenericInterface` lookalikes no longer, `any`, a body-only literal and a
   non-Fastify generic still not; its four mutants of the two fixes all caught; part 1's route
   modules still give 207 reads and 113 typed; the entry's text accurate.
+- **Gate and replays at `98fdb58`** (2026-10-15). `pnpm check` alone, in the gate worktree with
+  nothing else running (`CRAFTINGTABLE_TEST_DATA_ROOT` and `TMPDIR` as usual; the reviewer
+  finished, no mutation run, no dev daemon): green in 542 s, 395 test files passed (2 skipped),
+  3,355 tests passed (5 skipped), 23 e2e and the walkthrough rehearsal, and the scope check (log
+  `~/.cache/ct-p4-tmp/gate-98fdb58.log`). `pnpm replays`: 31 of 56 comparisons at 0 changed, 25
+  differing only as expected, 0 failed (245 s), the same as at R-G19's `b1d67b8`: no recorded
+  decision changed.
+- **Done-when:** every bullet holds. Every path parameter has a declared schema, and the daemon
+  refuses to start without one (the startup refusals tested one by one); no handler reads
+  `request.params` (rule 9 of `check:scope`, which also refuses a route's parameters typed as
+  `Params`); service and storage lookups take branded ids wherever a brand exists but the 34
+  parameters part 3 names, the 17 map-declared ones among them an open question below; `pnpm
+  check` is green and `pnpm replays` unchanged. No wire or persisted format changed: the reviewer's
+  11,451 requests got the same answers from `9230d81` and `3fcd4f5`, and nothing after `3fcd4f5`
+  touched a route's behaviour.
+- **Deploy note:** restart only (`pnpm deploy:daemon <ref> --yes`, which drains first): no
+  migration, no setting, no URL change, so open pages need no reload. Every answer is as before;
+  the one visible difference is in `docs/api-routes.md`, which now lists each route's parameters.
 - **Open questions for the operator** (each would change a status code, so none was built; the
   daemon answers as before):
   1. *The four commands that answer a malformed id with 400 and their body's message* (the three

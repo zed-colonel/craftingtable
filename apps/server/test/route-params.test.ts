@@ -168,7 +168,7 @@ describe('execution routes: repositories, worktrees, runs and checks', () => {
 });
 
 describe('cycle and finalization routes', () => {
-  it('refuse a malformed work item or plan version id as before, and pass a cycle id on to its lookup', async () => {
+  it('refuse a malformed work item, plan version, cycle or finalization id, and look an unknown one up', async () => {
     const { post, get } = await signedIn();
     const uuid = '00000000-0000-4000-8000-000000000003';
     const start = await post('work-items/%20x/cycles', {
@@ -186,33 +186,39 @@ describe('cycle and finalization routes', () => {
     expect(settings.json()).toEqual({
       error: { code: 'invalid-request', message: 'Invalid finalization settings' },
     });
-    // A cycle id was never checked by its handlers: it is only branded, and each service still
-    // answers what its lookup finds, padded or not.
-    for (const id of [uuid, '%20x']) {
-      const evidence = await get(`cycles/${id}/baseline-evidence`);
-      expect(evidence.statusCode).toBe(404);
-      expect(evidence.json()).toEqual(notFound());
-      const control = await post(`cycles/${id}/control`, { action: 'resume', expectedVersion: 1 });
-      expect(control.statusCode).toBe(404);
-      expect(control.json()).toEqual(notFound());
-      const repair = await post(`cycles/${id}/scope-repair`, {
-        expectedVersion: 1,
-        snapshotDigest: '0'.repeat(64),
-        sourceId: 'slice',
-        maxRemediationRounds: 1,
-      });
-      expect(repair.statusCode).toBe(409);
-      expect(repair.json()).toEqual({
-        error: {
-          code: 'conflict',
-          message: 'An idle scope review is required for source remediation.',
-        },
-      });
-      const finalization = await post(`finalizations/${id}/control`, {
-        action: 'pause',
-        expectedVersion: 1,
-      });
-      expect(finalization.statusCode).toBe(404);
+    // An unknown cycle or finalization is its service's to answer: 404, or 409 for a scope
+    // repair, which needs an idle review.
+    const repairBody = {
+      expectedVersion: 1,
+      snapshotDigest: '0'.repeat(64),
+      sourceId: 'slice',
+      maxRemediationRounds: 1,
+    };
+    const repair = await post(`cycles/${uuid}/scope-repair`, repairBody);
+    expect(repair.statusCode).toBe(409);
+    expect(repair.json()).toEqual({
+      error: {
+        code: 'conflict',
+        message: 'An idle scope review is required for source remediation.',
+      },
+    });
+    // A malformed one is the route's: 404 before any service looks (operator decision
+    // 2026-10-15; a padded id reached the service, and a scope repair answered it with 409).
+    for (const id of ['%20x', 'not-a-uuid']) {
+      for (const path of [`cycles/${id}/baseline-evidence`, `cycles/${id}/design-recovery`]) {
+        const response = await get(path);
+        expect(response.statusCode, path).toBe(404);
+        expect(response.json(), path).toEqual(notFound());
+      }
+      for (const [path, body] of [
+        [`cycles/${id}/scope-repair`, repairBody],
+        [`cycles/${id}/control`, { action: 'resume', expectedVersion: 1 }],
+        [`finalizations/${id}/control`, { action: 'pause', expectedVersion: 1 }],
+      ] as const) {
+        const response = await post(path, body);
+        expect(response.statusCode, path).toBe(404);
+        expect(response.json(), path).toEqual(notFound());
+      }
     }
   });
 });
@@ -278,8 +284,8 @@ describe('roadmap and map amendment routes', () => {
     const cleanup = await post('roadmaps/not-a-uuid/cleanup', {});
     expect(cleanup.statusCode).toBe(403);
     expect(cleanup.json().error.reason).toBe('step-up-required');
-    // The four routes that passed the roadmap id on unchecked still do: their answers are the
-    // handler's and the service's.
+    // The four routes that passed the roadmap id on unchecked check it too (operator decision
+    // 2026-10-15): roadmap control's own 400 for a re-verify without an item came first.
     const history = await get('roadmaps/not-a-uuid/history');
     expect(history.statusCode).toBe(404);
     expect(history.json()).toEqual(notFound());
@@ -287,15 +293,21 @@ describe('roadmap and map amendment routes', () => {
       action: 'reverify',
       expectedVersion: 1,
     });
-    expect(reverify.statusCode).toBe(400);
-    expect(reverify.json()).toEqual({
+    expect(reverify.statusCode).toBe(404);
+    expect(reverify.json()).toEqual(notFound());
+    const unknown = await post(`roadmaps/${uuid}/control`, {
+      action: 'reverify',
+      expectedVersion: 1,
+    });
+    expect(unknown.statusCode).toBe(400);
+    expect(unknown.json()).toEqual({
       error: { code: 'invalid-request', message: 'Re-verify applies to one item.' },
     });
   });
 });
 
 describe('import, concurrency definition, runtime and supervision routes', () => {
-  it('keep each answer: the adoption refuses a malformed id with 404, the rest look it up', async () => {
+  it('refuse a malformed definition, archive or submission id with 404, and look an unknown one up', async () => {
     const { get, post } = await signedIn();
     // The adoption answers a definition id that is not a UUID with 404 (operator decision
     // 2026-10-15; it answered 400 with its body's message).
@@ -306,9 +318,10 @@ describe('import, concurrency definition, runtime and supervision routes', () =>
     });
     expect(adopt.statusCode).toBe(404);
     expect(adopt.json()).toEqual(notFound());
-    // A definition, archive or submission id was never checked: each service still answers
-    // what its lookup finds.
-    for (const id of ['00000000-0000-4000-8000-000000000005', '%20x']) {
+    // A definition, archive or submission id is checked as the UUID it always is (operator
+    // decision 2026-10-15): a malformed one gets 404 before any service looks, an unknown one its
+    // service's 404.
+    for (const id of ['00000000-0000-4000-8000-000000000005', '%20x', 'not-a-uuid']) {
       for (const path of [
         `concurrency-definitions/${id}`,
         `concurrency-definitions/${id}/runtime`,

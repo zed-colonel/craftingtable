@@ -13,7 +13,7 @@ import {
   workCycleResponseSchema,
   workCyclesResponseSchema,
   workItemIdSchema,
-  workCycleIdLookupSchema,
+  workCycleIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { RoadmapService } from '../services/roadmap-service.js';
@@ -30,7 +30,7 @@ import {
 } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
-const CYCLE = workspaceParams({ cycleId: workCycleIdLookupSchema });
+const CYCLE = workspaceParams({ cycleId: workCycleIdSchema });
 const WORK_ITEM = workspaceParams({ workItemId: workItemIdSchema });
 
 export function registerWorkCycleRoutes(

@@ -19,10 +19,10 @@ import {
   runtimeEvidenceViewSchema,
   runtimeRefreshPreviewSchema,
   runtimeRefreshRequestSchema,
-  evidenceSubmissionIdLookupSchema,
-  worktreeIdLookupSchema,
-  concurrencyDefinitionIdLookupSchema,
-  agentRunIdLookupSchema,
+  evidenceSubmissionIdSchema,
+  worktreeIdSchema,
+  concurrencyDefinitionIdSchema,
+  agentRunIdSchema,
 } from '@craftingtable/contracts';
 import type { ConcurrencyDefinitionId, WorkspaceId } from '@craftingtable/domain';
 import type { FastifyInstance } from 'fastify';
@@ -37,18 +37,18 @@ import {
 } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
-const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
+const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdSchema });
 const DEFINITION_WORKTREE = workspaceParams({
-  id: concurrencyDefinitionIdLookupSchema,
-  worktreeId: worktreeIdLookupSchema,
+  id: concurrencyDefinitionIdSchema,
+  worktreeId: worktreeIdSchema,
 });
 const DEFINITION_SUBMISSION = workspaceParams({
-  id: concurrencyDefinitionIdLookupSchema,
-  submissionId: evidenceSubmissionIdLookupSchema,
+  id: concurrencyDefinitionIdSchema,
+  submissionId: evidenceSubmissionIdSchema,
 });
 const DEFINITION_RUN = workspaceParams({
-  id: concurrencyDefinitionIdLookupSchema,
-  runId: agentRunIdLookupSchema,
+  id: concurrencyDefinitionIdSchema,
+  runId: agentRunIdSchema,
 });
 export function registerRuntimeEvidenceRoutes(
   app: FastifyInstance,

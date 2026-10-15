@@ -4,7 +4,7 @@ import {
   finalizationViewSchema,
   planVersionIdSchema,
   startFinalizationRequestSchema,
-  finalizationIdLookupSchema,
+  finalizationIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { FinalizationService } from '../services/finalization-service.js';
@@ -20,7 +20,7 @@ import {
 
 /** Each route's path parameters (R-H7). */
 const PLAN_VERSION = workspaceParams({ planVersionId: planVersionIdSchema });
-const FINALIZATION = workspaceParams({ finalizationId: finalizationIdLookupSchema });
+const FINALIZATION = workspaceParams({ finalizationId: finalizationIdSchema });
 export function registerFinalizationRoutes(
   app: FastifyInstance,
   service: FinalizationService,

@@ -24,7 +24,6 @@ import {
   saveRoadmapRequestSchema,
   decisionPreparationGrantRequestSchema,
   scopeRecoveryPolicyRequestSchema,
-  roadmapIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { RepositoryCleanupService } from '../services/repository-cleanup.js';
@@ -46,7 +45,6 @@ const ROADMAP_REVISION = workspaceParams({
   roadmapId: roadmapIdSchema,
   revision: roadmapRevisionParamSchema,
 });
-const ROADMAP_LOOKUP = workspaceParams({ roadmapId: roadmapIdLookupSchema });
 export function registerRoadmapRoutes(
   app: FastifyInstance,
   roadmaps: RoadmapService,
@@ -341,10 +339,10 @@ export function registerRoadmapRoutes(
   );
   app.get(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/history',
-    { config: { access: 'member', params: ROADMAP_LOOKUP } },
+    { config: { access: 'member', params: ROADMAP } },
     async (request, reply) => {
       const context = contextOf(request);
-      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP_LOOKUP);
+      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP);
       return noStore(reply).send(
         roadmapHistoryResponseSchema.parse({
           definitions: roadmaps.history(context, workspaceId, roadmapId),
@@ -359,7 +357,7 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
-        params: ROADMAP_LOOKUP,
+        params: ROADMAP,
         tag: 'decision',
         body: decisionPreparationGrantRequestSchema,
         invalidBody: 'Invalid decision preparation grant',
@@ -367,7 +365,7 @@ export function registerRoadmapRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP_LOOKUP);
+      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP);
       return noStore(reply).send(
         roadmapViewSchema.parse(
           roadmaps.configureDecisionPreparation(context, workspaceId, roadmapId, request.body),
@@ -382,7 +380,7 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
-        params: ROADMAP_LOOKUP,
+        params: ROADMAP,
         tag: 'config',
         body: scopeRecoveryPolicyRequestSchema,
         invalidBody: 'Invalid recovery delegation',
@@ -390,7 +388,7 @@ export function registerRoadmapRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP_LOOKUP);
+      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP);
       return noStore(reply).send(
         roadmapViewSchema.parse(
           roadmaps.configureScopeRecovery(context, workspaceId, roadmapId, request.body),
@@ -428,7 +426,7 @@ export function registerRoadmapRoutes(
     {
       config: {
         access: 'editor',
-        params: ROADMAP_LOOKUP,
+        params: ROADMAP,
         tag: 'control',
         body: controlRoadmapRequestSchema,
         invalidBody: 'Invalid roadmap command',
@@ -436,14 +434,14 @@ export function registerRoadmapRoutes(
         stepUpRule:
           'an action that starts or resumes work under stored settings granting unrestricted',
         stepUp: stepUpForStoredWork((request) => {
-          const params = parsedParamsOf(request, ROADMAP_LOOKUP);
+          const params = parsedParamsOf(request, ROADMAP);
           return params && roadmaps.storedWork(params.workspaceId, params.roadmapId);
         }),
       },
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP_LOOKUP);
+      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP);
       if (request.body.entryId) {
         if (request.body.action === 'reverify')
           return noStore(reply).send(

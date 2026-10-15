@@ -199,6 +199,15 @@ itNeedsCargo(
       headers: { cookie: f.state.cookie },
     });
     expect(previewResponse.statusCode, previewResponse.body).toBe(200);
+    // A padded worktree id is the route's 404 (R-H7, operator decision 2026-10-15); it reached the
+    // service, whose `asWorktreeId` threw: a 500.
+    const padded = await f.state.context.app.inject({
+      method: 'GET',
+      url: `${f.base}/checkpoint-recovery/%20${f.tree.id}`,
+      headers: { cookie: f.state.cookie },
+    });
+    expect(padded.statusCode, padded.body).toBe(404);
+    expect(padded.json()).toEqual({ error: { code: 'not-found', message: 'Resource not found' } });
     const preview = checkpointRecoverySchema.parse(previewResponse.json()).candidates[0]!;
     expect(preview.issues).toEqual([]);
     expect(preview.cases.map((c) => c.id)).toEqual(['BASE-A']);

@@ -5,7 +5,6 @@ import {
   concurrencyDefinitionIdSchema,
   roadmapViewSchema,
   saveCrossProjectSchema,
-  concurrencyDefinitionIdLookupSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { CrossProjectService } from '../services/cross-project-service.js';
@@ -13,8 +12,7 @@ import { noStore, sendApiError } from './http.js';
 import { type BodyOf, contextOf, paramsOf, workspaceParams } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
-const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
-const ADOPTION = workspaceParams({ id: concurrencyDefinitionIdSchema });
+const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdSchema });
 export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossProjectService) {
   app.post<{
     Body: BodyOf<typeof mapSelectionSchema>;
@@ -49,7 +47,7 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
     {
       config: {
         access: 'editor',
-        params: ADOPTION,
+        params: DEFINITION,
         tag: 'decision',
         body: adoptMapSchema,
         invalidBody: 'Review the exact decisions and give an adoption rationale.',
@@ -57,7 +55,7 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
     },
     async (req, reply) => {
       const context = contextOf(req);
-      const { workspaceId, id } = paramsOf(req, ADOPTION);
+      const { workspaceId, id } = paramsOf(req, DEFINITION);
       return noStore(reply).send(service.adopt(context, workspaceId, id, req.body));
     },
   );

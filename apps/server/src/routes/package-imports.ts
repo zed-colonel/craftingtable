@@ -10,8 +10,8 @@ import {
   planVersionIdSchema,
   projectIdSchema,
   saveConcurrencyBindingsSchema,
-  concurrencyDefinitionIdLookupSchema,
-  importedArchiveIdLookupSchema,
+  concurrencyDefinitionIdSchema,
+  importedArchiveIdSchema,
 } from '@craftingtable/contracts';
 import { ARCHIVE_LIMITS } from '@craftingtable/planning';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -29,8 +29,8 @@ import {
 } from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
-const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
-const ARCHIVE = workspaceParams({ id: importedArchiveIdLookupSchema });
+const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdSchema });
+const ARCHIVE = workspaceParams({ id: importedArchiveIdSchema });
 
 async function readArchiveUpload(request: FastifyRequest) {
   if (!request.isMultipart())

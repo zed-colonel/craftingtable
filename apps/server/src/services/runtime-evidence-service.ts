@@ -1179,7 +1179,7 @@ export class RuntimeEvidenceService {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const d = this.definition(ws, id),
       runtime = this.current(ws, id);
-    const tree = this.storage.execution.worktrees.find(ws, asWorktreeId(worktreeId));
+    const tree = this.storage.execution.worktrees.find(ws, worktreeId);
     if (
       !tree ||
       tree.executionScope?.definitionId !== id ||

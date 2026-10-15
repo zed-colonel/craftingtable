@@ -5133,6 +5133,29 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   malformed id and a valid body, answer 404, and a wrong body still 400 first
   (`route-params.test.ts`); the removed declaration's test route and startup rules leave
   `route-access.test.ts`.
+- **Built (2026-10-15), decision 2: the lookup parameters take their kind's rule.** The 40
+  parameters on 37 routes that a `…LookupSchema` only branded are checked like the rest: cycle,
+  finalization, submission and archive ids with new contract schemas (`workCycleIdSchema`,
+  `finalizationIdSchema`, `evidenceSubmissionIdSchema`, `importedArchiveIdSchema`), each the UUID
+  rule its kind's record contract applies; a concurrency definition id with
+  `concurrencyDefinitionIdSchema` (the adoption's), a roadmap id with `roadmapIdSchema`, and the
+  runtime's worktree and run ids with `worktreeIdSchema` and `agentRunIdSchema`. A malformed one
+  gets the route's 404 "Resource not found" before any service looks; an id that parses but names
+  nothing is still its service's (404 on most, 409 on a cycle's scope repair, roadmap control's
+  own 400s first). The eight lookup schemas are gone, and with them the inventory's "none: its
+  service answers" rows: all 95 routes with a parameter of their own show their 404. The changed
+  answers, all for a malformed id only: a cycle's scope repair 409 to 404, roadmap control's 400
+  ("Re-verify applies to one item.") to 404, and checkpoint recovery's 500 for a padded worktree
+  id to 404; its service's `asWorktreeId`, whose throw was that 500, goes, the route now checking
+  the id. Two declarations merge with their twins (the roadmap lookup into `ROADMAP`, the adoption
+  into `DEFINITION`). Tests (each failed before the change): a padded or non-UUID cycle or
+  finalization id gets 404 on evidence, design recovery, scope repair, control and finalization
+  control, while an unknown UUID still gets the scope repair's 409; roadmap control with a
+  non-UUID id 404, an unknown UUID still its 400; a non-UUID definition, archive or submission id
+  404 (`route-params.test.ts`); checkpoint recovery with a padded worktree id on a real
+  definition 404, where it answered 500 (`server-execution-scope-evidence.test.ts`). The whole
+  unit suite passes (395 files, 3,355 tests): no test reached these routes with an id its kind's
+  rule refuses.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

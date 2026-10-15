@@ -95,7 +95,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | done (2026-10-11, not merged or deployed; 147 → 133 routes; reload open pages after deploying) | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
-| [R-H7](#r-h7) | P4 | M | done (2026-10-15, not merged or deployed) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
+| [R-H7](#r-h7) | P4 | M | in progress (operator decisions of 2026-10-15) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -4769,7 +4769,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H7
 
-**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: done (2026-10-15, `f7df64c` to `98fdb58` on `remediation/p4`, reviewed with three re-checks to 0 open, mutation-tested, gate and replays green at `98fdb58`; not merged or deployed; three open questions for the operator below; deploy note: restart only)
+**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (built 2026-10-15, `f7df64c` to `98fdb58` on `remediation/p4`, reviewed with three re-checks to 0 open, mutation-tested, gate and replays green at `98fdb58`; the operator's decisions of 2026-10-15 on its three questions being built; not merged or deployed)
 
 - **Added 2026-10-12 by the operator,** after R-I7 branded the domain's ids (part 8) and left route
   parameters and service and storage lookups as plain strings wherever no route parses a schema.
@@ -5119,6 +5119,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
      ids read from the raw v0.3 document, although their brands exist): an accepted exception to
      "wherever a brand exists", or a follow-up? *Recommended: a follow-up with R-F1's compiled
      map model*, which reads the document once and is the natural edge to brand them at.
+- **Operator decisions, 2026-10-15 (on the three questions above):** (1) yes, the four commands
+  answer a malformed id with 404; (2) yes, the 40 lookup parameters take their kind's rule; (3) a
+  follow-up: recorded in [R-F1](#r-f1)'s entry, to brand the map-declared ids where its compiled
+  map model reads the document.
+- **Built (2026-10-15), decision 1: the four commands answer 404.** The three map-amendment
+  commands answer a roadmap id that is not a UUID with 404 "Roadmap not found" (the message their
+  amendment reads on the same path give), and the supervision adoption a definition id that is not
+  a UUID with 404 "Resource not found" (its service's answer for an unknown definition); a wrong
+  body still gets its 400 first. `paramsRefusedAsBody` is gone, with its two startup rules and its
+  refusal branch: every route refuses a parameter that does not parse with 404 and its message.
+  Tests (each failed before the change): the three amendment commands and the adoption, with a
+  malformed id and a valid body, answer 404, and a wrong body still 400 first
+  (`route-params.test.ts`); the removed declaration's test route and startup rules leave
+  `route-access.test.ts`.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

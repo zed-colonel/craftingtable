@@ -241,16 +241,34 @@ describe('roadmap and map amendment routes', () => {
     });
     expect(capacity.statusCode).toBe(404);
     expect(capacity.json()).toEqual(notFound('Roadmap not found'));
-    // A map amendment's decision read its roadmap id with its body: 400 with the body's message.
-    const decision = await post('roadmaps/not-a-uuid/amendments/decision', {
+    // The map-amendment commands answer a malformed roadmap id with the amendment reads' 404
+    // (operator decision 2026-10-15; they answered 400 with their body's message), a wrong body
+    // still first.
+    const decision = {
       amendmentId: uuid,
       outcome: 'reject',
       impactDigest: 'a'.repeat(64),
       rationale: 'Not needed.',
       reuseIntegrationIds: [],
-    });
-    expect(decision.statusCode).toBe(400);
-    expect(decision.json()).toEqual({
+    };
+    const selection = {
+      definitionId: uuid,
+      bindingRevision: 1,
+      targetId: 'target',
+      selection: 'target-only',
+    };
+    for (const [path, body] of [
+      ['amendments/decision', decision],
+      ['amendments/preview', selection],
+      ['amendments', { expectedVersion: 1, candidate: selection, summary: 'A new target.' }],
+    ] as const) {
+      const malformed = await post(`roadmaps/not-a-uuid/${path}`, body);
+      expect(malformed.statusCode, path).toBe(404);
+      expect(malformed.json(), path).toEqual(notFound('Roadmap not found'));
+    }
+    const wrongBody = await post('roadmaps/not-a-uuid/amendments/decision', { outcome: 'maybe' });
+    expect(wrongBody.statusCode).toBe(400);
+    expect(wrongBody.json()).toEqual({
       error: {
         code: 'invalid-request',
         message: 'Review the impact and provide a decision rationale.',
@@ -277,21 +295,17 @@ describe('roadmap and map amendment routes', () => {
 });
 
 describe('import, concurrency definition, runtime and supervision routes', () => {
-  it('keep each answer: the adoption refuses a malformed id as its body, the rest look it up', async () => {
+  it('keep each answer: the adoption refuses a malformed id with 404, the rest look it up', async () => {
     const { get, post } = await signedIn();
-    // The adoption read its id (a roadmap UUID) with its body: 400 with the body's message.
+    // The adoption answers a definition id that is not a UUID with 404 (operator decision
+    // 2026-10-15; it answered 400 with its body's message).
     const adopt = await post('concurrency-definitions/not-a-uuid/supervision/adopt', {
       bindingRevision: 1,
       decisionIds: [],
       rationale: 'Adopt the map.',
     });
-    expect(adopt.statusCode).toBe(400);
-    expect(adopt.json()).toEqual({
-      error: {
-        code: 'invalid-request',
-        message: 'Review the exact decisions and give an adoption rationale.',
-      },
-    });
+    expect(adopt.statusCode).toBe(404);
+    expect(adopt.json()).toEqual(notFound());
     // A definition, archive or submission id was never checked: each service still answers
     // what its lookup finds.
     for (const id of ['00000000-0000-4000-8000-000000000005', '%20x']) {

@@ -50,7 +50,6 @@ export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossP
       config: {
         access: 'editor',
         params: ADOPTION,
-        paramsRefusedAsBody: true,
         tag: 'decision',
         body: adoptMapSchema,
         invalidBody: 'Review the exact decisions and give an adoption rationale.',

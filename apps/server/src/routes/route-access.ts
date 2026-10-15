@@ -93,17 +93,11 @@ declare module 'fastify' {
      * before anything reads it, and the handler reads the parsed values with `paramsOf`. A
      * workspace route's `workspaceId` is `workspaceIdSchema` (`workspaceParams`): the access check
      * refuses one that does not parse with 404 before the body is read. Any other parameter that
-     * does not parse is refused once step-up and the body are settled, where handlers refused it:
-     * with 404 and `notFound`, or, with `paramsRefusedAsBody`, as an invalid body.
+     * does not parse is refused once step-up and the body are settled: with 404 and `notFound`.
      */
     readonly params?: RouteParams;
     /** The message of the 404 a parameter that does not parse gets (R-H7); "Resource not found". */
     readonly notFound?: string;
-    /**
-     * A parameter that does not parse is refused as the body is (400 and `invalidBody`), as the
-     * map and supervision commands that read their id with their body refused it (R-H7).
-     */
-    readonly paramsRefusedAsBody?: true;
     /** The route's own step-up rule, in words, for the route inventory (R-H5); with `stepUp`. */
     readonly stepUpRule?: string;
     /**
@@ -170,7 +164,6 @@ export type RouteDeclaration = Pick<
   | 'invalidBody'
   | 'params'
   | 'notFound'
-  | 'paramsRefusedAsBody'
 >;
 
 /** The names of a route path's parameters, in order (`:name`, Fastify's syntax). */
@@ -220,12 +213,8 @@ export function routeAccessProblem(
   if (workspaceRoute && declaration.params?.workspaceId !== workspaceIdSchema)
     return "parses its workspace's id with a schema other than workspaceIdSchema";
   const own = names.filter((name) => !(workspaceRoute && name === 'workspaceId'));
-  if (own.length === 0 && (declaration.notFound !== undefined || declaration.paramsRefusedAsBody))
+  if (own.length === 0 && declaration.notFound !== undefined)
     return 'names a refusal for parameters it does not have';
-  if (declaration.paramsRefusedAsBody && declaration.body === undefined)
-    return 'refuses a parameter as its body, but has no body';
-  if (declaration.paramsRefusedAsBody && declaration.notFound !== undefined)
-    return 'names both a 404 and an invalid body for a parameter';
   return undefined;
 }
 
@@ -373,14 +362,15 @@ export function installRouteAccess(
     request.body = parsed.data;
   });
   // Then a path parameter that did not parse is refused (R-H7), after the body, where handlers
-  // refused it: 404 with the route's message, or 400 as an invalid body where a route read its id
-  // with its body.
+  // refused it: 404 with the route's message.
   app.addHook('preValidation', async (request, reply) => {
     if (parsedParams.get(request)?.invalid !== true) return;
-    const config = request.routeOptions.config;
-    return config?.paramsRefusedAsBody
-      ? sendApiError(reply, 400, 'invalid-request', config.invalidBody ?? 'Invalid request')
-      : sendApiError(reply, 404, 'not-found', config?.notFound ?? 'Resource not found');
+    return sendApiError(
+      reply,
+      404,
+      'not-found',
+      request.routeOptions.config?.notFound ?? 'Resource not found',
+    );
   });
 }
 

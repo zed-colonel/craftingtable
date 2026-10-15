@@ -360,35 +360,6 @@ describe('route authorization sweep', () => {
       ),
     ).toThrow(/refusal for parameters it does not have/);
     expect(() =>
-      context.app.get(
-        url,
-        {
-          config: {
-            access: 'member',
-            params: workspaceParams({ thingId: thing }),
-            paramsRefusedAsBody: true,
-          },
-        },
-        handler,
-      ),
-    ).toThrow(/refuses a parameter as its body, but has no body/);
-    expect(() =>
-      context.app.post(
-        url,
-        {
-          config: {
-            access: 'editor',
-            tag: 'control',
-            params: workspaceParams({ thingId: thing }),
-            body: thing,
-            notFound: 'Thing not found',
-            paramsRefusedAsBody: true,
-          },
-        },
-        handler,
-      ),
-    ).toThrow(/names both a 404 and an invalid body for a parameter/);
-    expect(() =>
       context.app.post(
         '/api/auth/sessions/:sessionId/r-h7',
         { config: { access: 'session', tag: 'control', body: thing } },
@@ -471,23 +442,6 @@ describe('route authorization sweep', () => {
         return { ok: true };
       },
     );
-    context.app.post(
-      '/api/workspaces/:workspaceId/r-h7/:thingId/as-body',
-      {
-        config: {
-          access: 'editor',
-          tag: 'control',
-          params: THING,
-          paramsRefusedAsBody: true,
-          body,
-          invalidBody: 'Name n.',
-        },
-      },
-      async (request) => {
-        handled.push(paramsOf(request, THING));
-        return { ok: true };
-      },
-    );
     // A public route's parameters are parsed like any other's, before the access check returns.
     const PUBLIC = { thingId: thing };
     context.app.get(
@@ -551,13 +505,9 @@ describe('route authorization sweep', () => {
       { workspaceId, thingId: 't-1!' },
       { workspaceId, thingId: 't-2!' },
     ]);
-    // Refused as the body is, where a route refused a malformed id as an invalid request.
-    const asBody = await post(`${workspaceId}/r-h7/x-1/as-body`, { n: 1 });
-    expect(asBody.statusCode).toBe(400);
-    expect(asBody.json()).toEqual({ error: { code: 'invalid-request', message: 'Name n.' } });
     expect(handled).toHaveLength(2);
     // Each parameter was parsed once per request.
-    expect(parsedSeen).toEqual(['t-1', 'x-1', 't-1', 'x-1', 'x-1', 't-2', 'x-1']);
+    expect(parsedSeen).toEqual(['t-1', 'x-1', 't-1', 'x-1', 'x-1', 't-2']);
 
     const other = await get(`${workspaceId}/r-h7-other/t-3`);
     expect(other.statusCode).toBe(500);

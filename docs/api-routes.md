@@ -21,10 +21,9 @@ decision boundary test reads each `decision` route from it.
   any text and only brands it: no handler checked that parameter before R-H7, so its service
   still answers whatever it finds.
 - **Refused** is the answer to a route's own parameter (not the workspace's) that does not
-  parse, given once step-up and the body are settled: 404 with its message, or 400 with the
-  body's message where a command read its id with its body. A route whose own parameters are
-  all lookups refuses none: its service answers an unknown or malformed id (404 on most, 409
-  on a scope repair, roadmap control's own 400s first).
+  parse, given once step-up and the body are settled: 404 with its message. A route whose own
+  parameters are all lookups refuses none: its service answers an unknown or malformed id (404
+  on most, 409 on a scope repair, roadmap control's own 400s first).
 
 **137 routes:** 64 GET, 73 POST; 64 read, 29 decision, 19 control, 25 config. 126 take path parameters, 95 beyond the workspace's.
 
@@ -63,7 +62,7 @@ decision boundary test reads each `decision` route from it.
 | GET | `workspaces/:workspaceId/concurrency-definitions/:id/runtime/runs/:runId/build-record` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdLookupSchema`, `runId` `agentRunIdLookupSchema` | none: its service answers |
 | GET | `workspaces/:workspaceId/concurrency-definitions/:id/runtime/submissions/:submissionId` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdLookupSchema`, `submissionId` `evidenceSubmissionIdLookupSchema` | none: its service answers |
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/runtime/submit` | editor | decision |  | `evidenceSubmissionRequestSchema` | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdLookupSchema` | none: its service answers |
-| POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt` | editor | decision |  | `adoptMapSchema` | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdSchema` | 400, as its body |
+| POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt` | editor | decision |  | `adoptMapSchema` | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdSchema` | 404 Resource not found |
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview` | editor | config |  | `mapSelectionSchema` | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdLookupSchema` | none: its service answers |
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap` | editor | config |  | `saveCrossProjectSchema` | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdLookupSchema` | none: its service answers |
 | GET | `workspaces/:workspaceId/cycles` | member | read |  |  | `workspaceId` `workspaceIdSchema` |  |
@@ -117,9 +116,9 @@ decision boundary test reads each `decision` route from it.
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles` | editor | config |  | `applyRoadmapAgentsSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
-| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments` | editor | decision |  | `proposeMapAmendmentSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 400, as its body |
-| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments/decision` | editor | decision |  | `decideMapAmendmentSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 400, as its body |
-| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments/preview` | editor | decision |  | `mapSelectionSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 400, as its body |
+| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments` | editor | decision |  | `proposeMapAmendmentSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
+| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments/decision` | editor | decision |  | `decideMapAmendmentSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
+| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/amendments/preview` | editor | decision |  | `mapSelectionSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/capacity` | editor | config |  | `saveRoadmapCapacitySchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/cleanup` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/cleanup` | owner | control | always | `cleanupRequestSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |

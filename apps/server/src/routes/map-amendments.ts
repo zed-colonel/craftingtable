@@ -44,7 +44,7 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
       config: {
         access: 'editor',
         params: ROADMAP,
-        paramsRefusedAsBody: true,
+        notFound: 'Roadmap not found',
         tag: 'decision',
         body: mapSelectionSchema,
         invalidBody: 'Choose an exact map binding and target.',
@@ -64,7 +64,7 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
       config: {
         access: 'editor',
         params: ROADMAP,
-        paramsRefusedAsBody: true,
+        notFound: 'Roadmap not found',
         tag: 'decision',
         body: proposeMapAmendmentSchema,
         invalidBody: 'Provide an exact candidate binding and proposal summary.',
@@ -86,7 +86,7 @@ export function registerMapAmendmentRoutes(app: FastifyInstance, service: MapAme
       config: {
         access: 'editor',
         params: ROADMAP,
-        paramsRefusedAsBody: true,
+        notFound: 'Roadmap not found',
         tag: 'decision',
         body: decideMapAmendmentSchema,
         invalidBody: 'Review the impact and provide a decision rationale.',

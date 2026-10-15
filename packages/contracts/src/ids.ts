@@ -55,6 +55,8 @@ export const planArtifactIdSchema = idSchema<PlanArtifactId>('planArtifactId');
 export const sourceRepositoryIdSchema = idSchema<SourceRepositoryId>('sourceRepositoryId');
 export const worktreeIdSchema = idSchema<WorktreeId>('worktreeId');
 export const agentRunEventIdSchema = idSchema<AgentRunEventId>('agentRunEventId');
+/** A concurrency definition's id where one is checked as the UUID it always is (R-H7). */
+export const concurrencyDefinitionIdSchema = branded<ConcurrencyDefinitionId>(z.string().uuid());
 
 /**
  * A path parameter its handler passed on unchecked before R-H7: any text the router admits,

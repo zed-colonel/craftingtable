@@ -1,4 +1,4 @@
-import type { WorkspaceId, Worktree } from '@craftingtable/domain';
+import type { WorkspaceId, Worktree, PlanVersionId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 
 /**
@@ -37,7 +37,7 @@ export function inRetiredVersion(
 export function retiredOrRetiring(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  planVersionId: string,
+  planVersionId: PlanVersionId,
 ): boolean {
   return (
     tx.windDowns.retirement(ws, planVersionId) !== undefined ||

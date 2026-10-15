@@ -1,4 +1,9 @@
-import type { AttentionItem, NotificationDelivery, WorkspaceId } from '@craftingtable/domain';
+import type {
+  AttentionItem,
+  NotificationDelivery,
+  WorkspaceId,
+  AttentionItemId,
+} from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import type { AttentionRepository } from '../notification-types.js';
 import { parseRecord, type RecordGuard } from '../records.js';
@@ -43,7 +48,7 @@ export class SqliteAttentionRepository implements AttentionRepository {
         .all() as { workspace_id: string; scope_key: string }[]
     ).map((row) => ({ workspaceId: row.workspace_id as WorkspaceId, scopeKey: row.scope_key }));
   }
-  find(workspaceId: WorkspaceId, id: string): AttentionItem | undefined {
+  find(workspaceId: WorkspaceId, id: AttentionItemId): AttentionItem | undefined {
     const row = this.database
       .prepare('SELECT state_json FROM attention_items WHERE workspace_id = ? AND id = ?')
       .get(workspaceId, id);
@@ -126,7 +131,7 @@ export class SqliteAttentionRepository implements AttentionRepository {
   }
   delivered(
     workspaceId: WorkspaceId,
-    itemId: string,
+    itemId: AttentionItemId,
   ): { readonly first: string; readonly last: string; readonly count: number } | undefined {
     const row = this.database
       .prepare(

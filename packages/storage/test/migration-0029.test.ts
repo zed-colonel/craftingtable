@@ -1,3 +1,4 @@
+import { asRoadmapId } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -229,7 +230,7 @@ describe('migration 0029: roadmap definition revisions and cycle owners (R-B3)',
     // Storage reads each roadmap back with the definition it had embedded.
     const storage = openCraftingTableStorage(file.path, acceptAnyRecord);
     try {
-      const draft = storage.roadmaps.find('workspace-a' as never, DRAFT);
+      const draft = storage.roadmaps.find('workspace-a' as never, asRoadmapId(DRAFT));
       expect(draft?.definition).toEqual(definition(DRAFT, 1, ['item-middle-a']));
     } finally {
       storage.close();

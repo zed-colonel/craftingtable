@@ -6,6 +6,7 @@ import type {
   EvidenceSubmission,
   EvidenceSubmissionHead,
   WorkspaceId,
+  ConcurrencyDefinitionId,
 } from '@craftingtable/domain';
 import { asEvidenceSubmissionId } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
@@ -162,7 +163,7 @@ function mapSubmissions(storage: CraftingTableStorage, mapOf: Map<string, string
  * are not kept alive by the measurement's own frame.
  */
 function insertCopies(storage: CraftingTableStorage, mapOf: Map<string, string>) {
-  const definitions = new Map<string, WorkspaceId>();
+  const definitions = new Map<ConcurrencyDefinitionId, WorkspaceId>();
   for (const ws of storage.workspaces.listActiveIds())
     for (const roadmap of storage.roadmaps.list(ws))
       if (roadmap.definition.crossProject)

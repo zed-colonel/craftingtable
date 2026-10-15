@@ -1,4 +1,4 @@
-import type { WorkspaceId } from '@craftingtable/domain';
+import type { WorkspaceId, NotificationRecordId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import type {
   NotificationRecord,
@@ -53,7 +53,7 @@ export class SqliteNotificationRepository implements NotificationRepository {
           .all(workspaceId);
     return rows.map((row) => read('notification-record', row) as NotificationRecord);
   }
-  find(workspaceId: WorkspaceId, id: string): NotificationRecord | undefined {
+  find(workspaceId: WorkspaceId, id: NotificationRecordId): NotificationRecord | undefined {
     return read(
       'notification-record',
       this.database

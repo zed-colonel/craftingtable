@@ -7,6 +7,8 @@ import type {
   RoadmapWindDownId,
   UserId,
   WorkspaceId,
+  RoadmapId,
+  RepositoryCleanupId,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { parseRecord, type RecordGuard } from '../records.js';
@@ -18,7 +20,7 @@ import { parseRecord, type RecordGuard } from '../records.js';
  */
 export interface WindDownRepository {
   /** The roadmap's settlement record, if a Stop or wind-down ever began. */
-  find(ws: WorkspaceId, roadmapId: string): RoadmapWindDown | undefined;
+  find(ws: WorkspaceId, roadmapId: RoadmapId): RoadmapWindDown | undefined;
   /** Every record still settling, in every workspace, oldest first: the holds to resume. */
   settling(): readonly RoadmapWindDown[];
   insert(record: RoadmapWindDown): void;
@@ -26,14 +28,14 @@ export interface WindDownRepository {
   replace(record: RoadmapWindDown, expectedVersion: number): boolean;
   /** Records a retirement once; a second one of the same version is ignored. */
   retire(retirement: PlanVersionRetirement): boolean;
-  retirement(ws: WorkspaceId, planVersionId: string): PlanVersionRetirement | undefined;
+  retirement(ws: WorkspaceId, planVersionId: PlanVersionId): PlanVersionRetirement | undefined;
   /** The workspace's retired versions, or every workspace's. */
   retirements(ws?: WorkspaceId): readonly PlanVersionRetirement[];
-  cleanup(ws: WorkspaceId, id: string): RepositoryCleanup | undefined;
+  cleanup(ws: WorkspaceId, id: RepositoryCleanupId): RepositoryCleanup | undefined;
   /** The roadmap's running cleanup, which a repeated command resumes. */
-  runningCleanup(ws: WorkspaceId, roadmapId: string): RepositoryCleanup | undefined;
+  runningCleanup(ws: WorkspaceId, roadmapId: RoadmapId): RepositoryCleanup | undefined;
   /** The roadmap's newest cleanup, running or done. */
-  latestCleanup(ws: WorkspaceId, roadmapId: string): RepositoryCleanup | undefined;
+  latestCleanup(ws: WorkspaceId, roadmapId: RoadmapId): RepositoryCleanup | undefined;
   /** Every running cleanup, in every workspace. */
   runningCleanups(): readonly RepositoryCleanup[];
   insertCleanup(record: RepositoryCleanup): void;
@@ -65,7 +67,7 @@ export class SqliteWindDownRepository implements WindDownRepository {
     private readonly db: Database.Database,
     private readonly guard: RecordGuard,
   ) {}
-  find(ws: WorkspaceId, roadmapId: string): RoadmapWindDown | undefined {
+  find(ws: WorkspaceId, roadmapId: RoadmapId): RoadmapWindDown | undefined {
     const row = this.db
       .prepare('SELECT record_json FROM roadmap_wind_downs WHERE workspace_id=? AND roadmap_id=?')
       .get(ws, roadmapId) as { record_json: string } | undefined;
@@ -124,7 +126,7 @@ export class SqliteWindDownRepository implements WindDownRepository {
         ).changes === 1
     );
   }
-  retirement(ws: WorkspaceId, planVersionId: string): PlanVersionRetirement | undefined {
+  retirement(ws: WorkspaceId, planVersionId: PlanVersionId): PlanVersionRetirement | undefined {
     const row = this.db
       .prepare('SELECT * FROM retired_plan_versions WHERE workspace_id=? AND plan_version_id=?')
       .get(ws, planVersionId) as RetirementRow | undefined;
@@ -140,13 +142,13 @@ export class SqliteWindDownRepository implements WindDownRepository {
     ) as RetirementRow[];
     return rows.map(mapRetirement);
   }
-  cleanup(ws: WorkspaceId, id: string): RepositoryCleanup | undefined {
+  cleanup(ws: WorkspaceId, id: RepositoryCleanupId): RepositoryCleanup | undefined {
     const row = this.db
       .prepare('SELECT record_json FROM repository_cleanups WHERE workspace_id=? AND id=?')
       .get(ws, id) as { record_json: string } | undefined;
     return row && parseRecord('repository-cleanup', row.record_json);
   }
-  runningCleanup(ws: WorkspaceId, roadmapId: string): RepositoryCleanup | undefined {
+  runningCleanup(ws: WorkspaceId, roadmapId: RoadmapId): RepositoryCleanup | undefined {
     const row = this.db
       .prepare(
         "SELECT record_json FROM repository_cleanups WHERE workspace_id=? AND roadmap_id=? AND status='running'",
@@ -154,7 +156,7 @@ export class SqliteWindDownRepository implements WindDownRepository {
       .get(ws, roadmapId) as { record_json: string } | undefined;
     return row && parseRecord('repository-cleanup', row.record_json);
   }
-  latestCleanup(ws: WorkspaceId, roadmapId: string): RepositoryCleanup | undefined {
+  latestCleanup(ws: WorkspaceId, roadmapId: RoadmapId): RepositoryCleanup | undefined {
     const row = this.db
       .prepare(
         'SELECT record_json FROM repository_cleanups WHERE workspace_id=? AND roadmap_id=? ORDER BY rowid DESC LIMIT 1',

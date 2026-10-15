@@ -68,7 +68,9 @@ it('retains definitions across reopen, rejects stale writes, and rolls back revi
     expect(reopened.roadmaps.history(seed.workspaceId, id)).toEqual([roadmap.definition]);
     expect(reopened.roadmaps.definition(seed.workspaceId, id, 1)).toEqual(roadmap.definition);
     expect(reopened.roadmaps.definition(seed.workspaceId, id, 2)).toBeUndefined();
-    expect(reopened.roadmaps.definition(seed.workspaceId, randomUUID(), 1)).toBeUndefined();
+    expect(
+      reopened.roadmaps.definition(seed.workspaceId, asRoadmapId(randomUUID()), 1),
+    ).toBeUndefined();
   } finally {
     reopened.close();
   }

@@ -3,6 +3,7 @@ import type {
   AgentRun,
   AgentRunRole,
   EffectiveAgent,
+  WorktreeId,
 } from '@craftingtable/domain';
 import { type AgentContext, resolveAgent } from './agent-resolution.js';
 
@@ -48,7 +49,7 @@ export function runHandoffs(
   runs: readonly ListedRun[],
   workspace: NonNullable<AgentContext['workspace']>,
 ): Readonly<Record<string, RunHandoff>> {
-  const implementer = (worktreeId: string) =>
+  const implementer = (worktreeId: WorktreeId) =>
     runs
       .filter(
         (r) => r.worktreeId === worktreeId && r.role === 'implement' && r.status === 'finished',

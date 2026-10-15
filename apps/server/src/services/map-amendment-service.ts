@@ -20,6 +20,7 @@ import {
   type CrossProjectConfiguration,
   type MapActivitySettings,
   startedAttempts,
+  type WorktreeId,
 } from '@craftingtable/domain';
 import type {
   AmendmentImpact,
@@ -434,7 +435,7 @@ export class MapAmendmentService {
     ws: WorkspaceId,
     r: Roadmap,
     c: MapSelection,
-    retireIds: readonly string[],
+    retireIds: readonly WorktreeId[],
   ) {
     const old = r.definition.crossProject!,
       changed = old.definitionId !== c.definitionId || old.bindingRevision !== c.bindingRevision;

@@ -95,7 +95,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | done (2026-10-11, not merged or deployed; 147 → 133 routes; reload open pages after deploying) | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
-| [R-H7](#r-h7) | P4 | M | in progress (parts 1, 2) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
+| [R-H7](#r-h7) | P4 | M | in progress (parts 1-3) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -4769,7 +4769,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H7
 
-**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (2026-10-14, on `remediation/p4`: part 1, the declaration, parsing and startup refusal; part 2, the routes by area; not merged or deployed)
+**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (2026-10-14, on `remediation/p4`: part 1, the declaration, parsing and startup refusal; part 2, the routes by area; part 3, branded ids through services and storage; not merged or deployed)
 
 - **Added 2026-10-12 by the operator,** after R-I7 branded the domain's ids (part 8) and left route
   parameters and service and storage lookups as plain strings wherever no route parses a schema.
@@ -4925,6 +4925,49 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *After the last area* no handler parses or reads `request.params`: the only read left in
     `apps/server/src/routes` is the daemon's parse in `route-access.ts` (from 146 id-schema
     parses and 194 raw reads at `9230d81`). A check that holds it comes with part 4.
+- **Built (2026-10-14), part 3: branded ids through services and storage, compile-time only.**
+  - *Found with the compiler,* not by name: every function parameter in `apps/server/src/services`
+    and `packages/storage/src` whose name is an id and whose type is a plain `string` (or a string
+    array or set): **274 before, 34 after.** Storage lookups that take the brand now: cycles,
+    finalizations, roadmaps (find, history, definition), wind-downs and cleanups, map amendments,
+    imports (definition, bindings, adoptions, archives), runtime evidence (approvals, transitions,
+    generations, submissions, run environments, build records, check receipts, check
+    declarations), attention and notification items, protected-ref moves (workspace and
+    repository), phase reservations (workspace, work item, user). Service methods: every cycle,
+    roadmap, definition, finalization, submission, run, worktree, entry, amendment, preparation and
+    attention item id the routes and the controller pass, with their step-up readers
+    (`storedWork`, `mergesIntoDefaultBranch`) and the policies they call.
+  - *The 34 left as `string`, each for a reason:* map-declared identities read from the raw v0.3
+    document (17: checkpoint, slice, declared check and environment ids; R-I7 left the document's
+    strings, and branding them means branding its reads, a change of its own); kinds that depend on
+    another field (7: a scope's `sourceId`, a phase reservation's `ownerId`); ids with no brand (8:
+    protected-ref moves, a storage scan, a check request's own id); text that is not an id read
+    from a record (2: a review report's previous finding ids, the agent's text; a check
+    scratch directory's name, which `removeScratch` takes from `readdir`). The board's pure
+    `bindsWorkItem` keeps a string over its loosely typed refs.
+  - *Branded at the edges where a value enters:* a parsed parameter (`paramsOf`); a stored row
+    (storage's mappers already brand records; two raw row reads are typed: the record scan's
+    roadmap id, an archive's id by digest); a request body (a runtime refresh review's
+    `roadmapId` now outputs its brand through `branded<RoadmapId>`, the same schema); a key the
+    attention projector built itself (`asFinalizationId`, and a cast for a repository id, as it
+    already did for worktrees and roadmaps); and the wind-down rehearsal's `--roadmap` option.
+    Local record types in services gained their brands (a pinned check declaration, a delegation's
+    cycle, a final approval's finalization, a map selection's definition, a plan-acceptance scope,
+    a checkpoint preparation's worktree, a plan evidence request's roadmap). Tests brand their
+    literal ids with the domain's constructors.
+  - *One route declaration corrected:* the supervision adoption's `:id` is a concurrency
+    definition id (the service looks the definition up with it), which its handler had checked
+    with `roadmapIdSchema`. It is declared with a new `concurrencyDefinitionIdSchema`,
+    `branded<ConcurrencyDefinitionId>(z.string().uuid())`: the same rule, the right brand. The
+    inventory's row shows it.
+  - *Compile-time only, checked:* every changed production module of the server, storage,
+    contracts and domain compared with its types stripped (Node's `stripTypeScriptTypes`) against
+    `a1a4daa`: 54 modules, 5 differ, each by an identity: `asFinalizationId` and `asRoadmapId`
+    (constructors that brand without checking), `branded(...)` (returns the schema it is given),
+    and the adoption's declared schema (a new export with the rule `roadmapIdSchema` has). No
+    runtime check was added or removed (an existing `asWorktreeId` or `asAgentRunId` call in a
+    service stays where it was). `pnpm typecheck`, the test typecheck, lint, format, the scope
+    check and the whole unit suite (395 files, 3,353 tests) pass.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

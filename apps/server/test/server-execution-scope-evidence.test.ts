@@ -11,6 +11,7 @@ import {
   asDeclaredCheckId,
   asNativeVerificationApprovalId,
   asQualificationEnvironmentId,
+  asAgentRunId,
 } from '@craftingtable/domain';
 
 /* -------------------------------------------------------------------------- */
@@ -1209,7 +1210,11 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
         pins: config.pins.map((p) => ({ ...p, expectedCommitSha: observed.commitSha })),
       }),
     ).rejects.toThrow('ref advanced before saving');
-    const prepared = svc.prepare(tree, randomUUID(), join(f.state.context.directory, 'new-run'));
+    const prepared = svc.prepare(
+      tree,
+      asAgentRunId(randomUUID()),
+      join(f.state.context.directory, 'new-run'),
+    );
     if (mode === 'integration') await expect(prepared).rejects.toThrow('integration changed');
     else await expect(prepared).resolves.toMatchObject({ verification: { mode: 'scoped-checks' } });
   },

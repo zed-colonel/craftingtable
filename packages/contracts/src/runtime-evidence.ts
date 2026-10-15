@@ -464,7 +464,7 @@ export const runtimeRefreshPreviewSchema = runtimeRefreshRequestSchema.extend({
   ),
   reviews: z.array(
     z.strictObject({
-      roadmapId: z.string(),
+      roadmapId: branded<RoadmapId>(z.string()),
       attemptId: z.string(),
       sourceId: name,
       action: z.enum(['queue', 'existing-recovery', 'manual']),

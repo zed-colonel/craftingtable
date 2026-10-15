@@ -20,6 +20,9 @@ import {
   type SourceRepositoryId,
   V03_VOCABULARY,
   type WorkCycleId,
+  type AgentRunId,
+  type MapAmendmentId,
+  type RoadmapEntryId,
 } from '@craftingtable/domain';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
@@ -266,14 +269,14 @@ export class WorkCycleService {
   private readonly restoredChecks = new Map<string, number>();
   private readonly transitioning = new Set<string>();
 
-  isTransitioning(id: string): boolean {
+  isTransitioning(id: WorkCycleId): boolean {
     return this.transitioning.has(id);
   }
 
   /** A command already owns this recovery. No scheduler takeover or stale alert
    * may race its asynchronous Git preparation. Restart releases the guard and
    * leaves the durable checkpoint available for explicit recovery. */
-  private async duringTransition<T>(id: string, operation: () => Promise<T>): Promise<T> {
+  private async duringTransition<T>(id: WorkCycleId, operation: () => Promise<T>): Promise<T> {
     if (this.transitioning.has(id))
       throw new ExecutionRequestError('conflict', 'Recovery is already being prepared.');
     this.transitioning.add(id);
@@ -303,7 +306,7 @@ export class WorkCycleService {
   ) {}
 
   /** The stored cycle, for the access guard's step-up check (R-G9), as `RoadmapService.storedWork`. */
-  storedWork(workspaceId: string, cycleId: string): unknown {
+  storedWork(workspaceId: WorkspaceId, cycleId: WorkCycleId): unknown {
     return this.storage.execution.cycles.find(workspaceId as never, cycleId as never);
   }
 
@@ -400,7 +403,7 @@ export class WorkCycleService {
     };
   }
 
-  previewScopeRepair(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+  previewScopeRepair(context: CommandContext, workspaceId: WorkspaceId, id: WorkCycleId) {
     this.workspaceService.requireAuthorized(context, workspaceId);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
@@ -419,7 +422,7 @@ export class WorkCycleService {
   async delegateScopeRepair(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     input: ScopeRepairRequest,
     delegation?: {
       worktreeId: import('@craftingtable/domain').WorktreeId;
@@ -572,7 +575,11 @@ export class WorkCycleService {
     });
   }
 
-  private requireDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+  private requireDesignRecovery(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: WorkCycleId,
+  ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
@@ -616,7 +623,7 @@ export class WorkCycleService {
   async startInvestigation(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     input: StartInvestigationRequest,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -750,7 +757,7 @@ export class WorkCycleService {
   async endInvestigation(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     expectedVersion: number,
     stopping = false,
   ): Promise<WorkCycle> {
@@ -909,7 +916,7 @@ export class WorkCycleService {
   acknowledgeWorktreeChange(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     expectedVersion: number,
   ): WorkCycle {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -968,25 +975,25 @@ export class WorkCycleService {
    * Reminders for this cycle's item wait: a command is preparing its transition, or an
    * investigation is gathering what the operator needs to answer (R-C16).
    */
-  holdsReminders(workspaceId: WorkspaceId, id: string): boolean {
+  holdsReminders(workspaceId: WorkspaceId, id: WorkCycleId): boolean {
     if (this.isTransitioning(id)) return true;
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     return !!cycle && investigationLive(cycle);
   }
 
-  previewDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+  previewDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: WorkCycleId) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
     return this.storage.readTransaction((tx) => collectDesignRecovery(tx, cycle));
   }
 
-  async previewBaseline(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+  async previewBaseline(context: CommandContext, workspaceId: WorkspaceId, id: WorkCycleId) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
     if (!this.baselines)
       throw new ExecutionRequestError('unavailable', 'Baseline preparation unavailable.');
     return this.baselines.preview(cycle);
   }
 
-  baselineEvidence(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+  baselineEvidence(context: CommandContext, workspaceId: WorkspaceId, id: WorkCycleId) {
     this.workspaceService.requireAuthorized(context, workspaceId);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle || !this.baselines) throw new NotFoundError();
@@ -995,7 +1002,7 @@ export class WorkCycleService {
   async prepareBaseline(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     input: PrepareBaselineRequest,
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
@@ -1065,7 +1072,7 @@ export class WorkCycleService {
   async recoverDesign(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     input: RecoverDesignRequest,
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
@@ -1650,7 +1657,7 @@ export class WorkCycleService {
   async authorizeWorkItemRemediation(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     input: AuthorizeWorkCycleRemediationRequest,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -1722,7 +1729,7 @@ export class WorkCycleService {
   }
 
   /** An approved amendment retires idle automation without deleting its branch or history. */
-  retireForAmendment(context: CommandContext, cycle: WorkCycle, amendmentId: string): void {
+  retireForAmendment(context: CommandContext, cycle: WorkCycle, amendmentId: MapAmendmentId): void {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
     // Retiring stops the cycle; it never builds on a changed tree (R-C16 review L1).
     this.requireNoInvestigation(cycle, true);
@@ -1751,7 +1758,7 @@ export class WorkCycleService {
   async repeatScopeReview(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     expectedVersion: number,
     guidance: string,
     delegationCheck?: () => void,
@@ -1876,7 +1883,7 @@ export class WorkCycleService {
   async control(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     action: 'pause' | 'resume' | 'stop' | 'retry-provider',
     expectedVersion: number,
     reviewGuidance?: string,
@@ -3989,7 +3996,7 @@ export class WorkCycleService {
    * includes retries, security and checkpoint reviews and other cycles' reviews (LIVE-27 review).
    */
   private remediatedNothingTwice(cycle: WorkCycle, remediation: AgentRun, head: string): boolean {
-    const find = (id: string | undefined) =>
+    const find = (id: AgentRunId | undefined) =>
       id ? this.storage.execution.runs.find(cycle.workspaceId, asAgentRunId(id)) : undefined;
     // A review of this commit that sent the cycle to remediate its findings: not a passing
     // review followed by a cleanup remediation (LIVE-27 review).
@@ -4168,7 +4175,7 @@ export class WorkCycleService {
     const owner = cycleOwnership(this.storage, cycle);
     if (owner?.attempt.status !== 'active') return;
     const { roadmap, attempt } = owner;
-    const held = (entryId: string | undefined) => {
+    const held = (entryId: RoadmapEntryId | undefined) => {
       const hold = entryId === undefined ? undefined : roadmap.entryHolds?.[entryId];
       return !!hold && (!launching || hold.status !== 'paused');
     };
@@ -4487,7 +4494,7 @@ export class WorkCycleService {
   async resolveIntegration(
     context: CommandContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: WorkCycleId,
     input: IntegrationResolutionRequest,
     delegatedCheck?: () => void,
   ): Promise<WorkCycle> {

@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type Database from 'better-sqlite3';
-import { submissionHead, type WorkspaceId } from '@craftingtable/domain';
+import { submissionHead, type WorkspaceId, type RoadmapId } from '@craftingtable/domain';
 import { SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import {
   acceptAnyRecord,
@@ -84,7 +84,7 @@ const SOURCES: readonly Source[] = [
     kind: 'roadmap',
     table: 'roadmaps',
     sql: 'SELECT workspace_id, id, id AS scan_key FROM roadmaps ORDER BY rowid',
-    read: (row: { workspace_id: WorkspaceId; id: string }, database) =>
+    read: (row: { workspace_id: WorkspaceId; id: RoadmapId }, database) =>
       new SqliteRoadmapRepository(database, acceptAnyRecord).find(row.workspace_id, row.id),
   },
   documents(

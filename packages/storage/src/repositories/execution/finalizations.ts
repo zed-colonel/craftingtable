@@ -1,9 +1,9 @@
-import type { Finalization, WorkspaceId } from '@craftingtable/domain';
+import type { Finalization, WorkspaceId, FinalizationId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { parseRecord, type RecordGuard } from '../../records.js';
 export interface FinalizationRepository {
   save(value: Finalization, expectedVersion: number): boolean;
-  find(workspaceId: WorkspaceId, id: string): Finalization | undefined;
+  find(workspaceId: WorkspaceId, id: FinalizationId): Finalization | undefined;
   list(workspaceId?: WorkspaceId): readonly Finalization[];
 }
 function map(row: unknown): Finalization | undefined {
@@ -48,7 +48,7 @@ export class SqliteFinalizationRepository implements FinalizationRepository {
         ).changes === 1
     );
   }
-  find(workspaceId: WorkspaceId, id: string): Finalization | undefined {
+  find(workspaceId: WorkspaceId, id: FinalizationId): Finalization | undefined {
     return map(
       this.database
         .prepare('SELECT state_json FROM finalizations WHERE workspace_id = ? AND id = ?')

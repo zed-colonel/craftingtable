@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
 import { decodeUtf8, readArchive } from '@craftingtable/planning';
-import type { DecisionPreparation, WorkspaceId } from '@craftingtable/domain';
+import type { DecisionPreparation, WorkspaceId, AgentRunId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { decisionBindingDigest } from './architecture-decision-policy.js';
 import { ExecutionRequestError } from './errors.js';
 
-export function decisionPreparationForRun(tx: StorageRepositories, ws: WorkspaceId, runId: string) {
+export function decisionPreparationForRun(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  runId: AgentRunId,
+) {
   return tx.roadmaps
     .list(ws)
     .flatMap((r) => r.decisionPreparations ?? [])

@@ -1,5 +1,10 @@
 import { amendmentHoldsBinding } from './scope-lineage.js';
-import type { Finalization, WorkspaceId, PlanVersionId } from '@craftingtable/domain';
+import type {
+  Finalization,
+  WorkspaceId,
+  PlanVersionId,
+  ConcurrencyDefinitionId,
+} from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { activeRuntime, parentAccepted } from './runtime-evidence-policy.js';
 import { mapAdopted } from './map-adoption-policy.js';
@@ -7,7 +12,7 @@ import { ExecutionRequestError } from './errors.js';
 export function mapProjectReadiness(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  definitionId: string,
+  definitionId: ConcurrencyDefinitionId,
   revision: number,
 ) {
   const d = tx.imports.definition(ws, definitionId),

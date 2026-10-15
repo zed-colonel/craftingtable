@@ -1,3 +1,4 @@
+import type { AgentRunId } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 
 /** A protected ref that moved during a run by something other than the daemon. */
@@ -93,7 +94,7 @@ export class RefWatch {
   }
 
   /** Records the repository's refs as the run starts. */
-  async snapshot(runId: string, git: GitOperations, repositoryPath: string): Promise<void> {
+  async snapshot(runId: AgentRunId, git: GitOperations, repositoryPath: string): Promise<void> {
     this.expire();
     const heads = await git.branchHeads(repositoryPath);
     if (!heads.ok) return;
@@ -110,7 +111,7 @@ export class RefWatch {
    * explains. `ownedBranches` are the managed worktrees' branches, which their runs move.
    */
   async unexplainedMoves(
-    runId: string,
+    runId: AgentRunId,
     git: GitOperations,
     ownedBranches: readonly string[],
   ): Promise<UnexplainedMove[]> {

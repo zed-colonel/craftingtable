@@ -1,4 +1,4 @@
-import type { WorkspaceId } from '@craftingtable/domain';
+import type { WorkspaceId, ConcurrencyDefinitionId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 /**
  * What keeps a map binding from being used. `inactivePlans: false` leaves out bound plan
@@ -7,7 +7,7 @@ import type { StorageRepositories } from '@craftingtable/storage';
 export function bindingIssues(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  id: string,
+  id: ConcurrencyDefinitionId,
   revision: number,
   options: { readonly inactivePlans?: boolean } = {},
 ): string[] {

@@ -200,7 +200,7 @@ export const CHECK_LIMITS = {
  * a file can no longer satisfy a gate.
  */
 export class CheckRequestService {
-  private readonly runs = new Map<string, ServedRun>();
+  private readonly runs = new Map<AgentRunId, ServedRun>();
   private readonly workflows = new WorkflowQueue();
   /** Runs still stopping their checks (`close`), which `closeAll` waits for. */
   private readonly closing = new Set<Promise<unknown>>();
@@ -299,7 +299,10 @@ export class CheckRequestService {
    * starts (R-G13 increment 3, LIVE-23), within the run's and the daemon's bounds. Their
    * receipts are the run's, marked `origin: 'daemon'`. Resolves when every check has finished.
    */
-  async runDeclared(runId: string, checkIds: readonly string[]): Promise<DeclaredCheckResult[]> {
+  async runDeclared(
+    runId: AgentRunId,
+    checkIds: readonly string[],
+  ): Promise<DeclaredCheckResult[]> {
     const served = this.runs.get(runId);
     if (!served) return [];
     const results = checkIds.map(
@@ -328,7 +331,7 @@ export class CheckRequestService {
   }
 
   /** Checks still running for a run. */
-  inFlight(runId: string): readonly CheckRequest['tool'][] {
+  inFlight(runId: AgentRunId): readonly CheckRequest['tool'][] {
     return [...(this.runs.get(runId)?.inFlight.values() ?? [])].map((c) => c.tool);
   }
 
@@ -336,7 +339,7 @@ export class CheckRequestService {
    * Stops serving a run: its running checks are stopped and record nothing, because the run's
    * build record was frozen when it ended.
    */
-  async close(runId: string): Promise<void> {
+  async close(runId: AgentRunId): Promise<void> {
     const run = this.runs.get(runId);
     if (!run) return;
     this.runs.delete(runId);
@@ -388,7 +391,7 @@ export class CheckRequestService {
     if (outlasted) this.log.warn('Closing with checks still stopping', { runs: this.closing.size });
   }
 
-  private serve(runId: string): void {
+  private serve(runId: AgentRunId): void {
     const run = this.runs.get(runId);
     if (!run) return;
     const spool = run.context.spoolDirectory;

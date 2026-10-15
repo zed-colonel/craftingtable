@@ -1,3 +1,4 @@
+import { asRoadmapId } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import {
   checkpointOfSubject,
@@ -5,7 +6,9 @@ import {
 } from '../../src/services/checkpoint-subject.js';
 
 it("reads back only a roadmap's own checkpoint subject (R-A6 rest, review L4)", () => {
-  expect(checkpointOfSubject(checkpointSubjectKey('r', 'WI-ADR-012'), 'r')).toBe('WI-ADR-012');
+  expect(
+    checkpointOfSubject(checkpointSubjectKey(asRoadmapId('r'), 'WI-ADR-012'), asRoadmapId('r')),
+  ).toBe('WI-ADR-012');
   // Another roadmap's checkpoint, another subject of the roadmap, an empty id, no roadmap.
   for (const [key, roadmap] of [
     ['roadmap:other:checkpoint:WI-ADR-012', 'r'],
@@ -16,5 +19,8 @@ it("reads back only a roadmap's own checkpoint subject (R-A6 rest, review L4)", 
     ['cycle:c', 'r'],
     ['roadmap:r:checkpoint:WI-ADR-012', undefined],
   ] as const)
-    expect(checkpointOfSubject(key, roadmap), key).toBeUndefined();
+    expect(
+      checkpointOfSubject(key, roadmap === undefined ? undefined : asRoadmapId(roadmap)),
+      key,
+    ).toBeUndefined();
 });

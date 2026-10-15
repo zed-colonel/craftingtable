@@ -9,6 +9,7 @@ import {
   summarizeOperatorWait,
   type WorkCycle,
   type WorkspaceId,
+  type WorkCycleId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
@@ -49,7 +50,7 @@ export function operatorWaitReport(
   // controller was still waiting on the step (`workflow.waiting`) was not recorded, so
   // such a transition counts as the operator's.
   let cycles: ReadonlyMap<string, WorkCycle> | undefined;
-  const cycleOf = (id: string) => {
+  const cycleOf = (id: WorkCycleId) => {
     cycles ??= new Map(
       storage.execution.cycles.listForWorkspace(workspaceId).map((cycle) => [cycle.id, cycle]),
     );

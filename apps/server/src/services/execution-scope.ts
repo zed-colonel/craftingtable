@@ -24,6 +24,7 @@ import {
   type WorkItemId,
   type WorkspaceId,
   type Worktree,
+  type WorktreeId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { scopeNext } from './scope-next.js';
@@ -488,7 +489,7 @@ export function requireScopeOwnership(
   workspaceId: WorkspaceId,
   workItemId: WorkItemId,
   scope?: ExecutionScope,
-  ownWorktreeId?: string,
+  ownWorktreeId?: WorktreeId,
 ) {
   const trees = tx.execution.worktrees.listForWorkItem(workspaceId, workItemId);
   for (const tree of trees) {

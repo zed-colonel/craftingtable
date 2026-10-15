@@ -6,6 +6,7 @@ import {
   INSTALLATION_ATTENTION_CODES,
   type WorkItemId,
   type WorkspaceId,
+  type AttentionItemId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
@@ -15,7 +16,7 @@ import { ExecutionRequestError } from './errors.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 /** The inbox path of one item; notification links open it (R-A5). */
-export function inboxPath(workspaceId: WorkspaceId, itemId?: string): string {
+export function inboxPath(workspaceId: WorkspaceId, itemId?: AttentionItemId): string {
   const base = `/workspaces/${encodeURIComponent(workspaceId)}/inbox`;
   return itemId === undefined ? base : `${base}/${encodeURIComponent(itemId)}`;
 }

@@ -24,7 +24,7 @@ import {
   concurrencyDefinitionIdLookupSchema,
   agentRunIdLookupSchema,
 } from '@craftingtable/contracts';
-import type { WorkspaceId } from '@craftingtable/domain';
+import type { ConcurrencyDefinitionId, WorkspaceId } from '@craftingtable/domain';
 import type { FastifyInstance } from 'fastify';
 import type { RuntimeEvidenceService } from '../services/runtime-evidence-service.js';
 import { noStore } from './http.js';
@@ -131,7 +131,7 @@ export interface RuntimeCommand {
   readonly run: (
     context: ReturnType<typeof contextOf>,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     body: unknown,
   ) => Promise<unknown>;
 }
@@ -150,7 +150,7 @@ export function runtimeCommands(service: RuntimeEvidenceService): readonly Runti
     run: (
       context: ReturnType<typeof contextOf>,
       ws: WorkspaceId,
-      id: string,
+      id: ConcurrencyDefinitionId,
       body: BodyOf<S>,
     ) => Promise<unknown>,
   ): RuntimeCommand => ({

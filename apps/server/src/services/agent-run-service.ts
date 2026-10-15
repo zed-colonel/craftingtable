@@ -72,6 +72,7 @@ import {
   type WorktreeId,
   OUTCOME_SUMMARY_LIMIT_BYTES,
   truncateUtf8Bytes,
+  type RepositoryCheckDeclarationId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
@@ -324,14 +325,14 @@ function declaredChecksBrief(
   pinned:
     | {
         readonly kind?: undefined;
-        readonly checkDeclarationId?: string;
+        readonly checkDeclarationId?: RepositoryCheckDeclarationId;
         readonly binDirectory: string;
         readonly verification: { readonly mode: string };
       }
     | {
         /** A check-only run: no pinned environment (R-G13 increment 4). */
         readonly kind: 'checks';
-        readonly checkDeclarationId: string;
+        readonly checkDeclarationId: RepositoryCheckDeclarationId;
         readonly binDirectory: string;
       },
 ): string {
@@ -1126,7 +1127,7 @@ export class AgentRunService {
    * Stops a review's adopted checks while its agent has not started (R-G13 increment 3): its
    * cycle was paused. The launch then starts no agent; a live session is left alone.
    */
-  cancelStartingChecks(runId: string): void {
+  cancelStartingChecks(runId: AgentRunId): void {
     this.checkingLaunches.get(runId)?.cancel();
   }
 
@@ -2620,7 +2621,7 @@ export class AgentRunService {
     }
   }
 
-  private removeProcessTemporaryDirectory(runId: string): void {
+  private removeProcessTemporaryDirectory(runId: AgentRunId): void {
     const directory = this.processTemporaryDirectories.get(runId);
     if (directory === undefined) return;
     this.processTemporaryDirectories.delete(runId);
@@ -2696,7 +2697,7 @@ export class AgentRunService {
   }
 
   /** Where a run's process record is kept; none without a daemon-private root. */
-  private processRecordPath(runId: string): string | undefined {
+  private processRecordPath(runId: AgentRunId): string | undefined {
     const root = this.config.processRecordRoot;
     return root === undefined ? undefined : join(root, `${runId}.json`);
   }
@@ -2716,7 +2717,7 @@ export class AgentRunService {
   }
 
   /** Once a run's process group has exited, its record goes: nothing of it is left to end. */
-  private removeProcessRecord(runId: string): void {
+  private removeProcessRecord(runId: AgentRunId): void {
     const path = this.processRecordPath(runId);
     if (path === undefined) return;
     try {

@@ -2,7 +2,7 @@ import {
   adoptMapSchema,
   crossProjectViewSchema,
   mapSelectionSchema,
-  roadmapIdSchema,
+  concurrencyDefinitionIdSchema,
   roadmapViewSchema,
   saveCrossProjectSchema,
   concurrencyDefinitionIdLookupSchema,
@@ -14,7 +14,7 @@ import { type BodyOf, contextOf, paramsOf, workspaceParams } from './route-acces
 
 /** Each route's path parameters (R-H7). */
 const DEFINITION = workspaceParams({ id: concurrencyDefinitionIdLookupSchema });
-const ADOPTION = workspaceParams({ id: roadmapIdSchema });
+const ADOPTION = workspaceParams({ id: concurrencyDefinitionIdSchema });
 export function registerCrossProjectRoutes(app: FastifyInstance, service: CrossProjectService) {
   app.post<{
     Body: BodyOf<typeof mapSelectionSchema>;

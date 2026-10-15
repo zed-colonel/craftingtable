@@ -22,6 +22,7 @@ import {
   type MapActivitySettings,
   type RoadmapEntry,
   startedAttempts,
+  type ConcurrencyDefinitionId,
 } from '@craftingtable/domain';
 import { withPermissions } from './agent-profile-policy.js';
 import {
@@ -455,7 +456,7 @@ export class CrossProjectService {
   adopt(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: { bindingRevision: number; decisionIds: readonly string[]; rationale: string },
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);

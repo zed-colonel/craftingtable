@@ -8,6 +8,7 @@ import {
   type RoadmapStatusList,
   targetClosure,
   type WorkItemId,
+  type ProjectId,
 } from '@craftingtable/domain';
 
 /**
@@ -81,11 +82,11 @@ export function sequenceGraph(input: {
   readonly workItem: (
     id: WorkItemId,
   ) =>
-    | { readonly sourceId: string; readonly title: string; readonly projectId: string }
+    | { readonly sourceId: string; readonly title: string; readonly projectId: ProjectId }
     | undefined;
   /** A work item's required predecessors. */
   readonly predecessors: (id: WorkItemId) => readonly WorkItemId[];
-  readonly projectName: (id: string) => string | undefined;
+  readonly projectName: (id: ProjectId) => string | undefined;
 }): RoadmapGraph {
   const included = [...new Set(input.entries.map((e) => e.workItemId))];
   const outside = [
@@ -96,7 +97,7 @@ export function sequenceGraph(input: {
   const ids = [...included, ...outside].filter((id) => input.workItem(id) !== undefined);
   const index = new Map(ids.map((id, i) => [id, i]));
   const lanes: { key: string; label: string }[] = [];
-  const laneOf = (projectId: string) => {
+  const laneOf = (projectId: ProjectId) => {
     const at = lanes.findIndex((l) => l.key === projectId);
     if (at >= 0) return at;
     lanes.push({ key: projectId, label: input.projectName(projectId) ?? projectId });
@@ -125,7 +126,7 @@ export function sequenceGraph(input: {
 }
 
 /** A sequential roadmap's node key for a work item. */
-export const sequenceKey = (workItemId: string) => `work_item:${workItemId}:completed`;
+export const sequenceKey = (workItemId: WorkItemId) => `work_item:${workItemId}:completed`;
 
 /** What the daemon evaluated for one node: whether it is met, and what it requires now. */
 export interface NodeEvaluation {

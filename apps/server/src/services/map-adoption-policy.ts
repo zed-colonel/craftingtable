@@ -1,11 +1,11 @@
 import { effectiveDelegation, historicalReviewerRoles } from './roadmap-delegation-policy.js';
-import type { WorkspaceId } from '@craftingtable/domain';
+import type { WorkspaceId, AgentRunId, ConcurrencyDefinitionId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { assignedReviewMatches } from './agent-profile-policy.js';
 export function adoptedDecisions(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  id: string,
+  id: ConcurrencyDefinitionId,
   revision: number,
 ): ReadonlySet<string> {
   if (tx.imports.bindings(ws, id)[0]?.revision !== revision) return new Set();
@@ -19,7 +19,7 @@ export function adoptedDecisions(
 export function mapAdopted(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  id: string,
+  id: ConcurrencyDefinitionId,
   revision: number,
 ): boolean {
   const d = tx.imports.definition(ws, id),
@@ -37,7 +37,7 @@ export function scopeReviewerRoles(
   tx: StorageRepositories,
   ws: WorkspaceId,
   scope: import('@craftingtable/domain').ExecutionScope,
-  runId?: string,
+  runId?: AgentRunId,
 ): readonly string[] {
   for (const roadmap of tx.roadmaps.list(ws)) {
     if (

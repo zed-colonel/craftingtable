@@ -18,16 +18,18 @@ import type {
   ExecutionScope,
   WorkspaceId,
   PhaseBlocker,
+  ConcurrencyDefinitionId,
+  RuntimeGenerationId,
 } from '@craftingtable/domain';
 import { asAcceptanceCaseId, consumerUpstreams, executionScopeKey } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 export function activeRuntime(
   tx: StorageRepositories,
-  ws: string,
-  definitionId: string,
+  ws: WorkspaceId,
+  definitionId: ConcurrencyDefinitionId,
   bindingRevision: number,
 ) {
-  return tx.imports.bindings(ws as WorkspaceId, definitionId)[0]?.revision === bindingRevision
+  return tx.imports.bindings(ws, definitionId)[0]?.revision === bindingRevision
     ? tx.runtimeEvidence.generations(ws, definitionId, bindingRevision)[0]
     : undefined;
 }
@@ -156,7 +158,7 @@ export function scopeRuntimeChanges(
   tx: StorageRepositories,
   ws: WorkspaceId,
   scope: ExecutionScope,
-  recordedRuntimeId: string | undefined,
+  recordedRuntimeId: RuntimeGenerationId | undefined,
   current = activeRuntime(tx, ws, scope.definitionId, scope.bindingRevision),
 ): string[] {
   if (recordedRuntimeId && recordedRuntimeId === current?.id) return [];
@@ -385,7 +387,7 @@ function evaluateSubmission(
 export function acceptedEvidence(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  definitionId: string,
+  definitionId: ConcurrencyDefinitionId,
   bindingRevision: number,
   subject: EvidenceSubject,
   visiting = new Set<string>(),
@@ -787,7 +789,7 @@ function receiptCurrent(
 export function parentAccepted(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  definitionId: string,
+  definitionId: ConcurrencyDefinitionId,
   bindingRevision: number,
   sourceId: string,
 ): boolean {

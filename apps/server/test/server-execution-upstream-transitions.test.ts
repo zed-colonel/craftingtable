@@ -8,7 +8,7 @@ import {
 } from '@craftingtable/contracts';
 import type { PinnedCargoManifest } from '@craftingtable/agents';
 import type { ExecutionScope } from '@craftingtable/domain';
-import { asQualificationEnvironmentId } from '@craftingtable/domain';
+import { asQualificationEnvironmentId, asAgentRunId } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect } from 'vitest';
 import {
@@ -163,7 +163,7 @@ async function transitionFixture() {
     const found = storage.execution.worktrees.find(ws, tree.id as never)!;
     const launch = await svc.prepare(
       found,
-      randomUUID(),
+      asAgentRunId(randomUUID()),
       join(f.state.context.directory, `prepare-${randomUUID()}`),
     );
     return {

@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import type { Roadmap, RoadmapAttempt, RoadmapEntry, WorkCycle } from '@craftingtable/domain';
+import type {
+  Roadmap,
+  RoadmapAttempt,
+  RoadmapEntry,
+  WorkCycle,
+  RoadmapEntryId,
+} from '@craftingtable/domain';
 import { isTerminalAgentRunStatus, sameExecutionScope } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { finalizationHasNoQuestions } from './finalization-policy.js';
@@ -183,7 +189,7 @@ export function scopeRecoveryDecision(
       : undefined;
   };
   // Only a parent review ends a stretch, not a passing slice verification (LIVE-28 review).
-  const parentReview = (entryId: string) =>
+  const parentReview = (entryId: RoadmapEntryId) =>
     roadmap.definition.entries.find((e) => e.id === entryId)?.executionScope?.kind ===
     'parent-acceptance';
   const ordered = [...rounds].sort((a, b) => a.createdAt.localeCompare(b.createdAt));

@@ -9,6 +9,8 @@ import {
   asPlanningTargetId,
   asRoadmapEntryId,
   asRoadmapId,
+  asProjectId,
+  type ProjectId,
   asWorkItemId,
   type RoadmapEntry,
   type RoadmapEntryId,
@@ -241,10 +243,10 @@ it('reads requirements as evaluated (a decision covering a slice drops its edge)
 });
 
 it("draws a sequential roadmap's work items by project, with their required predecessors (R-E3b 7)", () => {
-  const items: Record<string, { sourceId: string; title: string; projectId: string }> = {
-    a: { sourceId: 'AQ-01', title: 'First', projectId: 'aq' },
-    b: { sourceId: 'AQ-02', title: 'Second', projectId: 'aq' },
-    x: { sourceId: 'WI-01', title: 'Outside', projectId: 'wi' },
+  const items: Record<string, { sourceId: string; title: string; projectId: ProjectId }> = {
+    a: { sourceId: 'AQ-01', title: 'First', projectId: asProjectId('aq') },
+    b: { sourceId: 'AQ-02', title: 'Second', projectId: asProjectId('aq') },
+    x: { sourceId: 'WI-01', title: 'Outside', projectId: asProjectId('wi') },
   };
   const predecessors: Record<string, string[]> = { b: ['a', 'x'] };
   const g = roadmapGraphSchema.parse(
@@ -254,7 +256,8 @@ it("draws a sequential roadmap's work items by project, with their required pred
       entries: [{ workItemId: asWorkItemId('a') }, { workItemId: asWorkItemId('b') }],
       workItem: (id) => items[id],
       predecessors: (id) => (predecessors[id] ?? []).map(asWorkItemId),
-      projectName: (id) => ({ aq: 'ActionQueue', wi: 'WorldInterface' })[id],
+      projectName: (id) =>
+        (({ aq: 'ActionQueue', wi: 'WorldInterface' }) as Record<string, string>)[id],
     }),
   );
   expect(g.model).toBe('sequence');
@@ -279,7 +282,7 @@ it("draws a sequential roadmap's work items by project, with their required pred
   const board = buildBoard({
     graph: g,
     state: (key) => ({
-      satisfied: key === sequenceKey('a'),
+      satisfied: key === sequenceKey(asWorkItemId('a')),
       requirements: g.nodes.find((n) => n.key === key)!.requires.map((r) => g.nodes[r]!.key),
     }),
     status,

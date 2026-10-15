@@ -15,6 +15,9 @@ import {
   startedAttempts,
   type WorkspaceId,
   type Worktree,
+  type RoadmapId,
+  type SourceRepositoryId,
+  type WorktreeId,
 } from '@craftingtable/domain';
 import type { GitFailure, GitOperations, GitResult, RepositoryIdentity } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -193,7 +196,7 @@ export class RepositoryCleanupService {
   async view(
     context: AuthContext,
     ws: WorkspaceId,
-    roadmapId: string,
+    roadmapId: RoadmapId,
   ): Promise<RepositoryCleanupView> {
     this.workspaces.requireRole(context, ws, ['owner', 'editor', 'viewer']);
     const roadmap = this.storage.roadmaps.find(ws, roadmapId);
@@ -211,7 +214,7 @@ export class RepositoryCleanupService {
   async clean(
     context: AuthContext,
     ws: WorkspaceId,
-    roadmapId: string,
+    roadmapId: RoadmapId,
     input: { readonly expectedDigest: string; readonly discardDirty: boolean },
   ): Promise<RepositoryCleanupView> {
     this.workspaces.requireRole(context, ws, ['owner']);
@@ -462,10 +465,10 @@ export class RepositoryCleanupService {
    */
   private protectedBranches(repository: SourceRepository): ReadonlySet<string> {
     const execution = this.storage.execution;
-    const sameRoot = (ws: WorkspaceId, id: string) =>
+    const sameRoot = (ws: WorkspaceId, id: SourceRepositoryId) =>
       execution.sourceRepositories.find(ws, id as SourceRepository['id'])?.rootPath ===
       repository.rootPath;
-    const treeHere = (ws: WorkspaceId, id: string) => {
+    const treeHere = (ws: WorkspaceId, id: WorktreeId) => {
       const tree = execution.worktrees.find(ws, id as Worktree['id']);
       return tree !== undefined && sameRoot(ws, tree.repositoryId);
     };
@@ -532,7 +535,7 @@ export class RepositoryCleanupService {
   }
 
   /** Other roadmaps that have not ended, in any workspace, keep what they name (review F2, F5). */
-  private othersNamed(roadmapId: string): OthersNamed {
+  private othersNamed(roadmapId: RoadmapId): OthersNamed {
     const trees = new Set<string>();
     const branches = new Set<string>();
     for (const r of this.storage.roadmaps.list()) {

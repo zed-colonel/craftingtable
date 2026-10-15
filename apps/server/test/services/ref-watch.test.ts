@@ -1,3 +1,4 @@
+import { asAgentRunId } from '@craftingtable/domain';
 import type { GitOperations, GitResult } from '@craftingtable/git';
 import { expect, it } from 'vitest';
 import { moveRecords, RefWatch, unrecordedMoves } from '../../src/services/ref-watch.js';
@@ -28,25 +29,25 @@ it('flags a protected ref that moved during a run, unless the daemon moved it (R
   const { refs, git } = fakeRepository();
   const watch = new RefWatch();
   const daemonGit = watch.wrap(git);
-  await watch.snapshot('run-1', daemonGit, '/repo');
+  await watch.snapshot(asAgentRunId('run-1'), daemonGit, '/repo');
   // The daemon merges another slice into the integration branch while the run works.
   await daemonGit.mergeBranch({ repositoryPath: '/repo' } as never);
   // The run's own branch moves: that is its work, not a protected branch.
   refs['refs/heads/ct/run'] = 'agent-commit';
-  expect(await watch.unexplainedMoves('run-1', daemonGit, ['ct/run'])).toEqual([]);
+  expect(await watch.unexplainedMoves(asAgentRunId('run-1'), daemonGit, ['ct/run'])).toEqual([]);
 
-  await watch.snapshot('run-2', daemonGit, '/repo');
+  await watch.snapshot(asAgentRunId('run-2'), daemonGit, '/repo');
   // Something other than the daemon moves main, deletes the integration branch and a tag.
   refs['refs/heads/main'] = 'moved-outside';
   delete refs['refs/heads/integration/x'];
   refs['refs/tags/baseline'] = 'retagged';
-  expect(await watch.unexplainedMoves('run-2', daemonGit, ['ct/run'])).toEqual([
+  expect(await watch.unexplainedMoves(asAgentRunId('run-2'), daemonGit, ['ct/run'])).toEqual([
     { branch: 'integration/x', before: 'merged-by-daemon', after: null },
     { branch: 'main', before: 'a', after: 'moved-outside' },
     { branch: 'refs/tags/baseline', before: 't', after: 'retagged' },
   ]);
   // A run is checked once; nothing is kept after.
-  expect(await watch.unexplainedMoves('run-2', daemonGit, ['ct/run'])).toEqual([]);
+  expect(await watch.unexplainedMoves(asAgentRunId('run-2'), daemonGit, ['ct/run'])).toEqual([]);
 });
 
 it('credits the parked tag and branch deletion of a cleanup to the daemon (R-B11)', async () => {
@@ -66,21 +67,21 @@ it('credits the parked tag and branch deletion of a cleanup to the daemon (R-B11
   const watch = new RefWatch();
   const daemonGit = watch.wrap(cleanup);
   // A run elsewhere in the repository is in progress while a roadmap is cleaned up.
-  await watch.snapshot('run-4', daemonGit, '/repo');
+  await watch.snapshot(asAgentRunId('run-4'), daemonGit, '/repo');
   await daemonGit.preserveRef({ repositoryPath: '/repo' } as never);
   await daemonGit.deleteContainedBranch({ repositoryPath: '/repo' } as never);
-  expect(await watch.unexplainedMoves('run-4', daemonGit, ['ct/run'])).toEqual([]);
+  expect(await watch.unexplainedMoves(asAgentRunId('run-4'), daemonGit, ['ct/run'])).toEqual([]);
 });
 
 it('does not credit a move to a daemon operation that did not make it (R-G5 review)', async () => {
   const { refs, git } = fakeRepository();
   const watch = new RefWatch();
   const daemonGit = watch.wrap(git);
-  await watch.snapshot('run-3', daemonGit, '/repo');
+  await watch.snapshot(asAgentRunId('run-3'), daemonGit, '/repo');
   // The agent moves main; then the daemon does something unrelated on the same repository.
   refs['refs/heads/main'] = 'moved-by-agent';
   await daemonGit.createWorktree({ repositoryPath: '/repo' } as never);
-  expect(await watch.unexplainedMoves('run-3', daemonGit, ['ct/run'])).toEqual([
+  expect(await watch.unexplainedMoves(asAgentRunId('run-3'), daemonGit, ['ct/run'])).toEqual([
     { branch: 'main', before: 'a', after: 'moved-by-agent' },
   ]);
 });

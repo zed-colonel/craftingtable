@@ -22,6 +22,10 @@ import {
   type WorkCycle,
   type WorkspaceId,
   type WorktreeId,
+  type AttentionItemId,
+  type FinalizationId,
+  type SourceRepositoryId,
+  asFinalizationId,
 } from '@craftingtable/domain';
 import type {
   CraftingTableStorage,
@@ -67,7 +71,7 @@ const CHECK_CODES: ReadonlySet<string> = new Set([
   'check-definition-changed',
 ]);
 
-function dependencyRefreshPath(ws: string, roadmapId: string | undefined): string | undefined {
+function dependencyRefreshPath(ws: string, roadmapId: RoadmapId | undefined): string | undefined {
   if (roadmapId === undefined) return undefined;
   return roadmapPath(ws, roadmapId, 'setup', `runtime-evidence-roadmap-${roadmapId}`);
 }
@@ -303,7 +307,7 @@ export class AttentionProjector implements WriteObserver {
   }
 
   /** The controller pass an item opened after; older items wait for one full pass. */
-  openedPass(itemId: string): number {
+  openedPass(itemId: AttentionItemId): number {
     return this.openedAt.get(itemId) ?? 0;
   }
 
@@ -508,9 +512,19 @@ export class AttentionProjector implements WriteObserver {
       return [];
     }
     if (family === 'finalization')
-      return this.sync(tx, workspaceId, unit, this.finalizationItems(tx, workspaceId, id));
+      return this.sync(
+        tx,
+        workspaceId,
+        unit,
+        this.finalizationItems(tx, workspaceId, asFinalizationId(id)),
+      );
     if (family === 'protected-refs')
-      return this.sync(tx, workspaceId, unit, this.protectedRefItems(tx, workspaceId, id));
+      return this.sync(
+        tx,
+        workspaceId,
+        unit,
+        this.protectedRefItems(tx, workspaceId, id as SourceRepositoryId),
+      );
     return [];
   }
 
@@ -522,7 +536,7 @@ export class AttentionProjector implements WriteObserver {
   private protectedRefItems(
     tx: StorageRepositories,
     workspaceId: WorkspaceId,
-    repositoryId: string,
+    repositoryId: SourceRepositoryId,
   ): ProjectedItem[] {
     const moves = tx.protectedRefs.unacknowledged(workspaceId, repositoryId);
     const latest = moves.at(-1);
@@ -976,7 +990,7 @@ export class AttentionProjector implements WriteObserver {
   private finalizationItems(
     tx: StorageRepositories,
     workspaceId: WorkspaceId,
-    finalizationId: string,
+    finalizationId: FinalizationId,
   ): ProjectedItem[] {
     const finalization = tx.execution.finalizations.find(workspaceId, finalizationId);
     const cleanup = finalization?.integrationCleanup;

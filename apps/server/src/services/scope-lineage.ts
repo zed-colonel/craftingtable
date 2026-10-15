@@ -3,6 +3,7 @@ import {
   type ExecutionScope,
   type WorkspaceId,
   type WorkItemId,
+  type ConcurrencyDefinitionId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 export function integratedSlice(
@@ -26,7 +27,7 @@ export function integratedSlice(
 export function amendmentHoldsBinding(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  definitionId: string,
+  definitionId: ConcurrencyDefinitionId,
   bindingRevision: number,
 ) {
   return tx.amendments.list(ws).some((a) => {

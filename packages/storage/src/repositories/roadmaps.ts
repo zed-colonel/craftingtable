@@ -1,15 +1,19 @@
-import type { Roadmap, RoadmapDefinition, WorkspaceId } from '@craftingtable/domain';
+import type { Roadmap, RoadmapDefinition, WorkspaceId, RoadmapId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { parseRecord, type RecordGuard, readRecord } from '../records.js';
 
 export interface RoadmapRepository {
   list(workspaceId?: WorkspaceId): readonly Roadmap[];
-  find(workspaceId: WorkspaceId, id: string): Roadmap | undefined;
+  find(workspaceId: WorkspaceId, id: RoadmapId): Roadmap | undefined;
   save(roadmap: Roadmap, expectedVersion: number): boolean;
   addDefinition(definition: RoadmapDefinition): void;
-  history(workspaceId: WorkspaceId, id: string): readonly RoadmapDefinition[];
+  history(workspaceId: WorkspaceId, id: RoadmapId): readonly RoadmapDefinition[];
   /** One immutable revision by primary key, without parsing the rest of the history. */
-  definition(workspaceId: WorkspaceId, id: string, revision: number): RoadmapDefinition | undefined;
+  definition(
+    workspaceId: WorkspaceId,
+    id: RoadmapId,
+    revision: number,
+  ): RoadmapDefinition | undefined;
 }
 
 /**
@@ -23,11 +27,11 @@ export class DefinitionCache {
   private readonly committed = new Map<string, RoadmapDefinition>();
   private readonly pending: Map<string, RoadmapDefinition>[] = [];
 
-  private static key(roadmapId: string, revision: number) {
+  private static key(roadmapId: RoadmapId, revision: number) {
     return `${roadmapId}@${revision}`;
   }
 
-  get(roadmapId: string, revision: number): RoadmapDefinition | undefined {
+  get(roadmapId: RoadmapId, revision: number): RoadmapDefinition | undefined {
     const key = DefinitionCache.key(roadmapId, revision);
     for (let level = this.pending.length - 1; level >= 0; level--) {
       const found = this.pending[level]?.get(key);
@@ -93,7 +97,7 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
     return readRecord('roadmap', { ...state, definition });
   }
 
-  private load(id: string, revision: number): RoadmapDefinition | undefined {
+  private load(id: RoadmapId, revision: number): RoadmapDefinition | undefined {
     const cached = this.definitions.get(id, revision);
     if (cached) return cached;
     const row = this.db
@@ -113,7 +117,7 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
             .all(workspaceId);
     return rows.map((row) => this.map(row) as Roadmap);
   }
-  find(workspaceId: WorkspaceId, id: string) {
+  find(workspaceId: WorkspaceId, id: RoadmapId) {
     return this.map(
       this.db
         .prepare('SELECT state_json FROM roadmaps WHERE workspace_id = ? AND id = ?')
@@ -178,7 +182,7 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
       )
       .run(definition.roadmapId, definition.revision, json);
   }
-  history(workspaceId: WorkspaceId, id: string): readonly RoadmapDefinition[] {
+  history(workspaceId: WorkspaceId, id: RoadmapId): readonly RoadmapDefinition[] {
     return this.db
       .prepare(
         'SELECT definition_json FROM roadmap_definitions d JOIN roadmaps r ON r.id = d.roadmap_id WHERE r.workspace_id = ? AND r.id = ? ORDER BY revision DESC',
@@ -188,7 +192,7 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
         parseRecord('roadmap-definition', (row as { definition_json: string }).definition_json),
       );
   }
-  definition(workspaceId: WorkspaceId, id: string, revision: number) {
+  definition(workspaceId: WorkspaceId, id: RoadmapId, revision: number) {
     const owned = this.db
       .prepare('SELECT 1 FROM roadmaps WHERE workspace_id = ? AND id = ?')
       .get(workspaceId, id);

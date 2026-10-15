@@ -1,10 +1,10 @@
-import type { WorkCycle, WorkspaceId, WorktreeId } from '@craftingtable/domain';
+import type { WorkCycle, WorkspaceId, WorktreeId, WorkCycleId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { parseRecord, type RecordGuard } from '../../records.js';
 
 export interface WorkCycleRepository {
   insert(cycle: WorkCycle): WorkCycle;
-  find(workspaceId: WorkspaceId, id: string): WorkCycle | undefined;
+  find(workspaceId: WorkspaceId, id: WorkCycleId): WorkCycle | undefined;
   /** Every non-terminal cycle in every workspace, oldest first. */
   listActive(): readonly WorkCycle[];
   /** Every cycle in one workspace, ended ones included, newest first. */
@@ -44,7 +44,7 @@ export class SqliteWorkCycleRepository implements WorkCycleRepository {
       );
     return state;
   }
-  find(workspaceId: WorkspaceId, id: string): WorkCycle | undefined {
+  find(workspaceId: WorkspaceId, id: WorkCycleId): WorkCycle | undefined {
     return map(
       this.database
         .prepare('SELECT state_json FROM work_cycles WHERE workspace_id = ? AND id = ?')

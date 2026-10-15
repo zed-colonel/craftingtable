@@ -146,7 +146,7 @@ describe('a retired plan version (R-B11)', () => {
     });
     expect(storedRoadmap(state).status).toBe('stopped');
     expect(
-      state.context.storage.windDowns.retirement(state.workspaceId, 'version-1'),
+      state.context.storage.windDowns.retirement(state.workspaceId, asPlanVersionId('version-1')),
     ).toMatchObject({ disposition: 'superseded' });
     // Started items stay admitted, with their worktree; only the gates ignore them.
     expect(

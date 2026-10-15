@@ -22,6 +22,7 @@ import {
   type WorkspaceId,
   type Worktree,
   type WorktreeId,
+  type WorkCycleId,
 } from '@craftingtable/domain';
 import type { GitOperations, GitResult } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -671,7 +672,7 @@ export class BranchService {
     }
   }
 
-  private requireIdle(worktree: Worktree, expectedVersion: number, ownedCycleId?: string) {
+  private requireIdle(worktree: Worktree, expectedVersion: number, ownedCycleId?: WorkCycleId) {
     if (
       this.storage.execution.merges.latest(worktree.workspaceId, worktree.id)?.status === 'reserved'
     )
@@ -775,7 +776,7 @@ export class BranchService {
     worktreeId: WorktreeId,
     input: { expectedVersion: number; integrationBranch?: string },
     update: boolean,
-    delegation?: { cycleId: string; check: () => void },
+    delegation?: { cycleId: WorkCycleId; check: () => void },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const initial = this.worktree(workspaceId, worktreeId);

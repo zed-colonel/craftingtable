@@ -1,4 +1,9 @@
-import type { ProtectedRefMove, UserId } from '@craftingtable/domain';
+import type {
+  ProtectedRefMove,
+  UserId,
+  WorkspaceId,
+  SourceRepositoryId,
+} from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { parseRecord, type RecordGuard } from '../records.js';
 
@@ -8,11 +13,11 @@ import { parseRecord, type RecordGuard } from '../records.js';
  */
 export interface ProtectedRefRepository {
   add(move: ProtectedRefMove): void;
-  find(ws: string, id: string): ProtectedRefMove | undefined;
+  find(ws: WorkspaceId, id: string): ProtectedRefMove | undefined;
   /** The moves on a repository no one has acknowledged yet, oldest first. */
-  unacknowledged(ws: string, repositoryId: string): readonly ProtectedRefMove[];
+  unacknowledged(ws: WorkspaceId, repositoryId: SourceRepositoryId): readonly ProtectedRefMove[];
   /** Records who acknowledged a move and when; false if it was already acknowledged. */
-  acknowledge(ws: string, id: string, at: string, userId: UserId): boolean;
+  acknowledge(ws: WorkspaceId, id: string, at: string, userId: UserId): boolean;
 }
 
 export class SqliteProtectedRefRepository implements ProtectedRefRepository {
@@ -26,13 +31,13 @@ export class SqliteProtectedRefRepository implements ProtectedRefRepository {
       .prepare('INSERT INTO protected_ref_moves VALUES (?,?,?,?)')
       .run(move.id, move.workspaceId, move.repositoryId, JSON.stringify(move));
   }
-  find(ws: string, id: string): ProtectedRefMove | undefined {
+  find(ws: WorkspaceId, id: string): ProtectedRefMove | undefined {
     const row = this.db
       .prepare('SELECT record_json FROM protected_ref_moves WHERE workspace_id=? AND id=?')
       .get(ws, id) as { record_json: string } | undefined;
     return row && parseRecord('protected-ref-move', row.record_json);
   }
-  unacknowledged(ws: string, repositoryId: string): readonly ProtectedRefMove[] {
+  unacknowledged(ws: WorkspaceId, repositoryId: SourceRepositoryId): readonly ProtectedRefMove[] {
     return (
       this.db
         .prepare(
@@ -41,7 +46,7 @@ export class SqliteProtectedRefRepository implements ProtectedRefRepository {
         .all(ws, repositoryId) as { record_json: string }[]
     ).map((row) => parseRecord('protected-ref-move', row.record_json));
   }
-  acknowledge(ws: string, id: string, at: string, userId: UserId): boolean {
+  acknowledge(ws: WorkspaceId, id: string, at: string, userId: UserId): boolean {
     const move = this.find(ws, id);
     if (!move || move.acknowledgedAt !== undefined) return false;
     const acknowledged: ProtectedRefMove = {

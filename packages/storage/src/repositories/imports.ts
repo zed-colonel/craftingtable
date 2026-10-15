@@ -8,6 +8,8 @@ import type {
   PlanVersionId,
   ProjectId,
   WorkspaceId,
+  ConcurrencyDefinitionId,
+  ImportedArchiveId,
 } from '@craftingtable/domain';
 import { asImportedArchiveId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
@@ -17,12 +19,15 @@ const record = <K extends PersistedRecordKind>(kind: K, row: unknown) =>
   row === undefined ? undefined : parseRecord(kind, (row as { record_json: string }).record_json);
 export interface ImportRepository {
   addAdoption(adoption: MapAdoption): void;
-  adoptions(workspaceId: WorkspaceId, definitionId: string): readonly MapAdoption[];
+  adoptions(
+    workspaceId: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
+  ): readonly MapAdoption[];
   addArchive(archive: ImportedArchive, bytes: Uint8Array): ImportedArchive;
-  archiveInfo(workspaceId: WorkspaceId, id: string): ImportedArchive | undefined;
+  archiveInfo(workspaceId: WorkspaceId, id: ImportedArchiveId): ImportedArchive | undefined;
   archive(
     workspaceId: WorkspaceId,
-    id: string,
+    id: ImportedArchiveId,
   ): (ImportedArchive & { content: Uint8Array }) | undefined;
   addAttempt(attempt: ArchiveImportAttempt): void;
   attempts(
@@ -31,9 +36,15 @@ export interface ImportRepository {
   ): readonly ArchiveImportAttempt[];
   addDefinition(definition: ConcurrencyDefinition): void;
   definitions(workspaceId: WorkspaceId): readonly ConcurrencyDefinition[];
-  definition(workspaceId: WorkspaceId, id: string): ConcurrencyDefinition | undefined;
+  definition(
+    workspaceId: WorkspaceId,
+    id: ConcurrencyDefinitionId,
+  ): ConcurrencyDefinition | undefined;
   addBindings(bindings: ConcurrencyBindingRevision): void;
-  bindings(workspaceId: WorkspaceId, definitionId: string): readonly ConcurrencyBindingRevision[];
+  bindings(
+    workspaceId: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
+  ): readonly ConcurrencyBindingRevision[];
   linkPlan(link: PlanArchiveLink): void;
   planLinks(workspaceId: WorkspaceId, planVersionId: PlanVersionId): readonly PlanArchiveLink[];
   activatePlan(
@@ -62,7 +73,7 @@ export class SqliteImportRepository implements ImportRepository {
       )
       .run(a.id, a.workspaceId, a.definitionId, a.bindingRevision, JSON.stringify(a));
   }
-  adoptions(ws: WorkspaceId, id: string): readonly MapAdoption[] {
+  adoptions(ws: WorkspaceId, id: ConcurrencyDefinitionId): readonly MapAdoption[] {
     return this.db
       .prepare(
         'SELECT record_json FROM map_adoptions WHERE workspace_id=? AND definition_id=? ORDER BY rowid DESC',
@@ -86,17 +97,17 @@ export class SqliteImportRepository implements ImportRepository {
       );
     const row = this.db
       .prepare('SELECT id FROM import_archives WHERE workspace_id = ? AND digest = ?')
-      .get(archive.workspaceId, archive.digest) as { id: string };
+      .get(archive.workspaceId, archive.digest) as { id: ImportedArchiveId };
     return this.archiveInfo(archive.workspaceId, row.id) as ImportedArchive;
   }
-  archiveInfo(workspaceId: WorkspaceId, id: string): ImportedArchive | undefined {
+  archiveInfo(workspaceId: WorkspaceId, id: ImportedArchiveId): ImportedArchive | undefined {
     return this.db
       .prepare(
         'SELECT id, workspace_id AS workspaceId, filename, digest, byte_length AS byteLength, created_at AS createdAt FROM import_archives WHERE workspace_id = ? AND id = ?',
       )
       .get(workspaceId, id) as ImportedArchive | undefined;
   }
-  archive(workspaceId: WorkspaceId, id: string) {
+  archive(workspaceId: WorkspaceId, id: ImportedArchiveId) {
     const row = this.db
       .prepare('SELECT * FROM import_archives WHERE workspace_id = ? AND id = ?')
       .get(workspaceId, id) as
@@ -160,7 +171,7 @@ export class SqliteImportRepository implements ImportRepository {
       .all(workspaceId)
       .map((r) => record('concurrency-definition', r) as ConcurrencyDefinition);
   }
-  definition(workspaceId: WorkspaceId, id: string) {
+  definition(workspaceId: WorkspaceId, id: ConcurrencyDefinitionId) {
     return record(
       'concurrency-definition',
       this.db
@@ -178,7 +189,7 @@ export class SqliteImportRepository implements ImportRepository {
       )
       .run(b.workspaceId, b.definitionId, b.revision, JSON.stringify(b));
   }
-  bindings(workspaceId: WorkspaceId, definitionId: string) {
+  bindings(workspaceId: WorkspaceId, definitionId: ConcurrencyDefinitionId) {
     return this.db
       .prepare(
         'SELECT record_json FROM concurrency_bindings WHERE workspace_id = ? AND definition_id = ? ORDER BY revision DESC',

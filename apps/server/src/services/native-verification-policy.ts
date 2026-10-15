@@ -5,9 +5,10 @@ import {
   type ConcurrencyDefinition,
   type ExecutionScope,
   mapResource,
+  type WorkspaceId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
-export function nativeApproval(tx: StorageRepositories, ws: string, scope: ExecutionScope) {
+export function nativeApproval(tx: StorageRepositories, ws: WorkspaceId, scope: ExecutionScope) {
   return snapshotCalculation(
     tx,
     `native:${ws}:${scope.definitionId}:${scope.bindingRevision}`,

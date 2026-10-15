@@ -4,6 +4,10 @@ import type {
   ScopeIntegrationReuse,
   WorkItemId,
   WorkspaceId,
+  RoadmapId,
+  MapAmendmentId,
+  WorktreeId,
+  ConcurrencyDefinitionId,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { parseRecord, type RecordGuard, readRecord } from '../records.js';
@@ -22,7 +26,7 @@ export class SqliteMapAmendmentRepository {
     private readonly db: Database.Database,
     private readonly guard: RecordGuard,
   ) {}
-  list(ws: WorkspaceId, roadmapId?: string): readonly MapAmendment[] {
+  list(ws: WorkspaceId, roadmapId?: RoadmapId): readonly MapAmendment[] {
     const rows = roadmapId
       ? this.db
           .prepare(
@@ -44,7 +48,7 @@ export class SqliteMapAmendmentRepository {
       )
       .run(a.id, a.workspaceId, a.roadmapId, JSON.stringify(a));
   }
-  decide(ws: WorkspaceId, id: string, decision: NonNullable<MapAmendment['decision']>) {
+  decide(ws: WorkspaceId, id: MapAmendmentId, decision: NonNullable<MapAmendment['decision']>) {
     const proposal = this.db
       .prepare(
         'SELECT proposal_json, NULL AS decision_json FROM map_amendments WHERE workspace_id=? AND id=?',
@@ -59,25 +63,30 @@ export class SqliteMapAmendmentRepository {
         .run(JSON.stringify(decision), ws, id).changes === 1
     );
   }
-  pending(ws: WorkspaceId, roadmapId: string) {
+  pending(ws: WorkspaceId, roadmapId: RoadmapId) {
     return this.list(ws, roadmapId).find((a) => !a.decision);
   }
-  retire(ws: WorkspaceId, worktreeId: string, amendmentId: string) {
+  retire(ws: WorkspaceId, worktreeId: WorktreeId, amendmentId: MapAmendmentId) {
     this.db
       .prepare('INSERT OR IGNORE INTO retired_scope_worktrees VALUES(?,?,?)')
       .run(ws, worktreeId, amendmentId);
   }
-  retired(ws: WorkspaceId, worktreeId: string): boolean {
+  retired(ws: WorkspaceId, worktreeId: WorktreeId): boolean {
     return !!this.db
       .prepare('SELECT 1 FROM retired_scope_worktrees WHERE workspace_id=? AND worktree_id=?')
       .get(ws, worktreeId);
   }
-  supersede(ws: WorkspaceId, id: string, revision: number, amendmentId: string) {
+  supersede(
+    ws: WorkspaceId,
+    id: ConcurrencyDefinitionId,
+    revision: number,
+    amendmentId: MapAmendmentId,
+  ) {
     this.db
       .prepare('INSERT OR IGNORE INTO superseded_map_bindings VALUES(?,?,?,?)')
       .run(ws, id, revision, amendmentId);
   }
-  superseded(ws: WorkspaceId, id: string, revision: number): boolean {
+  superseded(ws: WorkspaceId, id: ConcurrencyDefinitionId, revision: number): boolean {
     return !!this.db
       .prepare(
         'SELECT 1 FROM superseded_map_bindings WHERE workspace_id=? AND definition_id=? AND binding_revision=?',

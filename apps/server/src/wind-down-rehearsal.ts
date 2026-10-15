@@ -32,6 +32,7 @@ import {
   type SessionId,
   startedAttempts,
   type WorkspaceId,
+  asRoadmapId,
 } from '@craftingtable/domain';
 import { createGitOperations, type GitTrust } from '@craftingtable/git';
 import { inspectPlanArchive, readArchive } from '@craftingtable/planning';
@@ -71,7 +72,7 @@ import { ExecutionRequestError } from './services/errors.js';
 interface Options {
   readonly database: string;
   readonly out: string;
-  readonly roadmapId: string;
+  readonly roadmapId: RoadmapId;
   readonly retire: readonly RetirementChoice[];
   readonly activateRevision?: string;
   readonly capacityProbe?: string;
@@ -105,7 +106,7 @@ function options(argv: readonly string[]): Options {
   return {
     database: resolve(database),
     out: resolve(out),
-    roadmapId,
+    roadmapId: asRoadmapId(roadmapId),
     retire,
     ...(activateRevision ? { activateRevision } : {}),
     ...(capacityProbe ? { capacityProbe } : {}),

@@ -9,6 +9,12 @@ import type {
   RuntimeGeneration,
   RepositoryCheckDeclaration,
   UpstreamTransitionRecord,
+  WorkspaceId,
+  ConcurrencyDefinitionId,
+  SourceRepositoryId,
+  RepositoryCheckDeclarationId,
+  EvidenceSubmissionId,
+  AgentRunId,
 } from '@craftingtable/domain';
 import { submissionHead } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
@@ -19,21 +25,30 @@ const decode = <K extends PersistedRecordKind>(kind: K, rows: unknown[], column 
 
 export interface RuntimeEvidenceRepository {
   nativeApprovals(
-    ws: string,
-    definitionId: string,
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
     bindingRevision: number,
   ): readonly NativeVerificationApproval[];
   addNativeApproval(value: NativeVerificationApproval): void;
   /** Oldest first, so declarations keep their approval order (ADR-069). */
-  upstreamTransitions(ws: string, definitionId: string): readonly UpstreamTransitionRecord[];
+  upstreamTransitions(
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
+  ): readonly UpstreamTransitionRecord[];
   addUpstreamTransitions(value: UpstreamTransitionRecord): void;
   /** A repository's adopted check declarations (R-G13), newest version first. */
-  checkDeclarations(ws: string, repositoryId: string): readonly RepositoryCheckDeclaration[];
-  checkDeclaration(ws: string, id: string): RepositoryCheckDeclaration | undefined;
+  checkDeclarations(
+    ws: WorkspaceId,
+    repositoryId: SourceRepositoryId,
+  ): readonly RepositoryCheckDeclaration[];
+  checkDeclaration(
+    ws: WorkspaceId,
+    id: RepositoryCheckDeclarationId,
+  ): RepositoryCheckDeclaration | undefined;
   addCheckDeclaration(value: RepositoryCheckDeclaration): void;
   generations(
-    ws: string,
-    definitionId: string,
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
     bindingRevision: number,
   ): readonly RuntimeGeneration[];
   addGeneration(value: RuntimeGeneration): void;
@@ -41,19 +56,26 @@ export interface RuntimeEvidenceRepository {
    * A map's submissions, newest first, as heads: without their artifacts' contents (R-H4).
    * Only `submission` reads a record.
    */
-  submissions(ws: string, definitionId: string): readonly EvidenceSubmissionHead[];
+  submissions(
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
+  ): readonly EvidenceSubmissionHead[];
   /** One submission's full record, with its artifacts' contents (R-H4). */
-  submission(ws: string, definitionId: string, id: string): EvidenceSubmission | undefined;
+  submission(
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
+    id: EvidenceSubmissionId,
+  ): EvidenceSubmission | undefined;
   /** Writes the record and its head together. */
   addSubmission(value: EvidenceSubmission): void;
-  decisions(ws: string): readonly EvidenceDecision[];
+  decisions(ws: WorkspaceId): readonly EvidenceDecision[];
   addDecision(value: EvidenceDecision): void;
-  run(ws: string, runId: string): RunEnvironment | undefined;
+  run(ws: WorkspaceId, runId: AgentRunId): RunEnvironment | undefined;
   addRun(value: RunEnvironment): void;
-  build(ws: string, runId: string): RunBuildRecord | undefined;
+  build(ws: WorkspaceId, runId: AgentRunId): RunBuildRecord | undefined;
   addBuild(value: RunBuildRecord): void;
   /** In the order the daemon recorded them (R-G4). */
-  checkReceipts(ws: string, runId: string): readonly RunCheckReceipt[];
+  checkReceipts(ws: WorkspaceId, runId: AgentRunId): readonly RunCheckReceipt[];
   addCheckReceipt(value: RunCheckReceipt): void;
 }
 export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepository {
@@ -62,8 +84,8 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     private readonly guard: RecordGuard,
   ) {}
   nativeApprovals(
-    ws: string,
-    definitionId: string,
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
     bindingRevision: number,
   ): readonly NativeVerificationApproval[] {
     return decode(
@@ -81,7 +103,10 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       .prepare('INSERT INTO native_verification_approvals VALUES (?,?,?,?,?)')
       .run(v.id, v.workspaceId, v.definitionId, v.bindingRevision, JSON.stringify(v));
   }
-  upstreamTransitions(ws: string, definitionId: string): readonly UpstreamTransitionRecord[] {
+  upstreamTransitions(
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
+  ): readonly UpstreamTransitionRecord[] {
     return decode(
       'upstream-transition-record',
       this.db
@@ -97,7 +122,10 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       .prepare('INSERT INTO upstream_transition_records VALUES (?,?,?,?)')
       .run(v.id, v.workspaceId, v.definitionId, JSON.stringify(v));
   }
-  checkDeclarations(ws: string, repositoryId: string): readonly RepositoryCheckDeclaration[] {
+  checkDeclarations(
+    ws: WorkspaceId,
+    repositoryId: SourceRepositoryId,
+  ): readonly RepositoryCheckDeclaration[] {
     return decode(
       'repository-check-declaration',
       this.db
@@ -107,7 +135,10 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
         .all(ws, repositoryId),
     );
   }
-  checkDeclaration(ws: string, id: string): RepositoryCheckDeclaration | undefined {
+  checkDeclaration(
+    ws: WorkspaceId,
+    id: RepositoryCheckDeclarationId,
+  ): RepositoryCheckDeclaration | undefined {
     return decode(
       'repository-check-declaration',
       this.db
@@ -124,8 +155,8 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       .run(v.id, v.workspaceId, v.repositoryId, v.version, JSON.stringify(v));
   }
   generations(
-    ws: string,
-    definitionId: string,
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
     bindingRevision: number,
   ): readonly RuntimeGeneration[] {
     return decode(
@@ -143,7 +174,10 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       .prepare('INSERT INTO runtime_generations VALUES (?,?,?,?,?,?)')
       .run(v.id, v.workspaceId, v.definitionId, v.bindingRevision, v.generation, JSON.stringify(v));
   }
-  submissions(ws: string, definitionId: string): readonly EvidenceSubmissionHead[] {
+  submissions(
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
+  ): readonly EvidenceSubmissionHead[] {
     return decode(
       'evidence-submission-head',
       this.db
@@ -154,7 +188,11 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       'head_json',
     );
   }
-  submission(ws: string, definitionId: string, id: string): EvidenceSubmission | undefined {
+  submission(
+    ws: WorkspaceId,
+    definitionId: ConcurrencyDefinitionId,
+    id: EvidenceSubmissionId,
+  ): EvidenceSubmission | undefined {
     return decode(
       'evidence-submission',
       this.db
@@ -178,7 +216,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
         .run(v.id, v.workspaceId, v.definitionId, JSON.stringify(head));
     })();
   }
-  decisions(ws: string): readonly EvidenceDecision[] {
+  decisions(ws: WorkspaceId): readonly EvidenceDecision[] {
     return decode(
       'evidence-decision',
       this.db
@@ -194,7 +232,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       .prepare('INSERT INTO evidence_decisions VALUES (?,?,?,?)')
       .run(v.id, v.workspaceId, v.submissionId, JSON.stringify(v));
   }
-  run(ws: string, id: string): RunEnvironment | undefined {
+  run(ws: WorkspaceId, id: AgentRunId): RunEnvironment | undefined {
     return decode(
       'run-environment',
       this.db
@@ -202,7 +240,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
         .all(ws, id),
     )[0];
   }
-  build(ws: string, id: string): RunBuildRecord | undefined {
+  build(ws: WorkspaceId, id: AgentRunId): RunBuildRecord | undefined {
     return decode(
       'run-build-record',
       this.db
@@ -216,7 +254,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
       .prepare('INSERT INTO run_build_records VALUES (?,?,?)')
       .run(v.runId, v.workspaceId, JSON.stringify(v));
   }
-  checkReceipts(ws: string, id: string): readonly RunCheckReceipt[] {
+  checkReceipts(ws: WorkspaceId, id: AgentRunId): readonly RunCheckReceipt[] {
     return decode(
       'run-check-receipt',
       this.db

@@ -16,6 +16,7 @@ import {
   FINALIZATION_DECISIONS,
   type FinalizationDecision,
   finalizationActions,
+  type FinalizationId,
 } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
@@ -47,7 +48,7 @@ export class FinalizationService {
    * The stored finalization and its cycle, for the access guard's step-up check (R-G9), as
    * `RoadmapService.storedWork`.
    */
-  storedWork(workspaceId: string, finalizationId: string): unknown {
+  storedWork(workspaceId: WorkspaceId, finalizationId: FinalizationId): unknown {
     const finalization = this.storage.execution.finalizations.find(
       workspaceId as never,
       finalizationId as never,
@@ -196,7 +197,7 @@ export class FinalizationService {
   async control(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: FinalizationId,
     input: ControlFinalizationRequest,
   ) {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);

@@ -299,7 +299,7 @@ export function cycleAgents(tx: StorageRepositories, cycle: WorkCycle) {
     cycle.profiles,
   );
 }
-function roadmapEntryOf(roadmap: Roadmap, entryId: string) {
+function roadmapEntryOf(roadmap: Roadmap, entryId: RoadmapEntryId) {
   return roadmap.definition.entries.find((e) => e.id === entryId);
 }
 

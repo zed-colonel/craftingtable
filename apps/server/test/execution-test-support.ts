@@ -1789,7 +1789,7 @@ export function configureLocalRuntime(
   return state.context.services.runtimeEvidenceService.configure(
     auth,
     state.workspaceId,
-    definitionId,
+    asConcurrencyDefinitionId(definitionId),
     {
       bindingRevision: 1,
       expectedGeneration: 0,
@@ -2306,7 +2306,7 @@ export async function controlRoadmapEntry(
     f.auth,
     f.state.workspaceId,
     roadmapId,
-    entryId,
+    asRoadmapEntryId(entryId),
     action,
     storedRoadmap(f.state).version,
   );

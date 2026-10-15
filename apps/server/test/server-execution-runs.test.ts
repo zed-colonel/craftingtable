@@ -252,7 +252,9 @@ describe('repository registration', () => {
         elsewhere.id,
       ),
     ).toBe(false);
-    expect(execution.mergesIntoDefaultBranch(state.workspaceId, 'missing')).toBe(false);
+    expect(execution.mergesIntoDefaultBranch(state.workspaceId, asWorktreeId('missing'))).toBe(
+      false,
+    );
     // A cycle started with an unrestricted step asks again to resume, from another session.
     await admit(state);
     await stepUp(state);

@@ -18,6 +18,7 @@ import {
   type PlanVersionId,
   type ProjectId,
   type WorkspaceId,
+  type ImportedArchiveId,
 } from '@craftingtable/domain';
 import {
   ArchiveError,
@@ -367,14 +368,18 @@ export class PackageImportService {
       attempts: tx.imports.attempts(workspaceId, 'concurrency').map((a) => this.attemptView(tx, a)),
     }));
   }
-  detail(context: AuthContext, workspaceId: WorkspaceId, id: string): ConcurrencyDetail {
+  detail(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: ConcurrencyDefinitionId,
+  ): ConcurrencyDetail {
     this.workspaces.requireAuthorized(context, workspaceId);
     return this.storage.readTransaction((tx) => this.projectDetail(tx, workspaceId, id));
   }
   saveBindings(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: SaveConcurrencyBindings,
   ): ConcurrencyDetail {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -488,7 +493,7 @@ export class PackageImportService {
     this.notifier.notify();
     return this.detail(context, workspaceId, id);
   }
-  archiveContent(context: AuthContext, workspaceId: WorkspaceId, id: string) {
+  archiveContent(context: AuthContext, workspaceId: WorkspaceId, id: ImportedArchiveId) {
     this.workspaces.requireAuthorized(context, workspaceId);
     const archive = this.storage.imports.archive(workspaceId, id);
     if (!archive) throw new NotFoundError();
@@ -565,7 +570,7 @@ export class PackageImportService {
   private projectDetail(
     tx: StorageRepositories,
     workspaceId: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
   ): ConcurrencyDetail {
     const d = tx.imports.definition(workspaceId, id);
     if (!d) throw new NotFoundError();

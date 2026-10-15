@@ -5,6 +5,7 @@ import type {
   NotificationRecordId,
   UserId,
   WorkspaceId,
+  AttentionItemId,
 } from '@craftingtable/domain';
 /** Private storage types: credentials never enter wire responses, journals, or agent environments. */
 export interface StoredNotificationSettings {
@@ -45,7 +46,7 @@ export interface NotificationRepository {
   listSettings(): readonly StoredNotificationSettings[];
   saveSettings(settings: StoredNotificationSettings): void;
   records(workspaceId: WorkspaceId, activeOnly?: boolean): readonly NotificationRecord[];
-  find(workspaceId: WorkspaceId, id: string): NotificationRecord | undefined;
+  find(workspaceId: WorkspaceId, id: NotificationRecordId): NotificationRecord | undefined;
   saveRecord(record: NotificationRecord): void;
 }
 
@@ -56,7 +57,7 @@ export interface AttentionRepository {
   openInScope(workspaceId: WorkspaceId, scopeKey: string): readonly AttentionItem[];
   /** Workspace and scope of every open item, for a full rebuild. */
   openScopes(): readonly { readonly workspaceId: WorkspaceId; readonly scopeKey: string }[];
-  find(workspaceId: WorkspaceId, id: string): AttentionItem | undefined;
+  find(workspaceId: WorkspaceId, id: AttentionItemId): AttentionItem | undefined;
   /** The latest occurrence of a subject at a code, open or resolved. */
   latest(workspaceId: WorkspaceId, subjectKey: string, code: string): AttentionItem | undefined;
   /** Most recently opened or resolved items, for the settings history. */
@@ -69,7 +70,7 @@ export interface AttentionRepository {
   /** The accepted pushes that carried an item, from the delivery log. */
   delivered(
     workspaceId: WorkspaceId,
-    itemId: string,
+    itemId: AttentionItemId,
   ): { readonly first: string; readonly last: string; readonly count: number } | undefined;
   /** Items the daemon resolved by itself after a push had been accepted for them. */
   falseAlarms(workspaceId: WorkspaceId): readonly AttentionItem[];

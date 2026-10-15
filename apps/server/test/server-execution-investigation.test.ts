@@ -15,6 +15,7 @@ import {
   asMergeOperationId,
   cycleAttention,
   type WorkCycle,
+  asMapAmendmentId,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -1172,7 +1173,7 @@ describe('the investigated worktree (R-C16)', () => {
     state.context.services.workCycleService.retireForAmendment(
       { user },
       currentCycle(state, cycle),
-      'amendment-1',
+      asMapAmendmentId('amendment-1'),
     );
     expect(currentCycle(state, cycle).status).toBe('stopped');
     // Nothing reset the tree.

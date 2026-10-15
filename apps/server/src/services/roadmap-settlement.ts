@@ -19,6 +19,7 @@ import {
   type WindDownVersion,
   type WorkspaceId,
   type WorktreeId,
+  type RoadmapId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
@@ -53,7 +54,7 @@ export type PersistRoadmap = (
 ) => void;
 
 /** Told after each settle step ends; a test injects a crash by throwing (R-B11 done-when 3). */
-export type SettlementObserver = (roadmapId: string, step: WindDownStep) => void;
+export type SettlementObserver = (roadmapId: RoadmapId, step: WindDownStep) => void;
 
 /** How long a step may wait for cancelled sessions to end before it counts as failed. */
 const SESSION_WAIT_LIMIT_MS = 10 * 60_000;
@@ -103,7 +104,7 @@ export class RoadmapSettlement {
   }
 
   /** The roadmap's settlement record and what winding it down would do now. */
-  view(context: AuthContext, ws: WorkspaceId, roadmapId: string): RoadmapWindDownView {
+  view(context: AuthContext, ws: WorkspaceId, roadmapId: RoadmapId): RoadmapWindDownView {
     this.workspaces.requireRole(context, ws, ['owner', 'editor', 'viewer']);
     return this.storage.readTransaction((tx) => {
       const roadmap = tx.roadmaps.find(ws, roadmapId);
@@ -281,7 +282,7 @@ export class RoadmapSettlement {
   async windDown(
     context: AuthContext,
     ws: WorkspaceId,
-    roadmapId: string,
+    roadmapId: RoadmapId,
     input: { readonly expectedDigest: string; readonly retire: readonly RetirementChoice[] },
   ): Promise<void> {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -316,7 +317,7 @@ export class RoadmapSettlement {
   async stop(
     context: AuthContext,
     ws: WorkspaceId,
-    roadmapId: string,
+    roadmapId: RoadmapId,
     expectedVersion: number,
   ): Promise<void> {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);

@@ -412,7 +412,7 @@ describe('what a cleanup never moves (R-B11 review F3)', () => {
       retire: [{ planVersionId: asPlanVersionId('version-1'), disposition: 'superseded' }],
     });
     expect(
-      state.context.storage.windDowns.retirement(state.workspaceId, 'version-1'),
+      state.context.storage.windDowns.retirement(state.workspaceId, asPlanVersionId('version-1')),
     ).toBeDefined();
     for (const branch of ['release', 'loose', 'merge-target', 'base-target', 'other-default'])
       git(['branch', branch, 'main'], root);

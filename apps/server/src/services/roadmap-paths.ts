@@ -1,3 +1,4 @@
+import type { RoadmapId } from '@craftingtable/domain';
 /**
  * A roadmap's own pages in the browser (R-E2): its board, setup or history, and the element to
  * bring into view there. `ws` is already encoded. Links stored before the split
@@ -5,7 +6,7 @@
  */
 export function roadmapPath(
   ws: string,
-  roadmapId: string,
+  roadmapId: RoadmapId,
   tab?: 'setup' | 'history',
   focus?: string,
 ): string {

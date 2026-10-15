@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { type ExecutionScope, roadmapAttention } from '@craftingtable/domain';
+import { type ExecutionScope, roadmapAttention, asWorkCycleId } from '@craftingtable/domain';
 import { afterEach, expect, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
 
@@ -159,7 +159,7 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
         // A roadmap's cycles fail closed without adopted checks (R-G13 increment 4, D2): a
         // repair in a repository with none, or with a run its gate holds to nothing, stays the
         // operator's (independent review L1). A paused pass only adopts repairs.
-        const repairTree = tx.execution.cycles.find(ws, repairId)!.worktreeId;
+        const repairTree = tx.execution.cycles.find(ws, asWorkCycleId(repairId))!.worktreeId;
         // The repair's controller alone, so it has a run before the roadmap's next pass.
         const services = state.context.services;
         for (
@@ -174,15 +174,15 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
         const undeclared = vi.spyOn(tx.runtimeEvidence, 'checkDeclarations').mockReturnValue([]);
         await state.context.services.roadmapService.tick();
         undeclared.mockRestore();
-        expect(tx.execution.cycles.find(ws, repairId)?.owner).toBeNull();
+        expect(tx.execution.cycles.find(ws, asWorkCycleId(repairId))?.owner).toBeNull();
         const unrecorded = vi.spyOn(tx.runtimeEvidence, 'run').mockReturnValue(undefined);
         await state.context.services.roadmapService.tick();
         unrecorded.mockRestore();
-        expect(tx.execution.cycles.find(ws, repairId)?.owner).toBeNull();
+        expect(tx.execution.cycles.find(ws, asWorkCycleId(repairId))?.owner).toBeNull();
       }
       // Adopted on the next pass, while paused (the pause still holds it) or running.
       await state.context.services.roadmapService.tick();
-      expect(tx.execution.cycles.find(ws, repairId)?.owner).toBeTruthy();
+      expect(tx.execution.cycles.find(ws, asWorkCycleId(repairId))?.owner).toBeTruthy();
       if (paused) await roadmapControl(state, 'resume');
     }
     // The repair answers the stopped review, so its needs-attention hold is released.
@@ -192,7 +192,7 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
       requestedByUserId: state.userId,
       sourceEntryId,
     });
-    expect(tx.execution.cycles.find(ws, repairId)?.owner).toMatchObject({
+    expect(tx.execution.cycles.find(ws, asWorkCycleId(repairId))?.owner).toMatchObject({
       roadmapId,
       attemptId: round.id,
     });
@@ -222,7 +222,9 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
         reopened.roadmaps.find(ws, roadmapId)?.attempts.find((a) => a.id === round.id)?.recovery
           ?.requestedByUserId,
       ).toBe(state.userId);
-      expect(reopened.execution.cycles.find(ws, repairId)?.owner?.attemptId).toBe(round.id);
+      expect(reopened.execution.cycles.find(ws, asWorkCycleId(repairId))?.owner?.attemptId).toBe(
+        round.id,
+      );
     } finally {
       reopened.close();
     }

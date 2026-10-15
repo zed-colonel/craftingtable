@@ -10,7 +10,7 @@ import { openCraftingTableStorage } from '../src/storage.js';
 import { copyRows, imageOf, preservationProblems } from './migration-preservation.js';
 import { seedPlan, seedWorkspace } from './planning-test-support.js';
 import { temporaryStorage, testDataRoot } from './test-support.js';
-import { asAgentRunId, asRepositoryCheckDeclarationId } from '@craftingtable/domain';
+import { asAgentRunId, asRepositoryCheckDeclarationId, asWorkspaceId } from '@craftingtable/domain';
 
 /**
  * Migration 0038 (R-G13 increment 4, D1): `run_environments` is rebuilt with a nullable
@@ -169,8 +169,13 @@ describe('migration 0038: run environments without a runtime (R-G13 increment 4)
           checkDeclarationId: asRepositoryCheckDeclarationId(randomUUID()),
         }),
       );
-      expect(storage.runtimeEvidence.run('workspace-a', 'run-a')?.runtimeId).toBe(RUNTIME);
-      const checkOnly = storage.runtimeEvidence.run('workspace-a', 'run-new');
+      expect(
+        storage.runtimeEvidence.run(asWorkspaceId('workspace-a'), asAgentRunId('run-a'))?.runtimeId,
+      ).toBe(RUNTIME);
+      const checkOnly = storage.runtimeEvidence.run(
+        asWorkspaceId('workspace-a'),
+        asAgentRunId('run-new'),
+      );
       expect(checkOnly?.runtimeId).toBeUndefined();
       expect(checkOnly?.checkDeclarationId).toBeDefined();
     } finally {

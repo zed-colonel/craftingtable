@@ -74,6 +74,9 @@ import {
   type ExecutionScope,
   startedAttempts,
   type AgentSelection,
+  type RoadmapEntryId,
+  type WorkCycleId,
+  type ConcurrencyDefinitionId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 /** A definition's save with each entry's profiles, as the daemon writes it (R-E5b). */
@@ -250,7 +253,7 @@ interface PreparationTarget {
  * The holds left once the operator answered a stopped review with a repair round: its
  * needs-attention hold is answered, an explicit item pause stays.
  */
-function answeredHolds(roadmap: Roadmap, entryId: string): Roadmap['entryHolds'] {
+function answeredHolds(roadmap: Roadmap, entryId: RoadmapEntryId): Roadmap['entryHolds'] {
   const { [entryId]: hold, ...others } = roadmap.entryHolds ?? {};
   return hold?.status === 'needs-attention' ? others : roadmap.entryHolds;
 }
@@ -263,7 +266,7 @@ function answeredHolds(roadmap: Roadmap, entryId: string): Roadmap['entryHolds']
 function decisionNeeds(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  selection: { readonly definitionId: string; readonly bindingRevision: number },
+  selection: { readonly definitionId: ConcurrencyDefinitionId; readonly bindingRevision: number },
   nodes: readonly {
     readonly kind: string;
     readonly sourceId: string;
@@ -314,7 +317,7 @@ export interface SchedulerObserver {
   /** An entry the pass reached, with the roadmap as the pass found it. */
   entry(roadmap: Roadmap, entry: RoadmapEntry, outcome: EntryPassOutcome): void;
   /** The pass over this roadmap ended, with the error it retries or stops on, if any. */
-  passEnded(roadmapId: string, error?: unknown): void;
+  passEnded(roadmapId: RoadmapId, error?: unknown): void;
 }
 
 /** One delegated roadmap per workspace. The cycle controller owns every agent step. */
@@ -452,14 +455,14 @@ export class RoadmapService {
     this.settlement.observe(observer);
   }
   /** A roadmap's settlement record and what winding it down would do now (R-B11). */
-  windDownView(context: AuthContext, workspaceId: WorkspaceId, id: string) {
+  windDownView(context: AuthContext, workspaceId: WorkspaceId, id: RoadmapId) {
     return this.settlement.view(context, workspaceId, id);
   }
   /** Winds a roadmap down: settles it and retires the chosen plan versions (R-B11, ADR-073). */
   async windDown(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: Parameters<RoadmapSettlement['windDown']>[3],
   ) {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -479,7 +482,7 @@ export class RoadmapService {
    * The stored roadmap, for the access guard's step-up check (R-G9): read only after the caller's
    * role was checked, and only to see whether its settings grant an unrestricted agent.
    */
-  storedWork(workspaceId: string, roadmapId: string): unknown {
+  storedWork(workspaceId: WorkspaceId, roadmapId: RoadmapId): unknown {
     return this.storage.roadmaps.find(workspaceId as never, roadmapId as never);
   }
   private attention: AttentionProjector | undefined;
@@ -506,7 +509,11 @@ export class RoadmapService {
    * A roadmap's agents as its setup edits them (R-E5b): each entry's effective agents with their
    * sources, its step permissions, and on a map roadmap its activity and settings level.
    */
-  agentSettings(context: AuthContext, workspaceId: WorkspaceId, id: string): RoadmapAgentSettings {
+  agentSettings(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: RoadmapId,
+  ): RoadmapAgentSettings {
     this.workspaces.requireAuthorized(context, workspaceId);
     const r = this.find(workspaceId, id);
     const cp = r.definition.crossProject;
@@ -560,7 +567,7 @@ export class RoadmapService {
   applyAgentSettings(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: ApplyRoadmapAgents,
   ): RoadmapAgentSettings {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -600,7 +607,7 @@ export class RoadmapService {
     );
     return this.agentSettings(context, workspaceId, id);
   }
-  decisionSettings(context: AuthContext, ws: WorkspaceId, id: string) {
+  decisionSettings(context: AuthContext, ws: WorkspaceId, id: RoadmapId) {
     this.workspaces.requireAuthorized(context, ws);
     const roadmap = this.find(ws, id),
       cp = roadmap.definition.crossProject;
@@ -645,7 +652,7 @@ export class RoadmapService {
   async prepareDecision(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: PrepareRoadmapDecision,
   ): Promise<RoadmapView> {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -942,7 +949,7 @@ export class RoadmapService {
   applyDelegation(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: ApplyRoadmapDelegation,
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -1046,7 +1053,7 @@ export class RoadmapService {
   saveCapacity(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: SaveRoadmapCapacity,
   ): RoadmapCapacities {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -1107,7 +1114,7 @@ export class RoadmapService {
     return this.capacities(context, workspaceId);
   }
   /** The roadmap's read-only status list (R-E3a). */
-  statusList(context: AuthContext, workspaceId: WorkspaceId, id: string): RoadmapStatusList {
+  statusList(context: AuthContext, workspaceId: WorkspaceId, id: RoadmapId): RoadmapStatusList {
     this.workspaces.requireAuthorized(context, workspaceId);
     return this.statusOf(this.find(workspaceId, id));
   }
@@ -1277,7 +1284,7 @@ export class RoadmapService {
    * revision to read that by, and its status list, in one transaction over one map snapshot. The
    * status list reads the view's progress, and both read one evaluation of the map (R-E3b).
    */
-  page(context: AuthContext, workspaceId: WorkspaceId, id: string) {
+  page(context: AuthContext, workspaceId: WorkspaceId, id: RoadmapId) {
     this.workspaces.requireAuthorized(context, workspaceId);
     return this.storage.readTransaction((tx) => {
       const snapshot = mapReadSnapshot(tx);
@@ -1434,7 +1441,7 @@ export class RoadmapService {
   }
 
   /** A roadmap's dependency structure at one revision (R-E3b); revisions never change. */
-  graph(context: AuthContext, workspaceId: WorkspaceId, id: string, revision: number) {
+  graph(context: AuthContext, workspaceId: WorkspaceId, id: RoadmapId, revision: number) {
     this.workspaces.requireAuthorized(context, workspaceId);
     this.find(workspaceId, id);
     const definition = this.storage.roadmaps.definition(workspaceId, id, revision);
@@ -1448,7 +1455,7 @@ export class RoadmapService {
   private graphAt(
     tx: StorageRepositories,
     workspaceId: WorkspaceId,
-    roadmapId: string,
+    roadmapId: RoadmapId,
     definition: RoadmapDefinition,
   ): RoadmapGraph | undefined {
     const key = `${workspaceId}:${roadmapId}:${definition.revision}`;
@@ -1490,7 +1497,7 @@ export class RoadmapService {
   }
 
   /** One revision of a roadmap's definition; revisions never change (R-B3, R-D5). */
-  definition(context: AuthContext, workspaceId: WorkspaceId, id: string, revision: number) {
+  definition(context: AuthContext, workspaceId: WorkspaceId, id: RoadmapId, revision: number) {
     this.workspaces.requireAuthorized(context, workspaceId);
     this.find(workspaceId, id);
     const definition = this.storage.roadmaps.definition(workspaceId, id, revision);
@@ -1523,7 +1530,7 @@ export class RoadmapService {
     });
   }
 
-  history(context: AuthContext, workspaceId: WorkspaceId, id: string) {
+  history(context: AuthContext, workspaceId: WorkspaceId, id: RoadmapId) {
     this.workspaces.requireAuthorized(context, workspaceId);
     this.find(workspaceId, id);
     return this.storage.roadmaps.history(workspaceId, id);
@@ -1531,7 +1538,7 @@ export class RoadmapService {
   configureScopeRecovery(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: ScopeRecoveryPolicyRequest,
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -1565,7 +1572,7 @@ export class RoadmapService {
   configureDecisionPreparation(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     input: DecisionPreparationGrantRequest,
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -1838,7 +1845,7 @@ export class RoadmapService {
   async control(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     action: 'start' | 'pause' | 'resume' | 'stop',
     expectedVersion: number,
   ): Promise<RoadmapView> {
@@ -1857,7 +1864,7 @@ export class RoadmapService {
   private async controlWithin(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
+    id: RoadmapId,
     action: 'start' | 'pause' | 'resume' | 'stop',
     expectedVersion: number,
   ): Promise<RoadmapView> {
@@ -2047,8 +2054,8 @@ export class RoadmapService {
   async controlEntry(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
-    entryId: string,
+    id: RoadmapId,
+    entryId: RoadmapEntryId,
     action: 'pause' | 'resume',
     expectedVersion: number,
   ): Promise<RoadmapView> {
@@ -2162,8 +2169,8 @@ export class RoadmapService {
   async reverifyEntry(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    id: string,
-    entryId: string,
+    id: RoadmapId,
+    entryId: RoadmapEntryId,
     expectedVersion: number,
   ): Promise<RoadmapView> {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -3077,7 +3084,7 @@ export class RoadmapService {
   async delegateScopeRepair(
     context: AuthContext,
     ws: WorkspaceId,
-    cycleId: string,
+    cycleId: WorkCycleId,
     input: ScopeRepairRequest,
   ): Promise<WorkCycle> {
     const source = this.storage.execution.cycles.find(ws, cycleId);
@@ -4250,7 +4257,7 @@ export class RoadmapService {
       },
     };
   }
-  private find(workspaceId: WorkspaceId, id: string): Roadmap {
+  private find(workspaceId: WorkspaceId, id: RoadmapId): Roadmap {
     const roadmap = this.storage.roadmaps.find(workspaceId, id);
     if (!roadmap) throw new NotFoundError();
     return roadmap;

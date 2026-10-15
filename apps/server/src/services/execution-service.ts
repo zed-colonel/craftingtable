@@ -251,7 +251,7 @@ export class ExecutionService {
    * Whether merging this worktree promotes into its repository's default branch, which needs the
    * operator's password again (R-G9 review): the access guard asks after the caller's role.
    */
-  mergesIntoDefaultBranch(workspaceId: string, worktreeId: string): boolean {
+  mergesIntoDefaultBranch(workspaceId: WorkspaceId, worktreeId: WorktreeId): boolean {
     const worktree = this.storage.execution.worktrees.find(
       workspaceId as never,
       worktreeId as never,
@@ -1545,7 +1545,7 @@ export class ExecutionService {
   async releaseDecisionWorktree(
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
-    preparationId: string,
+    preparationId: DecisionPreparationId,
   ): Promise<boolean> {
     return this.mutations.during(worktreeId, async () => {
       const worktree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
@@ -1637,7 +1637,7 @@ export class ExecutionService {
     requestId?: string,
     delegation?: { roadmapId: RoadmapId; definitionRevision: number; check: () => void },
     finalApproval?: {
-      finalizationId: string;
+      finalizationId: FinalizationId;
       expectedHeadSha: string;
       expectedTargetSha: string;
       removeIntegrationBranch?: boolean;

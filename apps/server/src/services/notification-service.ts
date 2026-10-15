@@ -11,6 +11,8 @@ import {
   notificationText,
   truncateUtf16,
   type WorkspaceId,
+  type AttentionItemId,
+  type WorkCycleId,
 } from '@craftingtable/domain';
 import type {
   NotificationRecord,
@@ -71,7 +73,7 @@ export interface AttentionSource {
   /** Catches up on writes made outside a transaction. */
   flush(): void;
   /** The controller pass sequence the item opened at. */
-  openedPass(itemId: string): number;
+  openedPass(itemId: AttentionItemId): number;
 }
 
 export interface NotificationServiceOptions {
@@ -107,8 +109,10 @@ export class NotificationService {
     private readonly presence: OperatorPresence,
     private readonly now: () => Date = () => new Date(),
     /** A cycle whose item waits: a transition is being prepared, or an investigation runs. */
-    private readonly cycleTransitioning: (id: string, workspaceId: WorkspaceId) => boolean = () =>
-      false,
+    private readonly cycleTransitioning: (
+      id: WorkCycleId,
+      workspaceId: WorkspaceId,
+    ) => boolean = () => false,
     options: NotificationServiceOptions = {},
   ) {
     this.credentials = options.credentials ?? new MemoryCredentials();

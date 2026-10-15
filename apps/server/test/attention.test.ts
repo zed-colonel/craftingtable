@@ -5,6 +5,7 @@ import {
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_NOTIFICATION_PREFERENCES,
   type WorkCycle,
+  asRoadmapId,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
@@ -118,7 +119,7 @@ describe('typed attention (R-A3)', () => {
         instructions: '',
       })),
     });
-    const roadmap = () => f.context.storage.roadmaps.find(f.workspaceId, roadmapId);
+    const roadmap = () => f.context.storage.roadmaps.find(f.workspaceId, asRoadmapId(roadmapId));
     await post(f, `/roadmaps/${roadmapId}/control`, {
       action: 'start',
       expectedVersion: roadmap()?.version,

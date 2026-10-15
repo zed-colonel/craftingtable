@@ -5,6 +5,7 @@ import {
   type ExecutionScope,
   mapCapabilities,
   type WorkspaceId,
+  type ConcurrencyDefinitionId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { snapshotCalculation } from './map-read-snapshot.js';
@@ -104,7 +105,7 @@ export function architectureDecisionIssues(
 export function approvedArchitectureDecisions(
   tx: StorageRepositories,
   ws: WorkspaceId,
-  id: string,
+  id: ConcurrencyDefinitionId,
   revision: number,
 ) {
   return snapshotCalculation(tx, `approved-decisions:${ws}:${id}:${revision}`, () => {

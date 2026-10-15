@@ -4,7 +4,13 @@ import {
 } from './decision-preparation-policy.js';
 import { workflowContext, workflowDelegation } from './workflow-policy.js';
 import { parseWorkflowReport } from '@craftingtable/contracts';
-import type { WorkCycle } from '@craftingtable/domain';
+import type {
+  WorkCycle,
+  AgentRunId,
+  RuntimeGenerationId,
+  WorktreeId,
+  RoadmapId,
+} from '@craftingtable/domain';
 import { mapCapabilitiesView } from './map-capabilities-view.js';
 import { worktreePlan, repositoryPolicyEvidence } from './repository-policy.js';
 import {
@@ -286,14 +292,18 @@ export class RuntimeEvidenceService {
     if (!resolved) throw new Error('Could not resolve the worktree git directory.');
     return resolved;
   }
-  private definition(ws: WorkspaceId, id: string, tx: StorageRepositories = this.storage) {
+  private definition(
+    ws: WorkspaceId,
+    id: ConcurrencyDefinitionId,
+    tx: StorageRepositories = this.storage,
+  ) {
     const d = tx.imports.definition(ws, id);
     if (!d) throw new NotFoundError();
     return d;
   }
   private binding(
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     revision: number,
     tx: StorageRepositories = this.storage,
   ) {
@@ -305,11 +315,11 @@ export class RuntimeEvidenceService {
     if (!this.git) throw new ExecutionRequestError('unavailable', 'Git is unavailable.');
     return this.git;
   }
-  private current(ws: WorkspaceId, id: string) {
+  private current(ws: WorkspaceId, id: ConcurrencyDefinitionId) {
     const b = this.storage.imports.bindings(ws, id)[0];
     return b && activeRuntime(this.storage, ws, id, b.revision);
   }
-  async auditNative(context: AuthContext, ws: WorkspaceId, id: string) {
+  async auditNative(context: AuthContext, ws: WorkspaceId, id: ConcurrencyDefinitionId) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     this.definition(ws, id);
     return auditNativeEnvironment();
@@ -317,7 +327,7 @@ export class RuntimeEvidenceService {
   async approveNative(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: import('@craftingtable/contracts').NativeApprovalRequest,
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -370,7 +380,7 @@ export class RuntimeEvidenceService {
   async declareUpstreamTransitions(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: import('@craftingtable/contracts').UpstreamTransitionRequest,
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -418,7 +428,7 @@ export class RuntimeEvidenceService {
   async inspect(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: { bindingRevision: number; alias: string; ref: string },
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -437,7 +447,7 @@ export class RuntimeEvidenceService {
   async discover(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: { bindingRevision: number; refs: { alias: string; ref: string }[] },
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -595,7 +605,7 @@ export class RuntimeEvidenceService {
       ],
     };
   }
-  private refreshBlockers(ws: WorkspaceId, id: string): string[] {
+  private refreshBlockers(ws: WorkspaceId, id: ConcurrencyDefinitionId): string[] {
     const tx = this.storage,
       issues: string[] = [];
     const roadmaps = tx.roadmaps
@@ -636,7 +646,7 @@ export class RuntimeEvidenceService {
   }
   private refreshProjection(
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     current: RuntimeGeneration,
     pins: RuntimeGeneration['pins'],
   ): RuntimeRefreshPreview {
@@ -693,7 +703,7 @@ export class RuntimeEvidenceService {
   private async refreshedPins(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: { bindingRevision: number; expectedGeneration: number },
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -735,13 +745,18 @@ export class RuntimeEvidenceService {
   async previewRefresh(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: { bindingRevision: number; expectedGeneration: number },
   ) {
     const { current, pins } = await this.refreshedPins(context, ws, id, input);
     return this.refreshProjection(ws, id, current, pins);
   }
-  async refresh(context: AuthContext, ws: WorkspaceId, id: string, input: ApplyRuntimeRefresh) {
+  async refresh(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: ConcurrencyDefinitionId,
+    input: ApplyRuntimeRefresh,
+  ) {
     const { current, pins } = await this.refreshedPins(context, ws, id, input);
     const preview = this.refreshProjection(ws, id, current, pins);
     if (preview.snapshotDigest !== input.snapshotDigest)
@@ -770,7 +785,7 @@ export class RuntimeEvidenceService {
   async configure(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     raw: ConfigureRuntime,
     refresh?: ApplyRuntimeRefresh,
   ) {
@@ -1044,7 +1059,7 @@ export class RuntimeEvidenceService {
       ...(runIssue ? { runIssue } : {}),
     };
   }
-  private runIssue(tree: Worktree, runId: string, tx: StorageRepositories = this.storage) {
+  private runIssue(tree: Worktree, runId: AgentRunId, tx: StorageRepositories = this.storage) {
     try {
       this.assertRun(tree, runId, tx);
       return undefined;
@@ -1157,8 +1172,8 @@ export class RuntimeEvidenceService {
   async checkpointRecovery(
     context: CommandContext,
     ws: WorkspaceId,
-    id: string,
-    worktreeId: string,
+    id: ConcurrencyDefinitionId,
+    worktreeId: WorktreeId,
     delegated = false,
   ): Promise<CheckpointRecovery> {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -1352,7 +1367,7 @@ export class RuntimeEvidenceService {
     tree: Worktree,
     checkpointId: string,
     snapshotDigest: string,
-    runId: string,
+    runId: AgentRunId,
     payload: import('@craftingtable/domain').AgentRunEventPayloads['turn-completed'],
     build: import('@craftingtable/domain').RunBuildRecord,
     treeSha: string,
@@ -1588,8 +1603,8 @@ export class RuntimeEvidenceService {
   async prepareCheckpoint(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
-    input: { worktreeId: string; checkpointId: string; snapshotDigest: string },
+    id: ConcurrencyDefinitionId,
+    input: { worktreeId: WorktreeId; checkpointId: string; snapshotDigest: string },
   ) {
     const preview = await this.checkpointRecovery(context, ws, id, input.worktreeId);
     const candidate = preview.candidates.find((c) => c.checkpointId === input.checkpointId);
@@ -1647,7 +1662,12 @@ export class RuntimeEvidenceService {
     this.notifier.notify();
     return this.checkpointRecovery(context, ws, id, input.worktreeId);
   }
-  async submit(context: AuthContext, ws: WorkspaceId, id: string, raw: EvidenceSubmissionRequest) {
+  async submit(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: ConcurrencyDefinitionId,
+    raw: EvidenceSubmissionRequest,
+  ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const input = evidenceSubmissionRequestSchema.parse(raw),
       d = this.definition(ws, id),
@@ -1752,7 +1772,7 @@ export class RuntimeEvidenceService {
   async decide(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     input: {
       submissionId: EvidenceSubmissionId;
       outcome: 'accepted' | 'rejected';
@@ -1839,7 +1859,7 @@ export class RuntimeEvidenceService {
   async proposeArchitectureDecision(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     raw: ProposeArchitectureDecision,
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -1967,7 +1987,7 @@ export class RuntimeEvidenceService {
   private assertDecisionCanChange(
     tx: StorageRepositories,
     ws: WorkspaceId,
-    id: string,
+    id: ConcurrencyDefinitionId,
     s: EvidenceSubmissionHead,
   ) {
     const issues = architectureDecisionIssues(tx, this.definition(ws, id), s);
@@ -1995,8 +2015,8 @@ export class RuntimeEvidenceService {
   async generatePlanEvidence(
     context: AuthContext,
     ws: WorkspaceId,
-    id: string,
-    input: { roadmapId: string; definitionRevision: number; snapshotDigest: string },
+    id: ConcurrencyDefinitionId,
+    input: { roadmapId: RoadmapId; definitionRevision: number; snapshotDigest: string },
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const runtime = this.current(ws, id);
@@ -2059,7 +2079,7 @@ export class RuntimeEvidenceService {
     this.notifier.notify();
     return this.view(context, ws, id);
   }
-  async view(context: AuthContext, ws: WorkspaceId, id: string) {
+  async view(context: AuthContext, ws: WorkspaceId, id: ConcurrencyDefinitionId) {
     this.workspaces.requireAuthorized(context, ws);
     const d = this.definition(ws, id),
       binding = this.storage.imports.bindings(ws, id)[0],
@@ -2350,14 +2370,24 @@ export class RuntimeEvidenceService {
     };
   }
   /** The full record of a submission the evidence view lists as a summary (R-H4). */
-  submission(context: AuthContext, ws: WorkspaceId, id: string, submissionId: string) {
+  submission(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: ConcurrencyDefinitionId,
+    submissionId: EvidenceSubmissionId,
+  ) {
     this.workspaces.requireAuthorized(context, ws);
     this.definition(ws, id);
     const s = this.storage.runtimeEvidence.submission(ws, id, submissionId);
     if (!s) throw new NotFoundError();
     return s;
   }
-  buildRecord(context: AuthContext, ws: WorkspaceId, id: string, runId: string) {
+  buildRecord(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: ConcurrencyDefinitionId,
+    runId: AgentRunId,
+  ) {
     this.workspaces.requireAuthorized(context, ws);
     this.definition(ws, id);
     const record = this.storage.runtimeEvidence.build(ws, runId);
@@ -2381,7 +2411,7 @@ export class RuntimeEvidenceService {
    * `replyDirectory` is where the daemon answers the run's check launchers: a directory of its
    * own, outside every writable root of the run (R-G4).
    */
-  async prepare(tree: Worktree, runId: string, runDirectory: string, replyDirectory?: string) {
+  async prepare(tree: Worktree, runId: AgentRunId, runDirectory: string, replyDirectory?: string) {
     const scope = this.treeContext(tree);
     if (!scope) return;
     const runtime = activeRuntime(
@@ -2709,7 +2739,7 @@ export class RuntimeEvidenceService {
    */
   prepareChecks(
     tree: Worktree,
-    runId: string,
+    runId: AgentRunId,
     runDirectory: string,
     replyDirectory?: string,
     /**
@@ -2770,7 +2800,7 @@ export class RuntimeEvidenceService {
       checkDeclarationId: declaration.id,
     };
   }
-  assertPrepared(tree: Worktree, runtimeId: string, decisionDigest?: string) {
+  assertPrepared(tree: Worktree, runtimeId: RuntimeGenerationId, decisionDigest?: string) {
     const scope = this.treeContext(tree);
     if (
       !scope ||
@@ -2792,7 +2822,7 @@ export class RuntimeEvidenceService {
    */
   assertDeclaredDefinitions(
     tree: Worktree,
-    runId: string,
+    runId: AgentRunId,
     pendingDefinitions?: Readonly<Record<string, string>>,
   ) {
     if (!this.storage.runtimeEvidence.run(tree.workspaceId, runId)?.checkDeclarationId) return;
@@ -2812,7 +2842,7 @@ export class RuntimeEvidenceService {
    */
   assertMergeRun(
     tree: Worktree,
-    runId: string,
+    runId: AgentRunId,
     tx: StorageRepositories = this.storage,
     pendingDefinitions?: Readonly<Record<string, string>>,
   ) {
@@ -2842,7 +2872,7 @@ export class RuntimeEvidenceService {
    */
   assertRun(
     tree: Worktree,
-    runId: string,
+    runId: AgentRunId,
     tx: StorageRepositories = this.storage,
     pendingDefinitions?: Readonly<Record<string, string>>,
   ) {
@@ -3011,7 +3041,7 @@ export class RuntimeEvidenceService {
    */
   private assertCheckOnlyRun(
     tree: Worktree,
-    runId: string,
+    runId: AgentRunId,
     env: RunEnvironment,
     tx: StorageRepositories,
     pendingDefinitions?: Readonly<Record<string, string>>,
@@ -3061,7 +3091,7 @@ export class RuntimeEvidenceService {
       ),
     );
   }
-  async cleanupRun(ws: WorkspaceId, runId: string) {
+  async cleanupRun(ws: WorkspaceId, runId: AgentRunId) {
     const env = this.storage.runtimeEvidence.run(ws, runId);
     if (!env) return;
     // A daemon-recorded run's native unit and CI containers are found by its run ID, with the
@@ -3077,7 +3107,7 @@ export class RuntimeEvidenceService {
   freezeRun(
     tx: StorageRepositories,
     ws: WorkspaceId,
-    runId: string,
+    runId: AgentRunId,
     unfinished: readonly string[] = [],
   ) {
     const env = tx.runtimeEvidence.run(ws, runId);
@@ -3120,7 +3150,7 @@ export class RuntimeEvidenceService {
   }
   async assertSubjectsCurrent(
     ws: WorkspaceId,
-    definitionId: string,
+    definitionId: ConcurrencyDefinitionId,
     bindingRevision: number,
     subjects: readonly EvidenceSubject[],
   ) {

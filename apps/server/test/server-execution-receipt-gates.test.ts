@@ -20,6 +20,8 @@ import {
   asDeclaredCheckId,
   asQualificationEnvironmentId,
   asRepositoryCheckDeclarationId,
+  type AgentRunId,
+  asAgentRunId,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
@@ -290,7 +292,7 @@ itNeedsCargo(
       prompt = request.prompt;
       receiptsAtLaunch = storage.runtimeEvidence.checkReceipts(
         f.state.workspaceId,
-        request.environment?.CRAFTINGTABLE_RUN_NAMESPACE ?? '',
+        (request.environment?.CRAFTINGTABLE_RUN_NAMESPACE ?? '') as AgentRunId,
       ).length;
       // The reviewer runs nothing itself.
       return { resultText: scopeReport(f.state, f.tree.executionScope!) };
@@ -356,7 +358,9 @@ itNeedsCargo(
       'the reviewer started after its check',
     );
     expect(launched()).toBe(before + 1);
-    expect(storage.runtimeEvidence.checkReceipts(f.state.workspaceId, first)).toHaveLength(1);
+    expect(
+      storage.runtimeEvidence.checkReceipts(f.state.workspaceId, asAgentRunId(first)),
+    ).toHaveLength(1);
     await f.state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${f.state.workspaceId}/runs/${first}/control`,
@@ -512,7 +516,7 @@ itNeedsCargo(
     );
     expect(storage.execution.runs.listLive()).toEqual([]);
     vi.restoreAllMocks();
-    await services.checkRequestService.close(run);
+    await services.checkRequestService.close(asAgentRunId(run));
   },
 );
 
@@ -752,7 +756,10 @@ itNeedsCargo(
       ),
     ).toEqual([]);
     expect(kept.some((name) => name.endsWith('.log'))).toBe(true);
-    const [recorded] = storage.runtimeEvidence.checkReceipts(f.state.workspaceId, checked);
+    const [recorded] = storage.runtimeEvidence.checkReceipts(
+      f.state.workspaceId,
+      asAgentRunId(checked),
+    );
     expect(JSON.parse(recorded!.receipt)).toMatchObject({
       kind: 'scoped-check',
       recordedBy: 'daemon',
@@ -761,7 +768,7 @@ itNeedsCargo(
       headSha: git(['rev-parse', 'HEAD'], f.tree.path).trim(),
       declaredCheck: { id: 'where' },
     });
-    expect(() => f.svc.assertRun(f.tree, checked)).not.toThrow();
+    expect(() => f.svc.assertRun(f.tree, asAgentRunId(checked))).not.toThrow();
   },
 );
 
@@ -788,7 +795,8 @@ itNeedsCargo(
       const runId = request.buildEnvironment!.namespace!;
       // The turn ends once the daemon is running the check.
       const release = (async () => {
-        while (checks.inFlight(runId).length === 0) await new Promise((r) => setTimeout(r, 20));
+        while (checks.inFlight(asAgentRunId(runId)).length === 0)
+          await new Promise((r) => setTimeout(r, 20));
       })();
       return { resultText: scopeReport(f.state, f.tree.executionScope!), release };
     };
@@ -882,7 +890,10 @@ itNeedsCargo(
         const runId = request.buildEnvironment!.namespace!;
         // The turn ends once the daemon's act is running.
         const release = (async () => {
-          while (!checks.inFlight(runId).includes('ct-act') || gate.pids().length === 0)
+          while (
+            !checks.inFlight(asAgentRunId(runId)).includes('ct-act') ||
+            gate.pids().length === 0
+          )
             await new Promise((r) => setTimeout(r, 20));
         })();
         return { resultText: scopeReport(f.state, f.tree.executionScope!), release };
@@ -969,7 +980,7 @@ itNeedsCargo(
     const { f, runId, checks } = await runWithOneCheck(gate.command);
     await waitUntil(() => gate.pids().length === 1, 'the check running');
     // A run that ends closes its checks without anyone awaiting it, as the run service does.
-    void checks.close(runId);
+    void checks.close(asAgentRunId(runId));
     await withinHangGuard(checks.closeAll(), 'the daemon closing');
     // Closed only once the stopped check has exited and its log is written.
     expect(processRunning(gate.pids()[0]!)).toBe(false);
@@ -989,7 +1000,7 @@ itNeedsCargo(
     const escapes = `require('node:child_process').spawn('setsid', ${JSON.stringify(gate.command)}, { stdio: 'inherit' }); setInterval(() => {}, 1000);`;
     const { runId, checks } = await runWithOneCheck(['node', '-e', escapes]);
     await waitUntil(() => gate.pids().length === 1, 'the escaped process running');
-    void checks.close(runId);
+    void checks.close(asAgentRunId(runId));
     await withinHangGuard(checks.closeAll(), 'the daemon closing');
     // Closed although the stop has not finished: the escaped process still holds the output.
     expect(processRunning(gate.pids()[0]!)).toBe(true);
@@ -1044,7 +1055,7 @@ itNeedsCargo(
       () => served.every(({ spool }) => !readdirSync(spool).some((n) => n.endsWith('.request'))),
       'every request claimed',
     );
-    const running = () => served.map(({ runId }) => checks.inFlight(runId).length);
+    const running = () => served.map(({ runId }) => checks.inFlight(asAgentRunId(runId)).length);
     const total = () => running().reduce((sum, n) => sum + n, 0);
     expect(total()).toBe(8);
     expect(Math.max(...running())).toBeLessThanOrEqual(4);
@@ -1130,7 +1141,7 @@ itNeedsCargo(
     // the queue decides what starts in one pass, so a second would be running already.
     for (let n = 1; n <= 3; n++) {
       await waitUntil(() => declared.pids().length === n, `adopted check ${n} running`);
-      expect(checks.inFlight(run)).toHaveLength(1);
+      expect(checks.inFlight(asAgentRunId(run))).toHaveLength(1);
       declared.open(1);
     }
     await waitFor(() => status() === 'waiting', 'the reviewer started after its checks');
@@ -1144,10 +1155,10 @@ itNeedsCargo(
       () => declared.pids().length === 4 && own.pids().length === 3,
       'the first rerun and the commands running',
     );
-    expect(checks.inFlight(run)).toHaveLength(4);
+    expect(checks.inFlight(asAgentRunId(run))).toHaveLength(4);
     declared.open(1);
     await waitUntil(() => declared.pids().length === 5, 'the second rerun running');
-    expect(checks.inFlight(run)).toHaveLength(4);
+    expect(checks.inFlight(asAgentRunId(run))).toHaveLength(4);
     own.open(3);
     declared.open(1);
     const replies = join(f.state.context.config.execution.checkLogRoot, run, 'replies');
@@ -1167,7 +1178,7 @@ itNeedsCargo(
     await waitFor(() => status() === 'finished', 'finish');
     // Three adopted checks before the reviewer, and its five requests.
     expect(
-      f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run),
+      f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, asAgentRunId(run)),
     ).toHaveLength(8);
   },
 );
@@ -1224,7 +1235,7 @@ itNeedsCargo(
       () => !readdirSync(spool).some((name) => name.endsWith('.request')),
       'every request claimed',
     );
-    expect(checks.inFlight(runId)).toHaveLength(4);
+    expect(checks.inFlight(asAgentRunId(runId))).toHaveLength(4);
     expect(exits().map((e) => e.diagnostic)).toEqual(
       Array(4).fill(expect.stringContaining('Too many checks')),
     );
@@ -1232,7 +1243,7 @@ itNeedsCargo(
     let peak = 0;
     gate.open(36);
     await waitUntil(() => {
-      peak = Math.max(peak, checks.inFlight(runId).length);
+      peak = Math.max(peak, checks.inFlight(asAgentRunId(runId)).length);
       return exits().length === 40;
     }, 'every check');
     expect(peak).toBeLessThanOrEqual(4);
@@ -1246,7 +1257,7 @@ itNeedsCargo(
     });
     await waitFor(() => status() === 'finished', 'finish');
     expect(
-      f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run),
+      f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, asAgentRunId(run)),
     ).toHaveLength(36);
   },
 );

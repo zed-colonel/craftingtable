@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import { DEFAULT_COMPLETION_POLICY, asRoadmapId } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServices, type ServiceSet } from '../src/composition.js';
@@ -284,7 +284,7 @@ describe('restart drain and automatic resume (R-B9)', () => {
         instructions: '',
       })),
     });
-    const roadmap = () => f.context.storage.roadmaps.find(f.workspaceId, roadmapId);
+    const roadmap = () => f.context.storage.roadmaps.find(f.workspaceId, asRoadmapId(roadmapId));
     await inject(`/roadmaps/${roadmapId}/control`, {
       action: 'start',
       expectedVersion: roadmap()?.version,

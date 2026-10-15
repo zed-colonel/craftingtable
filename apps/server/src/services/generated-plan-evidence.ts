@@ -16,6 +16,9 @@ import {
   submissionHead,
   type UserId,
   type WorkspaceId,
+  type ConcurrencyDefinitionId,
+  type EvidenceSubmissionId,
+  type RoadmapId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
@@ -44,7 +47,7 @@ import {
 export function lastPlanReview(
   tx: StorageRepositories,
   d: ConcurrencyDefinition,
-  roadmapId: string,
+  roadmapId: RoadmapId,
 ):
   | { readonly submission: EvidenceSubmissionHead; readonly decision: EvidenceDecision }
   | undefined {
@@ -182,7 +185,11 @@ export function withinArtifactLimits(s: EvidenceSubmission): boolean {
 /** Inputs whose change means a new import, amendment or binding: the operator reviews those. */
 const NEVER_CARRIED: ReadonlySet<PlanAcceptanceInput> = new Set(['map', 'binding', 'planArchives']);
 /** The generated plan currently accepted for the map's plan checkpoint, if any. */
-function acceptedGeneratedPlan(tx: StorageRepositories, ws: WorkspaceId, definitionId: string) {
+function acceptedGeneratedPlan(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  definitionId: ConcurrencyDefinitionId,
+) {
   const d = tx.imports.definition(ws, definitionId);
   const checkpoint = d && planCheckpoint(d);
   const binding = tx.imports.bindings(ws, definitionId)[0];
@@ -213,7 +220,7 @@ export function carryPlanAcceptance<T>(
   context: AuthContext,
   scope: {
     readonly workspaceId: WorkspaceId;
-    readonly definitionId: string;
+    readonly definitionId: ConcurrencyDefinitionId;
     /** The operator command, as the package and the audit name it. */
     readonly command: string;
     readonly at: string;
@@ -321,7 +328,7 @@ export function carryPlanAcceptance<T>(
 export function carriedAcceptance(
   decisions: readonly EvidenceDecision[],
   submissions: readonly EvidenceSubmissionHead[],
-  submissionId: string,
+  submissionId: EvidenceSubmissionId,
 ): { readonly reviewedAt: string; readonly changedInputs: PlanAcceptanceInput[] } | undefined {
   const byId = new Map(decisions.map((a) => [a.id, a]));
   const heads = new Map(submissions.map((s) => [s.id, s]));

@@ -1,4 +1,4 @@
-import type { PhaseReservation } from '@craftingtable/domain';
+import type { PhaseReservation, WorkspaceId, WorkItemId, UserId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 export interface PhaseSchedulingRepository {
   capacity(key: string): number;
@@ -8,7 +8,7 @@ export interface PhaseSchedulingRepository {
     key: string,
     capacity: number,
     expectedVersion: number,
-    userId: string,
+    userId: UserId,
     at: string,
   ): boolean;
   setCapacity(key: string, capacity: number): void;
@@ -16,12 +16,12 @@ export interface PhaseSchedulingRepository {
   acquire(reservation: PhaseReservation): void;
   release(ownerId: string, at: string, reason: string): void;
   releaseOperations(at: string): void;
-  authorized(workspaceId: string, workItemId: string, scopeKey: string): boolean;
+  authorized(workspaceId: WorkspaceId, workItemId: WorkItemId, scopeKey: string): boolean;
   authorize(
-    workspaceId: string,
-    workItemId: string,
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
     scopeKey: string,
-    userId: string,
+    userId: UserId,
     at: string,
   ): void;
 }
@@ -63,7 +63,7 @@ export class SqlitePhaseSchedulingRepository implements PhaseSchedulingRepositor
     key: string,
     capacity: number,
     expectedVersion: number,
-    userId: string,
+    userId: UserId,
     at: string,
   ): boolean {
     return (
@@ -110,7 +110,7 @@ export class SqlitePhaseSchedulingRepository implements PhaseSchedulingRepositor
       )
       .run(at);
   }
-  authorized(workspaceId: string, workItemId: string, scopeKey: string): boolean {
+  authorized(workspaceId: WorkspaceId, workItemId: WorkItemId, scopeKey: string): boolean {
     return !!this.db
       .prepare(
         'SELECT 1 FROM scope_scheduling_authorizations WHERE workspace_id=? AND work_item_id=? AND scope_key=?',
@@ -118,10 +118,10 @@ export class SqlitePhaseSchedulingRepository implements PhaseSchedulingRepositor
       .get(workspaceId, workItemId, scopeKey);
   }
   authorize(
-    workspaceId: string,
-    workItemId: string,
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
     scopeKey: string,
-    userId: string,
+    userId: UserId,
     at: string,
   ): void {
     this.db

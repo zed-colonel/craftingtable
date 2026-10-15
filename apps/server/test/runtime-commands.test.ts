@@ -1,3 +1,4 @@
+import { asConcurrencyDefinitionId } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { runtimeCommands } from '../src/routes/runtime-evidence.js';
 import type { RuntimeEvidenceService } from '../src/services/runtime-evidence-service.js';
@@ -35,7 +36,7 @@ it('runs each runtime command through its own service method, with its own tag (
   for (const command of commands) {
     called.length = 0;
     await expect(
-      command.run({} as never, 'ws' as never, 'map', {}),
+      command.run({} as never, 'ws' as never, asConcurrencyDefinitionId('map'), {}),
       command.action,
     ).rejects.toThrow('reached');
     expect(called, command.action).toEqual([EXPECTED[command.action]![0]]);

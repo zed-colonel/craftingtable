@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
+import {
+  type EvidenceSubmission,
+  submissionHead,
+  asConcurrencyDefinitionId,
+} from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/database.js';
 import { openCraftingTableStorage } from '../src/storage.js';
@@ -66,26 +70,33 @@ describe('evidence submissions and their heads (R-H4)', () => {
     add(a);
     add(other);
     add(b);
-    const heads = f.storage.runtimeEvidence.submissions(workspaceId, 'map-1');
+    const heads = f.storage.runtimeEvidence.submissions(
+      workspaceId,
+      asConcurrencyDefinitionId('map-1'),
+    );
     expect(heads).toEqual([submissionHead(b), submissionHead(a)]);
     expect(heads[0]?.artifacts.map((artifact) => [artifact.bytes, artifact.blank])).toEqual([
       [1000, false],
       [2, true],
     ]);
     expect(JSON.stringify(heads)).not.toContain('x'.repeat(1000));
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-2')).toEqual([
-      submissionHead(other),
-    ]);
-    expect(f.storage.runtimeEvidence.submission(workspaceId, 'map-1', a.id)).toEqual(a);
-    expect(f.storage.runtimeEvidence.submission(workspaceId, 'map-2', a.id)).toBeUndefined();
+    expect(
+      f.storage.runtimeEvidence.submissions(workspaceId, asConcurrencyDefinitionId('map-2')),
+    ).toEqual([submissionHead(other)]);
+    expect(
+      f.storage.runtimeEvidence.submission(workspaceId, asConcurrencyDefinitionId('map-1'), a.id),
+    ).toEqual(a);
+    expect(
+      f.storage.runtimeEvidence.submission(workspaceId, asConcurrencyDefinitionId('map-2'), a.id),
+    ).toBeUndefined();
     // Every read is current: nothing is kept between reads.
     const c = submission('map-1');
     add(c);
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1').map((s) => s.id)).toEqual([
-      c.id,
-      b.id,
-      a.id,
-    ]);
+    expect(
+      f.storage.runtimeEvidence
+        .submissions(workspaceId, asConcurrencyDefinitionId('map-1'))
+        .map((s) => s.id),
+    ).toEqual([c.id, b.id, a.id]);
     expect(evidenceProblems(f)).toEqual([]);
   });
 
@@ -98,17 +109,20 @@ describe('evidence submissions and their heads (R-H4)', () => {
       f.storage.transaction((tx) => {
         tx.runtimeEvidence.addSubmission(lost);
         // The writing transaction sees its own submission.
-        expect(tx.runtimeEvidence.submissions(workspaceId, 'map-1').map((s) => s.id)).toEqual([
-          lost.id,
-          a.id,
-        ]);
+        expect(
+          tx.runtimeEvidence
+            .submissions(workspaceId, asConcurrencyDefinitionId('map-1'))
+            .map((s) => s.id),
+        ).toEqual([lost.id, a.id]);
         throw new Error('roll back');
       }),
     ).toThrow('roll back');
     expect([rows('evidence_submissions'), rows('evidence_submission_heads')]).toEqual([1, 1]);
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1').map((s) => s.id)).toEqual([
-      a.id,
-    ]);
+    expect(
+      f.storage.runtimeEvidence
+        .submissions(workspaceId, asConcurrencyDefinitionId('map-1'))
+        .map((s) => s.id),
+    ).toEqual([a.id]);
 
     // A head the guard refuses takes its record with it, even outside a storage transaction.
     f.storage.close();
@@ -163,7 +177,9 @@ describe('evidence submissions and their heads (R-H4)', () => {
   it('sees a submission another connection added', () => {
     const { f, workspaceId, submission, add } = fixture();
     add(submission('map-1'));
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1')).toHaveLength(1);
+    expect(
+      f.storage.runtimeEvidence.submissions(workspaceId, asConcurrencyDefinitionId('map-1')),
+    ).toHaveLength(1);
     const outside = submission('map-1');
     const database = openDatabase(f.databasePath);
     try {
@@ -176,7 +192,9 @@ describe('evidence submissions and their heads (R-H4)', () => {
     } finally {
       database.close();
     }
-    expect(f.storage.runtimeEvidence.submissions(workspaceId, 'map-1')[0]?.id).toBe(outside.id);
+    expect(
+      f.storage.runtimeEvidence.submissions(workspaceId, asConcurrencyDefinitionId('map-1'))[0]?.id,
+    ).toBe(outside.id);
   });
 
   it('reports every head that is missing, differs from its record or is out of order (db:verify)', () => {

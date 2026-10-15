@@ -5072,6 +5072,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     only the last type argument survived (real Fastify puts the route generic fourth in
     `FastifyReply`, `RouteHandlerMethod` and route options): the fake Fastify gains a
     four-argument `FastifyReply`, with reported cases on its first and fourth arguments.
+  - *Round 5* (at `04665fa`): 4 mutants of those two fixes; checking only the first or only the
+    last argument, and dropping the outside-Fastify test, caught. One survived: requiring every
+    declaration of `Params` to lie outside Fastify (rather than one). It differs for a route's
+    own `Params` beside Fastify's (an intersection with `RouteGenericInterface`, or an interface
+    extending it, which a typed route plausibly writes); the self-test adds both as reported, and
+    the mutant is caught by that.
 - **Open questions for the operator** (each would change a status code, so none was built; the
   daemon answers as before):
   1. *The four commands that answer a malformed id with 400 and their body's message* (the three

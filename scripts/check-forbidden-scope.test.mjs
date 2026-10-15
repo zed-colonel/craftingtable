@@ -873,6 +873,10 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
         'export type Generic = FastifyRequest<F.RouteGenericInterface>;',
         'export const anyRoute = <G extends F.RouteGenericInterface>(request: FastifyRequest<G>) =>',
         '  request.body;',
+        // A route's own `Params` beside Fastify's: through an intersection or an extension.
+        'export type Mixed = FastifyRequest<F.RouteGenericInterface & Aliased>;',
+        'interface Route extends F.RouteGenericInterface { Params: { id: string } }',
+        'export type Extending = FastifyRequest<Route>;',
         '',
       ].join('\n'),
       // Tests may read what a request carried.
@@ -898,6 +902,8 @@ describe('route parameters are read once, by the route layer (rule 9, R-H7)', ()
       typed('apps/server/src/routes/typed.ts', 18),
       typed('apps/server/src/routes/typed.ts', 19),
       typed('apps/server/src/routes/typed.ts', 20),
+      typed('apps/server/src/routes/typed.ts', 24),
+      typed('apps/server/src/routes/typed.ts', 26),
     ]);
   });
 

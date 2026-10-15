@@ -88,6 +88,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G17](#r-g17) | P4 | L | done, deployed 2026-10-13 (7d4e264) | Python projects: toolchain profiles, a `pypi` outside source, adopted Python checks |
 | [R-G18](#r-g18) | P4 | L | withdrawn 2026-10-14 (ADR-075) | Agents' worktrees on a Git directory CraftingTable owns |
 | [R-G19](#r-g19) | P4 | M | done, deployed 2026-10-14 (0bf3bc3; ADR-076) | The accelerator posture: simplify the agent and check defences |
+| [R-G20](#r-g20) | P4 | S | open (found live 2026-10-15) | Supplemental checks get the agents' uv settings |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
@@ -4458,6 +4459,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Done-when:** every bullet holds. (1) Git in the primary checkout works while a sandboxed Claude command runs, but for writes to its configuration (Claude Code's own `config.lock`), and the adapter's rules put no file in the common directory, including after Git removes a name that was present at launch (PK-01 with its `MERGE_RR` correction, PK-05); the runs' commits, rebase and merge worked. (2) The packaged fixture (console script, `hatchling` from PyPI, `docopt` sdist-only) was adopted, installed by its review's check, ran its console script and tests with no network, and merged (PK-02, PK-03). (3) R-G17's kept cases hold (PK-04 (a), (b), (c)). (4) A Rust-only adopted Cargo check passes (PC-01). (5) The gate is green and the replays unchanged.
   - **Deploy note:** no migration and no persisted format change (new receipts' `python` omits `wheelSetDigest`; older receipts keep it; receipts are free-form JSON). No settings change: `toolchains.json` and `outside-sources.json` stay as they are. Deploy with `pnpm deploy:daemon <ref>`, which drains first. After it: `<data>/pypi-wheels` is no longer read (delete it); `<data>/uv/checks` is made by the first Python check and emptied at each start, so the first Python check after a restart downloads its packages again; a Python check's install needs PyPI reachable. *Rollback* (`pnpm deploy:daemon --rollback`) is clean (no schema change): the wheel store comes back (refetching what was deleted), and with it its limits (virtual projects only, no sdists), so a packaged project's checks would be refused again; Claude's `commondir` placeholder returns.
 - **Deployed 2026-10-14** (0bf3bc3, release `20261014T235939Z-0bf3bc3093bc`; no migration, no settings change), with agents' venvs copied from the shared uv cache. The gate at 0bf3bc3: green in 505 s, 3,344 unit tests. The deploy drained with no live turn. The live data directory had no `pypi-wheels` store to delete: no Python check had run on the live daemon.
+
+### R-G20
+
+**Supplemental checks get the agents' uv settings** · Phase P4 · Effort S · Status: open (found live 2026-10-15; recorded at the operator's request)
+
+- **Found 2026-10-15,** in Slopinator's first review (run a5761d88): the reviewer's supplemental `ct-check -- python3 tools/ct_gate.py application` failed at once, because the driver's `uv run --locked` could not create its cache ("Read-only file system … /home/keith/.cache/uv"). A free-form `ct-check --` runs the agent's command in its worktree with no Python environment and the operator's home read-only, and gets none of the `pypi` source's uv settings that the agent's own commands get.
+- **Declared checks are not affected.** Reproduced by hand on the reviewed commit (e64707cd) with CraftingTable's settings: the install step built the packaged project with its `hatchling` backend; then, with no network and the check's private, empty uv cache, the driver's `uv run --locked` ran pytest, ruff and mypy (uv validates the lock without a build when the metadata is static). Supplemental checks never count toward a gate, and an agent can run the same command in its own sandbox, where the `pypi` settings apply. The run's one failing test was Slopinator's (it asserted uv's online wording for a stale lock).
+- **Change:** when the `pypi` source is configured, give a free-form `ct-check --` the same uv settings and cache access as the agent's own commands (the source's launch overlay: `UV_CACHE_DIR` the agents' shared cache, `UV_PYTHON`, `UV_PYTHON_DOWNLOADS=never`, `UV_LINK_MODE=copy`, the profile's uv first on `PATH`). Under ADR-075 sharing the agents' cache here is acceptable; checks that count keep their own.
+- **Done when:** a supplemental `ct-check -- uv run …` in a Python worktree runs where the agent's own command would, and declared checks are unchanged.
+- **Priority:** small and not blocking; take it beside the next work that touches Python checks.
+
 
 ### R-H1
 

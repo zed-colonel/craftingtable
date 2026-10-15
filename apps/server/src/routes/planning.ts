@@ -12,7 +12,6 @@ import {
   workItemControlRequestSchema,
   removeFromAgendaResponseSchema,
   workItemIdSchema,
-  workspaceIdSchema,
   workspaceWorkItemFilterSchema,
   workspaceWorkItemListResponseSchema,
 } from '@craftingtable/contracts';
@@ -28,7 +27,13 @@ import {
   MULTIPART_PLUGIN_LIMITS,
   readPlanImportParts,
 } from './multipart.js';
-import { type BodyOf, contextOf, WORKSPACE_PARAMS, workspaceParams } from './route-access.js';
+import {
+  type BodyOf,
+  contextOf,
+  WORKSPACE_PARAMS,
+  workspaceParams,
+  paramsOf,
+} from './route-access.js';
 
 /** Each route's path parameters (R-H7). */
 const PROJECT = workspaceParams({ projectId: projectIdSchema });
@@ -110,7 +115,7 @@ export function registerPlanningRoutes(
     throwFileSizeLimit: false,
   });
 
-  app.post<{ Params: { workspaceId: string } }>(
+  app.post(
     '/api/workspaces/:workspaceId/imports/plans',
     {
       config: {
@@ -124,10 +129,7 @@ export function registerPlanningRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const parsedWorkspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!parsedWorkspaceId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
 
       let parts: Awaited<ReturnType<typeof readPlanImportParts>>;
       try {
@@ -166,7 +168,7 @@ export function registerPlanningRoutes(
       }
 
       const result = planImportService.import(context, {
-        workspaceId: parsedWorkspaceId.data,
+        workspaceId,
         ...(projectNameField === undefined || projectNameField.length === 0
           ? {}
           : { projectName: projectNameField }),
@@ -187,42 +189,33 @@ export function registerPlanningRoutes(
     },
   );
 
-  app.get<{ Params: { workspaceId: string; projectId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/projects/:projectId',
     { config: { access: 'member', params: PROJECT } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const projectId = projectIdSchema.safeParse(request.params.projectId);
-      if (!workspaceId.success || !projectId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId, projectId } = paramsOf(request, PROJECT);
       return noStore(reply).send(
         projectDetailResponseSchema.parse(
-          queryService.projectDetail(context, workspaceId.data, projectId.data, request.id),
+          queryService.projectDetail(context, workspaceId, projectId, request.id),
         ),
       );
     },
   );
 
-  app.get<{ Params: { workspaceId: string; projectId: string; planVersionId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId',
     { config: { access: 'member', params: PROJECT_PLAN_VERSION } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const projectId = projectIdSchema.safeParse(request.params.projectId);
-      const planVersionId = planVersionIdSchema.safeParse(request.params.planVersionId);
-      if (!workspaceId.success || !projectId.success || !planVersionId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId, planVersionId, projectId } = paramsOf(request, PROJECT_PLAN_VERSION);
       return noStore(reply).send(
         planVersionDetailResponseSchema.parse(
           queryService.planVersionDetail(
             context,
-            workspaceId.data,
-            projectId.data,
-            planVersionId.data,
+            workspaceId,
+            projectId,
+            planVersionId,
             request.id,
           ),
         ),
@@ -231,40 +224,33 @@ export function registerPlanningRoutes(
   );
 
   // A plan version's dependency structure, which never changes (R-E4).
-  app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/graph',
     { config: { access: 'member', params: PLAN_VERSION } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const planVersionId = planVersionIdSchema.safeParse(request.params.planVersionId);
-      if (!workspaceId.success || !planVersionId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId, planVersionId } = paramsOf(request, PLAN_VERSION);
       return noStore(reply).send(
         planVersionGraphSchema.parse(
-          queryService.planVersionGraph(context, workspaceId.data, planVersionId.data, request.id),
+          queryService.planVersionGraph(context, workspaceId, planVersionId, request.id),
         ),
       );
     },
   );
 
-  app.get<{ Params: { workspaceId: string }; Querystring: { filter?: string } }>(
+  app.get<{ Querystring: { filter?: string } }>(
     '/api/workspaces/:workspaceId/work-items',
     { config: { access: 'member', params: WORKSPACE_PARAMS } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      if (!workspaceId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
       const filter = workspaceWorkItemFilterSchema.safeParse(request.query.filter ?? 'all');
       if (!filter.success) {
         return sendApiError(reply, 400, 'invalid-request', 'Invalid work item filter');
       }
       return noStore(reply).send(
         workspaceWorkItemListResponseSchema.parse(
-          queryService.listWorkspaceWorkItems(context, workspaceId.data, filter.data, request.id),
+          queryService.listWorkspaceWorkItems(context, workspaceId, filter.data, request.id),
         ),
       );
     },
@@ -273,7 +259,6 @@ export function registerPlanningRoutes(
   // A work item's agenda commands share one route (R-H5, H5-2): the same access, none carries
   // authority. Each answers in its own shape.
   app.post<{
-    Params: { workspaceId: string; workItemId: string };
     Body: BodyOf<typeof workItemControlRequestSchema>;
   }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/control',
@@ -288,19 +273,10 @@ export function registerPlanningRoutes(
     },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
-      if (!workspaceId.success || !workItemId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
+      const { workspaceId, workItemId } = paramsOf(request, WORK_ITEM);
       const body = request.body;
       if (body.action === 'complete') {
-        const result = workItemService.complete(
-          context,
-          workspaceId.data,
-          workItemId.data,
-          request.id,
-        );
+        const result = workItemService.complete(context, workspaceId, workItemId, request.id);
         return noStore(reply).send(
           completeWorkItemResponseSchema.parse({
             workItemId: result.workItem.id,
@@ -312,8 +288,8 @@ export function registerPlanningRoutes(
       if (body.action === 'remove-from-agenda') {
         const result = workItemService.removeFromAgenda(
           context,
-          workspaceId.data,
-          workItemId.data,
+          workspaceId,
+          workItemId,
           body.expectedVersion,
           request.id,
         );
@@ -325,7 +301,7 @@ export function registerPlanningRoutes(
           }),
         );
       }
-      const result = workItemService.admit(context, workspaceId.data, workItemId.data, request.id);
+      const result = workItemService.admit(context, workspaceId, workItemId, request.id);
       return noStore(reply).send(
         admitWorkItemResponseSchema.parse({
           workItemId: result.workItem.id,
@@ -343,22 +319,13 @@ export function registerPlanningRoutes(
    * type, with sniffing disabled and a null-source CSP: planning files are
    * untrusted input and must never be rendered as executable HTML (CT03-A40).
    */
-  app.get<{ Params: { workspaceId: string; artifactId: string } }>(
+  app.get(
     '/api/workspaces/:workspaceId/plan-artifacts/:artifactId',
     { config: { access: 'member', params: ARTIFACT } },
     async (request, reply) => {
       const context = contextOf(request);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const artifactId = planArtifactIdSchema.safeParse(request.params.artifactId);
-      if (!workspaceId.success || !artifactId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      const artifact = queryService.artifactContent(
-        context,
-        workspaceId.data,
-        artifactId.data,
-        request.id,
-      );
+      const { workspaceId, artifactId } = paramsOf(request, ARTIFACT);
+      const artifact = queryService.artifactContent(context, workspaceId, artifactId, request.id);
       return noStore(reply)
         .header('content-type', 'text/plain; charset=utf-8')
         .header('content-disposition', `attachment; filename="${artifact.logicalFilename}"`)

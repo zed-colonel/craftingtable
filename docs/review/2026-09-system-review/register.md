@@ -4891,6 +4891,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     revocation with a malformed id gets 404 "Resource not found", a malformed workspace id the
     access check's 404, and a parsed session id still reaches the service (the caller's own
     session revoked). `workspaces.ts` loses its private workspace-id parser.
+  - *Planning and work items* (`planning`, `page-views`): a malformed project, plan version,
+    artifact or work item id gets 404 "Resource not found" on each read and on the work item's
+    control; a malformed id with a malformed body still gets the body's 400.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

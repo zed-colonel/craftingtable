@@ -99,3 +99,30 @@ describe('session and workspace routes', () => {
     });
   });
 });
+
+describe('planning and work item routes', () => {
+  it('refuse a malformed project, plan version, artifact or work item id with 404', async () => {
+    const { get, post } = await signedIn();
+    const uuid = '00000000-0000-4000-8000-000000000001';
+    for (const path of [
+      'projects/%20x',
+      `projects/${uuid}/plan-versions/%20x`,
+      'plan-versions/%20x/graph',
+      'plan-artifacts/%20x',
+      'work-items/%20x/view',
+    ]) {
+      const response = await get(path);
+      expect(response.statusCode, path).toBe(404);
+      expect(response.json(), path).toEqual(notFound());
+    }
+    const admit = await post('work-items/%20x/control', { action: 'admit' });
+    expect(admit.statusCode).toBe(404);
+    expect(admit.json()).toEqual(notFound());
+    // The body is refused before the id, as the handler refused them.
+    const both = await post('work-items/%20x/control', { action: 'admit-all' });
+    expect(both.statusCode).toBe(400);
+    expect(both.json()).toEqual({
+      error: { code: 'invalid-request', message: 'Invalid work item command' },
+    });
+  });
+});

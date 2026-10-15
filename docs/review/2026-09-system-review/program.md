@@ -1149,13 +1149,14 @@ reviewed, mutation-tested and checked live on a dev daemon, not deployed: Claude
 launch, and Python checks install with `uv sync --locked` into a fresh venv, then run offline;
 the daemon's wheel store is retired.
 
-R-H7 is done on this line (2026-10-15, f7df64c to 98fdb58), reviewed (three re-checks, 0 open)
+R-H7 is done on this line (2026-10-15, f7df64c to 9ca6712), reviewed (four re-checks; their last two LOW text findings settled in the entry)
 and mutation-tested, not deployed: every route declares its path parameters' schemas beside its
 body, the daemon parses them once before the handler and refuses to start on an undeclared one,
 handlers read parsed, branded values, services and storage take branded ids, and `check:scope`
-holds that only the route layer reads a request's path parameters. Answers are unchanged route by
-route; three operator questions (malformed-id status codes, unchecked lookup parameters,
-map-declared ids) are in its entry. Next on this line: the Slopinator rename and re-import; R-B7
+holds that only the route layer reads a request's path parameters. Every answer is as before but
+a malformed id's: by the operator's decisions of 2026-10-15 on its three questions, every route
+now answers a malformed parameter with its 404 (four commands answered 400, and 37 routes let
+their services answer), and branding the map-declared ids follows with R-F1. Next on this line: the Slopinator rename and re-import; R-B7
 can now move service code with branded signatures.
 
 Exit criteria:

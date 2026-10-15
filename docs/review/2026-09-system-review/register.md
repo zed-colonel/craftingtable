@@ -95,7 +95,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H4](#r-h4) | P2 | M | done (increment 1: the evidence view, LIVE-29, 1.37 MB accepted; the rest, the head table, 2026-10-07) | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | done (2026-10-11, not merged or deployed; 147 → 133 routes; reload open pages after deploying) | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
-| [R-H7](#r-h7) | P4 | M | in progress (operator decisions of 2026-10-15) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
+| [R-H7](#r-h7) | P4 | M | done (2026-10-15, not merged or deployed) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -4777,7 +4777,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H7
 
-**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: in progress (built 2026-10-15, `f7df64c` to `98fdb58` on `remediation/p4`, reviewed with three re-checks to 0 open, mutation-tested, gate and replays green at `98fdb58`; the operator's decisions of 2026-10-15 on its three questions being built; not merged or deployed)
+**Route parameters declared and parsed once; branded ids through services and storage** · Phase P4 · Effort M · Status: done (2026-10-15, `f7df64c` to `9ca6712` on `remediation/p4`, with the operator's decisions of 2026-10-15 on its three questions; reviewed with four re-checks, mutation-tested, gate and replays green at `9ca6712`; not merged or deployed; deploy note: restart only)
 
 - **Added 2026-10-12 by the operator,** after R-I7 branded the domain's ids (part 8) and left route
   parameters and service and storage lookups as plain strings wherever no route parses a schema.
@@ -5097,7 +5097,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   `~/.cache/ct-p4-tmp/gate-98fdb58.log`). `pnpm replays`: 31 of 56 comparisons at 0 changed, 25
   differing only as expected, 0 failed (245 s), the same as at R-G19's `b1d67b8`: no recorded
   decision changed.
-- **Done-when:** every bullet holds. Every path parameter has a declared schema, and the daemon
+- **Done-when (at `98fdb58`, before the operator's decisions; see the decisions' gate below for
+  the final state):** every bullet holds. Every path parameter has a declared schema, and the daemon
   refuses to start without one (the startup refusals tested one by one); no handler reads
   `request.params` (rule 9 of `check:scope`, which also refuses a route's parameters typed as
   `Params`); service and storage lookups take branded ids wherever a brand exists but the 34
@@ -5105,9 +5106,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   check` is green and `pnpm replays` unchanged. No wire or persisted format changed: the reviewer's
   11,451 requests got the same answers from `9230d81` and `3fcd4f5`, and nothing after `3fcd4f5`
   touched a route's behaviour.
-- **Deploy note:** restart only (`pnpm deploy:daemon <ref> --yes`, which drains first): no
-  migration, no setting, no URL change, so open pages need no reload. Every answer is as before;
-  the one visible difference is in `docs/api-routes.md`, which now lists each route's parameters.
+- **Deploy note (superseded by the one with the decisions' gate below):** restart only; at
+  `98fdb58` every answer was as before.
 - **Open questions for the operator** (each would change a status code, so none was built; the
   daemon answers as before):
   1. *The four commands that answer a malformed id with 400 and their body's message* (the three
@@ -5149,13 +5149,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   `concurrencyDefinitionIdSchema` (the adoption's), a roadmap id with `roadmapIdSchema`, and the
   runtime's worktree and run ids with `worktreeIdSchema` and `agentRunIdSchema`. A malformed one
   gets the route's 404 "Resource not found" before any service looks; an id that parses but names
-  nothing is still its service's (404 on most, 409 on a cycle's scope repair, roadmap control's
-  own 400s first). The eight lookup schemas are gone, and with them the inventory's "none: its
+  nothing is still its handler's and service's to answer (404 on most; 409 on a cycle's scope
+  repair and on the runtime's `generate-plan`, `inspect`, `preview-refresh` and `refresh`
+  preconditions; roadmap control's own 400s; the supervision preview's and roadmap's 400 when
+  the path's definition is not the body's). The eight lookup schemas are gone, and with them the inventory's "none: its
   service answers" rows: all 95 routes with a parameter of their own show their 404. The changed
-  answers, all for a malformed id only: a cycle's scope repair 409 to 404, roadmap control's 400
-  ("Re-verify applies to one item.") to 404, and checkpoint recovery's 500 for a padded worktree
-  id to 404; its service's `asWorktreeId`, whose throw was that 500, goes, the route now checking
-  the id. Two declarations merge with their twins (the roadmap lookup into `ROADMAP`, the adoption
+  answers, all for a malformed id only: a cycle's scope repair 409 to 404; the runtime's
+  `generate-plan`, `inspect`, `preview-refresh` and `refresh` 409 preconditions to 404 (for a body
+  past its schema); roadmap control's 400 ("Re-verify applies to one item.") to 404; the
+  supervision preview's and roadmap's 400 (the path's definition not the body's) to 404; and
+  checkpoint recovery's 500 for a padded worktree id to 404, its service's `asWorktreeId`, whose
+  throw was that 500, going, the route now checking the id. Elsewhere the service already answered
+  a malformed id with the same 404 (27 of the 41 routes the decisions changed). Two declarations merge with their twins (the roadmap lookup into `ROADMAP`, the adoption
   into `DEFINITION`). Tests (each failed before the change): a padded or non-UUID cycle or
   finalization id gets 404 on evidence, design recovery, scope repair, control and finalization
   control, while an unknown UUID still gets the scope repair's 409; roadmap control with a
@@ -5164,6 +5169,41 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   definition 404, where it answered 500 (`server-execution-scope-evidence.test.ts`). The whole
   unit suite passes (395 files, 3,355 tests): no test reached these routes with an id its kind's
   rule refuses.
+- **Mutation round 6** (at `8cce45d`, over the decisions): 8 mutants. The amendment command's
+  message dropped, the refusal's route message or status changed, and the cycle id rule loosened
+  are caught. Loosening the finalization, submission, archive or definition id rule back to any
+  text survived every route test, since those services answer a malformed id with the same 404 an
+  unknown one gets; a contracts test (`ids.test.ts`, `9ca6712`) now pins each route id schema of
+  a kind the daemon generates (a UUID parses to itself; a non-UUID, a padded or truncated UUID
+  and an empty text are refused), and all four are caught.
+- **Re-check 4 (the same reviewer, at `8cce45d`):** the decisions behave as intended. Of the same
+  11,451 requests, 354 answers differ from `98fdb58`: 18 are the diagnostics read's timing fields,
+  and every other is an id the new rules call malformed, on one of the 41 routes the decisions
+  changed, now that route's 404; well-formed unknown ids and the order (access, step-up, body,
+  then the parameter's 404) are unchanged. No id the new UUID rules refuse is in the live database
+  (read-only), the tests' HTTP requests (but `route-params`, on purpose), e2e or the replays; all
+  these kinds are created with `randomUUID()`. (Zod 4's UUID rule refuses a UUID-shaped text that
+  is not an RFC UUID, such as `00000000-0000-0000-0000-000000000001`; none is in use.) Two LOW
+  findings, both text, settled here: *R4*, decision 2's list of changed answers left out the
+  supervision preview's and roadmap's 400s and four runtime commands' 409s (now listed above);
+  *R5*, the done-when, deploy note and program.md written at `98fdb58` still said every answer
+  was as before (now marked as of `98fdb58`, with the final ones below).
+- **Gate and replays at `9ca6712`** (2026-10-15, after the decisions). `pnpm check` alone, in the
+  gate worktree with nothing else running: green in 551 s, 396 test files passed (2 skipped),
+  3,356 tests passed (5 skipped), 23 e2e and the walkthrough rehearsal, and the scope check (log
+  `~/.cache/ct-p4-tmp/gate-9ca6712.log`). `pnpm replays`: 31 of 56 comparisons at 0 changed, 25
+  differing only as expected, 0 failed (224 s), as at `98fdb58`.
+- **Done-when (final):** every bullet holds. Every path parameter has a declared schema, checked
+  by its kind's rule, and the daemon refuses to start without one; no handler reads
+  `request.params` (rule 9 of `check:scope`); service and storage lookups take branded ids
+  wherever a brand exists, but the 34 parameters part 3 names, the 17 map-declared ones of which
+  R-F1 brands (decision 3); `pnpm check` is green and `pnpm replays` unchanged. No persisted format
+  changed; on the wire, only the answer to a malformed path parameter, as the operator decided: a
+  404 with the route's message on every route.
+- **Deploy note:** restart only (`pnpm deploy:daemon <ref> --yes`, which drains first): no
+  migration, no setting, no URL change, so open pages need no reload. The browser never sends a
+  malformed id, so nothing it does answers differently; a hand-made request with one now gets the
+  route's 404 everywhere.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

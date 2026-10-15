@@ -5078,6 +5078,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     own `Params` beside Fastify's (an intersection with `RouteGenericInterface`, or an interface
     extending it, which a typed route plausibly writes); the self-test adds both as reported, and
     the mutant is caught by that.
+- **Re-check 3 (at `4268e94`): 0 open.** R2 and R3 closed: the reviewer's 12 shapes still
+  reported, its four `RouteGenericInterface` lookalikes no longer, `any`, a body-only literal and a
+  non-Fastify generic still not; its four mutants of the two fixes all caught; part 1's route
+  modules still give 207 reads and 113 typed; the entry's text accurate.
 - **Open questions for the operator** (each would change a status code, so none was built; the
   daemon answers as before):
   1. *The four commands that answer a malformed id with 400 and their body's message* (the three

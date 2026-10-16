@@ -75,12 +75,19 @@ export function cycleStep(cycle: WorkCycle): EntryStep {
  * An entry that waits on a cycle's stop for a reason of the scheduler's own (R-C10's follow-up,
  * decision 1): a stopped review whose recovery round the scheduler declined waits on the review's
  * stop, with why it declined, where it used to hold. The wait names the entry it is for, so the
- * cycle's item carries that reason (`carriedWait`); a cycle that is not waiting on the operator
- * gives the plain step.
+ * cycle's item carries that reason (`carriedWait`). Only a stop the operator owns has that item:
+ * one the controller claims (prerequisite work, say) gives nothing, and the caller holds as
+ * before (increment 3 review M-1).
  */
-export function cycleWait(cycle: WorkCycle, reason: string, entryId: RoadmapEntryId): EntryStep {
+export function cycleWait(
+  cycle: WorkCycle,
+  reason: string,
+  entryId: RoadmapEntryId,
+): EntryStep | undefined {
   const step = cycleStep(cycle);
-  return 'wait' in step ? waiting(step.wait.code, reason, { cycleId: cycle.id, entryId }) : step;
+  return 'wait' in step && step.wait.code === 'cycle-attention'
+    ? waiting('cycle-attention', reason, { cycleId: cycle.id, entryId })
+    : undefined;
 }
 
 /**

@@ -184,7 +184,7 @@ database, so the deploy's automatic rollback restores the previous release. Afte
   launches (ActionQueue has none yet). Adopt on the Repositories page.
 - **Reviews prepared without the adopted checks are refused at merge** in a repository that has an
   adoption, whenever they were prepared; a fresh review runs them first. The refusal says what to
-  do: run a fresh review, or pause and resume the cycle (and then its roadmap).
+  do: run a fresh review, or pause and resume the cycle; its roadmap goes on with it.
 - `outside-sources.json` is optional: without it the one source is `cargo`.
 
 ## Reaching the daemon from another machine

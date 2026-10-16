@@ -3732,8 +3732,11 @@ export class RoadmapService {
           throw new EntryHoldError('recovery-not-converging', decision.reason!);
         // One fact, one stop (R-C10's follow-up, decision 1): the review's own stop carries a
         // round recovery declined; the entry waits on it with the reason, and recovery asks again
-        // on the next pass, so the round starts once the reason clears.
-        return cycleWait(sourceCycle, decision.reason!, entry.id);
+        // on the next pass, so the round starts once the reason clears. A stop the controller
+        // claims has no item to carry it, so the decline holds the entry for the operator.
+        const waited = cycleWait(sourceCycle, decision.reason!, entry.id);
+        if (waited) return waited;
+        conflict(decision.reason!);
       }
       const ownerAttempt = roadmap.attempts.find(
         (a) => a.entryId === decision.owner!.id && !a.recovery,

@@ -190,6 +190,65 @@ itNeedsCargo.each([
   },
 );
 
+// Increment 3 review M-1: a declined round waits on its review's stop only while that stop is
+// the operator's, whose item carries the reason; one the controller claims holds, as before.
+itNeedsCargo(
+  'a declined round whose review stop the controller claims holds, so it reaches the operator (R-C10 follow-up, decision 1)',
+  async () => {
+    const { state, ws, tx, review, sourceEntryId } = await stoppedVerification();
+    await roadmapControl(state, 'pause');
+    const enabled = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/scope-recovery`,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: storedRoadmap(state).version,
+        enabled: true,
+        maxRoundsPerParent: 3,
+      },
+    });
+    expect(enabled.statusCode, enabled.body).toBe(200);
+    // The owner slice has another active worktree: recovery declines ("needs manual recovery"),
+    // and that worktree is also the review's prerequisite, which the controller claims.
+    const merged = tx.execution.worktrees
+      .listForWorkItem(ws, state.workItemId)
+      .find((t) => t.executionScope?.kind === 'slice')!;
+    tx.execution.worktrees.insert({
+      id: asWorktreeId(randomUUID()),
+      workspaceId: ws,
+      repositoryId: merged.repositoryId,
+      projectId: merged.projectId,
+      workItemId: state.workItemId,
+      ...(merged.planVersionId ? { planVersionId: merged.planVersionId } : {}),
+      executionScope: merged.executionScope!,
+      branchName: 'manual-owner',
+      baseSha: merged.baseSha,
+      baseBranch: merged.baseBranch,
+      ...(merged.integrationBranch ? { integrationBranch: merged.integrationBranch } : {}),
+      path: join(state.context.directory, 'manual-owner'),
+      createdAt: merged.createdAt,
+      createdByUserId: merged.createdByUserId,
+    });
+    await roadmapControl(state, 'resume');
+    await waitFor(
+      () => tx.execution.cycles.find(ws, review.id)?.attention?.claim === 'prerequisite-work',
+      'the controller claims the review’s stop',
+    );
+    await waitFor(() => !!storedRoadmap(state).entryHolds?.[sourceEntryId], 'the decline holds');
+    expect(storedRoadmap(state).entryHolds?.[sourceEntryId]?.reason).toContain(
+      'existing slice worktree',
+    );
+    expect(storedRoadmap(state).attempts.some((a) => a.recovery)).toBe(false);
+    // The hold's own item reaches the operator: the claimed review has none.
+    state.context.services.roadmapService.syncAttention(true);
+    expect(
+      tx.attention
+        .open(ws)
+        .find((i) => i.subjectKey === `roadmap:${roadmapId}:entry:${sourceEntryId}`),
+    ).toBeDefined();
+  },
+);
+
 // Increment 2 review M-1: a refusal of the round owner's own gate, met while its repair is
 // prepared, names the owner, so a release asks the owner's gate and not the source's.
 itNeedsCargo.each(['predecessor merge', 'blocker'] as const)(

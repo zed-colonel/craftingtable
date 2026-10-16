@@ -288,6 +288,11 @@ describe('sequential roadmaps', () => {
     expect(storedRoadmap(state).status).toBe('running');
     expect(storedRoadmap(state).attention).toBeUndefined();
     expect(backend.launches).toHaveLength(1);
+    // Later passes start nothing later either (increment 3 review L-2).
+    await state.context.services.roadmapService.tick();
+    await state.context.services.roadmapService.tick();
+    expect(backend.launches).toHaveLength(1);
+    expect(storedRoadmap(state).attempts).toHaveLength(1);
     await roadmapControl(state, 'stop');
     expect(storedRoadmap(state).status).toBe('stopped');
     expect(state.context.storage.execution.worktrees.listActive(state.workspaceId)).toHaveLength(1);

@@ -154,7 +154,7 @@ export function carriedWait(
   const [entryId, wait] =
     Object.entries(roadmap?.entryWaits ?? {}).find(
       ([, wait]) =>
-        (wait.code === 'cycle-attention' || wait.code === 'cycle-paused') &&
+        wait.code === 'cycle-attention' &&
         wait.refs?.cycleId === cycle.id &&
         wait.refs.entryId !== undefined,
     ) ?? [];
